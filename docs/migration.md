@@ -483,9 +483,9 @@ default and never alter behaviour unless registered. (The low-level
 
 Changed in the v2 pre-releases: earlier alphas took
 `Client(extensions={identifier: settings})`, an advertisement-only dict.
-Extensions now contribute behaviour — claims and notification handlers — not
-just an ad, and a sequence of declaration objects is the shape that can carry
-that. An ad-only entry becomes an `advertise()` call:
+Extensions now contribute behaviour (claims and notification handlers), not
+just an ad, so the argument is a sequence of declaration objects. An ad-only
+entry becomes an `advertise()` call:
 
 **Before (v2 alphas):**
 
@@ -501,10 +501,10 @@ from mcp.client import advertise
 client = Client(server, extensions=[advertise("com.example/ui", {"mimeTypes": [...]})])
 ```
 
-`advertise()` is only for identifiers with no client-side behaviour.
-For a behavioural extension — e.g. tasks, once its extension ships — construct
-that extension's object instead; advertising an identifier you do not
-implement asserts wire support you don't have.
+`advertise()` is only for identifiers with no client-side behaviour. For a
+behavioural extension (e.g. tasks, once its extension ships), construct that
+extension's object instead; advertising an identifier you do not implement
+asserts wire support you don't have.
 
 ### `McpError` renamed to `MCPError`
 

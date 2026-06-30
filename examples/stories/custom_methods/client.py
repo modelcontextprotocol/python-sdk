@@ -27,8 +27,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         # `Client` only exposes spec-defined verbs, so vendor methods have to drop one
         # layer to `client.session` today — there is no `Client`-level API for them
         # yet, and whether `.session` stays public is undecided. `send_request`
-        # accepts any `Request` subclass; the unknown method skips the per-spec
-        # result-validation registry.
+        # accepts any `Request` subclass.
         request = SearchRequest(params=SearchParams(query="mcp", limit=3))
         result = await client.session.send_request(request, SearchResult)
         assert result.items == ["mcp-0", "mcp-1", "mcp-2"], result

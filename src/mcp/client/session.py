@@ -194,8 +194,7 @@ async def _default_logging_callback(
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
-# Declared against the wide tools/call parse union so the session's adopt-built
-# claim adapters (which add `Result` arms) share one attribute type with it.
+# Typed against the wide parse union so adopt-built claim adapters share this attribute type.
 _CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult | types.Result] = TypeAdapter(
     types.CallToolResult | types.InputRequiredResult
 )
@@ -217,11 +216,7 @@ def _claim_active(claim: ResultClaim[Any], version: str) -> bool:
 def _active_claims_at(
     claims_by_extension: Mapping[str, tuple[ResultClaim[Any], ...]], version: str
 ) -> dict[str, ResultClaim[Any]]:
-    """Claims active at `version`, keyed by wire tag (unique across extensions by construction).
-
-    Empty at any legacy version: no claim is active there, so both `adopt()` arms
-    share this one rule.
-    """
+    """Claims active at `version`, keyed by wire tag; empty at any legacy version."""
     return {
         claim.result_type: claim
         for claims in claims_by_extension.values()
@@ -233,11 +228,7 @@ def _active_claims_at(
 def _build_call_tool_adapter(
     active: Mapping[str, ResultClaim[Any]],
 ) -> TypeAdapter[types.CallToolResult | types.InputRequiredResult | types.Result]:
-    """Discriminated tools/call adapter: a core arm plus one arm per active claim.
-
-    Zero active claims returns the module-level `_CallToolResultAdapter` itself, keeping
-    the no-extensions parse path byte-identical.
-    """
+    """Build a discriminated tools/call adapter: a core arm plus one arm per active claim."""
     if not active:
         return _CallToolResultAdapter
     tags = frozenset(active)
@@ -246,10 +237,8 @@ def _build_call_tool_adapter(
         core_arm += "-"
 
     def _route(value: Any) -> str:
-        # pydantic hands the discriminator either the raw inbound dict or an
-        # already-built model (revalidation). A non-string or unknown tag stays on
-        # the core arm, so a malformed `resultType` fails core validation instead
-        # of blowing up the discriminator lookup.
+        # pydantic hands the discriminator either the raw dict or an already-built model.
+        # Unknown or non-string tags route to the core arm and fail core validation there.
         if isinstance(value, dict):
             tag = cast("dict[str, Any]", value).get("resultType")
         else:
@@ -258,7 +247,7 @@ def _build_call_tool_adapter(
 
     arms: list[Any] = [Annotated[types.CallToolResult | types.InputRequiredResult, Tag(core_arm)]]
     arms += [Annotated[claim.model, Tag(tag)] for tag, claim in active.items()]
-    # reduce(or_, ...) builds the Union dynamically; PEP-646 star-unpack needs py3.11+.
+    # reduce(or_) rather than Union star-unpack, which needs py3.11+.
     return TypeAdapter(Annotated[reduce(or_, arms), Discriminator(_route)])
 
 
@@ -266,12 +255,7 @@ def _index_claims(
     result_claims: Mapping[str, Sequence[ResultClaim[Any]]] | None,
     extensions: dict[str, dict[str, Any]] | None,
 ) -> dict[str, tuple[ResultClaim[Any], ...]]:
-    """Validate and copy the claims-by-extension mapping.
-
-    The mapping keys ARE the claim/ad association: at adopt the capability ad and the
-    claims dissolve together per extension identifier, so a key must name an
-    advertised extension and no wire tag may be claimed twice.
-    """
+    """Validate and copy the claims-by-extension mapping."""
     indexed: dict[str, tuple[ResultClaim[Any], ...]] = {}
     seen: set[str] = set()
     for identifier, claims in (result_claims or {}).items():
@@ -282,8 +266,8 @@ def _index_claims(
             )
         if not claims:
             raise ValueError(
-                f"result_claims[{identifier!r}] is empty; an empty claim set would drop the "
-                "extension from the capability ad at every version — omit the key instead"
+                f"result_claims[{identifier!r}] is empty and would drop the extension from "
+                "the capability ad at every version. Omit the key instead"
             )
         for claim in claims:
             if claim.result_type in seen:
@@ -322,11 +306,8 @@ class ClientSession:
     callbacks. Transport `Exception` items reach `message_handler` only when
     the session builds its own dispatcher from a stream pair.
 
-    Extension contributions enter here too: `result_claims` (keyed by the
-    advertising identifier in `extensions`, so the capability ad and the claims
-    dissolve together) fold into tools/call parsing at `adopt()`, and
-    `notification_bindings` observe vendor notifications through per-binding
-    bounded FIFOs.
+    Extension `result_claims` fold into tools/call parsing at `adopt()`;
+    `notification_bindings` observe vendor notifications via bounded FIFOs.
     """
 
     def __init__(
@@ -394,8 +375,7 @@ class ClientSession:
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
         try:
-            # Queues exist before the dispatcher can deliver: _on_notify may run as
-            # soon as the dispatcher starts, and its enqueue indexes this dict.
+            # Queues must exist before the dispatcher starts: _on_notify enqueues into this dict.
             for binding in self._notification_bindings.values():
                 send, receive = anyio.create_memory_object_stream[BaseModel](_NOTIFICATION_QUEUE_SIZE)
                 self._binding_queues[binding.method] = (send, receive)
@@ -437,8 +417,7 @@ class ClientSession:
         return result
 
     def _close_binding_queues(self) -> None:
-        # Memory object streams warn at garbage collection unless closed; the consumers
-        # die by task-group cancellation, so both ends are closed here (close is idempotent).
+        # Unclosed memory object streams warn at garbage collection; close is idempotent.
         for send, receive in self._binding_queues.values():
             send.close()
             receive.close()
@@ -447,18 +426,13 @@ class ClientSession:
     async def _deliver_bound_notifications(
         self, binding: NotificationBinding[Any], receive: MemoryObjectReceiveStream[BaseModel]
     ) -> None:
-        """Serialized consumer for one binding's FIFO.
-
-        Spawn-decoupled from the dispatcher so the handler may do session I/O without
-        deadlocking in-process delivery; dies with the session's task group.
-        """
+        """Consume one binding's FIFO, decoupled from the dispatcher so handlers can do session I/O."""
         while True:
             params = await receive.receive()
             try:
                 await binding.handler(params)
             except Exception:
-                # Same containment contract as the notification callbacks in `_on_notify`:
-                # a raising handler costs only that delivery.
+                # A raising handler costs only that delivery, as in _on_notify.
                 logger.exception("notification binding handler for %r raised", binding.method)
 
     async def send_request(
@@ -477,15 +451,13 @@ class ClientSession:
         Raises:
             MCPError: Error response, read timeout, or connection closed.
             RuntimeError: Called before entering the context manager.
-            ValueError: The request type declares `name_param` but the params
-                carry no string value under that key for the `Mcp-Name` header.
+            ValueError: The request declares `name_param` but its params carry no string name.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
         self._stamp(data, opts)
-        # Presence-keyed so the stamp's NAME_BEARING_METHODS rows win by ordering;
-        # a missing/non-string name fails loud rather than omitting a MUST header.
+        # The stamp runs first, so its NAME_BEARING_METHODS rows win; a missing name fails loud.
         headers = opts.setdefault("headers", {})
         if (key := type(request).name_param) is not None and MCP_NAME_HEADER not in headers:
             params_data: dict[str, Any] = data.get("params") or {}
@@ -533,11 +505,7 @@ class ClientSession:
     def _build_capabilities(self, version: str) -> types.ClientCapabilities:
         """Build the capability ad for a wire speaking `version`.
 
-        An identifier with result claims contributes to the ad only when at least one
-        of its claims is active at `version` — the ad and the claims dissolve
-        together, so the client never advertises an extension on a request whose
-        claimed result shapes it would reject. Claim-less identifiers always
-        contribute; when every identifier drops, the ad omits `extensions` entirely.
+        Identifiers with no active claim drop, so the client never advertises result shapes it would reject.
         """
         extensions = self._extensions
         if extensions is not None and self._result_claims:
@@ -576,8 +544,7 @@ class ClientSession:
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
                     protocol_version=LATEST_HANDSHAKE_VERSION,
-                    # The handshake can only negotiate legacy versions, where no claim is
-                    # active — every claim-bearing identifier drops from this ad.
+                    # The handshake negotiates only legacy versions, where no claim is active.
                     capabilities=self._build_capabilities(LATEST_HANDSHAKE_VERSION),
                     client_info=self._client_info,
                 ),
@@ -624,14 +591,12 @@ class ClientSession:
             self._initialize_result = result
             self._discover_result = None
         self._negotiated_version = version
-        # Assigned fresh in both arms (re-adopt safe): empty at any legacy version by the
-        # one activation rule. Claims tagged with core vocabulary are unconstructible
-        # (`ResultClaim.__post_init__`), so activation needs no core-tag exclusion.
+        # Both arms reach here, so re-adoption resets cleanly; legacy versions activate no claims.
+        # Core-vocabulary tags are unconstructible (ResultClaim.__post_init__), so no exclusion needed.
         self._active_claims = _active_claims_at(self._result_claims, version)
         self._call_tool_adapter = _build_call_tool_adapter(self._active_claims)
         for method in self._notification_bindings:
-            # Bindings are consulted only for methods core does not know (`_on_notify`'s
-            # KeyError branch), so a core-known binding can never fire — say so once here.
+            # Bindings are consulted only for methods core does not know, so this one can never fire.
             if (method, version) in _methods.SERVER_NOTIFICATIONS:
                 logger.warning(
                     "notification binding for %r will never fire at %s: the core protocol defines this method",
@@ -981,15 +946,13 @@ class ClientSession:
             allow_input_required: When ``False`` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when ``True``, it is returned
                 so the caller can resolve the requests and retry.
-            allow_claimed: When `False` (default), a claimed (extension) result
-                shape raises `UnexpectedClaimedResult`; when `True`, the parsed
-                claim model is returned for the caller to handle.
+            allow_claimed: When `False` (default), a claimed extension result raises
+                `UnexpectedClaimedResult`; when `True`, the parsed claim model is returned.
 
         Raises:
             RuntimeError: If the server returns an `InputRequiredResult` and
                 ``allow_input_required`` is ``False``.
-            UnexpectedClaimedResult: If a claimed result shape parses and
-                `allow_claimed` is `False`; carries the parsed value.
+            UnexpectedClaimedResult: Claimed result with `allow_claimed` False; carries the parsed value.
         """
         result = await self.send_request(
             types.CallToolRequest(
@@ -1009,8 +972,7 @@ class ClientSession:
         if isinstance(result, types.CallToolResult) and not result.is_error:
             await self.validate_tool_result(name, result)
 
-        # Driver-innermost ordering: the input_required arm stays first — a claimed
-        # shape exits the multi-round-trip driver as terminal.
+        # The input_required arm stays first; a claimed shape is terminal for the multi-round-trip driver.
         if isinstance(result, types.InputRequiredResult) and not allow_input_required:
             raise _input_required_unexpected("call_tool")
         if not isinstance(result, types.CallToolResult | types.InputRequiredResult) and not allow_claimed:
@@ -1027,13 +989,8 @@ class ClientSession:
     async def validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
         """Revalidate a `CallToolResult` against the tool's declared output schema.
 
-        Fetches the tool listing first when `name` has no cached schema. Tools
-        without an output schema (or not listed by the server) pass without
-        validation.
-
         Raises:
-            RuntimeError: The result's structured content is missing or does
-                not conform to the tool's output schema.
+            RuntimeError: Structured content is missing or does not conform to the schema.
         """
         if name not in self._tool_output_schemas:
             # refresh output schema cache
@@ -1245,8 +1202,7 @@ class ClientSession:
         2026-07-28 multi-round-trip driver, which dispatches the embedded
         `InputRequiredResult.input_requests` through the same callbacks.
 
-        Returns the callback's `InputResponse`, or `ErrorData` when the
-        callback declines — the refusal path; callers must handle that arm.
+        Returns the callback's `InputResponse`, or `ErrorData` when the callback declines.
         """
         match request:
             case types.CreateMessageRequest(params=p):
@@ -1265,8 +1221,7 @@ class ClientSession:
         try:
             notification = cast(types.ServerNotification, _methods.parse_server_notification(method, version, params))
         except KeyError:
-            # Methods the negotiated version's core tables do not know are offered to
-            # the notification bindings; core-known methods structurally never get here.
+            # Only methods unknown to the negotiated version's core tables reach the bindings.
             binding = self._notification_bindings.get(method)
             if binding is None:
                 logger.debug("dropped %r: not defined at %s", method, version)
@@ -1274,18 +1229,15 @@ class ClientSession:
             try:
                 bound_params = binding.params_type.model_validate(params or {})
             except ValidationError:
-                # Mirrors the core notification arm below: warn and drop.
                 logger.warning("Failed to validate notification: %s", method, exc_info=True)
                 return
             send, receive = self._binding_queues[method]
             try:
-                # Never awaits: DirectDispatcher awaits _on_notify inline in the peer's
-                # notify(), so blocking here would deadlock in-process servers.
+                # Must not await: DirectDispatcher calls _on_notify inline; blocking deadlocks in-process servers.
                 send.send_nowait(bound_params)
             except anyio.WouldBlock:
-                # Bounded FIFO: evict the oldest queued event (observation semantics
-                # tolerate the loss). No checkpoint since the failed send, so the
-                # buffer is still full and the eviction cannot itself block.
+                # Evict the oldest event; no checkpoint since the failed send,
+                # so the buffer is still full and the retry cannot block.
                 receive.receive_nowait()
                 logger.warning("notification queue for %r is full; dropped the oldest event", method)
                 send.send_nowait(bound_params)

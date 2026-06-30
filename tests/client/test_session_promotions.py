@@ -1,6 +1,5 @@
 """`dispatch_input_request` and `validate_tool_result` are public `ClientSession` API."""
 
-
 import mcp_types as types
 import pytest
 from mcp_types import (
@@ -34,8 +33,7 @@ async def test_dispatch_input_request_routes_through_the_callback_table() -> Non
 
 @pytest.mark.anyio
 async def test_dispatch_input_request_returns_error_data_on_refusal() -> None:
-    """The `ErrorData` arm is the refusal path: with no callback registered, the
-    default callback declines and the caller receives the error, not a raise."""
+    """With no callback registered, refusal comes back as `ErrorData`, not a raise."""
     client_side, _server_side = create_direct_dispatcher_pair()
     session = ClientSession(dispatcher=client_side)
     ctx = ClientRequestContext(session=session, request_id="r-1")

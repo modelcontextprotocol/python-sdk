@@ -1,10 +1,4 @@
-"""Tests for the client extension vocabulary (`mcp.client.extension`).
-
-Everything here is construction-time: claims, notification bindings, the
-`ClientExtension` base class, and the `advertise()` factory. No session or
-client is ever opened — the classes are pure declarations, and every
-validation rule fires before an instance exists.
-"""
+"""Construction-time tests for `mcp.client.extension`; no session is ever opened."""
 
 from dataclasses import FrozenInstanceError
 from typing import Any, Literal, cast
@@ -25,8 +19,6 @@ from mcp.client.extension import (
 
 
 class _TaskResult(Result):
-    """A well-formed claimed shape: `result_type` is a Literal of the claimed tag."""
-
     result_type: Literal["task"] = "task"
     task_id: str = "t-1"
 
@@ -36,14 +28,10 @@ class _UntaggedResult(Result):
 
 
 class _PlainStringTagResult(Result):
-    """`result_type` declared as a plain `str`, not a Literal."""
-
     result_type: str = "task"
 
 
 class _OtherTagResult(Result):
-    """`result_type` is a Literal of a tag other than the one claimed."""
-
     result_type: Literal["other"] = "other"
 
 
@@ -56,19 +44,15 @@ class _ClaimedInputRequiredResult(InputRequiredResult):
 
 
 async def _resolve(result: Result, ctx: ClaimContext) -> CallToolResult:
-    raise NotImplementedError  # construction-only tests never drive a claim
+    raise NotImplementedError
 
 
 def _claim(model: type[Result] = _TaskResult, **kwargs: Any) -> ResultClaim[Result]:
     return ResultClaim(result_type="task", model=model, resolve=_resolve, **kwargs)
 
 
-# ── ResultClaim construction ────────────────────────────────────────────────
-
-
 def test_claim_with_literal_discriminated_model_constructs() -> None:
-    """SDK-defined: a claim whose model carries `result_type: Literal[<claimed tag>]`
-    constructs, defaulting to the `tools/call` verb at every modern version."""
+    """SDK-defined: a model tagged with the claimed Literal constructs, defaulting to `tools/call` everywhere."""
     claim = ResultClaim(result_type="task", model=_TaskResult, resolve=_resolve)
 
     assert claim.result_type == "task"
@@ -79,8 +63,7 @@ def test_claim_with_literal_discriminated_model_constructs() -> None:
 
 
 def test_claim_accepts_modern_protocol_versions() -> None:
-    """SDK-defined: a non-None `protocol_versions` is accepted when it is a subset of
-    the modern protocol revisions."""
+    """SDK-defined: a non-None `protocol_versions` subset of the modern revisions is accepted."""
     versions = frozenset(MODERN_PROTOCOL_VERSIONS)
 
     claim = _claim(protocol_versions=versions)
@@ -89,8 +72,7 @@ def test_claim_accepts_modern_protocol_versions() -> None:
 
 
 def test_claim_rejects_core_result_type_vocabulary() -> None:
-    """SDK-defined: "complete" and "input_required" are core protocol vocabulary —
-    a claim cannot re-key the shapes the session itself routes on."""
+    """SDK-defined: a claim cannot re-key the core tags 'complete' and 'input_required'."""
     messages: dict[str, str] = {}
     for result_type in ("complete", "input_required"):
         with pytest.raises(ValueError) as exc_info:
@@ -107,8 +89,7 @@ def test_claim_rejects_core_result_type_vocabulary() -> None:
 
 @pytest.mark.parametrize("model", [_ClaimedCallToolResult, _ClaimedInputRequiredResult])
 def test_claim_rejects_model_subclassing_core_result_types(model: type[Result]) -> None:
-    """SDK-defined: a claim model subclassing `CallToolResult` or `InputRequiredResult`
-    would satisfy the session's isinstance branches and bypass claim routing."""
+    """SDK-defined: a claim model subclassing a core result type is rejected; it would bypass claim routing."""
     with pytest.raises(ValueError) as exc_info:
         _claim(model=model)
 
@@ -116,8 +97,7 @@ def test_claim_rejects_model_subclassing_core_result_types(model: type[Result]) 
 
 
 def test_claim_rejects_model_without_result_type_field() -> None:
-    """SDK-defined: the claim model must declare the discriminating `result_type`
-    field; without it the claimed shape could never be routed."""
+    """SDK-defined: the claim model must declare the discriminating `result_type` field."""
     with pytest.raises(ValueError) as exc_info:
         _claim(model=_UntaggedResult)
 
@@ -125,8 +105,7 @@ def test_claim_rejects_model_without_result_type_field() -> None:
 
 
 def test_claim_rejects_plain_str_result_type_field() -> None:
-    """SDK-defined: a plain `str` tag would let one model validate any claimed shape;
-    the field must be a Literal of exactly the claimed tag."""
+    """SDK-defined: the model's `result_type` must be a Literal of the claimed tag, not a plain `str`."""
     with pytest.raises(ValueError) as exc_info:
         _claim(model=_PlainStringTagResult)
 
@@ -134,8 +113,7 @@ def test_claim_rejects_plain_str_result_type_field() -> None:
 
 
 def test_claim_rejects_mismatched_result_type_literal() -> None:
-    """SDK-defined: the model's Literal tag must equal the claim's `result_type` —
-    a mismatch would register the model under a tag it refuses to validate."""
+    """SDK-defined: the model's Literal tag must equal the claim's `result_type`."""
     with pytest.raises(ValueError) as exc_info:
         _claim(model=_OtherTagResult)
 
@@ -143,8 +121,7 @@ def test_claim_rejects_mismatched_result_type_literal() -> None:
 
 
 def test_claim_rejects_method_outside_the_closed_verb_set() -> None:
-    """SDK-defined: claims attach to `tools/call` only (the Literal is the static gate);
-    an unchecked runtime value must not fold into tools/call parsing silently."""
+    """SDK-defined: claims attach to `tools/call` only, even for values that dodge the static Literal gate."""
     with pytest.raises(ValueError) as exc_info:
         _claim(method=cast("Literal['tools/call']", "prompts/get"))
 
@@ -152,8 +129,7 @@ def test_claim_rejects_method_outside_the_closed_verb_set() -> None:
 
 
 def test_claim_rejects_empty_protocol_versions() -> None:
-    """SDK-defined: an empty version set could never activate; `None` is the
-    spelling for "every modern version"."""
+    """SDK-defined: an empty version set is rejected; `None` is the spelling for every modern version."""
     with pytest.raises(ValueError) as exc_info:
         _claim(protocol_versions=frozenset())
 
@@ -161,8 +137,7 @@ def test_claim_rejects_empty_protocol_versions() -> None:
 
 
 def test_claim_rejects_non_modern_protocol_versions() -> None:
-    """SDK-defined: claimed shapes cannot be delivered on a legacy wire, so a
-    non-None version set must be a subset of the modern protocol revisions."""
+    """SDK-defined: a non-None version set must be a subset of the modern protocol revisions."""
     messages: list[str] = []
     for versions in (
         frozenset({"2025-11-25"}),
@@ -186,15 +161,11 @@ def test_claim_rejects_non_modern_protocol_versions() -> None:
 
 
 def test_result_claim_is_frozen() -> None:
-    """SDK-defined: claims are immutable declarations — mutating one after
-    construction raises."""
+    """SDK-defined: claims are immutable; mutating one after construction raises."""
     claim = _claim()
 
     with pytest.raises(FrozenInstanceError):
         setattr(claim, "result_type", "other")  # direct assignment is also a type error
-
-
-# ── NotificationBinding construction ────────────────────────────────────────
 
 
 class _TaskNotificationParams(BaseModel):
@@ -202,12 +173,11 @@ class _TaskNotificationParams(BaseModel):
 
 
 async def _on_task(params: _TaskNotificationParams) -> None:
-    raise NotImplementedError  # construction-only tests never deliver
+    raise NotImplementedError
 
 
 def test_notification_binding_constructs() -> None:
-    """SDK-defined: a binding is a bare declaration — wire method name, params
-    model, async observer — with no construction-time validation."""
+    """SDK-defined: a binding is a bare declaration with no construction-time validation."""
     binding = NotificationBinding(method="notifications/tasks", params_type=_TaskNotificationParams, handler=_on_task)
 
     assert binding.method == "notifications/tasks"
@@ -216,10 +186,7 @@ def test_notification_binding_constructs() -> None:
 
 
 def test_notification_binding_accepts_core_known_method() -> None:
-    """SDK-defined: deliberately NO spec-table check at construction — bindings are
-    consulted only for methods core does not know, so they are additive by
-    construction, and an import-time table check would break packages whenever a
-    core version adopts a method."""
+    """SDK-defined: deliberately no spec-table check at construction, so packages survive core adopting a method."""
     binding = NotificationBinding(
         method="notifications/progress", params_type=_TaskNotificationParams, handler=_on_task
     )
@@ -228,20 +195,15 @@ def test_notification_binding_accepts_core_known_method() -> None:
 
 
 def test_notification_binding_is_frozen() -> None:
-    """SDK-defined: bindings are immutable declarations — mutating one after
-    construction raises."""
+    """SDK-defined: bindings are immutable; mutating one after construction raises."""
     binding = NotificationBinding(method="notifications/tasks", params_type=_TaskNotificationParams, handler=_on_task)
 
     with pytest.raises(FrozenInstanceError):
         setattr(binding, "method", "notifications/other")  # direct assignment is also a type error
 
 
-# ── ClientExtension subclassing ─────────────────────────────────────────────
-
-
 def test_extension_defaults_advertise_nothing() -> None:
-    """SDK-defined: a minimal subclass overrides nothing — empty settings, no
-    claims, no notification bindings."""
+    """SDK-defined: a minimal subclass advertises empty settings, no claims, and no bindings."""
 
     class _MinimalExt(ClientExtension):
         identifier = "com.example/minimal"
@@ -265,8 +227,7 @@ def test_extension_defaults_advertise_nothing() -> None:
     ],
 )
 def test_grammar_conformant_identifiers_accepted_at_class_definition(identifier: str) -> None:
-    """Spec `_meta` key grammar: dot-separated labels (letter start, letter/digit end,
-    hyphens interior), a slash, then a name that starts and ends alphanumeric."""
+    """Spec `_meta` key grammar: conformant `vendor-prefix/name` identifiers are accepted."""
     cls = type("_GoodExt", (ClientExtension,), {"identifier": identifier})
 
     assert cls.identifier == identifier
@@ -292,16 +253,13 @@ def test_grammar_conformant_identifiers_accepted_at_class_definition(identifier:
     ],
 )
 def test_malformed_identifier_rejected_at_class_definition(identifier: Any) -> None:
-    """SDK-defined: SEP-2133 requires a `vendor-prefix/name` identifier, enforced the
-    moment the subclass is defined — same grammar and helper as the server side."""
+    """SDK-defined: the SEP-2133 `vendor-prefix/name` grammar is enforced the moment the subclass is defined."""
     with pytest.raises(TypeError):
         type("_BadExt", (ClientExtension,), {"identifier": identifier})
 
 
 def test_subclass_without_identifier_allowed_at_definition() -> None:
-    """SDK-defined: a subclass that sets no class-level `identifier` (an abstract-ish
-    intermediate base, or one assigning per-instance ids in `__init__`) is allowed at
-    definition time; the identifier is validated when the extension is consumed."""
+    """SDK-defined: a subclass with no class-level `identifier` is allowed; validation waits for consumption."""
 
     class _AbstractishExt(ClientExtension):
         """Intermediate base; concrete subclasses supply the identifier."""
@@ -312,12 +270,8 @@ def test_subclass_without_identifier_allowed_at_definition() -> None:
     assert _ConcreteExt.identifier == "com.example/concrete"
 
 
-# ── advertise() factory ─────────────────────────────────────────────────────
-
-
 def test_advertise_serves_captured_settings() -> None:
-    """SDK-defined: `advertise()` returns an ad-only extension whose `settings()`
-    override serves the captured settings."""
+    """SDK-defined: `advertise()` returns an ad-only extension serving the captured settings."""
     ext = advertise("com.example/flags", {"enabled": True})
 
     assert isinstance(ext, ClientExtension)
@@ -336,7 +290,6 @@ def test_advertise_defaults_to_empty_settings() -> None:
 
 @pytest.mark.parametrize("identifier", ["noprefix", "foo/", ""])
 def test_advertise_validates_identifier_eagerly(identifier: str) -> None:
-    """SDK-defined: `advertise()` validates the identifier at the call, not at some
-    later consumption point — a bad ad-only id fails where it is written."""
+    """SDK-defined: `advertise()` validates the identifier eagerly, at the call site."""
     with pytest.raises(TypeError):
         advertise(identifier)

@@ -1,11 +1,8 @@
 """Opt-in extension interface for MCP clients.
 
-To make an extension: subclass `ClientExtension`, set `identifier`, and
-override whichever of `settings()` / `claims()` / `notifications()` apply. To
-use one: pass instances to `Client(extensions=[...])` — the client folds the
-declarations into its own machinery; the extension never receives the client.
-To advertise an extension identifier with no client-side behaviour, use
-`advertise()`.
+Subclass `ClientExtension`, set `identifier`, override the hooks you need, and
+pass instances to `Client(extensions=[...])`. For an identifier-only
+capability ad, use `advertise()`.
 """
 
 from __future__ import annotations
@@ -33,7 +30,7 @@ __all__ = [
 ]
 
 _CLAIM_METHODS: Final[frozenset[str]] = frozenset({"tools/call"})
-"""The closed set of verbs a claim may attach to (widened with the `method` Literal)."""
+"""The closed set of verbs a claim may attach to; widen together with the `method` Literal."""
 
 ClaimedT = TypeVar("ClaimedT", bound=Result)
 NotifyParamsT = TypeVar("NotifyParamsT", bound=BaseModel)
@@ -41,12 +38,7 @@ NotifyParamsT = TypeVar("NotifyParamsT", bound=BaseModel)
 
 @dataclass(frozen=True, kw_only=True)
 class ClaimContext:
-    """Host-injected context for one `ResultClaim.resolve` call.
-
-    `session` is the sanctioned public low-level handle — the same one users
-    already reach via `client.session`; the resolver gets no `Client` and no
-    new authority.
-    """
+    """Host-injected context for one `ResultClaim.resolve` call."""
 
     session: ClientSession
     tool_name: str
@@ -57,25 +49,10 @@ class ClaimContext:
 class ResultClaim(Generic[ClaimedT]):
     """One extra result shape on one spec verb, keyed by the wire `resultType`.
 
-    A claim is active only while the declaring extension is constructed in AND
-    the negotiated version admits it; otherwise parsing stays byte-identical to
-    a claim-less client, so an undeclared shape still fails validation — the
-    supported `resultType` set is always core plus declared claims.
-
-    `resolve` finishes a claimed result on the transparent path: it may send
-    follow-ups through `ctx.session` and must return the verb's ordinary
-    result. It is required — a claim nothing can finish would be useless. A
-    package that wants explicit-only handling ships a resolver that raises a
-    typed error naming `session.call_tool(allow_claimed=True)`, which is also
-    how callers reach the undriven shape per-call.
-
-    `model` must declare `result_type` as a Literal of exactly the claimed tag,
-    and must not subclass a core result type — a core subclass would satisfy
-    the session's isinstance branches and bypass claim routing. `protocol_versions`,
-    when set, restricts the claim to a subset of the modern protocol revisions;
-    `None` (the default) means every modern version. The modern floor is
-    structural, not a restriction: claimed shapes cannot be delivered on a
-    legacy wire. All of this is enforced at construction.
+    Active only while the declaring extension is constructed into the client and
+    the negotiated protocol version admits it. `resolve` finishes a claimed
+    result, may send follow-ups through `ctx.session`, and must return the
+    verb's ordinary result. All field constraints are enforced at construction.
     """
 
     result_type: str
@@ -105,15 +82,10 @@ class ResultClaim(Generic[ClaimedT]):
 
 
 class UnexpectedClaimedResult(RuntimeError):
-    """A claimed (extension) result shape arrived on a `call_tool` that did not opt in.
+    """A claimed (extension) result arrived on a `call_tool` that did not opt in.
 
-    Raised by `ClientSession.call_tool` when a claimed shape parses and
-    `allow_claimed` is False. By the time this raises the server may have
-    durably created state (e.g. a task) — the parsed value is carried as
-    `result` so the caller can reach its id to clean up, not just read a
-    message. To handle claimed shapes, pass the owning extension to
-    `Client(extensions=[...])` (the transparent path) or call with
-    `allow_claimed=True` and handle the shape yourself.
+    The parsed value is carried as `result`; the server may already hold state it
+    references. Opt in via `Client(extensions=[...])` or `allow_claimed=True`.
     """
 
     def __init__(self, result: Result) -> None:
@@ -127,23 +99,11 @@ class UnexpectedClaimedResult(RuntimeError):
 
 @dataclass(frozen=True, kw_only=True)
 class NotificationBinding(Generic[NotifyParamsT]):
-    """Deliver server notifications for `method` to `handler` (unbound methods stay silently dropped).
+    """Deliver server notifications for `method` (the bare wire name) to `handler`.
 
-    Observation-only: the handler receives validated params, returns None, and
-    cannot short-circuit anything. Delivery is per-binding serialized through a
-    bounded FIFO — one consumer task per binding, so a handler sees events in
-    arrival order and may do session I/O without deadlocking the in-process
-    dispatch path; on overflow the oldest event is dropped with a warning
-    (observation semantics make the drop acceptable).
-
-    There is deliberately no spec-table check at construction: bindings are
-    consulted only for methods the negotiated version's core tables do NOT
-    know, so they are additive by construction. If a future core version
-    adopts the method, the binding goes quiet — detected and warned once at
-    activation, not per delivery — instead of import-erroring every package.
-
-    `method` is the bare wire name (e.g. `notifications/tasks`); `params_type`
-    validates the notification params before `handler` runs.
+    Observation-only: validated params arrive in order through a bounded queue,
+    dropping the oldest with a warning on overflow. Methods the negotiated
+    version's core tables handle are never delivered to bindings.
     """
 
     method: str
@@ -152,15 +112,9 @@ class NotificationBinding(Generic[NotifyParamsT]):
 
 
 class ClientExtension:
-    """Base class for an opt-in client extension. Override only what you need.
+    """Base class for an opt-in client extension; override only what you need.
 
-    Mirror of `mcp.server.extension.Extension` in feel: a closed declarative
-    surface, fixed at construction, that never receives the client. The
-    contribution kinds are the ones a 2026 client actually has — there is
-    deliberately no served-request kind (servers do not initiate requests) and
-    no open interceptor (the only sanctioned augmentation is extension
-    `resultType` values, and a claim already names its owner, so composition
-    and ordering questions dissolve by construction).
+    The surface is declarative, fixed at construction, and never receives the client.
     """
 
     #: Reverse-DNS extension identifier, advertised under `ClientCapabilities.extensions`.
@@ -168,25 +122,16 @@ class ClientExtension:
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        # Validate a class-level `identifier` at definition time. A subclass may
-        # instead assign `identifier` in `__init__` (per-instance ids); that case
-        # is validated when the extension is consumed, since no class attribute
-        # exists to inspect here.
+        # Per-instance identifiers (assigned in __init__) are validated at consumption instead.
         if (identifier := cls.__dict__.get("identifier")) is not None:
             validate_extension_identifier(identifier, owner=cls.__name__)
 
     def settings(self) -> dict[str, Any]:
         """Per-extension settings advertised at `ClientCapabilities.extensions[identifier]`.
 
-        Read ONCE at `Client` construction — dynamic per-request settings are
-        out of scope. An empty dict (the default) advertises the extension with
-        no settings.
-
-        A claim-bearing extension's identifier is advertised only at protocol
-        versions where at least one of its claims is active: the ad and the
-        claims dissolve together, so the client never advertises an extension
-        on a request whose claimed result shapes it would reject. Claim-less
-        extensions advertise at every version.
+        Read once at `Client` construction. A claim-bearing extension is
+        advertised only at protocol versions where at least one of its claims
+        is active.
         """
         return {}
 
@@ -200,7 +145,7 @@ class ClientExtension:
 
 
 class _AdvertiseOnly(ClientExtension):
-    """Ad-only extension returned by `advertise()`: an identifier plus captured settings."""
+    """Ad-only extension returned by `advertise()`."""
 
     def __init__(self, identifier: str, settings: dict[str, Any]) -> None:
         self.identifier = identifier
@@ -213,12 +158,8 @@ class _AdvertiseOnly(ClientExtension):
 def advertise(identifier: str, settings: dict[str, Any] | None = None) -> ClientExtension:
     """Advertise an extension identifier (with optional settings) and nothing else.
 
-    Returns an extension that contributes only the capability ad: no claims, no
-    notification bindings. The identifier is validated eagerly, at this call.
-
-    WARNING: advertising an extension you do not implement asserts wire support
-    you don't have — for behavioral extensions (e.g. tasks) construct the real
-    extension object instead.
+    Advertising an extension you do not implement asserts wire support you do
+    not have; for behavioral extensions construct the real extension instead.
     """
     validate_extension_identifier(identifier, owner="advertise")
     return _AdvertiseOnly(identifier, {} if settings is None else settings)

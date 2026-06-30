@@ -560,8 +560,6 @@ class _JobParams(RequestParams):
 
 
 class _JobStatusRequest(Request[_JobParams, Literal["com.example/jobs.status"]]):
-    """A vendor (extension) request type that names its subject for the Mcp-Name header."""
-
     method: Literal["com.example/jobs.status"] = "com.example/jobs.status"
     name_param = "jobId"
 
@@ -572,14 +570,8 @@ class _JobStatusResult(Result):
 
 @requirement("client-transport:http:vendor-name-param-header")
 async def test_vendor_request_with_name_param_carries_mcp_name_on_the_wire() -> None:
-    """A vendor request sent through `send_request` carries `Mcp-Name` from its `name_param` key.
-
-    The request type is never registered with the client; `send_request` reads the declared
-    `name_param` ("jobId"), mirrors the params value into the `Mcp-Name` header, and the value
-    stays in the body unchanged. Asserted at the wire because the client never surfaces the
-    outgoing headers. The server serves the vendor method through `add_request_handler`, so the
-    round trip also proves the typed result comes back without any client-side method table.
-    """
+    """`send_request` mirrors an unregistered vendor request's `name_param` value into the
+    `Mcp-Name` header while the body keeps the params key unchanged."""
 
     async def job_status(ctx: ServerRequestContext, params: _JobParams) -> _JobStatusResult:
         assert params.job_id == "job-7"

@@ -1,4 +1,4 @@
-"""`Request.name_param` — the wire-params key a request type declares for `Mcp-Name` emission."""
+"""`Request.name_param`: the wire-params key a request type declares for `Mcp-Name` emission."""
 
 from typing import Literal
 

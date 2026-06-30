@@ -202,19 +202,11 @@ class _FoldedExtensions:
 
 
 def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExtensions:
-    """Validate extension instances and fold their contributions, once, at `Client` construction.
-
-    Mirrors the server's consumption-time posture (`MCPServer._apply_extension`): a
-    per-instance identifier is validated here because no class attribute existed to
-    validate at definition time. `settings()` is read exactly once per extension and
-    the returned dict is held by reference. Duplicate resultType claims and
-    duplicate notification methods are rejected here, where both owning extensions
-    can be named — the session's own duplicate checks know only methods and tags.
-    """
+    """Fold extension contributions at construction, naming both owners on duplicate tags or methods."""
     if isinstance(extensions, Mapping):
         raise TypeError(
-            "extensions= takes a sequence of ClientExtension instances; the mapping form was "
-            "replaced — use advertise(identifier, settings) for advertise-only entries"
+            "extensions= takes a sequence of ClientExtension instances. The mapping form was "
+            "replaced: use advertise(identifier, settings) for advertise-only entries"
         )
     if not extensions:
         return _FoldedExtensions(ad=None, claims=None, bindings=None, by_model={})
@@ -247,8 +239,7 @@ def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExt
                 )
                 raise ValueError(f"{both} resultType {tag!r}; a wire tag can have only one resolver")
             claim_owners[tag] = identifier
-            # One model, one tag: the model's result_type Literal is pinned to exactly
-            # this tag at claim construction, so the type-keyed index cannot collide.
+            # Each model pins its result_type Literal to one tag, so this index cannot collide.
             by_model[claim.model] = claim
         if extension_claims:
             claims[identifier] = extension_claims
@@ -349,13 +340,9 @@ class Client:
     extensions: Sequence[ClientExtension] | None = None
     """Opt-in client extensions (SEP-2133).
 
-    Each instance contributes its capability ad (advertised under
-    `ClientCapabilities.extensions`), its result claims (extra `tools/call` result
-    shapes that `call_tool` resolves transparently through the claim's resolver),
-    and its notification bindings. For an ad-only entry — an identifier plus
-    settings, no client-side behaviour — use `mcp.client.advertise(identifier,
-    settings)`. Each extension's `settings()` is read once, at construction; the
-    returned dict is held by reference."""
+    Each instance contributes its capability ad, its result claims (resolved
+    transparently by `call_tool`), and its notification bindings. For an
+    ad-only entry use `mcp.client.advertise(identifier, settings)`."""
 
     cache: CacheConfig | Literal[False] | None = None
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
@@ -701,11 +688,9 @@ class Client:
         persist `request_state` across process restarts — use
         `client.session.call_tool(..., allow_input_required=True)`.
 
-        If the server returns a result shape claimed by one of this client's
-        `extensions`, the owning claim's resolver finishes the call and its
-        `CallToolResult` is returned — the claimed shape never surfaces here.
-        Resolver exceptions propagate as-is; the extension owns its error
-        vocabulary. To receive the claimed shape yourself, use
+        Result shapes claimed by this client's `extensions` are finished by the
+        owning claim's resolver, whose `CallToolResult` is returned; resolver
+        exceptions propagate as-is. To receive the claimed shape yourself, use
         `client.session.call_tool(..., allow_claimed=True)`.
 
         Args:
@@ -736,26 +721,21 @@ class Client:
                 request_state=s,
                 meta=meta,
                 allow_input_required=True,
-                # The driver's retry leg must also admit claimed shapes — the spec
-                # resolves multi-round-trip input before a claimed result, so a claim
-                # may terminate any round, not just the first.
+                # Input rounds resolve before a claimed result, so a claim may end any round.
                 allow_claimed=True,
             )
 
         result = await self._drive_input_required(await retry(input_responses, request_state), retry)
         if isinstance(result, CallToolResult):
             return result
-        # Only claimed shapes escape the parse (`_drive_input_required` never returns an
-        # `InputRequiredResult`), so the lookup is total; a KeyError here is an SDK bug.
+        # Only claimed shapes reach this point, so the lookup is total.
         claim = self._folded_extensions.by_model[type(result)]
         final = await claim.resolve(
             result,
             ClaimContext(session=self.session, tool_name=name, read_timeout_seconds=read_timeout_seconds),
         )
         if not final.is_error:
-            # The resolver's product gets the same output-schema revalidation as the
-            # direct path (`ClientSession.call_tool`'s own guard); isError results
-            # must not raise, also matching the direct path.
+            # Match the direct path: revalidate the output schema, but never for isError results.
             await self.session.validate_tool_result(name, final)
         return final
 

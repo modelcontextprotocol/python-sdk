@@ -129,10 +129,10 @@ class Request(MCPModel, Generic[RequestParamsT, MethodT]):
     params: RequestParamsT
 
     name_param: ClassVar[str | None] = None
-    """Wire-params key mirrored into the `Mcp-Name` header on sends (SEP-2243
-    family; SEP-2663 requires it for tasks/*). The request type declares; the
-    host emits. Subclasses override by bare assignment (`name_param = "taskId"`)
-    — re-annotating as `ClassVar[str]` trips pyright's ClassVar invariance."""
+    """Wire-params key mirrored into the `Mcp-Name` header on sends; SEP-2663 requires it for tasks/*.
+
+    Subclasses override by bare assignment: re-annotating as `ClassVar` trips pyright's invariance check.
+    """
 
 
 class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):

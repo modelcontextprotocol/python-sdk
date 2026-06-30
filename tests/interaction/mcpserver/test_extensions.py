@@ -1,11 +1,5 @@
-"""Client extensions (SEP-2133) over the full client-server loop.
-
-The servers here are MCPServers whose server extension substitutes a claimed `tools/call`
-shape via `intercept_tool_call`; the client declares the owning `ClientExtension` and its
-claim resolver finishes the call. A short-circuiting interceptor's dict is passed through
-verbatim (the runner trusts it as a well-formed result), so claimed shapes carry their
-vendor fields end to end — the models below prove that with top-level vendor fields.
-"""
+"""Client extensions (SEP-2133) over the full client-server loop: a server extension
+substitutes a claimed `tools/call` shape and the declaring client's `ClientExtension` resolves it."""
 
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal
@@ -31,8 +25,6 @@ _FLAGS = "com.example/flags"
 
 
 class ReceiptResult(Result):
-    """The claimed `tools/call` shape, tagged `receipt`, carrying vendor top-level fields."""
-
     result_type: Literal["receipt"] = "receipt"
     receipt_token: str
     settings_echo: dict[str, Any] | None = None
@@ -42,7 +34,7 @@ _Resolver = Callable[[ReceiptResult, ClaimContext], Awaitable[CallToolResult]]
 
 
 class Receipts(ClientExtension):
-    """Client half: claims the `receipt` tag with the test's resolver and settings."""
+    """Client half: claims the `receipt` shape with the test's resolver and settings."""
 
     identifier = _RECEIPTS
 
@@ -71,7 +63,6 @@ class _ReceiptIssuer(Extension):
 
 
 def _receipt_shop(issuer: Extension) -> MCPServer:
-    """An MCPServer whose `buy` tool the server extension rewrites into the claimed shape."""
     server = MCPServer("shop", extensions=[issuer])
 
     @server.tool()
@@ -89,10 +80,8 @@ def _receipt_shop(issuer: Extension) -> MCPServer:
 
 @requirement("extensions:client:claimed-result-resolved")
 async def test_claimed_result_is_finished_by_the_owning_extensions_resolver(connect: Connect) -> None:
-    """The transparent claim path, both ends real: the server extension substitutes the
-    `receipt` shape, the client's claim resolver redeems it with a follow-up `tools/call`
-    through `ctx.session` — the same authority as `client.session` — and `call_tool`
-    returns the resolver's plain `CallToolResult`. The claimed shape never surfaces."""
+    """The owning extension's claim resolver redeems the substituted `receipt` through
+    `ctx.session`, and `call_tool` returns the resolver's plain `CallToolResult`."""
     received: list[ReceiptResult] = []
 
     async def redeem_receipt(claimed: ReceiptResult, ctx: ClaimContext) -> CallToolResult:
@@ -110,17 +99,15 @@ async def test_claimed_result_is_finished_by_the_owning_extensions_resolver(conn
 
 @requirement("extensions:client:claimed-result-undeclared-invalid")
 async def test_claimed_shape_fails_validation_for_a_client_without_the_extension(connect: Connect) -> None:
-    """Spec-mandated: an unrecognized `resultType` is invalid. A client that did not
-    construct the owning extension rejects the very shape the previous test resolves —
-    the request reaches the server, the substituted result fails client-side parsing."""
+    """Spec-mandated: an unrecognized `resultType` is invalid, so a client without the
+    owning extension fails to parse the claimed shape."""
     async with connect(_receipt_shop(_ReceiptIssuer())) as client:
         with pytest.raises(ValidationError):
             await client.call_tool("buy", {"item": "lamp"})
 
 
 class _SettingsEchoIssuer(Extension):
-    """Server half for the ad tests: refuses non-declaring clients, then echoes the
-    declared settings back through the claimed payload."""
+    """Server half: requires the declaring client, then echoes its declared settings."""
 
     identifier = _RECEIPTS
 
@@ -129,7 +116,7 @@ class _SettingsEchoIssuer(Extension):
     ) -> HandlerResult:
         require_client_extension(ctx, _RECEIPTS)
         client_params = ctx.session.client_params
-        assert client_params is not None  # require_client_extension just read it
+        assert client_params is not None
         extensions = client_params.capabilities.extensions
         assert extensions is not None
         return {"resultType": "receipt", "receiptToken": "echo", "settingsEcho": extensions[_RECEIPTS]}
@@ -137,10 +124,8 @@ class _SettingsEchoIssuer(Extension):
 
 @requirement("extensions:client:capability-ad:gates-server-behaviour")
 async def test_per_request_ad_carries_settings_and_gates_the_claimed_substitution(connect: Connect) -> None:
-    """The per-request `_meta` capability ad is the entitlement for claimed shapes: the
-    server extension's gate passes only for the declaring client, observes the declared
-    settings on the request, and the resolver receives them back through the payload.
-    A client declaring nothing is refused with -32021, not served the shape."""
+    """The per-request `_meta` capability ad gates the claimed substitution: declared
+    settings reach the resolver and a non-declaring client is refused with -32021."""
     server = MCPServer("shop", extensions=[_SettingsEchoIssuer()])
 
     @server.tool()
@@ -171,9 +156,8 @@ async def _unreachable_resolve(claimed: ReceiptResult, ctx: ClaimContext) -> Cal
 
 @requirement("extensions:client:capability-ad:legacy-omits-claimed")
 async def test_legacy_ad_omits_claim_bearing_identifiers_but_keeps_claim_less_ones(connect: Connect) -> None:
-    """On a legacy connection the claims dissolve and the ad follows them: the
-    claim-bearing identifier is absent from the initialize capability ad the server
-    sees, while an ad-only identifier on the same client still advertises."""
+    """On a legacy connection the claim-bearing identifier drops out of the initialize
+    capability ad while an ad-only identifier still advertises."""
     server = MCPServer("introspector")
 
     @server.tool()

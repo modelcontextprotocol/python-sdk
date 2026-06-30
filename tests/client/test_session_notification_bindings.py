@@ -1,10 +1,6 @@
-"""`ClientSession` notification bindings: per-binding serialized delivery through a
-bounded FIFO, spawn-decoupled from the dispatcher so handlers may do session I/O
-without deadlocking the in-process (DirectDispatcher) path.
-
-Bindings are consulted only for methods the negotiated version's core tables do
-NOT know; a binding for a core-known method goes quiet, warned once at adopt().
-"""
+"""`ClientSession` notification bindings: serialized per-binding delivery through a
+bounded FIFO, consulted only for methods the negotiated version's core tables do
+not know."""
 
 import logging
 
@@ -56,8 +52,7 @@ async def _noop_handler(params: _EventParams) -> None:
 
 
 def test_duplicate_binding_method_rejected() -> None:
-    """SDK-defined: two bindings on one wire method could not be routed apart, so
-    construction fails."""
+    """SDK-defined: two bindings on one wire method cannot be routed apart, so construction fails."""
     client_side, _ = create_direct_dispatcher_pair()
     binding = NotificationBinding(method=_VENDOR_METHOD, params_type=_EventParams, handler=_noop_handler)
 
@@ -69,8 +64,7 @@ def test_duplicate_binding_method_rejected() -> None:
 
 @pytest.mark.anyio
 async def test_bound_vendor_notifications_are_delivered_in_order() -> None:
-    """SDK-defined: one consumer per binding serializes delivery — events arrive at the
-    handler in the order the server sent them."""
+    """SDK-defined: one consumer per binding delivers events in the order the server sent them."""
     delivered: list[int] = []
     done = anyio.Event()
 
@@ -97,9 +91,7 @@ async def test_bound_vendor_notifications_are_delivered_in_order() -> None:
 
 @pytest.mark.anyio
 async def test_binding_handler_may_do_session_io_without_deadlock() -> None:
-    """SDK-defined: delivery is spawn-decoupled from the dispatcher, so a handler that
-    awaits session I/O completes even on the in-process path, where the peer's
-    notify() awaits `_on_notify` inline."""
+    """SDK-defined: delivery is spawn-decoupled, so a handler may await session I/O without deadlock."""
     pongs: list[EmptyResult] = []
     done = anyio.Event()
 
@@ -125,16 +117,8 @@ async def test_binding_handler_may_do_session_io_without_deadlock() -> None:
 
 @pytest.mark.anyio
 async def test_overflow_drops_oldest_event_with_a_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """SDK-defined: the per-binding FIFO is bounded; on overflow the OLDEST queued
-    event is dropped with a warning and the new event is enqueued (observation
-    semantics tolerate the loss; enqueueing never blocks the dispatcher).
-
-    Steps:
-    1. Deliver event 0 and block the consumer inside its handler.
-    2. Fill the queue with events 1.._NOTIFICATION_QUEUE_SIZE.
-    3. One more event overflows: event 1 is evicted, with a warning.
-    4. Release the consumer; everything still queued is delivered in order.
-    """
+    """SDK-defined: on overflow the bounded FIFO drops the oldest queued event with a
+    warning; everything still queued delivers in order."""
     delivered: list[int] = []
     consumer_blocked = anyio.Event()
     gate = anyio.Event()
@@ -173,9 +157,7 @@ async def test_overflow_drops_oldest_event_with_a_warning(caplog: pytest.LogCapt
 async def test_invalid_params_are_warned_and_dropped_without_reaching_handler(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """SDK-defined: params failing the binding's model are warned and dropped —
-    mirroring the core notification ValidationError arm — and the handler never runs
-    for them; later valid events still deliver."""
+    """SDK-defined: params failing the binding's model are warned and dropped; later valid events deliver."""
     delivered: list[int] = []
     done = anyio.Event()
 
@@ -202,8 +184,7 @@ async def test_invalid_params_are_warned_and_dropped_without_reaching_handler(
 
 @pytest.mark.anyio
 async def test_unbound_vendor_notification_keeps_the_debug_drop(caplog: pytest.LogCaptureFixture) -> None:
-    """SDK-defined: a vendor method with no binding keeps today's behaviour — a debug
-    log and a silent drop."""
+    """SDK-defined: a vendor method with no binding keeps the debug-log-and-drop behaviour."""
     caplog.set_level(logging.DEBUG, logger="client")
 
     client_side, server_side = create_direct_dispatcher_pair()
@@ -224,9 +205,8 @@ async def test_unbound_vendor_notification_keeps_the_debug_drop(caplog: pytest.L
 async def test_core_known_method_never_reaches_binding_and_warns_once_at_adopt(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """SDK-defined: bindings are consulted only for methods core does not know at the
-    negotiated version — a binding for `notifications/message` goes quiet (the typed
-    logging callback still runs), warned exactly once at adopt()."""
+    """SDK-defined: a binding for a core-known method never fires and warns once at
+    adopt(); the typed callback still runs."""
     logged: list[types.LoggingMessageNotificationParams] = []
 
     async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:
@@ -243,13 +223,12 @@ async def test_core_known_method_never_reaches_binding_and_warns_once_at_adopt(
             await tg.start(server_side.run, _server_on_request, _server_on_notify)
             async with session:
                 _adopt_modern(session)
-                # The in-process peer awaits _on_notify inline, so the typed callback ran
-                # by the time notify() returns.
+                # In-process notify() awaits _on_notify inline, so the typed callback has already run.
                 await server_side.notify("notifications/message", {"level": "info", "data": "hello"})
             server_side.close()
 
     assert [params.data for params in logged] == ["hello"]
-    # The bound handler never ran — a delivery would have logged its NotImplementedError.
+    # The bound handler never ran; a delivery would have logged its NotImplementedError.
     assert "notification binding handler" not in caplog.text
     expected = f"notification binding for 'notifications/message' will never fire at {LATEST_MODERN_VERSION}"
     assert caplog.text.count(expected) == 1
@@ -257,8 +236,7 @@ async def test_core_known_method_never_reaches_binding_and_warns_once_at_adopt(
 
 @pytest.mark.anyio
 async def test_handler_exception_is_contained_and_later_events_deliver(caplog: pytest.LogCaptureFixture) -> None:
-    """SDK-defined: a raising handler costs only that delivery — the consumer logs the
-    exception and keeps serving subsequent events."""
+    """SDK-defined: a raising handler costs only that delivery; later events still deliver."""
     delivered: list[int] = []
     done = anyio.Event()
 
@@ -287,8 +265,7 @@ async def test_handler_exception_is_contained_and_later_events_deliver(caplog: p
 
 @pytest.mark.anyio
 async def test_binding_delivery_works_without_adopt() -> None:
-    """SDK-defined: bindings need no negotiated version — pre-handshake sessions fall
-    back to the default version tables, where a vendor method is just as unknown."""
+    """SDK-defined: bindings deliver pre-handshake, under the default version tables."""
     delivered: list[int] = []
     done = anyio.Event()
 

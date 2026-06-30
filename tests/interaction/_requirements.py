@@ -2390,8 +2390,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
         behavior=(
             "A tools/call answered with an extension-claimed resultType is finished by the owning "
-            "ClientExtension's claim resolver — which may send follow-up requests through the session it is "
-            "handed — and Client.call_tool returns the resolver's ordinary CallToolResult."
+            "ClientExtension's claim resolver, and Client.call_tool returns the resolver's ordinary "
+            "CallToolResult. The resolver may send follow-up requests through the session it is handed."
         ),
         added_in="2026-07-28",
     ),

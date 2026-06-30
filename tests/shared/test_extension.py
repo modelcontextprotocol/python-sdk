@@ -1,5 +1,4 @@
-"""Tests for `mcp.shared.extension` — the extension-identifier grammar shared by
-the server and client extension surfaces."""
+"""The extension-identifier grammar in `mcp.shared.extension`, shared by server and client."""
 
 from typing import Any
 
@@ -11,8 +10,7 @@ from mcp.shared.extension import validate_extension_identifier
 
 
 def test_server_extension_module_reexports_shared_validator() -> None:
-    """SDK-defined: `mcp.server.extension.validate_extension_identifier` remains
-    importable after the move and is the very same function object."""
+    """SDK-defined: `mcp.server.extension` re-exports the shared validator as the same function object."""
     assert mcp.server.extension.validate_extension_identifier is mcp.shared.extension.validate_extension_identifier
 
 
@@ -28,8 +26,7 @@ def test_server_extension_module_reexports_shared_validator() -> None:
     ],
 )
 def test_grammar_conformant_extension_identifiers_are_accepted(identifier: str) -> None:
-    """Spec `_meta` key grammar: dot-separated labels (letter start, letter/digit end,
-    hyphens interior), a slash, then a name that starts and ends alphanumeric."""
+    """Spec `_meta` key grammar: conformant `vendor-prefix/name` identifiers are accepted."""
     validate_extension_identifier(identifier, owner="T")
 
 
@@ -54,7 +51,6 @@ def test_grammar_conformant_extension_identifiers_are_accepted(identifier: str) 
     ],
 )
 def test_malformed_extension_identifiers_are_rejected(identifier: Any) -> None:
-    """Spec `_meta` key grammar: malformed prefixes (bad label start/end, empty labels)
-    and malformed names are rejected, as are non-strings."""
+    """Spec `_meta` key grammar: malformed prefixes, malformed names, and non-strings are rejected."""
     with pytest.raises(TypeError):
         validate_extension_identifier(identifier, owner="T")

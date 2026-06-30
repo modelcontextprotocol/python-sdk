@@ -29,8 +29,7 @@ uv run python -m stories.custom_methods.client --http
   collide with a future spec method.
 - `client.py` `client.session.send_request(...)` — `Client` only exposes spec
   verbs, so vendor methods go through the underlying `ClientSession`.
-  `send_request` accepts any `types.Request` subclass, so the vendor request
-  passes as-is, no cast.
+  `send_request` accepts any `types.Request` subclass.
 
 ## Caveats
 

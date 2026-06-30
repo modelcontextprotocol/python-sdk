@@ -157,16 +157,16 @@ client-side behaviour behind one identifier. Pass instances to
 
 `call_tool("buy", ...)` returns a plain `CallToolResult`, like every other call. What
 the extension changed: the server may now answer `buy` with a `receipt` **result
-shape** instead of a final result, and `Receipts` finishes it — here by redeeming the
-receipt with a follow-up call — before `call_tool` returns. Nothing about the call
+shape** instead of a final result, and `Receipts` finishes it (here by redeeming the
+receipt with a follow-up call) before `call_tool` returns. Nothing about the call
 site moves.
 
 Drop the extension and none of this exists: a `receipt` shape arriving at a client
 that didn't declare it fails validation, exactly as the spec requires for an
 unrecognized `resultType`. Off by default, on both ends of the wire.
 
-To advertise an identifier with **no** client-side behaviour — the server gates on
-the capability, the client does nothing, as in the search client above — use
+To advertise an identifier with **no** client-side behaviour (the server gates on
+the capability, the client does nothing, as in the search client above), use
 `advertise()`:
 
 ```python
@@ -189,7 +189,7 @@ kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
 * `claims()` returns `ResultClaim`s: a wire tag, the model that parses it, and the
   resolver that finishes it. The model must pin the tag with
   `result_type: Literal["receipt"]` and must not subclass the verb's core result
-  types — both enforced when the claim is constructed. Vendor fields like
+  types; both are enforced when the claim is constructed. Vendor fields like
   `receipt_token` ride the wire as-is: a substituted shape reaches the client
   verbatim.
 * The resolver receives the parsed model and a `ClaimContext`; `ctx.session` is the
@@ -210,11 +210,10 @@ or reply.
 
 Two quiet rules. Claims are active on 2026-07-28 connections only, and the capability
 ad follows them: on a legacy connection the claims dissolve and the identifier drops
-out of the ad in the same breath, so the client never advertises an extension whose
-shapes it would reject. And when you want the claimed shape yourself instead of the
-resolver, call `client.session.call_tool(..., allow_claimed=True)` — the escape hatch
-`UnexpectedClaimedResult` names when a claimed shape reaches a session-tier caller
-that didn't opt in.
+out of the ad with them, so the client never advertises an extension whose shapes it
+would reject. And when you want the claimed shape yourself instead of the resolver,
+call `client.session.call_tool(..., allow_claimed=True)`; without that flag, a
+claimed shape reaching a session-tier caller raises `UnexpectedClaimedResult`.
 
 ### Extension verbs
 
@@ -233,8 +232,8 @@ missing value fails loudly rather than silently omitting a required header.
 
 ## What an extension cannot do
 
-The contribution surface is **closed** on purpose — on the server: settings, tools,
-resources, methods, one `tools/call` interceptor; on the client: settings, result
+The contribution surface is **closed** on purpose. On the server: settings, tools,
+resources, methods, one `tools/call` interceptor. On the client: settings, result
 claims, notification bindings. An extension cannot:
 
 * **Reach into the host.** It declares data; it holds no server or client reference.

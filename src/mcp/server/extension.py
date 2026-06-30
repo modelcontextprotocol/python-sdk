@@ -29,8 +29,7 @@ from pydantic import BaseModel
 
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 
-# The identifier grammar moved to `mcp.shared.extension` (the client extension
-# surface shares it); re-exported here for existing importers.
+# Re-exported from `mcp.shared.extension` (shared with the client surface) for existing importers.
 from mcp.shared.extension import validate_extension_identifier as validate_extension_identifier
 
 if TYPE_CHECKING:

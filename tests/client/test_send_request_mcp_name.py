@@ -1,12 +1,6 @@
-"""`ClientSession.send_request` mirrors `Request.name_param` into the `Mcp-Name` header.
-
-The modern stamp emits `Mcp-Name` for the core `NAME_BEARING_METHODS` table; the
-`name_param` delta covers every other send path (vendor request types, the
-legacy handshake stamp), keyed on header presence so the stamp's table rows
-always win by ordering. The vendor sends below also pin the widened
-`send_request` typing: a `Request[...]` subclass passes without a cast.
-"""
-
+"""`ClientSession.send_request` mirrors `Request.name_param` into the `Mcp-Name`
+header on send paths the core `NAME_BEARING_METHODS` table does not cover. The
+vendor sends also pin the widened `send_request` typing (no cast needed)."""
 
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -127,8 +121,7 @@ def _headers(opts: CallOptions) -> dict[str, str]:
 
 @pytest.mark.anyio
 async def test_vendor_name_param_emits_mcp_name_on_the_modern_path() -> None:
-    """A vendor request type declaring `name_param` gets `Mcp-Name` on a modern
-    wire even though its method is not in `NAME_BEARING_METHODS`."""
+    """A vendor `name_param` emits `Mcp-Name` on a modern wire even outside `NAME_BEARING_METHODS`."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -140,8 +133,7 @@ async def test_vendor_name_param_emits_mcp_name_on_the_modern_path() -> None:
 
 @pytest.mark.anyio
 async def test_vendor_name_param_emits_mcp_name_on_the_handshake_path() -> None:
-    """The handshake stamp sets no `Mcp-Name` at all, so for a legacy wire the
-    delta is the responsible emitter — emission is era-unconditional."""
+    """The handshake stamp sets no `Mcp-Name`, so on a legacy wire the delta is the emitter."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -155,8 +147,7 @@ async def test_vendor_name_param_emits_mcp_name_on_the_handshake_path() -> None:
 
 @pytest.mark.anyio
 async def test_name_value_passes_through_encode_header_value() -> None:
-    """A name that cannot ride as a plain ASCII header value is base64-sentinel
-    encoded (spec MUST for `Mcp-Name`)."""
+    """A non-ASCII name is base64-sentinel encoded, a spec MUST for `Mcp-Name`."""
     name = "wídget ✨"
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
@@ -170,9 +161,7 @@ async def test_name_value_passes_through_encode_header_value() -> None:
 
 @pytest.mark.anyio
 async def test_core_tools_call_header_comes_from_the_stamp_alone() -> None:
-    """Core `tools/call` is unchanged: the modern stamp emits `Mcp-Name` from the
-    table; `CallToolRequest` declares no `name_param`, and on a legacy wire core
-    methods stay headerless exactly as today."""
+    """Core `tools/call` is unchanged: the modern stamp emits the header; legacy stays headerless."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -187,8 +176,7 @@ async def test_core_tools_call_header_comes_from_the_stamp_alone() -> None:
 
 @pytest.mark.anyio
 async def test_stamp_table_rows_win_over_name_param_by_ordering() -> None:
-    """Header-presence keying: when the modern stamp already emitted `Mcp-Name`
-    from the core table, a `name_param` on the request type does not overwrite it."""
+    """A stamp-emitted `Mcp-Name` wins; `name_param` never overwrites an existing header."""
     dispatcher = _RecordingDispatcher()
     request = _ShadowCallToolRequest(params={"name": "real-tool", "customKey": "other-value"})
     with anyio.fail_after(5):
@@ -201,8 +189,7 @@ async def test_stamp_table_rows_win_over_name_param_by_ordering() -> None:
 
 @pytest.mark.anyio
 async def test_vendor_name_param_emits_mcp_name_on_the_preconnect_path() -> None:
-    """Emission is era-unconditional: a lowlevel caller that never adopts any
-    version (the preconnect stamp) still gets `Mcp-Name` from `name_param`."""
+    """Emission is era-unconditional: a session that never adopts still emits `Mcp-Name`."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -213,6 +200,7 @@ async def test_vendor_name_param_emits_mcp_name_on_the_preconnect_path() -> None
 
 @pytest.mark.anyio
 async def test_missing_name_value_fails_loud_naming_method_and_key() -> None:
+    """A missing name value raises ValueError naming the method and key, before the wire."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -225,6 +213,7 @@ async def test_missing_name_value_fails_loud_naming_method_and_key() -> None:
 
 @pytest.mark.anyio
 async def test_non_string_name_value_fails_loud() -> None:
+    """A non-string name value raises the same ValueError as a missing one."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -237,8 +226,7 @@ async def test_non_string_name_value_fails_loud() -> None:
 
 @pytest.mark.anyio
 async def test_absent_params_fails_loud_not_attribute_error() -> None:
-    """`exclude_none` drops a None params entirely; the delta still answers with
-    the documented ValueError, not an AttributeError on the missing key."""
+    """Absent params still raise the documented ValueError, not an AttributeError."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
@@ -251,8 +239,7 @@ async def test_absent_params_fails_loud_not_attribute_error() -> None:
 
 @pytest.mark.anyio
 async def test_request_without_name_param_sends_no_mcp_name() -> None:
-    """No `name_param` and a method outside `NAME_BEARING_METHODS`: neither
-    emitter produces an `Mcp-Name` header, on either era's stamp."""
+    """No `name_param` and a method outside the core table emits no `Mcp-Name` on either era."""
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:

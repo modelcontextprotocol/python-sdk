@@ -1,13 +1,5 @@
-"""`Client` + `ClientExtension` integration: folding extension declarations into the
-session at construction, and `call_tool` driving claim resolvers transparently.
-
-Claimed-shape servers here are real `MCPServer`s whose SEP-2133 server extension
-rewrites `tools/call` results via `intercept_tool_call` — the full public-API loop.
-A short-circuiting interceptor's dict reaches the client verbatim (the runner trusts
-it as a well-formed result), so the claimed models carry vendor top-level fields.
-
-`tools/call` is never cached (`Client.call_tool` has no `_cached_fetch` weave and the
-SEP-2549 cacheable verbs do not include it), so the claim path needs no cache tests.
+"""`Client` + `ClientExtension` integration: extension declarations fold into the session at
+construction, and `call_tool` drives claim resolvers transparently against real `MCPServer`s.
 """
 
 import logging
@@ -46,8 +38,7 @@ def _name_elicitation() -> types.ElicitRequest:
 
 
 class VoucherResult(Result):
-    """The claimed `tools/call` shape, tagged `voucher`, carrying a vendor top-level field
-    (a short-circuiting server interceptor's dict reaches the client verbatim)."""
+    """The claimed `tools/call` shape, tagged `voucher`, carrying a vendor top-level field."""
 
     result_type: Literal["voucher"] = "voucher"
     voucher_code: str | None = None
@@ -128,17 +119,15 @@ def _add_server() -> MCPServer:
     return server
 
 
-# ── Construction-time validation ────────────────────────────────────────────
+# Construction-time validation
 
 
 class _CouponResult(Result):
-    """A second claimed shape with its own tag, for multi-claim routing."""
-
     result_type: Literal["coupon"] = "coupon"
 
 
 async def _unreachable_coupon_resolve(claimed: _CouponResult, ctx: ClaimContext) -> CallToolResult:
-    raise NotImplementedError  # the wrong resolver for a voucher — must never run
+    raise NotImplementedError  # the wrong resolver for a voucher; must never run
 
 
 class _CouponExtension(ClientExtension):
@@ -167,20 +156,18 @@ async def _unreachable_twice_resolve(claimed: _TwiceResult, ctx: ClaimContext) -
 
 
 def test_mapping_extensions_get_the_migration_error() -> None:
-    """SDK-defined: the replaced dict form fails with a message naming the new shape,
-    not an attribute error about `str`."""
+    """SDK-defined: the replaced dict form fails with a message naming the new shape."""
     with pytest.raises(TypeError) as exc_info:
         Client(_add_server(), extensions=cast("Sequence[ClientExtension]", {"com.example/ui": {}}))
 
     assert str(exc_info.value) == snapshot(
-        "extensions= takes a sequence of ClientExtension instances; the mapping form was "
-        "replaced — use advertise(identifier, settings) for advertise-only entries"
+        "extensions= takes a sequence of ClientExtension instances. The mapping form was "
+        "replaced: use advertise(identifier, settings) for advertise-only entries"
     )
 
 
 def test_one_extension_claiming_a_tag_twice_reads_as_one_owner() -> None:
-    """SDK-defined: a self-conflict names the one extension once instead of
-    "extensions 'a' and 'a'"."""
+    """SDK-defined: a self-conflict names the one extension once, not as a pair."""
     with pytest.raises(ValueError) as exc_info:
         Client(_add_server(), extensions=[_SelfConflictingClaims()])
 
@@ -190,8 +177,7 @@ def test_one_extension_claiming_a_tag_twice_reads_as_one_owner() -> None:
 
 
 def test_bare_extension_instance_is_rejected_with_the_fix_named() -> None:
-    """SDK-defined: an instance whose class never set `identifier` fails Client
-    construction with an error naming the type and the fix — not an AttributeError."""
+    """SDK-defined: an instance whose class never set `identifier` fails construction naming the type and the fix."""
     with pytest.raises(ValueError) as exc_info:
         Client(_add_server(), extensions=[ClientExtension()])
 
@@ -202,16 +188,14 @@ def test_bare_extension_instance_is_rejected_with_the_fix_named() -> None:
 
 
 class _SelfAssignedBadId(ClientExtension):
-    """Assigns a malformed identifier in `__init__` — invisible at class definition."""
+    """Assigns a malformed identifier in `__init__`, invisible at class definition."""
 
     def __init__(self) -> None:
         self.identifier = "not-prefixed"
 
 
 def test_invalid_per_instance_identifier_raises_the_validators_error() -> None:
-    """SDK-defined: per-instance identifiers are validated when the Client consumes the
-    extension (no class attribute existed at definition time, mirroring the server's
-    posture); the shared validator's TypeError surfaces unwrapped."""
+    """SDK-defined: per-instance identifiers are validated when the Client consumes the extension."""
     with pytest.raises(TypeError) as exc_info:
         Client(_add_server(), extensions=[_SelfAssignedBadId()])
 
@@ -222,8 +206,7 @@ def test_invalid_per_instance_identifier_raises_the_validators_error() -> None:
 
 
 def test_duplicate_extension_identifiers_are_rejected_naming_the_identifier() -> None:
-    """SDK-defined: one identifier cannot appear twice — there would be two settings
-    dicts for one capability-ad key."""
+    """SDK-defined: one identifier cannot appear twice across the extensions sequence."""
     with pytest.raises(ValueError) as exc_info:
         Client(_add_server(), extensions=[advertise(_VOUCHER_EXT), advertise(_VOUCHER_EXT, {"a": 1})])
 
@@ -231,12 +214,10 @@ def test_duplicate_extension_identifiers_are_rejected_naming_the_identifier() ->
 
 
 async def _unreachable_resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
-    raise NotImplementedError  # construction-only extensions never resolve
+    raise NotImplementedError
 
 
 class _RivalVoucherExtension(ClientExtension):
-    """A second extension claiming the same `voucher` tag (construction-conflict tests)."""
-
     identifier = _RIVAL_EXT
 
     def claims(self) -> Sequence[ResultClaim[Any]]:
@@ -244,10 +225,7 @@ class _RivalVoucherExtension(ClientExtension):
 
 
 def test_conflicting_claims_across_extensions_name_both_owners() -> None:
-    """SDK-defined: two extensions claiming the same (method, resultType) fail at
-    Client construction with both owning extensions named — the session's own
-    duplicate check knows only the method and tag, which cannot tell a user which
-    two of their extensions collide."""
+    """SDK-defined: two extensions claiming the same tag fail at construction with both owners named."""
     with pytest.raises(ValueError) as exc_info:
         Client(_add_server(), extensions=[_VoucherExtension(_unreachable_resolve), _RivalVoucherExtension()])
 
@@ -262,7 +240,7 @@ class _EventParams(BaseModel):
 
 
 async def _unreachable_handler(params: _EventParams) -> None:
-    raise NotImplementedError  # construction-only extensions never deliver
+    raise NotImplementedError
 
 
 class _ObserverA(ClientExtension):
@@ -288,8 +266,7 @@ class _ObserverB(ClientExtension):
 
 
 def test_conflicting_notification_bindings_name_both_owners() -> None:
-    """SDK-defined: two extensions binding the same notification method fail at Client
-    construction with both owning extensions named, for the same reason as claims."""
+    """SDK-defined: two extensions binding the same notification method fail with both owners named."""
     with pytest.raises(ValueError) as exc_info:
         Client(_add_server(), extensions=[_ObserverA(), _ObserverB()])
 
@@ -299,7 +276,7 @@ def test_conflicting_notification_bindings_name_both_owners() -> None:
     )
 
 
-# ── settings() consumption ───────────────────────────────────────────────────
+# settings() consumption
 
 
 class _CountedResult(Result):
@@ -307,12 +284,10 @@ class _CountedResult(Result):
 
 
 async def _unreachable_counted_resolve(claimed: _CountedResult, ctx: ClaimContext) -> CallToolResult:
-    raise NotImplementedError  # never driven; exists so claims() has something to return
+    raise NotImplementedError
 
 
 class _CountingSettings(ClientExtension):
-    """Counts every declaration read to pin the read-once contract for all three."""
-
     identifier = "com.example/counted"
 
     def __init__(self) -> None:
@@ -336,10 +311,7 @@ class _CountingSettings(ClientExtension):
 
 
 async def test_declarations_are_read_exactly_once_at_construction() -> None:
-    """SDK-defined: `settings()`, `claims()`, and `notifications()` are each read once,
-    at Client construction — connecting and calling tools (each modern request re-stamps
-    the capability ad) never re-reads any of them, so a stateful extension cannot desync
-    the ad from the claims."""
+    """SDK-defined: each declaration method is read exactly once, at Client construction, never again."""
     extension = _CountingSettings()
     client = Client(_add_server(), extensions=[extension])
     assert (extension.reads, extension.claims_reads, extension.notifications_reads) == (1, 1, 1)
@@ -353,9 +325,7 @@ async def test_declarations_are_read_exactly_once_at_construction() -> None:
 
 
 async def test_settings_dict_is_held_by_reference_not_copied() -> None:
-    """SDK-defined: the dict `settings()` returns is held by reference, not copied —
-    mutating it between construction and connect changes the advertised ad (the same
-    aliasing the dict-form `extensions=` argument had)."""
+    """SDK-defined: the settings dict is held by reference, so mutating it before connect changes the ad."""
     observed: list[dict[str, dict[str, Any]] | None] = []
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -381,16 +351,14 @@ async def test_settings_dict_is_held_by_reference_not_copied() -> None:
     assert observed == [{"com.example/loyalty": {"tier": "gold"}}]
 
 
-# ── extensions=None stays byte-identical ─────────────────────────────────────
+# extensions=None stays byte-identical
 
 
 @pytest.mark.parametrize("extensions", [None, ()], ids=["none", "empty"])
 async def test_no_extensions_keeps_tools_call_parsing_byte_identical(
     extensions: Sequence[ClientExtension] | None,
 ) -> None:
-    """SDK-defined: `extensions=None` (and an empty sequence) leave the session exactly
-    as a claim-less client's — the tools/call adapter is the module-level constant by
-    identity, and an ordinary call behaves as before."""
+    """SDK-defined: `extensions=None` and an empty sequence leave the session exactly as a claim-less client's."""
     with anyio.fail_after(5):
         async with Client(_add_server(), extensions=extensions) as client:
             assert client.session._call_tool_adapter is _CallToolResultAdapter
@@ -399,14 +367,11 @@ async def test_no_extensions_keeps_tools_call_parsing_byte_identical(
     assert result.structured_content == {"result": 3}
 
 
-# ── The transparent claim path ───────────────────────────────────────────────
+# The transparent claim path
 
 
 async def test_claimed_result_resolves_transparently_to_the_resolvers_result() -> None:
-    """A server-claimed `tools/call` shape never surfaces: the owning claim's resolver
-    receives the parsed claim model and `Client.call_tool` returns the resolver's
-    `CallToolResult` object — the signature stays `-> CallToolResult` (the assert_type
-    below is checked by pyright)."""
+    """A claimed shape never surfaces: the resolver gets the parsed model and `call_tool` returns its product."""
     received: list[VoucherResult] = []
     produced: list[CallToolResult] = []
 
@@ -427,8 +392,7 @@ async def test_claimed_result_resolves_transparently_to_the_resolvers_result() -
 
 
 async def test_claimed_shape_routes_to_its_owning_extensions_resolver() -> None:
-    """With two claim-bearing extensions registered, the parsed shape runs ITS owner's
-    resolver — the coupon extension (registered first) must never see a voucher."""
+    """With two claim-bearing extensions registered, the parsed shape runs its owner's resolver only."""
     received: list[VoucherResult] = []
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
@@ -445,10 +409,7 @@ async def test_claimed_shape_routes_to_its_owning_extensions_resolver() -> None:
 
 
 async def test_resolver_product_gets_the_direct_paths_output_schema_revalidation() -> None:
-    """The resolver's product passes through `validate_tool_result` exactly like a
-    directly-returned result: against the tool's output schema, missing structured
-    content raises the direct path's RuntimeError (the message below is the same
-    one `ClientSession.call_tool`'s own guard produces)."""
+    """The resolver's product is revalidated against the tool's output schema exactly like a direct result."""
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
         return CallToolResult(content=[TextContent(text="unstructured")])
@@ -461,9 +422,7 @@ async def test_resolver_product_gets_the_direct_paths_output_schema_revalidation
 
 
 async def test_resolver_error_result_is_returned_not_raised() -> None:
-    """An `isError` resolver product skips output-schema revalidation and comes back
-    as-is — the same strictness as the direct path, which only revalidates successes.
-    The tool here declares an output schema, so revalidating would have raised."""
+    """An `isError` resolver product skips output-schema revalidation and comes back as-is."""
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
         return CallToolResult(content=[TextContent(text="voucher printer on fire")], is_error=True)
@@ -477,8 +436,7 @@ async def test_resolver_error_result_is_returned_not_raised() -> None:
 
 
 async def test_resolver_receives_the_calls_claim_context() -> None:
-    """`ClaimContext` hands the resolver the client's own session object, the tool
-    name, and the per-call read timeout `call_tool` was given."""
+    """`ClaimContext` carries the client's own session object, the tool name, and the per-call read timeout."""
     contexts: list[ClaimContext] = []
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
@@ -500,8 +458,7 @@ class _VoucherRefused(Exception):
 
 
 async def test_resolver_exception_propagates_untouched() -> None:
-    """A resolver exception reaches the `call_tool` caller as the very object the
-    resolver raised — no wrapping, the extension owns its error vocabulary."""
+    """A resolver exception reaches the `call_tool` caller as the very object raised, unwrapped."""
     refusal = _VoucherRefused("the voucher is refused")
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
@@ -514,12 +471,11 @@ async def test_resolver_exception_propagates_untouched() -> None:
     assert exc_info.value is refusal
 
 
-# ── Unclaimed results with extensions present ────────────────────────────────
+# Unclaimed results with extensions present
 
 
 async def test_unclaimed_result_flows_through_unchanged_with_extensions_present() -> None:
-    """An ordinary `CallToolResult` is untouched by the claim machinery — the resolver
-    never runs and the result matches a claim-less client's."""
+    """An ordinary `CallToolResult` is untouched by the claim machinery; the resolver never runs."""
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
         raise NotImplementedError  # this server never produces a claimed shape
@@ -532,9 +488,7 @@ async def test_unclaimed_result_flows_through_unchanged_with_extensions_present(
 
 
 async def test_input_required_then_plain_result_keeps_the_auto_loop_working() -> None:
-    """With a claim-bearing extension present, the auto loop on an unclaimed tool is
-    unchanged: input_required resolves via the elicitation callback and the plain
-    terminal result comes back; the resolver never runs."""
+    """With a claim-bearing extension present, the input_required auto loop on an unclaimed tool is unchanged."""
     server = MCPServer("mrtr")
 
     @server.tool()
@@ -564,14 +518,11 @@ async def test_input_required_then_plain_result_keeps_the_auto_loop_working() ->
     assert result.content == [TextContent(text="Hello, Ada!")]
 
 
-# ── The multi-round-trip + claimed interplay ─────────────────────────────────
+# The multi-round-trip + claimed interplay
 
 
 async def test_input_required_then_claimed_result_on_retry_resolves_transparently() -> None:
-    """The retry-leg regression: a call that demands input first and returns a claimed
-    shape on the retry still resolves transparently. The driver's retry must admit
-    claimed shapes — multi-round-trip input resolves before a claimed result, so a
-    claim may terminate any round, not just the first."""
+    """A call that demands input first and returns a claimed shape on the retry still resolves transparently."""
     prompted: list[str] = []
     received: list[VoucherResult] = []
 
@@ -598,12 +549,11 @@ async def test_input_required_then_claimed_result_on_retry_resolves_transparentl
     assert result.content == [TextContent(text="honored after-input")]
 
 
-# ── Notification bindings fold into the session ──────────────────────────────
+# Notification bindings fold into the session
 
 
 class _CoreMethodObserver(ClientExtension):
-    """Binds a method the modern core tables already define (construction-legal; the
-    session warns once at adopt that it can never fire)."""
+    """Binds a method the modern core tables already define."""
 
     identifier = "com.example/observer"
 
@@ -614,10 +564,7 @@ class _CoreMethodObserver(ClientExtension):
 
 
 async def test_notification_bindings_fold_into_the_session(caplog: pytest.LogCaptureFixture) -> None:
-    """The Client threads extension notification bindings into its session: a binding
-    for a core-known method draws the session's one-time gone-quiet warning at adopt.
-    (Delivery mechanics are session-tier covered in
-    test_session_notification_bindings.py; this pins the Client fold seam.)"""
+    """The Client threads extension bindings into its session; a core-known binding draws the one-time warning."""
     with caplog.at_level(logging.WARNING, logger="client"):
         async with Client(_add_server(), extensions=[_CoreMethodObserver()]):
             pass

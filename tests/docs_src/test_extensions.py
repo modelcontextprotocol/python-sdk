@@ -106,23 +106,20 @@ async def test_interceptor_observes_the_call_and_passes_the_result_through(
 
 
 async def test_the_receipts_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial006: `main()` is the literal client program on the page — the claimed
-    `receipt` shape never surfaces, and the printed content is the redeemed result."""
+    """tutorial006: `main()` runs as printed and the output is the redeemed result, never the claimed shape."""
     await tutorial006.main()
     assert "goods for r-117" in capsys.readouterr().out
 
 
 async def test_a_claimed_shape_fails_validation_without_the_extension() -> None:
-    """The page's off-by-default claim: a client that does not construct `Receipts`
-    rejects the `receipt` shape as invalid (spec: an unrecognized resultType is invalid)."""
+    """The page's off-by-default claim: a client without `Receipts` rejects the `receipt` shape as invalid."""
     async with Client(tutorial006.mcp) as client:
         with pytest.raises(ValidationError):
             await client.call_tool("buy", {"item": "lamp"})
 
 
 async def test_session_tier_allow_claimed_returns_the_raw_shape() -> None:
-    """The page's escape hatch: `client.session.call_tool(..., allow_claimed=True)` hands
-    back the parsed claim model instead of running the resolver."""
+    """The page's escape hatch: `allow_claimed=True` returns the parsed claim model, not the resolved result."""
     async with Client(tutorial006.mcp, extensions=[tutorial006.Receipts()]) as client:
         result = await client.session.call_tool("buy", {"item": "lamp"}, allow_claimed=True)
     assert isinstance(result, tutorial006.ReceiptResult)
@@ -130,7 +127,6 @@ async def test_session_tier_allow_claimed_returns_the_raw_shape() -> None:
 
 
 async def test_the_jobs_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial007: a vendor request type with `name_param` goes through
-    `client.session.send_request` with no registration and returns its typed result."""
+    """tutorial007: a vendor request with `name_param` round-trips `send_request` with no registration."""
     await tutorial007.main()
     assert "job-7 is running" in capsys.readouterr().out

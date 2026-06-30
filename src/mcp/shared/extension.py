@@ -1,9 +1,4 @@
-"""Extension-identifier grammar shared by the server and client extension surfaces.
-
-Server extensions (`mcp.server.extension`) and client extensions
-(`mcp.client.extension`) carry the same kind of identifier; this module is the
-one source of truth for its validation.
-"""
+"""Extension-identifier grammar shared by the server and client extension surfaces."""
 
 from __future__ import annotations
 

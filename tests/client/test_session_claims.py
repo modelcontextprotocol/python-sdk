@@ -1,11 +1,6 @@
-"""`ClientSession` result claims: construction validation, adopt-time activation,
-the discriminated tools/call adapter, the version-aware capability ad, and the
-`allow_claimed` escape hatch.
-
-Claims activate at `adopt()` — the stamp-swap moment — and only at modern
-protocol versions; everywhere else parsing stays byte-identical to a claim-less
-session (the zero-claims adapter is the module-level constant, by identity).
-"""
+"""`ClientSession` result claims: construction validation, activation at modern
+adopts only, claimed-result routing, the version-aware capability ad, and the
+`allow_claimed` escape hatch."""
 
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -126,12 +121,8 @@ def _adopt_handshake(session: ClientSession) -> None:
     )
 
 
-# ── Construction-time validation ────────────────────────────────────────────
-
-
 def test_duplicate_claim_tag_across_extensions_rejected() -> None:
-    """SDK-defined: two claims on the same (method, resultType) — even from different
-    extensions — could not be routed apart, so construction fails."""
+    """SDK-defined: two claims on the same resultType cannot be routed apart, so construction fails."""
     with pytest.raises(ValueError) as exc_info:
         ClientSession(
             dispatcher=_RecordingDispatcher(),
@@ -143,9 +134,7 @@ def test_duplicate_claim_tag_across_extensions_rejected() -> None:
 
 
 def test_claims_keyed_to_unadvertised_extension_rejected() -> None:
-    """SDK-defined: a claim rides its extension's capability ad — a `result_claims` key
-    with no `extensions` entry (including extensions=None) advertises nothing the
-    server could ever act on, so construction fails."""
+    """SDK-defined: a `result_claims` key with no `extensions` entry advertises nothing, so construction fails."""
     messages: list[str] = []
     for extensions in (None, {_AD_ONLY_EXT: {"flag": True}}):
         with pytest.raises(ValueError) as exc_info:
@@ -167,33 +156,25 @@ def test_claims_keyed_to_unadvertised_extension_rejected() -> None:
 
 
 def test_empty_claim_sequence_rejected() -> None:
-    """SDK-defined: an empty claim set would make the ad-filter treat the identifier as
-    claim-bearing and drop it from the capability ad at every version; "claim-less" and
-    "advertises everywhere" stay the same thing by rejecting the empty spelling."""
+    """SDK-defined: an empty claim list is rejected at construction; a claim-less extension omits the key."""
     with pytest.raises(ValueError) as exc_info:
         ClientSession(dispatcher=_RecordingDispatcher(), extensions={_TASKS_EXT: {}}, result_claims={_TASKS_EXT: []})
 
     assert str(exc_info.value) == snapshot(
-        "result_claims['com.example/tasks'] is empty; an empty claim set would drop the "
-        "extension from the capability ad at every version — omit the key instead"
+        "result_claims['com.example/tasks'] is empty and would drop the extension from "
+        "the capability ad at every version. Omit the key instead"
     )
 
 
 def test_empty_settings_count_as_an_advertised_extension() -> None:
-    """SDK-defined: an extension advertised with empty settings ({}) is still an ad —
-    claims keyed to it construct fine."""
+    """SDK-defined: empty settings ({}) still count as an ad, so claims keyed to the extension construct."""
     session = _claims_session(_RecordingDispatcher(), _task_claim())
 
     assert isinstance(session, ClientSession)
 
 
-# ── Activation at adopt() ───────────────────────────────────────────────────
-
-
 def test_without_claims_the_call_tool_adapter_is_the_module_constant() -> None:
-    """SDK-defined: the no-extensions parse path stays byte-identical — with zero
-    active claims the session holds the module-level adapter itself, not a rebuild,
-    before and after either adopt arm."""
+    """SDK-defined: with zero active claims the session holds the module-level adapter by identity."""
     session = ClientSession(dispatcher=_RecordingDispatcher())
 
     assert session._call_tool_adapter is _CallToolResultAdapter
@@ -208,9 +189,8 @@ def test_without_claims_the_call_tool_adapter_is_the_module_constant() -> None:
 async def test_modern_adopt_activates_claims_and_routes_claimed_results(
     protocol_versions: frozenset[str] | None,
 ) -> None:
-    """SDK-defined: at a modern adopt, a claim active at the negotiated version (None =
-    every modern version; an explicit subset containing it) routes the claimed raw to
-    the claim model."""
+    """SDK-defined: at a modern adopt, a claim active at the negotiated version routes
+    the claimed raw to the claim model."""
     dispatcher = _RecordingDispatcher(tool_result=_CLAIMED_TASK_RESULT)
     session = _claims_session(dispatcher, _task_claim(protocol_versions=protocol_versions))
     with anyio.fail_after(5):
@@ -224,8 +204,7 @@ async def test_modern_adopt_activates_claims_and_routes_claimed_results(
 
 @pytest.mark.anyio
 async def test_legacy_adopt_clears_active_claims() -> None:
-    """SDK-defined: re-adopt safe — a session that adopts modern then legacy fully
-    clears its active claims, restoring the module-level adapter by identity."""
+    """SDK-defined: a legacy adopt clears active claims and restores the module-level adapter."""
     dispatcher = _RecordingDispatcher(tool_result=_CLAIMED_TASK_RESULT)
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -237,14 +216,13 @@ async def test_legacy_adopt_clears_active_claims() -> None:
             assert session._call_tool_adapter is _CallToolResultAdapter
             with pytest.raises(ValidationError):
                 await session.call_tool("t", {}, allow_claimed=True)
-            # The rejection came from response parsing — the request did reach the wire.
+            # Rejected at response parsing; the request did reach the wire.
             assert dispatcher.calls[-1][0] == "tools/call"
 
 
 @pytest.mark.anyio
 async def test_modern_readopt_after_legacy_reactivates_claims() -> None:
-    """SDK-defined: adoption is re-entrant in both directions — after modern→legacy→
-    modern the claims are active again and the adopt-built adapter routes claimed raws."""
+    """SDK-defined: a modern re-adopt after legacy reactivates the claims."""
     dispatcher = _RecordingDispatcher(tool_result=_CLAIMED_TASK_RESULT)
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -260,14 +238,9 @@ async def test_modern_readopt_after_legacy_reactivates_claims() -> None:
     assert session._call_tool_adapter is not _CallToolResultAdapter
 
 
-# ── The version-aware capability ad ─────────────────────────────────────────
-
-
 @pytest.mark.anyio
 async def test_legacy_initialize_ad_drops_claim_bearing_identifiers() -> None:
-    """SDK-defined: the legacy handshake can never negotiate a modern version, so no
-    claim can activate — a claim-bearing identifier drops from the initialize ad while
-    ad-only identifiers ride along."""
+    """SDK-defined: the legacy initialize ad drops claim-bearing identifiers; ad-only ones ride along."""
     dispatcher = _RecordingDispatcher()
     session = ClientSession(
         dispatcher=dispatcher,
@@ -285,8 +258,7 @@ async def test_legacy_initialize_ad_drops_claim_bearing_identifiers() -> None:
 
 @pytest.mark.anyio
 async def test_legacy_ad_omits_extensions_entirely_when_every_identifier_drops() -> None:
-    """SDK-defined: when the filter drops every identifier, the ad omits the
-    `extensions` key — an empty extensions object advertises nothing."""
+    """SDK-defined: when every identifier drops, the ad omits the `extensions` key entirely."""
     dispatcher = _RecordingDispatcher()
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -300,8 +272,7 @@ async def test_legacy_ad_omits_extensions_entirely_when_every_identifier_drops()
 
 @pytest.mark.anyio
 async def test_modern_adopt_ad_includes_active_claim_identifiers() -> None:
-    """SDK-defined: the modern stamp's per-request `_meta` ad includes a claim-bearing
-    identifier when its claims are active at the adopted version."""
+    """SDK-defined: the modern per-request `_meta` ad includes identifiers whose claims are active."""
     dispatcher = _RecordingDispatcher()
     session = ClientSession(
         dispatcher=dispatcher,
@@ -321,8 +292,7 @@ async def test_modern_adopt_ad_includes_active_claim_identifiers() -> None:
 
 @pytest.mark.anyio
 async def test_discover_probe_ad_includes_claim_identifiers_at_the_probe_version() -> None:
-    """SDK-defined: `send_discover` builds its `_meta` ad at the probe version — modern,
-    so claim-bearing identifiers contribute."""
+    """SDK-defined: `send_discover` builds its `_meta` ad at the probe version, where claims are active."""
     dispatcher = _RecordingDispatcher()
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -337,8 +307,7 @@ async def test_discover_probe_ad_includes_claim_identifiers_at_the_probe_version
 
 @pytest.mark.anyio
 async def test_discover_probe_ad_drops_claim_identifiers_at_a_legacy_probe_version() -> None:
-    """SDK-defined: a lowlevel `send_discover` at a non-modern version string builds an
-    ad where no claim can be active, so the claim-bearing identifier drops coherently."""
+    """SDK-defined: at a legacy probe version no claim can be active, so the identifier drops."""
     dispatcher = _RecordingDispatcher()
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -364,9 +333,7 @@ async def _resolve_core_tagged(result: _CoreTaggedResult, ctx: ClaimContext) -> 
 
 @pytest.mark.anyio
 async def test_claim_tagged_core_cannot_hijack_core_parsing() -> None:
-    """SDK-defined: "core" is not protocol vocabulary, so a claim may use it as a wire
-    tag — and the adapter's internal routing sentinel must not collide: ordinary tool
-    results still parse as core results, and a claimed `core` raw routes to the model."""
+    """SDK-defined: a claim may use "core" as its wire tag without colliding with core parsing."""
     claim = ResultClaim(result_type="core", model=_CoreTaggedResult, resolve=_resolve_core_tagged)
     dispatcher = _RecordingDispatcher(tool_result={"resultType": "core", "payload": "p-1"})
     session = ClientSession(dispatcher=dispatcher, extensions={_TASKS_EXT: {}}, result_claims={_TASKS_EXT: [claim]})
@@ -380,14 +347,10 @@ async def test_claim_tagged_core_cannot_hijack_core_parsing() -> None:
     assert isinstance(claimed, _CoreTaggedResult)
 
 
-# ── Routing through the adopt-built adapter ─────────────────────────────────
-
-
 @pytest.mark.anyio
 @pytest.mark.parametrize("with_claims", [True, False])
 async def test_unknown_result_type_fails_validation_with_and_without_claims(with_claims: bool) -> None:
-    """SDK-defined: a resultType outside the active claim set routes to the core arm
-    and fails core validation — exactly the claim-less session's behaviour."""
+    """SDK-defined: a resultType outside the active claim set fails core validation, claims or not."""
     raw = {"resultType": "weird", "taskId": "t-1"}
     dispatcher = _RecordingDispatcher(tool_result=raw)
     session = _claims_session(dispatcher, _task_claim()) if with_claims else ClientSession(dispatcher=dispatcher)
@@ -396,15 +359,13 @@ async def test_unknown_result_type_fails_validation_with_and_without_claims(with
             _adopt_modern(session)
             with pytest.raises(ValidationError):
                 await session.call_tool("t", {}, allow_claimed=True)
-            # The rejection came from response parsing — the request did reach the wire.
+            # Rejected at response parsing; the request did reach the wire.
             assert dispatcher.calls[-1][0] == "tools/call"
 
 
 @pytest.mark.anyio
 async def test_non_string_result_type_fails_core_validation_not_discrimination() -> None:
-    """SDK-defined: a malformed (non-string) resultType stays on the core arm — the
-    discriminator never uses it as a lookup key, so the failure is today's
-    ValidationError, not a TypeError."""
+    """SDK-defined: a non-string resultType stays on the core arm and fails as ValidationError, not TypeError."""
     raw: dict[str, Any] = {"resultType": {"nested": True}}
     dispatcher = _RecordingDispatcher(tool_result=raw)
     session = _claims_session(dispatcher, _task_claim())
@@ -413,14 +374,12 @@ async def test_non_string_result_type_fails_core_validation_not_discrimination()
             _adopt_modern(session)
             with pytest.raises(ValidationError):
                 await session.call_tool("t", {}, allow_claimed=True)
-            # The rejection came from response parsing — the request did reach the wire.
+            # Rejected at response parsing; the request did reach the wire.
             assert dispatcher.calls[-1][0] == "tools/call"
 
 
 def test_adopt_built_adapter_revalidates_model_instances() -> None:
-    """SDK-defined: pydantic hands the callable discriminator either a raw dict or an
-    already-built model (revalidation); both route — a claim instance to its arm, a
-    core instance to the core arm."""
+    """SDK-defined: the adopt-built adapter routes already-built model instances as well as raw dicts."""
     session = _claims_session(_RecordingDispatcher(), _task_claim())
     _adopt_modern(session)
     adapter = session._call_tool_adapter
@@ -433,8 +392,7 @@ def test_adopt_built_adapter_revalidates_model_instances() -> None:
 
 @pytest.mark.anyio
 async def test_input_required_routes_to_core_arm_with_claims_active() -> None:
-    """Spec-mandated: `input_required` is core vocabulary — active claims leave the
-    multi-round-trip arm untouched."""
+    """Spec-mandated: `input_required` is core vocabulary; active claims leave that arm untouched."""
     raw = {"resultType": "input_required", "requestState": "s-1"}
     session = _claims_session(_RecordingDispatcher(tool_result=raw), _task_claim())
     with anyio.fail_after(5):
@@ -446,14 +404,10 @@ async def test_input_required_routes_to_core_arm_with_claims_active() -> None:
     assert result.request_state == "s-1"
 
 
-# ── allow_claimed ────────────────────────────────────────────────────────────
-
-
 @pytest.mark.anyio
 async def test_claimed_result_raises_unexpected_claimed_result_by_default() -> None:
-    """SDK-defined: without `allow_claimed=True` a claimed shape raises, carrying the
-    parsed value — the server may have durably created state (e.g. a task), and the
-    carried result is how the caller reaches its id to clean up."""
+    """SDK-defined: without `allow_claimed` a claimed shape raises, carrying the parsed
+    result so the caller can clean up any server-side state it references."""
     dispatcher = _RecordingDispatcher(tool_result=_CLAIMED_TASK_RESULT)
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -461,7 +415,7 @@ async def test_claimed_result_raises_unexpected_claimed_result_by_default() -> N
             _adopt_modern(session)
             with pytest.raises(UnexpectedClaimedResult) as exc_info:
                 await session.call_tool("t", {})
-            # The shape parsed and then raised — the request did reach the wire.
+            # The shape parsed and then raised; the request did reach the wire.
             assert dispatcher.calls[-1][0] == "tools/call"
 
     assert isinstance(exc_info.value.result, _TaskResult)
@@ -475,8 +429,7 @@ async def test_claimed_result_raises_unexpected_claimed_result_by_default() -> N
 
 @pytest.mark.anyio
 async def test_call_tool_result_path_identical_under_both_allow_claimed_values() -> None:
-    """SDK-defined: `allow_claimed` only affects claimed shapes — an ordinary
-    CallToolResult comes back identical with the flag on or off."""
+    """SDK-defined: `allow_claimed` only affects claimed shapes; ordinary results come back identical."""
     dispatcher = _RecordingDispatcher()
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -491,9 +444,7 @@ async def test_call_tool_result_path_identical_under_both_allow_claimed_values()
 
 @pytest.mark.anyio
 async def test_call_tool_overload_matrix_narrows_statically() -> None:
-    """SDK-defined: the allow_input_required x allow_claimed overload matrix — each
-    combination narrows to its documented return union (assert_type is checked by
-    pyright; the canned CallToolResult satisfies every combination at runtime)."""
+    """SDK-defined: each flag combination narrows `call_tool` to its documented return union under pyright."""
     dispatcher = _RecordingDispatcher()
     session = _claims_session(dispatcher, _task_claim())
     with anyio.fail_after(5):
@@ -511,13 +462,7 @@ async def test_call_tool_overload_matrix_narrows_statically() -> None:
     assert [type(r) for r in (r1, r2, r3, r4)] == [CallToolResult] * 4
 
 
-# ── The pinned dependency ────────────────────────────────────────────────────
-
-
 def test_claimed_raw_passes_v2026_tools_call_surface_validation() -> None:
-    """Pins the claim path's load-bearing dependency: a tools/call raw with an unknown
-    resultType passes `validate_server_result` at 2026-07-28 because the v2026 surface
-    InputRequiredResult keeps resultType open with optional fields. If mcp-types ever
-    tightens that surface, claimed results would be rejected before the session's
-    claim adapter — this failure is the signal, not a silent break."""
+    """Pins the claim path's dependency: an unknown resultType passes `validate_server_result`
+    at 2026-07-28; this failing is the signal that mcp-types tightened the surface."""
     validate_server_result("tools/call", LATEST_MODERN_VERSION, {"resultType": "task", "taskId": "t-1"})
