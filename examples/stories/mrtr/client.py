@@ -2,6 +2,7 @@
 
 import mcp_types as types
 
+from mcp import MCPError
 from mcp.client import Client, ClientRequestContext
 from stories._harness import Target, run_client
 
@@ -27,14 +28,42 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         first = await client.session.call_tool("deploy", {"env": "staging"}, allow_input_required=True)
         assert isinstance(first, types.InputRequiredResult)
         assert first.input_requests is not None and "confirm" in first.input_requests
-        assert first.request_state == "awaiting-confirm"
-        # Decline this time so the path diverges from the auto-loop run above.
+        # The wire request_state is OPAQUE: server.py wrote "awaiting-confirm", but the
+        # boundary middleware sealed it before it left the server — the plaintext never
+        # crosses the wire, and the client just echoes the token byte-exact.
+        token = first.request_state
+        assert token is not None and token != "awaiting-confirm", token
+
         responses: types.InputResponses = {"confirm": types.ElicitResult(action="decline")}
+
+        # Tamper demonstration: flip one character and retry. The token decodes strictly
+        # canonically, so changing ANY character — including the final one — rejects.
+        # Every verification failure collapses to ONE frozen wire error; the real reason
+        # (here: a failed authentication tag) appears only in the server's log.
+        i = len(token) // 2
+        tampered = token[:i] + ("A" if token[i] != "A" else "B") + token[i + 1 :]
+        try:
+            await client.session.call_tool(
+                "deploy",
+                {"env": "staging"},
+                input_responses=responses,
+                request_state=tampered,
+                allow_input_required=True,
+            )
+        except MCPError as e:
+            assert e.code == types.INVALID_PARAMS
+            assert e.message == "Invalid or expired requestState"
+            assert e.data == {"reason": "invalid_request_state"}
+        else:
+            raise AssertionError("expected MCPError for a tampered requestState")
+
+        # The untampered token still completes the round. Decline this time so the path
+        # diverges from the auto-loop run above.
         second = await client.session.call_tool(
             "deploy",
             {"env": "staging"},
             input_responses=responses,
-            request_state=first.request_state,
+            request_state=token,
             allow_input_required=True,
         )
         assert isinstance(second, types.CallToolResult)

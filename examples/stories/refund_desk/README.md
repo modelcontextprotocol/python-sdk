@@ -29,7 +29,10 @@ uv run python -m stories.refund_desk.client --http
 - `server.py` `refund_order` — the signature is the whole story: `order_id` and
   `reason` are model-facing; `cents` and `restock` carry `Resolve(...)` markers
   and never reach the input schema. `client.py` asserts `properties` and
-  `required` are exactly `{order_id, reason}`.
+  `required` are exactly `{order_id, reason}`. The server is constructed with
+  `request_state_security=RequestStateSecurity.ephemeral()` because at 2026 the
+  resolver's elicited answers ride between rounds inside a sealed
+  `requestState` — see `mrtr/` for the full security walk-through.
 - `server.py` `refund_scope` — the no-round-trip fast path: a one-line order
   returns `Scope(full=True)` directly; only a multi-line order returns
   `Elicit(...)`. The ORD-7001 call completes with zero elicitations.

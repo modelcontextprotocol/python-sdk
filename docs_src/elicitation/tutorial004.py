@@ -9,10 +9,11 @@ from mcp.server.mcpserver import (
     DeclinedElicitation,
     Elicit,
     ElicitationResult,
+    RequestStateSecurity,
     Resolve,
 )
 
-mcp = MCPServer("Files")
+mcp = MCPServer("Files", request_state_security=RequestStateSecurity.ephemeral())
 
 _FOLDERS: dict[str, list[str]] = {"/tmp/empty": [], "/tmp/project": ["main.py", "README.md"]}
 

@@ -609,7 +609,11 @@ class Client:
         callbacks and the call is retried automatically (up to
         `input_required_max_rounds`). To drive the loop yourself — e.g. to
         persist `request_state` across process restarts — use
-        `client.session.call_tool(..., allow_input_required=True)`.
+        `client.session.call_tool(..., allow_input_required=True)`. Persisted
+        state resumes only within the server's constraints: the token expires
+        after the server's per-round TTL (default 10 minutes), is bound to the
+        exact original request, and dies with the server's key — an
+        `ephemeral()` server rejects it after a restart.
 
         Args:
             name: The name of the tool to call.

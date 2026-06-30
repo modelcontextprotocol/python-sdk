@@ -3,9 +3,9 @@ from typing import Annotated
 from pydantic import BaseModel
 
 from mcp.server import MCPServer
-from mcp.server.mcpserver import Resolve
+from mcp.server.mcpserver import RequestStateSecurity, Resolve
 
-mcp = MCPServer("Bookshop")
+mcp = MCPServer("Bookshop", request_state_security=RequestStateSecurity.ephemeral())
 
 INVENTORY = {"Dune": 7, "Neuromancer": 0}
 

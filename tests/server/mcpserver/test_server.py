@@ -46,7 +46,7 @@ from starlette.routing import Mount, Route
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
+from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity, ResourceSecurity
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
@@ -1867,7 +1867,10 @@ async def test_read_resource_template_not_found():
 
 
 async def test_tool_returning_input_required_result_reaches_client_unchanged():
-    mcp = MCPServer()
+    # unprotected(): this test pins plaintext passthrough - the wire carries the
+    # handler's requestState exactly as written, the opt-out posture a
+    # declared-manual surface may choose.
+    mcp = MCPServer(request_state_security=RequestStateSecurity.unprotected())
 
     @mcp.tool()
     async def ask(ctx: Context) -> str | InputRequiredResult:
@@ -1884,7 +1887,7 @@ async def test_tool_returning_input_required_result_reaches_client_unchanged():
 
 
 async def test_tool_reads_input_responses_and_request_state_from_context_on_retry():
-    mcp = MCPServer()
+    mcp = MCPServer(request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.tool()
     async def greet(ctx: Context) -> str | InputRequiredResult:
@@ -1942,8 +1945,11 @@ def _ask_who() -> ElicitRequest:
 
 async def test_prompt_returning_input_required_result_reaches_client_unchanged():
     """A prompt function may return an InputRequiredResult and the pipeline passes it
-    through to the client (spec-mandated: SEP-2322 allows it on prompts/get)."""
-    mcp = MCPServer()
+    through to the client (spec-mandated: SEP-2322 allows it on prompts/get).
+
+    unprotected(): the assertion is on the verbatim wire requestState, the
+    opt-out posture a declared-manual surface may choose."""
+    mcp = MCPServer(request_state_security=RequestStateSecurity.unprotected())
 
     @mcp.prompt()
     async def briefing(ctx: Context) -> list[UserMessage] | InputRequiredResult:
@@ -1962,7 +1968,7 @@ async def test_prompt_returning_input_required_result_reaches_client_unchanged()
 async def test_prompt_reads_input_responses_and_request_state_from_context_on_retry():
     """The prompts/get retry carries input_responses and request_state to the prompt
     function via the Context, completing the SEP-2322 multi-round-trip flow."""
-    mcp = MCPServer()
+    mcp = MCPServer(request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.prompt()
     async def briefing(ctx: Context) -> list[UserMessage] | InputRequiredResult:
@@ -1994,7 +2000,7 @@ async def test_prompt_reads_input_responses_and_request_state_from_context_on_re
 async def test_prompt_input_required_result_on_legacy_session_is_a_serialization_error():
     """Pins the shared era gate: a pre-2026 session has no input_required vocabulary, so
     the runner rejects the frame with -32603 — the same posture the tools path has."""
-    mcp = MCPServer()
+    mcp = MCPServer(request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.prompt()
     async def briefing(ctx: Context) -> list[UserMessage] | InputRequiredResult:
@@ -2010,7 +2016,7 @@ async def test_prompt_input_required_result_on_legacy_session_is_a_serialization
 async def test_resource_template_input_required_result_on_legacy_session_is_a_serialization_error():
     """Pins the shared era gate for resources/read: a pre-2026 session has no
     input_required vocabulary, so the runner rejects the frame with -32603."""
-    mcp = MCPServer()
+    mcp = MCPServer(request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.resource("ask://{topic}")
     async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
@@ -2025,8 +2031,11 @@ async def test_resource_template_input_required_result_on_legacy_session_is_a_se
 
 async def test_resource_template_returning_input_required_result_reaches_client_unchanged():
     """A resource template function may return an InputRequiredResult and the pipeline
-    passes it through to the client (spec-mandated: SEP-2322 allows it on resources/read)."""
-    mcp = MCPServer()
+    passes it through to the client (spec-mandated: SEP-2322 allows it on resources/read).
+
+    unprotected(): the assertion is on the verbatim wire requestState, the
+    opt-out posture a declared-manual surface may choose."""
+    mcp = MCPServer(request_state_security=RequestStateSecurity.unprotected())
 
     @mcp.resource("ask://{topic}")
     async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
@@ -2045,7 +2054,7 @@ async def test_resource_template_returning_input_required_result_reaches_client_
 async def test_resource_template_reads_input_responses_from_context_on_retry():
     """The resources/read retry carries input_responses to the template function via the
     Context, completing the SEP-2322 multi-round-trip flow."""
-    mcp = MCPServer()
+    mcp = MCPServer(request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.resource("ask://{topic}")
     async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
@@ -2076,7 +2085,7 @@ async def test_resource_template_reads_input_responses_from_context_on_retry():
 async def test_context_read_resource_raises_on_input_required_result():
     """ctx.read_resource is a content reader: an InputRequiredResult from the template
     raises with a pointer at the forwarding path instead of widening every caller."""
-    mcp = MCPServer()
+    mcp = MCPServer(request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.resource("ask://{topic}")
     async def ask(topic: str, ctx: Context) -> str | InputRequiredResult:
@@ -2094,7 +2103,7 @@ async def test_context_read_resource_raises_on_input_required_result():
 async def test_mcpserver_read_resource_returns_input_required_result_for_handler_forwarding():
     """MCPServer.read_resource hands the template's InputRequiredResult to a direct caller
     unchanged — the composition path for a handler that forwards it as its own result."""
-    mcp = MCPServer()
+    mcp = MCPServer(request_state_security=RequestStateSecurity.ephemeral())
     sentinel = InputRequiredResult(input_requests={"who": _ask_who()})
 
     @mcp.resource("ask://{topic}")
@@ -2109,8 +2118,12 @@ async def test_mcpserver_read_resource_returns_input_required_result_for_handler
 async def test_context_read_resource_keeps_outer_input_responses_from_the_nested_template():
     """ctx.read_resource never participates in the multi-round-trip flow, so the nested
     template must not see the outer request's input_responses/request_state — a colliding
-    key would otherwise consume an answer meant for the outer handler's own question."""
-    mcp = MCPServer()
+    key would otherwise consume an answer meant for the outer handler's own question.
+
+    unprotected(): the probe below is client-built plaintext state that must reach
+    the outer request's context as-sent - the subject is nested-context isolation,
+    not the wire seal (no surface here mints state at all)."""
+    mcp = MCPServer(request_state_security=RequestStateSecurity.unprotected())
     seen_responses: list[InputResponses | None] = []
     seen_state: list[str | None] = []
 

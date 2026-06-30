@@ -6,16 +6,13 @@ Server implementing all MCP features for conformance testing based on Conformanc
 
 import asyncio
 import base64
-import binascii
-import hashlib
-import hmac
 import json
 import logging
 from typing import Annotated, Any
 
 import click
 from mcp.server import ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
 from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.shared.exceptions import MCPError
@@ -47,7 +44,7 @@ from mcp_types import (
     TextResourceContents,
     UnsubscribeRequestParams,
 )
-from mcp_types.jsonrpc import INVALID_PARAMS, MISSING_REQUIRED_CLIENT_CAPABILITY
+from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -100,8 +97,13 @@ watched_resource_content = "Watched resource content"
 # Create event store for SSE resumability (SEP-1699)
 event_store = InMemoryEventStore()
 
+# Fixed key for the conformance fixture; a real deployment would load a shared secret.
+# RequestStateSecurity requires keys of at least 32 bytes — this one is 43.
+_REQUEST_STATE_KEY = b"everything-server-fixture-request-state-key"
+
 mcp = MCPServer(
     name="mcp-conformance-test-server",
+    request_state_security=RequestStateSecurity(keys=[_REQUEST_STATE_KEY]),
 )
 
 
@@ -497,30 +499,14 @@ async def test_input_required_result_multi_round(ctx: Context) -> str | InputReq
     )
 
 
-# Fixed key for the conformance fixture; a real server would derive or rotate this.
-_STATE_HMAC_KEY = b"everything-server-fixture-key"
-
-
-def _seal_state(payload: str) -> str:
-    encoded = base64.urlsafe_b64encode(payload.encode()).decode()
-    sig = hmac.new(_STATE_HMAC_KEY, encoded.encode(), hashlib.sha256).hexdigest()
-    return f"{encoded}.{sig}"
-
-
-def _unseal_state(state: str) -> str:
-    encoded, _, sig = state.partition(".")
-    expected = hmac.new(_STATE_HMAC_KEY, encoded.encode(), hashlib.sha256).hexdigest()
-    if not sig or not hmac.compare_digest(sig, expected):
-        raise MCPError(code=INVALID_PARAMS, message="requestState failed integrity verification")
-    try:
-        return base64.urlsafe_b64decode(encoded).decode()
-    except (binascii.Error, UnicodeDecodeError) as e:
-        raise MCPError(code=INVALID_PARAMS, message="requestState failed integrity verification") from e
-
-
 @mcp.tool()
 async def test_input_required_result_tampered_state(ctx: Context) -> str | InputRequiredResult:
-    """Tests that the server rejects a requestState that fails HMAC verification"""
+    """Tests that the server rejects a tampered requestState echo.
+
+    The handler writes and reads plaintext state; sealing and tamper rejection
+    happen in the SDK's request-state boundary, so a tampered echo never
+    reaches this code.
+    """
     if ctx.request_state is None:
         confirm = ElicitRequest(
             params=ElicitRequestFormParams(
@@ -528,9 +514,8 @@ async def test_input_required_result_tampered_state(ctx: Context) -> str | Input
                 requested_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
             )
         )
-        return InputRequiredResult(input_requests={"confirm": confirm}, request_state=_seal_state("round-1"))
-    payload = _unseal_state(ctx.request_state)
-    return f"state-ok: {payload}"
+        return InputRequiredResult(input_requests={"confirm": confirm}, request_state="round-1")
+    return f"state-ok: {ctx.request_state}"
 
 
 @mcp.tool()

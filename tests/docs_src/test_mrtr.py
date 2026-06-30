@@ -18,9 +18,10 @@ from mcp_types import (
     TextContent,
 )
 
-from docs_src.mrtr import tutorial001, tutorial002, tutorial003, tutorial004
+from docs_src.mrtr import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005
 from mcp import Client, MCPError
 from mcp.client import ClientRequestContext
+from mcp.server.mcpserver import InvalidRequestState
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -161,3 +162,23 @@ async def test_the_prompt_auto_loop_returns_the_final_messages() -> None:
                 ],
             )
         )
+
+
+def test_a_custom_codec_round_trips_what_it_sealed() -> None:
+    """tutorial005: `unseal(seal(payload))` returns the payload; the token itself is opaque hex."""
+    codec = tutorial005.EnvelopeCodec(tutorial005.unwrap_data_key())
+    token = codec.seal(b"round-1")
+    assert token.startswith(tutorial005.PREFIX)
+    assert b"round-1" not in token.encode()
+    assert codec.unseal(token) == b"round-1"
+
+
+def test_a_custom_codec_raises_invalid_request_state_for_any_bad_token() -> None:
+    """tutorial005: a modified token and a token it never minted both raise `InvalidRequestState` -
+    the codec's whole contract. TTL, principal, and request binding are the SDK's job, not the codec's."""
+    codec = tutorial005.EnvelopeCodec(tutorial005.unwrap_data_key())
+    token = codec.seal(b"round-1")
+    with pytest.raises(InvalidRequestState):
+        codec.unseal(token + "00")  # extra ciphertext bytes: authentication fails
+    with pytest.raises(InvalidRequestState):
+        codec.unseal("not-a-token")

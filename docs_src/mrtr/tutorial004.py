@@ -1,9 +1,9 @@
 from mcp_types import ElicitRequest, ElicitRequestFormParams, ElicitResult, InputRequiredResult
 
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
 from mcp.server.mcpserver.prompts.base import UserMessage
 
-mcp = MCPServer("Briefing")
+mcp = MCPServer("Briefing", request_state_security=RequestStateSecurity.ephemeral())
 
 ASK_AUDIENCE = ElicitRequest(
     params=ElicitRequestFormParams(

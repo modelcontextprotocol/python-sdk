@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from functools import cache
 from types import MappingProxyType, UnionType
-from typing import Any, Final, Literal, TypeVar, get_args
+from typing import Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -28,6 +28,7 @@ __all__ = [
     "CLIENT_REQUESTS",
     "CLIENT_RESULTS",
     "CacheableMethod",
+    "INPUT_REQUIRED_METHODS",
     "MONOLITH_NOTIFICATIONS",
     "MONOLITH_REQUESTS",
     "MONOLITH_RESULTS",
@@ -36,6 +37,7 @@ __all__ = [
     "SERVER_RESULTS",
     "SPEC_CLIENT_METHODS",
     "SPEC_CLIENT_NOTIFICATION_METHODS",
+    "is_input_required",
     "parse_client_notification",
     "parse_client_request",
     "parse_client_result",
@@ -422,6 +424,27 @@ CACHEABLE_METHODS: Final[frozenset[str]] = frozenset(
     if any(issubclass(arm, types.CacheableResult) for arm in (get_args(row) if isinstance(row, UnionType) else (row,)))
 )
 """Runtime mirror of `CacheableMethod`, derived from `MONOLITH_RESULTS`."""
+
+INPUT_REQUIRED_METHODS: Final[frozenset[str]] = frozenset(
+    method
+    for method, row in MONOLITH_RESULTS.items()
+    if any(
+        issubclass(arm, types.InputRequiredResult) for arm in (get_args(row) if isinstance(row, UnionType) else (row,))
+    )
+)
+"""Methods whose results may be `InputRequiredResult` (the MRTR carriers), derived from `MONOLITH_RESULTS`."""
+
+
+def is_input_required(result: object) -> TypeGuard[types.InputRequiredResult | dict[str, Any]]:
+    """True when `result` is an `input_required` interim result, typed or wire-shaped.
+
+    Covers both shapes a server result takes in-process: the `InputRequiredResult`
+    model, and the serialized wire dict discriminated by `resultType` (any mapping
+    matches at runtime; the guard claims the SDK's wire-dict shape).
+    """
+    if isinstance(result, types.InputRequiredResult):
+        return True
+    return isinstance(result, Mapping) and cast("Mapping[str, Any]", result).get("resultType") == "input_required"
 
 
 # --- Parse functions ---
