@@ -45,6 +45,7 @@ from mcp.server.tasks import (
     UpdateTaskRequestParams,
 )
 from mcp.shared.exceptions import MCPError
+from mcp.shared.tasks import CancelTaskRequest, GetTaskRequest, GetTaskResult, UpdateTaskRequest
 
 pytestmark = pytest.mark.anyio
 
@@ -58,21 +59,6 @@ async def _send_raw(client: Client, request: BaseModel) -> dict[str, object]:
     result_type = cast("type[Result]", _RAW)
     result = await client.session.send_request(cast("types.ClientRequest", request), result_type)
     return cast("dict[str, object]", result)
-
-
-class _GetTaskRequest(types.Request[GetTaskRequestParams, Literal["tasks/get"]]):
-    method: Literal["tasks/get"] = "tasks/get"
-    params: GetTaskRequestParams
-
-
-class _CancelTaskRequest(types.Request[CancelTaskRequestParams, Literal["tasks/cancel"]]):
-    method: Literal["tasks/cancel"] = "tasks/cancel"
-    params: CancelTaskRequestParams
-
-
-class _UpdateTaskRequest(types.Request[UpdateTaskRequestParams, Literal["tasks/update"]]):
-    method: Literal["tasks/update"] = "tasks/update"
-    params: UpdateTaskRequestParams
 
 
 class _TasksResultRequest(types.Request[GetTaskRequestParams, Literal["tasks/result"]]):
@@ -120,16 +106,16 @@ async def _augmented_call(client: Client) -> dict[str, object]:
 
 
 async def _get_task(client: Client, task_id: str) -> dict[str, object]:
-    return await _send_raw(client, _GetTaskRequest(params=GetTaskRequestParams(task_id=task_id)))
+    return await _send_raw(client, GetTaskRequest(params=GetTaskRequestParams(task_id=task_id)))
 
 
 async def _cancel_task(client: Client, task_id: str) -> dict[str, object]:
-    return await _send_raw(client, _CancelTaskRequest(params=CancelTaskRequestParams(task_id=task_id)))
+    return await _send_raw(client, CancelTaskRequest(params=CancelTaskRequestParams(task_id=task_id)))
 
 
 async def _update_task(client: Client, task_id: str, responses: dict[str, Any] | None = None) -> dict[str, object]:
     params = UpdateTaskRequestParams(task_id=task_id, input_responses=responses or {})
-    return await _send_raw(client, _UpdateTaskRequest(params=params))
+    return await _send_raw(client, UpdateTaskRequest(params=params))
 
 
 class _ShortCircuit(Extension):
@@ -313,9 +299,58 @@ async def test_request_without_client_info_is_never_augmented() -> None:
     async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
         return sentinel
 
-    result = await Tasks(clock=lambda: _FIXED_NOW).intercept_tool_call(ctx.params, ctx, call_next)
+    params = types.CallToolRequestParams(name="echo", arguments={"text": "x"})
+    result = await Tasks(clock=lambda: _FIXED_NOW).intercept_tool_call(params, ctx, call_next)
 
     assert result is sentinel
+
+
+async def test_augment_predicate_scopes_augmentation_per_request() -> None:
+    """SEP-2663: `Tasks(augment=...)` is the server deciding "at its own discretion and
+    on a per-request basis" -- the declaring client's excluded call returns a plain
+    `CallToolResult` (no task recorded), while its included call still returns a task."""
+    recording = _RecordingStore()
+    tasks = Tasks(augment=lambda p: p.name in {"slow"}, clock=lambda: _FIXED_NOW, store=recording)
+    mcp = MCPServer("demo", extensions=[tasks])
+
+    @mcp.tool(structured_output=False)
+    def fast(text: str) -> str:
+        return text
+
+    @mcp.tool(structured_output=False)
+    def slow(text: str) -> str:
+        return text
+
+    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+        plain = await client.call_tool("fast", {"text": "x"})
+        assert recording.puts == []
+        augmented = await _send_raw(
+            client, types.CallToolRequest(params=types.CallToolRequestParams(name="slow", arguments={"text": "x"}))
+        )
+
+    assert plain == snapshot(types.CallToolResult(content=[types.TextContent(text="x")]))
+    assert plain.meta is None
+    assert augmented["resultType"] == "task"
+    assert len(recording.puts) == 1
+
+
+async def test_augment_predicate_false_lets_errors_propagate() -> None:
+    """SDK-defined: an `augment`-excluded call behaves exactly as for a non-declaring
+    client, errors included -- the JSON-RPC error propagates and no task is recorded."""
+    recording = _RecordingStore()
+    tasks = Tasks(augment=lambda p: False, clock=lambda: _FIXED_NOW, store=recording)
+    mcp = MCPServer("demo", extensions=[tasks])
+
+    @mcp.tool(structured_output=False)
+    def rejecting() -> str:
+        raise MCPError(code=INVALID_PARAMS, message="bad input")
+
+    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("rejecting", {})
+
+    assert exc_info.value.code == INVALID_PARAMS
+    assert recording.puts == []
 
 
 async def test_get_task_inlines_completed_call_tool_result_without_related_task_meta() -> None:
@@ -372,9 +407,81 @@ async def test_tool_error_result_is_a_completed_task_with_is_error_inlined() -> 
     assert inlined["isError"] is True
 
 
-async def test_mcp_error_from_tool_propagates_and_records_no_task() -> None:
-    """SDK-defined: a JSON-RPC error is the response the client is already waiting on:
-    no task was announced, so none is recorded (nothing is left behind at `working`)."""
+async def test_mcp_error_from_tool_records_failed_task_for_declaring_client() -> None:
+    """SEP-2663: a JSON-RPC error during an augmented call is a `failed` task -- the
+    declaring client gets a failed `CreateTaskResult` instead of the error, and
+    `tasks/get` inlines the JSON-RPC error (code/message/data) with NO `result` key.
+    Cancelling the failed task is still the empty-ack no-op (terminal is absorbing)."""
+    recording = _RecordingStore()
+    tasks = Tasks(clock=lambda: _FIXED_NOW, store=recording)
+    mcp = MCPServer("demo", extensions=[tasks])
+
+    @mcp.tool(structured_output=False)
+    def rejecting() -> str:
+        raise MCPError(code=INVALID_PARAMS, message="bad input", data={"field": "text"})
+
+    captured: list[str] = []
+    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+        created = await _send_raw(
+            client, types.CallToolRequest(params=types.CallToolRequestParams(name="rejecting", arguments={}))
+        )
+        assert isinstance(created["taskId"], str)
+        captured.append(created["taskId"])
+        detailed = await _get_task(client, created["taskId"])
+        ack = await _cancel_task(client, created["taskId"])
+        after = await _get_task(client, created["taskId"])
+
+    assert created == snapshot(
+        {
+            "resultType": "task",
+            "taskId": captured[0],
+            "status": "failed",
+            "statusMessage": "bad input",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "lastUpdatedAt": "2026-01-01T00:00:00Z",
+            "ttlMs": None,
+        }
+    )
+    assert detailed == snapshot(
+        {
+            "taskId": captured[0],
+            "status": "failed",
+            "statusMessage": "bad input",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "lastUpdatedAt": "2026-01-01T00:00:00Z",
+            "ttlMs": None,
+            "resultType": "complete",
+            "error": {"code": -32602, "message": "bad input", "data": {"field": "text"}},
+        }
+    )
+    assert "result" not in detailed
+    assert len(recording.puts) == 1
+    assert ack == snapshot({"resultType": "complete"})
+    assert after["status"] == "failed"
+
+
+async def test_error_data_from_nested_extension_records_failed_task() -> None:
+    """SDK-defined: an extension nested inside Tasks may return `ErrorData` instead of
+    raising (the runner's middleware error channel); under augmentation it is folded
+    into the same arm as a raise -- a `failed` task, not a JSON-RPC error response."""
+    recording = _RecordingStore()
+    short_circuit = _ShortCircuit([types.ErrorData(code=INTERNAL_ERROR, message="boom")])
+    server = _tasks_server(store=recording, extra_extensions=[short_circuit])
+
+    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as client:
+        created = await _augmented_call(client)
+        assert isinstance(created["taskId"], str)
+        detailed = await _get_task(client, created["taskId"])
+
+    assert created["status"] == "failed"
+    assert detailed["error"] == snapshot({"code": -32603, "message": "boom"})
+    assert "result" not in detailed
+    assert len(recording.puts) == 1
+
+
+async def test_mcp_error_still_propagates_for_non_declaring_client() -> None:
+    """SEP-2663: failed-task recording is an augmentation behaviour -- the same tool's
+    JSON-RPC error reaches a non-declaring client untouched, and no task is recorded."""
     recording = _RecordingStore()
     tasks = Tasks(clock=lambda: _FIXED_NOW, store=recording)
     mcp = MCPServer("demo", extensions=[tasks])
@@ -383,30 +490,49 @@ async def test_mcp_error_from_tool_propagates_and_records_no_task() -> None:
     def rejecting() -> str:
         raise MCPError(code=INVALID_PARAMS, message="bad input")
 
-    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(mcp) as client:
         with pytest.raises(MCPError) as exc_info:
-            await _send_raw(
-                client, types.CallToolRequest(params=types.CallToolRequestParams(name="rejecting", arguments={}))
-            )
+            await client.call_tool("rejecting", {})
 
     assert exc_info.value.code == INVALID_PARAMS
     assert recording.puts == []
 
 
-async def test_error_data_from_nested_extension_propagates_and_records_no_task() -> None:
-    """SDK-defined: an extension nested inside Tasks may return `ErrorData` instead of
-    raising (the runner's middleware error channel); the error reaches the declaring
-    client as a JSON-RPC error and no task is recorded."""
-    recording = _RecordingStore()
-    short_circuit = _ShortCircuit([types.ErrorData(code=INTERNAL_ERROR, message="boom")])
-    server = _tasks_server(store=recording, extra_extensions=[short_circuit])
+async def test_get_task_result_parses_completed_and_failed_wire_shapes() -> None:
+    """SDK-defined: `GetTaskResult` is the lenient client-side parse model for
+    `tasks/get` -- it parses the real wire dict of both terminal shapes, carrying
+    `result` for `completed` and `error` for `failed`, never both."""
+    tasks = Tasks(clock=lambda: _FIXED_NOW)
+    mcp = MCPServer("demo", extensions=[tasks])
 
-    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as client:
-        with pytest.raises(MCPError) as exc_info:
-            await _augmented_call(client)
+    @mcp.tool(structured_output=False)
+    def echo(text: str) -> str:
+        return text
 
-    assert exc_info.value.code == INTERNAL_ERROR
-    assert recording.puts == []
+    @mcp.tool(structured_output=False)
+    def rejecting() -> str:
+        raise MCPError(code=INVALID_PARAMS, message="bad input")
+
+    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+        ok = await _augmented_call(client)
+        bad = await _send_raw(
+            client, types.CallToolRequest(params=types.CallToolRequestParams(name="rejecting", arguments={}))
+        )
+        assert isinstance(ok["taskId"], str)
+        assert isinstance(bad["taskId"], str)
+        completed = GetTaskResult.model_validate(await _get_task(client, ok["taskId"]))
+        failed = GetTaskResult.model_validate(await _get_task(client, bad["taskId"]))
+
+    assert completed.status == "completed"
+    assert completed.result_type == "complete"
+    assert completed.result is not None
+    assert completed.result["content"] == [{"text": "hi", "type": "text"}]
+    assert completed.error is None
+    assert failed.status == "failed"
+    assert failed.status_message == "bad input"
+    assert failed.error == {"code": INVALID_PARAMS, "message": "bad input"}
+    assert failed.result is None
+    assert failed.ttl_ms is None
 
 
 async def test_input_required_interim_passes_through_and_only_the_completing_leg_mints_a_task() -> None:
@@ -640,7 +766,7 @@ async def test_put_sweeps_expired_records_so_the_store_stays_bounded() -> None:
     store = InMemoryTaskStore(clock=lambda: current["now"])
     stamp = "2026-01-01T00:00:00Z"
     no_ttl = Task(task_id="task_no_ttl", status="completed", created_at=stamp, last_updated_at=stamp)
-    await store.put(TaskRecord(task=no_ttl, result={}, expires_at=None))
+    await store.put(TaskRecord(task=no_ttl, result={}, error=None, expires_at=None))
 
     async with Client(_ticking_server(current, store=store), extensions=[advertise(EXTENSION_ID)]) as client:
         first = await _augmented_call(client)
