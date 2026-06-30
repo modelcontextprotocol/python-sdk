@@ -21,6 +21,17 @@ import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 
+
+class _DetachingTextIOWrapper(TextIOWrapper):
+    """TextIOWrapper that detaches from its buffer on close, preventing
+    the underlying buffer (e.g. sys.stdin.buffer) from being closed."""
+
+    def close(self):
+        try:
+            self.detach()
+        except (ValueError, OSError):
+            pass
+
 import anyio
 import anyio.lowlevel
 import mcp_types as types
@@ -39,9 +50,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        stdin = anyio.wrap_file(_DetachingTextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout = anyio.wrap_file(_DetachingTextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
