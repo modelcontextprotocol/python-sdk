@@ -27,7 +27,9 @@ then come back.
   `pollIntervalMs` hint, one second between polls in its absence — and surfaces
   only the final `CallToolResult`. A `failed` task raises the typed
   `TaskFailedError` carrying the inlined JSON-RPC error; a `cancelled` one raises
-  `TaskCancelledError`.
+  `TaskCancelledError`; an `input_required` one raises `TaskInputRequiredError` —
+  the automatic in-task input loop is not implemented yet, so drive that task
+  manually (below).
 
 Degradation is built in. A modern client that does not declare the extension is
 never augmented: it keeps getting plain `CallToolResult`s. And a legacy

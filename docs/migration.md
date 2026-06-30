@@ -2010,7 +2010,7 @@ async def elicitation_callback(
 
 Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp.types` as types-only definitions, except the `TaskExecutionMode` alias, whose literal is now inlined on `ToolExecution.task_support`.
 
-The 2026-07-28 revision reintroduces Tasks as an official extension: [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), `io.modelcontextprotocol/tasks`, redesigned around polling (`tasks/get`) instead of a blocking `tasks/result`. This SDK does not implement the extension yet.
+Tasks have since returned as the built-in `Tasks` extension ([SEP-2663](https://modelcontextprotocol.io/seps/2663-tasks-extension.md)), with a different wire shape than the experimental SEP-1686 surface — see [Server extensions API](#server-extensions-api-sep-2133) above and [Tasks](advanced/tasks.md).
 
 There is no drop-in replacement for the tasks runtime (`server.experimental.enable_tasks()`, `ctx.experimental.run_task()`, `ServerTaskContext`, and the client's `session.experimental.call_tool_as_task()` / `poll_task()` / `get_task_result()`); the port depends on what the code used tasks for.
 
