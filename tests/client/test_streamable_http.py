@@ -123,7 +123,12 @@ async def test_reconnection_empty_streams_count_toward_max_attempts(monkeypatch:
             return None
 
         async def aiter_sse(self) -> object:
-            yield SimpleNamespace(event="message", data="", id=f"event-{reconnect_attempts}", retry=0)
+            yield SimpleNamespace(  # pragma: lax no cover - coverage.py drops this nested async-generator yield
+                event="message",
+                data="",
+                id=f"event-{reconnect_attempts}",
+                retry=0,
+            )
 
     def connect_sse(*args: object, **kwargs: object) -> PrimingOnlyEventSource:
         return PrimingOnlyEventSource()
