@@ -133,8 +133,7 @@ class HeadlessOAuth:
     request does not re-enter the locked auth flow), parses `code` and `state` from the 302
     `Location`, and stashes them; `callback_handler` returns the stashed pair. Tests inspect
     `authorize_url` to assert what the SDK put on the authorize request, and `iss`/`error` to
-    assert what the redirect carried — both record the redirect regardless of the
-    callback-boundary levers below.
+    assert what the redirect carried.
 
     `state_override`: when set, `callback_handler` returns this value as the state instead of
     the one parsed from the redirect, so tests can drive the state-mismatch path.
@@ -142,13 +141,8 @@ class HeadlessOAuth:
     `iss_override`: when set, `callback_handler` returns this value as the RFC 9207 issuer
     instead of the one parsed from the redirect, so tests can drive the iss-mismatch path.
 
-    `code_override`: when set, `callback_handler` returns this value as the authorization code
-    instead of the one parsed from the redirect, so tests can drive the token-endpoint
-    rejection path.
-
-    `omit_iss`: when set, `callback_handler` returns no iss regardless of what the redirect
-    carried or what `iss_override` supplies (omission wins when both are set), so tests can
-    drive the missing-iss paths (the `iss_override` sentinel cannot express absence).
+    `code_override`: when set, returned as the code instead of the parsed one (token-endpoint rejection path).
+    `omit_iss`: when set, no iss is returned, overriding everything (`iss_override` cannot express absence).
     """
 
     def __init__(
@@ -341,9 +335,7 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2, p
     after the 401 branch, where the generator ends without inspecting the response), so a 403
     there would not reach the step-up handler.
 
-    `persist`: when set, every authenticated POST from the Nth onward receives the 403 challenge
-    instead of only the Nth, so tests can drive a further `insufficient_scope` challenge on the
-    request retried after a step-up.
+    `persist`: when set, 403s every authenticated POST from the Nth onward, re-challenging the step-up retry.
     """
     seen = 0
     fired = False

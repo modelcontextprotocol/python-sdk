@@ -4,8 +4,7 @@ Each test nests a sampling/createMessage request inside a tool call: the tool ha
 ctx.session.create_message(), the client's sampling callback answers it, and the handler
 round-trips what it received back to the test through its tool result.
 
-The 2026-07-28 MRTR successors embed the request in an input_required result instead of calling
-ctx.session.create_message(): the client fulfils it and retries the tool call.
+The 2026 MRTR tests embed the request in an input_required result instead; the client fulfils it and retries.
 """
 
 import mcp_types as types
@@ -698,10 +697,9 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
 async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the_retried_handler(
     connect: Connect,
 ) -> None:
-    """An embedded sampling/createMessage request in an input_required result is fulfilled by the
-    client's sampling callback, and the callback's result (role, content, model, stop reason)
-    reaches the retried tool handler in inputResponses. Spec-mandated (client/sampling, Creating
-    Messages -- the 2026 MRTR successor of the retired push round trip).
+    """An embedded sampling request is fulfilled by the client callback and its result reaches the retried handler.
+
+    Spec-mandated.
     """
     SENT = CreateMessageRequestParams(
         messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
@@ -754,11 +752,9 @@ async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the
 @requirement("sampling:mrtr:create:model-preferences")
 @requirement("sampling:mrtr:create:system-prompt")
 async def test_embedded_sampling_params_reach_the_callback_intact(connect: Connect) -> None:
-    """Model preferences (hints and the cost/speed/intelligence priorities), the system prompt,
-    the includeContext value, and the maxTokens cap supplied in an embedded
-    sampling/createMessage request all reach the client sampling callback unchanged.
-    Spec-mandated (client/sampling #model-preferences, #system-prompt, #context-inclusion,
-    #sampling-parameters).
+    """Every parameter supplied in an embedded sampling request reaches the client callback unchanged.
+
+    Spec-mandated.
     """
     SENT = CreateMessageRequestParams(
         messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
@@ -769,8 +765,7 @@ async def test_embedded_sampling_params_reach_the_callback_intact(connect: Conne
             intelligence_priority=0.9,
         ),
         system_prompt="You are terse.",
-        # "none", not the 2025 sibling's "thisServer": the other values are deprecated at
-        # 2026-07-28 (SEP-2596) and gated behind the sampling.context capability.
+        # The other include_context values are deprecated at 2026-07-28 (SEP-2596) and capability-gated.
         include_context="none",
         temperature=0.7,
         max_tokens=50,
@@ -814,12 +809,7 @@ async def test_embedded_sampling_params_reach_the_callback_intact(connect: Conne
 async def test_each_embedded_sampling_round_delivers_only_its_own_messages(connect: Connect) -> None:
     """Each embedded sampling round delivers exactly its own messages list to the client callback.
 
-    The 2026-07-28 sampling page says the messages list SHOULD NOT be retained between separate
-    requests; this is the MRTR face of that rule (the 2025-11-25 push face has its own test
-    below). Two productive rounds embed different single-message requests: a retaining or merging
-    client would show round one's message inside round two's list. The second decorator records
-    the incidental re-proof of the embed round trip (the callback's result reaches the retried
-    handler) and selects the 2026 cells.
+    A retaining client would show round one's message inside round two's list.
     """
     SENT1 = CreateMessageRequestParams(
         messages=[SamplingMessage(role="user", content=TextContent(text="round one"))],
@@ -875,22 +865,13 @@ async def test_each_embedded_sampling_round_delivers_only_its_own_messages(conne
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: reply 2")]))
-    # Identity per round (pass-through rule): round two delivered exactly its own params.
     assert callback_received == [SENT1, SENT2]
 
 
 @requirement("sampling:create:messages-not-retained")
 @requirement("sampling:create:basic")
 async def test_each_push_sampling_request_delivers_only_its_own_messages(connect: Connect) -> None:
-    """Each push sampling request delivers exactly its own messages list to the client callback.
-
-    The 2025-11-25 push face of the messages-not-retained rule (the 2026-07-28 MRTR face has its
-    own test above; the stacked era-bound entry selects the legacy cells). The handler makes two
-    back-to-back sampling/createMessage requests in one session with different single messages: a
-    retaining client would show the first request's message inside the second's list. The
-    deprecated create_message call uses the file's pyright-ignore idiom (the SEP-2577 runtime
-    warning is globally ignored in pyproject filterwarnings).
-    """
+    """Each push sampling request delivers exactly its own messages list to the client callback."""
     first_messages = [SamplingMessage(role="user", content=TextContent(text="round one"))]
     second_messages = [SamplingMessage(role="user", content=TextContent(text="round two"))]
     callback_received: list[CreateMessageRequestParams] = []
@@ -933,9 +914,7 @@ async def test_each_push_sampling_request_delivers_only_its_own_messages(connect
     async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_twice", {})
 
-    # Both replies embedded in one result: role/content/model/stopReason reached the handler.
     assert result == snapshot(
         CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: reply 1 | mock-llm-1/endTurn: reply 2")])
     )
-    # Identity per request: the second request carried only its own message.
     assert [p.messages for p in callback_received] == [first_messages, second_messages]

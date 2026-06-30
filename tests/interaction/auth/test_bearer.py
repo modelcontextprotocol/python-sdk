@@ -158,16 +158,11 @@ async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_sco
 
 @requirement("hosting:auth:scope-403:all-scopes")
 async def test_a_token_missing_two_required_scopes_is_challenged_with_only_the_first() -> None:
-    """A token missing both required scopes is challenged for one scope per round trip.
+    """A token missing both required scopes is challenged for only the first missing scope.
 
-    The spec says servers SHOULD include all scopes required for the current operation in a
-    single challenge; the bearer middleware instead checks required scopes in order and 403s on
-    the first missing one, naming only that scope in `error_description` (and emitting no
-    `scope` parameter at all -- the sibling `hosting:auth:scope-403` divergence). Pins the known
-    gap recorded on the requirement (divergence); when the middleware aggregates, this test
-    fails -- re-pin to a challenge naming both scopes and delete the Divergence. The two-scope
-    app is built inline: the file's `protected` fixture is single-scope, and a two-scope deficit
-    is this entry's distinct observable.
+    Pins the recorded divergence: the middleware checks required scopes in order and names
+    only the first missing one, where the spec wants all of them in a single challenge.
+    When the middleware aggregates: re-pin to a challenge naming both scopes and delete the Divergence.
     """
     settings = auth_settings(required_scopes=["mcp:read", "mcp:write"])
     verifier = StaticTokenVerifier(
@@ -178,8 +173,6 @@ async def test_a_token_missing_two_required_scopes_is_challenged_with_only_the_f
         response = await post_mcp(http, bearer="tok-zeroscope")
 
     assert response.status_code == 403
-    # Full-dict equality: only the FIRST missing scope (registration order) is named, and no
-    # `scope` key appears.
     assert parse_www_authenticate(response.headers["www-authenticate"]) == {
         "error": "insufficient_scope",
         "error_description": "Required scope: mcp:read",

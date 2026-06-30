@@ -179,11 +179,7 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
 
 @requirement("roots:mrtr:list:basic")
 async def test_embedded_roots_list_is_fulfilled_and_the_roots_reach_the_retried_handler(connect: Connect) -> None:
-    """An embedded roots/list request in an input_required result is fulfilled by the client's
-    roots callback, and the returned roots (uri, name) reach the retried tool handler in
-    inputResponses. Spec-mandated (client/roots, Listing Roots -- the 2026 MRTR successor of the
-    retired push round trip).
-    """
+    """The roots callback answers an embedded roots/list and its roots reach the retried handler. Spec-mandated."""
     ROOTS = ListRootsResult(
         roots=[
             Root(uri=FileUrl("file:///home/alice/project"), name="project"),
@@ -234,10 +230,7 @@ file:///home/alice/scratch name=None\
 
 @requirement("roots:mrtr:list:empty")
 async def test_an_empty_embedded_roots_list_reaches_the_retried_handler_as_such(connect: Connect) -> None:
-    """An empty roots list returned by the client's roots callback for an embedded roots/list
-    request reaches the retried tool handler as an empty list -- not an error, not an absent
-    response. Spec-mandated (client/roots, Listing Roots).
-    """
+    """An empty embedded roots list reaches the retried handler as an empty list, not an error. Spec-mandated."""
     EMPTY = ListRootsResult(roots=[])
     handler_received: list[InputResponses] = []
 

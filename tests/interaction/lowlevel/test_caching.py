@@ -1,12 +1,7 @@
-"""SEP-2549 caching hints: producer-side stamping and the client-facing TTL/scope semantics.
+"""SEP-2549 caching hints: producer-side stamping and client-facing TTL/scope semantics.
 
-The fixture-driven tests pin what the public Client surfaces on the era matrix; one test records
-2026 JSON-RPC frames over the modern HTTP entry because absent-vs-default hint keys are invisible
-to typed models; and one plays a non-conformant server by hand over memory streams because the
-typed Server cannot author the malformed value under test. The client-side response-cache
-behaviours (fresh windows, invalidation, cache keys) are deliberately absent: the SDK has no
-response cache, and the manifest tracks each as a deferred `caching:*` entry that re-opens when
-one lands.
+One test pins 2026 wire frames (typed models hide absent-vs-default keys); one scripts a
+non-conformant server (the typed Server cannot author the malformed value); response caching is deferred.
 """
 
 import anyio
@@ -47,8 +42,7 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
-# Non-default on purpose (the defaults are 0/"private"): a result the server failed to stamp
-# would surface the defaults, so only non-default values prove the authored hints travelled.
+# Non-default values (the defaults are 0/"private") prove the authored hints travelled.
 PROMPTS_TTL_MS = 60_000
 TEMPLATES_TTL_MS = 120_000
 
@@ -61,15 +55,10 @@ _NAME_SCHEMA: dict[str, object] = {
 
 @requirement("caching:hints:prompts-list")
 async def test_prompts_list_result_carries_the_handler_authored_ttl_and_scope_hints(connect: Connect) -> None:
-    """Handler-authored ttlMs/cacheScope on a prompts/list result reach the client unmodified, on
-    a resultType complete result. Spec-mandated (draft server/utilities/caching, the six-operation
-    MUST); the non-default values prove the hints travelled -- a result the server failed to stamp
-    would surface the 0/private defaults. On the streamable-http cell the 2026 wire surface makes
-    both hints required, so the client's own validation co-proves wire presence.
-    """
+    """Handler-authored ttlMs/cacheScope on a prompts/list result reach the client unmodified. Spec-mandated."""
 
     async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
-        assert params is not None  # the client always sends params, even without a cursor
+        assert params is not None
         return ListPromptsResult(prompts=[Prompt(name="greet")], ttl_ms=PROMPTS_TTL_MS, cache_scope="public")
 
     server = Server("cached", on_list_prompts=list_prompts)
@@ -87,17 +76,12 @@ async def test_prompts_list_result_carries_the_handler_authored_ttl_and_scope_hi
 async def test_resource_templates_list_result_carries_the_handler_authored_ttl_and_scope_hints(
     connect: Connect,
 ) -> None:
-    """Handler-authored ttlMs/cacheScope on a resources/templates/list result reach the client
-    unmodified, on a resultType complete result. Spec-mandated (draft server/utilities/caching --
-    the sixth operation of the six-operation MUST); the non-default values prove the hints
-    travelled, and on the streamable-http cell the required 2026 wire aliases co-prove wire
-    presence.
-    """
+    """Handler-authored hints on a resources/templates/list result reach the client unmodified. Spec-mandated."""
 
     async def list_resource_templates(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> ListResourceTemplatesResult:
-        assert params is not None  # the client always sends params, even without a cursor
+        assert params is not None
         return ListResourceTemplatesResult(
             resource_templates=[ResourceTemplate(name="file", uri_template="file:///{name}")],
             ttl_ms=TEMPLATES_TTL_MS,
@@ -119,11 +103,9 @@ async def test_resource_templates_list_result_carries_the_handler_authored_ttl_a
 async def test_mismatched_per_page_cache_scopes_are_forwarded_unmodified_across_a_cursor_walk(
     connect: Connect,
 ) -> None:
-    """A handler that authors cacheScope public on page 1 and private on page 2 of one cursor walk
-    reaches the client unmodified on both pages: the SDK applies no cross-page cacheScope
-    consistency, so the spec's same-scope-all-pages MUST rests entirely on the handler author.
-    Pins the known gap recorded on the requirement (divergence); a future enforcing SDK fails this
-    test -- re-pin to `page2.cache_scope == page1.cache_scope` and delete the Divergence.
+    """Mismatched per-page cacheScopes in one cursor walk reach the client unmodified (pinned Divergence).
+
+    When enforcement lands: re-pin to `page2.cache_scope == page1.cache_scope` and delete the Divergence.
     """
     seen_cursors: list[str | None] = []
 
@@ -148,7 +130,6 @@ async def test_mismatched_per_page_cache_scopes_are_forwarded_unmodified_across_
 
     assert page1.cache_scope == "public"
     assert page2.cache_scope == "private"
-    # One request's page sequence, not two independent walks.
     assert seen_cursors == [None, "page-2"]
 
 
@@ -156,17 +137,14 @@ async def test_mismatched_per_page_cache_scopes_are_forwarded_unmodified_across_
 async def test_a_result_without_ttl_from_a_2025_server_surfaces_the_immediately_stale_defaults(
     connect: Connect,
 ) -> None:
-    """A 2025-era exchange carries no ttlMs/cacheScope on the wire (the
-    hosting:http:legacy-no-modern-vocabulary entry pins the absence over HTTP); the client
-    surfaces ttl_ms 0 -- immediately stale -- and the SDK's safe cacheScope default private. The
-    ttl half is the spec SHOULD for older servers; the private half is SDK-defined (the spec
-    sentence covers only ttlMs).
+    """A hint-less 2025-era result surfaces ttl_ms 0 (immediately stale) and cache_scope private.
+
+    The ttl half is the spec SHOULD for older servers; the private half is SDK-defined behaviour.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         assert params is not None
-        # Neither hint authored: the spec's "older server versions" scenario, not laziness --
-        # authored hints would be dropped on the 2025 wire anyway.
+        # Neither hint authored: the spec's "older server versions" scenario.
         return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
 
     server = Server("cached", on_list_tools=list_tools)
@@ -181,18 +159,17 @@ async def test_a_result_without_ttl_from_a_2025_server_surfaces_the_immediately_
 
 @requirement("caching:ttl:zero-immediately-stale")
 async def test_ttl_zero_results_are_refetched_on_every_access(connect: Connect) -> None:
-    """Two consecutive list_tools calls against a ttlMs-0 server both reach the handler: nothing
-    is served from a cache. Honest provenance: this passes by construction -- the client has no
-    response cache at all, so the identical observable would occur for any ttl (the positive-ttl
-    fresh window is the deferred not-implemented sibling). The pin is the regression bar for a
-    future cache: one that wrongly served a ttlMs-0 entry fails it.
+    """Two consecutive list_tools calls against a ttlMs-0 server both reach the handler.
+
+    Passes by construction (the client has no response cache); the pin is the regression bar for
+    a future cache that wrongly serves a ttlMs-0 entry.
     """
     fetches: list[int] = []
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
         assert params is not None
         fetches.append(1)
-        # ttl_ms=0 authored explicitly: the value under test, not the default's accident.
+        # Explicit ttl_ms=0: the value under test, not the default's accident.
         return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})], ttl_ms=0, cache_scope="public")
 
     server = Server("cached", on_list_tools=list_tools)
@@ -202,7 +179,6 @@ async def test_ttl_zero_results_are_refetched_on_every_access(connect: Connect) 
         second = await client.list_tools()
 
     assert len(fetches) == 2
-    # The stamped value really was the one under test on both fetches.
     assert first.ttl_ms == 0
     assert second.ttl_ms == 0
 
@@ -213,15 +189,10 @@ async def test_ttl_zero_results_are_refetched_on_every_access(connect: Connect) 
 @requirement("caching:input-required:no-hints")
 @requirement("mrtr:input-required-result:result-type-serialized")
 async def test_the_interim_input_required_frame_carries_no_caching_hints_while_the_complete_frame_does() -> None:
-    """On one resources/read MRTR exchange, the serialized interim frame's result holds exactly
-    inputRequests plus resultType input_required -- no ttlMs, no cacheScope -- while the terminal
-    complete frame of the same method carries both. Asserted at the client transport seam over the
-    modern HTTP entry because typed models hide absent-vs-default (the monolith would default-fill
-    the hints on read-back); the in-test contrast frame guards the absence assertion against
-    vacuity. Spec-mandated (draft server/utilities/caching: interim results are not cacheable and
-    carry no caching hints), and the same key-set pin proves the resultType discriminator is
-    serialized explicitly (the stacked mrtr entry). The unobservable consumer half ('are not
-    cacheable') is recorded on the entry, not here.
+    """The serialized interim input_required frame carries no caching hints; the terminal complete frame does.
+
+    Asserted at the transport seam because typed models hide absent-vs-default; the key-set pin
+    also proves resultType is serialized explicitly (the stacked mrtr entry). Spec-mandated.
     """
 
     async def read_resource(
@@ -237,8 +208,7 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
         answer = params.input_responses["who"]
         assert isinstance(answer, ElicitResult)
         assert answer.content is not None
-        # Both hints authored non-default (the defaults are 0/"private"): the contrast frame is
-        # provably handler-driven, not default fill.
+        # Non-default hints: the contrast frame is provably handler-driven, not default fill.
         return ReadResourceResult(
             contents=[TextResourceContents(uri="res://profile", text=f"hi {answer.content['name']}")],
             ttl_ms=60_000,
@@ -252,8 +222,7 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
         return ElicitResult(action="accept", content={"name": "ada"})
 
     with anyio.fail_after(5):
-        # One combined async-with, the recorder bound via := -- a separately nested `async with`
-        # line mis-traces its exit arcs under branch coverage on 3.11+.
+        # Combined async-with (recorder via :=): a nested `async with` mis-traces exit arcs under 3.11+ branch coverage.
         async with (
             mounted_app(server) as (http, _),
             Client(
@@ -264,7 +233,7 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
         ):
             result = await client.read_resource("res://profile")
 
-    # The whole sent log, not a filter: resources/read generates no implicit sibling traffic.
+    # resources/read generates no implicit sibling traffic, so the whole request log is asserted.
     reads = [message.message for message in recording.sent if isinstance(message.message, JSONRPCRequest)]
     assert [read.method for read in reads] == ["resources/read", "resources/read"]
     responses = {
@@ -274,15 +243,12 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
     }
     interim = responses[reads[0].id]
     complete = responses[reads[1].id]
-    # Exact key vocabulary: a stronger absence claim than two `not in` checks -- any field added to
-    # interim frames fails loudly -- and the explicit resultType value is the stacked entry's pin.
+    # Exact key vocabulary, stronger than `not in` checks: any field added to interim frames fails loudly.
     assert sorted(interim) == ["inputRequests", "resultType"]
     assert interim["resultType"] == "input_required"
-    # The same-exchange contrast frame: the terminal complete result of the same method carries both.
     assert complete["ttlMs"] == 60_000
     assert complete["cacheScope"] == "public"
     assert complete["resultType"] == "complete"
-    # The typed surface agrees with the terminal frame.
     assert result.contents == [TextResourceContents(uri="res://profile", text="hi ada")]
     assert result.ttl_ms == 60_000
 
@@ -292,13 +258,9 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
 
 @requirement("caching:ttl:negative-treated-as-zero")
 async def test_a_negative_ttl_from_a_nonconformant_server_is_rejected_not_coerced_to_zero() -> None:
-    """A tools/list answer carrying ttlMs -1 raises a pydantic ValidationError out of the awaiting
-    call instead of being ignored and treated as 0 -- the spec SHOULD is not implemented (known
-    gap recorded on the requirement: Field(ge=0) rejects before any leniency could run). The test
-    plays the server by hand over memory streams because the typed Server cannot author a negative
-    ttlMs (the same ge=0 constraint, at construction), and uses the bare pinned-2026 ClientSession
-    because Client has no public connect path over raw scripted streams. When coerce-to-zero
-    leniency lands, this test fails: re-pin to ttl_ms == 0 and delete the Divergence.
+    """An inbound ttlMs of -1 raises ValidationError instead of being treated as 0 (pinned Divergence).
+
+    When coerce-to-zero leniency lands: re-pin to ttl_ms == 0 and delete the Divergence.
     """
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
@@ -319,10 +281,8 @@ async def test_a_negative_ttl_from_a_nonconformant_server_is_rejected_not_coerce
                     )
                 )
             )
-            # Returns naturally: the task group needs no cancel after the session context exits.
 
-        # One combined async-with: a separately nested `async with` line mis-traces its exit
-        # arcs under branch coverage on 3.11+.
+        # Combined async-with: a nested `async with` mis-traces exit arcs under 3.11+ branch coverage.
         async with (
             anyio.create_task_group() as task_group,
             ClientSession(client_read, client_write, client_info=Implementation(name="cli", version="0")) as session,
@@ -342,6 +302,5 @@ async def test_a_negative_ttl_from_a_nonconformant_server_is_rejected_not_coerce
             errors = excinfo.value.errors()
             assert len(errors) == 1
             assert errors[0]["loc"] == ("ttlMs",)
-            # Stable pydantic-core identifier; the message text is third-party and
-            # deliberately unpinned.
+            # Stable pydantic-core identifier; the message text is third-party and deliberately unpinned.
             assert errors[0]["type"] == "greater_than_equal"
