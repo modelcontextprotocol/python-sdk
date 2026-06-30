@@ -6,14 +6,19 @@ through `client.session.send_request`; `CreateTaskResult` and the `tasks/get`
 envelope have non-spec shapes, so the raw wire dict is read with a permissive
 `dict` result type. Determinism comes from an injected fixed `clock`; task ids
 are random `task_<token>` bearer capabilities, so they are captured and reused
-for identity rather than snapshotted.
+for identity rather than snapshotted. The one exception to the in-memory rule is
+the SEP-2663 routing-header test, which drives the in-process HTTP bridge because
+the `Mcp-Name` header only exists at the HTTP seam.
 """
 
+import json
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any, Literal, cast
 
+import anyio
+import httpx
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -29,6 +34,7 @@ from pydantic import BaseModel, TypeAdapter
 
 from mcp.client import advertise
 from mcp.client.client import Client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import MCPServer
@@ -46,6 +52,7 @@ from mcp.server.tasks import (
 )
 from mcp.shared.exceptions import MCPError
 from mcp.shared.tasks import CancelTaskRequest, GetTaskRequest, GetTaskResult, UpdateTaskRequest
+from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
 
@@ -642,6 +649,49 @@ async def test_tasks_result_method_is_method_not_found() -> None:
             await _send_raw(client, _TasksResultRequest(params=GetTaskRequestParams(task_id=task_id)))
 
     assert exc_info.value.code == METHOD_NOT_FOUND
+
+
+async def test_tasks_requests_over_streamable_http_carry_mcp_name_routing_header() -> None:
+    """SEP-2663 §Streamable HTTP: Routing Headers: when `tasks/get`, `tasks/update`, or
+    `tasks/cancel` is sent over Streamable HTTP, "the client MUST set the `Mcp-Name` header
+    (defined by SEP-2243) to the value of `params.taskId`" so intermediaries can route the
+    request to the instance holding the task's state.
+
+    The session's modern stamp reads `NAME_BEARING_METHODS`, so the typed `tasks/*` wrappers
+    sent through `client.session.send_request` are stamped with no tasks-specific client code.
+    Asserted at the wire via the `mounted_app` request hook because the client never exposes
+    outgoing headers; each call also round-trips successfully, so the stamped value passes the
+    server's header-mismatch rung end to end."""
+    posts: list[httpx.Request] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        posts.append(request)
+
+    captured: list[str] = []
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_tasks_server(), on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                extensions=[advertise(EXTENSION_ID)],
+            ) as client,
+        ):
+            created = await _augmented_call(client)
+            assert isinstance(created["taskId"], str)
+            captured.append(created["taskId"])
+            await _get_task(client, created["taskId"])
+            await _update_task(client, created["taskId"])
+            await _cancel_task(client, created["taskId"])
+
+    task_id = captured[0]
+    observed = [(json.loads(request.content)["method"], request.headers.get("mcp-name")) for request in posts]
+    assert observed == [
+        ("server/discover", None),
+        ("tools/call", "echo"),
+        ("tasks/get", task_id),
+        ("tasks/update", task_id),
+        ("tasks/cancel", task_id),
+    ]
 
 
 @pytest.mark.parametrize("method", ["get", "update", "cancel"])

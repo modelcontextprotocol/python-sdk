@@ -63,7 +63,7 @@ MCP_METHOD_HEADER: Final = "mcp-method"
 """Canonical lowercase name of the HTTP header carrying the JSON-RPC method."""
 
 MCP_NAME_HEADER: Final = "mcp-name"
-"""Canonical lowercase name of the HTTP header carrying the resource name (tool/prompt/resource URI)."""
+"""Canonical lowercase name of the HTTP header carrying the resource name (tool/prompt name, resource URI, task id)."""
 
 X_MCP_HEADER_KEY: Final = "x-mcp-header"
 """JSON-Schema property annotation that designates an `Mcp-Param-*` HTTP header."""
@@ -73,9 +73,16 @@ NAME_BEARING_METHODS: Final[Mapping[str, str]] = MappingProxyType(
         "tools/call": "name",
         "prompts/get": "name",
         "resources/read": "uri",
+        "tasks/get": "taskId",
+        "tasks/update": "taskId",
+        "tasks/cancel": "taskId",
     }
 )
-"""Method → params key whose value is mirrored as the `Mcp-Name` HTTP header.
+"""Method → wire params key whose value is mirrored as the `Mcp-Name` HTTP header.
+
+The first three rows are SEP-2243; the `tasks/*` rows are SEP-2663 §Streamable
+HTTP: Routing Headers, which mandates `Mcp-Name: <taskId>` so intermediaries can
+route task requests to the server instance holding the task's state.
 
 Shared by client emit (which header to send) and server validate (which body
 field to compare against), so both ends agree on the field by construction.
