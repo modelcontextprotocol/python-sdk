@@ -817,3 +817,16 @@ def test_decode_header_value_returns_none_for_non_canonical_base64(value: str) -
     """The decoder requires canonical base64: a payload that decodes but does not re-encode
     byte-identically (or lacks padding) is malformed, not a lenient near-miss."""
     assert decode_header_value(value) is None
+
+
+def test_validate_mcp_param_headers_union_typed_annotation_invalidates_the_whole_tool() -> None:
+    """A union-typed annotated property (e.g. `["integer", "null"]`) fails the
+    integer/string/boolean-only constraint, so the whole schema validates nothing —
+    symmetric with conforming clients dropping the tool from `tools/list`."""
+    union_schema = {
+        "type": "object",
+        "properties": {"n": {"type": ["integer", "null"], "x-mcp-header": "N"}},
+    }
+    assert find_invalid_x_mcp_header(union_schema) is not None
+    assert validate_mcp_param_headers(union_schema, {"n": 42}, {"Mcp-Param-N": "999"}) is None
+    assert validate_mcp_param_headers(union_schema, {"n": 42}, {}) is None
