@@ -87,6 +87,27 @@ class TestServer:
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
 
+    def test_run_suppresses_keyboard_interrupt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mcp = MCPServer("test")
+
+        def raise_keyboard_interrupt(*args: Any, **kwargs: Any) -> None:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("mcp.server.mcpserver.server.anyio.run", raise_keyboard_interrupt)
+
+        assert mcp.run(transport="stdio") is None
+
+    def test_run_reraises_other_exceptions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mcp = MCPServer("test")
+
+        def raise_runtime_error(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("startup failed")
+
+        monkeypatch.setattr("mcp.server.mcpserver.server.anyio.run", raise_runtime_error)
+
+        with pytest.raises(RuntimeError, match="startup failed"):
+            mcp.run(transport="stdio")
+
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
