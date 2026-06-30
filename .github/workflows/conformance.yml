@@ -75,6 +75,22 @@ jobs:
           --suite all
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
+      - name: Run server conformance (all suite, extension scenarios)
+        # A bare `--suite all` (no --spec-version) selects every scenario
+        # shipped with the pinned harness — including the extension-tagged
+        # tasks-* scenarios and pending-listed ones like server-sse-polling,
+        # which no other leg reaches (extension scenarios never match a
+        # --spec-version filter, and the pending list keeps them out of the
+        # active suite). Running the full set keeps unimplemented surfaces
+        # visible as baselined known failures in expected-failures.yml instead
+        # of silent exclusions, and stays robust to scenarios moving between
+        # harness suite lists across pin bumps. `--suite pending` would cover
+        # the same union slightly faster; the full set is preferred for the
+        # self-contained run and for parity with typescript-sdk's CI.
+        run: >-
+          ./.github/actions/conformance/run-server.sh
+          --suite all
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
 
   client-conformance:
     runs-on: ubuntu-latest
