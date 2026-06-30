@@ -141,6 +141,19 @@ class InMemorySubscriptionBus:
         return unsubscribe
 
 
+def _safe_unsubscribe(unsubscribe: Callable[[], None]) -> None:
+    """Run a bus's unsubscribe callable, isolating the stream from it raising.
+
+    The callable comes from a custom `SubscriptionBus`; a raising one is
+    logged and skipped so it cannot stop the stream's own cleanup from
+    releasing its subscription slot.
+    """
+    try:
+        unsubscribe()
+    except Exception:  # fan-out boundary: a raising bus must not skip stream cleanup
+        logger.exception("bus unsubscribe raised; continuing stream cleanup")
+
+
 def _honored_subset(requested: SubscriptionFilter) -> SubscriptionFilter:
     """The subset of `requested` the server will deliver, for the ack.
 
@@ -263,7 +276,7 @@ class ListenHandler:
                     _event_to_notification(event, meta), related_request_id=subscription_id
                 )
         finally:
-            unsubscribe()
+            _safe_unsubscribe(unsubscribe)
             self._streams.discard(send)
             send.close()
             recv.close()

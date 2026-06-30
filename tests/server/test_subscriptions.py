@@ -315,6 +315,53 @@ async def test_raising_listener_is_isolated_from_others() -> None:
 
 
 @pytest.mark.anyio
+async def test_raising_unsubscribe_does_not_skip_stream_cleanup() -> None:
+    """SDK-defined: a custom bus whose unsubscribe callable raises is logged
+    and isolated - the stream still releases its subscription slot, closes its
+    buffers, and returns the graceful result."""
+
+    class _RaisingUnsubscribeBus(InMemorySubscriptionBus):
+        def subscribe(self, listener: Callable[[ServerEvent], None]) -> Callable[[], None]:
+            super().subscribe(listener)
+
+            def unsubscribe() -> None:
+                raise RuntimeError("boom")
+
+            return unsubscribe
+
+    handler = ListenHandler(_RaisingUnsubscribeBus(), max_subscriptions=1)
+    session = _RecordingSession()
+    results: list[SubscriptionsListenResult] = []
+
+    async with anyio.create_task_group() as tg:
+
+        async def run() -> None:
+            results.append(await handler(_ctx(session), _params(tools_list_changed=True)))
+
+        tg.start_soon(run)
+        await session.wait_for(1)
+        handler.close()
+
+    assert results[0].meta == {SUBSCRIPTION_ID_META_KEY: 7}  # the graceful result still returned
+
+    # The slot was released despite the raising unsubscribe: a second listen
+    # is accepted at the cap of one.
+    late_session = _RecordingSession()
+    late_results: list[SubscriptionsListenResult] = []
+
+    async with anyio.create_task_group() as tg:
+
+        async def run_late() -> None:
+            late_results.append(await handler(_ctx(late_session, request_id=8), _params(tools_list_changed=True)))
+
+        tg.start_soon(run_late)
+        await late_session.wait_for(1)
+        handler.close()
+
+    assert late_results[0].meta == {SUBSCRIPTION_ID_META_KEY: 8}
+
+
+@pytest.mark.anyio
 async def test_subscription_limit_rejects_further_streams_pre_ack() -> None:
     """SDK-defined cap (mirrors the TypeScript SDK): past `max_subscriptions`,
     a listen request is rejected before any ack frame."""
