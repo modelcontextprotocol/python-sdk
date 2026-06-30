@@ -28,6 +28,9 @@ from mcp_types import (
 import mcp.server.request_state as request_state_module
 from mcp import Client
 from mcp.server import MCPServer, Server, ServerRequestContext
+from mcp.server.auth.middleware.auth_context import auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
 from mcp.server.context import HandlerResult
 from mcp.server.mcpserver import Context
 from mcp.server.request_state import (
@@ -1191,3 +1194,62 @@ async def test_a_fractional_mint_instant_keeps_the_full_ttl(monkeypatch: pytest.
 
     assert isinstance(second, CallToolResult)
     assert seen == ["awaiting-confirm"]
+
+
+async def test_default_principal_distinguishes_two_subjects_of_one_oauth_client() -> None:
+    """Spec-mandated (basic/patterns/mrtr server requirement 5, cross-user reuse): with the
+    default binding, state sealed for one user of an OAuth client is rejected for another
+    user of the same client and restored only for the original subject."""
+    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience="svc")
+    seen: list[str | None] = []
+
+    async def mint(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
+        return InputRequiredResult(input_requests={"confirm": _ask("PIN?")}, request_state="alice-secret")
+
+    async def restore(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
+        assert ctx.params is not None
+        seen.append(ctx.params["requestState"])
+        return CallToolResult(content=[TextContent(text="done")])
+
+    def request(token: str | None = None) -> ServerRequestContext[Any, Any]:
+        params: dict[str, Any] = {"name": "fetch_pin", "arguments": {}}
+        if token is not None:
+            params["requestState"] = token
+        return ServerRequestContext(
+            session=cast("Any", None),
+            lifespan_context={},
+            protocol_version="2026-07-28",
+            method="tools/call",
+            params=params,
+        )
+
+    def as_user(subject: str) -> AuthenticatedUser:
+        shared_client = "https://agent.example/client.json"
+        return AuthenticatedUser(
+            AccessToken(token=f"at-{subject}", client_id=shared_client, scopes=[], subject=subject)
+        )
+
+    reset = auth_context_var.set(as_user("alice"))
+    try:
+        sealed = await boundary(request(), mint)
+    finally:
+        auth_context_var.reset(reset)
+    assert isinstance(sealed, InputRequiredResult)
+    assert sealed.request_state is not None
+
+    reset = auth_context_var.set(as_user("bob"))
+    try:
+        with pytest.raises(MCPError) as exc:
+            await boundary(request(sealed.request_state), restore)
+    finally:
+        auth_context_var.reset(reset)
+    _assert_frozen_rejection(exc)
+    assert seen == []
+
+    reset = auth_context_var.set(as_user("alice"))
+    try:
+        result = await boundary(request(sealed.request_state), restore)
+    finally:
+        auth_context_var.reset(reset)
+    assert isinstance(result, CallToolResult)
+    assert seen == ["alice-secret"]
