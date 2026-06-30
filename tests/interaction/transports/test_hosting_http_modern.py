@@ -474,11 +474,9 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
     The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers.
     The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
     implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
-    The server, which does validate `Mcp-Param-*` headers against its own catalog, rejects exactly as the
-    spec's scenario table requires for an omitted header whose value is in the body (the client-side
-    relist-and-retry recovery is a spec SHOULD the client does not implement yet).
+    The server validates `Mcp-Param-*` against its own catalog and rejects as the spec's scenario table
+    requires for an omitted header (the relist-and-retry recovery is a SHOULD the client does not implement yet).
     """
-    # The rejected call is the only request: no implicit output-schema list follows a failure.
     requests: list[httpx.Request] = []
 
     async def on_request(request: httpx.Request) -> None:
@@ -519,10 +517,8 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
     bad_schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}}
     valid = Tool(name="run", input_schema=schema)
     invalid = Tool(name="run", input_schema=bad_schema)
-    # First listing valid, every later one invalid. Listings are not counted: beyond the client's own
-    # calls (initial list, the re-list that drops the tool, the implicit re-list before the second call,
-    # since the prune also cleared `run`'s schema entry), the server reads its own catalog to validate
-    # `Mcp-Param-*` headers on each tools/call.
+    # First listing valid, every later one invalid; the count is not pinned because the server also
+    # reads its own catalog on each tools/call.
     listings: list[None] = []
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:

@@ -219,9 +219,7 @@ async def _write(
 _MCP_PARAM_PREFIX_LOWER: Final = MCP_PARAM_HEADER_PREFIX.lower()
 
 _MCP_PARAM_LIST_PAGE_CAP: Final = 100
-"""Upper bound on `tools/list` pages walked while resolving a tool schema for
-`Mcp-Param-*` validation. A paginator bug (non-terminating or cycling cursor
-chain) must degrade to a logged validation skip, never a request-path hang."""
+"""Page cap for the schema-resolving tools/list walk: a buggy paginator degrades to a logged skip, not a hang."""
 
 
 async def _tool_input_schema(
@@ -234,14 +232,9 @@ async def _tool_input_schema(
 ) -> Any | None:
     """Resolve `name`'s inputSchema from the server's own registered `tools/list` handler.
 
-    The synthetic listing runs through the normal `serve_one` path — the
-    caller's envelope (rebuilt from the classifier verdict, so caller-side
-    `_meta` extras like a progress token are not replayed), the middleware
-    chain, a fresh per-page `Connection`, and an absorbing dispatch context
-    (no SSE sink, so request-scoped notifications drop instead of raising) —
-    so a visibility-scoped catalog yields exactly what *this* caller was
-    advertised. Returns `None` (caller skips validation) when the listing
-    raises, paginates past the cap or cycles, or never advertises the tool.
+    The listing runs through the normal `serve_one` path, so a visibility-scoped
+    catalog yields exactly what *this* caller was advertised. Returns None
+    (caller skips validation) when the listing fails or never advertises the tool.
     """
     meta = {
         PROTOCOL_VERSION_META_KEY: verdict.protocol_version,
@@ -258,9 +251,7 @@ async def _tool_input_schema(
         message_metadata=ServerMessageMetadata(request_context=request),
     )
     for _ in range(_MCP_PARAM_LIST_PAGE_CAP):
-        # A fresh per-page Connection is load-bearing: serve_one tears down
-        # the connection's exit stack on the way out. The dispatch context is
-        # page-independent and reused.
+        # Fresh Connection per page: serve_one tears down the connection's exit stack on the way out.
         connection = Connection.from_envelope(verdict.protocol_version, client_info, client_capabilities)
         try:
             result = await serve_one(
@@ -271,26 +262,17 @@ async def _tool_input_schema(
                     return tool.get("inputSchema")
             cursor = result.get("nextCursor")
         except ValidationError:
-            # Client fault: a mis-shaped envelope value the classifier admits
-            # on key presence alone fails the kernel's surface validation here
-            # first. The real dispatch produces the INVALID_PARAMS reply, so
-            # this is not worth more than a debug line (an exception-level log
-            # would let any client flood the log blaming the server).
+            # Client-fault envelope: the real dispatch produces the INVALID_PARAMS
+            # reply, and anything above a debug line would let clients flood the log.
             logger.debug("Mcp-Param header validation skipped: the request envelope fails tools/list validation")
             return None
         except Exception:
-            # Boundary by design: header validation must never break a working
-            # call path, so a failing listing — the handler raising, or a
-            # middleware short-circuit returning a mis-shaped result — skips
-            # validation for this request. Loudly, because the skip is
-            # fail-open. (A server broken here is broken for real discovery
-            # too.)
+            # Fail-open boundary by design: header validation must never break a
+            # working call path. Loud, precisely because the skip is fail-open.
             logger.exception("Mcp-Param header validation skipped: the tools/list listing failed")
             return None
         if not isinstance(cursor, str):
-            # Listing exhausted without advertising `name`: nothing was
-            # declared to this caller, so there is nothing to validate —
-            # dispatch owns rejecting a genuinely unknown tool.
+            # Listing exhausted without advertising `name`; dispatch owns rejecting an unknown tool.
             return None
         if cursor in seen_cursors:
             logger.warning("Mcp-Param header validation skipped: the tools/list handler returned a cursor cycle")
@@ -313,13 +295,9 @@ async def _mcp_param_rejection(
 ) -> InboundLadderRejection | None:
     """Validate a `tools/call` request's `Mcp-Param-*` headers against the called tool's schema.
 
-    Runs post-classification, pre-dispatch — and before any SSE machinery, so
-    a rejection is always a plain `application/json` 400 (the spec's MUST for
-    header-validation failures). The schema source is the registered
-    `tools/list` handler; with none registered the catalog is undiscoverable,
-    no client can have been told about an `x-mcp-header` annotation, and there
-    is no recognized header to validate. A mis-shaped `name`/`arguments` is
-    left to params validation at dispatch.
+    Runs pre-dispatch, before any SSE machinery, so a rejection is always a
+    plain `application/json` 400 (the spec's MUST). With no `tools/list` handler
+    the catalog is undiscoverable and there is no recognized header to validate.
     """
     if req.method != "tools/call" or app.get_request_handler("tools/list") is None:
         return None
@@ -331,11 +309,9 @@ async def _mcp_param_rejection(
     if raw_arguments is not None and not isinstance(raw_arguments, Mapping):
         return None
     arguments: Mapping[str, Any] = cast("Mapping[str, Any]", raw_arguments) if raw_arguments is not None else {}
-    # ASGI guarantees lowercase header names, same invariant the classifier
-    # leans on; the pure validator re-folds for arbitrary carriers.
+    # ASGI guarantees lowercase header names, so no case-folding here.
     if not arguments and not any(header.startswith(_MCP_PARAM_PREFIX_LOWER) for header in request.headers):
-        # With no argument values and no `Mcp-Param-*` headers, no declaration
-        # could be violated in either direction — skip the listing outright.
+        # No argument values and no `Mcp-Param-*` headers: no declaration can be violated either way.
         return None
     input_schema = await _tool_input_schema(app, request, req.id, verdict, lifespan_state, name)
     if input_schema is None:
@@ -382,9 +358,7 @@ async def handle_modern_request(
     try:
         decoded = json.loads(body)
     except ValueError:
-        # ValueError, not its JSONDecodeError subclass: an integer literal
-        # beyond CPython's int-conversion digit limit raises the bare parent
-        # and is just as unparseable.
+        # Not just JSONDecodeError: integer literals beyond CPython's digit limit raise bare ValueError.
         rej = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
         await _write(rej, scope, receive, send)
         return
@@ -408,10 +382,7 @@ async def handle_modern_request(
 
     duplicated = find_duplicated_routing_header(request.headers.items())
     if duplicated is not None:
-        # The classifier receives a folded mapping that can no longer show
-        # duplicates, so the raw-carrier check lives here: a routing header
-        # supplied twice is unverifiable (a consumer reading one copy and the
-        # validator the other would disagree).
+        # The raw carrier is the only place duplicates are visible; the classifier sees a folded mapping.
         rejection = InboundLadderRejection(code=HEADER_MISMATCH, message=f"{duplicated} header appears more than once")
         await _write_rejection(rejection, req.id, scope, receive, send)
         return

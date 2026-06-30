@@ -691,8 +691,7 @@ def _x_mcp_server(tools: list[Tool] | None = None) -> Server[Any]:
 
 
 async def test_modern_tools_call_accepts_matching_mcp_param_header() -> None:
-    """A `Mcp-Param-*` header agreeing with the body argument (after sentinel decoding)
-    passes validation and the call dispatches normally."""
+    """A `Mcp-Param-*` header that agrees with the body argument after sentinel decoding dispatches normally."""
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post(
             "/mcp",
@@ -707,9 +706,7 @@ async def test_modern_tools_call_accepts_matching_mcp_param_header() -> None:
 async def test_modern_tools_call_rejects_mcp_param_mismatch_with_400_and_header_mismatch(
     json_response: bool,
 ) -> None:
-    """Spec MUST: a header/body disagreement on an annotated param is HTTP 400 with a
-    `HEADER_MISMATCH` JSON-RPC error — a plain `application/json` reply in SSE mode too,
-    because validation runs before any SSE machinery."""
+    """Spec MUST: a header/body mismatch is HTTP 400 + `HEADER_MISMATCH`, plain JSON even in SSE mode."""
     async with _asgi_client(_x_mcp_server(), json_response=json_response) as http:
         response = await http.post(
             "/mcp",
@@ -724,8 +721,7 @@ async def test_modern_tools_call_rejects_mcp_param_mismatch_with_400_and_header_
 
 
 async def test_modern_tools_call_rejects_missing_mcp_param_header_for_present_argument() -> None:
-    """Spec table: the client omitted the header while the body carries the annotated
-    argument — the server MUST reject."""
+    """Spec table: a missing header for a present annotated argument MUST be rejected."""
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post("/mcp", json=_tool_call_body({"region": "test-value"}), headers=_TOOL_CALL_HEADERS)
     assert response.status_code == 400
@@ -733,8 +729,7 @@ async def test_modern_tools_call_rejects_missing_mcp_param_header_for_present_ar
 
 
 async def test_modern_tools_call_rejects_orphan_mcp_param_header() -> None:
-    """SDK posture on the spec table's missing cell: a header for an absent argument is the
-    routing-spoof case header validation exists to stop, so it rejects."""
+    """SDK posture: a header for an absent argument is the routing-spoof case the gate exists to stop."""
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post(
             "/mcp", json=_tool_call_body({}), headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"}
@@ -744,8 +739,7 @@ async def test_modern_tools_call_rejects_orphan_mcp_param_header() -> None:
 
 
 async def test_modern_tools_call_skips_validation_without_a_tools_list_handler() -> None:
-    """A server with no `tools/list` handler has an undiscoverable catalog: no client was
-    told about any annotation, so `Mcp-Param-*` headers are unrecognized and ignored."""
+    """Without a `tools/list` handler no annotations were ever advertised, so `Mcp-Param-*` headers are ignored."""
     server: Server[Any] = Server("test")
     server.add_request_handler("tools/call", CallToolRequestParams, _ok_call_tool)
     async with _asgi_client(server) as http:
@@ -759,9 +753,7 @@ async def test_modern_tools_call_skips_validation_without_a_tools_list_handler()
 
 
 async def test_modern_tools_call_skips_validation_when_tool_not_listed_to_this_caller() -> None:
-    """A tool absent from the listing was never advertised to this caller — its headers are
-    unrecognized (visibility-scoped catalogs validate against the caller's own view), and a
-    genuinely unknown tool stays dispatch's to reject."""
+    """A tool absent from this caller's listing was never advertised to it, so its headers go unvalidated."""
     other = Tool(name="other", input_schema={"type": "object"})
     async with _asgi_client(_x_mcp_server(tools=[other])) as http:
         response = await http.post(
@@ -775,8 +767,7 @@ async def test_modern_tools_call_skips_validation_when_tool_not_listed_to_this_c
 async def test_modern_tools_call_skips_validation_when_list_handler_raises(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A raising `tools/list` handler skips validation (availability over strictness: the
-    server is equally broken for real discovery) and the skip is logged loudly."""
+    """A raising `tools/list` handler fails open — validation is skipped and the skip logged at error level."""
 
     async def broken_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         raise RuntimeError("catalog backend down")
@@ -794,8 +785,7 @@ async def test_modern_tools_call_skips_validation_when_list_handler_raises(
 
 
 async def test_modern_tools_call_walks_pagination_to_find_the_tool() -> None:
-    """The schema lookup follows `nextCursor` pages; a tool on a later page still gets its
-    headers validated."""
+    """The schema lookup follows `nextCursor` pages; a tool on a later page is still validated."""
     cursors_seen: list[str | None] = []
 
     async def paged_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -820,8 +810,7 @@ async def test_modern_tools_call_walks_pagination_to_find_the_tool() -> None:
 async def test_modern_tools_call_skips_validation_on_a_cursor_cycle(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A `tools/list` handler that repeats a cursor cannot hang the request path: the walk
-    stops at the first repeat, logs, and validation is skipped."""
+    """A repeated cursor stops the walk with a logged skip instead of hanging the request."""
 
     async def cycling_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[], next_cursor="loop", ttl_ms=0, cache_scope="public")
@@ -861,8 +850,7 @@ async def test_modern_tools_call_skips_validation_at_the_pagination_cap(
 
 
 async def test_modern_tools_call_threads_the_callers_envelope_into_the_synthetic_listing() -> None:
-    """The synthetic `tools/list` runs as *this* caller: its context carries the request
-    envelope's client info, so a visibility-scoped handler produces the caller's view."""
+    """The synthetic `tools/list` runs as this caller, so a visibility-scoped handler produces its view."""
     seen: list[Any] = []
 
     async def recording_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -883,8 +871,7 @@ async def test_modern_tools_call_threads_the_callers_envelope_into_the_synthetic
 
 
 async def test_modern_tools_call_leaves_mis_shaped_name_and_arguments_to_dispatch() -> None:
-    """A body without a string `name` (or with non-mapping `arguments`) is params
-    validation's to reject at dispatch — never a header mismatch."""
+    """A missing `name` or non-mapping `arguments` is dispatch's INVALID_PARAMS, never a header mismatch."""
     async with _asgi_client(_x_mcp_server()) as http:
         nameless = await http.post("/mcp", json=_tool_call_body(name=None), headers={MCP_METHOD_HEADER: "tools/call"})
         bad_arguments_body = _tool_call_body()
@@ -899,9 +886,7 @@ async def test_modern_tools_call_leaves_mis_shaped_name_and_arguments_to_dispatc
 
 
 async def test_modern_tools_call_rejects_a_duplicated_mcp_param_header() -> None:
-    """A recognized header supplied twice is rejected even when one copy matches the body:
-    an intermediary reads the first copy, so last-wins validation would let the two
-    disagree — the divergence the gate exists to prevent."""
+    """A duplicated recognized header is rejected even if one copy matches: readers may disagree on which wins."""
     # An httpx header list with a repeated name reaches the ASGI scope as two raw header lines.
     duplicated = httpx.Headers(
         [*_TOOL_CALL_HEADERS.items(), ("mcp-param-region", "spoofed"), ("mcp-param-region", "eu")]
@@ -915,8 +900,7 @@ async def test_modern_tools_call_rejects_a_duplicated_mcp_param_header() -> None
 
 
 async def test_modern_synthetic_listing_does_not_replay_caller_meta_extras() -> None:
-    """The synthetic listing's envelope is rebuilt from the classifier verdict: caller-side
-    `_meta` extras such as a progress token are not replayed into the `tools/list` handler."""
+    """The rebuilt synthetic-listing envelope does not replay caller `_meta` extras like a progress token."""
     seen_metas: list[Any] = []
 
     async def recording_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -936,9 +920,7 @@ async def test_modern_synthetic_listing_does_not_replay_caller_meta_extras() -> 
 
 
 async def test_modern_post_rejects_a_duplicated_routing_header() -> None:
-    """A routing header (here `Mcp-Name`) supplied twice is unverifiable — a consumer
-    reading one raw line and the validator the other would disagree — so the request is
-    rejected before the validation ladder runs."""
+    """A duplicated routing header (`Mcp-Name`) is unverifiable and rejected before the validation ladder runs."""
     duplicated = httpx.Headers(
         [(MCP_METHOD_HEADER, "tools/call"), (MCP_NAME_HEADER, "search"), (MCP_NAME_HEADER, "admin-tool")]
     )
@@ -953,9 +935,7 @@ async def test_modern_post_rejects_a_duplicated_routing_header() -> None:
 async def test_modern_tools_call_mis_shaped_envelope_skips_validation_without_an_error_log(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A classifier-passing but mis-shaped envelope value fails the synthetic listing's
-    surface validation — a client fault logged at debug, never an error-level traceback
-    blaming the server's handler. The wire reply is the real dispatch's INVALID_PARAMS."""
+    """A mis-shaped envelope value is a debug-logged client fault; the wire reply is dispatch's INVALID_PARAMS."""
     body = _tool_call_body({"region": "eu"})
     body["params"]["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
     with caplog.at_level(logging.DEBUG, logger=_streamable_http_modern.__name__):
@@ -971,9 +951,7 @@ async def test_modern_tools_call_mis_shaped_envelope_skips_validation_without_an
 async def test_modern_tools_call_survives_a_middleware_short_circuit_with_a_mis_shaped_listing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A middleware that short-circuits `tools/list` with a mis-shaped result bypasses
-    serialization; the fail-open boundary covers the result scan too, so the call proceeds
-    with validation skipped instead of crashing to a 500."""
+    """A mis-shaped `tools/list` result from a middleware short-circuit fails open instead of crashing to a 500."""
 
     async def short_circuit(ctx: Any, call_next: Any) -> Any:
         if ctx.method == "tools/list":
@@ -994,8 +972,7 @@ async def test_modern_tools_call_survives_a_middleware_short_circuit_with_a_mis_
 
 
 async def test_modern_post_with_an_oversized_integer_literal_is_parse_error_not_a_crash() -> None:
-    """A body whose integer literal exceeds CPython's int-conversion digit limit raises a
-    bare ValueError from json.loads — still an unparseable body: 400 + PARSE_ERROR."""
+    """An integer past CPython's digit limit makes json.loads raise a bare ValueError — still 400 + PARSE_ERROR."""
     body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"a":' + b"1" * 5000 + b"}}"
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})

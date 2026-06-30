@@ -177,10 +177,8 @@ def decode_header_value(value: str | None) -> str | None:
         decoded = base64.b64decode(payload, validate=True)
     except binascii.Error:
         return None
-    # Canonical-form gate: `validate=True` still tolerates payloads whose
-    # trailing bits are non-zero (e.g. `SGVsbG9=` for `Hello`); re-encoding
-    # must reproduce the payload exactly. The encoder only emits canonical
-    # base64, so no conforming peer is affected.
+    # Reject non-canonical base64 (e.g. non-zero trailing bits), which
+    # `validate=True` tolerates; the encoder only ever emits canonical form.
     if base64.b64encode(decoded).decode("ascii") != payload:
         return None
     try:
@@ -251,10 +249,7 @@ def x_mcp_header_map(input_schema: Any) -> dict[tuple[str, ...], str]:
 def _annotated_positions(input_schema: Any) -> Iterator[tuple[tuple[str, ...], str, dict[str, Any]]]:
     """Yield `(path, token, schema)` for every statically-reachable `x-mcp-header` annotation.
 
-    The single source of the "what counts as a declared header" predicate,
-    consumed by both the client-emit side (:func:`x_mcp_header_map`) and the
-    server-validate side (:func:`validate_mcp_param_headers`) so the two ends
-    of the mirror contract cannot drift.
+    Shared by client emit and server validate so both ends agree on what counts as a declared header.
     """
     for path, schema in _walk_schema_positions(input_schema):
         if path and isinstance(token := schema.get(X_MCP_HEADER_KEY), str):
@@ -262,16 +257,10 @@ def _annotated_positions(input_schema: Any) -> Iterator[tuple[tuple[str, ...], s
 
 
 def _render_header_scalar(value: Any) -> str | None:
-    """Render an argument value the way the client mirrors it into a header, or `None`
-    when no header rendering exists.
+    """Render `value` the way the client mirrors it into a header, or `None` when no rendering exists.
 
-    The single source of the "mirrorable value" fact, shared by emit
-    (:func:`mcp_param_headers`, which omits the header) and validate
-    (:func:`validate_mcp_param_headers`, for which a header claiming an
-    unmirrorable value can never match) so the two sides agree by
-    construction. Unmirrorable: non-primitive values — the spec defines
-    rendering for string/integer/boolean only — and integers beyond CPython's
-    int-to-str conversion limit, which no JSON peer can express anyway.
+    Shared by emit and validate so both sides agree on what is mirrorable:
+    non-primitives and ints beyond CPython's int-to-str digit limit are not.
     """
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -291,8 +280,8 @@ def mcp_param_headers(header_map: Mapping[tuple[str, ...], str], arguments: Mapp
     `Mcp-Param-<token>` carrying it: `bool` as `true`/`false`, other scalars via
     `str`, each passed through :func:`encode_header_value` so a non-token value
     is base64-wrapped. A path that hits a missing key or a non-mapping node is
-    skipped, matching the spec's "omit the header when no value is present" —
-    as is a value with no header rendering (see :func:`_render_header_scalar`).
+    skipped, matching the spec's "omit the header when no value is present",
+    as is a value with no header rendering.
     """
     headers: dict[str, str] = {}
     for path, token in header_map.items():
@@ -363,16 +352,9 @@ _ROUTING_HEADER_NAMES: Final = frozenset({MCP_PROTOCOL_VERSION_HEADER, MCP_METHO
 def find_duplicated_routing_header(headers: Iterable[tuple[str, str]]) -> str | None:
     """Name of a routing header supplied more than once in raw header lines, or `None`.
 
-    `headers` is the carrier's raw `(name, value)` pairs (e.g.
-    `request.headers.items()`), which — unlike a folded mapping — still shows
-    duplicates. The routing headers (`MCP-Protocol-Version`, `Mcp-Method`,
-    `Mcp-Name`) are always recognized, so a duplicate is always unverifiable:
-    a consumer reading one copy and a validator reading the other would
-    disagree, the divergence header validation exists to prevent. Callers
-    reject with `HEADER_MISMATCH` before running the validation ladder.
-    `Mcp-Param-*` duplicates are not this function's job:
-    :func:`validate_mcp_param_headers` rejects recognized ones and the spec's
-    forward-and-ignore rule covers unrecognized ones.
+    Takes raw `(name, value)` pairs — a folded mapping hides duplicates. A
+    duplicate is rejected because first-copy and last-copy readers would
+    disagree. `Mcp-Param-*` duplicates are :func:`validate_mcp_param_headers`'s job.
     """
     seen: set[str] = set()
     for name, _ in headers:
@@ -468,27 +450,18 @@ def classify_inbound_request(
     )
 
 
-# An integer header value the spec's numeric-comparison SHOULD applies to:
-# optional sign, digits, optional pure-decimal fraction. Scientific notation
-# (`1e2`) and anything looser never compares numerically — the same canonical-
-# decimal gate the typescript-sdk applies on the header side.
+# Header values eligible for the spec's numeric-comparison SHOULD; scientific
+# notation never compares numerically (matching the typescript-sdk's gate).
 _CANONICAL_DECIMAL = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
 
 
 def _mcp_param_value_matches(prop_type: Any, value: Any, rendered: str, decoded: str) -> bool:
     """True when a decoded `Mcp-Param-*` header value agrees with the body argument.
 
-    `rendered` is the argument's own header rendering, so the fallback
-    comparison is the exact inverse of the emit side by construction. An
-    integer-typed declaration with an integral body value (`int`, or a `float`
-    like `42.0` that JSON Schema also admits as an integer; `bool` excluded —
-    it renders `true`/`false`) compares numerically (`42` matches `42.0`, the
-    spec's SHOULD) but only for canonical-decimal headers, and exactly — no
-    float round-trip, so values outside the IEEE754 safe range still compare
-    correctly. A non-canonical header (e.g. scientific notation) falls back to
-    the rendered comparison, so the client's own rendering of any value always
-    matches; a header whose integer part overflows CPython's int-conversion
-    digit limit can never name a JSON-expressible value, so it does not match.
+    Integer-typed declarations with an integral body value compare numerically
+    (`42` matches `42.0`, the spec's SHOULD) for canonical-decimal headers —
+    exact, no float round-trip, so values beyond the IEEE754 safe range still
+    compare. Anything else compares against `rendered`, the emit-side rendering.
     """
     if (
         prop_type == "integer"
@@ -513,29 +486,15 @@ def validate_mcp_param_headers(
 ) -> InboundLadderRejection | None:
     """Compare a `tools/call` request's `Mcp-Param-*` headers against its body arguments.
 
-    The server half of the `x-mcp-header` contract: for every annotated
-    property in `input_schema`, the body argument and its mirroring header
-    must agree — present together and equal after sentinel decoding, or absent
-    together (`null` counts as absent). Returns the first failure as an
-    :class:`InboundLadderRejection` carrying `HEADER_MISMATCH` (callers map it
-    to HTTP 400 via :data:`ERROR_CODE_HTTP_STATUS`), or `None` when every
-    declaration is satisfied.
+    Each annotated property's header and argument must agree: present together
+    and equal after sentinel decoding, or absent together (`null` counts as
+    absent). Returns the first failure as a `HEADER_MISMATCH` rejection, else `None`.
 
-    Header names are matched case-insensitively regardless of the carrier's
-    canonicalization, and a recognized header supplied more than once (the
-    carrier's `items()` yielding duplicate names) is rejected — consumers that
-    read the first copy and a validator that read the last would otherwise
-    disagree. Headers with no matching declaration are ignored — the spec's
-    forward-and-ignore rule for unrecognized `Mcp-Param-*` headers. A header
-    present for an absent/null argument is rejected, as is one for an
-    argument no scalar rendering can match (a non-primitive value at an
-    annotated path): the spec's purpose clause is exactly the case of an
-    intermediary routing on a header value the body never carried
-    (streamable-http.mdx §Server Validation). Without the header, a
-    non-primitive argument is left to params validation at dispatch. An
-    `input_schema` that :func:`find_invalid_x_mcp_header` rejects validates
-    nothing: the spec assigns definition rejection to clients, which drop the
-    tool from `tools/list`, so no conforming client emitted headers for it.
+    A header whose argument is absent or unrenderable is deliberately rejected:
+    the spec's purpose clause is exactly an intermediary routing on a value the
+    body never carried. A duplicated recognized header is rejected — first-copy
+    and last-copy readers would disagree. A schema :func:`find_invalid_x_mcp_header`
+    rejects validates nothing: conforming clients drop the tool and emit no headers.
     """
     if find_invalid_x_mcp_header(input_schema) is not None:
         return None
@@ -566,8 +525,7 @@ def validate_mcp_param_headers(
             continue
         rendered = _render_header_scalar(value)
         if rendered is None:
-            # No header rendering exists for this value, so a conforming
-            # client omitted the header; one claiming it can never match.
+            # Unrenderable value: a conforming client omitted the header, so one claiming it can never match.
             if raw is not None:
                 return InboundLadderRejection(
                     code=HEADER_MISMATCH,
