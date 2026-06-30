@@ -11,7 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 import click
 from mcp.server import ServerRequestContext
@@ -325,6 +325,24 @@ async def test_elicitation_sep1330_enums(ctx: Context) -> str:
 def test_error_handling() -> str:
     """Tests error response handling"""
     raise RuntimeError("This tool intentionally returns an error for testing")
+
+
+@mcp.tool()
+def test_x_mcp_header(
+    region: Annotated[
+        str,
+        Field(
+            description="Mirrored into the Mcp-Param-Region header",
+            json_schema_extra={"x-mcp-header": "Region"},
+        ),
+    ] = "<none>",
+) -> str:
+    """Tests SEP-2243 Mcp-Param-* server-side validation.
+
+    Arms the http-custom-header-server-validation conformance scenario, which
+    skips when no tool with an `x-mcp-header` annotation is found.
+    """
+    return f"region={region}"
 
 
 @mcp.tool()

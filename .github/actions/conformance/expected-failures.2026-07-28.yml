@@ -22,4 +22,7 @@
 
 client: []
 
-server: []
+server:
+  # SEP-2243 Mcp-Param-* server-side validation is not implemented yet; see
+  # the matching entry in expected-failures.yml for the full rationale.
+  - http-custom-header-server-validation

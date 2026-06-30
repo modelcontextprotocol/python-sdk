@@ -13,6 +13,13 @@
 client: []
 
 server:
+  # SEP-2243 Mcp-Param-* server-side validation is not implemented yet. The
+  # everything-server's `test_x_mcp_header` tool arms these checks (without an
+  # x-mcp-header-annotated tool the harness skips all of them silently); the
+  # accept-path checks pass, the reject-path checks fail until the server
+  # validates Mcp-Param headers against body params. Read by the draft leg and
+  # the bare `--suite all` leg; the 2026-07-28 leg carries its own entry.
+  - http-custom-header-server-validation
   # SEP-2663 (io.modelcontextprotocol/tasks): the SDK does not implement the
   # tasks extension yet. These extension-tagged scenarios are selected only by
   # the bare `--suite all` leg — extension scenarios never match a
