@@ -219,12 +219,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
 async def test_dcr_defaults_grant_types_to_authorization_code_and_refresh_token_when_omitted() -> None:
     """Registration metadata without `grant_types` sends `["authorization_code", "refresh_token"]`.
 
-    The 2026 Refresh Tokens section (SEP-2207) says clients that desire refresh tokens SHOULD
-    include `refresh_token` in their `grant_types` client metadata; the SDK satisfies the
-    SHOULD when the consumer says nothing. The metadata here is constructed without
-    `grant_types` -- deliberately not via `oauth_client_metadata()`, which sets it explicitly --
-    and the recorded `/register` body is snapshotted in full so a field the default machinery
-    adds or drops fails. The completed flow proves the real AS accepted the registration.
+    The metadata is built directly rather than via `oauth_client_metadata()`, which sets `grant_types`.
     """
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
@@ -256,11 +251,7 @@ async def test_dcr_defaults_grant_types_to_authorization_code_and_refresh_token_
 async def test_dcr_sends_consumer_set_grant_types_verbatim() -> None:
     """A consumer-set `grant_types` is sent on the registration request verbatim, never rewritten.
 
-    The other half of the SEP-2207 grant-types default: the metadata sets
-    `["authorization_code"]` -- deliberately not the default pair, so pass-through is
-    distinguishable from defaulting. Plain `==` against the consumer's own value (snapshotting
-    a value the test itself supplied would prove nothing); the completed flow proves the real
-    AS accepted the narrower grant set end to end.
+    The value deliberately differs from the default pair so pass-through is distinguishable from defaulting.
     """
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
@@ -287,12 +278,8 @@ async def test_dcr_sends_consumer_set_grant_types_verbatim() -> None:
 async def test_dcr_sends_a_consumer_set_application_type_verbatim() -> None:
     """A consumer-set `application_type` is sent on the registration request verbatim, never rewritten.
 
-    The application-type section (SEP-837) says web applications SHOULD register
-    `application_type: 'web'`; the SDK transmits a consumer-set value verbatim. The metadata
-    sets `'web'` against the suite's loopback redirect URI -- deliberately the value
-    redirect-URI derivation would NOT produce, so verbatim pass-through stays distinguishable
-    from any future derivation strategy (which may only fill the omitted case, pinned as
-    deferred on `client-auth:dcr:app-type-heuristic`).
+    `"web"` against a loopback redirect URI is deliberately not what redirect-URI derivation
+    would produce, so pass-through stays distinguishable from any future derivation strategy.
     """
     requests: list[httpx.Request] = []
     provider = InMemoryAuthorizationServerProvider()
@@ -309,7 +296,6 @@ async def test_dcr_sends_a_consumer_set_application_type_verbatim() -> None:
         ) as (client, _):
             result = await client.list_tools()
 
-    # The flow completed: the real AS accepted a registration carrying `application_type: "web"`.
     assert result.tools[0].name == "whoami"
 
     register = next(r for r in requests if r.url.path == "/register")

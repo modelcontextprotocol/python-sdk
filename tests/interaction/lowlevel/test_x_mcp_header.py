@@ -1,12 +1,7 @@
-"""The 2026-07-28 ``x-mcp-header`` schema-extension constraints, enforced client-side.
+"""Client-side rejection of tools whose ``x-mcp-header`` annotation violates the 2026-07-28 spec.
 
-A tool definition whose ``x-mcp-header`` annotation violates the spec's constraints is rejected by
-the modern client: the tool is excluded from the tools/list result while valid sibling tools
-survive, so a single malformed definition never takes down the rest of the listing. The spec
-scopes the rejection MUST to clients using the Streamable HTTP transport (other transports MAY
-ignore the annotations); the SDK gates on the negotiated modern version instead, so the eviction
-also runs on the in-memory 2026 connection -- a deliberate superset these fixture-driven tests pin
-on both 2026 matrix cells.
+The SDK gates the check on the negotiated version rather than the transport (a deliberate
+superset of the spec's Streamable-HTTP scoping), so both 2026 matrix cells pin the eviction.
 """
 
 import logging
@@ -31,11 +26,8 @@ def _listing_server(*tools: Tool) -> Server:
     return Server("x-mcp-header", on_list_tools=list_tools)
 
 
-# A valid-annotated sibling, not a plain schema: its survival proves the validator passes valid
-# annotations rather than evicting everything that mentions x-mcp-header. Every test lists the
-# broken tool FIRST, so the eviction assertion also proves the spec's stated rationale -- "a single
-# malformed tool definition does not prevent other valid tools from being used"; a client that
-# aborted the listing at the first invalid tool would fail.
+# Carries a valid annotation (not a plain schema) so survival proves the validator passes valid
+# annotations; every test lists the broken tool first, so a client aborting the whole listing fails.
 _VALID_TOOL = Tool(
     name="ok",
     input_schema={"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}},
@@ -45,12 +37,9 @@ _VALID_TOOL = Tool(
 @requirement("client:x-mcp-header:invalid-definition-rejected:empty")
 @requirement("client:x-mcp-header:invalid-definition-rejected")
 async def test_tool_with_empty_x_mcp_header_is_excluded_from_list_tools(connect: Connect) -> None:
-    """A tool whose x-mcp-header annotation is the empty string is excluded from the tools/list
-    result while the valid sibling survives (spec MUST: the value MUST NOT be empty; rejection
-    means exclusion from the tools/list result).
+    """A tool with an empty x-mcp-header is excluded from tools/list while the valid sibling survives.
 
-    The SDK funnels the empty string through the same RFC 9110 token check as the non-tchar case
-    below, but the spec states the two MUSTs separately, so each keeps its own test and input.
+    Same SDK token check as the non-tchar case below, but the spec states the two MUSTs separately.
     """
     broken = Tool(
         name="broken",
@@ -60,17 +49,12 @@ async def test_tool_with_empty_x_mcp_header_is_excluded_from_list_tools(connect:
     async with connect(_listing_server(broken, _VALID_TOOL)) as client:
         listed = await client.list_tools()
 
-    # Membership is the property: list equality, not a full-result snapshot, so this test does not
-    # re-pin tools-result semantics (caching fields, schema echo) owned by other entries.
     assert [tool.name for tool in listed.tools] == ["ok"]
 
 
 @requirement("client:x-mcp-header:invalid-definition-rejected:non-tchar")
 async def test_tool_with_non_token_x_mcp_header_is_excluded_from_list_tools(connect: Connect) -> None:
-    """A tool whose x-mcp-header annotation is not an RFC 9110 field-name token is excluded from
-    the tools/list result while the valid sibling survives (spec MUST: the value MUST match
-    ``1*tchar``, RFC 9110 section 5.1) -- a space is not a tchar.
-    """
+    """A tool whose x-mcp-header is not an RFC 9110 token (``1*tchar``) is excluded from tools/list."""
     broken = Tool(
         name="broken",
         input_schema={"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}},
@@ -84,12 +68,9 @@ async def test_tool_with_non_token_x_mcp_header_is_excluded_from_list_tools(conn
 
 @requirement("client:x-mcp-header:invalid-definition-rejected:control-chars")
 async def test_tool_with_crlf_in_x_mcp_header_is_excluded_from_list_tools(connect: Connect) -> None:
-    """A tool whose x-mcp-header annotation contains CR/LF is excluded from the tools/list result
-    while the valid sibling survives (spec MUST NOT contain control characters, naming CR and LF
-    -- the header-injection shape).
+    """A tool whose x-mcp-header contains CR/LF is excluded from tools/list.
 
-    The SDK enforces this through the single RFC 9110 token regex (control characters are not
-    tchars); the test pins the spec observable -- exclusion -- not the code path.
+    The control-character MUST NOT is its own spec sentence; the input is the header-injection shape.
     """
     broken = Tool(
         name="broken",
@@ -109,13 +90,9 @@ async def test_tool_with_crlf_in_x_mcp_header_is_excluded_from_list_tools(connec
 async def test_tool_with_case_insensitively_duplicate_x_mcp_headers_is_excluded_from_list_tools(
     connect: Connect,
 ) -> None:
-    """A tool whose inputSchema carries two x-mcp-header values equal only under case-insensitive
-    comparison is excluded from the tools/list result while the valid sibling survives (spec MUST:
-    values are case-insensitively unique among all x-mcp-header values in the inputSchema).
+    """A tool with two x-mcp-header values equal only case-insensitively is excluded from tools/list.
 
-    ``Region``/``region`` differ as exact strings, so a validator doing an exact-string duplicate
-    check would keep the tool and fail this test. Which of the two properties the rejection names
-    is walk-order implementation detail, deliberately not asserted.
+    ``Region``/``region`` defeats a validator that compares duplicates as exact strings.
     """
     broken = Tool(
         name="broken",
@@ -136,13 +113,9 @@ async def test_tool_with_case_insensitively_duplicate_x_mcp_headers_is_excluded_
 
 @requirement("client:x-mcp-header:invalid-definition-rejected:non-primitive")
 async def test_tool_with_x_mcp_header_on_a_number_property_is_excluded_from_list_tools(connect: Connect) -> None:
-    """A tool annotating a ``number``-typed property with x-mcp-header is excluded from the
-    tools/list result while the valid sibling survives (spec MUST: the annotation is only
-    permitted on integer/string/boolean properties; ``number`` is the one JSON-Schema primitive
-    the spec forbids by name, so a validator merely checking "is a JSON primitive" would fail here).
+    """A tool annotating a ``number`` property with x-mcp-header is excluded from tools/list.
 
-    The ``object``/``array``/missing-``type`` variants take the same code arm and are deliberately
-    not swept here -- one input per entry, and the entry's spec sentence names ``number``.
+    ``number`` is the one JSON primitive the spec forbids, defeating an "any JSON primitive" check.
     """
     broken = Tool(
         name="broken",
@@ -159,16 +132,9 @@ async def test_tool_with_x_mcp_header_on_a_number_property_is_excluded_from_list
 async def test_x_mcp_header_under_items_invalidates_the_tool_while_a_nested_properties_chain_stays_valid(
     connect: Connect,
 ) -> None:
-    """An x-mcp-header annotation reachable only through ``items`` invalidates its tool, while a
-    sibling annotated at the end of a nested pure-``properties`` chain stays listed (spec MUST:
-    the annotation applies only to properties statically reachable from the schema root via a
-    chain consisting solely of ``properties`` keys; nested object properties are explicitly
-    permitted).
+    """An x-mcp-header under ``items`` invalidates its tool; one nested via ``properties`` keys stays valid.
 
-    The valid sibling here is the nested one, doing double duty for both arms of the spec
-    sentence (the flat ``_VALID_TOOL`` is not used); ``items`` is the spec's first-named
-    forbidden keyword and stands for the rest -- the per-applicator sweep is unit-test
-    territory, not interaction.
+    The nested sibling covers both arms of the spec sentence, so the flat ``_VALID_TOOL`` is unused.
     """
     via_items = Tool(
         name="via-items",
@@ -197,13 +163,9 @@ async def test_x_mcp_header_under_items_invalidates_the_tool_while_a_nested_prop
 async def test_rejecting_an_invalid_tool_logs_a_warning_naming_the_tool_and_reason(
     connect: Connect, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Rejecting a tool definition over an invalid x-mcp-header logs a warning naming the tool
-    and the reason for rejection (a spec SHOULD, not MUST). The eviction itself is co-asserted
-    so the log claim is not proven in a vacuum.
+    """Rejecting a tool over an invalid x-mcp-header logs a warning naming the tool and the reason.
 
-    The warning is a single deterministic record of fully SDK-authored text, so the whole
-    message is snapshot-pinned -- unlike the multi-record registration warning in
-    ``mcpserver/test_tools.py``, where only a stable prefix is asserted.
+    A single deterministic SDK-authored record, so the whole message is snapshot-pinned.
     """
     broken = Tool(
         name="broken",

@@ -673,12 +673,9 @@ async def test_a_mode_less_elicitation_request_is_treated_as_form_mode() -> None
 
 @requirement("elicitation:mrtr:form:basic")
 async def test_embedded_form_elicitation_accepted_content_returns_to_retried_handler(connect: Connect) -> None:
-    """An embedded form elicitation delivers its message and requested schema to the client's
-    elicitation callback as sent, and the accepted content reaches the retried handler in
-    inputResponses.
+    """An embedded form elicitation reaches the callback as sent and its accepted content reaches the handler.
 
-    Spec-mandated: at 2026-07-28 elicitation/create rides the multi-round-trip flow (an
-    input_required result the client fulfils and retries) instead of a server-initiated request.
+    Spec-mandated: at 2026-07-28 elicitation/create rides the MRTR flow, not a server-initiated request.
     """
     received: list[types.ElicitRequestParams] = []
 
@@ -733,12 +730,7 @@ async def test_embedded_form_elicitation_accepted_content_returns_to_retried_han
 
 @requirement("elicitation:mrtr:form:action:decline")
 async def test_embedded_form_elicitation_decline_reaches_retried_handler_with_no_content(connect: Connect) -> None:
-    """An embedded form elicitation answered with action 'decline' reaches the retried handler in
-    inputResponses with no content.
-
-    The spec says decline content is typically omitted; the pinned shape is the SDK passing the
-    callback's contentless ElicitResult through unmodified.
-    """
+    """An embedded form elicitation declined by the callback reaches the retried handler with no content."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -778,12 +770,7 @@ async def test_embedded_form_elicitation_decline_reaches_retried_handler_with_no
 
 @requirement("elicitation:mrtr:form:action:cancel")
 async def test_embedded_form_elicitation_cancel_reaches_retried_handler_with_no_content(connect: Connect) -> None:
-    """An embedded form elicitation answered with action 'cancel' reaches the retried handler in
-    inputResponses with no content.
-
-    The spec says cancel content is typically omitted; the pinned shape is the SDK passing the
-    callback's contentless ElicitResult through unmodified.
-    """
+    """An embedded form elicitation cancelled by the callback reaches the retried handler with no content."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -823,12 +810,9 @@ async def test_embedded_form_elicitation_cancel_reaches_retried_handler_with_no_
 
 @requirement("elicitation:mrtr:form:schema:primitives")
 async def test_embedded_form_elicitation_schema_primitives_reach_the_callback_as_sent(connect: Connect) -> None:
-    """String (with format), integer, number, and boolean requested-schema fields on an embedded
-    form elicitation reach the client callback intact.
+    """Primitive requested-schema fields on an embedded form elicitation reach the callback intact.
 
-    Spec-mandated: the requested schema's primitive property types survive the embed and delivery
-    unchanged. One representative constraint per type; the exhaustive keyword sweep stays with the
-    2025 push-path sibling.
+    Spec-mandated. One representative constraint per type; the exhaustive sweep lives with the 2025 push-path sibling.
     """
     schema: ElicitRequestedSchema = {
         "type": "object",
@@ -905,14 +889,10 @@ async def test_embedded_form_elicitation_schema_primitives_reach_the_callback_as
 async def test_server_embeds_elicitation_for_a_client_that_declared_no_elicitation_capability(
     connect: Connect,
 ) -> None:
-    """PINS A KNOWN GAP: the spec forbids embedding an elicitation/create for a client that has not
-    declared the elicitation capability, but the SDK has no embed gate; the request is sent as-is.
+    """Pins a known gap: the SDK embeds an elicitation for a client that declared no elicitation capability.
 
-    The handler proves the precondition in-band (this connection's envelope declared no elicitation
-    capability) and the client receives the forbidden embed through the documented manual-loop
-    escape hatch `client.session.call_tool(..., allow_input_required=True)`; the auto loop would
-    surface only the client's local refusal, the wrong actor for this server-side obligation. See
-    the divergence on the requirement.
+    The manual loop (allow_input_required=True) surfaces the server-side embed the auto loop would mask.
+    When the embed gate lands: re-pin to the gated behaviour and delete the Divergence.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> InputRequiredResult:
@@ -951,22 +931,17 @@ async def test_server_embeds_elicitation_for_a_client_that_declared_no_elicitati
 
 @requirement("mrtr:url-elicitation:no-32042-on-2026")
 async def test_url_elicitation_rides_mrtr_and_no_32042_error_crosses_the_wire() -> None:
-    """URL-mode elicitation rides the MRTR loop at 2026-07-28: the embedded URL request reaches the
-    callback, accepting it fulfils the loop, the retried call completes, and the retired -32042
-    urlElicitationRequired code never appears in any frame of the exchange.
+    """At 2026-07-28 URL elicitation rides the MRTR loop and the retired -32042 code crosses no frame.
 
-    Spec-mandated (-32042 is reserved-never-reused at 2026). Asserted at the client transport seam
-    over the modern streamable HTTP entry, the only transport serving 2026 JSON-RPC frames; the
-    post-exchange scan needs no waiting because the exchange is POST request/response pairs only,
-    each response fully consumed before its await returns.
+    Spec-mandated (-32042 is reserved-never-reused). Asserted at the client transport seam over
+    streamable HTTP; the exchange is POST-only, so every frame is captured before call_tool returns.
     """
     received: list[types.ElicitRequestParams] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first successful tools/call result.
+        # Live handler: the client's output-schema cache refresh calls tools/list after the first tools/call.
         return types.ListToolsResult(
             tools=[types.Tool(name="protected", description="Needs a sign-in.", input_schema={"type": "object"})]
         )
@@ -991,12 +966,10 @@ async def test_url_elicitation_rides_mrtr_and_no_32042_error_crosses_the_wire() 
 
     async def answer_url(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         received.append(params)
-        # Accept means the user agreed to visit the URL; there is never content to carry.
         return ElicitResult(action="accept")
 
     with anyio.fail_after(5):
-        # One combined async-with, the recorder bound via := -- a separately nested `async with`
-        # line mis-traces its exit arcs under branch coverage on 3.11+.
+        # Combined async-with (recorder bound via :=): a nested async-with mis-traces exit arcs under branch coverage.
         async with (
             mounted_app(server) as (http, _),
             Client(
@@ -1007,13 +980,11 @@ async def test_url_elicitation_rides_mrtr_and_no_32042_error_crosses_the_wire() 
         ):
             result = await client.call_tool("protected", {})
 
-    # The URL params crossed the real wire intact; elicitation_id rides its None default at 2026.
     assert received == snapshot(
         [ElicitRequestURLParams(message="Sign in to continue.", url="https://example.com/auth")]
     )
     assert result == snapshot(CallToolResult(content=[TextContent(text="accept content=None")]))
-    # Positive control: the recording demonstrably captured the MRTR interim leg, so the scan
-    # below covers a conversation that contained the input_required round, not an empty log.
+    # Positive control: the interim input_required leg was captured, so the scan below is not vacuous.
     interim = [
         message.message
         for message in recording.received
@@ -1022,10 +993,7 @@ async def test_url_elicitation_rides_mrtr_and_no_32042_error_crosses_the_wire() 
         and message.message.result.get("resultType") == "input_required"
     ]
     assert len(interim) == 1
-    # The negative: no serialized frame in either direction carries the retired code. A substring
-    # scan also catches the code smuggled inside a result body -- the exact shape the 2025 era
-    # surfaced it in. Test-controlled payloads and single-digit request ids leave no legitimate
-    # occurrence of the digits.
+    # Substring scan catches the code inside a result body; test payloads leave no legitimate "32042".
     frames = [
         message.message.model_dump_json(by_alias=True, exclude_none=True)
         for message in [*recording.sent, *recording.received]

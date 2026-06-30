@@ -139,15 +139,7 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
 
 @requirement("client-auth:refresh:rotation-handling")
 async def test_the_rotated_refresh_token_from_a_refresh_response_replaces_the_stored_one() -> None:
-    """A new refresh token in a refresh response replaces the stored one (RFC 6749 §6 rotation).
-
-    Choreography twin of `test_an_expired_access_token_is_transparently_refreshed_before_the_next_request`,
-    which pins the access-token/bearer side of the same single refresh; this test pins the
-    refresh-token side. The provider's refresh exchange rotates -- it mints a new refresh token
-    and consumes the presented one -- so after the flow, storage must hold a refresh token that
-    is not the one the client presented, is the one the AS actually minted, and is the only
-    live one: the client adopted the rotation instead of keeping the credential it sent.
-    """
+    """A new refresh token in a refresh response replaces the stored one (RFC 6749 §6 rotation)."""
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
     storage = InMemoryTokenStorage()
@@ -162,10 +154,8 @@ async def test_the_rotated_refresh_token_from_a_refresh_response_replaces_the_st
 
     presented = form_body(token_posts[1])["refresh_token"]
     assert storage.tokens is not None
-    # The persisted refresh token is not the one the client sent: replacement happened...
     assert storage.tokens.refresh_token != presented
-    # ...and it is the token the AS minted in the rotation, while the AS consumed the old one,
-    # so the stored credential is the only live one.
+    # The stored token is the one the AS minted; the AS consumed the presented one.
     assert storage.tokens.refresh_token in provider.refresh_tokens
     assert presented not in provider.refresh_tokens
 
@@ -174,15 +164,8 @@ async def test_the_rotated_refresh_token_from_a_refresh_response_replaces_the_st
 async def test_a_refresh_response_without_a_refresh_token_preserves_the_stored_one() -> None:
     """A refresh response that omits `refresh_token` leaves the stored one in place.
 
-    RFC 6749 §6 lets the authorization server omit `refresh_token` from a refresh response, in
-    which case the client keeps the one it holds; the 2026 Refresh Tokens section (SEP-2207)
-    restates this as "MUST NOT assume refresh tokens will be issued". The provider models the
-    non-rotating AS: its refresh response carries only a new access token (`exclude_none`
-    serialization keeps the key genuinely absent from the wire) and the presented token stays
-    valid server-side. The preserved token alone could pass vacuously if the refresh response
-    were dropped entirely, so the adopted `expires_in` (the first token's was -3600) proves it
-    was not, and the single authorize/register pair proves the omission was treated as normal
-    rather than triggering a re-authorization.
+    RFC 6749 §6 lets the authorization server omit `refresh_token` from a refresh response;
+    `rotate_refresh_tokens=False` models that non-rotating AS.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider(issue_expired_first=True, rotate_refresh_tokens=False)
@@ -199,12 +182,11 @@ async def test_a_refresh_response_without_a_refresh_token_preserves_the_stored_o
     assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code", "refresh_token"])
 
     assert storage.tokens is not None
-    # Preserved through a response that omitted it: byte-identical to the one presented.
     assert storage.tokens.refresh_token == form_body(token_posts[1])["refresh_token"]
-    # The refresh response WAS adopted (the first token's expires_in was -3600).
+    # expires_in flipping from -3600 proves the refresh response was adopted, not dropped.
     assert storage.tokens.expires_in == 3600
 
-    # The missing refresh_token triggered neither a re-authorization nor a re-registration.
+    # The omission triggered no re-authorization or re-registration.
     counts = path_counts(recorded)
     assert counts[("GET", "/authorize")] == 1
     assert counts[("POST", "/register")] == 1
@@ -220,8 +202,7 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     wider scope; step-up reuses cached metadata and the existing client registration,
     re-authorizes with the new scope, and the connect completes. The client is pre-registered
     with both scopes so the server's authorize handler accepts the wider second request. One
-    re-authorize, one retry; the SDK has no configurable retry counter -- the structural
-    per-send bound is pinned by `client-auth:stepup:retry-cap`.
+    re-authorize, one retry; the per-send bound is pinned by `client-auth:stepup:retry-cap`.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -323,18 +304,12 @@ async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_cli
 async def test_tokens_from_the_previous_authorization_server_are_never_replayed_after_migration() -> None:
     """Tokens from the previous authorization server are discarded with its credentials, never replayed.
 
-    Choreography twin of the as-binding discard test above, pinning the token half of the same
-    SEP-2352 branch: storage carries both an old-issuer client registration and that server's
-    tokens. The stale access token is presented once to the resource server (reload treats it
-    as live), the 401 triggers the binding check, and the discard drops tokens together with
-    the credentials -- so the stale refresh token reaches no endpoint of the new authorization
-    server and the only token exchange is the fresh authorization-code grant. The requirement's
-    note carries the refresh-ordering hazard this test is the regression net for.
+    Storage carries an old-issuer registration plus that server's tokens (SEP-2352); the discard
+    must drop both, so the stale refresh token reaches no endpoint of the new authorization server.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    # Built directly rather than via `seeded_client`: the previous authorization server no
-    # longer exists, so its client must NOT be registered with the current provider.
+    # Not via `seeded_client`: the old AS's client must not be registered with the current provider.
     stale = OAuthClientInformationFull.model_validate(
         {
             "client_id": "stale-as-client",
@@ -359,24 +334,19 @@ async def test_tokens_from_the_previous_authorization_server_are_never_replayed_
         async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
             result = await client.list_tools()
 
-    # The only token exchange is the fresh code grant: no refresh grant ever fired.
     token_posts = find(recorded, "POST", "/token")
     assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code"])
 
-    # The MUST NOT, swept exhaustively: the stale refresh token reached no endpoint at all.
     for r in recorded:
         assert "stale-refresh-token" not in r.content.decode()
         assert "stale-refresh-token" not in r.url.query.decode()
 
-    # Scenario non-vacuity: the stale access token WAS presented and refused -- to the resource
-    # server only, never to an authorization-server endpoint.
+    # Non-vacuity: the stale access token was actually presented, and refused.
     stale_bearer_paths = [r.path for r in recorded if r.headers.get("authorization") == "Bearer stale-access-token"]
     assert stale_bearer_paths == ["/mcp"]
 
-    # The migration branch actually engaged: the discard forced one re-registration.
     assert path_counts(recorded)[("POST", "/register")] == 1
 
-    # Fresh credentials and tokens are in place, and the flow completed on them.
     assert result.tools[0].name == "echo"
     assert storage.tokens is not None
     assert storage.tokens.refresh_token != "stale-refresh-token"
@@ -386,14 +356,8 @@ async def test_tokens_from_the_previous_authorization_server_are_never_replayed_
 async def test_a_cimd_client_id_survives_an_authorization_server_change_without_reregistration() -> None:
     """A CIMD client_id keeps working across an authorization-server change with no re-registration.
 
-    The spec's portability sentence: client IDs based on Client ID Metadata Documents are
-    self-hosted HTTPS URLs resolved by the authorization server on demand, so "no
-    re-registration is needed when the authorization server changes". Storage carries CIMD
-    credentials stamped with the OLD issuer -- the migration precondition -- and the provider is
-    pre-seeded with the URL client_id, the harness stand-in for on-demand resolution (the SDK
-    server has no CIMD-aware client lookup of its own). No AS-metadata shim: the
-    `client_id_metadata_document_supported` flag gates only the registration-path selection,
-    which pre-seeded credentials never reach.
+    CIMD client IDs are URLs the authorization server resolves on demand; pre-seeding the
+    provider stands in for that resolution (the SDK server has no CIMD-aware client lookup).
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -411,20 +375,16 @@ async def test_a_cimd_client_id_survives_an_authorization_server_change_without_
         ) as (client, headless):
             result = await client.list_tools()
 
-    # "No re-registration is needed when the authorization server changes" -- the sentence itself.
+    # The spec sentence itself: "no re-registration is needed when the authorization server changes".
     assert find(recorded, "POST", "/register") == []
 
-    # The SAME metadata-document URL is presented as client_id at the new authorization server.
     assert headless.authorize_url is not None
     assert authorize_params(headless.authorize_url)["client_id"] == CIMD_URL
 
-    # Portability is end to end, not a stalled flow: one fresh code exchange completed it.
     assert result.tools[0].name == "echo"
     assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == snapshot(["authorization_code"])
 
-    # The credentials survived untouched. The stale issuer stamp is informational on CIMD
-    # credentials and deliberately not re-stamped (see the requirement's note); a future
-    # re-stamp fails here consciously.
+    # The issuer stamp is deliberately not re-stamped on CIMD credentials; a re-stamp fails here consciously.
     assert storage.client_info is not None
     assert storage.client_info.client_id == CIMD_URL
     assert storage.client_info.issuer == "https://old-as.example.com"
@@ -434,12 +394,8 @@ async def test_a_cimd_client_id_survives_an_authorization_server_change_without_
 async def test_preregistered_credentials_bound_to_a_different_issuer_are_silently_replaced_without_an_error() -> None:
     """Pre-registered credentials with a mismatched issuer are silently replaced rather than erroring.
 
-    The 2026 binding section says a client holding pre-registered credentials SHOULD surface an
-    error when the authorization server no longer matches the issuer they were registered with,
-    rather than silently attempting to use them. The SDK cannot tell pre-registered from
-    DCR-persisted credentials, so the issuer-stamped credential takes the DCR
-    discard-and-re-register path and the flow completes with no error -- a known divergence,
-    recorded on the requirement; the mismatched credential is at least never presented.
+    The spec's SHOULD-surface-an-error is missed: the SDK cannot tell pre-registered from
+    DCR-persisted credentials, so the mismatch takes the discard-and-re-register path -- a recorded divergence.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -457,21 +413,16 @@ async def test_preregistered_credentials_bound_to_a_different_issuer_are_silentl
         async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
             result = await client.list_tools()
 
-    # The flow completed: no error surfaced -- the divergent observable everything below qualifies.
     assert result.tools[0].name == "echo"
 
-    # The replacement happened via a silent dynamic registration.
     assert path_counts(recorded)[("POST", "/register")] == 1
 
-    # The mismatched credential was never presented anywhere: the SDK does not "silently attempt
-    # to use" it -- only the error half of the SHOULD is missed.
+    # Only the error half of the SHOULD is missed: the mismatched credential is never presented.
     for r in recorded:
         assert "prereg-old-as" not in r.url.query.decode()
         assert "prereg-old-as" not in r.content.decode()
         assert "prereg-secret" not in r.content.decode()
 
-    # The pre-registered identity is gone and its replacement is bound to the current AS:
-    # "silently replaced" made concrete rather than inferred from a changed client_id.
     assert storage.client_info is not None
     assert storage.client_info.client_id != "prereg-old-as"
     assert storage.client_info.issuer == f"{BASE_URL}/"
@@ -748,14 +699,10 @@ async def test_registration_priority_prefers_preregistered_then_cimd_then_dcr(
 async def test_a_second_insufficient_scope_403_after_a_step_up_surfaces_without_another_authorize() -> None:
     """A persistent 403 gets one step-up and one retry, then the retried request's 403 surfaces as an error.
 
-    The spec's per-send retry limit is a SHOULD; the SDK's bound is structural, not a counter:
-    the auth flow performs one scope-union re-authorize, yields one retry, and its generator
-    ends, so the second `insufficient_scope` 403 is the final response and the legacy transport
-    surfaces it as the INTERNAL_ERROR stand-in. The shim 403s every authenticated `/mcp` POST
-    from the third onward -- the `list_tools` request -- because the legacy client silently
-    drops a non-2xx response to a notification POST, which would smear the property across two
-    sends (cross-send attempt memory is the separate deferred
-    `client-auth:stepup:attempt-tracking` entry).
+    The bound is structural, not a counter: the auth flow re-authorizes once, yields one retry,
+    and its generator ends, so the second 403 surfaces as the legacy transport's INTERNAL_ERROR.
+    The shim 403s from the third authenticated POST (the `list_tools` request) because the
+    client silently drops a non-2xx response to a notification POST.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -773,14 +720,12 @@ async def test_a_second_insufficient_scope_403_after_a_step_up_surfaces_without_
             app_shim=step_up_shim(challenge, on_nth_authenticated_post=3, persist=True),
             on_request=on_request,
         ) as (client, headless):
-            # The README-sanctioned non-collapsible shape: a sync `with` adjacent to an `async
-            # with` mis-traces its body arc under branch coverage.
+            # A sync `with` beside an `async with` mis-traces its body arc under branch coverage.
             with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                 await client.list_tools()
 
     assert exc_info.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Server returned an error response"))
 
-    # Exactly one step-up, carrying the SEP-2350 scope union -- the second 403 triggered no third.
     assert len(headless.authorize_urls) == 2
     assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
     assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
@@ -796,11 +741,9 @@ async def test_a_second_insufficient_scope_403_after_a_step_up_surfaces_without_
 def get_stream_step_up_shim(www_authenticate: str) -> tuple[list[int], anyio.Event, AppShim]:
     """Build an `app_shim` that 403s the first authenticated GET to `/mcp` with the given challenge.
 
-    Later authenticated GETs pass through the wrapped app. The status of every authenticated
-    GET's response (the shim's own 403 included) is appended to the returned list, and the
-    returned event is set when one of those responses starts with status 200 -- the reopened
-    stream -- so the test can wait on the SDK's background GET task without sleeping.
-    Response-status observation is unique to this one test, so the shim stays file-local.
+    Returns:
+        The statuses of every authenticated GET response (live-updated), an event set when one
+        of those responses starts with status 200 (the reopened stream), and the shim factory.
     """
     statuses: list[int] = []
     reopened = anyio.Event()
@@ -836,8 +779,7 @@ def get_stream_step_up_shim(www_authenticate: str) -> tuple[list[int], anyio.Eve
                 )
                 await recording_send({"type": "http.response.body", "body": b""})
                 return
-            # Tail call: the reopened SSE stream stays open until the test's exit cancels it,
-            # so nothing may follow this await.
+            # The reopened SSE stream stays open until the test's exit cancels it; nothing may follow this await.
             await app(scope, receive, recording_send)
 
         return wrapped
@@ -849,22 +791,11 @@ def get_stream_step_up_shim(www_authenticate: str) -> tuple[list[int], anyio.Eve
 async def test_a_403_on_the_get_stream_open_steps_up_and_reopens_the_stream_with_the_upgraded_token() -> None:
     """A 403 `insufficient_scope` on the standalone GET stream open steps up and reopens the stream.
 
-    The standalone GET is a 2025-11-25 transport mechanism (removed at 2026-07-28) that this
-    suite's legacy-mode connect opens itself after `notifications/initialized`; `Client` cannot
-    observe it at all, which is why the file-local shim records each authenticated GET's
-    response status. Steps:
-
-    1. the SDK opens the GET stream and the shim 403s it with a wider-scope challenge;
-    2. the auth flow re-authorizes with the SEP-2350 union and retries the GET inside the same
-       stream-open call -- the real bearer middleware, not the shim, accepts the upgraded token;
-    3. the test waits for the reopened stream's 200 before acting, closing the only racy seam
-       (the GET task is started by the SDK, never awaited by the test);
-    4. a post-reopen `list_tools` proves the session, auth-context lock, and upgraded token
-       remain usable by the foreground.
-
-    The failure arm (a step-up that fails again on the GET leg) is deliberately unpinned: the
-    transport swallows GET failures into a timed reconnect loop this suite cannot observe
-    without sleeps.
+    The standalone GET (a 2025-11-25 mechanism, removed at 2026-07-28) is opened by the SDK in the
+    background and is invisible to `Client`, so the file-local shim records each authenticated
+    GET's response status and the test waits on the reopened stream's 200 before acting. The
+    failure arm stays unpinned: the transport swallows GET failures into a timed reconnect loop
+    this suite cannot observe without sleeps.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -887,15 +818,12 @@ async def test_a_403_on_the_get_stream_open_steps_up_and_reopens_the_stream_with
 
     assert result.tools[0].name == "echo"
 
-    # The challenged open, then the server-accepted reopen.
     assert statuses == [403, 200]
 
-    # The same one-step-up bound and SEP-2350 union as the POST path.
     assert len(headless.authorize_urls) == 2
     assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
     assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
 
-    # The reopened stream carries the upgraded token, which is the one persisted to storage.
     first_get, second_get = find(recorded, "GET", "/mcp")
     assert storage.tokens is not None
     assert second_get.headers["authorization"] == f"Bearer {storage.tokens.access_token}"
