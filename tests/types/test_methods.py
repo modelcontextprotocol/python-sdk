@@ -548,6 +548,11 @@ def test_built_in_maps_are_immutable():
             _assign_item(built_in)
 
 
+def test_cacheable_methods_mirror_the_cacheable_method_literal():
+    """SEP-2549 weld: the hand-written Literal and the set derived from `MONOLITH_RESULTS` must agree."""
+    assert methods.CACHEABLE_METHODS == frozenset(get_args(methods.CacheableMethod))
+
+
 def test_minimal_request_bodies_parse_through_every_request_row():
     for (method, version), surface_type in methods.CLIENT_REQUESTS.items():
         parsed = methods.parse_client_request(method, version, REQUEST_PARAMS_FIXTURES[surface_type])

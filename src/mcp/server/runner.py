@@ -198,12 +198,15 @@ class ServerRunner(Generic[LifespanT]):
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
-            # Fill cache hints on the typed result, before the serialize sieve
+            # Fill cache hints on the handler result, before the serialize sieve
             # decides whether the negotiated version carries the fields at all.
-            # `input_required` interim results are not `CacheableResult` models,
-            # so the MRTR carve-out (no hints on them) holds by shape.
-            if isinstance(result, CacheableResult) and (hint := self.server.cache_hints.get(method)) is not None:
-                result = apply_cache_hint(result, hint)
+            # MRTR carve-out: `input_required` interim results, typed or mapping, never get hints.
+            if (hint := self.server.cache_hints.get(method)) is not None:
+                if isinstance(result, CacheableResult):
+                    result = apply_cache_hint(result, hint)
+                elif isinstance(result, Mapping) and result.get("resultType") != "input_required":
+                    # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
+                    result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
             # Dump and serialize inside the chain so the OpenTelemetry span (the
             # outermost middleware) records a failing handler return shape too.
             return self._serialize(method, version, result)

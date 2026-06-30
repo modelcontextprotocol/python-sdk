@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from functools import cache
 from types import MappingProxyType, UnionType
-from typing import Any, Final, TypeVar
+from typing import Any, Final, Literal, TypeVar, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -23,9 +23,11 @@ import mcp_types.v2026_07_28 as v2026
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 __all__ = [
+    "CACHEABLE_METHODS",
     "CLIENT_NOTIFICATIONS",
     "CLIENT_REQUESTS",
     "CLIENT_RESULTS",
+    "CacheableMethod",
     "MONOLITH_NOTIFICATIONS",
     "MONOLITH_REQUESTS",
     "MONOLITH_RESULTS",
@@ -402,6 +404,24 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
     }
 )
 """Monolith result model (or two-arm union) per request method."""
+
+
+CacheableMethod = Literal[
+    "prompts/list",
+    "resources/list",
+    "resources/read",
+    "resources/templates/list",
+    "server/discover",
+    "tools/list",
+]
+"""Methods whose results carry `ttlMs`/`cacheScope`; hand-written Literal, welded to `CACHEABLE_METHODS` by tests."""
+
+CACHEABLE_METHODS: Final[frozenset[str]] = frozenset(
+    method
+    for method, row in MONOLITH_RESULTS.items()
+    if any(issubclass(arm, types.CacheableResult) for arm in (get_args(row) if isinstance(row, UnionType) else (row,)))
+)
+"""Runtime mirror of `CacheableMethod`, derived from `MONOLITH_RESULTS`."""
 
 
 # --- Parse functions ---

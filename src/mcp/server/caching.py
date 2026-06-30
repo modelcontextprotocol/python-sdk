@@ -11,26 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final, Literal, TypeVar, get_args
+from typing import Any, Literal, TypeVar
 
 import mcp_types as types
+from mcp_types.methods import CACHEABLE_METHODS, CacheableMethod
 
 __all__ = ["CACHEABLE_METHODS", "CacheHint", "CacheableMethod", "apply_cache_hint", "validate_cache_hints"]
-
-CacheableMethod = Literal[
-    "prompts/list",
-    "resources/list",
-    "resources/read",
-    "resources/templates/list",
-    "server/discover",
-    "tools/list",
-]
-"""The methods whose results carry `ttlMs`/`cacheScope`. Closed set: the spec
-defines caching hints on exactly these six (tests pin it to which result models
-mix in `CacheableResult`)."""
-
-CACHEABLE_METHODS: Final[frozenset[str]] = frozenset(get_args(CacheableMethod))
-"""Runtime mirror of `CacheableMethod`, for callers the type checker can't see."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +73,8 @@ def validate_cache_hints(cache_hints: Mapping[Any, Any] | None) -> dict[str, Cac
     """
     if cache_hints is None:
         return {}
-    unknown = sorted(method for method in cache_hints if method not in CACHEABLE_METHODS)
+    # repr-format keys so a non-string key raises this ValueError, not a TypeError from sorted/join.
+    unknown = sorted(repr(method) for method in cache_hints if method not in CACHEABLE_METHODS)
     if unknown:
         raise ValueError(f"cache_hints keys must be cacheable methods (see CacheableMethod); got: {', '.join(unknown)}")
     validated: dict[str, CacheHint] = {}

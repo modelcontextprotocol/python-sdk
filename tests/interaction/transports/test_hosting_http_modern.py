@@ -511,7 +511,8 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
     bad_schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}}
     valid = Tool(name="run", input_schema=schema)
     invalid = Tool(name="run", input_schema=bad_schema)
-    listings = iter([valid, invalid])
+    # Three pages: the call after the drop re-lists once because the prune also cleared `run`'s schema entry.
+    listings = iter([valid, invalid, invalid])
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[next(listings)], ttl_ms=0, cache_scope="public")

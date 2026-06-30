@@ -55,6 +55,13 @@ DISCOVER_TIMEOUT_SECONDS = 10.0
 logger = logging.getLogger("client")
 
 
+def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
+    """Floor a negative inbound `ttlMs` to 0 before `ge=0` validation fails the call (2026-07-28 caching SHOULD)."""
+    ttl = raw.get("ttlMs")
+    if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl < 0:
+        raw["ttlMs"] = 0
+
+
 def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
     # initialize/discover forbid cancellation; other pre-handshake requests (lowlevel
     # ClientSession callers may skip the handshake entirely) keep the courtesy cancel.
@@ -331,6 +338,7 @@ class ClientSession:
             if metadata.on_resumption_token_update is not None:
                 opts["on_resumption_token"] = metadata.on_resumption_token_update
         raw = await self._dispatcher.send_raw_request(method, data.get("params"), opts)
+        _clamp_inbound_ttl(raw)
         # Literal fallback covers pre-handshake and stateless; matches runner.py.
         version = self._negotiated_version or "2025-11-25"
         try:
@@ -458,7 +466,10 @@ class ClientSession:
             "cancel_on_abandon": False,
             "headers": {MCP_PROTOCOL_VERSION_HEADER: version, MCP_METHOD_HEADER: data["method"]},
         }
-        return await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
+        raw = await self._dispatcher.send_raw_request(data["method"], data.get("params"), opts)
+        # Un-floored, a negative ttl fails the mode='auto' probe's validation and silently downgrades the handshake.
+        _clamp_inbound_ttl(raw)
+        return raw
 
     async def discover(self) -> types.DiscoverResult:
         """Probe `server/discover` and adopt the result.
@@ -895,7 +906,15 @@ class ClientSession:
             types.ListToolsRequest(params=params),
             types.ListToolsResult,
         )
+        complete = (params is None or params.cursor is None) and result.next_cursor is None
+        return self._absorb_tool_listing(result, complete=complete)
 
+    def _absorb_tool_listing(self, result: types.ListToolsResult, *, complete: bool) -> types.ListToolsResult:
+        """Filter the listing per the 2026 x-mcp-header MUST and rebuild derived per-tool state, in place.
+
+        Idempotent: cached values are already post-filter, so the response cache can re-absorb a served listing.
+        `complete` (an uncursored single-page listing) prunes per-tool state down to the listing's tools.
+        """
         if self._negotiated_version in MODERN_PROTOCOL_VERSIONS:
             # 2026-07-28: clients MUST drop tools whose x-mcp-header annotations are invalid.
             kept: list[types.Tool] = []
@@ -911,10 +930,16 @@ class ClientSession:
                 kept.append(tool)
             result.tools = kept
 
-        # Cache tool output schemas for future validation
-        # Note: don't clear the cache, as we may be using a cursor
+        # Cache tool output schemas for future validation; cursor pages only ever add.
         for tool in result.tools:
             self._tool_output_schemas[tool.name] = tool.output_schema
+
+        if complete:
+            # The listing is the full tool universe, so state for unlisted tools is stale
+            # (the server dropped them, or a shared-cache writer's filter did).
+            names = {tool.name for tool in result.tools}
+            self._x_mcp_header_maps = {k: v for k, v in self._x_mcp_header_maps.items() if k in names}
+            self._tool_output_schemas = {k: v for k, v in self._tool_output_schemas.items() if k in names}
 
         return result
 

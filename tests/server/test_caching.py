@@ -1,38 +1,25 @@
 """`mcp.server.caching`: `CacheHint` validation, per-field fills, and the
 `cache_hints` constructor map reaching the wire on both server tiers."""
 
-from types import UnionType
-from typing import Any, cast, get_args
+from typing import Any, cast
 
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
-    CacheableResult,
+    InputRequiredResult,
     ListResourcesResult,
     ListToolsResult,
     PaginatedRequestParams,
+    ReadResourceRequestParams,
     Resource,
     Tool,
-    methods,
 )
 
 from mcp import Client
 from mcp.server import CacheHint, MCPServer, Server, ServerRequestContext
-from mcp.server.caching import CACHEABLE_METHODS, apply_cache_hint
+from mcp.server.caching import apply_cache_hint
 
 pytestmark = pytest.mark.anyio
-
-
-def test_cacheable_methods_match_the_result_models() -> None:
-    """Spec-mandated set (SEP-2549): `CACHEABLE_METHODS` mirrors exactly the
-    methods whose monolith result models mix in `CacheableResult` - if the
-    schema gains or loses a cacheable result, this weld breaks."""
-    derived: set[str] = set()
-    for method, model in methods.MONOLITH_RESULTS.items():
-        arms = get_args(model) if isinstance(model, UnionType) else (model,)
-        if any(isinstance(arm, type) and issubclass(arm, CacheableResult) for arm in arms):
-            derived.add(method)
-    assert CACHEABLE_METHODS == derived
 
 
 def test_cache_hint_defaults_match_the_conservative_model_defaults() -> None:
@@ -83,7 +70,7 @@ def test_a_non_cacheable_method_in_cache_hints_is_rejected_at_server_constructio
     with pytest.raises(ValueError) as exc:
         Server("srv", cache_hints=cast(Any, {"tools/call": CacheHint()}))
     assert str(exc.value) == snapshot(
-        "cache_hints keys must be cacheable methods (see CacheableMethod); got: tools/call"
+        "cache_hints keys must be cacheable methods (see CacheableMethod); got: 'tools/call'"
     )
 
 
@@ -94,6 +81,72 @@ def test_a_non_cache_hint_value_is_rejected_at_server_construction() -> None:
     with pytest.raises(TypeError) as exc:
         Server("srv", cache_hints=cast(Any, {"tools/list": {"ttl_ms": 60_000}}))
     assert str(exc.value) == snapshot("cache_hints['tools/list'] must be a CacheHint, got dict")
+
+
+def test_a_non_string_cache_hints_key_is_rejected_with_the_unknown_key_error() -> None:
+    """A non-string key takes the same unknown-key ValueError as a typo, not a TypeError from message formatting."""
+    with pytest.raises(ValueError) as exc:
+        Server("srv", cache_hints=cast(Any, {42: CacheHint()}))
+    assert str(exc.value) == snapshot("cache_hints keys must be cacheable methods (see CacheableMethod); got: 42")
+
+
+async def test_a_dict_returning_handler_takes_the_configured_hint() -> None:
+    """The stamp covers raw-dict results too - 2026-07-28 requires both fields on the wire."""
+    hint = CacheHint(ttl_ms=60_000, scope="public")
+
+    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
+        return {"tools": [], "resultType": "complete"}
+
+    server = Server("srv", cache_hints={"tools/list": hint})
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with Client(server) as client:
+        result = await client.list_tools()
+    assert result.ttl_ms == hint.ttl_ms
+    assert result.cache_scope == hint.scope
+
+
+async def test_a_dict_provided_ttl_wins_and_the_hint_fills_only_the_missing_scope() -> None:
+    """Dict path mirrors the model path's `model_fields_set` precedence: present wire keys win."""
+
+    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
+        return {"tools": [], "resultType": "complete", "ttlMs": 25}
+
+    server = Server("srv", cache_hints={"tools/list": CacheHint(ttl_ms=60_000, scope="public")})
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with Client(server) as client:
+        result = await client.list_tools()
+    assert result.ttl_ms == 25
+    assert result.cache_scope == "public"
+
+
+async def test_a_dict_returning_handler_leaks_no_hint_fields_to_a_2025_session() -> None:
+    """The stamp runs version-independently; the 2025 serialize sieve strips the fields."""
+
+    async def list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams) -> dict[str, Any]:
+        return {"tools": []}
+
+    server = Server("srv", cache_hints={"tools/list": CacheHint(ttl_ms=60_000, scope="public")})
+    server.add_request_handler("tools/list", PaginatedRequestParams, list_tools)
+    async with Client(server, mode="legacy") as client:
+        result = await client.list_tools()
+    assert "ttl_ms" not in result.model_fields_set
+    assert "cache_scope" not in result.model_fields_set
+
+
+async def test_an_input_required_shaped_dict_is_never_stamped() -> None:
+    """Spec carve-out: interim `input_required` results carry no cache hints, even on a hinted method."""
+
+    async def read_resource(ctx: ServerRequestContext[Any], params: ReadResourceRequestParams) -> dict[str, Any]:
+        return {"resultType": "input_required", "requestState": "s1"}
+
+    server = Server("srv", cache_hints={"resources/read": CacheHint(ttl_ms=60_000, scope="public")})
+    server.add_request_handler("resources/read", ReadResourceRequestParams, read_resource)
+    async with Client(server) as client:
+        result = await client.session.read_resource("res://x", allow_input_required=True)
+    assert isinstance(result, InputRequiredResult)
+    assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
+        {"resultType": "input_required", "requestState": "s1"}
+    )
 
 
 async def test_server_cache_hints_reach_the_wire_for_a_bare_handler_result() -> None:
