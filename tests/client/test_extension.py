@@ -7,13 +7,15 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import CallToolResult, InputRequiredResult, Result
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
-from pydantic import BaseModel
+from pydantic import AliasChoices, AliasPath, BaseModel, Field
+from pydantic.fields import FieldInfo
 
 from mcp.client.extension import (
     ClaimContext,
     ClientExtension,
     NotificationBinding,
     ResultClaim,
+    _wire_keys,
     advertise,
 )
 
@@ -145,6 +147,60 @@ def test_claim_rejects_model_aliasing_core_surface_fields() -> None:
     assert str(exc_info.value) == snapshot(
         "_ReservedAliasResult.request_state aliases 'requestState', a typed field of the core "
         "result surface; a colliding value would fail core validation before the claim adapter runs"
+    )
+
+
+class _ValidationAliasResult(Result):
+    result_type: Literal["va"] = "va"
+    vendor_state: dict[str, Any] | None = Field(default=None, validation_alias="requestState")
+
+
+class _SerializationAliasResult(Result):
+    result_type: Literal["sa"] = "sa"
+    vendor_state: dict[str, Any] | None = Field(default=None, serialization_alias="inputRequests")
+
+
+class _AliasChoicesResult(Result):
+    result_type: Literal["ac"] = "ac"
+    vendor_state: dict[str, Any] | None = Field(
+        default=None, validation_alias=AliasChoices("vendorKey", "requestState")
+    )
+
+
+class _AliasPathResult(Result):
+    result_type: Literal["ap"] = "ap"
+    vendor_state: dict[str, Any] | None = Field(
+        default=None, validation_alias=AliasChoices(AliasPath("requestState", "nested"))
+    )
+
+
+def test_wire_keys_for_a_bare_field_is_just_its_name() -> None:
+    """SDK-defined: a field with no aliases reads and writes only its own name."""
+    assert _wire_keys("plain", FieldInfo(annotation=str)) == frozenset({"plain"})
+
+
+def test_claim_rejects_reserved_aliases_in_every_alias_form() -> None:
+    """SDK-defined: validation_alias, serialization_alias, and AliasChoices routes to a reserved key are all caught."""
+    messages: dict[str, str] = {}
+    for model in (_ValidationAliasResult, _SerializationAliasResult, _AliasChoicesResult, _AliasPathResult):
+        with pytest.raises(ValueError) as exc_info:
+            ResultClaim(result_type=model.model_fields["result_type"].default, model=model, resolve=_resolve)
+        messages[model.__name__] = str(exc_info.value)
+
+    assert messages == snapshot(
+        {
+            "_ValidationAliasResult": "_ValidationAliasResult.vendor_state aliases "
+            "'requestState', a typed field of the core result surface; a colliding value would fail "
+            "core validation before the claim adapter runs",
+            "_SerializationAliasResult": "_SerializationAliasResult.vendor_state aliases "
+            "'inputRequests', a typed field of the core result surface; a colliding value would fail "
+            "core validation before the claim adapter runs",
+            "_AliasChoicesResult": "_AliasChoicesResult.vendor_state aliases 'requestState', a typed field of the core "
+            "result surface; a colliding value would fail core validation before the claim adapter runs",
+            "_AliasPathResult": "_AliasPathResult.vendor_state aliases "
+            "'requestState', a typed field of the core result surface; a colliding value would fail "
+            "core validation before the claim adapter runs",
+        }
     )
 
 

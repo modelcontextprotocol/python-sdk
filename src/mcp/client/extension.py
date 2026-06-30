@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING, Any, Final, Generic, Literal, TypeVar, get_arg
 
 from mcp_types import CORE_RESULT_TYPES, CallToolResult, InputRequiredResult, Result
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
-from pydantic import BaseModel
+from pydantic import AliasChoices, AliasPath, BaseModel
+from pydantic.fields import FieldInfo
 
 from mcp.shared.extension import validate_extension_identifier
 
@@ -34,6 +35,22 @@ _CLAIM_METHODS: Final[frozenset[str]] = frozenset({"tools/call"})
 
 _RESERVED_WIRE_ALIASES: Final[frozenset[str]] = frozenset({"requestState", "inputRequests"})
 """Typed optional fields of the core result surface that pre-validates every inbound result."""
+
+
+def _wire_keys(name: str, field: FieldInfo) -> frozenset[str]:
+    """Every top-level wire key this field can read from or write to."""
+    keys = {field.alias or name}
+    if field.serialization_alias:
+        keys.add(field.serialization_alias)
+    validation_alias = field.validation_alias
+    choices = validation_alias.choices if isinstance(validation_alias, AliasChoices) else [validation_alias]
+    for choice in choices:
+        if isinstance(choice, AliasPath):
+            choice = choice.path[0]
+        if isinstance(choice, str):
+            keys.add(choice)
+    return frozenset(keys)
+
 
 ClaimedT = TypeVar("ClaimedT", bound=Result)
 NotifyParamsT = TypeVar("NotifyParamsT", bound=BaseModel)
@@ -74,11 +91,11 @@ class ResultClaim(Generic[ClaimedT]):
         if issubclass(self.model, CallToolResult | InputRequiredResult):
             raise ValueError("claim models must not subclass core result types")
         for name, model_field in self.model.model_fields.items():
-            if (model_field.alias or name) in _RESERVED_WIRE_ALIASES:
+            for clash in sorted(_wire_keys(name, model_field) & _RESERVED_WIRE_ALIASES):
                 raise ValueError(
-                    f"{self.model.__name__}.{name} aliases {model_field.alias or name!r}, a typed field "
-                    "of the core result surface; a colliding value would fail core validation before "
-                    "the claim adapter runs"
+                    f"{self.model.__name__}.{name} aliases {clash!r}, a typed field of the core "
+                    "result surface; a colliding value would fail core validation before the "
+                    "claim adapter runs"
                 )
         field = self.model.model_fields.get("result_type")
         if field is None or get_args(field.annotation) != (self.result_type,):
