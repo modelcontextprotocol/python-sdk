@@ -12,9 +12,12 @@ from typing import Annotated, Any
 
 import click
 from mcp.server import ServerRequestContext
+from mcp.server.extension import require_client_extension
 from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
+from mcp.server.tasks import EXTENSION_ID as TASKS_EXTENSION_ID
+from mcp.server.tasks import Tasks
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
     AudioContent,
@@ -44,7 +47,7 @@ from mcp_types import (
     TextResourceContents,
     UnsubscribeRequestParams,
 )
-from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
+from mcp_types.jsonrpc import INTERNAL_ERROR, MISSING_REQUIRED_CLIENT_CAPABILITY
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -100,9 +103,24 @@ event_store = InMemoryEventStore()
 # Fixed fixture key (RequestStateSecurity requires at least 32 bytes); a real deployment would load a shared secret.
 _REQUEST_STATE_KEY = b"everything-server-fixture-request-state-key"
 
+# SEP-2663 Tasks extension: only these fixture tools are task-augmented, so every
+# other tool keeps its synchronous behaviour even for clients that declare the
+# extension (the tasks conformance scenarios assert e.g. `greet` stays sync).
+TASK_AUGMENTED_TOOLS = frozenset(
+    {
+        "slow_compute",
+        "failing_job",
+        "protocol_error_job",
+        "confirm_delete",
+        "multi_input",
+        "test_tool_with_task",
+    }
+)
+
 mcp = MCPServer(
     name="mcp-conformance-test-server",
     request_state_security=RequestStateSecurity(keys=[_REQUEST_STATE_KEY]),
+    extensions=[Tasks(augment=lambda params: params.name in TASK_AUGMENTED_TOOLS)],
 )
 
 
@@ -530,6 +548,86 @@ async def test_input_required_result_capabilities(ctx: Context) -> InputRequired
     if caps is None or caps.elicitation is not None:
         requests["ask"] = _name_elicitation()
     return InputRequiredResult(input_requests=requests, request_state="capability-gated")
+
+
+# SEP-2663 Tasks extension fixtures (io.modelcontextprotocol/tasks). The server
+# decides augmentation per call via the TASK_AUGMENTED_TOOLS allowlist above;
+# `greet` stays deliberately outside it as the synchronous contrast the tasks
+# scenarios assert on.
+
+CONFIRM_SCHEMA = {"type": "object", "properties": {"confirm": {"type": "boolean"}}, "required": ["confirm"]}
+
+
+@mcp.tool()
+def greet(name: str) -> str:
+    """Sync-only greeting tool; never task-augmented"""
+    return f"Hello, {name}!"
+
+
+@mcp.tool()
+def slow_compute(seconds: float, label: str = "") -> str:
+    """Task-supporting compute fixture (SEP-2663).
+
+    Conformance passes durations up to 60s and immediately polls or cancels, so
+    the fixture records the requested duration instead of sleeping — the
+    born-terminal task is then observable well inside the scenario timeouts.
+    """
+    return f"slow_compute({label or 'unlabelled'}) finished after {seconds}s"
+
+
+@mcp.tool()
+async def failing_job(ctx: Context) -> str:
+    """Task-required fixture: rejects non-declaring clients, then reports a tool error (SEP-2663)"""
+    require_client_extension(ctx.request_context, TASKS_EXTENSION_ID)
+    raise RuntimeError("failing_job always reports a tool execution error")
+
+
+@mcp.tool()
+def protocol_error_job() -> str:
+    """Task fixture that fails at the protocol level, recording a `failed` task (SEP-2663)"""
+    raise MCPError(code=INTERNAL_ERROR, message="protocol_error_job failed at the protocol level")
+
+
+@mcp.tool()
+async def confirm_delete(filename: str, ctx: Context) -> str | InputRequiredResult:
+    """Task fixture gathering a deletion confirmation via elicitation (SEP-2322 + SEP-2663)"""
+    responses = ctx.input_responses
+    if responses and "confirm" in responses:
+        answer = responses["confirm"]
+        accepted = isinstance(answer, ElicitResult) and answer.action == "accept"
+        return f"Deleted {filename}" if accepted else f"Kept {filename}"
+    return InputRequiredResult(
+        input_requests={
+            "confirm": ElicitRequest(
+                params=ElicitRequestFormParams(message=f"Really delete {filename}?", requested_schema=CONFIRM_SCHEMA)
+            )
+        }
+    )
+
+
+@mcp.tool()
+async def multi_input(ctx: Context) -> str | InputRequiredResult:
+    """Task fixture fanning out two simultaneous elicitations (SEP-2663 partial fulfillment probe)"""
+    responses = ctx.input_responses
+    if responses and {"first", "second"} <= responses.keys():
+        return "multi_input received both responses"
+    return InputRequiredResult(
+        input_requests={
+            "first": _name_elicitation("First input?"),
+            "second": _name_elicitation("Second input?"),
+        }
+    )
+
+
+@mcp.tool()
+async def test_tool_with_task(ctx: Context) -> str | InputRequiredResult:
+    """SEP-2663 MRTR-to-task composition fixture: gathers a name, then the final round becomes a task"""
+    responses = ctx.input_responses
+    if responses and "user_name" in responses:
+        answer = responses["user_name"]
+        name = answer.content.get("name", "stranger") if isinstance(answer, ElicitResult) and answer.content else "?"
+        return f"Hello, {name}! The gathered-name task is complete."
+    return InputRequiredResult(input_requests={"user_name": _name_elicitation()})
 
 
 # SEP-1613 / SEP-2106 JSON Schema 2020-12 fixture: a tool whose inputSchema carries
