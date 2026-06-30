@@ -104,6 +104,8 @@ What a server offers is not fixed at import time. Register a tool at runtime, th
 
 The siblings are `send_resource_list_changed()`, `send_prompt_list_changed()`, and `send_resource_updated(uri)` for a change to one specific resource.
 
+On a 2026-07-28 connection, clients receive change notifications only on a `subscriptions/listen` stream they opened. The `Context` publish methods — `ctx.notify_tools_changed()`, `ctx.notify_prompts_changed()`, `ctx.notify_resources_changed()`, and `ctx.notify_resource_updated(uri)` — deliver to every subscribed stream at once, and are synchronous (no `await`). Behind a load balancer, pass your own `EventBus` implementation as `MCPServer(subscriptions=...)` to fan events out across replicas; the in-process default covers a single server.
+
 !!! check
     Before anyone runs `enable_recommendations`, the tool you are promising does not exist. Call it
     anyway and the result is an error the model can read:

@@ -51,6 +51,14 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
+from mcp.server.subscriptions import (
+    InMemoryEventBus,
+    PromptsListChanged,
+    ResourcesListChanged,
+    ResourceUpdated,
+    ServerEvent,
+    ToolsListChanged,
+)
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import InvalidUriTemplate
@@ -2248,3 +2256,34 @@ async def test_context_input_responses_and_request_state_are_none_on_initial_rou
             await client.call_tool("probe")
 
     assert captured == {"responses": None, "state": None}
+
+
+def test_subscriptions_bus_defaults_to_in_memory_and_accepts_custom() -> None:
+    assert isinstance(MCPServer().subscriptions, InMemoryEventBus)
+    bus = InMemoryEventBus()
+    assert MCPServer(subscriptions=bus).subscriptions is bus
+
+
+async def test_context_notify_methods_publish_to_the_subscriptions_bus() -> None:
+    mcp = MCPServer()
+    seen: list[ServerEvent] = []
+    mcp.subscriptions.subscribe(seen.append)
+
+    @mcp.tool()
+    def touch(ctx: Context) -> str:
+        ctx.notify_tools_changed()
+        ctx.notify_prompts_changed()
+        ctx.notify_resources_changed()
+        ctx.notify_resource_updated("r://x")
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            await client.call_tool("touch")
+
+    assert seen == [ToolsListChanged(), PromptsListChanged(), ResourcesListChanged(), ResourceUpdated(uri="r://x")]
+
+
+def test_context_mcp_server_outside_request_raises() -> None:
+    with pytest.raises(ValueError, match="outside of a request"):
+        _ = Context().mcp_server

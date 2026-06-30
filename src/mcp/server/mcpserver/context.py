@@ -16,6 +16,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.subscriptions import PromptsListChanged, ResourcesListChanged, ResourceUpdated, ToolsListChanged
 from mcp.shared.exceptions import MCPDeprecationWarning
 
 if TYPE_CHECKING:
@@ -78,9 +79,9 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     @property
     def mcp_server(self) -> MCPServer:
         """Access to the MCPServer instance."""
-        if self._mcp_server is None:  # pragma: no cover
+        if self._mcp_server is None:
             raise ValueError("Context is not available outside of a request")
-        return self._mcp_server  # pragma: no cover
+        return self._mcp_server
 
     @property
     def request_context(self) -> ServerRequestContext[LifespanContextT, RequestT]:
@@ -108,6 +109,22 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             message: Optional message (e.g., "Starting render...")
         """
         await self.request_context.session.report_progress(progress, total, message)
+
+    def notify_tools_changed(self) -> None:
+        """Publish a tools list-changed event to `subscriptions/listen` subscribers."""
+        self.mcp_server.subscriptions.publish(ToolsListChanged())
+
+    def notify_prompts_changed(self) -> None:
+        """Publish a prompts list-changed event to `subscriptions/listen` subscribers."""
+        self.mcp_server.subscriptions.publish(PromptsListChanged())
+
+    def notify_resources_changed(self) -> None:
+        """Publish a resources list-changed event to `subscriptions/listen` subscribers."""
+        self.mcp_server.subscriptions.publish(ResourcesListChanged())
+
+    def notify_resource_updated(self, uri: str | AnyUrl) -> None:
+        """Publish a resource-updated event for `uri` to `subscriptions/listen` subscribers."""
+        self.mcp_server.subscriptions.publish(ResourceUpdated(uri=str(uri)))
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """Read a resource by URI.

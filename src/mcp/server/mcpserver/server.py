@@ -88,6 +88,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.subscriptions import EventBus, InMemoryEventBus, ListenHandler
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
@@ -182,6 +183,7 @@ class MCPServer(Generic[LifespanResultT]):
         resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        subscriptions: EventBus | None = None,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -201,6 +203,10 @@ class MCPServer(Generic[LifespanResultT]):
             resources=resources, warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
         )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+        # The subscriptions/listen fan-out seam (2026-07-28). The default bus is
+        # in-process; pass an `EventBus` implementation over an external pub/sub
+        # backend to fan events out across replicas.
+        self._subscriptions: EventBus = subscriptions if subscriptions is not None else InMemoryEventBus()
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -217,6 +223,7 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
+            on_subscriptions_listen=ListenHandler(self._subscriptions),
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -284,6 +291,16 @@ class MCPServer(Generic[LifespanResultT]):
     @property
     def version(self) -> str | None:
         return self._lowlevel_server.version
+
+    @property
+    def subscriptions(self) -> EventBus:
+        """The `subscriptions/listen` event bus.
+
+        Publish a `ServerEvent` here (or via the `Context.notify_*` methods)
+        to deliver it to subscribed clients. The bus passed to the constructor,
+        or the in-process default.
+        """
+        return self._subscriptions
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:

@@ -22,7 +22,4 @@
 
 client: []
 
-server:
-  # SEP-2575 subscriptions/listen is not implemented yet; see the matching
-  # entry in expected-failures.yml for the full rationale.
-  - server-stateless
+server: []
