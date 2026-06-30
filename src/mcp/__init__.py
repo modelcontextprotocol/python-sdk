@@ -59,6 +59,7 @@ from mcp_types import (
 from mcp_types import Role as SamplingRole
 
 from .client._input_required import InputRequiredRoundsExceededError
+from .client._tasks import TaskCancelledError, TaskFailedError, TaskInputRequiredError, TasksExtension
 from .client.client import Client
 from .client.session import ClientSession
 from .client.session_group import ClientSessionGroup
@@ -128,6 +129,10 @@ __all__ = [
     "StdioServerParameters",
     "StopReason",
     "SubscribeRequest",
+    "TaskCancelledError",
+    "TaskFailedError",
+    "TaskInputRequiredError",
+    "TasksExtension",
     "Tool",
     "ToolChoice",
     "ToolResultContent",
