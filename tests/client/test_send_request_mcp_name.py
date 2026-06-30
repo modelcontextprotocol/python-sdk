@@ -16,6 +16,7 @@ import anyio
 import anyio.abc
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     CallToolResult,
     Implementation,
@@ -91,6 +92,14 @@ class _ShadowCallToolRequest(Request[dict[str, Any], Literal["tools/call"]]):
 
 class _PlainVendorRequest(Request[dict[str, Any], Literal["vendor/widgets/list"]]):
     method: Literal["vendor/widgets/list"] = "vendor/widgets/list"
+
+
+class _OptionalParamsWidgetRequest(Request[dict[str, Any] | None, Literal["vendor/widgets/get"]]):
+    """Optional params, so a send can carry no params key at all."""
+
+    method: Literal["vendor/widgets/get"] = "vendor/widgets/get"
+    params: dict[str, Any] | None = None
+    name_param = "widgetId"
 
 
 def _adopt_modern(session: ClientSession) -> None:
@@ -192,14 +201,27 @@ async def test_stamp_table_rows_win_over_name_param_by_ordering() -> None:
 
 
 @pytest.mark.anyio
+async def test_vendor_name_param_emits_mcp_name_on_the_preconnect_path() -> None:
+    """Emission is era-unconditional: a lowlevel caller that never adopts any
+    version (the preconnect stamp) still gets `Mcp-Name` from `name_param`."""
+    dispatcher = _RecordingDispatcher()
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.send_request(_GetWidgetRequest(params=_GetWidgetParams(widget_id="w-1")), types.EmptyResult)
+    [(_, opts)] = dispatcher.calls
+    assert _headers(opts) == {MCP_NAME_HEADER: "w-1"}  # and no era headers: nothing adopted
+
+
+@pytest.mark.anyio
 async def test_missing_name_value_fails_loud_naming_method_and_key() -> None:
     dispatcher = _RecordingDispatcher()
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
             _adopt_handshake(session)
-            with pytest.raises(ValueError, match=r"vendor/widgets/get requires params\['widgetId'\] for Mcp-Name"):
+            with pytest.raises(ValueError) as exc_info:
                 await session.send_request(_RawWidgetRequest(params={}), types.EmptyResult)
             assert dispatcher.calls == []  # raised before reaching the wire
+    assert str(exc_info.value) == snapshot("vendor/widgets/get requires params['widgetId'] for Mcp-Name")
 
 
 @pytest.mark.anyio
@@ -208,9 +230,24 @@ async def test_non_string_name_value_fails_loud() -> None:
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
             _adopt_handshake(session)
-            with pytest.raises(ValueError, match=r"vendor/widgets/get requires params\['widgetId'\] for Mcp-Name"):
+            with pytest.raises(ValueError) as exc_info:
                 await session.send_request(_RawWidgetRequest(params={"widgetId": 7}), types.EmptyResult)
             assert dispatcher.calls == []
+    assert str(exc_info.value) == snapshot("vendor/widgets/get requires params['widgetId'] for Mcp-Name")
+
+
+@pytest.mark.anyio
+async def test_absent_params_fails_loud_not_attribute_error() -> None:
+    """`exclude_none` drops a None params entirely; the delta still answers with
+    the documented ValueError, not an AttributeError on the missing key."""
+    dispatcher = _RecordingDispatcher()
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            _adopt_handshake(session)
+            with pytest.raises(ValueError) as exc_info:
+                await session.send_request(_OptionalParamsWidgetRequest(), types.EmptyResult)
+            assert dispatcher.calls == []
+    assert str(exc_info.value) == snapshot("vendor/widgets/get requires params['widgetId'] for Mcp-Name")
 
 
 @pytest.mark.anyio

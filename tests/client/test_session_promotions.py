@@ -65,6 +65,7 @@ async def test_validate_tool_result_passes_a_conforming_result() -> None:
 async def test_validate_tool_result_raises_on_schema_mismatch() -> None:
     server = _make_server({"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]})
     async with Client(server) as client:
+        # Stable SDK prefix only: the message tail is jsonschema text that shifts with the dependency.
         with pytest.raises(RuntimeError, match="Invalid structured content returned by tool t"):
             await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": "no"}))
 
