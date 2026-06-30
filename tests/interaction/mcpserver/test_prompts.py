@@ -199,13 +199,7 @@ async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(con
 async def test_prompt_list_is_identical_across_connections_and_unchanged_by_other_requests(
     connect: Connect,
 ) -> None:
-    """Concurrent connections to one server see the same prompt list, before and after one of them gets a prompt.
-
-    Spec-mandated (2026-07-28): the set MUST NOT vary per-connection or as a side effect of other
-    requests on the connection. MCPServer's registry is server-level state shared by construction;
-    the pin is that the serving path adds no per-connection variation and that serving a
-    prompts/get mutates the registry on neither connection.
-    """
+    """Spec-mandated: concurrent connections see the same prompt list, unchanged by a prompts/get on one."""
     mcp = MCPServer("prompter")
 
     @mcp.prompt()
@@ -222,7 +216,7 @@ async def test_prompt_list_is_identical_across_connections_and_unchanged_by_othe
         first_list = await first_client.list_prompts()
         second_list = await second_client.list_prompts()
         assert second_list == first_list
-        # An unrelated request on the first connection: proves it ran AND changed nothing.
+        # The snapshot at the end proves this request ran; the list asserts prove it changed nothing.
         result = await first_client.get_prompt("greet")
         assert await first_client.list_prompts() == first_list
         assert await second_client.list_prompts() == first_list

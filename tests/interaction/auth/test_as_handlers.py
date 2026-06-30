@@ -307,14 +307,7 @@ async def test_register_echoes_native_for_a_client_that_registered_application_t
 ) -> None:
     """A client registering `application_type: "web"` is told `"native"` in the registration echo.
 
-    Pins the known gap recorded on the requirement (divergence): the registration handler's
-    field-by-field passthrough omits `application_type`, so the model default fills the echo
-    where RFC 7591 §3.2.1 requires the registered value -- and the SDK OAuth client adopts the
-    echo into persisted storage, so the corruption is client-visible end to end. When the
-    one-line passthrough fix lands this test fails: re-pin the echo to `"web"`, delete the
-    Divergence, and add the echo assertion to
-    `test_dcr_sends_a_consumer_set_application_type_verbatim` (test_flow.py) per the
-    requirement's note.
+    When the passthrough fix lands: re-pin the echo to `"web"` and delete the Divergence.
     """
     http, _ = as_app
     metadata = OAuthClientMetadata(
@@ -323,10 +316,8 @@ async def test_register_echoes_native_for_a_client_that_registered_application_t
 
     response = await http.post("/register", content=metadata.model_dump_json())
 
-    # Registration itself succeeds: the divergence is in the echo, not in acceptance.
     assert response.status_code == 201
     body = response.json()
-    # The request carried "web" (the metadata above); the echo says "native" -- the pinned gap.
     assert body["application_type"] == "native"
     # The omission is specific to application_type, not a generally lossy echo.
     assert body["client_name"] == "interaction-suite"

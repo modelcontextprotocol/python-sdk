@@ -148,13 +148,7 @@ async def test_read_resource_binary(connect: Connect) -> None:
 
 @requirement("resources:read:multiple-contents")
 async def test_read_resource_returns_multiple_contents_in_order(connect: Connect) -> None:
-    """A resources/read result carrying several contents entries reaches the client intact and in order.
-
-    Spec-mandated: servers MAY return multiple resource contents for a single read (e.g. a
-    directory read returning multiple files); the SDK surfaces the list verbatim. The mixed
-    text/blob list proves heterogeneous contents coexist; the full-result snapshot pins order,
-    URIs, MIME types, and payloads ("aW1n" is b"img").
-    """
+    """A multi-entry resources/read result reaches the client intact and in order. Spec-mandated."""
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
         assert params.uri == "file:///project/"
@@ -267,14 +261,7 @@ async def test_resources_subscribe_on_a_2026_connection_is_method_not_found_desp
 ) -> None:
     """On a 2026-07-28 connection, `resources/subscribe` is METHOD_NOT_FOUND even with a handler registered.
 
-    Requirement `lifecycle:version:era-method-gate`: the method exists at 2025-11-25 but is removed
-    from the 2026-07-28 method surface, so the per-version registry rejects the request before any
-    handler lookup. The registered handler is the load-bearing discriminator -- without it the
-    byte-identical error would come from the no-handler branch, which the 2025-only sibling
-    `test_subscribe_without_a_subscribe_handler_is_method_not_found` already pins. The adjacent
-    `test_subscribe_resource_delivers_uri_to_handler` is the 2025 control: the same server shape
-    and the same call succeed on every 2025 cell. SDK-authored error, snapshot-pinned, identical
-    on both 2026 cells.
+    resources/subscribe is removed from the 2026-07-28 surface; the registry rejects it before handler lookup.
     """
 
     async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
@@ -391,9 +378,7 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
 async def test_read_resource_input_required_is_fulfilled_and_the_retry_returns_the_contents(connect: Connect) -> None:
     """A resources/read answered with input_required is fulfilled by the elicitation callback and retried.
 
-    The retry carries the callback's responses and the echoed request_state, and returns the resource
-    contents. Spec-mandated: resources/read is an MRTR-supported request (basic/patterns/mrtr, Supported
-    Requests). Driven on the low-level Server; MCPServer also passes InputRequiredResult through resources.
+    Spec-mandated: resources/read is an MRTR-supported request (basic/patterns/mrtr, Supported Requests).
     """
     sent = ElicitRequestFormParams(
         message="Who is reading?",

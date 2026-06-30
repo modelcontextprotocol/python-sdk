@@ -60,12 +60,9 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
 
 @requirement("protocol:pagination:empty-cursor-valid")
 async def test_an_empty_string_next_cursor_round_trips_as_a_cursor_not_end_of_results(connect: Connect) -> None:
-    """An empty-string next_cursor is surfaced as "" -- distinct from absent -- and passes back verbatim as a cursor.
+    """An empty-string next_cursor round-trips verbatim, distinct from absent.
 
-    Spec-mandated (2026-07-28): an empty string is a valid cursor and MUST NOT be treated as the
-    end of results. The SDK's share of the MUST is preserving the empty-string/absent distinction
-    on both legs; whether to stop paging is the caller's decision, which only stays correct
-    because the distinction survives.
+    Spec-mandated: an empty string is a valid cursor and MUST NOT be treated as the end of results.
     """
     seen_cursors: list[str | None] = []
 
@@ -83,8 +80,6 @@ async def test_an_empty_string_next_cursor_round_trips_as_a_cursor_not_end_of_re
         second_page = await client.list_tools(cursor=first_page.next_cursor)
 
     assert first_page.next_cursor == ""
-    # Identity, not a snapshot: the handler received back exactly the "" it issued, proving the
-    # empty string survived serialization on both legs and was not coerced or dropped.
     assert seen_cursors == [None, ""]
     assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})]))
 

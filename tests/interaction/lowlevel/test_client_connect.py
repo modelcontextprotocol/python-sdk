@@ -377,12 +377,7 @@ async def test_http_protocol_version_header_matches_meta_protocol_version_on_eve
 async def test_discover_carries_server_instructions_and_omits_them_when_undeclared() -> None:
     """A server's instructions string arrives through the `server/discover` result; an undeclared one reads None.
 
-    Requirement `lifecycle:discover:instructions` (spec server/discover#discoverresult): the field
-    rides the discover result, so the client connects in its default auto mode -- the only public
-    vehicle that performs a real `server/discover` round trip (the fixture's pinned 2026 cells adopt
-    a synthesized empty DiscoverResult and never observe server-side discover content). Asserting
-    the modern protocol version on both arms proves the carrier was discover, not an initialize
-    fallback, which would also expose instructions.
+    Auto mode is the only public path doing a real probe; the version asserts rule out an initialize fallback.
     """
     with anyio.fail_after(5):
         async with Client(Server("guided", instructions="Call the add tool.")) as client:
@@ -399,29 +394,22 @@ async def test_discover_carries_server_instructions_and_omits_them_when_undeclar
 async def test_discover_capabilities_reflect_registered_handlers() -> None:
     """The discover result advertises a capability per registered handler area and omits the rest.
 
-    Requirement `lifecycle:discover:capabilities:from-handlers` (spec server/discover#response):
-    capabilities derive from the registered handlers; the full-object snapshot proves the
-    unregistered areas stay None, and the bare server advertises nothing at all. `list_changed=False`
-    comes from the default NotificationOptions, as in the 2025 initialize sibling. Only era-clean
-    areas (tools/prompts/completions) are registered on purpose: the derivation is era-agnostic, so
-    a subscribe or logging handler would advertise a capability whose method is era-removed at
-    2026-07-28 -- a quirk deliberately left unpinned here.
+    Only era-clean areas are registered: the derivation is era-agnostic, so a subscribe or logging
+    handler would advertise an era-removed method -- a quirk deliberately left unpinned here.
     """
 
+    # The handlers exist only so their capability is advertised; none is ever called.
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        """Registered only so the tools capability is advertised; never called."""
         raise NotImplementedError
 
     async def list_prompts(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListPromptsResult:
-        """Registered only so the prompts capability is advertised; never called."""
         raise NotImplementedError
 
     async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> types.CompleteResult:
-        """Registered only so the completions capability is advertised; never called."""
         raise NotImplementedError
 
     server = Server("capable", on_list_tools=list_tools, on_list_prompts=list_prompts, on_completion=completion)
@@ -446,12 +434,7 @@ async def test_discover_capabilities_reflect_registered_handlers() -> None:
 async def test_auto_mode_sends_discover_before_any_other_request_at_its_preferred_modern_version() -> None:
     """An auto-negotiating client's first wire request is `server/discover`, stamped with its preferred modern version.
 
-    Requirement `lifecycle:mode:auto-probes-first` (spec stdio#backward-compatibility, a SHOULD): a
-    dual-era client sends the probe before any other request, carrying its preferred modern version
-    in `_meta.protocolVersion`. The complete recorded method sequence is the before-any-other-request
-    clause -- nothing preceded the probe and nothing rode alongside it. The spec sentence lives on
-    the stdio page but binds connect-time ordering in transport-independent client code, asserted
-    here at the in-process streamable-HTTP seam like the sibling backward-compatibility entries.
+    The spec sentence lives on the stdio page but binds transport-independent ordering, so the HTTP seam suffices.
     """
     requests, on_request = _request_recorder()
 
@@ -471,12 +454,7 @@ async def test_auto_mode_sends_discover_before_any_other_request_at_its_preferre
 async def test_auto_mode_probes_discover_once_and_reuses_it_for_the_connection_lifetime() -> None:
     """One `server/discover` probe serves the whole connection; an explicit `discover()` re-fetches nothing.
 
-    Requirement `lifecycle:discover:era-cached` (spec basic/versioning#backward-compatibility-with-
-    initialization-based-versions, a SHOULD): the era determination is cached for the connection.
-    The complete recorded method list proves exactly one probe preceded three feature calls and
-    that the explicit `discover()` call added no POST. `ClientSession` is reached directly because
-    `Client` exposes no re-fetch surface; `discover()` / `discover_result` are its documented
-    cache API. The `is` assert proves the same adopted object is returned, not an equal copy.
+    `ClientSession` is reached directly because `Client` exposes no re-fetch surface.
     """
     requests, on_request = _request_recorder()
 
@@ -504,15 +482,8 @@ async def test_auto_mode_probes_discover_once_and_reuses_it_for_the_connection_l
 async def test_auto_mode_raises_when_discover_rejects_with_a_disjoint_supported_list() -> None:
     """A -32022 whose `supported` list shares no version with the client raises -- no retry, no initialize.
 
-    Requirement `lifecycle:discover:retry-on-32022` (spec basic/versioning#protocol-version-negotiation):
-    the empty-intersection clause. The overridden `server/discover` handler advertises only
-    "1999-12-31": a modern member would trigger the one-shot retry and a handshake member the
-    initialize fallback, so the fully-disjoint list isolates the raise. The wire record asserted
-    after the app context is the equally load-bearing negative -- exactly one probe, no second
-    probe, no `initialize` (spec stdio#backward-compatibility: a recognized modern error must not
-    fall back to the handshake). The error surfaces through the streamable-http task-group
-    teardown as nested ExceptionGroups, so `RaisesGroup` flattens before matching; only the code
-    is checked because the message and data are this test's own scripted values.
+    The fully-disjoint "1999-12-31" isolates the raise: a modern member would trigger the one-shot
+    retry and a handshake member the initialize fallback.
     """
 
     async def discover(ctx: ServerRequestContext, params: types.RequestParams | None) -> DiscoverResult:

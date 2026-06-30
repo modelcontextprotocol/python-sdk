@@ -49,9 +49,8 @@ class InMemoryAuthorizationServerProvider(
         `fail_next_refresh`: the next refresh-token exchange raises `invalid_grant` once.
         `reject_all_tokens`: `load_access_token` returns None for every token, so the bearer
             middleware 401s every authenticated request.
-        `rotate_refresh_tokens`: when False, the refresh exchange issues only a new access
-            token (the response carries no `refresh_token` and the presented one stays valid),
-            modelling an RFC 6749 §6 non-rotating authorization server.
+        `rotate_refresh_tokens`: when False, the refresh response carries no `refresh_token` and
+            the presented one stays valid (an RFC 6749 §6 non-rotating server).
     """
 
     def __init__(
@@ -183,11 +182,7 @@ class InMemoryAuthorizationServerProvider(
     async def exchange_refresh_token(
         self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]
     ) -> OAuthToken:
-        """Mint a new access token and rotate the refresh token, consuming the old one.
-
-        Unless `rotate_refresh_tokens` is off: then only a new access token is minted, the
-        response carries no `refresh_token`, and the presented one stays valid.
-        """
+        """Mint a new access token, and rotate the refresh token unless rotation is disabled."""
         assert client.client_id is not None
         if self._fail_next_refresh:
             self._fail_next_refresh = False

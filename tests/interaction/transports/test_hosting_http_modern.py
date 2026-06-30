@@ -4,9 +4,7 @@ These tests speak HTTP directly to the server's mounted ASGI app via the in-proc
 asserting the wire contract for a 2026-07-28 POST -- one self-contained request, no initialize
 handshake, no ``Mcp-Session-Id``, JSON response body -- and that 2025-era traffic on the same
 endpoint is byte-unchanged. The SDK client never exposes the response headers or the raw
-result-envelope shape, so every assertion here is necessarily wire-level. A handful of tests
-instead drive the SDK client against the mounted entry, for serving behaviour that is specific
-to this transport but observable through the public API.
+result-envelope shape, so every assertion here is necessarily wire-level. A few tests drive the SDK client instead.
 """
 
 import json
@@ -130,9 +128,8 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
     Spec-mandated under the draft transport: the per-request ``_meta`` envelope replaces initialize,
     and ``resultType`` is the 2026 result-envelope discriminator (``complete`` for the monolith
     result). Asserted at the wire because the SDK client never surfaces ``resultType`` and because
-    the absence of any prior request on the connection is the assertion. Its ``application/json``
-    Content-Type also pins the lazy-upgrade JSON arm: a handler that emits nothing before its
-    result never commits SSE.
+    the absence of any prior request on the connection is the assertion. The ``application/json``
+    Content-Type also pins the lazy-upgrade JSON arm: a silent handler never commits SSE.
     """
     body = {
         "jsonrpc": "2.0",
@@ -183,9 +180,8 @@ async def test_modern_initialize_is_method_not_found() -> None:
     ``_meta`` envelope so the classifier ladder admits it as far as kernel dispatch -- without the
     envelope the request is INVALID_PARAMS at rung 1, never METHOD_NOT_FOUND. Asserted at the wire
     because the SDK client at 2026-07-28 never sends initialize, so only a raw POST can drive the
-    negative. Also pins ``lifecycle:version:dual-era-precedence``: this frame is simultaneously a
-    valid modern envelope and the legacy handshake opener, and the rejection proves the modern
-    classification won -- a legacy classification would have answered the handshake.
+    negative. Also pins dual-era precedence: this frame is simultaneously a valid modern envelope
+    and the legacy handshake opener, and the rejection proves the modern classification won.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
@@ -252,9 +248,8 @@ async def test_modern_server_discover_returns_capabilities_and_supported_version
 
     Spec-mandated under the draft: server/discover is the 2026 advertisement method that replaces
     the initialize-response payload, and ``supportedVersions`` is the field a client picks its
-    per-request envelope version from. Also pins the SEP-2549 caching hints the entry stamps on
-    the discover result -- the SDK defaults ``ttlMs 0`` / ``cacheScope private`` -- under
-    ``caching:hints:server-discover``. Asserted at the wire because the SDK client never exposes
+    per-request envelope version from. Also pins the default ``ttlMs 0`` / ``cacheScope private``
+    hints stamped on the result. Asserted at the wire because the SDK client never exposes
     the raw result body.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": _meta_envelope()}}
@@ -658,20 +653,14 @@ async def test_vendor_request_with_name_param_carries_mcp_name_on_the_wire() -> 
 
 @requirement("client-transport:http:mcp-name-base64-sentinel")
 async def test_non_header_safe_tool_name_is_carried_as_base64_sentinel_mcp_name() -> None:
-    """A tools/call for a non-header-safe tool name carries `Mcp-Name` in the `=?base64?...?=` sentinel form.
+    """A tools/call for a non-header-safe tool name carries ``Mcp-Name`` in the base64 sentinel form.
 
-    Spec-mandated under the draft transport's standard-request-headers rules: tool names are only
-    SHOULD-constrained to header-safe, so a name that cannot survive an HTTP field round-trip
-    travels base64-sentinel-wrapped while the body keeps the literal. The call is made with no
-    prior `list_tools`, proving the header is derived from the request body at the transport seam,
-    not from a cached schema; the round trip completing proves the server decoded the sentinel
-    before comparing it against the body (a non-decoding server would answer 400 HeaderMismatch).
-    Asserted at the wire because the client never surfaces outgoing headers.
+    Spec-mandated. No prior ``list_tools``, so the header is derived from the request body, not a
+    cached schema; the round trip completing proves the server decoded the sentinel.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the tools/call result.
+        # Live: the client's implicit output-schema refresh calls tools/list.
         return ListToolsResult(tools=[Tool(name="hëllo", input_schema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -702,22 +691,16 @@ async def test_non_header_safe_tool_name_is_carried_as_base64_sentinel_mcp_name(
             result = await client.call_tool("hëllo", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
-    # Method-filtered, never positional: the implicit output-schema tools/list is also recorded.
     call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
     assert call.headers["mcp-name"] == snapshot("=?base64?aMOrbGxv?=")
-    # Encoding is a header concern only: the body keeps the literal name.
     assert json.loads(call.content)["params"]["name"] == "hëllo"
 
 
 @requirement("client-transport:http:custom-param-headers:sentinel-collision-escaped")
 async def test_sentinel_lookalike_argument_value_is_base64_wrapped_in_its_param_header() -> None:
-    """An argument value that itself matches `=?base64?...?=` is base64-wrapped in its `Mcp-Param-*` header.
+    """An argument value that itself matches ``=?base64?...?=`` is base64-wrapped in its param header.
 
-    Spec-mandated by the value-encoding sentinel-collision rule, and the wrapped header is
-    byte-equal to the spec's own encoding-table example row. The value is plain ASCII and
-    otherwise header-safe, so the collision rule is the ONLY encoding trigger here -- a distinct
-    branch from the non-ASCII trigger the mirroring test above pins. Asserted at the wire because
-    the client never surfaces outgoing headers.
+    Spec-mandated by the sentinel-collision rule, the only encoding trigger: the value is otherwise header-safe ASCII.
     """
     requests: list[httpx.Request] = []
 
@@ -743,26 +726,20 @@ async def test_sentinel_lookalike_argument_value_is_base64_wrapped_in_its_param_
             await client.call_tool("run", {"region": "=?base64?literal?="})
 
     call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
-    # Full-dict form so no stray param header can hide.
     assert {k: v for k, v in call.headers.items() if k.startswith("mcp-param-")} == snapshot(
         {"mcp-param-region": "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?="}
     )
-    # Mirroring is additive: the body keeps the literal value.
     assert json.loads(call.content)["params"]["arguments"] == {"region": "=?base64?literal?="}
 
 
 @requirement("hosting:http:modern:mcp-param-null-absent-not-required")
 @requirement("client-transport:http:custom-param-headers")
 async def test_null_and_absent_annotated_arguments_emit_no_param_headers_and_the_server_accepts() -> None:
-    """Null and absent annotated arguments emit no `Mcp-Param-*` headers and the server accepts the call.
+    """Null and absent annotated arguments emit no ``Mcp-Param-*`` headers and the server accepts the call.
 
-    Spec-mandated by the custom-header behaviour matrix, both columns of its null and absent rows:
-    with `note` null and `priority`/`verbose` absent, exactly one param header (the present
-    `region`) goes out, the null genuinely travels in the body, and the server must not reject the
-    request over the missing headers. The acceptance arm currently holds by construction -- the
-    server validates no `Mcp-Param-*` headers at all (the recorded gap on
-    `hosting:http:modern:mcp-param-mismatch-400`) -- so this pin is the regression bar: when that
-    validation lands, null/absent must not start being rejected.
+    Spec-mandated by the behaviour matrix's null and absent rows. Acceptance currently holds
+    because the server validates no param headers at all; when that validation lands, null and
+    absent must not start being rejected.
     """
     requests: list[httpx.Request] = []
 
@@ -787,27 +764,19 @@ async def test_null_and_absent_annotated_arguments_emit_no_param_headers_and_the
             await client.list_tools()
             result = await client.call_tool("run", {"region": "us-west1", "note": None})
 
-    # The server did not expect the missing headers: no 400/HeaderMismatch, a normal result.
     assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
     call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
-    # Exactly one param header: the null and the two absent annotated arguments are omitted.
     assert {k: v for k, v in call.headers.items() if k.startswith("mcp-param-")} == snapshot(
         {"mcp-param-region": "us-west1"}
     )
-    # The null travelled in the body, so the server-side row is genuinely exercised.
     assert json.loads(call.content)["params"]["arguments"] == {"region": "us-west1", "note": None}
 
 
 @requirement("hosting:http:modern:std-header-mismatch-400")
 async def test_modern_mcp_method_header_disagreeing_with_body_method_is_rejected_400_header_mismatch() -> None:
-    """A `Mcp-Method` header disagreeing with the body's method is rejected with HTTP 400 and HeaderMismatch.
+    """A ``Mcp-Method`` header disagreeing with the body's method is rejected with HTTP 400 and HeaderMismatch.
 
-    Spec-mandated under the draft transport's server-validation rules: a server that processes the
-    body MUST reject a request whose standard header values do not match it, with 400 and JSON-RPC
-    -32020. Everything else on the request (protocol-version header, envelope) is valid, so the
-    rejection provably comes from the Mcp-Method rung, before any handler dispatch. Driven by raw
-    httpx because the typed client stamps matching headers by construction; asserted at the wire
-    because the HTTP status is part of the assertion.
+    Spec-mandated; everything else on the request is valid, so the rejection provably comes from the Mcp-Method rung.
     """
     body = {
         "jsonrpc": "2.0",
@@ -827,13 +796,9 @@ async def test_modern_mcp_method_header_disagreeing_with_body_method_is_rejected
 
 @requirement("hosting:http:modern:std-header-mismatch-400")
 async def test_modern_mcp_name_header_disagreeing_with_body_name_is_rejected_400_header_mismatch() -> None:
-    """A `Mcp-Name` header disagreeing with the body's name parameter is rejected with HTTP 400 and HeaderMismatch.
+    """A ``Mcp-Name`` header disagreeing with the body's name parameter is rejected with HTTP 400 and HeaderMismatch.
 
-    Spec-mandated under the draft transport's server-validation rules, the Mcp-Name arm of the
-    same MUST as the test above (one obligation, two distinct validation rungs with distinct
-    SDK-authored messages): the header is present and decodable but names a different tool than
-    the body. Driven by raw httpx because the typed client stamps matching headers by
-    construction; asserted at the wire because the HTTP status is part of the assertion.
+    Spec-mandated: the Mcp-Name arm of the same MUST as the test above, a distinct rung with its own message.
     """
     body = {
         "jsonrpc": "2.0",
@@ -855,14 +820,9 @@ async def test_modern_mcp_name_header_disagreeing_with_body_name_is_rejected_400
 async def test_modern_cacheable_results_carry_ttl_and_scope_with_defaults_filled() -> None:
     """A 2026-07-28 cacheable result reaches the wire as resultType complete plus the ttlMs/cacheScope hints.
 
-    Spec-mandated for the hints' presence on cacheable results; SDK-defined for the fill:
-    handler-authored values pass through unchanged (tools/list), a result whose handler set
-    neither is stamped with the ``CacheableResult`` defaults ``ttlMs 0`` / ``cacheScope private``
-    (resources/list), and a partly-authored result fills only the missing hint (resources/read).
-    Asserted at the wire because the typed client models default-fill ``ttl_ms``/``cache_scope``,
-    so absent-vs-stamped is invisible above it. Three of the six MUST-listed operations pin the
-    mechanism: ``prompts/list`` / ``resources/templates/list`` are pinned under the caching
-    family's own entries, and ``server/discover``'s hints under ``caching:hints:server-discover``.
+    Spec-mandated for the hints' presence; SDK-defined for the fill: authored values pass through
+    (tools/list), unauthored gets the defaults (resources/list), partial fills only the missing
+    hint (resources/read). The typed client default-fills, so the stamp is only visible at the wire.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -934,14 +894,9 @@ async def test_modern_cacheable_results_carry_ttl_and_scope_with_defaults_filled
 async def test_modern_json_response_mode_returns_single_json_body_and_drops_mid_call_notifications() -> None:
     """In JSON response mode a 2026-07-28 request gets one application/json body; mid-call emits are dropped.
 
-    SDK-defined: with ``json_response=True`` the modern entry answers with only the terminal
-    JSON-RPC response, and a request-scoped notification emitted mid-call is dropped, not
-    buffered. The full-body snapshot is simultaneously the single-body proof and the drop proof:
-    the one body is the only place a buffered notification could surface, and the snapshot
-    excludes it. The emit deliberately passes ``related_request_id`` so the drop pinned is the
-    json-mode no-sink drop, not the silent no-channel drop the connection's outbound would apply
-    anyway. (The TS twin's forced-SSE response mode has no python equivalent; the SDK knob is
-    the boolean ``json_response``.)
+    SDK-defined. The full-body snapshot is both proofs: the one body is the only place a buffered
+    notification could surface. The emit passes ``related_request_id`` so the drop pinned is the
+    json-mode drop, not the no-channel drop the connection's outbound would apply anyway.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -977,13 +932,9 @@ async def test_modern_json_response_mode_returns_single_json_body_and_drops_mid_
 async def test_modern_response_upgrades_to_sse_when_the_handler_emits_and_ends_with_the_result() -> None:
     """On the default mode, mid-call emits upgrade the response to SSE with the result as the last frame.
 
-    SDK-defined framing of the 2026-07-28 entry: a handler that emits request-scoped
-    notifications before returning commits ``text/event-stream``, the frames carry the
-    notifications in emission order, and the terminal JSON-RPC response is the final frame
-    (the snapshot's length is the nothing-after-it proof). The JSON arm -- a silent handler is
-    answered ``application/json`` -- is pinned by the stateless tools/call test above. The
-    deferral window before a silent handler commits SSE anyway is deliberately unpinned:
-    asserting it would need a real-time wait the suite refuses.
+    SDK-defined framing; the snapshot's length is the nothing-after-the-result proof, and the
+    silent-handler JSON arm is pinned by the stateless tools/call test above. The deferral window
+    before a silent handler commits SSE is deliberately unpinned (needs a real-time wait).
     """
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -1031,19 +982,9 @@ async def test_modern_response_upgrades_to_sse_when_the_handler_emits_and_ends_w
 async def test_modern_notifications_land_only_on_the_originating_requests_response_stream() -> None:
     """A notification emitted while serving one request travels only on that request's response stream.
 
-    Spec-mandated under the draft transport: notifications on a 2026-07-28 SSE response stream
-    relate to the originating client request. The interleaving is structural, not
-    scheduler-lucky. Steps:
-
-    1. the "quiet" request arrives, sets ``quiet_started``, and parks mid-handler;
-    2. the "emit" request waits for that, emits its progress notification while "quiet" is
-       provably in flight, then releases it;
-    3. emit's stream carries exactly its own notification plus its result, while quiet -- whose
-       response was still uncommitted at the emit -- stays a pure ``application/json`` body. A
-       broadcast or misroute would have committed quiet's response to SSE or added a frame.
-
-    Request-scoping is by construction on the modern entry (per-request sink); this pins the
-    observable consequence.
+    Spec-mandated. The interleaving is structural: "quiet" parks mid-handler, "emit" sends its
+    notification while quiet is provably in flight, then releases it; a broadcast or misroute
+    would have committed quiet's still-uncommitted response to SSE or added a frame.
     """
     quiet_started = anyio.Event()
     release_quiet = anyio.Event()
@@ -1134,10 +1075,7 @@ async def test_modern_notifications_land_only_on_the_originating_requests_respon
 async def test_modern_sse_response_carries_x_accel_buffering_no() -> None:
     """A 2026-07-28 response that commits to an SSE stream carries ``X-Accel-Buffering: no``.
 
-    Spec-recommended (SHOULD, new on the draft transport page) so reverse proxies deliver events
-    unbuffered; scoped to the modern entry, the only 2026 SSE initiator at this pin. The
-    Content-Type assertion guards against a vacuous pass on a non-SSE response if the commit
-    logic ever changes.
+    Spec-recommended so proxies deliver events unbuffered; the Content-Type assert guards a vacuous pass.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -1161,7 +1099,7 @@ async def test_modern_sse_response_carries_x_accel_buffering_no() -> None:
                 http, "POST", "/mcp", json=body, headers=_modern_headers(method="tools/call", name="noisy")
             ) as source,
         ):
-            # Drained only so teardown is clean: the framing is the lazy-upgrade test's subject.
+            # Drained only so teardown is clean.
             async for _ in source.aiter_sse():
                 pass
 
@@ -1173,13 +1111,8 @@ async def test_modern_sse_response_carries_x_accel_buffering_no() -> None:
 async def test_modern_standard_headers_are_matched_case_insensitively() -> None:
     """Standard request headers sent under any casing are served, not rejected as missing.
 
-    Spec-mandated under the draft transport's case-sensitivity rules: header *names* are
-    case-insensitive. The in-process bridge lowercases header names into the ASGI scope, as every
-    conformant ASGI server must, so the claim pinned end-to-end is that the server's lookups key
-    on the lowercase canonical names rather than any cased spelling -- a routing match on cased
-    bytes would miss the all-uppercase ``MCP-PROTOCOL-VERSION``, fall through to the legacy path,
-    and fail there (no session, no handshake) instead of returning the modern result. Driven by
-    raw httpx because the typed client always emits the canonical lowercase spellings.
+    Spec-mandated. The bridge lowercases header names into the ASGI scope, so the pinned claim is
+    that the server's lookups key on the lowercase canonical names, not on any cased spelling.
     """
     body = {
         "jsonrpc": "2.0",
@@ -1187,9 +1120,8 @@ async def test_modern_standard_headers_are_matched_case_insensitively() -> None:
         "method": "tools/call",
         "params": {"name": "add", "arguments": {"a": 2, "b": 3}, "_meta": _meta_envelope()},
     }
-    # Hand-built rather than base_headers()-derived: a dict union would keep base_headers()'s
-    # lowercase mcp-protocol-version key alongside the cased spelling (distinct dict keys),
-    # breaking the no-lowercase-spelling-anywhere premise.
+    # Hand-built: a union with base_headers() would keep its lowercase mcp-protocol-version key
+    # alongside the cased spelling, breaking the no-lowercase-spelling-anywhere premise.
     headers = {
         "accept": "application/json, text/event-stream",
         "content-type": "application/json",
@@ -1213,17 +1145,10 @@ async def test_modern_standard_headers_are_matched_case_insensitively() -> None:
 async def test_modern_request_missing_mcp_method_header_is_header_mismatch_at_http_400() -> None:
     """A 2026-07-28 request missing the ``Mcp-Method`` header is rejected with HTTP 400 and HeaderMismatch.
 
-    Spec-mandated under the draft transport's server-validation rules: a request missing a
-    required standard header fails validation with 400 and JSON-RPC -32020. The SDK reaches the
-    rejection through its mismatch rung (absent header != body method), so its SDK-authored
-    message says "does not match" rather than "missing" -- an implementation route the spec's
-    missing/malformed description covers, not a divergence. The missing-``MCP-Protocol-Version``
-    arm is a different entry: a header-less request routes to the legacy transport, and the
-    rejecting modern-only posture is not implemented. Driven by raw httpx because the typed
-    client always sends the header.
+    Spec-mandated. The rejection comes through the mismatch rung (absent header != body method),
+    so the message says "does not match" rather than "missing" -- covered by the spec, not a divergence.
     """
-    # tools/list is deliberately non-name-bearing, so the omitted Mcp-Method is the one and only
-    # missing required header.
+    # tools/list is non-name-bearing, so the omitted Mcp-Method is the only missing header.
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": _meta_envelope()}}
     headers = base_headers() | {"mcp-protocol-version": LATEST_MODERN_VERSION}
     with anyio.fail_after(5):
@@ -1240,12 +1165,7 @@ async def test_modern_request_missing_mcp_method_header_is_header_mismatch_at_ht
 async def test_modern_name_bearing_request_missing_mcp_name_header_is_header_mismatch_at_http_400() -> None:
     """A name-bearing request missing the ``Mcp-Name`` header is rejected with HTTP 400 and HeaderMismatch.
 
-    Spec-mandated: the Mcp-Name arm of the same missing-required-header obligation as the test
-    above -- a distinct validation rung with its own SDK-authored message, hence its own test.
-    The body's ``name`` parameter is present while the header is absent, which is exactly the
-    shape the mismatch rung rejects (a body with no ``name`` at all is the spec's own
-    server-MUST-NOT-expect-the-header lenience, not this entry). Driven by raw httpx because the
-    typed client always derives the header from the body.
+    Spec-mandated. The body's ``name`` is present while the header is absent (a name-less body is the spec's lenience).
     """
     body = {
         "jsonrpc": "2.0",
@@ -1268,12 +1188,8 @@ async def test_modern_name_bearing_request_missing_mcp_name_header_is_header_mis
 async def test_modern_protocol_version_header_envelope_disagreement_is_header_mismatch_at_http_400() -> None:
     """Individually valid but disagreeing header and envelope protocol versions are rejected 400 HeaderMismatch.
 
-    Spec-mandated under the draft transport's protocol-version-header rules, and the mismatch
-    rung runs before the supported-version check. The envelope value is deliberately a version
-    outside the supported modern revisions, so an UNSUPPORTED_PROTOCOL_VERSION response here
-    would mean the rung order regressed -- the HeaderMismatch snapshot pins the ordering for
-    free. Driven by raw httpx because the SDK client derives header and envelope from one value
-    and can never produce the disagreement.
+    Spec-mandated, and the mismatch rung runs before the supported-version check: the envelope
+    value is deliberately unsupported, so the snapshot pins the rung order for free.
     """
     envelope = _meta_envelope()
     envelope[PROTOCOL_VERSION_META_KEY] = LATEST_HANDSHAKE_VERSION
@@ -1294,13 +1210,8 @@ async def test_modern_protocol_version_header_envelope_disagreement_is_header_mi
 async def test_modern_encoded_mcp_name_matching_the_body_after_decode_is_served() -> None:
     """A sentinel-encoded ``Mcp-Name`` whose decoded value matches the body is served, not rejected.
 
-    Spec-mandated under the draft transport's value-encoding rules: the server decodes a
-    sentinel-carrying header value before validation compares it to the body, so the
-    decode-matching request reaches the handler -- a plain string comparison would have answered
-    400 HeaderMismatch. Driven by raw httpx because the typed client only sentinel-wraps values
-    that need encoding (plain-ASCII ``add`` goes bare), so an encoded-ASCII header is an input
-    the typed API cannot produce. The reject direction for a non-matching decoded value is the
-    std-header-mismatch entry's subject, pinned above.
+    Spec-mandated: the server decodes the header before validation -- a plain string comparison
+    would have answered 400 HeaderMismatch. The typed client sends ASCII bare, hence raw httpx.
     """
     body = {
         "jsonrpc": "2.0",
@@ -1308,7 +1219,6 @@ async def test_modern_encoded_mcp_name_matching_the_body_after_decode_is_served(
         "method": "tools/call",
         "params": {"name": "add", "arguments": {"a": 2, "b": 3}, "_meta": _meta_envelope()},
     }
-    # The sentinel form of "add"; encode_header_value would send plain ASCII bare.
     headers = _modern_headers(method="tools/call") | {"mcp-name": "=?base64?YWRk?="}
     with anyio.fail_after(5):
         async with mounted_app(_server()) as (http, _):
@@ -1326,13 +1236,8 @@ async def test_modern_encoded_mcp_name_matching_the_body_after_decode_is_served(
 async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_encoded_header() -> None:
     """A non-ASCII prompt name round-trips end to end, travelling sentinel-encoded on the Mcp-Name header.
 
-    Spec-mandated under the draft transport's value-encoding rules, the composed contract the raw
-    accept test above isolates server-side: the client sentinel-encodes the non-header-safe name,
-    the server decodes it before validation, and the typed result comes back. The recorded-request
-    hook supplies the one fact the client cannot observe -- that the header on the wire really was
-    the sentinel form, without which a never-decoding server would still pass this round trip.
-    ``prompts/get`` is the vehicle because it is name-bearing with no implicit follow-up traffic,
-    so exactly one POST is recorded.
+    Spec-mandated. The recorded request proves the header on the wire really was the sentinel
+    form; ``prompts/get`` is name-bearing with no implicit follow-up traffic, so exactly one POST.
     """
 
     async def get_prompt(ctx: ServerRequestContext, params: GetPromptRequestParams) -> GetPromptResult:
@@ -1365,12 +1270,9 @@ async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_enco
     assert result == snapshot(
         GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="bonjour"))])
     )
-    # The single-element unpack is the no-implicit-traffic proof; the header value is byte-equal
-    # to the codec pin for the identical bytes on mcp-param-note in the mirroring test above.
     [call] = requests
     assert json.loads(call.content)["method"] == "prompts/get"
     assert call.headers["mcp-name"] == snapshot("=?base64?aMOpbGxv?=")
-    # Encoding is a header concern only: the body keeps the literal name.
     assert json.loads(call.content)["params"]["name"] == "héllo"
 
 
@@ -1378,19 +1280,9 @@ async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_enco
 async def test_modern_client_disconnect_mid_request_cancels_the_running_handler() -> None:
     """Closing the SSE response stream mid-request cancels the running handler.
 
-    Spec-mandated under the draft cancellation rules: closing the SSE response stream is the
-    transport-level cancellation signal, and the server MUST treat the disconnect as cancellation
-    of that request. The entry's "no JSON-RPC response is written" clause is unobservable from the
-    closed stream and holds by construction -- the cancelled handler never produces a result -- so
-    the cancellation observation carries it. Steps:
-
-    1. POST the park tools/call over SSE; the handler emits one progress notification (committing
-       SSE, so a response stream exists to close) and parks where only cancellation can free it;
-    2. read exactly the first SSE event -- the handler is provably running and the stream carried
-       only request-related traffic before the close;
-    3. exit the SSE context: httpx closes the response and the bridge delivers http.disconnect;
-    4. await the handler's cancellation while the app is still mounted -- the bridge teardown also
-       cancels application tasks, so only this placement proves the disconnect watcher did it.
+    Spec-mandated: the disconnect is the transport-level cancellation signal. The handler emits
+    one notification first so a committed stream exists to close; the "no response is written"
+    clause holds by construction (a cancelled handler never produces a result).
     """
     handler_cancelled = anyio.Event()
 
@@ -1401,8 +1293,7 @@ async def test_modern_client_disconnect_mid_request_cancels_the_running_handler(
             related_request_id=ctx.request_id,
         )
         try:
-            # Parked with no normal exit: transport cancellation is the only way out (the loop
-            # spells out what sleep_forever's annotation does not promise).
+            # Parked with no normal exit: transport cancellation is the only way out.
             while True:
                 await anyio.sleep_forever()
         except anyio.get_cancelled_exc_class():
@@ -1420,13 +1311,11 @@ async def test_modern_client_disconnect_mid_request_cancels_the_running_handler(
             async with aconnect_sse(
                 http, "POST", "/mcp", json=body, headers=_modern_headers(method="tools/call", name="park")
             ) as source:
-                # Held as an iterator and advanced exactly once: a full `async for` would wait for
-                # the stream to close, and the close under test is ours to perform.
+                # Advanced once only: a full `async for` would wait for the close that is ours to perform.
                 events = source.aiter_sse()
                 first = await anext(events)
-            # The aconnect_sse exit above closed the response. The app is still mounted here, so
-            # the only possible canceller is the modern entry's disconnect watcher; waiting after
-            # mounted_app exits would pass vacuously off the bridge's teardown cancellation.
+            # Awaited while the app is still mounted: after mounted_app exits, the bridge's
+            # teardown cancellation would make this pass vacuously.
             await handler_cancelled.wait()
 
     [first_frame] = parse_sse_messages([first])
@@ -1437,30 +1326,23 @@ async def test_modern_client_disconnect_mid_request_cancels_the_running_handler(
 
 @requirement("mrtr:push-api:loud-fail-2026")
 async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call_still_completes() -> None:
-    """A request-scoped push elicit over the modern HTTP entry raises the typed local error and the
-    call still completes -- the related_request_id leg that the in-memory pair transmits (the
-    divergence pinned in lowlevel/test_mrtr.py) loud-fails here, byte-identical to the standalone
-    legs, because this entry's per-request dispatch context hard-codes its back-channel away.
+    """A request-scoped push elicit over the modern HTTP entry loud-fails locally and the call still completes.
 
-    The outcome is spec-mandated (the previous server-initiated request pattern is no longer
-    supported) but the enforcement at this pin is incidental -- no back-channel, not an era gate.
-    Transport-pinned: the modern entry's gate is the only enforcement of the 2026 push prohibition
-    that holds on this leg, so it gets its own regression pin against the requirement's divergence
-    matrix.
+    Spec-mandated outcome; the enforcement here is incidental (no back-channel, not an era gate).
+    The in-memory twin of this leg still transmits the frame -- the divergence pinned in
+    lowlevel/test_mrtr.py -- so the modern entry's gate gets its own regression pin.
     """
     caught: list[NoBackChannelError] = []
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the tools/call result.
+        # Live: the client's implicit output-schema refresh calls tools/list.
         return ListToolsResult(tools=[Tool(name="ask", input_schema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask"
         assert ctx.request_id is not None
         try:
-            # The related id selects the per-request dispatch channel -- the leg whose in-memory
-            # twin still transmits the forbidden frame.
+            # The related id selects the per-request dispatch channel.
             await ctx.session.elicit_form(
                 "Need a name",
                 {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
@@ -1472,9 +1354,7 @@ async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call
 
     server = Server("scoped-push", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    # Registered so the client declares the elicitation capability in the per-request envelope,
-    # isolating the failure to the missing back-channel rather than to capability gating; the
-    # body is itself the never-delivered assertion.
+    # Declares the elicitation capability, isolating the failure to the missing back-channel.
     async def never_deliverable(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
         raise NotImplementedError
 
@@ -1495,7 +1375,6 @@ async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call
         ):
             result = await client.call_tool("ask", {})
 
-    # The failed push did not poison the request: the call completes with the handler's fallback.
     assert result == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
     assert len(caught) == 1
     assert caught[0].method == "elicitation/create"
@@ -1514,22 +1393,17 @@ async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call
 async def test_custom_request_header_reaches_the_handler_request_context_on_both_serving_paths() -> None:
     """A custom HTTP header sent by the client reaches the handler's ctx.request on both serving paths.
 
-    SDK-defined: the per-request HTTP request context carries the real transport request on the
-    legacy session path and the 2026-07-28 single-exchange path alike. Both legs drive the SDK
-    client end to end -- the observation travels back through the protocol (the tool returns the
-    header it saw) and ``mounted_app(headers=...)`` injects the header, so no raw HTTP is needed.
-    The per-leg values are distinct so a failure names the broken path; each leg builds a fresh
-    server because a session manager only runs once.
+    SDK-defined. The per-leg values are distinct so a failure names the broken path; each leg
+    builds a fresh server because a session manager only runs once.
     """
 
     def probe_server() -> Server:
         async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-            # Live (not NotImplementedError): call_tool's implicit output-schema fetch lists.
+            # Live: call_tool's implicit output-schema fetch lists.
             return ListToolsResult(tools=[Tool(name="probe", input_schema={"type": "object"})])
 
         async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
             assert params.name == "probe"
-            # The narrow is the proof the transport attached the real HTTP request object.
             assert isinstance(ctx.request, StarletteRequest)
             return CallToolResult(content=[TextContent(text=ctx.request.headers.get("x-probe", "<missing>"))])
 
@@ -1566,19 +1440,10 @@ async def test_custom_request_header_reaches_the_handler_request_context_on_both
 async def test_modern_entry_accepts_a_mismatching_mcp_param_header_without_validation() -> None:
     """A tools/call whose Mcp-Param header disagrees with the body argument is accepted, pinning the gap.
 
-    Pins a known divergence (recorded on the entry, issue L110): the spec mandates that any server
-    processing the message body validate decoded header values against the corresponding body
-    values and reject with 400/-32020 HeaderMismatch on any failure, but the inbound ladder
-    compares only MCP-Protocol-Version, Mcp-Method and Mcp-Name -- the disagreeing
-    ``Mcp-Param-Region`` is ignored and the handler runs on the body value (its arguments assert
-    is the body-wins proof; the header value must not leak). The SDK has no notion of a
-    "recognized" param header -- the ladder never sees a tool schema, so this server deliberately
-    registers no on_list_tools -- and the pinned accept uses a header that name-matches a body
-    argument, the strongest candidate for any future validation; the unknown-header arm (a header
-    with no corresponding body argument) is deliberately not pinned and must be decided when
-    validation lands. When it does, this test flips to 400 and re-pins, while the null-and-absent
-    acceptance test above must stay green. Driven by raw httpx because the typed client mirrors
-    param headers correctly by construction.
+    Pins a recorded divergence: the spec mandates 400/-32020 HeaderMismatch on a decoded-header /
+    body disagreement, but the ladder compares only MCP-Protocol-Version, Mcp-Method and Mcp-Name,
+    so the handler runs on the body value. When validation lands: this test flips to 400 and
+    re-pins, while the null-and-absent acceptance test above must stay green.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:

@@ -1,21 +1,8 @@
-"""The 2026-07-28 multi-round-trip request (MRTR) core pattern over tools/call.
+"""The 2026-07-28 multi-round-trip request (MRTR) pattern over tools/call.
 
-A tool that needs more input answers with an ``input_required`` result; the client driver fulfils
-the embedded requests through its registered callbacks and retries the original call carrying the
-collected ``inputResponses`` and the echoed opaque ``requestState``. The fixture-driven tests pin
-the driver's user-facing contract on both 2026 matrix cells; the wire-level tests record JSON-RPC
-frames at the client transport seam over the modern streamable HTTP entry -- the only transport
-serving 2026 JSON-RPC frames -- because retry ids and serialized key presence are protocol facts
-invisible to API callers (the in-memory 2026 path has no JSON-RPC framing at all). One test
-speaks the raw 2026 dialect against the mounted modern entry, the only seam where malformed
-params can originate. The directionality-edge tests pin the 2026 boundary itself: the retired
-push APIs fail loudly (except the in-memory request-scoped leg, a pinned divergence), embedded
-input requests cross un-gated to the refusing client driver, and a completed exchange's trace
-carries client requests and server responses only. The error-handling SHOULDs the auto driver
-can never trigger (a missing or unrequested ``inputResponses`` key) are driven through the
-manual ``allow_input_required`` loop, and a trailing scripted-peer section plays the server by
-hand for result bodies a real ``Server`` cannot emit: an absent ``resultType`` (the
-backward-compat default) and an unrecognized ``resultType`` value (a pinned divergence).
+Fixture-driven tests pin the client driver's contract on both 2026 matrix cells; wire-level tests
+record JSON-RPC frames over the modern HTTP entry, the only transport with 2026 framing; raw-dialect
+and scripted-peer tests cover params and result bodies the typed API cannot produce.
 """
 
 from typing import Any
@@ -73,8 +60,7 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
-# Deliberately not parseable as JSON or base64: a client that inspected or normalized
-# request_state instead of echoing it byte-exact would fail the equality assertions below.
+# Not parseable as JSON or base64: a client that inspected request_state instead of echoing it fails below.
 OPAQUE_STATE = 'state!{"not-json'
 
 _NAME_SCHEMA: dict[str, object] = {
@@ -85,23 +71,17 @@ _NAME_SCHEMA: dict[str, object] = {
 
 
 def _form_request(message: str) -> ElicitRequest:
-    """A form-mode elicitation request embeddable in an InputRequiredResult's input_requests."""
+    """A form-mode elicitation request embeddable in input_requests."""
     return ElicitRequest(params=ElicitRequestFormParams(message=message, requested_schema=_NAME_SCHEMA))
 
 
 def _login_server(request_states: list[str | None]) -> Server:
-    """The two-round write-once server the roundtrip pair shares.
-
-    Round 1 answers with one embedded form request plus the opaque state; round 2 asserts the
-    byte-exact echo and completes with the elicited name. Every round's request_state is appended
-    to `request_states`.
-    """
+    """Two-round login server shared by the roundtrip pair; appends each round's request_state."""
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
+        # Live: the client's output-schema cache refresh calls tools/list after the tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="login", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -127,13 +107,10 @@ def _login_server(request_states: list[str | None]) -> Server:
 
 @requirement("mrtr:tools-call:write-once-roundtrip")
 async def test_input_required_tool_call_is_auto_fulfilled_and_retried_to_completion(connect: Connect) -> None:
-    """An input_required tools/call is fulfilled by the client driver and retried to completion.
+    """An input_required tools/call is auto-fulfilled by the client driver and retried to completion.
 
-    The registered callback answers the embedded form request and the retried call completes as a
-    plain CallToolResult (spec basic workflow). The byte-exact requestState echo (spec MUST) is
-    pinned by equality against a deliberately non-parseable literal -- the only observable proxy
-    for the MUST NOT inspect/parse/modify rule; the retry's frame-level obligations are pinned by
-    the wire test below.
+    The byte-exact requestState echo (spec MUST) is the only observable proxy for the MUST NOT
+    inspect/parse/modify rule.
     """
     request_states: list[str | None] = []
     server = _login_server(request_states)
@@ -150,7 +127,6 @@ async def test_input_required_tool_call_is_auto_fulfilled_and_retried_to_complet
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="hello octocat")]))
     assert prompts == ["Provide your GitHub username"]
-    # Exactly the initial round and one retry, the retry echoing the module constant byte-exact.
     assert request_states == [None, OPAQUE_STATE]
 
 
@@ -158,11 +134,7 @@ async def test_input_required_tool_call_is_auto_fulfilled_and_retried_to_complet
 async def test_state_only_input_required_is_retried_with_no_responses_and_echoed_state(connect: Connect) -> None:
     """A state-only input_required result is retried with no inputResponses and the state echoed.
 
-    There is nothing to dispatch, so no callbacks are registered -- a driver that wrongly
-    dispatched on this branch would error the call instead of completing it. The spec's "MAY
-    retry the original request immediately" is permission: the SDK paces the retry with an
-    internal 50 ms backoff, its own pacing choice rather than a divergence, and the test neither
-    adds sleeps nor asserts elapsed time.
+    No callbacks are registered: a driver that wrongly dispatched here would error the call.
     """
     resume_token = "resume-token-1"
     request_states: list[str | None] = []
@@ -170,8 +142,6 @@ async def test_state_only_input_required_is_retried_with_no_responses_and_echoed
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="resume", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -192,28 +162,21 @@ async def test_state_only_input_required_is_retried_with_no_responses_and_echoed
         result = await client.call_tool("resume", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="done")]))
-    # Exactly one retry, echoing the token the server minted.
     assert request_states == [None, resume_token]
 
 
 @requirement("mrtr:multi-round:complete")
 async def test_server_reprompts_across_two_productive_rounds_then_completes(connect: Connect) -> None:
-    """A server may answer the same call with input_required on successive attempts (spec MAY);
-    after two productive rounds the retried call completes normally.
+    """A server re-prompting with input_required across two productive rounds completes normally.
 
-    Round 1's answer is threaded through ``request_state`` -- the spec's own stateless-server
-    pattern -- so the terminal snapshot proves both rounds' data reached the server. Echoing the
-    *latest* round's state on each retry is spec-mandated (the retry echoes the exact value of the
-    result being retried); round 3 carrying only round 3's answers is SDK-defined -- the driver
-    rebuilds responses per round, and the spec is silent on accumulate-vs-replace.
+    Round 1's answer rides forward inside request_state (the spec's stateless-server pattern). Each
+    retry carrying only the latest round's responses is SDK-defined (spec silent on accumulate-vs-replace).
     """
     request_states: list[str | None] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="enroll", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -228,12 +191,10 @@ async def test_server_reprompts_across_two_productive_rounds_then_completes(conn
             first = params.input_responses["first"]
             assert isinstance(first, ElicitResult)
             assert first.content is not None
-            # The stateless-server pattern: round 1's answer rides forward inside the new state.
             return InputRequiredResult(
                 input_requests={"second": _form_request("second question")},
                 request_state=f"s2:{first.content['name']}",
             )
-        # Only the current round's answers ride the retry (SDK-defined; see docstring).
         assert set(params.input_responses) == {"second"}
         assert params.request_state is not None and params.request_state.startswith("s2:")
         first_answer = params.request_state.removeprefix("s2:")
@@ -257,22 +218,15 @@ async def test_server_reprompts_across_two_productive_rounds_then_completes(conn
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="one+two")]))
     assert prompts == ["first question", "second question"]
-    # Three rounds, each retry echoing the latest round's state (spec) -- round 1's answer
-    # visible inside round 2's threaded state.
     assert request_states == [None, "s1", "s2:one"]
 
 
 @requirement("mrtr:rounds-cap")
 async def test_auto_loop_raises_rounds_exceeded_when_the_server_never_completes() -> None:
-    """The driver's retry loop is bounded: a server that keeps answering input_required past the
-    configured ``input_required_max_rounds`` raises ``InputRequiredRoundsExceededError`` carrying
-    the configured cap. SDK-defined contract (the spec places no bound; servers MUST NOT assume
-    clients retry at all).
+    """Exceeding input_required_max_rounds raises InputRequiredRoundsExceededError with the cap.
 
-    Constructed directly on the in-memory 2026 cell rather than via the connect fixture because
-    the factories do not forward ``input_required_max_rounds``; the driver is a
-    transport-independent pure function, so the knob's effect is fully observable here. Every
-    round carries ``input_requests``, so the state-only backoff branch never runs.
+    SDK-defined behaviour (the spec places no bound). Direct in-memory Client because the connect
+    factories do not forward input_required_max_rounds; the driver is transport-independent.
     """
     seen_responses: list[set[str] | None] = []
 
@@ -293,31 +247,25 @@ async def test_auto_loop_raises_rounds_exceeded_when_the_server_never_completes(
     async with Client(
         server, mode=LATEST_MODERN_VERSION, elicitation_callback=answer_again, input_required_max_rounds=2
     ) as client:
-        # Inside the connect block: unwinding through Client.__aexit__ would wrap the error in
-        # ExceptionGroups (task-group teardown), and pytest.raises would miss the bare type.
+        # Raised inside the block: Client.__aexit__ would wrap the error in an ExceptionGroup.
         with pytest.raises(InputRequiredRoundsExceededError) as exc_info:
             await client.call_tool("never-done", {})
 
-    # The configured cap comes back on the error; the message is the SDK's own guidance text.
     assert exc_info.value.max_rounds == 2
     assert str(exc_info.value) == snapshot(
         "Server returned InputRequiredResult for more than 2 rounds; raise input_required_max_rounds "
         "on the Client, or use client.session.<method>(..., allow_input_required=True) to drive the loop manually."
     )
-    # SDK-defined loop accounting: the initial call plus two retries reach the handler (round 3's
-    # input_required trips the cap), and the tripping round's requests are never dispatched.
+    # The initial call plus two retries reach the handler; the tripping round's requests are never dispatched.
     assert seen_responses == [None, {"q"}, {"q"}]
     assert prompts == ["again", "again"]
 
 
 @requirement("protocol:result-type:input-required-not-masked")
 async def test_unopted_session_call_with_an_input_required_result_raises_instead_of_returning_it() -> None:
-    """A session-surface tools/call that has not opted into the manual loop raises the SDK's
-    guidance error when the server answers ``input_required`` -- the interim never surfaces as an
-    empty-content success (spec: clients use ``resultType`` to determine how to parse the
-    result; the error shape itself is SDK-defined). Constructed directly on the in-memory 2026
-    cell, the rounds-cap shape above: the claim is body-level, and the requirement's legacy-axis
-    half is recorded on its note rather than pinned.
+    """A session tools/call without allow_input_required raises instead of returning the interim.
+
+    The interim never surfaces as an empty-content success; the error shape is SDK-defined.
     """
     calls: list[str] = []
 
@@ -329,13 +277,10 @@ async def test_unopted_session_call_with_an_input_required_result_raises_instead
     server = Server("interim-only", on_call_tool=call_tool)
 
     async with Client(server, mode=LATEST_MODERN_VERSION) as client:
-        # Inside the connect block: unwinding through Client.__aexit__ would wrap the error in
-        # ExceptionGroups (task-group teardown), and pytest.raises would miss the bare type.
+        # Raised inside the block: Client.__aexit__ would wrap the error in an ExceptionGroup.
         with pytest.raises(RuntimeError) as exc_info:
             await client.session.call_tool("ask", {})
 
-    # The SDK's own deliberate guidance text; the snapshot also disambiguates the bare
-    # RuntimeError from any other.
     assert str(exc_info.value) == snapshot(
         "Server returned InputRequiredResult; pass allow_input_required=True to receive it "
         "and retry call_tool(..., input_responses=..., request_state=result.request_state)."
@@ -346,14 +291,10 @@ async def test_unopted_session_call_with_an_input_required_result_raises_instead
 
 @requirement("mrtr:input-required-result:at-least-one-of")
 async def test_input_required_result_with_neither_field_cannot_reach_the_client(connect: Connect) -> None:
-    """A handler-built InputRequiredResult with neither inputRequests nor requestState cannot
-    cross to the client: construction fails (the spec's at-least-one-of MUST, enforced by the
-    model validator) and the call surfaces a JSON-RPC error, never a malformed interim result.
+    """An InputRequiredResult with neither inputRequests nor requestState cannot reach the client.
 
-    The error shape is SDK-defined -- both 2026 dispatchers map the handler's ValidationError to
-    the same invalid-params ErrorData, so one snapshot serves both cells; the spec mandates no
-    code for a server-side construction bug (its 'appropriate error code' SHOULD addresses
-    client-sent malformed data).
+    The model validator enforces the at-least-one-of MUST; both 2026 dispatchers map the handler's
+    ValidationError to the same SDK-defined invalid-params error, so one snapshot serves both cells.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> InputRequiredResult:
@@ -374,19 +315,14 @@ async def test_input_required_result_with_neither_field_cannot_reach_the_client(
 
 @requirement("mrtr:input-responses:key-correspondence")
 async def test_multi_request_input_responses_are_keyed_by_the_input_request_keys(connect: Connect) -> None:
-    """inputResponses on the retry are keyed by the inputRequests keys, each value the client's
-    typed result for that key's request (spec: keys correspond; values are per-request results).
+    """inputResponses on the retry are keyed by the inputRequests keys, each value that key's typed result.
 
-    Two of the three response types (ElicitResult, ListRootsResult) prove the map contract;
-    sampling-value fidelity belongs to the sampling MRTR entries. Both payloads travel back
-    through the protocol into one terminal result.
+    ElicitResult and ListRootsResult prove the map contract; sampling fidelity belongs to the sampling entries.
     """
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="profile", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -401,7 +337,6 @@ async def test_multi_request_input_responses_are_keyed_by_the_input_request_keys
         assert set(params.input_responses) == {"github_login", "workspace_roots"}
         login = params.input_responses["github_login"]
         roots = params.input_responses["workspace_roots"]
-        # Per-key type routing: each key's value is the result type its request asked for.
         assert isinstance(login, ElicitResult)
         assert isinstance(roots, ListRootsResult)
         assert login.content is not None
@@ -424,22 +359,16 @@ async def test_multi_request_input_responses_are_keyed_by_the_input_request_keys
 
 @requirement("mrtr:input-responses:missing-reprompted")
 async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: Connect) -> None:
-    """A retry that omits one of the requested ``inputResponses`` keys is answered with a new
-    InputRequiredResult naming the missing key, not an error (spec SHOULD). The re-prompt
-    decision itself belongs to the test's handler -- the spec binds the server application; the
-    SDK obligations pinned are that the partial map passes validation, reaches the handler
-    unmodified, and the re-prompt interim rides the loop as an ordinary input_required round.
+    """A retry omitting a requested inputResponses key is re-prompted, not errored (spec SHOULD).
 
-    Driven through the manual ``client.session.call_tool(..., allow_input_required=True)`` loop:
-    the auto driver answers every requested key, so a missing key is unconstructible through it.
+    The re-prompt decision belongs to the test's handler; the SDK obligation pinned is that the partial
+    map reaches the handler unmodified. Manual loop: the auto driver answers every requested key.
     """
     seen: list[set[str] | None] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the completing tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="enroll", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -456,8 +385,7 @@ async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: 
             first = params.input_responses["first"]
             assert isinstance(first, ElicitResult)
             assert first.content is not None
-            # The spec's recovery path: re-prompt for the missing key rather than erroring,
-            # threading round 1's answer through the state (the stateless-server pattern).
+            # Re-prompt for the missing key, threading round 1's answer through the state.
             return InputRequiredResult(
                 input_requests={"second": _form_request("second question")},
                 request_state=f"r2:{first.content['name']}",
@@ -477,8 +405,6 @@ async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: 
         assert isinstance(round1, InputRequiredResult)
         assert round1.input_requests is not None
         assert set(round1.input_requests) == {"first", "second"}
-        # The SHOULD's observable: the partial retry comes back as a fresh InputRequiredResult
-        # naming only the missing key -- not an exception, not an error result.
         round2 = await client.session.call_tool(
             "enroll",
             {},
@@ -497,33 +423,23 @@ async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: 
             allow_input_required=True,
         )
 
-    # Both the partial round and the re-prompt round were productive: round 1's answer and the
-    # re-prompted answer meet in the terminal result.
     assert result == snapshot(CallToolResult(content=[TextContent(text="one+two")]))
-    # The partial map arrived as sent: a future SDK that filtered or rejected partial
-    # inputResponses maps fails here consciously.
+    # The partial map reached the handler as sent, not filtered or rejected.
     assert seen == [None, {"first"}, {"second"}]
 
 
 @requirement("mrtr:input-responses:unknown-ignored")
 async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_completes(connect: Connect) -> None:
-    """A retry carrying a response under a key the server never requested completes normally,
-    the server using only the recognized key (spec SHOULD: ignore information it does not
-    recognize or need). The ignoring itself happens in the test's handler, where the spec's
-    judgement lives; the SDK half pinned here is that the stray entry passes validation and is
-    delivered unfiltered, so a future filter-before-dispatch change fails consciously (the
-    requirement note records that filtering would equally satisfy the SHOULD).
+    """A retry carrying an unrequested inputResponses key completes normally (spec SHOULD: ignore).
 
-    Manual loop again: the auto driver builds responses exclusively from the server's own
-    ``inputRequests`` keys, so an extra key is unconstructible through it.
+    The ignoring happens in the test's handler; the SDK half pinned is that the stray entry is
+    delivered unfiltered. Manual loop: the auto driver only answers the server's own keys.
     """
     seen: list[set[str] | None] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the completing tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="greet", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -547,8 +463,7 @@ async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_com
         result = await client.session.call_tool(
             "greet",
             {},
-            # The stray value is structurally VALID -- its unknown-ness lives in the key alone,
-            # keeping this disjoint from the malformed-value claim of invalid-rejected below.
+            # Structurally valid value: only the key is unknown, keeping this disjoint from invalid-rejected below.
             input_responses={
                 "name": ElicitResult(action="accept", content={"name": "ada"}),
                 "stray": ElicitResult(action="accept", content={"name": "noise"}),
@@ -558,30 +473,21 @@ async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_com
         )
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="hello ada")]))
-    # Delivered, not filtered: the stray key reached the handler intact.
     assert seen == [None, {"name", "stray"}]
 
 
 @requirement("mrtr:push-api:loud-fail-2026")
 async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_completes(connect: Connect) -> None:
-    """A handler calling the retired push API on a 2026 connection gets a typed, catchable local
-    error before anything reaches the client, and the originating call still completes normally.
+    """A push API call on a 2026 connection raises a typed local error and the call still completes.
 
-    The outcome is spec-mandated (the previous server-initiated request pattern is no longer
-    supported) but the enforcement at this pin is incidental -- the gate is "this transport context
-    has no back-channel", not "wrong era"; the request-scoped half of that gap is pinned by the
-    divergence test below. One push API stands for all four: elicit_form / elicit_url /
-    create_message / list_roots share the single channel-selection point in
-    ServerSession.send_request, and the deprecated siblings would add warning scaffolding only to
-    re-prove the same gate.
+    Spec-mandated outcome, incidental enforcement: the gate is "no back-channel", not "wrong era".
+    One push API stands for all four: they share ServerSession.send_request's channel selection.
     """
     caught: list[NoBackChannelError] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="ask", input_schema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -594,9 +500,7 @@ async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_compl
 
     server = Server("push", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    # Registered so the client declares the elicitation capability in the per-request envelope,
-    # isolating the failure to the missing back-channel rather than to capability gating; the
-    # body is itself the never-delivered assertion.
+    # Declares the elicitation capability, isolating the failure to the missing back-channel; never delivered.
     async def never_deliverable(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         raise NotImplementedError
 
@@ -620,23 +524,17 @@ async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_compl
 
 @requirement("mrtr:push-api:loud-fail-2026")
 async def test_request_scoped_push_elicit_on_in_memory_2026_transmits_the_forbidden_frame() -> None:
-    """PINS A KNOWN GAP: the 2026 prohibition on server-initiated requests is enforced
-    per-transport by the missing back-channel, and the in-memory pair's request-scoped channel
-    still has one -- a push elicit carrying related_request_id transmits the forbidden
-    elicitation/create, and the failure comes back from the client's 2026 version gate instead of
-    arising locally. See the requirement's divergence; when an era-aware send gate lands, re-pin
-    this to the local NoBackChannelError the test above observes and delete the divergence.
+    """PINS A KNOWN GAP: a request-scoped push elicit on in-memory 2026 transmits the forbidden frame.
 
-    Direct in-memory client, no fixture: the behaviour is transport-split -- over the modern HTTP
-    entry this same leg loud-fails locally -- so one fixture body cannot pin both cells.
+    The no-back-channel gate is per-transport and the in-memory request-scoped channel still has one,
+    so the failure comes back from the client's 2026 version gate instead of arising locally. When an
+    era-aware send gate lands: re-pin to the local NoBackChannelError and delete the Divergence.
     """
     caught: list[MCPError] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="ask", input_schema={"type": "object"})])
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -646,16 +544,13 @@ async def test_request_scoped_push_elicit_on_in_memory_2026_transmits_the_forbid
             # The related id routes the send onto the per-request dispatch channel.
             await ctx.session.elicit_form("Need a name", _NAME_SCHEMA, related_request_id=ctx.request_id)
         except MCPError as exc:
-            # MCPError, not NoBackChannelError: nothing is raised locally on this path -- the
-            # failure is the peer's typed answer. Post-fix, the local NoBackChannelError (an
-            # MCPError subclass) lands here too and fails on the snapshot, a clean re-pin signal.
+            # MCPError, not NoBackChannelError: nothing is raised locally -- the failure is the peer's answer.
             caught.append(exc)
         return CallToolResult(content=[TextContent(text="fallback")])
 
     server = Server("scoped-push", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    # Registered so the client declares the elicitation capability (mirroring the test above);
-    # the body is itself the never-delivered assertion.
+    # Declares the elicitation capability; the body is itself the never-delivered assertion.
     async def never_deliverable(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         raise NotImplementedError
 
@@ -665,10 +560,7 @@ async def test_request_scoped_push_elicit_on_in_memory_2026_transmits_the_forbid
     # The connection survives the rejected frame.
     assert result == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
     assert len(caught) == 1
-    # The transmission proof, byte-exact: only the client version gate's KeyError branch
-    # (SERVER_REQUESTS has zero 2026-07-28 entries) answers with data=<method> -- it runs strictly
-    # before callback dispatch, so this snapshot also proves the callback layer was never reached
-    # (a delivered-then-failing callback surfaces a different error shape).
+    # Only the pre-dispatch client version gate answers data=<method>: transmission proven, callback never reached.
     assert caught[0].error == snapshot(
         ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="elicitation/create")
     )
@@ -678,20 +570,17 @@ async def test_request_scoped_push_elicit_on_in_memory_2026_transmits_the_forbid
 async def test_sampling_request_embedded_for_a_non_sampling_client_is_sent_and_refused_client_side(
     connect: Connect,
 ) -> None:
-    """PINS A KNOWN GAP: the spec forbids embedding an inputRequests entry the client's declared
-    capabilities do not support, but the SDK has no embed gate -- the sampling/createMessage is
-    transmitted as-is and the violation surfaces as the client driver's refusal aborting the call.
-    See the requirement's divergence; when the server-side gate lands (expected: the originating
-    request fails with -32021 MissingRequiredClientCapability or the embed is rejected at
-    construction), re-pin.
+    """PINS A KNOWN GAP: an embedded sampling request an undeclared client cannot support is sent anyway.
+
+    The SDK has no embed gate (spec MUST NOT), so the violation surfaces as the client driver's refusal
+    aborting the call. When the server-side gate lands: re-pin to the gated outcome and delete the Divergence.
     """
     calls: list[str] = []
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> InputRequiredResult:
         assert params.name == "gated"
         calls.append(params.name)
-        # The precondition, through the same public surface a conformant gate would use: this
-        # connection's envelope declared no sampling capability.
+        # Precondition: this connection's envelope declared no sampling capability.
         assert not ctx.session.check_client_capability(ClientCapabilities(sampling=SamplingCapability()))
         return InputRequiredResult(
             input_requests={
@@ -705,15 +594,12 @@ async def test_sampling_request_embedded_for_a_non_sampling_client_is_sent_and_r
 
     server = Server("ungated-sampling", on_call_tool=call_tool)
 
-    # Default client, no callbacks: precisely the client that declared no capabilities.
     async with connect(server) as client:
-        # Inside the connect block: unwinding through Client.__aexit__ would wrap the error in
-        # ExceptionGroups (task-group teardown), and pytest.raises would miss the bare type.
+        # Raised inside the block: Client.__aexit__ would wrap the error in an ExceptionGroup.
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("gated", {})
 
-    # The SDK-authored refusal originates in the client driver's default sampling callback --
-    # possible only because the server transmitted the embed a conformant server MUST NOT send.
+    # The refusal comes from the client driver's default sampling callback -- proof the embed was transmitted.
     assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Sampling not supported"))
     # The handler ran exactly once: the driver aborts on the refusal, no retry.
     assert calls == ["gated"]
@@ -723,34 +609,28 @@ async def test_sampling_request_embedded_for_a_non_sampling_client_is_sent_and_r
 async def test_roots_request_embedded_for_a_rootless_client_is_sent_and_refused_client_side(
     connect: Connect,
 ) -> None:
-    """PINS A KNOWN GAP: the spec forbids embedding an inputRequests entry the client's declared
-    capabilities do not support, but the SDK has no embed gate -- the roots/list is transmitted
-    as-is and the violation surfaces as the client driver's refusal aborting the call. See the
-    requirement's divergence; when the server-side gate lands (expected: the originating request
-    fails with -32021 MissingRequiredClientCapability or the embed is rejected at construction),
-    re-pin.
+    """PINS A KNOWN GAP: an embedded roots request a rootless client cannot support is sent anyway.
+
+    The SDK has no embed gate (spec MUST NOT), so the violation surfaces as the client driver's refusal
+    aborting the call. When the server-side gate lands: re-pin to the gated outcome and delete the Divergence.
     """
     calls: list[str] = []
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> InputRequiredResult:
         assert params.name == "gated"
         calls.append(params.name)
-        # The precondition, through the same public surface a conformant gate would use: this
-        # connection's envelope declared no roots capability.
+        # Precondition: this connection's envelope declared no roots capability.
         assert not ctx.session.check_client_capability(ClientCapabilities(roots=RootsCapability()))
         return InputRequiredResult(input_requests={"workspace-roots": ListRootsRequest()})
 
     server = Server("ungated-roots", on_call_tool=call_tool)
 
-    # Default client, no callbacks: precisely the client that declared no capabilities.
     async with connect(server) as client:
-        # Inside the connect block: unwinding through Client.__aexit__ would wrap the error in
-        # ExceptionGroups (task-group teardown), and pytest.raises would miss the bare type.
+        # Raised inside the block: Client.__aexit__ would wrap the error in an ExceptionGroup.
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("gated", {})
 
-    # The SDK-authored refusal originates in the client driver's default roots callback --
-    # possible only because the server transmitted the embed a conformant server MUST NOT send.
+    # The refusal comes from the client driver's default roots callback -- proof the embed was transmitted.
     assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="List roots not supported"))
     # The handler ran exactly once: the driver aborts on the refusal, no retry.
     assert calls == ["gated"]
@@ -763,12 +643,8 @@ async def test_roots_request_embedded_for_a_rootless_client_is_sent_and_refused_
 async def test_mrtr_retry_frame_carries_fresh_id_and_byte_exact_request_state() -> None:
     """The MRTR retry frame carries a fresh JSON-RPC id and the requestState key serialized byte-exact.
 
-    Asserted at the client transport seam because the retry's id (spec MUST: initial request and
-    retry are independent requests) and the serialized requestState key are invisible to API
-    callers; the modern HTTP entry is the only transport serving 2026 JSON-RPC frames at this pin
-    (the in-memory 2026 path has no framing). The recorded round-1 response also exhibits one
-    compliant input_required interim -- enforcement of the at-least-one-of MUST is owned by its
-    own entry -- and this test is the emission complement of the key-omission test below.
+    Asserted at the client transport seam: the retry's id (spec MUST: the retry is an independent
+    request) and the serialized key presence are invisible to API callers.
     """
     server = _login_server([])
 
@@ -777,8 +653,7 @@ async def test_mrtr_retry_frame_carries_fresh_id_and_byte_exact_request_state() 
         return ElicitResult(action="accept", content={"name": "octocat"})
 
     with anyio.fail_after(5):
-        # One combined async-with, the recorder bound via := -- a separately nested `async with`
-        # line mis-traces its exit arcs under branch coverage on 3.11+.
+        # One combined async-with, recorder bound via :=: nested async-with mis-traces exit arcs on 3.11+.
         async with (
             mounted_app(server) as (http, _),
             Client(
@@ -797,8 +672,7 @@ async def test_mrtr_retry_frame_carries_fresh_id_and_byte_exact_request_state() 
     ]
     assert len(calls) == 2
     first, retry = calls
-    # Fresh id on the retry, asserted as inequality: the id *sequence* belongs to
-    # protocol:request-id:unique, and pinned values would couple to the refresh-frame count.
+    # Inequality, not pinned values: the id sequence belongs to protocol:request-id:unique.
     assert first.id is not None
     assert retry.id is not None
     assert retry.id != first.id
@@ -808,8 +682,7 @@ async def test_mrtr_retry_frame_carries_fresh_id_and_byte_exact_request_state() 
     assert retry.params is not None
     assert retry.params["requestState"] == OPAQUE_STATE
     assert retry.params["inputResponses"]["github_login"]["action"] == "accept"
-    # The interim travelled as a *result*, matched to the initial request by its id (the received
-    # log also carries the retry's response and the tools/list response).
+    # The interim travelled as a *result*, matched to the initial request by its id.
     interim = next(
         message.message
         for message in recording.received
@@ -825,18 +698,14 @@ async def test_mrtr_retry_frame_carries_fresh_id_and_byte_exact_request_state() 
 async def test_retry_omits_the_request_state_key_when_the_server_sent_none() -> None:
     """When the server's input_required carried no requestState, the retry omits the key entirely.
 
-    The spec MUST NOT include one in the retry is wire-pinned: typed request_state None and
-    key-absence are indistinguishable in-memory, so only the serialized retry frame can prove the
-    omission. The fresh-id test above proves the same serializer emits the key when the server
-    sent one, guarding this absence assertion against vacuity.
+    Wire-pinned (spec MUST NOT): typed None and key-absence are indistinguishable in-memory. The
+    fresh-id test above proves the same serializer emits the key when present, guarding against vacuity.
     """
     request_states: list[str | None] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="ask", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -874,11 +743,9 @@ async def test_retry_omits_the_request_state_key_when_the_server_sent_none() -> 
     assert len(calls) == 2
     retry = calls[1]
     assert retry.params is not None
-    # The MUST NOT itself: no requestState key on the serialized retry...
+    # The absence is specific: no requestState key on an otherwise-loaded retry frame.
     assert "requestState" not in retry.params
-    # ...on a frame that is otherwise loaded -- the absence is specific, not a bare frame.
     assert "inputResponses" in retry.params
-    # Handler-side corroboration of what the frame shows.
     assert request_states == [None, None]
 
 
@@ -886,19 +753,13 @@ async def test_retry_omits_the_request_state_key_when_the_server_sent_none() -> 
 async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -> None:
     """Parallel MRTR calls keep requestState and inputResponses scoped to their originating request.
 
-    A symmetric rendezvous in the elicitation callback (each call sets its own round-1 event, then
-    waits on the other's) forces both loops to be simultaneously mid-flight -- interim results
-    received, neither retry sent -- before either retry leaves, so the spec scenario ("any other
-    request that the client may be sending in parallel") provably occurs; the exhaustive scan over
-    every recorded tools/call frame is the MUST NOT's proof that neither call's fields leak into
-    the other's.
+    A symmetric rendezvous in the elicitation callback forces both loops mid-flight before either
+    retry leaves; the exhaustive scan over every recorded tools/call frame proves no leak (spec MUST NOT).
     """
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(
             tools=[
                 types.Tool(name="alpha", input_schema={"type": "object"}),
@@ -916,7 +777,6 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
                 input_requests={f"q-{name}": _form_request(f"for {name}")},
                 request_state=f"state-{name}",
             )
-        # Each retry carries its own call's state -- the handler-side half of the isolation claim.
         assert params.request_state == f"state-{name}"
         return CallToolResult(content=[TextContent(text=name)])
 
@@ -928,8 +788,7 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
         assert isinstance(params, ElicitRequestFormParams)
         name = params.message.removeprefix("for ")
         assert name in round1_seen
-        # Symmetric rendezvous: set own round-1 event before waiting on the other's -- deadlock-free
-        # by set-before-wait, and both loops are provably mid-flight before either retry leaves.
+        # Set own round-1 event before waiting on the other's: deadlock-free, both loops provably mid-flight.
         round1_seen[name].set()
         other = "beta" if name == "alpha" else "alpha"
         with anyio.fail_after(5):
@@ -972,8 +831,7 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
         assert "inputResponses" not in initial
         assert retry["requestState"] == f"state-{name}"
         assert set(retry["inputResponses"]) == {f"q-{name}"}
-    # The exhaustive negative (spec MUST NOT): no recorded tools/call frame anywhere carries the
-    # other call's state or responses.
+    # The exhaustive negative: no frame anywhere carries the other call's state or responses.
     for params in (frame.params for frame in frames):
         assert params is not None
         other = "beta" if params["name"] == "alpha" else "alpha"
@@ -987,22 +845,17 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
 
 @requirement("protocol:directionality:no-client-responses")
 async def test_2026_trace_is_client_requests_and_server_responses_only() -> None:
-    """A completed 2026 exchange's wire trace is client-sent requests and server-sent responses
-    only -- zero server-initiated requests, zero client-sent responses (spec MUST NOT, both halves).
+    """A completed 2026 exchange's trace is client-sent requests and server-sent responses only.
 
-    The scenario is the maximal legitimate occasion for the forbidden frames: at 2025-11-25 this
-    same elicitation was a server-initiated request answered by a client JSON-RPC response; here it
-    rides the MRTR loop to completion and the trace still contains neither. The full trace shape is
-    snapshotted (the trailing tools/list is the client's implicit output-schema refresh) so any
-    future frame reorder fails consciously rather than silently narrowing the claim.
+    At 2025-11-25 this same elicitation was a server-initiated request answered by a client response
+    -- the maximal legitimate occasion for the forbidden frames (spec MUST NOT, both halves) -- yet
+    the trace contains neither. The full trace is snapshotted so a frame reorder fails consciously.
     """
     elicited: list[str] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        # Live (not NotImplementedError): the client's output-schema cache refresh invokes
-        # tools/list right after the first tools/call result.
         return types.ListToolsResult(tools=[types.Tool(name="ask", input_schema={"type": "object"})])
 
     async def call_tool(
@@ -1037,8 +890,7 @@ async def test_2026_trace_is_client_requests_and_server_responses_only() -> None
     # Non-vacuity: the elicitation genuinely happened and the round trip completed through it.
     assert result == snapshot(CallToolResult(content=[TextContent(text="done:Berlin:s1")]))
     assert elicited == ["Need a name"]
-    # Load-bearing, not decoration: a transport exception silently filtered out below would fake
-    # the pass, so prove the received log holds messages only before narrowing to them.
+    # Prove the received log holds only messages before narrowing: a filtered-out transport exception would fake it.
     received_messages = [message for message in recording.received if isinstance(message, SessionMessage)]
     assert received_messages == recording.received
     # The client half of the clause: every client-to-server frame is a request.
@@ -1051,8 +903,7 @@ async def test_2026_trace_is_client_requests_and_server_responses_only() -> None
     assert [type(message.message).__name__ for message in received_messages] == snapshot(
         ["JSONRPCResponse", "JSONRPCResponse", "JSONRPCResponse"]
     )
-    # Every server frame ANSWERS a client request: response ids pair the sent request ids in
-    # order. The shape snapshots above prove these two isinstance filters drop nothing.
+    # Response ids pair the sent request ids in order; the snapshots above prove these filters drop nothing.
     requests = [message.message for message in recording.sent if isinstance(message.message, JSONRPCRequest)]
     responses = [message.message for message in received_messages if isinstance(message.message, JSONRPCResponse)]
     assert [response.id for response in responses] == [request.id for request in requests]
@@ -1062,9 +913,7 @@ async def test_2026_trace_is_client_requests_and_server_responses_only() -> None
 
 
 def _modern_headers(*, method: str, name: str) -> dict[str, str]:
-    """Headers for a raw 2026-07-28 tools/call POST: the Accept/Content-Type baseline plus the
-    routing and advisory headers a modern client always sends (the test_hosting_http_modern.py
-    dialect, minus the optional-name branch this file's one caller never takes)."""
+    """Headers for a raw 2026-07-28 tools/call POST: baseline plus the modern routing/advisory headers."""
     return base_headers() | {"mcp-protocol-version": LATEST_MODERN_VERSION, "mcp-method": method, "mcp-name": name}
 
 
@@ -1079,15 +928,10 @@ def _meta_envelope() -> dict[str, object]:
 
 @requirement("mrtr:input-responses:invalid-rejected")
 async def test_retry_with_malformed_input_responses_is_rejected_with_invalid_params() -> None:
-    """A retry whose inputResponses do not parse as a valid InputResponses object is rejected
-    with invalid params before the handler runs (spec SHOULD: validate; the structural arm only --
-    no requestedSchema re-validation happens on this path, and the spec asks for none).
+    """A retry whose inputResponses do not parse is rejected with invalid params before dispatch (spec SHOULD).
 
-    Raw httpx against the mounted modern entry because the violation is unproducible above this
-    seam: the typed API rejects garbage inputResponses at construction, and the memory-streams
-    scripted-peer pattern cannot serve 2026 requests (the stream loop's init gate rejects
-    envelope-bearing requests). The cold retry is licensed by the spec's own framing -- the
-    initial request and the retry are completely independent.
+    Raw httpx against the mounted modern entry: the typed API rejects garbage inputResponses at
+    construction, so the violation is unproducible above this seam.
     """
 
     async def list_tools(
@@ -1127,14 +971,10 @@ async def test_retry_with_malformed_input_responses_is_rejected_with_invalid_par
 
 @requirement("protocol:result-type:absent-is-complete")
 async def test_result_body_without_result_type_parses_as_a_complete_result() -> None:
-    """A tools/call result body with no ``resultType`` key parses and surfaces as the normal
-    terminal result, resultType "complete" (spec MUST: for backward compatibility with servers
-    implementing earlier protocol versions, clients treat an absent resultType as "complete").
+    """A tools/call result body with no resultType key parses as the normal terminal result.
 
-    The test plays the server by hand over memory streams on a scripted 2025 handshake: a real
-    legacy SDK server omits resultType only incidentally (its 2025 serializer drops the field),
-    so only a byte-controlled body makes the absence explicit and assertable rather than an
-    artifact of the current serializer.
+    Spec MUST: clients treat an absent resultType as "complete" (backward compatibility). The server
+    is played by hand over memory streams so the key's absence is byte-controlled, not a serializer artifact.
     """
 
     async def scripted_server(streams: MessageStream) -> None:
@@ -1170,8 +1010,7 @@ async def test_result_body_without_result_type_parses_as_a_complete_result() -> 
         # Deliberately no "resultType" key: the absence is the clause under test.
         await server_write.send(respond(call.message.id, {"content": [{"type": "text", "text": "plain"}]}))
 
-        # The client refreshes its output-schema cache right after a successful call result; a
-        # peer that stops at the call response hangs the test.
+        # The client's output-schema cache refresh follows the call result; stopping here hangs the test.
         refresh = await server_read.receive()
         assert isinstance(refresh, SessionMessage)
         assert isinstance(refresh.message, JSONRPCRequest)
@@ -1190,24 +1029,18 @@ async def test_result_body_without_result_type_parses_as_a_complete_result() -> 
             await session.initialize()
             result = await session.call_tool("x", {})
 
-        # The parse default filling "complete" IS the MUST under test; the full-object equality
-        # proves the body surfaced as an ordinary terminal result.
+        # The parse default filling "complete" IS the MUST under test.
         assert result.result_type == "complete"
         assert result == snapshot(CallToolResult(content=[TextContent(text="plain")]))
 
 
 @requirement("protocol:result-type:unrecognized-invalid")
 async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_of_treated_as_invalid() -> None:
-    """PINS A KNOWN GAP: a resultType of any value unrecognized by the client MUST be considered
-    invalid (spec), but the client's open ResultType union accepts any string and its only
-    result-kind dispatch is the InputRequiredResult isinstance check, so the bogus value
-    round-trips and the body surfaces as a normal successful result. See the requirement's
-    divergence; when the client starts rejecting unrecognized resultType values, re-pin this to
-    the typed rejection and delete the Divergence.
+    """PINS A KNOWN GAP: an unrecognized resultType round-trips instead of being treated as invalid (spec MUST).
 
-    The test plays the server by hand over memory streams against a pinned-2026 ClientSession:
-    the typed Server's result models cannot author an arbitrary resultType, and Client has no
-    public connect path over raw scripted streams.
+    The client's open ResultType union accepts any string. Scripted peer over memory streams
+    because the typed Server cannot author an arbitrary resultType. When the client starts
+    rejecting unrecognized resultType values: re-pin to the typed rejection and delete the Divergence.
     """
 
     async def scripted_server(streams: MessageStream) -> None:
@@ -1220,13 +1053,12 @@ async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_o
         assert isinstance(call, SessionMessage)
         assert isinstance(call.message, JSONRPCRequest)
         assert call.message.method == "tools/call"
-        # "bogus" is in no core or extension vocabulary -- exactly the unrecognized value the
-        # MUST addresses; the content rides along to prove the body surfaces as a normal result.
+        # "bogus" is in no core or extension vocabulary -- exactly the value the MUST addresses.
         await server_write.send(
             respond(call.message.id, {"resultType": "bogus", "content": [{"type": "text", "text": "still here"}]})
         )
 
-        # The post-call output-schema cache refresh (same choreography fact as the test above).
+        # The client's output-schema cache refresh follows the call result; stopping here hangs the test.
         refresh = await server_read.receive()
         assert isinstance(refresh, SessionMessage)
         assert isinstance(refresh.message, JSONRPCRequest)
@@ -1259,7 +1091,6 @@ async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_o
         with anyio.fail_after(5):
             result = await session.call_tool("x", {})
 
-        # The divergent observable, pinned: the unrecognized discriminator survives the round
-        # trip unchanged and the body is a plain successful CallToolResult, never a rejection.
+        # The divergent observable: the unrecognized discriminator survives unchanged, never a rejection.
         assert result.result_type == "bogus"
         assert result == snapshot(CallToolResult(content=[TextContent(text="still here")], result_type="bogus"))

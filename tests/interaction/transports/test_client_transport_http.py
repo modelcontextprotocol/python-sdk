@@ -249,15 +249,7 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
 
 @requirement("client-transport:http:sse-comment-line-ignored")
 async def test_sse_comment_lines_in_the_response_stream_are_ignored_by_the_client() -> None:
-    """SSE comment lines interleaved into response streams do not disturb the requests on them.
-
-    The streamable-http page tells servers to emit ':'-prefixed keep-alive comment lines on
-    long-lived streams, and clients to ignore them -- normative by incorporation of the WHATWG SSE
-    specification. The shim prepends a comment line to every SSE body chunk, so the whole session
-    (initialize, tools/list, tools/call) runs over comment-bearing streams. The surface pinned is
-    the SDK's observable client behaviour (today the httpx-sse parser): a transport rewrite must
-    preserve the tolerance.
-    """
+    """SSE comment lines interleaved into response streams are ignored by the client. Spec-mandated."""
     server = _tooled_server()
     real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
     injected: list[bytes] = []
@@ -290,6 +282,5 @@ async def test_sse_comment_lines_in_the_response_stream_are_ignored_by_the_clien
 
     assert [tool.name for tool in tools.tools] == ["echo"]
     assert result == snapshot(CallToolResult(content=[TextContent(text="hi")]))
-    # Non-vacuity anchor: at least the initialize, tools/list, and tools/call SSE responses each
-    # had a comment line prepended (exactly 3 observed; ">=" because chunking is bridge-internal).
+    # Non-vacuity: the initialize, tools/list, and tools/call responses each had a comment injected.
     assert len(injected) >= 3

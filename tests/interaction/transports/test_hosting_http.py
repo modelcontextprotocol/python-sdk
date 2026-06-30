@@ -196,9 +196,7 @@ async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_
     version`` in the response body, so the literal must survive any rewording of the surrounding
     message. The unsupported value must appear in both the header and the envelope so the
     classifier reaches its version-supported rung rather than reporting a header mismatch first.
-    Also pins ``lifecycle:version:unsupported-32022`` (spec basic/versioning#protocol-version-negotiation,
-    a MUST): the -32022 code and the ``data.supported`` list asserted here are the server-side
-    production of the negotiation error, exercised directly rather than through the client retry path.
+    Also pins the -32022 negotiation error: a spec MUST, produced server-side here without the client retry path.
     """
     bad = "1991-01-01"
     meta = {

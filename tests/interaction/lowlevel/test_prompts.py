@@ -200,12 +200,7 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
 
 @requirement("prompts:get:content:resource-link")
 async def test_get_prompt_resource_link_content_round_trips(connect: Connect) -> None:
-    """A prompt message can carry resource_link content; the URI and descriptive fields reach the client intact.
-
-    Spec-mandated: prompt messages MAY include links to resources -- a URI the client can fetch,
-    without embedding the contents. The full-result snapshot pins the discriminator, the URI, and
-    every descriptive field. Fetching the linked URI is client-application behaviour, not the SDK's.
-    """
+    """A resource_link prompt message reaches the client with URI and descriptive fields intact. Spec-mandated."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
         assert params.name == "entry_point"
@@ -268,9 +263,7 @@ async def test_get_prompt_unknown_name_is_protocol_error(connect: Connect) -> No
 async def test_get_prompt_input_required_is_fulfilled_and_the_retry_returns_the_messages(connect: Connect) -> None:
     """A prompts/get answered with input_required is fulfilled by the elicitation callback and retried.
 
-    The retry carries the callback's responses and the echoed request_state, and returns the prompt
-    messages. Spec-mandated: prompts/get is an MRTR-supported request (basic/patterns/mrtr, Supported
-    Requests). Driven on the low-level Server; MCPServer also passes InputRequiredResult through prompts.
+    Spec-mandated: prompts/get is an MRTR-supported request (basic/patterns/mrtr, Supported Requests).
     """
     sent = ElicitRequestFormParams(
         message="Who is reading?",

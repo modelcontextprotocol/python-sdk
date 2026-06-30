@@ -394,11 +394,8 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
 
     add_tool and remove_tool only update the registry: a connected client that listed the tools
     before the mutation has no way to learn it should list them again. The spec provides
-    notifications/tools/list_changed for exactly this; MCPServer never sends it. The mutation
-    happens out-of-band, between requests -- the spec's "MAY change over time" allowance; varying
-    the set as a side effect of another request on the connection is forbidden at 2026-07-28. The
-    sentinel tool logs one message after the mutation so the test proves notifications do reach
-    the collector -- the log message arrives, a list_changed does not.
+    notifications/tools/list_changed for exactly this; MCPServer never sends it. The sentinel's
+    log message proves notifications do reach the collector -- it arrives, a list_changed does not.
     """
     received: list[IncomingMessage] = []
     mcp = MCPServer("mutable")
@@ -422,7 +419,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
 
     async with connect(mcp, message_handler=collect) as client:
         before = await client.list_tools()
-        # Out-of-band: no request is in flight while the set changes.
+        # Mutate between requests: the spec forbids varying the set as a side effect of another request.
         mcp.add_tool(extra, name="extra")
         mcp.remove_tool("doomed")
         await client.call_tool("sentinel", {})
@@ -441,26 +438,20 @@ async def test_tool_list_is_identical_across_connections_and_unchanged_by_other_
 ) -> None:
     """Concurrent connections to one server see the same tool list, before and after one of them calls a tool.
 
-    Spec-mandated (2026-07-28): the set MUST NOT vary per-connection or as a side effect of other
-    requests on the connection. MCPServer's registry is server-level state shared by construction;
-    the pin is that the serving path adds no per-connection variation and that serving a
-    tools/call mutates the registry on neither connection.
+    Spec-mandated (2026-07-28): the set MUST NOT vary per-connection or as a side effect of other requests.
     """
     mcp = MCPServer("registry")
 
     @mcp.tool()
     def cherry() -> str:
-        """Listed on both connections; never called."""
         raise NotImplementedError
 
     @mcp.tool()
     def apple() -> str:
-        """The one tool the test calls."""
         return "ate"
 
     @mcp.tool()
     def banana() -> str:
-        """Listed on both connections; never called."""
         raise NotImplementedError
 
     async with connect(mcp) as first_client, connect(mcp) as second_client:
@@ -480,26 +471,21 @@ async def test_tool_list_is_identical_across_connections_and_unchanged_by_other_
 async def test_tool_list_order_is_stable_across_repeated_requests(connect: Connect) -> None:
     """tools/list returns the same ordering on repeated requests against an unchanged tool set.
 
-    Spec-mandated SHOULD (2026-07-28), demanding only *some* stable order; the snapshot pins the
-    SDK's chosen order -- registration order (the registry is an insertion-ordered dict) -- so an
-    accidental re-sort fails consciously. The tools are registered in deliberately
-    non-alphabetical order to expose any sorting.
+    Spec-mandated SHOULD (2026-07-28), requiring only *some* stable order; the snapshot pins the SDK's
+    registration order. Tools are registered non-alphabetically to expose any accidental re-sort.
     """
     mcp = MCPServer("registry")
 
     @mcp.tool()
     def cherry() -> str:
-        """Listed only; never called."""
         raise NotImplementedError
 
     @mcp.tool()
     def apple() -> str:
-        """Listed only; never called."""
         raise NotImplementedError
 
     @mcp.tool()
     def banana() -> str:
-        """Listed only; never called."""
         raise NotImplementedError
 
     async with connect(mcp) as client:

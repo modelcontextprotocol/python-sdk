@@ -36,10 +36,8 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
-# Shared by the client:jsonschema:* tests at the end of the file. prefixItems is enforced by the
-# JSON Schema 2020-12 dialect but is an unknown (ignored) keyword under draft-07, so one
-# schema/value pair can reveal which engine validated it; each constant is declared once and used
-# by both the handler and the assertions so every equality is identity against the authored value.
+# Shared by the client:jsonschema:* tests. prefixItems is enforced under JSON Schema 2020-12 but
+# ignored under draft-07, so one schema/value pair reveals which engine validated it.
 _PREFIX_ITEMS_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {"point": {"type": "array", "prefixItems": [{"type": "number"}, {"type": "number"}]}},
@@ -142,19 +140,11 @@ async def test_call_tool_uncaught_exception_becomes_error_response(connect: Conn
 async def test_a_legacy_range_error_code_reaches_the_caller_verbatim_without_interpretation(
     connect: Connect,
 ) -> None:
-    """An error code from the legacy -32000..-32019 sub-range passes through with no meaning assigned.
-
-    The 2026-07-28 revision partitions the JSON-RPC implementation-defined range and says
-    receivers MUST NOT assume any specific meaning for legacy-range codes (apart from -32002).
-    Code, message, and data reach the caller verbatim, and the raise type being plain MCPError is
-    itself the no-interpretation observable: no typed special-casing keyed on the code.
-    """
+    """An error code from the legacy -32000..-32019 sub-range reaches the caller verbatim with no meaning assigned."""
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "vendor"
-        # -32011 is the test datum, not a missing constant: a deliberate in-band unknown from the
-        # legacy sub-range with no defined meaning anywhere (and deliberately not -32002, the
-        # carved-out exception).
+        # -32011: an in-band legacy-range code with no defined meaning (deliberately not -32002).
         raise MCPError(code=-32011, message="vendor-specific failure", data={"hint": "opaque"})
 
     server = Server("errors", on_call_tool=call_tool)
@@ -569,12 +559,9 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
 async def test_prefix_items_in_the_output_schema_are_enforced_per_index_on_structured_content(
     connect: Connect,
 ) -> None:
-    """The client validates structuredContent against the tool's declared outputSchema with full JSON
-    Schema 2020-12 vocabulary: a tuple violating a prefixItems per-index schema is rejected, a
-    conforming tuple is returned. Spec-mandated (2025-11-25 onward: clients MUST support 2020-12 and
-    SHOULD validate structured results); a draft-07 engine would silently ignore prefixItems and
-    accept both. The schema declares $schema 2020-12 explicitly -- the no-$schema default is the
-    dialect sibling test.
+    """A structuredContent tuple violating a prefixItems per-index schema is rejected; a conforming one returns.
+
+    Spec-mandated (2025-11-25 onward): clients MUST support 2020-12 and SHOULD validate structured results.
     """
     schema = {**_PREFIX_ITEMS_SCHEMA, "$schema": "https://json-schema.org/draft/2020-12/schema"}
 
@@ -608,13 +595,9 @@ async def test_prefix_items_in_the_output_schema_are_enforced_per_index_on_struc
 async def test_schema_dialect_defaults_to_2020_12_and_a_declared_draft_07_dialect_is_honored(
     connect: Connect,
 ) -> None:
-    """An outputSchema with no $schema is validated with the 2020-12 engine -- prefixItems, a
-    2020-12-only keyword, is enforced -- while the same schema/value pair declaring draft-07 is
-    validated per the declared dialect, under which prefixItems is an unknown (ignored) keyword and
-    the call resolves; a draft-07-enforced keyword (type) still rejects, proving validation ran under
-    the declared dialect rather than being skipped. Spec-mandated ('validate schemas according to
-    their declared or default dialect', 2025-11-25 basic). The outcome flips on the $schema field
-    alone, proving the no-$schema enforcement is genuinely a default.
+    """An outputSchema without $schema is validated as 2020-12; a declared draft-07 dialect is honored.
+
+    Spec-mandated: schemas are validated per their declared or default dialect (2025-11-25 basic).
     """
     schema_d7 = {**_PREFIX_ITEMS_SCHEMA, "$schema": "http://json-schema.org/draft-07/schema#"}
 
@@ -630,10 +613,8 @@ async def test_schema_dialect_defaults_to_2020_12_and_a_declared_draft_07_dialec
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name in ("untagged", "tagged_draft7", "d7_type_bad")
         if params.name == "d7_type_bad":
-            # Violates "type": "array" on the point property -- a keyword draft-07 DOES enforce -- so a
-            # rejection proves validation ran under the declared dialect rather than being skipped.
+            # type IS enforced under draft-07, so this rejection proves validation ran under the declared dialect.
             return CallToolResult(content=[TextContent(text="point")], structured_content={"point": "xx"})
-        # Same value, same keywords for the other two tools -- only the declared dialect differs.
         return CallToolResult(content=[TextContent(text="point")], structured_content=_VIOLATING_POINT)
 
     server = Server("dialects", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -646,7 +627,6 @@ async def test_schema_dialect_defaults_to_2020_12_and_a_declared_draft_07_dialec
         with pytest.raises(RuntimeError) as d7_exc:
             await client.call_tool("d7_type_bad", {})
 
-    # The messages embed jsonschema validation errors, so only the SDK-authored prefixes are pinned.
     assert str(untagged_exc.value).startswith("Invalid structured content returned by tool untagged")
     assert tagged.structured_content == _VIOLATING_POINT
     assert str(d7_exc.value).startswith("Invalid structured content returned by tool d7_type_bad")
@@ -654,13 +634,10 @@ async def test_schema_dialect_defaults_to_2020_12_and_a_declared_draft_07_dialec
 
 @requirement("client:jsonschema:falsy-structured-content-validated")
 async def test_falsy_structured_content_is_validated_not_mistaken_for_missing(connect: Connect) -> None:
-    """Falsy structuredContent values are present values: 0 and '' validate against their schemas and
-    come back to the caller, and a falsy value that VIOLATES its schema (false against
-    {type: integer} -- JSON Schema excludes booleans from integer) is rejected with the validation
-    error, not the missing-structured-content error. The error identity is the discriminator: a falsy
-    presence check would route all three to 'did not return structured content' (the test on
-    client:output-schema:missing-structured pins that message). 2026-only: earlier revisions restrict
-    structuredContent to objects.
+    """Falsy structuredContent values are validated as present, not mistaken for missing.
+
+    A falsy presence check would route all three calls to the missing-structured-content error.
+    2026-only: earlier revisions restrict structuredContent to objects.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -688,11 +665,9 @@ async def test_falsy_structured_content_is_validated_not_mistaken_for_missing(co
             await client.call_tool("flag", {})
 
     assert zero.structured_content == 0
-    # bool is an int subclass and False == 0, so the type pin keeps a False-returning regression from
-    # masquerading as the correct 0.
+    # False == 0 and bool subclasses int, so pin the type as well.
     assert type(zero.structured_content) is int
     assert empty.structured_content == ""
-    # The validation message, not the missing-structured one: the falsy value reached the validator.
     assert str(exc_info.value).startswith("Invalid structured content returned by tool flag")
 
 
@@ -700,11 +675,9 @@ async def test_falsy_structured_content_is_validated_not_mistaken_for_missing(co
 async def test_a_non_object_output_schema_root_is_validated_and_its_structured_content_returned(
     connect: Connect,
 ) -> None:
-    """A tool advertising an array-rooted outputSchema round-trips on a 2026-07-28 connection:
-    conforming array structuredContent validates and is returned as-is, and a violating member is
-    rejected by the same client-side validation. 2026-only: through 2025-11-25 both the schema root
-    and structuredContent are restricted to objects (the 2025 wire surface refuses to even list an
-    array-rooted schema).
+    """An array-rooted outputSchema is validated and its conforming structuredContent returned.
+
+    2026-only: through 2025-11-25 both the schema root and structuredContent are restricted to objects.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -729,25 +702,16 @@ async def test_a_non_object_output_schema_root_is_validated_and_its_structured_c
             await client.call_tool("ints_bad", {})
 
     assert result.structured_content == [1, 2, 3]
-    # The non-vacuity arm: without it the accept arm cannot distinguish 'validated and passed' from
-    # 'validation silently skipped for non-objects'.
+    # The rejection proves validation ran for the non-object root rather than being skipped.
     assert str(exc_info.value).startswith("Invalid structured content returned by tool ints_bad")
-
-
-# --- scripted peer: a wire null structuredContent the typed Server cannot author ---
 
 
 @requirement("client:jsonschema:null-structured-content")
 async def test_a_wire_null_structured_content_is_rejected_as_missing_by_the_client() -> None:
-    """A tools/call answer carrying structuredContent null for a tool whose outputSchema is
-    {type: 'null'} raises the missing-structured-content RuntimeError instead of validating the
-    conforming null (known gap recorded on the requirement: the model parses null to None --
-    indistinguishable from absent, no sentinel -- and the presence check fires before the validator).
-    The test plays the server by hand over memory streams because the typed Server cannot author a
-    wire null (structured_content None means absent and is stripped at serialization), and uses the
-    bare pinned-2026 ClientSession because Client has no public connect path over raw scripted
-    streams. When the SDK gains an absent-vs-null distinction, this test fails: re-pin to the
-    resolved null result and delete the Divergence.
+    """A wire structuredContent null is rejected as missing rather than validated against {type: 'null'}.
+
+    Scripted over raw streams: the typed Server cannot author a wire null, and Client cannot drive raw streams.
+    When the SDK gains an absent-vs-null distinction: re-pin to the resolved null result and delete the Divergence.
     """
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
@@ -764,8 +728,7 @@ async def test_a_wire_null_structured_content_is_rejected_as_missing_by_the_clie
                     JSONRPCResponse(
                         jsonrpc="2.0",
                         id=listing.message.id,
-                        # ttlMs/cacheScope/resultType are scaffolding the v2026 result model requires;
-                        # the caching:* family owns their semantics.
+                        # ttlMs/cacheScope/resultType are required v2026 scaffolding; the caching tests own them.
                         result={
                             "tools": [
                                 {"name": "nil", "inputSchema": {"type": "object"}, "outputSchema": {"type": "null"}}
@@ -798,10 +761,8 @@ async def test_a_wire_null_structured_content_is_rejected_as_missing_by_the_clie
                     )
                 )
             )
-            # Returns naturally: the task group needs no cancel after the session context exits.
 
-        # One combined async-with: a separately nested `async with` line mis-traces its exit
-        # arcs under branch coverage on 3.11+.
+        # Combined async-with: a nested `async with` mis-traces its exit arcs under branch coverage on 3.11+.
         async with (
             anyio.create_task_group() as task_group,
             ClientSession(client_read, client_write, client_info=Implementation(name="cli", version="0")) as session,
@@ -816,8 +777,6 @@ async def test_a_wire_null_structured_content_is_rejected_as_missing_by_the_clie
             )
             with anyio.fail_after(5):
                 listed = await session.list_tools()
-            # The client accepted and cached the null-rooted schema -- the conformant half of the
-            # story, and the precondition for the presence check the call is about to hit.
             assert [(tool.name, tool.output_schema) for tool in listed.tools] == [("nil", {"type": "null"})]
             with pytest.raises(RuntimeError) as exc_info:
                 with anyio.fail_after(5):
