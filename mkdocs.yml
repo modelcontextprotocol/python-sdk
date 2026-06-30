@@ -48,6 +48,7 @@ nav:
       - Middleware: advanced/middleware.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
+      - Tasks: advanced/tasks.md
       - OpenTelemetry: advanced/opentelemetry.md
       - Authorization: advanced/authorization.md
       - OAuth clients: advanced/oauth-clients.md

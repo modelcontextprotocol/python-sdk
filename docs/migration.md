@@ -483,14 +483,16 @@ Two reference extensions ship in their own modules:
   `Client(extensions=[...])` declares the extension and claims the `task`
   resultType on `tools/call`, so `Client.call_tool` admits the
   `CreateTaskResult`, polls `tasks/get` (honoring `pollIntervalMs`), and
-  returns the final `CallToolResult` unchanged, while `failed`/`cancelled` tasks surface as the typed
-  `TaskFailedError`/`TaskCancelledError`. Manual driving stays available —
+  returns the final `CallToolResult` unchanged, while `failed`/`cancelled`
+  tasks surface as the typed `TaskFailedError`/`TaskCancelledError`. Manual
+  driving stays available —
   `client.session.call_tool(..., allow_claimed=True)` returns the typed
   `CreateTaskResult`, and the `mcp.shared.tasks` request wrappers drive
-  `tasks/get`/`tasks/update`/`tasks/cancel` over `session.send_request`. This
-  is the core SEP-2663 surface; background execution (`working` tasks), the
-  in-task `input_required` loop over `tasks/update`, `notifications/tasks`,
-  and task routing headers are deferred.
+  `tasks/get`/`tasks/update`/`tasks/cancel` over `session.send_request`, with
+  the `Mcp-Name` routing header stamped automatically over Streamable HTTP.
+  This is the core SEP-2663 surface — see [Tasks](advanced/tasks.md);
+  background execution (`working` tasks), the in-task `input_required` loop
+  over `tasks/update`, and `notifications/tasks` are deferred.
 
 Extension methods are strictly additive: a `MethodBinding` cannot name a
 spec-defined request method, and registering one whose method collides with
