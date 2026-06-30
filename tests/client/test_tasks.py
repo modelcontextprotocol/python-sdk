@@ -149,6 +149,24 @@ async def test_no_interval_anywhere_falls_back_to_one_second() -> None:
     assert slept == [DEFAULT_POLL_INTERVAL_SECONDS] == [1.0]
 
 
+async def test_negative_poll_interval_is_floored_to_zero() -> None:
+    """SDK-defined: a misbehaving server's negative interval must not crash or
+    busy-loop the driver — it is floored to a zero-length sleep."""
+    get_task, _ = _scripted_get_task(
+        [
+            _snapshot("working", poll_interval_ms=-5000),
+            _snapshot("completed", result=dict(_COMPLETED_RESULT)),
+        ]
+    )
+    sleep, slept = _recording_sleep()
+
+    with anyio.fail_after(5):
+        result = await run_task_driver(_created(), get_task=get_task, sleep=sleep)
+
+    assert result.content == [TextContent(text="done")]
+    assert slept == [0.0]
+
+
 async def test_failed_snapshot_raises_task_failed_error_with_code_and_status_message() -> None:
     """SEP-2663: a `failed` task inlines the JSON-RPC error and SHOULD carry a
     `statusMessage` diagnostic — both surface on the typed error."""
