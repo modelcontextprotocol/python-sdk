@@ -80,6 +80,7 @@ class ClientSessionParameters:
     logging_callback: LoggingFnT | None = None
     message_handler: MessageHandlerFnT | None = None
     client_info: types.Implementation | None = None
+    protocol_version: str | None = None
 
 
 class ClientSessionGroup:
@@ -352,7 +353,10 @@ class ClientSessionGroup:
                 )
             )
 
-            result = await session.initialize()
+            if session_params.protocol_version is not None:
+                result = await session.initialize(protocol_version=session_params.protocol_version)
+            else:
+                result = await session.initialize()
 
             # Session successfully initialized.
             # Store its stack and register the stack with the main group stack.

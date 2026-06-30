@@ -128,6 +128,13 @@ async def test_client_exposes_negotiated_protocol_version(app: MCPServer):
         assert client.protocol_version == LATEST_HANDSHAKE_VERSION
 
 
+async def test_client_custom_protocol_version(app: MCPServer):
+    """Test that the client negotiates a custom protocol version when configured."""
+    async with Client(app, mode="legacy", protocol_version_override="2024-11-05") as client:
+        assert client.protocol_version == "2024-11-05"
+        assert client.server_info.name == "test"
+
+
 async def test_client_with_simple_server(simple_server: Server):
     """Test that from_server works with a basic Server instance."""
     async with Client(simple_server) as client:
