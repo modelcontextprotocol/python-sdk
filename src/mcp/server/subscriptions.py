@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import anyio
+import anyio.lowlevel
 import anyio.streams.memory
 from mcp_types import (
     INTERNAL_ERROR,
@@ -118,13 +119,16 @@ class InMemorySubscriptionBus:
         """Deliver `event` to every subscribed listener.
 
         A raising listener is logged and skipped: one bad listener must not
-        starve the others or fail the publishing handler.
+        starve the others or fail the publishing handler. Ends with a
+        checkpoint so a burst of publishes from one task lets listen streams
+        drain between events instead of overflowing their buffers unread.
         """
         for listener in list(self._listeners.values()):
             try:
                 listener(event)
             except Exception:  # fan-out boundary: isolate listeners from each other
                 logger.exception("subscription listener raised; continuing")
+        await anyio.lowlevel.checkpoint()
 
     def subscribe(self, listener: Callable[[ServerEvent], None]) -> Callable[[], None]:
         """Register `listener` and return an idempotent unsubscribe callable."""
@@ -235,6 +239,10 @@ class ListenHandler:
                     pass
                 except anyio.WouldBlock:
                     logger.warning("listen stream %r backlog full; ending the stream", subscription_id)
+                    # Release the subscription slot now: the handler's own
+                    # cleanup can be wedged in a transport write that closing
+                    # this buffer cannot wake (a client that stopped reading).
+                    self._streams.discard(send)
                     send.close()
 
         # Subscribe before sending the ack so an event published while the
@@ -267,8 +275,9 @@ class ListenHandler:
         Each stream then drains its buffered events and sends its
         `SubscriptionsListenResult` (stamped with the subscription id) as the
         final frame from its own handler task - the spec's graceful closure
-        flow, signalling clients not to re-listen. This method only initiates
-        that; it does not wait for the streams to finish flushing.
+        flow, telling clients the stream ended deliberately rather than
+        dropping. This method only initiates that; it does not wait for the
+        streams to finish flushing.
         """
         for stream in list(self._streams):
             stream.close()

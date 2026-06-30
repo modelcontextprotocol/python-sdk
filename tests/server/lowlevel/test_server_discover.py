@@ -12,7 +12,7 @@ import mcp_types as types
 import pytest
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
-from mcp.server import Server, ServerRequestContext
+from mcp.server import NotificationOptions, Server, ServerRequestContext
 
 
 # `Server._handle_discover` reads only `ctx.protocol_version` (capabilities are
@@ -215,8 +215,6 @@ async def test_legacy_capability_derivation_ignores_listen() -> None:
 
     legacy = server.get_capabilities()
     assert legacy.tools is not None and legacy.tools.list_changed is False
-
-    from mcp.server import NotificationOptions
 
     opted_in = server.get_capabilities(NotificationOptions(tools_changed=True))
     assert opted_in.tools is not None and opted_in.tools.list_changed is True

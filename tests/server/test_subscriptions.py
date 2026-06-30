@@ -338,14 +338,37 @@ async def test_subscription_limit_rejects_further_streams_pre_ack() -> None:
         handler.close()
 
 
+class _GatedSession(_RecordingSession):
+    """Lets the ack through, then wedges event sends until released - a client
+    that stopped reading the transport."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.wedged = anyio.Event()
+        self.release = anyio.Event()
+
+    async def send_notification(
+        self, notification: ServerNotification, related_request_id: RequestId | None = None
+    ) -> None:
+        if self.sent:  # the ack is the first frame; only event sends wedge
+            self.wedged.set()
+            await self.release.wait()
+        await super().send_notification(notification, related_request_id)
+
+
 @pytest.mark.anyio
-async def test_backlog_overflow_ends_the_stream() -> None:
+async def test_backlog_overflow_ends_the_stream_and_frees_its_slot() -> None:
     """SDK-defined: a stream whose client stopped reading is ended at
-    `max_buffered_events` rather than buffering forever; the client re-listens."""
+    `max_buffered_events` rather than buffering forever. The subscription slot
+    frees at overflow time - the stream's own cleanup may be wedged in a
+    transport write nothing can wake - and the backlog still drains into the
+    stamped graceful result once that write completes."""
     bus = InMemorySubscriptionBus()
-    handler = ListenHandler(bus, max_buffered_events=1)
-    session = _RecordingSession()
+    handler = ListenHandler(bus, max_subscriptions=1, max_buffered_events=1)
+    session = _GatedSession()
     results: list[SubscriptionsListenResult] = []
+    late_session = _RecordingSession()
+    late_results: list[SubscriptionsListenResult] = []
 
     async with anyio.create_task_group() as tg:
 
@@ -355,11 +378,49 @@ async def test_backlog_overflow_ends_the_stream() -> None:
         tg.start_soon(run)
         await session.wait_for(1)
 
-        # Two publishes before the handler task resumes: the first fills the
-        # one-slot buffer, the second overflows and ends the stream.
-        await bus.publish(ToolsListChanged())
-        await bus.publish(ToolsListChanged())
+        await bus.publish(ToolsListChanged())  # consumed, then wedged mid-send
+        with anyio.fail_after(5):
+            await session.wedged.wait()
+        await bus.publish(ToolsListChanged())  # fills the one-slot buffer
+        await bus.publish(ToolsListChanged())  # overflows: the stream is ended
+
+        async def run_late() -> None:
+            late_results.append(await handler(_ctx(late_session, request_id=8), _params(tools_list_changed=True)))
+
+        # The ended stream's slot is free immediately - a new listen does not
+        # wait for the wedged write to die with its connection.
+        tg.start_soon(run_late)
+        await late_session.wait_for(1)
+
+        session.release.set()
+        handler.close()
 
     delivered = [notification for notification, _ in session.sent[1:]]
-    assert len(delivered) == 1  # the buffered event still drained
-    assert results[0].meta is not None  # the stream ended with the stamped result
+    assert len(delivered) == 2  # the wedged event and the buffered one still drained
+    assert results[0].meta == {SUBSCRIPTION_ID_META_KEY: 7}
+    assert late_results[0].meta == {SUBSCRIPTION_ID_META_KEY: 8}
+
+
+@pytest.mark.anyio
+async def test_same_task_publish_burst_does_not_overflow_a_healthy_stream() -> None:
+    """SDK-defined: `publish` ends with a checkpoint, so a burst of events from
+    one task (no yields of its own) lets a reading stream drain between
+    publishes instead of deterministically overflowing the buffer."""
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus, max_buffered_events=99)
+    session = _RecordingSession()
+
+    async with anyio.create_task_group() as tg:
+
+        async def run() -> None:
+            await handler(_ctx(session), _params(tools_list_changed=True))
+
+        tg.start_soon(run)
+        await session.wait_for(1)
+
+        for _ in range(100):
+            await bus.publish(ToolsListChanged())
+        await session.wait_for(101)
+        handler.close()
+
+    assert len(session.sent) == 101  # the ack plus every event in the burst

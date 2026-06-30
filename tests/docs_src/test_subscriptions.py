@@ -128,7 +128,7 @@ async def test_lowlevel_composition_serves_the_same_stream() -> None:
             assert isinstance(updated, types.ResourceUpdatedNotification)
             assert updated.params.uri == "note://todo"
 
-            # `mcp.subscriptions` / the bus is also the publish surface outside a
+            # The bus you constructed is also the publish surface outside a
             # request; an unrequested kind never reaches this stream.
             await tutorial002.bus.publish(ToolsListChanged())
             await client.call_tool("edit_note", {"name": "todo", "text": "done"})

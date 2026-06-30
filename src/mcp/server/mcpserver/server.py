@@ -488,7 +488,7 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> CallToolResult | InputRequiredResult:
         """Call a tool by name with arguments."""
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
@@ -540,7 +540,7 @@ class MCPServer(Generic[LifespanResultT]):
             ResourceError: If template creation or resource reading fails.
         """
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         resource = await self._resource_manager.get_resource(uri, context)
         if isinstance(resource, InputRequiredResult):
             return resource
@@ -1260,7 +1260,7 @@ class MCPServer(Generic[LifespanResultT]):
         carrying the echoed opaque state.
         """
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:

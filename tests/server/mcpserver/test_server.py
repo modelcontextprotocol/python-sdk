@@ -2279,6 +2279,37 @@ async def test_context_notify_methods_publish_to_the_configured_bus() -> None:
     assert seen == [ToolsListChanged(), PromptsListChanged(), ResourcesListChanged(), ResourceUpdated(uri="r://x")]
 
 
+async def test_programmatic_entry_points_carry_the_subscription_bus() -> None:
+    """`ctx.notify_*` works when tools, resources, and prompts are invoked
+    programmatically (no wire request): the server-scoped bus rides along in
+    the fallback Context."""
+    bus = InMemorySubscriptionBus()
+    mcp = MCPServer(subscriptions=bus)
+    seen: list[ServerEvent] = []
+    bus.subscribe(seen.append)
+
+    @mcp.tool()
+    async def touch_tools(ctx: Context) -> str:
+        await ctx.notify_tools_changed()
+        return "ok"
+
+    @mcp.resource("res://{name}")
+    async def thing(name: str, ctx: Context) -> str:
+        await ctx.notify_resources_changed()
+        return "data"
+
+    @mcp.prompt()
+    async def ask(ctx: Context) -> str:
+        await ctx.notify_prompts_changed()
+        return "question"
+
+    await mcp.call_tool("touch_tools", {})
+    await mcp.read_resource("res://thing")
+    await mcp.get_prompt("ask")
+
+    assert seen == [ToolsListChanged(), ResourcesListChanged(), PromptsListChanged()]
+
+
 def test_context_mcp_server_outside_request_raises() -> None:
     with pytest.raises(ValueError, match="outside of a request"):
         _ = Context().mcp_server

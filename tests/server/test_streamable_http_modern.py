@@ -1025,14 +1025,9 @@ class _OpenSignalBus(InMemorySubscriptionBus):
         return unsubscribe
 
 
-async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
-    """SDK-defined (TypeScript/Go parity): a listen response IS a notification
-    stream, so `json_response=True` does not apply to it - the request takes
-    the SSE path, acks first, and ends with the stamped result on close()."""
-    bus = _OpenSignalBus()
-    handler = ListenHandler(bus)
-    server = Server("test", on_subscriptions_listen=handler)
-    body = {
+def _listen_body() -> dict[str, Any]:
+    """A minimal valid 2026-07-28 `subscriptions/listen` request body."""
+    return {
         "jsonrpc": "2.0",
         "id": 9,
         "method": "subscriptions/listen",
@@ -1045,6 +1040,26 @@ async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
             },
         },
     }
+
+
+async def test_subscriptions_listen_requires_the_sse_accept_even_in_json_mode() -> None:
+    """SDK-defined: a listen response is always SSE, so a request whose Accept
+    lacks `text/event-stream` is rejected with 406 rather than served a content
+    type it never accepted - JSON-response mode included."""
+    server = Server("test", on_subscriptions_listen=ListenHandler(InMemorySubscriptionBus()))
+    async with _asgi_client(server, json_response=True, accept="application/json") as http:
+        response = await http.post("/mcp", json=_listen_body(), headers={MCP_METHOD_HEADER: "subscriptions/listen"})
+    assert response.status_code == 406
+
+
+async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
+    """SDK-defined (TypeScript/Go parity): a listen response IS a notification
+    stream, so `json_response=True` does not apply to it - the request takes
+    the SSE path, acks first, and ends with the stamped result on close()."""
+    bus = _OpenSignalBus()
+    handler = ListenHandler(bus)
+    server = Server("test", on_subscriptions_listen=handler)
+    body = _listen_body()
 
     responses: list[httpx.Response] = []
     async with _asgi_client(server, json_response=True) as http:
