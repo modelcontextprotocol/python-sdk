@@ -2,27 +2,27 @@
 
 The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires **Python 3.10+**.
 
-These docs describe **v2**, which is in alpha, so the version pin is not optional yet:
+These docs describe **v2**, which is in beta, so the version pin is not optional yet:
 
 === "uv"
 
     ```bash
-    uv add "mcp[cli]==2.0.0a3"
+    uv add "mcp[cli]==2.0.0b1"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]==2.0.0a3"
+    pip install "mcp[cli]==2.0.0b1"
     ```
 
 !!! warning "Why the pin"
     Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
     gives you the latest **v1.x** release, which these docs do not describe. Check the
-    [release history](https://pypi.org/project/mcp/#history) for the newest alpha before you copy
+    [release history](https://pypi.org/project/mcp/#history) for the newest beta before you copy
     the line above.
 
-    The same applies to one-off commands: `uv run --with "mcp==2.0.0a3" ...`, not `uv run --with mcp ...`.
+    The same applies to one-off commands: `uv run --with "mcp==2.0.0b1" ...`, not `uv run --with mcp ...`.
 
     If your *package* depends on `mcp`, add a `<2` upper bound (for example `mcp>=1.27,<2`) before
     the stable v2 lands so the major version bump doesn't surprise you.
