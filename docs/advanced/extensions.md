@@ -151,7 +151,7 @@ A **client extension** is the same contract from the consuming side: a bundle of
 client-side behaviour behind one identifier. Pass instances to
 `Client(extensions=[...])` and call tools normally:
 
-```python title="client.py" hl_lines="66-68"
+```python title="client.py" hl_lines="67-69"
 --8<-- "docs_src/extensions/tutorial006.py"
 ```
 
@@ -161,8 +161,9 @@ shape** instead of a final result, and `Receipts` finishes it (here by redeeming
 receipt with a follow-up call) before `call_tool` returns. Nothing about the call
 site moves.
 
-Drop the extension and none of this exists: a `receipt` shape arriving at a client
-that didn't declare it fails validation, exactly as the spec requires for an
+Drop the extension and none of this exists: the server's gate refuses a client
+that did not declare it (error -32021), and a claimed shape from a server that
+skips the gate fails validation, exactly as the spec requires for an
 unrecognized `resultType`. Off by default, on both ends of the wire.
 
 To advertise an identifier with **no** client-side behaviour (the server gates on
@@ -180,7 +181,7 @@ client = Client(mcp, extensions=[advertise("com.example/search")])
 Subclass `ClientExtension` and override only what you need. Three contribution
 kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
 
-```python title="client.py" hl_lines="18-19 43-44 46-47"
+```python title="client.py" hl_lines="18-19 44-45 47-48"
 --8<-- "docs_src/extensions/tutorial006.py"
 ```
 
@@ -205,7 +206,7 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
     return [NotificationBinding(method="notifications/receipts", params_type=ReceiptEvent, handler=self.on_receipt)]
 ```
 
-The handler receives validated params, in arrival order. It observes; it cannot veto
+The handler receives validated params one at a time, in dispatch order. It observes; it cannot veto
 or reply.
 
 Two quiet rules. Claims are active on 2026-07-28 connections only, and the capability

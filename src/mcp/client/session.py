@@ -505,7 +505,9 @@ class ClientSession:
     def _build_capabilities(self, version: str) -> types.ClientCapabilities:
         """Build the capability ad for a wire speaking `version`.
 
-        Identifiers with no active claim drop, so the client never advertises result shapes it would reject.
+        Claim-bearing identifiers whose claims are all inactive at `version` drop, so
+        the client never advertises result shapes it would reject; claim-less
+        identifiers always advertise.
         """
         extensions = self._extensions
         if extensions is not None and self._result_claims:

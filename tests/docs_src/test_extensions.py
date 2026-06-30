@@ -5,7 +5,6 @@ import logging
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import METHOD_NOT_FOUND, MISSING_REQUIRED_CLIENT_CAPABILITY, TextContent
-from pydantic import ValidationError
 
 from docs_src.extensions import (
     tutorial001,
@@ -111,11 +110,12 @@ async def test_the_receipts_client_program_runs_as_shown(capsys: pytest.CaptureF
     assert "goods for r-117" in capsys.readouterr().out
 
 
-async def test_a_claimed_shape_fails_validation_without_the_extension() -> None:
-    """The page's off-by-default claim: a client without `Receipts` rejects the `receipt` shape as invalid."""
+async def test_a_client_without_the_extension_is_refused_by_the_gate() -> None:
+    """The page's off-by-default claim: the server's capability gate refuses a non-declaring client."""
     async with Client(tutorial006.mcp) as client:
-        with pytest.raises(ValidationError):
+        with pytest.raises(MCPError) as exc_info:
             await client.call_tool("buy", {"item": "lamp"})
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
 
 
 async def test_session_tier_allow_claimed_returns_the_raw_shape() -> None:

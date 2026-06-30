@@ -2403,6 +2403,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "declared claims, never more)."
         ),
         added_in="2026-07-28",
+        note=(
+            "Known leniency: the monolith result surface still accepts an unknown tag when the payload "
+            "also parses as a complete core result (open result_type, extras ignored). Rejecting tags "
+            "outside core plus active claims is a tracked follow-up ruling."
+        ),
     ),
     "extensions:client:capability-ad:gates-server-behaviour": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
@@ -2432,7 +2437,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
         behavior=(
             "A vendor server notification bound by a ClientExtension's NotificationBinding is validated "
-            "against the binding's params type and delivered to its handler in arrival order."
+            "against the binding's params type and delivered to its handler serially, in dispatch order."
         ),
         added_in="2026-07-28",
         deferred=(

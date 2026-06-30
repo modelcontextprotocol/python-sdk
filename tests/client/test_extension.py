@@ -120,6 +120,34 @@ def test_claim_rejects_mismatched_result_type_literal() -> None:
     assert str(exc_info.value) == snapshot("_OtherTagResult.result_type must be Literal['task']")
 
 
+class _NotAResult(BaseModel):
+    result_type: Literal["plain"] = "plain"
+
+
+class _ReservedAliasResult(Result):
+    result_type: Literal["clash"] = "clash"
+    request_state: dict[str, Any] = {}
+
+
+def test_claim_rejects_model_not_subclassing_result() -> None:
+    """SDK-defined: a plain BaseModel cannot be a claim model; the session returns `Result` values."""
+    with pytest.raises(ValueError) as exc_info:
+        ResultClaim(result_type="plain", model=cast("type[Result]", _NotAResult), resolve=_resolve)
+
+    assert str(exc_info.value) == snapshot("_NotAResult must subclass mcp_types.Result")
+
+
+def test_claim_rejects_model_aliasing_core_surface_fields() -> None:
+    """SDK-defined: a field aliasing requestState or inputRequests would fail core pre-validation."""
+    with pytest.raises(ValueError) as exc_info:
+        ResultClaim(result_type="clash", model=_ReservedAliasResult, resolve=_resolve)
+
+    assert str(exc_info.value) == snapshot(
+        "_ReservedAliasResult.request_state aliases 'requestState', a typed field of the core "
+        "result surface; a colliding value would fail core validation before the claim adapter runs"
+    )
+
+
 def test_claim_rejects_method_outside_the_closed_verb_set() -> None:
     """SDK-defined: claims attach to `tools/call` only, even for values that dodge the static Literal gate."""
     with pytest.raises(ValueError) as exc_info:

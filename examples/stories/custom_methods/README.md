@@ -34,10 +34,10 @@ uv run python -m stories.custom_methods.client --http
 ## Caveats
 
 - The TypeScript SDK's equivalent example also shows a custom server→client
-  **notification** (`acme/searchProgress`). The Python client currently drops
-  any notification whose method is not in the spec registry
-  (`ClientSession._on_notify` → `KeyError` → silent drop), and there is no
-  `set_notification_handler` analogue. That half is omitted here.
+  **notification** (`acme/searchProgress`). The Python client can observe
+  vendor notifications via `NotificationBinding` (see
+  `docs/advanced/extensions.md`). That half is omitted here because the
+  lowlevel server has no surface for emitting vendor notifications yet.
 
 ## Spec
 

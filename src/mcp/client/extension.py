@@ -32,6 +32,9 @@ __all__ = [
 _CLAIM_METHODS: Final[frozenset[str]] = frozenset({"tools/call"})
 """The closed set of verbs a claim may attach to; widen together with the `method` Literal."""
 
+_RESERVED_WIRE_ALIASES: Final[frozenset[str]] = frozenset({"requestState", "inputRequests"})
+"""Typed optional fields of the core result surface that pre-validates every inbound result."""
+
 ClaimedT = TypeVar("ClaimedT", bound=Result)
 NotifyParamsT = TypeVar("NotifyParamsT", bound=BaseModel)
 
@@ -66,8 +69,17 @@ class ResultClaim(Generic[ClaimedT]):
             raise ValueError(f"claims attach to {sorted(_CLAIM_METHODS)} only; got method {self.method!r}")
         if self.result_type in CORE_RESULT_TYPES:
             raise ValueError(f"resultType {self.result_type!r} is core protocol vocabulary")
+        if Result not in self.model.__mro__:  # runtime guard; the ClaimedT bound only constrains checked callers
+            raise ValueError(f"{self.model.__name__} must subclass mcp_types.Result")
         if issubclass(self.model, CallToolResult | InputRequiredResult):
             raise ValueError("claim models must not subclass core result types")
+        for name, model_field in self.model.model_fields.items():
+            if (model_field.alias or name) in _RESERVED_WIRE_ALIASES:
+                raise ValueError(
+                    f"{self.model.__name__}.{name} aliases {model_field.alias or name!r}, a typed field "
+                    "of the core result surface; a colliding value would fail core validation before "
+                    "the claim adapter runs"
+                )
         field = self.model.model_fields.get("result_type")
         if field is None or get_args(field.annotation) != (self.result_type,):
             raise ValueError(f"{self.model.__name__}.result_type must be Literal[{self.result_type!r}]")
@@ -101,9 +113,11 @@ class UnexpectedClaimedResult(RuntimeError):
 class NotificationBinding(Generic[NotifyParamsT]):
     """Deliver server notifications for `method` (the bare wire name) to `handler`.
 
-    Observation-only: validated params arrive in order through a bounded queue,
-    dropping the oldest with a warning on overflow. Methods the negotiated
-    version's core tables handle are never delivered to bindings.
+    Observation-only: validated params arrive one at a time per binding, in
+    dispatch order, through a bounded queue that drops the oldest with a warning
+    on overflow. Stream transports dispatch each notification independently, so
+    near-simultaneous notifications may be dispatched out of wire order. Methods
+    the negotiated version's core tables handle are never delivered to bindings.
     """
 
     method: str

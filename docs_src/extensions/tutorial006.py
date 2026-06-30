@@ -7,7 +7,7 @@ from mcp import Client
 from mcp.client import ClaimContext, ClientExtension, ResultClaim
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import MCPServer, require_client_extension
 
 EXTENSION_ID = "com.example/receipts"
 
@@ -32,6 +32,7 @@ class ReceiptIssuer(Extension):
     ) -> HandlerResult:
         if params.name != "buy":
             return await call_next(ctx)
+        require_client_extension(ctx, EXTENSION_ID)
         return {"resultType": "receipt", "receiptToken": "r-117"}
 
 
