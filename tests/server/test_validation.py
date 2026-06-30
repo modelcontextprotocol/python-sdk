@@ -146,6 +146,24 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_ids_dont_matc
         validate_tool_use_result_messages(messages)
 
 
+def test_validate_tool_use_result_messages_no_error_when_tool_use_not_followed_by_tool_result() -> None:
+    """No error when previous message has tool_use but last message has no tool_result."""
+    messages = [
+        SamplingMessage(
+            role="assistant",
+            content=[
+                TextContent(type="text", text="Hold on..."),
+                ToolUseContent(type="tool_use", id="abc", name="search", input={"q": "test"}),
+            ],
+        ),
+        SamplingMessage(
+            role="user",
+            content=TextContent(type="text", text="Thanks, no results needed"),
+        ),
+    ]
+    validate_tool_use_result_messages(messages)  # Should not raise
+
+
 def test_validate_tool_use_result_messages_no_error_when_tool_result_matches_tool_use() -> None:
     """No error when tool_result IDs match tool_use IDs."""
     messages = [
