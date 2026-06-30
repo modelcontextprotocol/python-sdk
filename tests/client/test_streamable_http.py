@@ -78,7 +78,7 @@ async def test_sse_response_disconnect_before_any_event_id_fails_request() -> No
 
         async with read_stream_writer, read_stream:
             await transport._handle_sse_response(response, ctx)
-            with anyio.fail_after(5):
+            with anyio.fail_after(5):  # pragma: no branch
                 message = await read_stream.receive()
 
     assert isinstance(message, SessionMessage)
@@ -131,7 +131,7 @@ async def test_reconnection_empty_streams_count_toward_max_attempts(monkeypatch:
         )
 
         async with read_stream_writer, read_stream:
-            with anyio.fail_after(5):
+            with anyio.fail_after(5):  # pragma: no branch
                 await transport._handle_reconnection(ctx, "event-1", retry_interval_ms=0)
                 message = await read_stream.receive()
 
