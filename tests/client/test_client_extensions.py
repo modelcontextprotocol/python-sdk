@@ -14,7 +14,7 @@ SEP-2549 cacheable verbs do not include it), so the claim path needs no cache te
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import anyio
 import mcp_types as types
@@ -133,6 +133,64 @@ def _add_server() -> MCPServer:
 # ── Construction-time validation ────────────────────────────────────────────
 
 
+class _CouponResult(Result):
+    """A second claimed shape with its own tag, for multi-claim routing."""
+
+    result_type: Literal["coupon"] = "coupon"
+
+
+async def _unreachable_coupon_resolve(claimed: _CouponResult, ctx: ClaimContext) -> CallToolResult:
+    raise NotImplementedError  # the wrong resolver for a voucher — must never run
+
+
+class _CouponExtension(ClientExtension):
+    identifier = "com.example/coupons"
+
+    def claims(self) -> Sequence[ResultClaim[Any]]:
+        return [ResultClaim(result_type="coupon", model=_CouponResult, resolve=_unreachable_coupon_resolve)]
+
+
+class _SelfConflictingClaims(ClientExtension):
+    identifier = "com.example/twice"
+
+    def claims(self) -> Sequence[ResultClaim[Any]]:
+        return [
+            ResultClaim(result_type="twice", model=_TwiceResult, resolve=_unreachable_twice_resolve),
+            ResultClaim(result_type="twice", model=_TwiceResult, resolve=_unreachable_twice_resolve),
+        ]
+
+
+class _TwiceResult(Result):
+    result_type: Literal["twice"] = "twice"
+
+
+async def _unreachable_twice_resolve(claimed: _TwiceResult, ctx: ClaimContext) -> CallToolResult:
+    raise NotImplementedError
+
+
+def test_mapping_extensions_get_the_migration_error() -> None:
+    """SDK-defined: the replaced dict form fails with a message naming the new shape,
+    not an attribute error about `str`."""
+    with pytest.raises(TypeError) as exc_info:
+        Client(_add_server(), extensions=cast("Sequence[ClientExtension]", {"com.example/ui": {}}))
+
+    assert str(exc_info.value) == snapshot(
+        "extensions= takes a sequence of ClientExtension instances; the mapping form was "
+        "replaced — use advertise(identifier, settings) for advertise-only entries"
+    )
+
+
+def test_one_extension_claiming_a_tag_twice_reads_as_one_owner() -> None:
+    """SDK-defined: a self-conflict names the one extension once instead of
+    "extensions 'a' and 'a'"."""
+    with pytest.raises(ValueError) as exc_info:
+        Client(_add_server(), extensions=[_SelfConflictingClaims()])
+
+    assert str(exc_info.value) == snapshot(
+        "extension 'com.example/twice' claims 'tools/call' resultType 'twice'; a wire tag can have only one resolver"
+    )
+
+
 def test_bare_extension_instance_is_rejected_with_the_fix_named() -> None:
     """SDK-defined: an instance whose class never set `identifier` fails Client
     construction with an error naming the type and the fix — not an AttributeError."""
@@ -246,32 +304,54 @@ def test_conflicting_notification_bindings_name_both_owners() -> None:
 # ── settings() consumption ───────────────────────────────────────────────────
 
 
+class _CountedResult(Result):
+    result_type: Literal["counted"] = "counted"
+
+
+async def _unreachable_counted_resolve(claimed: _CountedResult, ctx: ClaimContext) -> CallToolResult:
+    raise NotImplementedError  # never driven; exists so claims() has something to return
+
+
 class _CountingSettings(ClientExtension):
-    """Counts `settings()` reads to pin the read-once contract."""
+    """Counts every declaration read to pin the read-once contract for all three."""
 
     identifier = "com.example/counted"
 
     def __init__(self) -> None:
         self.reads = 0
+        self.claims_reads = 0
+        self.notifications_reads = 0
 
     def settings(self) -> dict[str, Any]:
         self.reads += 1
         return {"read": self.reads}
 
+    def claims(self) -> Sequence[ResultClaim[Any]]:
+        self.claims_reads += 1
+        return [ResultClaim(result_type="counted", model=_CountedResult, resolve=_unreachable_counted_resolve)]
 
-async def test_settings_is_read_exactly_once_at_construction() -> None:
-    """SDK-defined: `settings()` is read once, at Client construction — connecting and
-    calling tools (each modern request re-stamps the capability ad) never re-reads it."""
+    def notifications(self) -> Sequence[NotificationBinding[Any]]:
+        self.notifications_reads += 1
+        return [
+            NotificationBinding(method="notifications/counted", params_type=_EventParams, handler=_unreachable_handler)
+        ]
+
+
+async def test_declarations_are_read_exactly_once_at_construction() -> None:
+    """SDK-defined: `settings()`, `claims()`, and `notifications()` are each read once,
+    at Client construction — connecting and calling tools (each modern request re-stamps
+    the capability ad) never re-reads any of them, so a stateful extension cannot desync
+    the ad from the claims."""
     extension = _CountingSettings()
     client = Client(_add_server(), extensions=[extension])
-    assert extension.reads == 1
+    assert (extension.reads, extension.claims_reads, extension.notifications_reads) == (1, 1, 1)
 
     with anyio.fail_after(5):
         async with client:
             await client.call_tool("add", {"a": 1, "b": 2})
             await client.call_tool("add", {"a": 3, "b": 4})
 
-    assert extension.reads == 1
+    assert (extension.reads, extension.claims_reads, extension.notifications_reads) == (1, 1, 1)
 
 
 async def test_settings_dict_is_held_by_reference_not_copied() -> None:
@@ -346,6 +426,24 @@ async def test_claimed_result_resolves_transparently_to_the_resolvers_result() -
     assert [claimed.request_state for claimed in received] == ["v-42"]
     assert result is produced[0]
     assert result.content == [TextContent(text="honored v-42")]
+
+
+async def test_claimed_shape_routes_to_its_owning_extensions_resolver() -> None:
+    """With two claim-bearing extensions registered, the parsed shape runs ITS owner's
+    resolver — the coupon extension (registered first) must never see a voucher."""
+    received: list[VoucherResult] = []
+
+    async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
+        received.append(claimed)
+        return CallToolResult(content=[TextContent(text="routed")])
+
+    extensions = [_CouponExtension(), _VoucherExtension(resolve)]
+    with anyio.fail_after(5):
+        async with Client(_voucher_server(), extensions=extensions) as client:
+            result = await client.call_tool("issue", {})
+
+    assert [claimed.request_state for claimed in received] == ["v-42"]
+    assert result.content == [TextContent(text="routed")]
 
 
 async def test_resolver_product_gets_the_direct_paths_output_schema_revalidation() -> None:

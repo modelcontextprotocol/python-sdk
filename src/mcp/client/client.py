@@ -213,6 +213,11 @@ def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExt
     """
     if not extensions:
         return _FoldedExtensions(ad=None, claims=None, bindings=None, by_model={})
+    if isinstance(extensions, Mapping):
+        raise TypeError(
+            "extensions= takes a sequence of ClientExtension instances; the mapping form was "
+            "replaced — use advertise(identifier, settings) for advertise-only entries"
+        )
     ad: dict[str, dict[str, Any]] = {}
     claims: dict[str, tuple[ResultClaim[Any], ...]] = {}
     bindings: list[NotificationBinding[Any]] = []
@@ -234,9 +239,14 @@ def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExt
         for claim in extension_claims:
             key = (claim.method, claim.result_type)
             if key in claim_owners:
+                owner = claim_owners[key]
+                both = (
+                    f"extension {identifier!r} claims"
+                    if owner == identifier
+                    else (f"extensions {owner!r} and {identifier!r} both claim")
+                )
                 raise ValueError(
-                    f"extensions {claim_owners[key]!r} and {identifier!r} both claim {claim.method!r} "
-                    f"resultType {claim.result_type!r}; a wire tag can have only one resolver"
+                    f"{both} {claim.method!r} resultType {claim.result_type!r}; a wire tag can have only one resolver"
                 )
             claim_owners[key] = identifier
             # Collision-free by construction: a model's `result_type` Literal pins it to
@@ -246,10 +256,13 @@ def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExt
             claims[identifier] = extension_claims
         for binding in extension.notifications():
             if binding.method in binding_owners:
-                raise ValueError(
-                    f"extensions {binding_owners[binding.method]!r} and {identifier!r} both bind "
-                    f"notification method {binding.method!r}; a method can have only one observer"
+                owner = binding_owners[binding.method]
+                both = (
+                    f"extension {identifier!r} binds"
+                    if owner == identifier
+                    else (f"extensions {owner!r} and {identifier!r} both bind")
                 )
+                raise ValueError(f"{both} notification method {binding.method!r}; a method can have only one observer")
             binding_owners[binding.method] = identifier
             bindings.append(binding)
     return _FoldedExtensions(ad=ad, claims=claims or None, bindings=tuple(bindings) or None, by_model=by_model)
