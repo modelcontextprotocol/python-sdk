@@ -32,14 +32,15 @@ from mcp_types import (
 )
 from pydantic import BaseModel, TypeAdapter
 
-from mcp.client import advertise
+from mcp import TaskFailedError
+from mcp.client import TasksExtension, advertise
 from mcp.client.client import Client
+from mcp.client.session import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import MCPServer
 from mcp.server.tasks import (
-    EXTENSION_ID,
     CancelTaskRequestParams,
     CreateTaskResult,
     GetTaskRequestParams,
@@ -167,7 +168,7 @@ class _RecordingStore:
 async def test_tasks_capability_advertised_under_extensions_on_modern_path() -> None:
     """SEP-2663: the Tasks extension rides `server/discover`, so a `mode='auto'` client
     sees `EXTENSION_ID` under `server_capabilities.extensions`."""
-    async with Client(_tasks_server(), mode="auto", extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), mode="auto", extensions=[TasksExtension()]) as client:
         assert client.server_capabilities.extensions == snapshot({"io.modelcontextprotocol/tasks": {}})
 
 
@@ -175,7 +176,7 @@ async def test_tasks_capability_dropped_on_legacy_handshake() -> None:
     """Pinned gap: the 2025 `ServerCapabilities` wire schema has no `extensions` field,
     so a `mode='legacy'` handshake cannot carry the Tasks capability even though the
     modern `auto` path does."""
-    async with Client(_tasks_server(), mode="legacy", extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), mode="legacy", extensions=[TasksExtension()]) as client:
         assert client.server_capabilities.extensions is None
 
 
@@ -185,7 +186,7 @@ async def test_augmented_tools_call_returns_create_task_result_for_declaring_cli
     observed as `completed` because the tool runs inline (SEP-2663 allows any seed
     status). `ttlMs` is required-but-nullable, so it is present even when null."""
     captured: list[str] = []
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         captured.append(created["taskId"])
@@ -205,7 +206,7 @@ async def test_augmented_tools_call_returns_create_task_result_for_declaring_cli
 async def test_create_task_result_carries_ttl_when_configured() -> None:
     """SEP-2663: a server with a default TTL stamps `ttlMs` on the `CreateTaskResult`."""
     captured: list[str] = []
-    async with Client(_tasks_server(default_ttl_ms=60000), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(default_ttl_ms=60000), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         captured.append(created["taskId"])
@@ -232,7 +233,7 @@ async def test_default_clock_stamps_real_utc_wallclock() -> None:
         return text
 
     before = datetime.now(timezone.utc).replace(microsecond=0)
-    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
     after = datetime.now(timezone.utc)
 
@@ -254,6 +255,114 @@ async def test_plain_tools_call_is_untouched_for_non_declaring_client() -> None:
     assert result.meta is None
 
 
+async def test_declaring_client_call_tool_transparently_polls_to_the_call_tool_result() -> None:
+    """SEP-2663: a negotiated client "MUST be prepared to handle either CallToolResult
+    or CreateTaskResult in response to any supported request it issues" — a declaring
+    `Client`'s plain `call_tool` drives `tasks/get` internally and surfaces only the
+    final `CallToolResult`. Regression pin: this exact call used to die in the typed
+    adapter (pydantic ValidationError) when the server augmented the response."""
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
+        result = await client.call_tool("echo", {"text": "hi"})
+
+    assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="hi")]))
+    assert result.meta is None
+
+
+async def test_tool_error_result_under_augmentation_surfaces_as_is_error_call_tool_result() -> None:
+    """SEP-2663: a tool result with `isError: true` is a `completed` task, so the
+    transparent driver returns it as the ordinary error-shaped `CallToolResult`
+    (output-schema validation is skipped for error results, matching the direct path)."""
+    tasks = Tasks(clock=lambda: _FIXED_NOW)
+    mcp = MCPServer("demo", extensions=[tasks])
+
+    @mcp.tool(structured_output=False)
+    def boom() -> str:
+        raise ValueError("nope")
+
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
+        result = await client.call_tool("boom", {})
+
+    assert result.is_error is True
+    assert isinstance(result.content[0], types.TextContent)
+
+
+async def test_failed_task_surfaces_task_failed_error_from_client_call_tool() -> None:
+    """SEP-2663: a JSON-RPC error during an augmented call records a `failed` task;
+    the transparent driver surfaces it as `TaskFailedError` carrying the inlined
+    error and the `statusMessage` diagnostic."""
+    tasks = Tasks(clock=lambda: _FIXED_NOW)
+    mcp = MCPServer("demo", extensions=[tasks])
+
+    @mcp.tool(structured_output=False)
+    def rejecting() -> str:
+        raise MCPError(code=INVALID_PARAMS, message="bad input", data={"field": "text"})
+
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
+        with pytest.raises(TaskFailedError) as exc_info:
+            await client.call_tool("rejecting", {})
+
+    assert exc_info.value.code == INVALID_PARAMS
+    assert exc_info.value.message == "bad input"
+    assert exc_info.value.data == {"field": "text"}
+    assert exc_info.value.status_message == "bad input"
+
+
+async def test_mrtr_interim_then_task_resolves_through_both_client_drivers() -> None:
+    """SEP-2663: MRTR exchanges resolve on the original `tools/call` before task
+    creation — the client's MRTR driver answers the interim and retries, the retry's
+    final leg is augmented into a task, and the task driver polls it to the result.
+    One logical call, one task, one `CallToolResult` surfaced."""
+    interim: dict[str, Any] = {
+        "resultType": "input_required",
+        "inputRequests": {
+            "demo:confirm": {
+                "method": "elicitation/create",
+                "params": {"message": "Proceed?", "requestedSchema": {"type": "object", "properties": {}}},
+            }
+        },
+        "requestState": "s1",
+    }
+    recording = _RecordingStore()
+    short_circuit = _ShortCircuit([interim, _ShortCircuit.CALL_THROUGH])
+    server = _tasks_server(store=recording, extra_extensions=[short_circuit])
+
+    async def accept(
+        context: ClientRequestContext, params: types.ElicitRequestParams
+    ) -> types.ElicitResult | types.ErrorData:
+        return types.ElicitResult(action="accept", content={})
+
+    async with Client(server, extensions=[TasksExtension()], elicitation_callback=accept) as client:
+        result = await client.call_tool("echo", {"text": "hi"})
+
+    assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="hi")]))
+    assert len(recording.puts) == 1
+    assert recording.puts[0].task.status == "completed"
+
+
+async def test_session_call_tool_without_allow_claimed_raises_with_guidance() -> None:
+    """SDK-defined: mirroring `allow_input_required`, the session-level `call_tool`
+    refuses an unexpected `CreateTaskResult` with guidance instead of leaking the
+    widened union into a caller that expected a `CallToolResult`."""
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
+        with pytest.raises(RuntimeError, match="allow_claimed=True"):
+            await client.session.call_tool("echo", {"text": "hi"})
+
+
+async def test_session_call_tool_with_allow_claimed_returns_the_typed_create_task_result() -> None:
+    """SDK-defined: `session.call_tool(..., allow_claimed=True)` is the manual
+    surface — it returns the typed `CreateTaskResult` so the caller can drive
+    `tasks/get` itself via the `mcp.shared.tasks` wrappers."""
+    async with Client(_tasks_server(default_ttl_ms=60000), extensions=[TasksExtension()]) as client:
+        created = await client.session.call_tool("echo", {"text": "hi"}, allow_claimed=True)
+        assert isinstance(created, CreateTaskResult)
+        polled = GetTaskResult.model_validate(await _get_task(client, created.task_id))
+
+    assert created.status == "completed"
+    assert created.ttl_ms == 60000
+    assert polled.result is not None
+    assert polled.result["content"] == [{"text": "hi", "type": "text"}]
+
+
 async def test_legacy_params_task_field_is_not_the_opt_in_for_a_non_declaring_client() -> None:
     """SEP-2663: servers MUST ignore the legacy `params.task` field (treat it as
     unknown) rather than using it as the opt-in -- a non-declaring client sending it
@@ -271,7 +380,7 @@ async def test_legacy_params_task_field_changes_nothing_for_a_declaring_client()
     """SEP-2663: augmentation is the server's decision either way -- a declaring client
     sending the legacy `params.task` field gets the same `CreateTaskResult` envelope
     as one that omits it."""
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         raw = await _send_raw(client, _call_echo_with_legacy_task_field())
 
     assert raw["resultType"] == "task"
@@ -328,7 +437,7 @@ async def test_augment_predicate_scopes_augmentation_per_request() -> None:
     def slow(text: str) -> str:
         return text
 
-    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
         plain = await client.call_tool("fast", {"text": "x"})
         assert recording.puts == []
         augmented = await _send_raw(
@@ -352,7 +461,7 @@ async def test_augment_predicate_false_lets_errors_propagate() -> None:
     def rejecting() -> str:
         raise MCPError(code=INVALID_PARAMS, message="bad input")
 
-    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("rejecting", {})
 
@@ -365,7 +474,7 @@ async def test_get_task_inlines_completed_call_tool_result_without_related_task_
     original `CallToolResult`, which must NOT carry an
     `io.modelcontextprotocol/related-task` `_meta` key (that is the 2025 design)."""
     captured: list[str] = []
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         captured.append(created["taskId"])
@@ -401,7 +510,7 @@ async def test_tool_error_result_is_a_completed_task_with_is_error_inlined() -> 
     def boom() -> str:
         raise ValueError("nope")
 
-    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
         created = await _send_raw(
             client, types.CallToolRequest(params=types.CallToolRequestParams(name="boom", arguments={}))
         )
@@ -428,7 +537,7 @@ async def test_mcp_error_from_tool_records_failed_task_for_declaring_client() ->
         raise MCPError(code=INVALID_PARAMS, message="bad input", data={"field": "text"})
 
     captured: list[str] = []
-    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
         created = await _send_raw(
             client, types.CallToolRequest(params=types.CallToolRequestParams(name="rejecting", arguments={}))
         )
@@ -475,7 +584,7 @@ async def test_error_data_from_nested_extension_records_failed_task() -> None:
     short_circuit = _ShortCircuit([types.ErrorData(code=INTERNAL_ERROR, message="boom")])
     server = _tasks_server(store=recording, extra_extensions=[short_circuit])
 
-    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(server, extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         detailed = await _get_task(client, created["taskId"])
@@ -520,7 +629,7 @@ async def test_get_task_result_parses_completed_and_failed_wire_shapes() -> None
     def rejecting() -> str:
         raise MCPError(code=INVALID_PARAMS, message="bad input")
 
-    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
         ok = await _augmented_call(client)
         bad = await _send_raw(
             client, types.CallToolRequest(params=types.CallToolRequestParams(name="rejecting", arguments={}))
@@ -560,7 +669,7 @@ async def test_input_required_interim_passes_through_and_only_the_completing_leg
     short_circuit = _ShortCircuit([interim, _ShortCircuit.CALL_THROUGH])
     server = _tasks_server(store=recording, extra_extensions=[short_circuit])
 
-    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(server, extensions=[TasksExtension()]) as client:
         first = await _augmented_call(client)
         second = await _augmented_call(client)
 
@@ -581,7 +690,7 @@ async def test_interceptor_normalizes_model_and_none_outcomes_from_nested_extens
     short_circuit = _ShortCircuit([EmptyResult(result_type="complete"), None])
     server = _tasks_server(store=store, extra_extensions=[short_circuit])
 
-    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(server, extensions=[TasksExtension()]) as client:
         from_model = await _augmented_call(client)
         from_none = await _augmented_call(client)
         assert isinstance(from_model["taskId"], str)
@@ -598,7 +707,7 @@ async def test_cancel_acks_empty_and_completed_task_keeps_its_status_and_result(
     and cancellation may never take effect -- a task that already completed keeps its
     terminal status and its result stays retrievable."""
     captured: list[str] = []
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         captured.append(created["taskId"])
@@ -615,7 +724,7 @@ async def test_cancel_acks_empty_and_completed_task_keeps_its_status_and_result(
 async def test_update_acks_empty_and_ignores_input_responses_for_unissued_keys() -> None:
     """SEP-2663: `tasks/update` acknowledges with an empty result; `inputResponses`
     mapped to keys that were never issued are ignored rather than rejected."""
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         ack = await _update_task(client, created["taskId"], {"never-issued": {"value": 1}})
@@ -628,7 +737,7 @@ async def test_update_acks_empty_and_ignores_input_responses_for_unissued_keys()
 async def test_update_without_input_responses_is_invalid_params() -> None:
     """SEP-2663: `UpdateTaskRequest.inputResponses` is required on the wire, so a
     `tasks/update` whose params carry only `taskId` is rejected with INVALID_PARAMS."""
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         task_id = created["taskId"]
         assert isinstance(task_id, str)
@@ -641,7 +750,7 @@ async def test_update_without_input_responses_is_invalid_params() -> None:
 async def test_tasks_result_method_is_method_not_found() -> None:
     """SEP-2663 removed `tasks/result`; it is not bound, so it is rejected with
     METHOD_NOT_FOUND."""
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         task_id = created["taskId"]
         assert isinstance(task_id, str)
@@ -673,7 +782,7 @@ async def test_tasks_requests_over_streamable_http_carry_mcp_name_routing_header
             mounted_app(_tasks_server(), on_request=on_request) as (http, _),
             Client(
                 streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
-                extensions=[advertise(EXTENSION_ID)],
+                extensions=[TasksExtension()],
             ) as client,
         ):
             created = await _augmented_call(client)
@@ -715,7 +824,7 @@ async def test_tasks_methods_on_legacy_connection_are_method_not_found(method: s
     a legacy client gets METHOD_NOT_FOUND, never a capability error it could not
     satisfy on that wire."""
     senders = {"get": _get_task, "cancel": _cancel_task, "update": _update_task}
-    async with Client(_tasks_server(), mode="legacy", extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), mode="legacy", extensions=[TasksExtension()]) as client:
         with pytest.raises(MCPError) as exc_info:
             await senders[method](client, "task_anything")
 
@@ -725,7 +834,7 @@ async def test_tasks_methods_on_legacy_connection_are_method_not_found(method: s
 @pytest.mark.parametrize("sender", [_get_task, _cancel_task, _update_task])
 async def test_unknown_task_id_is_invalid_params(sender: Callable[[Client, str], Awaitable[dict[str, object]]]) -> None:
     """SEP-2663: a declaring client naming an unknown `taskId` gets INVALID_PARAMS."""
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         with pytest.raises(MCPError) as exc_info:
             await sender(client, "task_does_not_exist")
 
@@ -735,7 +844,7 @@ async def test_unknown_task_id_is_invalid_params(sender: Callable[[Client, str],
 async def test_task_ids_are_prefixed_and_unique_per_creation() -> None:
     """SEP-2663 security: task ids are unguessable bearer capabilities, so each creation
     yields a distinct `task_`-prefixed id."""
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         first = await _augmented_call(client)
         second = await _augmented_call(client)
 
@@ -751,12 +860,12 @@ async def test_task_id_is_a_bearer_capability_across_connections() -> None:
     presenting a captured id can fetch a completed task it did not create (the modern
     wire has no sessions, so a reconnecting client must be able to poll)."""
     server = _tasks_server()
-    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as creator:
+    async with Client(server, extensions=[TasksExtension()]) as creator:
         created = await _augmented_call(creator)
         task_id = created["taskId"]
         assert isinstance(task_id, str)
 
-    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as reconnected:
+    async with Client(server, extensions=[TasksExtension()]) as reconnected:
         detailed = await _get_task(reconnected, task_id)
 
     assert detailed["status"] == "completed"
@@ -769,7 +878,7 @@ async def test_legacy_connection_is_not_augmented_even_when_client_declares_task
     """SEP-2663: the extension is modern-only. On a legacy handshake the server cannot
     carry `capabilities.extensions` back, so it must not augment - a `tools/call`
     returns a normal `CallToolResult`, never a `CreateTaskResult`."""
-    async with Client(_tasks_server(), mode="legacy", extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), mode="legacy", extensions=[TasksExtension()]) as client:
         result = await client.call_tool("echo", {"text": "hi"})
 
     assert isinstance(result.content[0], types.TextContent)
@@ -795,7 +904,7 @@ async def test_expired_task_is_unknown_on_get() -> None:
     current = {"now": _FIXED_NOW}
     store = InMemoryTaskStore(clock=lambda: current["now"])
 
-    async with Client(_ticking_server(current, store=store), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_ticking_server(current, store=store), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         before = await _get_task(client, created["taskId"])
@@ -818,7 +927,7 @@ async def test_put_sweeps_expired_records_so_the_store_stays_bounded() -> None:
     no_ttl = Task(task_id="task_no_ttl", status="completed", created_at=stamp, last_updated_at=stamp)
     await store.put(TaskRecord(task=no_ttl, result={}, error=None, expires_at=None))
 
-    async with Client(_ticking_server(current, store=store), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_ticking_server(current, store=store), extensions=[TasksExtension()]) as client:
         first = await _augmented_call(client)
         assert isinstance(first["taskId"], str)
         current["now"] = _FIXED_NOW + timedelta(milliseconds=60_000)
@@ -832,7 +941,7 @@ async def test_put_sweeps_expired_records_so_the_store_stays_bounded() -> None:
 async def test_get_responses_do_not_alias_the_stored_record() -> None:
     """SDK-defined: mutating a served `tasks/get` response must not corrupt the stored
     result."""
-    async with Client(_tasks_server(), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         first = await _get_task(client, created["taskId"])
@@ -855,7 +964,7 @@ async def test_stored_records_do_not_alias_the_chain_result_dict() -> None:
     retained: dict[str, Any] = {"resultType": "complete", "content": [{"text": "hi", "type": "text"}]}
     server = _tasks_server(extra_extensions=[_ShortCircuit([retained])])
 
-    async with Client(server, extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(server, extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         retained["content"] = [{"text": "TAMPERED", "type": "text"}]
@@ -872,7 +981,7 @@ async def test_custom_store_receives_puts_and_serves_gets() -> None:
     """SDK-defined: `Tasks(store=...)` is the persistence seam: the extension writes
     and reads through whatever store the operator supplies."""
     recording = _RecordingStore()
-    async with Client(_tasks_server(store=recording), extensions=[advertise(EXTENSION_ID)]) as client:
+    async with Client(_tasks_server(store=recording), extensions=[TasksExtension()]) as client:
         created = await _augmented_call(client)
         assert isinstance(created["taskId"], str)
         detailed = await _get_task(client, created["taskId"])

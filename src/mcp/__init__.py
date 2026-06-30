@@ -62,6 +62,7 @@ from mcp_types import Role as SamplingRole
 # ...` did, so `import mcp` followed by `mcp.types.Tool` keeps working.
 from . import types as types
 from .client._input_required import InputRequiredRoundsExceededError
+from .client._tasks import TaskCancelledError, TaskFailedError, TaskInputRequiredError, TasksExtension
 from .client.client import Client
 from .client.session import ClientSession
 from .client.session_group import ClientSessionGroup
@@ -131,6 +132,10 @@ __all__ = [
     "StdioServerParameters",
     "StopReason",
     "SubscribeRequest",
+    "TaskCancelledError",
+    "TaskFailedError",
+    "TaskInputRequiredError",
+    "TasksExtension",
     "Tool",
     "ToolChoice",
     "ToolResultContent",
