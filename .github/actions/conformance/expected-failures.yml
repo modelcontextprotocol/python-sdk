@@ -12,4 +12,40 @@
 
 client: []
 
-server: []
+server:
+  # SEP-2575 subscriptions/listen is not implemented yet. The everything-
+  # server's legacy resources/subscribe handlers make it advertise
+  # `resources.subscribe` in server/discover, and as of conformance #372 a
+  # server that advertises a subscription capability but answers
+  # subscriptions/listen with -32601 fails the three listen MUST checks
+  # ("Not testable") instead of skipping them. Remove this entry when the
+  # listen runtime lands. NOTE: while listed, this entry also masks new
+  # failures in the scenario's other 25 (currently passing) checks — the
+  # baseline is per-scenario, not per-check.
+  - server-stateless
+  # SEP-2243 Mcp-Param-* server-side validation is not implemented yet. The
+  # everything-server's `test_x_mcp_header` tool arms these checks (without an
+  # x-mcp-header-annotated tool the harness skips all of them silently); the
+  # accept-path checks pass, the reject-path checks fail until the server
+  # validates Mcp-Param headers against body params. Read by the draft leg and
+  # the bare `--suite all` leg; the 2026-07-28 leg carries its own entry.
+  - http-custom-header-server-validation
+  # SEP-2663 (io.modelcontextprotocol/tasks): the SDK does not implement the
+  # tasks extension yet. These extension-tagged scenarios are selected only by
+  # the bare `--suite all` leg — extension scenarios never match a
+  # --spec-version filter and the active/draft suites exclude them — so these
+  # entries are inert for the other legs that read this file.
+  #
+  # `tasks-status-notifications` is intentionally NOT listed: the harness
+  # skips it unconditionally (pending its rewrite against subscriptions/
+  # listen), and a baseline entry for a scenario with no failing checks is
+  # flagged stale.
+  - tasks-lifecycle
+  - tasks-capability-negotiation
+  - tasks-wire-fields
+  - tasks-request-state-removal
+  - tasks-mrtr-input
+  - tasks-request-headers
+  - tasks-dispatch-and-envelope
+  - tasks-required-task-error
+  - tasks-mrtr-composition
