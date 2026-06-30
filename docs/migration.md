@@ -471,12 +471,17 @@ Two reference extensions ship in their own modules:
 - `mcp.server.tasks.Tasks` (`io.modelcontextprotocol/tasks`, SEP-2663) defers a
   `tools/call` as a task: for a client that declared the extension on a modern
   connection, the server may return a `CreateTaskResult` (`resultType: "task"`)
-  instead of the `CallToolResult`, and the client polls `tasks/get` /
-  `tasks/cancel`. The server decides augmentation (the legacy `params.task` field
-  is ignored); a `tasks/*` call from a non-declaring client is rejected with
-  `-32003`. This is the conformant core; `tasks/update` + the MRTR input loop,
-  `ToolExecution.taskSupport` gating, `notifications/tasks`, and task routing
-  headers are deferred.
+  instead of the `CallToolResult`, and the client fetches the result via
+  `tasks/get` (`tasks/update` and `tasks/cancel` are empty acknowledgements).
+  The server decides augmentation (the legacy `params.task` field is ignored),
+  passes multi round-trip `input_required` interims through un-augmented, and
+  keeps completed tasks in a pluggable `TaskStore` (`Tasks(store=...)`,
+  in-memory default) that enforces `default_ttl_ms`. A `tasks/*` call from a
+  non-declaring modern client is rejected with `-32021` (missing required
+  client capability); legacy calls get `METHOD_NOT_FOUND`. This is the core
+  SEP-2663 surface; background execution (`working` tasks), the in-task
+  `input_required` loop over `tasks/update`, `notifications/tasks`, and task
+  routing headers are deferred.
 
 Extension methods are strictly additive: a `MethodBinding` cannot name a
 spec-defined request method, and registering one whose method collides with
