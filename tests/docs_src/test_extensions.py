@@ -1,15 +1,22 @@
 """`docs/advanced/extensions.md`: every claim the page makes, proved against the real SDK."""
 
 import logging
-from typing import cast
 
-import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import METHOD_NOT_FOUND, MISSING_REQUIRED_CLIENT_CAPABILITY, TextContent
 
-from docs_src.extensions import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005
+from docs_src.extensions import (
+    tutorial001,
+    tutorial002,
+    tutorial003,
+    tutorial004,
+    tutorial005,
+    tutorial006,
+    tutorial007,
+)
 from mcp import Client, MCPError
+from mcp.client import advertise
 from mcp.server.extension import Extension
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -70,7 +77,7 @@ async def test_vendor_method_rejects_a_non_declaring_client_with_32021() -> None
     async with Client(tutorial004.mcp) as client:
         request = tutorial004.SearchRequest(params=tutorial004.SearchParams(query="mcp"))
         with pytest.raises(MCPError) as exc_info:
-            await client.session.send_request(cast("types.ClientRequest", request), tutorial004.SearchResult)
+            await client.session.send_request(request, tutorial004.SearchResult)
     assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
     assert exc_info.value.error.data == {"requiredCapabilities": {"extensions": {"com.example/search": {}}}}
 
@@ -78,10 +85,10 @@ async def test_vendor_method_rejects_a_non_declaring_client_with_32021() -> None
 async def test_version_pinned_method_is_not_found_on_a_legacy_connection() -> None:
     """tutorial004: `protocol_versions={"2026-07-28"}` makes the method METHOD_NOT_FOUND
     at any other wire version; for a legacy client it doesn't exist."""
-    async with Client(tutorial004.mcp, mode="legacy", extensions={tutorial004.EXTENSION_ID: {}}) as client:
+    async with Client(tutorial004.mcp, mode="legacy", extensions=[advertise(tutorial004.EXTENSION_ID)]) as client:
         request = tutorial004.SearchRequest(params=tutorial004.SearchParams(query="mcp"))
         with pytest.raises(MCPError) as exc_info:
-            await client.session.send_request(cast("types.ClientRequest", request), tutorial004.SearchResult)
+            await client.session.send_request(request, tutorial004.SearchResult)
     assert exc_info.value.code == METHOD_NOT_FOUND
 
 
@@ -95,3 +102,31 @@ async def test_interceptor_observes_the_call_and_passes_the_result_through(
     assert result.structured_content == {"result": 5}
     messages = [record.getMessage() for record in caplog.records if record.name == tutorial005.logger.name]
     assert messages == ["tool 'add' called"]
+
+
+async def test_the_receipts_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial006: `main()` runs as printed and the output is the redeemed result, never the claimed shape."""
+    await tutorial006.main()
+    assert "goods for r-117" in capsys.readouterr().out
+
+
+async def test_a_client_without_the_extension_is_refused_by_the_gate() -> None:
+    """The page's off-by-default claim: the server's capability gate refuses a non-declaring client."""
+    async with Client(tutorial006.mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("buy", {"item": "lamp"})
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+
+
+async def test_session_tier_allow_claimed_returns_the_raw_shape() -> None:
+    """The page's escape hatch: `allow_claimed=True` returns the parsed claim model, not the resolved result."""
+    async with Client(tutorial006.mcp, extensions=[tutorial006.Receipts()]) as client:
+        result = await client.session.call_tool("buy", {"item": "lamp"}, allow_claimed=True)
+    assert isinstance(result, tutorial006.ReceiptResult)
+    assert result.receipt_token == "r-117"
+
+
+async def test_the_jobs_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial007: a vendor request with `name_param` round-trips `send_request` with no registration."""
+    await tutorial007.main()
+    assert "job-7 is running" in capsys.readouterr().out

@@ -26,7 +26,7 @@ uv run python -m stories.apps.client --http
   `text/html;profile=mcp-app`.
 - `server.py` `client_supports_apps(ctx)` — SEP-2133 graceful degradation: a
   client that did not negotiate Apps gets a text-only result.
-- `client.py` `Client(target, extensions={...})` — the client advertises Apps
+- `client.py` `Client(target, extensions=[advertise(...)])` — the client advertises Apps
   support so the server returns the UI-enabled result, then reads the tool's
   `_meta.ui.resourceUri` and fetches that resource.
 

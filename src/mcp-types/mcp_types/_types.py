@@ -8,7 +8,7 @@ the negotiated version. Per-field docstrings note version availability. The
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar, get_args
 
 from pydantic import (
     BaseModel,
@@ -128,6 +128,12 @@ class Request(MCPModel, Generic[RequestParamsT, MethodT]):
     method: MethodT
     params: RequestParamsT
 
+    name_param: ClassVar[str | None] = None
+    """Wire-params key mirrored into the `Mcp-Name` header on sends; SEP-2663 requires it for tasks/*.
+
+    Subclasses override by bare assignment: re-annotating as `ClassVar` trips pyright's invariance check.
+    """
+
 
 class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):
     """Base class for paginated requests, matching the schema's PaginatedRequest interface."""
@@ -144,13 +150,18 @@ class Notification(MCPModel, Generic[NotificationParamsT, MethodT]):
     params: NotificationParamsT
 
 
-ResultType = Literal["complete", "input_required"] | str
+_CoreResultType = Literal["complete", "input_required"]
+
+ResultType = _CoreResultType | str
 """Tags a `Result` so the client knows how to parse it (2026-07-28).
 
 "complete" means the result is final; "input_required" means it is an
 `InputRequiredResult`. The union is open (the tasks extension reserves "task").
 Absent `resultType` is equivalent to "complete".
 """
+
+CORE_RESULT_TYPES: Final[frozenset[str]] = frozenset(get_args(_CoreResultType))
+"""The `resultType` tags owned by the core protocol vocabulary; extension claims may not re-key them."""
 
 
 class Result(MCPModel):

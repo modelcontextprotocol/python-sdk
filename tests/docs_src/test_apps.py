@@ -7,6 +7,7 @@ from mcp_types import TextContent, TextResourceContents
 
 from docs_src.apps import tutorial001, tutorial002, tutorial003
 from mcp import Client
+from mcp.client import advertise
 from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -34,7 +35,9 @@ async def test_the_ui_resource_is_served_as_the_app_mime_type() -> None:
 async def test_one_tool_two_answers() -> None:
     """tutorial001: the canonical degradation pattern: raw data for a client that
     negotiated Apps, a human sentence for one that did not."""
-    async with Client(tutorial001.mcp, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as ui_client:
+    async with Client(
+        tutorial001.mcp, extensions=[advertise(EXTENSION_ID, {"mimeTypes": [APP_MIME_TYPE]})]
+    ) as ui_client:
         rich = await ui_client.call_tool("get_time", {})
     async with Client(tutorial001.mcp) as text_client:
         plain = await text_client.call_tool("get_time", {})

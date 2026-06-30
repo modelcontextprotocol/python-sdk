@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar, cast
@@ -36,6 +36,7 @@ from mcp_types import (
     ReadResourceResult,
     RequestParamsMeta,
     ResourceTemplateReference,
+    Result,
     ServerCapabilities,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
@@ -46,6 +47,7 @@ from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
 from mcp.client.caching import CacheConfig, CacheMode, ClientResponseCache, InMemoryResponseCacheStore
+from mcp.client.extension import ClaimContext, ClientExtension, NotificationBinding, ResultClaim
 from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
@@ -62,6 +64,7 @@ from mcp.server.runner import modern_on_request
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.session import RequestResponder
 
@@ -188,6 +191,72 @@ async def _no_inbound_client_notifications(_dctx: Any, _method: str, _params: Ma
     """
 
 
+@dataclass(frozen=True)
+class _FoldedExtensions:
+    """`Client.extensions` instances folded into the shapes `ClientSession` consumes."""
+
+    ad: dict[str, dict[str, Any]] | None
+    claims: dict[str, tuple[ResultClaim[Any], ...]] | None
+    bindings: tuple[NotificationBinding[Any], ...] | None
+    by_model: Mapping[type[Result], ResultClaim[Any]]
+
+
+def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExtensions:
+    """Fold extension contributions at construction, naming both owners on duplicate tags or methods."""
+    if isinstance(extensions, Mapping):
+        raise TypeError(
+            "extensions= takes a sequence of ClientExtension instances. The mapping form was "
+            "replaced: use advertise(identifier, settings) for advertise-only entries"
+        )
+    if not extensions:
+        return _FoldedExtensions(ad=None, claims=None, bindings=None, by_model={})
+    ad: dict[str, dict[str, Any]] = {}
+    claims: dict[str, tuple[ResultClaim[Any], ...]] = {}
+    bindings: list[NotificationBinding[Any]] = []
+    by_model: dict[type[Result], ResultClaim[Any]] = {}
+    claim_owners: dict[str, str] = {}
+    binding_owners: dict[str, str] = {}
+    for extension in extensions:
+        identifier = getattr(extension, "identifier", None)
+        if identifier is None:
+            raise ValueError(
+                f"{type(extension).__name__} has no `identifier`; a ClientExtension must set the "
+                "`identifier` class attribute (or assign one in `__init__`) before it can be used"
+            )
+        validate_extension_identifier(identifier, owner=type(extension).__name__)
+        if identifier in ad:
+            raise ValueError(f"extension identifier {identifier!r} is passed more than once")
+        ad[identifier] = extension.settings()
+        extension_claims = tuple(extension.claims())
+        for claim in extension_claims:
+            tag = claim.result_type
+            if tag in claim_owners:
+                owner = claim_owners[tag]
+                both = (
+                    f"extension {identifier!r} claims"
+                    if owner == identifier
+                    else (f"extensions {owner!r} and {identifier!r} both claim")
+                )
+                raise ValueError(f"{both} resultType {tag!r}; a wire tag can have only one resolver")
+            claim_owners[tag] = identifier
+            # Each model pins its result_type Literal to one tag, so this index cannot collide.
+            by_model[claim.model] = claim
+        if extension_claims:
+            claims[identifier] = extension_claims
+        for binding in extension.notifications():
+            if binding.method in binding_owners:
+                owner = binding_owners[binding.method]
+                both = (
+                    f"extension {identifier!r} binds"
+                    if owner == identifier
+                    else (f"extensions {owner!r} and {identifier!r} both bind")
+                )
+                raise ValueError(f"{both} notification method {binding.method!r}; a method can have only one observer")
+            binding_owners[binding.method] = identifier
+            bindings.append(binding)
+    return _FoldedExtensions(ad=ad, claims=claims or None, bindings=tuple(bindings) or None, by_model=by_model)
+
+
 @dataclass
 class Client:
     """A high-level MCP client for connecting to MCP servers.
@@ -268,9 +337,12 @@ class Client:
     `read_resource` give up. Use `client.session.<method>(..., allow_input_required=True)`
     to drive the loop manually instead."""
 
-    extensions: dict[str, dict[str, Any]] | None = None
-    """SEP-2133 extension support to advertise under `ClientCapabilities.extensions`
-    (identifier -> settings), e.g. `{"io.modelcontextprotocol/ui": {"mimeTypes": [...]}}`."""
+    extensions: Sequence[ClientExtension] | None = None
+    """Opt-in client extensions (SEP-2133).
+
+    Each instance contributes its capability ad, its result claims (resolved
+    transparently by `call_tool`), and its notification bindings. For an
+    ad-only entry use `mcp.client.advertise(identifier, settings)`."""
 
     cache: CacheConfig | Literal[False] | None = None
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
@@ -286,6 +358,7 @@ class Client:
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _connect: _Connector = field(init=False, repr=False, compare=False)
     _response_cache: ClientResponseCache | None = field(init=False, default=None, repr=False, compare=False)
+    _folded_extensions: _FoldedExtensions = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
@@ -297,6 +370,8 @@ class Client:
             raise ValueError(
                 f"mode must be 'legacy', 'auto', or one of {list(MODERN_PROTOCOL_VERSIONS)}; got {self.mode!r}{hint}"
             )
+
+        self._folded_extensions = _fold_extensions(self.extensions)
 
         srv = self.server
         if isinstance(srv, MCPServer):
@@ -348,7 +423,9 @@ class Client:
             message_handler=message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
-            extensions=self.extensions,
+            extensions=self._folded_extensions.ad,
+            result_claims=self._folded_extensions.claims,
+            notification_bindings=self._folded_extensions.bindings,
         )
 
     async def __aenter__(self) -> Client:
@@ -613,6 +690,11 @@ class Client:
         state is still subject to the server's TTL, request binding, and key
         lifetime; a server on the default process-local key rejects it after a restart.
 
+        Result shapes claimed by this client's `extensions` are finished by the
+        owning claim's resolver, whose `CallToolResult` is returned; resolver
+        exceptions propagate as-is. To receive the claimed shape yourself, use
+        `client.session.call_tool(..., allow_claimed=True)`.
+
         Args:
             name: The name of the tool to call.
             arguments: Arguments to pass to the tool.
@@ -631,7 +713,7 @@ class Client:
             MCPError: A callback returned `ErrorData` for an embedded input request.
         """
 
-        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult:
+        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
             return await self.session.call_tool(
                 name,
                 arguments,
@@ -641,9 +723,23 @@ class Client:
                 request_state=s,
                 meta=meta,
                 allow_input_required=True,
+                # Input rounds resolve before a claimed result, so a claim may end any round.
+                allow_claimed=True,
             )
 
-        return await self._drive_input_required(await retry(input_responses, request_state), retry)
+        result = await self._drive_input_required(await retry(input_responses, request_state), retry)
+        if isinstance(result, CallToolResult):
+            return result
+        # Only claimed shapes reach this point, so the lookup is total.
+        claim = self._folded_extensions.by_model[type(result)]
+        final = await claim.resolve(
+            result,
+            ClaimContext(session=self.session, tool_name=name, read_timeout_seconds=read_timeout_seconds),
+        )
+        if not final.is_error:
+            # Match the direct path: revalidate the output schema, but never for isError results.
+            await self.session.validate_tool_result(name, final)
+        return final
 
     async def list_prompts(
         self,
@@ -717,7 +813,7 @@ class Client:
 
         async def dispatch(key: str, req: InputRequest) -> InputResponse | ErrorData:
             ctx = ClientRequestContext(session=session, request_id=key, meta=req.params.meta if req.params else None)
-            return await session._dispatch_input_request(ctx, req)  # pyright: ignore[reportPrivateUsage]
+            return await session.dispatch_input_request(ctx, req)
 
         return await run_input_required_driver(
             first, dispatch=dispatch, retry=retry, max_rounds=self.input_required_max_rounds
