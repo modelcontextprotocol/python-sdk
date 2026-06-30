@@ -12,6 +12,13 @@ from mcp.client.caching import (
 )
 from mcp.client.client import Client
 from mcp.client.context import ClientRequestContext
+from mcp.client.extension import (
+    ClaimContext,
+    ClientExtension,
+    NotificationBinding,
+    ResultClaim,
+    advertise,
+)
 from mcp.client.session import ClientSession
 
 __all__ = [
@@ -19,11 +26,16 @@ __all__ = [
     "CacheEntry",
     "CacheKey",
     "CacheMode",
+    "ClaimContext",
     "Client",
+    "ClientExtension",
     "ClientRequestContext",
     "ClientSession",
     "InMemoryResponseCacheStore",
     "InputRequiredRoundsExceededError",
+    "NotificationBinding",
     "ResponseCacheStore",
+    "ResultClaim",
     "Transport",
+    "advertise",
 ]
