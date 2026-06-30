@@ -478,10 +478,19 @@ Two reference extensions ship in their own modules:
   keeps completed tasks in a pluggable `TaskStore` (`Tasks(store=...)`,
   in-memory default) that enforces `default_ttl_ms`. A `tasks/*` call from a
   non-declaring modern client is rejected with `-32021` (missing required
-  client capability); legacy calls get `METHOD_NOT_FOUND`. This is the core
-  SEP-2663 surface; background execution (`working` tasks), the in-task
-  `input_required` loop over `tasks/update`, `notifications/tasks`, and task
-  routing headers are deferred.
+  client capability); legacy calls get `METHOD_NOT_FOUND`. The client half is a
+  `ClientExtension` result claim: constructing `TasksExtension()` into
+  `Client(extensions=[...])` declares the extension and claims the `task`
+  resultType on `tools/call`, so `Client.call_tool` admits the
+  `CreateTaskResult`, polls `tasks/get` (honoring `pollIntervalMs`), and
+  returns the final `CallToolResult` unchanged, while `failed`/`cancelled` tasks surface as the typed
+  `TaskFailedError`/`TaskCancelledError`. Manual driving stays available —
+  `client.session.call_tool(..., allow_claimed=True)` returns the typed
+  `CreateTaskResult`, and the `mcp.shared.tasks` request wrappers drive
+  `tasks/get`/`tasks/update`/`tasks/cancel` over `session.send_request`. This
+  is the core SEP-2663 surface; background execution (`working` tasks), the
+  in-task `input_required` loop over `tasks/update`, `notifications/tasks`,
+  and task routing headers are deferred.
 
 Extension methods are strictly additive: a `MethodBinding` cannot name a
 spec-defined request method, and registering one whose method collides with
@@ -527,7 +536,7 @@ client = Client(server, extensions=[advertise("com.example/ui", {"mimeTypes": [.
 ```
 
 `advertise()` is only for identifiers with no client-side behaviour. For a
-behavioural extension (e.g. tasks, once its extension ships), construct that
+behavioural extension (e.g. tasks — `mcp.client.TasksExtension`), construct that
 extension's object instead; advertising an identifier you do not implement
 asserts wire support you don't have.
 

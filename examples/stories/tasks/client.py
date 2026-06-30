@@ -1,59 +1,57 @@
-"""Declare the tasks extension, let the server defer a tool call, then fetch the result via tasks/get.
+"""Declare the tasks extension and let `Client.call_tool` drive the task transparently.
 
-The client declares `io.modelcontextprotocol/tasks` (via `Client(extensions=...)`),
-so the server is free to answer `tools/call` with a `CreateTaskResult`. `Client`
-exposes only spec verbs, so the augmented call and `tasks/get` drop to
-`client.session`; the thin `_send` helper keeps that out of the story below.
+The client declares `io.modelcontextprotocol/tasks` (by constructing
+`TasksExtension()` into `Client(extensions=...)`),
+so the server is free to answer `tools/call` with a `CreateTaskResult`. SEP-2663
+advises clients to keep a fixed public contract and drive the polling internally —
+`Client.call_tool` does exactly that, so the modern path is the same typed call a
+task-less server would get. A compact manual leg then shows the raw wire flow:
+`session.call_tool(allow_claimed=True)` for the typed `CreateTaskResult`, and
+the shared `mcp.shared.tasks` wrappers over `session.send_request` for `tasks/get`.
 """
 
-from typing import Any, Literal, cast
+from typing import cast
 
 import mcp_types as types
-from pydantic import TypeAdapter
 
-from mcp.client import Client, ClientSession, advertise
-from mcp.server.tasks import EXTENSION_ID, GetTaskRequestParams
+from mcp.client import Client, TasksExtension
+from mcp.server.tasks import EXTENSION_ID
+from mcp.shared.tasks import CreateTaskResult, GetTaskRequest, GetTaskRequestParams, GetTaskResult
 from stories._harness import Target, run_client
-
-_RAW: TypeAdapter[dict[str, Any]] = TypeAdapter(dict)
-
-
-class _GetTaskRequest(types.Request[GetTaskRequestParams, Literal["tasks/get"]]):
-    method: Literal["tasks/get"] = "tasks/get"
-    params: GetTaskRequestParams
-
-
-async def _send(session: ClientSession, request: types.Request[Any, Any]) -> dict[str, Any]:
-    """Send a request whose result has a non-spec (extension) shape; return the raw dict."""
-    return await session.send_request(cast("types.ClientRequest", request), cast("Any", _RAW))
 
 
 async def main(target: Target, *, mode: str = "auto") -> None:
-    async with Client(target, mode=mode, extensions=[advertise(EXTENSION_ID)]) as client:
-        # The extension is a modern-only capability negotiated over server/discover.
-        # A legacy connection cannot carry it, and the server then must not
-        # augment: the same tools/call degrades to a plain CallToolResult.
+    async with Client(target, mode=mode, extensions=[TasksExtension()]) as client:
+        # The transparent path. On the modern wire the server augments this
+        # tools/call into a task (we declared the extension) and Client.call_tool
+        # polls tasks/get to the final result; on a legacy connection the
+        # extension cannot be negotiated, the server must not augment, and the
+        # very same call simply returns the plain CallToolResult.
+        result = await client.call_tool("render_report", {"title": "Q3", "sections": 2})
+        assert isinstance(result.content[0], types.TextContent), result
+        assert result.content[0].text.startswith("# Q3"), result
+        # No 2025-style related-task _meta either; the task plumbing never leaks
+        # into the surfaced result.
+        assert result.meta is None, result
+
         if client.server_capabilities.extensions is None:
-            result = await client.call_tool("render_report", {"title": "Q3", "sections": 2})
-            assert isinstance(result.content[0], types.TextContent), result
-            assert result.content[0].text.startswith("# Q3"), result
-            # No 2025-style related-task _meta either; SEP-2663 augmentation would
-            # have replaced the whole result, failing CallToolResult parsing above.
-            assert result.meta is None, result
+            # Legacy wire: nothing more to show — the degradation above is the point.
             return
         assert client.server_capabilities.extensions == {EXTENSION_ID: {}}
 
-        # The server augments this tools/call into a task because we declared the extension.
-        call = types.CallToolRequest(
-            params=types.CallToolRequestParams(name="render_report", arguments={"title": "Q3", "sections": 2})
-        )
-        created = await _send(client.session, call)
-        assert created["resultType"] == "task", created
-        task_id = created["taskId"]
+        # The manual leg: the same flow driven by hand on the raw wire.
+        # allow_claimed=True hands back the typed CreateTaskResult instead of
+        # polling, and the shared SEP-2663 request wrappers fetch the outcome.
+        created = await client.session.call_tool("render_report", {"title": "Q3", "sections": 1}, allow_claimed=True)
+        assert isinstance(created, CreateTaskResult), created
 
-        task = await _send(client.session, _GetTaskRequest(params=GetTaskRequestParams(task_id=task_id)))
-        assert task["status"] == "completed", task
-        assert task["result"]["content"][0]["text"].startswith("# Q3"), task
+        task = await client.session.send_request(
+            cast("types.ClientRequest", GetTaskRequest(params=GetTaskRequestParams(task_id=created.task_id))),
+            GetTaskResult,
+        )
+        assert task.status == "completed", task
+        assert task.result is not None, task
+        assert task.result["content"][0]["text"].startswith("# Q3"), task
 
 
 if __name__ == "__main__":

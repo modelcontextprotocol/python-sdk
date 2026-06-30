@@ -3,14 +3,16 @@
 Task-augmented execution (SEP-2663). A client declares the
 `io.modelcontextprotocol/tasks` extension; the server may then answer a
 `tools/call` with a `CreateTaskResult` (carrying a task id) instead of the
-`CallToolResult`, and the client fetches the result via `tasks/get`.
+`CallToolResult`. `Client.call_tool` drives the polling transparently and
+surfaces only the final result — the SEP's recommended client shape.
 
 ## Run it
 
 ```bash
-# stdio (default) — stdio negotiates the modern wire too, so the extension is
-# carried on both legs: the server defers the call as a task and the client
-# reads the result back via tasks/get
+# stdio (default) — stdio negotiates the modern wire too, so both legs run the
+# full flow: the server defers the call as a task, Client.call_tool polls it
+# to completion, and a manual leg shows the raw CreateTaskResult -> tasks/get
+# wire flow
 uv run python -m stories.tasks.client
 
 # HTTP — the same flow over streamable HTTP
@@ -27,12 +29,19 @@ uv run python -m stories.tasks.client --http
   the legacy `params.task` field is ignored. It augments only for a client that
   declared the extension on the request, returning a flat `CreateTaskResult`
   (`resultType: "task"`).
-- `client.py` `Client(target, extensions=[advertise(EXTENSION_ID)])` — declaring the
-  extension is what lets the server defer; `main` then reads the `CreateTaskResult`
-  and fetches `tasks/get`, whose completed envelope inlines the original
-  `CallToolResult`. On a legacy connection the capability cannot be negotiated
-  and the same `tools/call` degrades to a plain `CallToolResult`, so the story
-  guards its task leg on the negotiated capability.
+- `client.py` `Client(target, extensions=[TasksExtension()])` — the client half
+  is a `ClientExtension` whose result claim admits the `CreateTaskResult` and
+  lets the server defer. The transparent path is then just
+  `await client.call_tool(...)`: the claim's resolver polls `tasks/get`
+  (honoring `pollIntervalMs`) and returns the final `CallToolResult`; a
+  `failed` task raises `TaskFailedError`. On a legacy connection the
+  capability cannot be negotiated, the server must not augment, and the same
+  call returns the plain `CallToolResult` — the story guards its manual leg
+  on the negotiated capability.
+- The manual leg — `session.call_tool(..., allow_claimed=True)` returns the
+  typed `CreateTaskResult` (mirroring `allow_input_required`), and the shared
+  `mcp.shared.tasks` wrappers (`GetTaskRequest`/`GetTaskResult`) drive `tasks/get`
+  by hand over `session.send_request`.
 
 ## Scope
 

@@ -1,6 +1,7 @@
 """MCP Client module."""
 
 from mcp.client._input_required import InputRequiredRoundsExceededError
+from mcp.client._tasks import TaskCancelledError, TaskFailedError, TaskInputRequiredError, TasksExtension
 from mcp.client._transport import Transport
 from mcp.client.caching import (
     CacheConfig,
@@ -37,6 +38,10 @@ __all__ = [
     "NotificationBinding",
     "ResponseCacheStore",
     "ResultClaim",
+    "TaskCancelledError",
+    "TaskFailedError",
+    "TaskInputRequiredError",
+    "TasksExtension",
     "Transport",
     "UnexpectedClaimedResult",
     "advertise",
