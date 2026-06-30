@@ -21,6 +21,8 @@ import uvicorn
 from httpx_sse import ServerSentEvent
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.routing import Mount
 
@@ -32,6 +34,9 @@ from mcp.client.streamable_http import (
     streamablehttp_client,  # pyright: ignore[reportDeprecated]
 )
 from mcp.server import Server
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware, get_access_token
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend
+from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
@@ -1520,6 +1525,71 @@ def run_context_aware_server(port: int):  # pragma: no cover
     server_instance.run()
 
 
+class AuthTokenServerTest(Server):  # pragma: no cover
+    def __init__(self):
+        super().__init__("AuthTokenServer")
+
+        @self.list_tools()
+        async def handle_list_tools() -> list[Tool]:
+            return [
+                Tool(
+                    name="echo_access_token",
+                    description="Return the current access token",
+                    inputSchema={"type": "object", "properties": {}},
+                )
+            ]
+
+        @self.call_tool()
+        async def handle_call_tool(name: str, _args: dict[str, Any]) -> list[TextContent]:
+            assert name == "echo_access_token"
+            access_token = get_access_token()
+            assert access_token is not None
+            return [TextContent(type="text", text=access_token.token)]
+
+
+def run_auth_token_server(port: int) -> None:  # pragma: no cover
+    """Run the auth token test server."""
+    server = AuthTokenServerTest()
+
+    class AcceptAllTokenVerifier(TokenVerifier):
+        async def verify_token(self, token: str) -> AccessToken | None:
+            return AccessToken(
+                token=token,
+                client_id="test-client",
+                scopes=["test"],
+            )
+
+    token_verifier = AcceptAllTokenVerifier()
+
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        event_store=None,
+        json_response=False,
+    )
+
+    middleware = [
+        Middleware(AuthenticationMiddleware, backend=BearerAuthBackend(token_verifier)),
+        Middleware(AuthContextMiddleware),
+    ]
+
+    app = Starlette(
+        debug=True,
+        routes=[Mount("/mcp", app=session_manager.handle_request)],
+        middleware=middleware,
+        lifespan=lambda app: session_manager.run(),
+    )
+
+    server_instance = uvicorn.Server(
+        config=uvicorn.Config(
+            app=app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+        )
+    )
+    server_instance.run()
+
+
 @pytest.fixture
 def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
     """Start the context-aware server in a separate process."""
@@ -1535,6 +1605,22 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
     proc.join(timeout=2)
     if proc.is_alive():  # pragma: no cover
         print("Context-aware server process failed to terminate")
+
+
+@pytest.fixture
+def auth_token_server(basic_server_port: int) -> Generator[None, None, None]:
+    """Start the auth token server in a separate process."""
+    proc = multiprocessing.Process(target=run_auth_token_server, args=(basic_server_port,), daemon=True)
+    proc.start()
+
+    wait_for_server(basic_server_port)
+
+    yield
+
+    proc.kill()
+    proc.join(timeout=2)
+    if proc.is_alive():  # pragma: no cover
+        print("Auth token server process failed to terminate")
 
 
 @pytest.mark.anyio
@@ -1569,6 +1655,34 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
                 assert headers_data.get("authorization") == "Bearer test-token"
                 assert headers_data.get("x-custom-header") == "test-value"
                 assert headers_data.get("x-trace-id") == "trace-123"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_refreshes_access_token(auth_token_server: None, basic_server_url: str) -> None:
+    """Ensure refreshed bearer tokens are used for subsequent requests."""
+    token_a = "token-a"
+    token_b = "token-b"
+
+    async with create_mcp_http_client(headers={"Authorization": f"Bearer {token_a}"}) as httpx_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=httpx_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert isinstance(result, InitializeResult)
+
+                tool_result = await session.call_tool("echo_access_token", {})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                assert tool_result.content[0].text == token_a
+
+                httpx_client.headers["Authorization"] = f"Bearer {token_b}"
+                tool_result = await session.call_tool("echo_access_token", {})
+                assert len(tool_result.content) == 1
+                assert isinstance(tool_result.content[0], TextContent)
+                assert tool_result.content[0].text == token_b
 
 
 @pytest.mark.anyio
