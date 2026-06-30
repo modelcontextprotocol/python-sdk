@@ -96,6 +96,9 @@ def on_page_markdown(markdown: str, page: Page, config: MkDocsConfig, files: Fil
             content = resolved_path.read_text(encoding="utf-8").rstrip("\n")
         except OSError as exc:
             raise PluginError(f"llms_txt: cannot read snippet {path!r} in {page.file.src_uri}") from exc
+        # Keep a pointer to the embedded file so readers can find it on disk.
+        if path.endswith(".py"):
+            content = f"# {path}\n{content}"
         if indent:
             content = "\n".join(indent + line if line else line for line in content.split("\n"))
         return content
@@ -113,7 +116,7 @@ def on_page_markdown(markdown: str, page: Page, config: MkDocsConfig, files: Fil
             return match.group(0)
         linked = files.get_file_from_path(posixpath.normpath(posixpath.join(src_dir, target)))
         if linked is None:
-            return match.group(0)
+            raise PluginError(f"llms_txt: cannot resolve link target {target!r} in {page.file.src_uri}")
         # Pages without a markdown rendition (the api/ stubs) link to their HTML instead.
         url = _md_uri(linked) if linked.src_uri in _state.rendition_uris else linked.url
         return f"{opening}{site_url}{url}{anchor or ''}{title or ''}{closing}"
@@ -163,7 +166,9 @@ def on_post_build(config: MkDocsConfig) -> None:
             tail = f": {description}" if description else ""
             index.append(f"- [{page.title}]({site_url}{_md_uri(page.file)}){tail}")
 
-            body = re.sub(r"\A\s*# .+\n", "", markdown)
+            body, h1_found = re.subn(r"\A\s*# .+\n", "", markdown)
+            if not h1_found:
+                raise PluginError(f"llms_txt: page {page.file.src_uri} does not start with an H1")
             full += [f"# {page.title}", "", f"Source: {page.canonical_url}", "", body.strip(), ""]
         index.append("")
 
