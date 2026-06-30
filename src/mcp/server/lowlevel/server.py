@@ -62,7 +62,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import serve_loop
+from mcp.server.runner import serve_dual_era_loop
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
@@ -689,12 +689,14 @@ class Server(Generic[LifespanResultT]):
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
-        Thin wrapper over `serve_loop`: enters the server lifespan,
-        then drives the loop. Transports with their own lifespan owner
-        (the streamable-HTTP manager) call `serve_loop` directly instead.
+        Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
+        then drives the loop, serving the legacy handshake era and the modern
+        per-request-envelope era (the first era-distinctive message locks the
+        connection). Transports with their own lifespan owner (the
+        streamable-HTTP manager) call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:
-            await serve_loop(
+            await serve_dual_era_loop(
                 self,
                 read_stream,
                 write_stream,

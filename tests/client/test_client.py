@@ -408,14 +408,53 @@ async def test_context_propagation():
 async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Server) -> None:
     """`mode='auto'` over an in-process HTTP transport: the `server/discover` probe
     reaches the modern entry and the negotiated protocol version is adopted without
-    an `initialize` handshake. Runs over HTTP because the in-memory runner gates
-    `server/discover` behind the init handshake."""
+    an `initialize` handshake."""
     with anyio.fail_after(5):
         async with (
             mounted_app(simple_server) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
             assert client.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+@asynccontextmanager
+async def _stream_loop_transport(server: Server) -> AsyncIterator[TransportStreams]:
+    """A Transport whose far end is `Server.run` over crossed memory streams - the stdio shape, in process."""
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), (server_read, server_write)),
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(server.run, server_read, server_write, server.create_initialization_options())
+        yield client_read, client_write
+        tg.cancel_scope.cancel()
+
+
+async def test_client_auto_mode_negotiates_modern_over_a_stream_loop(simple_server: Server) -> None:
+    """`mode='auto'` against a real `Server.run` stream loop: the probe reaches the
+    dual-era driver, the connection locks modern, and feature requests are served
+    at 2026-07-28 with no `initialize` handshake."""
+    with anyio.fail_after(5):
+        async with Client(_stream_loop_transport(simple_server), mode="auto") as client:
+            assert client.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+async def test_client_pinned_modern_mode_works_over_a_stream_loop(simple_server: Server) -> None:
+    """A pinned-modern client sends no probe: its first envelope-bearing request
+    locks the stream-loop connection modern and is served."""
+    with anyio.fail_after(5):
+        async with Client(_stream_loop_transport(simple_server), mode="2026-07-28") as client:
+            assert client.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+async def test_client_legacy_mode_still_handshakes_over_a_stream_loop(simple_server: Server) -> None:
+    """`mode='legacy'` against the dual-era stream loop is byte-identical legacy:
+    the handshake runs and the session lands at a handshake-era version."""
+    with anyio.fail_after(5):
+        async with Client(_stream_loop_transport(simple_server), mode="legacy") as client:
+            assert client.protocol_version == LATEST_HANDSHAKE_VERSION
             assert (await client.list_resources()).resources[0].name == "Test Resource"
 
 
