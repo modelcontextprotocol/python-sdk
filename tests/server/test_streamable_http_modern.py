@@ -790,7 +790,7 @@ async def test_modern_tools_call_skips_validation_when_list_handler_raises(
                 headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
             )
     assert response.status_code == 200
-    assert "Mcp-Param header validation skipped: the tools/list handler raised" in caplog.text
+    assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
 
 
 async def test_modern_tools_call_walks_pagination_to_find_the_tool() -> None:
@@ -933,3 +933,71 @@ async def test_modern_synthetic_listing_does_not_replay_caller_meta_extras() -> 
     assert len(seen_metas) == 1
     assert seen_metas[0] is not None
     assert "progressToken" not in seen_metas[0]
+
+
+async def test_modern_post_rejects_a_duplicated_routing_header() -> None:
+    """A routing header (here `Mcp-Name`) supplied twice is unverifiable — a consumer
+    reading one raw line and the validator the other would disagree — so the request is
+    rejected before the validation ladder runs."""
+    duplicated = httpx.Headers(
+        [(MCP_METHOD_HEADER, "tools/call"), (MCP_NAME_HEADER, "search"), (MCP_NAME_HEADER, "admin-tool")]
+    )
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", json=_tool_call_body({"region": "eu"}), headers=duplicated)
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == HEADER_MISMATCH
+    assert "more than once" in error["message"]
+
+
+async def test_modern_tools_call_mis_shaped_envelope_skips_validation_without_an_error_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A classifier-passing but mis-shaped envelope value fails the synthetic listing's
+    surface validation — a client fault logged at debug, never an error-level traceback
+    blaming the server's handler. The wire reply is the real dispatch's INVALID_PARAMS."""
+    body = _tool_call_body({"region": "eu"})
+    body["params"]["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
+    with caplog.at_level(logging.DEBUG, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(_x_mcp_server()) as http:
+            response = await http.post("/mcp", json=body, headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == INVALID_PARAMS
+    module_records = [r for r in caplog.records if r.name == _streamable_http_modern.__name__]
+    assert all(r.levelno < logging.ERROR for r in module_records)
+    assert any("fails tools/list validation" in r.message for r in module_records)
+
+
+async def test_modern_tools_call_survives_a_middleware_short_circuit_with_a_mis_shaped_listing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A middleware that short-circuits `tools/list` with a mis-shaped result bypasses
+    serialization; the fail-open boundary covers the result scan too, so the call proceeds
+    with validation skipped instead of crashing to a 500."""
+
+    async def short_circuit(ctx: Any, call_next: Any) -> Any:
+        if ctx.method == "tools/list":
+            return {"tools": None}
+        return await call_next(ctx)
+
+    server = _x_mcp_server()
+    server.middleware = [short_circuit]
+    with caplog.at_level(logging.ERROR, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(server) as http:
+            response = await http.post(
+                "/mcp",
+                json=_tool_call_body({"region": "us"}),
+                headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+            )
+    assert response.status_code == 200
+    assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
+
+
+async def test_modern_post_with_an_oversized_integer_literal_is_parse_error_not_a_crash() -> None:
+    """A body whose integer literal exceeds CPython's int-conversion digit limit raises a
+    bare ValueError from json.loads — still an unparseable body: 400 + PARSE_ERROR."""
+    body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"a":' + b"1" * 5000 + b"}}"
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == PARSE_ERROR

@@ -40,6 +40,7 @@ from mcp.shared.inbound import (
     classify_inbound_request,
     decode_header_value,
     encode_header_value,
+    find_duplicated_routing_header,
     find_invalid_x_mcp_header,
     mcp_param_headers,
     validate_mcp_param_headers,
@@ -830,3 +831,45 @@ def test_validate_mcp_param_headers_union_typed_annotation_invalidates_the_whole
     assert find_invalid_x_mcp_header(union_schema) is not None
     assert validate_mcp_param_headers(union_schema, {"n": 42}, {"Mcp-Param-N": "999"}) is None
     assert validate_mcp_param_headers(union_schema, {"n": 42}, {}) is None
+
+
+def test_validate_mcp_param_headers_accepts_the_clients_own_rendering_of_large_integral_floats() -> None:
+    """An integral float beyond the decimal-repr threshold renders in scientific notation
+    (`str(1e16)` is `1e+16`); a non-canonical-decimal header falls back to the rendered
+    comparison, so the client's own mirroring always round-trips."""
+    emitted = mcp_param_headers(x_mcp_header_map(INTEGER_SCHEMA), {"n": 1e16})
+    assert emitted == {"Mcp-Param-N": "1e+16"}
+    assert validate_mcp_param_headers(INTEGER_SCHEMA, {"n": 1e16}, emitted) is None
+    # The numeric-gate reject stays: scientific notation never matches a different value.
+    assert_rejected(validate_mcp_param_headers(INTEGER_SCHEMA, {"n": 42}, {"Mcp-Param-N": "1e2"}), HEADER_MISMATCH)
+
+
+def test_validate_mcp_param_headers_handles_unrenderable_huge_integer_bodies_without_raising() -> None:
+    """An integer body beyond CPython's int-to-str digit limit has no header rendering:
+    a header claiming it is a clean mismatch, its absence is fine — never a ValueError."""
+    huge = 10**5000
+    rejection = validate_mcp_param_headers(REGION_SCHEMA, {"region": huge}, {"Mcp-Param-Region": "x"})
+    assert_rejected(rejection, HEADER_MISMATCH)
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": huge}, {}) is None
+    assert validate_mcp_param_headers(INTEGER_SCHEMA, {"n": huge}, {}) is None
+
+
+def test_mcp_param_headers_omits_values_with_no_scalar_rendering() -> None:
+    """Objects, arrays, and integers beyond the int-to-str digit limit have no header
+    rendering, so the client omits the header — same fact the validator's reject arm uses."""
+    header_map = {("v",): "Val"}
+    assert mcp_param_headers(header_map, {"v": {"k": 1}}) == {}
+    assert mcp_param_headers(header_map, {"v": [1, 2]}) == {}
+    assert mcp_param_headers(header_map, {"v": 10**5000}) == {}
+
+
+def test_find_duplicated_routing_header_detects_repeats_of_routing_headers_only() -> None:
+    """Repeated raw lines of `MCP-Protocol-Version`/`Mcp-Method`/`Mcp-Name` are reported
+    case-insensitively; repeated `Mcp-Param-*` or unrelated headers are not its concern."""
+    assert find_duplicated_routing_header([("Mcp-Name", "a"), ("mcp-name", "b")]) == MCP_NAME_HEADER
+    assert find_duplicated_routing_header([("MCP-Protocol-Version", "x"), ("mcp-protocol-version", "x")]) == (
+        MCP_PROTOCOL_VERSION_HEADER
+    )
+    assert find_duplicated_routing_header([("Mcp-Method", "a"), ("Mcp-Method", "a")]) == MCP_METHOD_HEADER
+    assert find_duplicated_routing_header([("Mcp-Name", "a"), ("Mcp-Param-X", "1"), ("Mcp-Param-X", "2")]) is None
+    assert find_duplicated_routing_header([("accept", "a"), ("accept", "b")]) is None

@@ -29,6 +29,7 @@ from anyio.streams.memory import MemoryObjectSendStream
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
@@ -60,6 +61,7 @@ from mcp.shared.inbound import (
     InboundLadderRejection,
     InboundModernRoute,
     classify_inbound_request,
+    find_duplicated_routing_header,
     validate_mcp_param_headers,
 )
 from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data, progress_token_from_params
@@ -264,17 +266,27 @@ async def _tool_input_schema(
             result = await serve_one(
                 app, dctx, "tools/list", list_params, connection=connection, lifespan_state=lifespan_state
             )
+            for tool in result.get("tools", []):
+                if tool.get("name") == name:
+                    return tool.get("inputSchema")
+            cursor = result.get("nextCursor")
+        except ValidationError:
+            # Client fault: a mis-shaped envelope value the classifier admits
+            # on key presence alone fails the kernel's surface validation here
+            # first. The real dispatch produces the INVALID_PARAMS reply, so
+            # this is not worth more than a debug line (an exception-level log
+            # would let any client flood the log blaming the server).
+            logger.debug("Mcp-Param header validation skipped: the request envelope fails tools/list validation")
+            return None
         except Exception:
             # Boundary by design: header validation must never break a working
-            # call path, so a raising listing skips validation for this request
-            # — loudly, because the skip is fail-open. (A server broken here is
-            # broken for real discovery too.)
-            logger.exception("Mcp-Param header validation skipped: the tools/list handler raised")
+            # call path, so a failing listing — the handler raising, or a
+            # middleware short-circuit returning a mis-shaped result — skips
+            # validation for this request. Loudly, because the skip is
+            # fail-open. (A server broken here is broken for real discovery
+            # too.)
+            logger.exception("Mcp-Param header validation skipped: the tools/list listing failed")
             return None
-        for tool in result.get("tools", []):
-            if tool.get("name") == name:
-                return tool.get("inputSchema")
-        cursor = result.get("nextCursor")
         if not isinstance(cursor, str):
             # Listing exhausted without advertising `name`: nothing was
             # declared to this caller, so there is nothing to validate —
@@ -369,7 +381,10 @@ async def handle_modern_request(
     body = await request.body()
     try:
         decoded = json.loads(body)
-    except json.JSONDecodeError:
+    except ValueError:
+        # ValueError, not its JSONDecodeError subclass: an integer literal
+        # beyond CPython's int-conversion digit limit raises the bare parent
+        # and is just as unparseable.
         rej = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
         await _write(rej, scope, receive, send)
         return
@@ -389,6 +404,16 @@ async def handle_modern_request(
             error=ErrorData(code=INVALID_REQUEST, message="Body must be a single JSON-RPC request object"),
         )
         await _write(rej, scope, receive, send)
+        return
+
+    duplicated = find_duplicated_routing_header(request.headers.items())
+    if duplicated is not None:
+        # The classifier receives a folded mapping that can no longer show
+        # duplicates, so the raw-carrier check lives here: a routing header
+        # supplied twice is unverifiable (a consumer reading one copy and the
+        # validator the other would disagree).
+        rejection = InboundLadderRejection(code=HEADER_MISMATCH, message=f"{duplicated} header appears more than once")
+        await _write_rejection(rejection, req.id, scope, receive, send)
         return
 
     verdict = classify_inbound_request(decoded, headers=dict(request.headers))
