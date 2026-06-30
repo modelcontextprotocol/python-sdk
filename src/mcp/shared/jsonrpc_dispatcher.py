@@ -60,6 +60,12 @@ arm shields its write, so a wedged transport would otherwise hang it uncancellab
 _SHUTDOWN_WRITE_TIMEOUT: float = 1
 """Tighter bound for the shutdown-arm error write so a wedged transport can't hold session close."""
 
+_DRAIN_INBOUND_ON_EOF_TIMEOUT: float = 5
+"""Bound for letting already-accepted inbound requests write responses after read EOF."""
+
+_DRAIN_INBOUND_ON_EOF_POLL_INTERVAL: float = 0.01
+"""Polling interval while waiting for accepted inbound requests to finish."""
+
 TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
 
 PeerCancelMode = Literal["interrupt", "signal"]
@@ -285,6 +291,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
+        self._active_inbound_requests = 0
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
         self._closed = False
@@ -471,6 +478,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                         self._running = False
                         self._closed = True
                         self._fan_out_closed()
+                        await self._drain_active_inbound_requests()
                     finally:
                         # Cancel in-flight handlers; otherwise the task-group join
                         # waits on handlers whose callers are already gone.
@@ -545,6 +553,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             _progress_token=progress_token,
         )
         scope = anyio.CancelScope()
+        self._active_inbound_requests += 1
         # TODO(maxisbey): duplicate ids blind-overwrite (v1/TS parity); revisit
         # rejecting with INVALID_REQUEST. Key coerced so a stringified
         # `notifications/cancelled` id still correlates.
@@ -659,6 +668,24 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 pass
         self._pending.clear()
 
+    async def _drain_active_inbound_requests(self) -> None:
+        """Let accepted inbound requests finish response writes after read EOF.
+
+        A redirected-stdin stdio transport can reach EOF immediately after the last
+        request is accepted. Treating EOF as immediate shutdown cancels handlers
+        before their JSON-RPC responses reach stdout. Keep the write side open
+        briefly so already-accepted requests can produce responses, then let the
+        caller cancel any stragglers.
+        """
+        with anyio.move_on_after(_DRAIN_INBOUND_ON_EOF_TIMEOUT) as scope:
+            while self._active_inbound_requests:
+                await anyio.sleep(_DRAIN_INBOUND_ON_EOF_POLL_INTERVAL)
+        if scope.cancelled_caught:
+            logger.warning(
+                "timed out waiting for %d inbound request(s) to finish after read EOF",
+                self._active_inbound_requests,
+            )
+
     async def _handle_request(
         self,
         req: JSONRPCRequest,
@@ -722,6 +749,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 await self._write_error(req.id, ErrorData(code=0, message=str(e)))
                 if self._raise_handler_exceptions:
                     raise
+        finally:
+            self._active_inbound_requests = max(0, self._active_inbound_requests - 1)
         # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
 
     def _allocate_id(self) -> int:
