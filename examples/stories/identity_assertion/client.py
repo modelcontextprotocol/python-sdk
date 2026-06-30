@@ -1,6 +1,6 @@
 """HTTP-only SEP-990: `build_auth` presents an IdP-issued ID-JAG (jwt-bearer grant); `whoami` proves the subject."""
 
-import httpx
+import httpx2
 
 from mcp.client import Client
 from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
@@ -27,14 +27,14 @@ async def fetch_id_jag(audience: str, resource: str) -> str:
     )
 
 
-def build_auth(_http: httpx.AsyncClient) -> httpx.Auth:
+def build_auth(_http: httpx2.AsyncClient) -> httpx2.Auth:
     """An `IdentityAssertionOAuthProvider` for the pre-registered confidential client.
 
     `issuer` is configuration, not discovery: the provider fetches metadata from this issuer's
     well-known and never asks the MCP server which authorization server to use. The string must
     equal the `issuer` its metadata serves byte for byte (note the trailing slash).
     `Client(url, auth=...)` doesn't exist yet, so the harness threads this onto the underlying
-    `httpx.AsyncClient` and hands `main` a target that is already routed through it.
+    `httpx2.AsyncClient` and hands `main` a target that is already routed through it.
     """
     return IdentityAssertionOAuthProvider(
         server_url=MCP_URL,

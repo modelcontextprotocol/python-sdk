@@ -10,7 +10,7 @@ import base64
 import json
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import METHOD_NOT_FOUND, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
@@ -56,16 +56,16 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
 async def test_post_request_merges_per_message_metadata_headers() -> None:
     """`ClientMessageMetadata.headers` on a `SessionMessage` are merged into the outgoing POST headers
     (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
-    recorded: list[httpx.Request] = []
+    recorded: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         recorded.append(request)
         body = json.loads(request.content)
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(
@@ -88,12 +88,12 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
     "Session terminated" is meaningless, and the discover→initialize fallback ladder keys on -32601.
     """
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(404)
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(404)
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="server/discover", params={})))
@@ -116,18 +116,18 @@ async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_
        passes through the session's stamp) then reads the cache and carries the
        negotiated version — the spec MUST for all post-initialization HTTP requests.
     """
-    recorded: list[httpx.Request] = []
+    recorded: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         recorded.append(request)
         body = json.loads(request.content)
         if "id" not in body or "result" in body:
-            return httpx.Response(202)
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+            return httpx2.Response(202)
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(

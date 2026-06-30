@@ -92,7 +92,7 @@ eras need different auth, rate limits, or scaling.
 - `ctx.request_context.protocol_version` is the interim 2-hop reach; a later
   release will shorten it.
 - DNS-rebinding protection is on by default; the harness disables it
-  (`NO_DNS_REBIND`) because the in-process httpx client sends no `Origin`.
+  (`NO_DNS_REBIND`) because the in-process httpx2 client sends no `Origin`.
   Drop the kwarg for a real deployment.
 - `mcp.shared.inbound` is a deep import path — a shorter re-export is planned
   before beta.

@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -74,7 +74,7 @@ def _meta_envelope() -> dict[str, object]:
 
 
 def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Server:
-    """A low-level server with one ``add`` tool for the raw-httpx tests below."""
+    """A low-level server with one ``add`` tool for the raw-httpx2 tests below."""
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         tool = Tool(name="add", input_schema={"type": "object"})
@@ -308,7 +308,7 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     plus the three-key ``io.modelcontextprotocol/*`` ``_meta`` envelope. The caller passes a
     ``custom-key`` under ``meta=`` and the server handler captures the incoming ``ctx.meta``,
     proving the envelope merge is additive: the caller's key sits alongside the three envelope keys
-    on the wire and inside the handler. Asserted at the wire via the ``mounted_app`` httpx event
+    on the wire and inside the handler. Asserted at the wire via the ``mounted_app`` httpx2 event
     hooks because none of the headers, the envelope, or the handshake-absence is observable through
     the public client API. The recorded log shows two POSTs: the ``tools/call`` itself and the
     client's implicit ``tools/list`` output-schema fetch (see ``client:output-schema:auto-list``),
@@ -317,13 +317,13 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     observed_metas: list[dict[str, Any]] = []
     server = _server(on_meta=observed_metas.append)
 
-    requests: list[httpx.Request] = []
-    responses: list[httpx.Response] = []
+    requests: list[httpx2.Request] = []
+    responses: list[httpx2.Response] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
-    async def on_response(response: httpx.Response) -> None:
+    async def on_response(response: httpx2.Response) -> None:
         responses.append(response)
 
     client_info = Implementation(name="e2e-client", version="1.0.0")
@@ -429,9 +429,9 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
     `verbose`-sibling stay out of the headers, and every mirrored value remains in the request body. Asserted
     at the wire because the client never surfaces the outgoing headers.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
     discover = DiscoverResult(
@@ -474,9 +474,9 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
     The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
     implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         if json.loads(request.content)["method"] == "tools/call":
             requests.append(request)
 
@@ -522,9 +522,9 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
 
     server = Server("evict", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    tool_calls: list[httpx.Request] = []
+    tool_calls: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         if json.loads(request.content)["method"] == "tools/call":
             tool_calls.append(request)
 

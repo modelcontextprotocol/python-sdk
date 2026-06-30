@@ -18,7 +18,7 @@ from typing import Any, TypeAlias
 from urllib.parse import urlsplit
 
 import anyio
-import httpx
+import httpx2
 from mcp_types.version import LATEST_MODERN_VERSION
 
 from mcp import StdioServerParameters, stdio_client
@@ -38,8 +38,8 @@ Target: TypeAlias = "Server[Any] | MCPServer | Transport | str"
 TargetFactory = Callable[[], Target]
 """Yields a FRESH target against the same server/app on every call (``multi_connection`` stories)."""
 
-AuthBuilder = Callable[[httpx.AsyncClient], httpx.Auth]
-"""Builds an ``httpx.Auth`` bound to the in-process HTTP client (auth-story harness seam)."""
+AuthBuilder = Callable[[httpx2.AsyncClient], httpx2.Auth]
+"""Builds an ``httpx2.Auth`` bound to the in-process HTTP client (auth-story harness seam)."""
 
 
 def argv_after(flag: str, *, default: str | None = None) -> str:
@@ -127,8 +127,8 @@ def _story_cfg(name: str) -> dict[str, Any]:
     return manifest["defaults"] | manifest["story"].get(name, {})
 
 
-def _authed_targets(url: str, http: httpx.AsyncClient) -> TargetFactory:
-    """Fresh streamable-HTTP transports over an already-authed ``httpx`` client."""
+def _authed_targets(url: str, http: httpx2.AsyncClient) -> TargetFactory:
+    """Fresh streamable-HTTP transports over an already-authed ``httpx2`` client."""
     return lambda: streamable_http_client(url, http_client=http)
 
 
@@ -176,13 +176,13 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
                 if url is None or (build_auth is None and not cfg["needs_http"]):
                     await main(targets if cfg["multi_connection"] else targets(), mode=mode)
                     return
-                # Auth and needs_http stories want the raw httpx client underneath the transport:
-                # build_auth threads an httpx.Auth onto it (Client(url, auth=...) doesn't exist
+                # Auth and needs_http stories want the raw httpx2 client underneath the transport:
+                # build_auth threads an httpx2.Auth onto it (Client(url, auth=...) doesn't exist
                 # yet), and needs_http stories assert on raw responses, so root the client at the
                 # server origin and relative paths like "/mcp" resolve.
                 parts = urlsplit(url)
                 base = f"{parts.scheme}://{parts.netloc}"
-                http = await stack.enter_async_context(httpx.AsyncClient(base_url=base))
+                http = await stack.enter_async_context(httpx2.AsyncClient(base_url=base))
                 make = targets
                 if build_auth is not None:
                     http.auth = build_auth(http)

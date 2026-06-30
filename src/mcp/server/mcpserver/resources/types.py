@@ -9,7 +9,7 @@ from typing import Any
 
 import anyio
 import anyio.to_thread
-import httpx
+import httpx2
 import pydantic
 import pydantic_core
 from mcp_types import Annotations, Icon, InputRequiredResult
@@ -170,7 +170,7 @@ class HttpResource(Resource):
 
     async def read(self) -> str | bytes:
         """Read the HTTP content."""
-        async with httpx.AsyncClient() as client:  # pragma: no cover
+        async with httpx2.AsyncClient() as client:  # pragma: no cover
             response = await client.get(self.url)
             response.raise_for_status()
             return response.text

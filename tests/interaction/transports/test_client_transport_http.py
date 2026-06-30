@@ -9,7 +9,7 @@ wire-level instrument; the SDK client never exposes these details.
 from collections.abc import AsyncIterator
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -43,16 +43,16 @@ def _tooled_server() -> Server:
 
 
 @pytest.fixture
-async def recorded() -> AsyncIterator[list[httpx.Request]]:
+async def recorded() -> AsyncIterator[list[httpx2.Request]]:
     """Connect a `Client` over a recording HTTP client, list tools, exit, and yield every request sent.
 
     The HTTP client carries one caller-supplied header (`x-trace`) so its propagation can be
     asserted; the recording captures the closing DELETE because it is read after the `Client` has
     fully exited.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def record(request: httpx.Request) -> None:
+    async def record(request: httpx2.Request) -> None:
         requests.append(request)
 
     async with mounted_app(_tooled_server(), on_request=record, headers={"x-trace": "abc"}) as (http, _):
@@ -63,7 +63,7 @@ async def recorded() -> AsyncIterator[list[httpx.Request]]:
     yield requests
 
 
-def _after_initialize(recorded: list[httpx.Request]) -> list[httpx.Request]:
+def _after_initialize(recorded: list[httpx2.Request]) -> list[httpx2.Request]:
     """Every recorded request after the initialize POST (which carries no session yet)."""
     assert recorded[0].method == "POST"
     assert "mcp-session-id" not in recorded[0].headers
@@ -73,9 +73,9 @@ def _after_initialize(recorded: list[httpx.Request]) -> list[httpx.Request]:
 @requirement("client-transport:http:custom-client")
 @requirement("client-transport:http:custom-headers")
 async def test_the_client_uses_the_supplied_http_client_and_propagates_its_headers(
-    recorded: list[httpx.Request],
+    recorded: list[httpx2.Request],
 ) -> None:
-    """A caller-supplied `httpx.AsyncClient` is used for every request and carries its own headers.
+    """A caller-supplied `httpx2.AsyncClient` is used for every request and carries its own headers.
 
     The recording itself proves the supplied client is the one in use; the propagated header
     proves the SDK transport does not replace the caller's client configuration.
@@ -87,7 +87,7 @@ async def test_the_client_uses_the_supplied_http_client_and_propagates_its_heade
 
 
 @requirement("client-transport:http:session-stored")
-async def test_every_request_after_initialize_carries_the_issued_session_id(recorded: list[httpx.Request]) -> None:
+async def test_every_request_after_initialize_carries_the_issued_session_id(recorded: list[httpx2.Request]) -> None:
     """The session id from the initialize response is sent on every subsequent request."""
     session_ids = {request.headers["mcp-session-id"] for request in _after_initialize(recorded)}
     assert len(session_ids) == 1
@@ -98,7 +98,7 @@ async def test_every_request_after_initialize_carries_the_issued_session_id(reco
 @requirement("client-transport:http:protocol-version-stored")
 @requirement("client-transport:http:protocol-version-header")
 async def test_every_request_after_initialize_carries_the_negotiated_protocol_version(
-    recorded: list[httpx.Request],
+    recorded: list[httpx2.Request],
 ) -> None:
     """The negotiated protocol version is sent on every subsequent request (and not on initialize)."""
     assert "mcp-protocol-version" not in recorded[0].headers
@@ -109,7 +109,7 @@ async def test_every_request_after_initialize_carries_the_negotiated_protocol_ve
 @requirement("client-transport:http:accept-header-post")
 @requirement("client-transport:http:accept-header-get")
 async def test_accept_headers_cover_the_response_representations_the_transport_handles(
-    recorded: list[httpx.Request],
+    recorded: list[httpx2.Request],
 ) -> None:
     """POSTs accept both JSON and SSE; the standalone GET stream accepts SSE."""
     for request in recorded:
@@ -121,7 +121,7 @@ async def test_accept_headers_cover_the_response_representations_the_transport_h
 
 
 @requirement("client-transport:http:no-reconnect-after-close")
-async def test_closing_the_client_sends_delete_and_does_not_reconnect(recorded: list[httpx.Request]) -> None:
+async def test_closing_the_client_sends_delete_and_does_not_reconnect(recorded: list[httpx2.Request]) -> None:
     """Client teardown sends DELETE and issues no further requests (no resumption GET)."""
     assert recorded[-1].method == "DELETE"
     assert all("last-event-id" not in request.headers for request in recorded)
@@ -130,10 +130,10 @@ async def test_closing_the_client_sends_delete_and_does_not_reconnect(recorded: 
 @requirement("client-transport:http:concurrent-streams")
 async def test_concurrent_tool_calls_each_open_a_post_stream_and_receive_their_own_response() -> None:
     """Three tool calls issued at once each open their own POST stream and get the right answer."""
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     results: dict[int, CallToolResult] = {}
 
-    async def record(request: httpx.Request) -> None:
+    async def record(request: httpx2.Request) -> None:
         requests.append(request)
 
     async with mounted_app(_tooled_server(), on_request=record) as (http, _), client_via_http(http) as client:
@@ -178,7 +178,7 @@ async def test_client_tolerates_405_on_get_and_delete() -> None:
 
     async with (
         server.session_manager.run(),
-        httpx.AsyncClient(transport=StreamingASGITransport(filter_methods), base_url=BASE_URL) as http_client,
+        httpx2.AsyncClient(transport=StreamingASGITransport(filter_methods), base_url=BASE_URL) as http_client,
     ):
         transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         with anyio.fail_after(5):  # pragma: no branch
@@ -196,9 +196,9 @@ async def test_a_completed_post_stream_is_not_reconnected() -> None:
     Last-Event-ID it could resume from -- the test proves it does not, because the response arrived
     and the stream completed normally.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def record(request: httpx.Request) -> None:
+    async def record(request: httpx2.Request) -> None:
         requests.append(request)
 
     server = _tooled_server()
@@ -237,7 +237,7 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
 
     async with (
         server.session_manager.run(),
-        httpx.AsyncClient(transport=StreamingASGITransport(first_post_then_404), base_url=BASE_URL) as http_client,
+        httpx2.AsyncClient(transport=StreamingASGITransport(first_post_then_404), base_url=BASE_URL) as http_client,
     ):
         transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         with anyio.fail_after(5):  # pragma: no branch

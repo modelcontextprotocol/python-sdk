@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 import stories
 from mcp_types.version import LATEST_MODERN_VERSION
@@ -125,12 +125,12 @@ class Hosted:
 
     ``targets`` yields a fresh connection target against that single instance on
     every call, so state observed by one connection is visible to the next.
-    ``http`` is the shared raw ``httpx.AsyncClient`` bound to the same ASGI app,
+    ``http`` is the shared raw ``httpx2.AsyncClient`` bound to the same ASGI app,
     or ``None`` on the in-memory leg.
     """
 
     targets: TargetFactory
-    http: httpx.AsyncClient | None
+    http: httpx2.AsyncClient | None
 
 
 @pytest.fixture
@@ -140,7 +140,7 @@ async def hosted(
     """Build the leg's server/app once and keep it running for the test.
 
     The story's ``main`` owns the ``Client(target, mode=...)`` construction; this
-    fixture only decides what ``target`` is. Auth stories thread an ``httpx.Auth``
+    fixture only decides what ``target`` is. Auth stories thread an ``httpx2.Auth``
     onto the bridge client via a module-level ``build_auth(http)`` export.
     """
     for key, value in cfg["env"].items():
@@ -163,7 +163,7 @@ async def hosted(
     build_auth: AuthBuilder | None = getattr(client_module, "build_auth", None)
     async with (
         app.router.lifespan_context(app),
-        httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
+        httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http_client,
     ):
         if build_auth is not None:
             http_client.auth = build_auth(http_client)
