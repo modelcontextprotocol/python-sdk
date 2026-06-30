@@ -489,7 +489,8 @@ another handler raises at construction. A `MethodBinding` may set
 `protocol_versions` to scope an extension method to specific wire versions
 (`frozenset()` is rejected — use `None` to admit every version); a request at
 any other version is `METHOD_NOT_FOUND`. An
-extension handler can call `mcp.server.mcpserver.require_client_extension(ctx, identifier)`
+extension handler can call `mcp.server.extension.require_client_extension(ctx, identifier)`
+(also re-exported from `mcp.server.mcpserver`)
 to reject a request with the `-32021` (missing required client capability) error
 when the client did not declare the extension.
 
