@@ -112,9 +112,9 @@ mcp = MCPServer("dev", request_state_security=RequestStateSecurity.ephemeral())
 With either built-in configuration, `requestState` on the wire is an encrypted, authenticated token. Your code never sees it: handlers and resolvers write plaintext and read plaintext (`ctx.request_state`); the SDK seals on the way out and verifies on the way in. Beyond integrity, each token is bound to:
 
 * **A time window.** Every round re-seals with a fresh expiry, so `RequestStateSecurity(ttl=...)` (default 600 seconds) bounds per-round think time, not the whole flow.
-* **The authenticated client.** When the request carries an OAuth access token the SDK validated, the state is bound to that `client_id`: a token minted for one principal fails under another. When auth is terminated outside the SDK (a fronting proxy), or the transport is unauthenticated, there is no principal to bind and this check is inert, unless `RequestStateSecurity(bind_principal=...)` supplies one from your own identity signal.
+* **The authenticated principal.** When the request carries an OAuth access token the SDK validated, the state is bound to the token's client, issuer, and subject: state minted for one user fails under another, even when both users share one OAuth client. A verifier that supplies no subject degrades the binding to the client identity alone, which under URL-based client IDs is shared by every user of that client software. When auth is terminated outside the SDK (a fronting proxy), or the transport is unauthenticated, there is no principal to bind and this check is inert, unless `RequestStateSecurity(bind_principal=...)` supplies one from your own identity signal. Whichever components your token verifier supplies, it must supply them consistently: a verifier that includes the subject on some requests and omits it on others changes the principal mid-flow, and in-flight rounds are rejected.
 * **The originating request.** The method, the tool or prompt name (or resource URI), and a digest of the arguments. A token replayed against a different tool, different arguments, or a different method fails.
-* **The exact question asked.** A recorded resolver answer is pinned to the rendered question the client was shown. Redeploy with a reworded message or a changed schema and the server re-asks instead of reusing a stale answer. The same pinning cuts the other way: derive messages from the tool's arguments, not from per-call data. A message built from a timestamp or a live rate renders differently every round, so every recorded answer looks stale and the server re-asks until the client's round limit ends the call.
+* **The exact question asked.** Every resolver answer is pinned to the rendered question the client was shown, both on the round it first arrives and when a recorded answer is reused later. Redeploy with a reworded message or a changed schema and the server re-asks instead of consuming a stale answer. The same pinning cuts the other way: derive messages from the tool's arguments, not from per-call data. A message built from a timestamp or a live rate renders differently every round, so every recorded answer looks stale and the server re-asks until the client's round limit ends the call.
 
 All of that is the SDK's job, not yours, and not the codec's if you bring your own.
 
@@ -130,13 +130,13 @@ RequestStateSecurity(keys=[NEW])       # 3: one ttl after phase 2 is fully out, 
 
 Never promote the minter first: minting under a key some instance can't yet verify drops in-flight rounds mid-rollout.
 
-Keys are scoped to one service. The sealed envelope also carries the server's name as an audience claim by default, so a token minted by a different service that happens to share a secret is rejected anyway. `RequestStateSecurity(audience=...)` overrides the claim for deliberate multi-service topologies where one service must accept state another minted.
+Keys are scoped to one service. The sealed envelope also carries the server's name as an audience claim, so a token minted by a different service that happens to share a secret is rejected anyway. The claim is only as distinctive as the name, which is why `MCPServer` refuses `request_state_security=` on an unnamed server. `RequestStateSecurity(audience=...)` overrides the claim for deliberate multi-service topologies where one service must accept state another minted.
 
 ### Bring your own crypto
 
 `RequestStateSecurity(codec=...)` takes anything with `seal(bytes) -> str` and `unseal(str) -> bytes` that raises `InvalidRequestState` for any token it did not mint. The classic shape is envelope encryption against a KMS, where you unwrap a data key once at startup and keep the per-token crypto local:
 
-```python title="server.py" hl_lines="12 29-30 33"
+```python title="server.py" hl_lines="12 26-27 34-35 38"
 --8<-- "docs_src/mrtr/tutorial005.py"
 ```
 
@@ -184,6 +184,6 @@ The low-level `Server` is the no-batteries tier: nothing is required at construc
 * To inspect or persist rounds, use `client.session.call_tool(..., allow_input_required=True)` and own the `while isinstance(result, InputRequiredResult)` loop yourself.
 * On `@mcp.tool()`, a dependency that asks the user produces this result for you (**[Dependencies](../tutorial/dependencies.md)**); the **low-level** `Server` is the manual form.
 * Prompts and resources participate too: an `@mcp.prompt()` or template `@mcp.resource()` function returns the `InputRequiredResult` itself and reads `ctx.input_responses` on the retry.
-* `requestState` comes back as client-supplied input. `MCPServer` requires a `request_state_security=` choice before it will register a `Resolve(...)` tool, and seals hand-built state with the same machinery once you configure it. The seal binds every token to a time window, the originating request, and the authenticated client when the request carries auth the SDK validated or `bind_principal=` supplies your own identity signal (**[Protecting `requestState`](#protecting-requeststate)**).
+* `requestState` comes back as client-supplied input. `MCPServer` requires a `request_state_security=` choice before it will register a `Resolve(...)` tool, and seals hand-built state with the same machinery once you configure it. The seal binds every token to a time window, the originating request, and the authenticated principal when the request carries auth the SDK validated or `bind_principal=` supplies your own identity signal (**[Protecting `requestState`](#protecting-requeststate)**).
 
 This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **[Deprecated features](deprecated.md)**.

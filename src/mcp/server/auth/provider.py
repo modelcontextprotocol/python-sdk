@@ -59,6 +59,17 @@ class AccessToken(BaseModel):
     claims: dict[str, Any] | None = None  # additional claims (e.g. `iss`, `act`)
 
 
+def principal_components(token: AccessToken) -> tuple[str, str | None, str | None]:
+    """The (client_id, issuer, subject) triple identifying the principal a token represents.
+
+    The single source for "who is this token's principal": session ownership and
+    request-state binding both build on it. Components the token verifier does
+    not supply are `None`, so comparisons degrade to the remaining components.
+    """
+    issuer = (token.claims or {}).get("iss")
+    return token.client_id, str(issuer) if issuer is not None else None, token.subject
+
+
 RegistrationErrorCode = Literal[
     "invalid_redirect_uri",
     "invalid_client_metadata",

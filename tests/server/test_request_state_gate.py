@@ -202,7 +202,7 @@ def test_lowlevel_server_has_no_gate_and_takes_the_boundary_as_ordinary_middlewa
     server = Server("lowlevel", on_call_tool=call_tool)
     baseline = len(server.middleware)
 
-    server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral()))
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral(), default_audience=server.name))
 
     assert len(server.middleware) == baseline + 1
 
@@ -231,3 +231,28 @@ def test_the_gate_fires_in_the_synchronous_registration_frame_not_at_first_reque
 
     mcp.tool(name="plain_tool")(_plain_tool)
     assert mcp._tool_manager.get_tool("plain_tool") is not None
+
+
+# -- audience requires a server identity ------------------------------------------------
+
+
+@pytest.mark.parametrize("name", [None, ""], ids=["unnamed", "empty-string"])
+def test_an_unnamed_server_with_security_must_name_itself_or_set_an_audience(name: str | None) -> None:
+    """SDK-defined: `request_state_security=` without a real name raises; any falsy name
+    would stamp the shared placeholder as the token audience."""
+    with pytest.raises(ValueError) as excinfo:
+        MCPServer(name, request_state_security=RequestStateSecurity.ephemeral())
+
+    assert str(excinfo.value) == snapshot("""\
+request_state_security is configured but this server has no name. Sealed
+requestState carries the server name as an audience claim, so state minted by
+another service that shares the same keys is rejected; unnamed servers would
+all stamp the same placeholder and the check would mean nothing. Name the
+server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).\
+""")
+
+
+def test_a_named_server_or_an_explicit_audience_satisfies_the_audience_requirement() -> None:
+    """SDK-defined: naming the server or setting `RequestStateSecurity(audience=...)` both construct."""
+    MCPServer("named", request_state_security=RequestStateSecurity.ephemeral())
+    MCPServer(request_state_security=RequestStateSecurity.ephemeral(audience="svc"))

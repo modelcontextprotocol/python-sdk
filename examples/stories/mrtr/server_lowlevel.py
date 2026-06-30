@@ -57,8 +57,9 @@ def build_server() -> Server[Any]:
         return types.CallToolResult(content=[types.TextContent(text=f"deployment to {env} cancelled")])
 
     server = Server("mrtr-example", on_list_tools=list_tools, on_call_tool=call_tool)
-    # Lowlevel opt-in: append the same boundary middleware MCPServer installs from request_state_security=.
-    server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral()))
+    # Lowlevel opt-in: append the same boundary middleware MCPServer installs from
+    # request_state_security=; the server name becomes the token audience.
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral(), default_audience=server.name))
     return server
 
 

@@ -9,8 +9,8 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp.server.auth.middleware.auth_context import auth_context_var
-from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
-from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, authorization_context
+from mcp.server.auth.provider import AccessToken, principal_components
 from mcp.server.context import ServerRequestContext
 from mcp.server.request_state import (
     AESGCMRequestStateCodec,
@@ -419,11 +419,61 @@ def test_authenticated_principal_is_none_without_an_auth_context() -> None:
     assert authenticated_principal(_bare_context()) is None
 
 
-def test_authenticated_principal_returns_the_access_tokens_client_id() -> None:
-    """SDK-defined: with an access token in the auth context, the default binding is its client_id."""
-    user = AuthenticatedUser(AccessToken(token="at-1", client_id="client-123", scopes=[]))
-    reset = auth_context_var.set(user)
+@pytest.mark.parametrize(
+    ("token", "expected"),
+    [
+        pytest.param(
+            AccessToken(token="at-1", client_id="client-123", scopes=[]),
+            '["client-123",null,null]',
+            id="client-only",
+        ),
+        pytest.param(
+            AccessToken(token="at-2", client_id="client-123", scopes=[], subject="alice"),
+            '["client-123",null,"alice"]',
+            id="with-subject",
+        ),
+        pytest.param(
+            AccessToken(
+                token="at-3", client_id="client-123", scopes=[], subject="alice", claims={"iss": "https://as.example"}
+            ),
+            '["client-123","https://as.example","alice"]',
+            id="with-issuer-and-subject",
+        ),
+    ],
+)
+def test_authenticated_principal_is_the_tokens_client_issuer_subject_identity(
+    token: AccessToken, expected: str
+) -> None:
+    """SDK-defined: the default binding composes (client_id, issuer, subject), degrading per component."""
+    reset = auth_context_var.set(AuthenticatedUser(token))
     try:
-        assert authenticated_principal(_bare_context()) == "client-123"
+        assert authenticated_principal(_bare_context()) == expected
     finally:
         auth_context_var.reset(reset)
+
+
+def test_authenticated_principal_distinguishes_two_subjects_of_one_client() -> None:
+    """SDK-defined: two users of the same OAuth client are distinct principals when subjects are supplied."""
+    alice = AccessToken(token="at-a", client_id="https://agent.example/client.json", scopes=[], subject="alice")
+    bob = AccessToken(token="at-b", client_id="https://agent.example/client.json", scopes=[], subject="bob")
+    principals: list[str | None] = []
+    for token in (alice, bob):
+        reset = auth_context_var.set(AuthenticatedUser(token))
+        try:
+            principals.append(authenticated_principal(_bare_context()))
+        finally:
+            auth_context_var.reset(reset)
+    assert principals[0] != principals[1]
+
+
+def test_authenticated_principal_uses_the_same_components_as_session_ownership() -> None:
+    """SDK-defined: the binding and authorization_context derive from one principal_components source."""
+    token = AccessToken(
+        token="at-1", client_id="client-123", scopes=[], subject="alice", claims={"iss": "https://as.example"}
+    )
+    assert authorization_context(AuthenticatedUser(token)) == {
+        "client_id": "client-123",
+        "issuer": "https://as.example",
+        "subject": "alice",
+    }
+    assert list(principal_components(token)) == ["client-123", "https://as.example", "alice"]

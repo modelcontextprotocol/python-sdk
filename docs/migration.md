@@ -433,7 +433,7 @@ from mcp.server.mcpserver import MCPServer, RequestStateSecurity
 mcp = MCPServer("my-server", request_state_security=RequestStateSecurity.ephemeral())
 ```
 
-Multi-instance deployments share secret keys instead (`RequestStateSecurity(keys=[...])`) so every instance can verify what a sibling minted. The choices, what gets sealed, key rotation, and custom codecs are covered in [Protecting `requestState`](advanced/multi-round-trip.md#protecting-requeststate).
+Multi-instance deployments share secret keys instead (`RequestStateSecurity(keys=[...])`) so every instance can verify what a sibling minted. A configured server must also be named (or pass `RequestStateSecurity(audience=...)`): the name becomes the sealed token's audience claim, so an unnamed server raises `ValueError` at construction. The choices, what gets sealed, key rotation, and custom codecs are covered in [Protecting `requestState`](advanced/multi-round-trip.md#protecting-requeststate).
 
 On a protected server the wire `requestState` is an opaque sealed token, and `ctx.request_state` returns the verified plaintext your handler originally wrote. Sealing and verification happen at the wire boundary, so handler code reads exactly what it minted. Hand-built `requestState` (a tool, prompt, or resource-template function returning `InputRequiredResult` itself) is unaffected unless you opt in, in which case it is sealed and verified automatically too.
 

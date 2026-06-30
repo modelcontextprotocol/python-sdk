@@ -23,8 +23,13 @@ class EnvelopeCodec:
         return PREFIX + (nonce + self._aesgcm.encrypt(nonce, payload, PREFIX.encode())).hex()
 
     def unseal(self, token: str) -> bytes:
+        if not token.startswith(PREFIX):
+            raise InvalidRequestState("unknown token format")
+        body = token[len(PREFIX) :]
         try:
-            raw = bytes.fromhex(token.removeprefix(PREFIX))
+            raw = bytes.fromhex(body)
+            if raw.hex() != body:  # only the exact string seal() produced verifies
+                raise ValueError("non-canonical hex")
             return self._aesgcm.decrypt(raw[:12], raw[12:], PREFIX.encode())
         except (ValueError, InvalidTag) as exc:
             raise InvalidRequestState("token failed verification") from exc

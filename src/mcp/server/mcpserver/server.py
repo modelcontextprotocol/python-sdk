@@ -174,6 +174,15 @@ def _format_missing_security(owner: str) -> str:
     )
 
 
+_MISSING_AUDIENCE = (
+    "request_state_security is configured but this server has no name. Sealed\n"
+    "requestState carries the server name as an audience claim, so state minted by\n"
+    "another service that shares the same keys is rejected; unnamed servers would\n"
+    "all stamp the same placeholder and the check would mean nothing. Name the\n"
+    'server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).'
+)
+
+
 class MCPServer(Generic[LifespanResultT]):
     def __init__(
         self,
@@ -244,6 +253,9 @@ class MCPServer(Generic[LifespanResultT]):
         # Ordering: inside OpenTelemetry (spans record the sealed wire form),
         # outside extension interceptors (extensions see plaintext).
         if request_state_security is not None:
+            # `not name` mirrors the `name or "mcp-server"` fallback: any falsy name gets the placeholder.
+            if not name and request_state_security.audience is None:
+                raise ValueError(_MISSING_AUDIENCE)
             self._lowlevel_server.middleware.append(
                 RequestStateBoundary(request_state_security, default_audience=self.name)
             )

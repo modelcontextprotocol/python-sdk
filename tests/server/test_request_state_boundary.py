@@ -181,7 +181,7 @@ async def test_lowlevel_server_gets_identical_sealing_from_the_one_line_middlewa
         return CallToolResult(content=[TextContent(text="done")])
 
     server = Server("srv", on_call_tool=call_tool, on_list_tools=_list_tools)
-    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=server.name))
 
     with anyio.fail_after(5):
         async with Client(server) as client:
@@ -194,6 +194,8 @@ async def test_lowlevel_server_gets_identical_sealing_from_the_one_line_middlewa
 
     assert isinstance(second, CallToolResult)
     assert seen == [plaintext]
+    claims = json.loads(AESGCMRequestStateCodec([_KEY]).unseal(first.request_state))
+    assert claims["aud"] == "srv"
 
 
 async def test_a_resource_template_flow_seals_on_resources_read_and_restores_the_plaintext() -> None:
@@ -505,7 +507,7 @@ async def test_audience_presence_drift_is_rejected_in_both_directions() -> None:
 
     security = RequestStateSecurity(keys=[_KEY])
     bound = make_server(RequestStateBoundary(security, default_audience="svc"))
-    unbound = make_server(RequestStateBoundary(security))
+    unbound = make_server(RequestStateBoundary(security, default_audience=None))
 
     with anyio.fail_after(5):
         async with Client(bound) as on_bound, Client(unbound) as on_unbound:
@@ -669,7 +671,7 @@ async def test_non_string_inbound_request_state_is_rejected_with_the_frozen_erro
         return CallToolResult(content=[TextContent(text="ran")])
 
     server = Server("srv", on_call_tool=call_tool)
-    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
@@ -699,7 +701,7 @@ async def test_an_explicit_null_request_state_is_treated_as_absent(install_bound
 
     server = Server("srv", on_call_tool=call_tool)
     if install_boundary:
-        server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
+        server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 
     async with connected_runner(server) as (client, _):
         result = await client.send_raw_request("tools/call", {"name": "t", "arguments": {}, "requestState": None})
@@ -721,7 +723,7 @@ async def test_inbound_request_state_on_a_non_carrier_method_passes_through_unve
 
     server = Server("srv", on_list_tools=_list_tools)
     server.add_request_handler("example/mrtr", _CustomMethodParams, custom)
-    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 
     async with connected_runner(server) as (client, _):
         ok = await client.send_raw_request("example/mrtr", {"requestState": "CLIENT-SENT-VALUE"})
@@ -740,7 +742,7 @@ async def test_outbound_request_state_on_a_non_carrier_method_is_not_sealed() ->
 
     server = Server("srv", on_list_tools=_list_tools)
     server.add_request_handler("example/mrtr", _CustomMethodParams, custom)
-    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 
     async with connected_runner(server) as (client, _):
         result = await client.send_raw_request("example/mrtr", {})
@@ -757,7 +759,7 @@ async def test_an_off_set_input_required_result_without_state_passes_through_unt
 
     server = Server("srv", on_list_tools=_list_tools)
     server.add_request_handler("example/mrtr", _CustomMethodParams, custom)
-    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY]), default_audience=None))
 
     async with connected_runner(server) as (client, _):
         result = await client.send_raw_request("example/mrtr", {})
@@ -926,7 +928,7 @@ async def test_the_wire_error_never_varies_by_cause_and_logs_never_leak_secrets(
 
 async def test_a_complete_result_crosses_the_boundary_untouched() -> None:
     """SDK-defined: a complete tools/call wire result passes the boundary as the identical object."""
-    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
+    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None), default_audience=None)
     complete: dict[str, Any] = {"resultType": "complete", "content": []}
 
     async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
@@ -970,7 +972,7 @@ async def test_input_required_without_request_state_is_untouched() -> None:
 
 async def test_an_input_required_mapping_with_a_non_string_state_is_not_sealed() -> None:
     """SDK-defined: a non-string `requestState` in a wire mapping is not this module's mint; it crosses unchanged."""
-    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
+    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None), default_audience=None)
     malformed: dict[str, Any] = {"resultType": "input_required", "inputRequests": {}, "requestState": 7}
 
     async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
@@ -989,7 +991,7 @@ async def test_an_input_required_mapping_with_a_non_string_state_is_not_sealed()
 
 async def test_a_notification_crosses_the_boundary_unharmed() -> None:
     """SDK-defined: the boundary is inert for notifications."""
-    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
+    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None), default_audience=None)
     forwarded: list[ServerRequestContext[Any, Any]] = []
 
     async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
@@ -1011,7 +1013,7 @@ async def test_a_notification_crosses_the_boundary_unharmed() -> None:
 
 async def test_a_non_mrtr_method_with_no_params_is_untouched() -> None:
     """SDK-defined: a non-carrier method with absent params passes the boundary inert."""
-    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
+    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None), default_audience=None)
     listing: dict[str, Any] = {"tools": [], "resultType": "complete"}
 
     async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
@@ -1033,7 +1035,7 @@ async def test_a_non_mrtr_method_with_no_params_is_untouched() -> None:
 
 async def test_a_short_circuited_input_required_model_is_sealed_via_the_model_path() -> None:
     """SDK-defined: a short-circuited `InputRequiredResult` model is sealed via the model path, on a copy."""
-    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
+    boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None), default_audience=None)
     interim = InputRequiredResult(input_requests={"confirm": _ask("Go?")}, request_state="model-plaintext")
 
     async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
@@ -1057,3 +1059,133 @@ async def test_a_short_circuited_input_required_model_is_sealed_via_the_model_pa
     claims = json.loads(AESGCMRequestStateCodec([_KEY]).unseal(result.request_state))
     assert (claims["m"], claims["t"], claims["s"]) == ("tools/call", "shortcut", "model-plaintext")
     assert interim.request_state == "model-plaintext"
+
+
+# -- user-supplied code on the seal path fails closed -----------------------------------
+
+
+class _RaisingSealCodec:
+    """Codec whose seal always fails, standing in for a KMS outage in a custom codec."""
+
+    def seal(self, payload: bytes) -> str:
+        raise RuntimeError("kms unreachable at 10.0.0.7: wrapped-key-id-42")
+
+    def unseal(self, token: str) -> bytes:
+        raise InvalidRequestState("never minted")
+
+
+async def test_a_codec_that_raises_during_seal_yields_a_sanitized_internal_error() -> None:
+    """SDK-defined: a raising custom codec fails the round with a sanitized internal error, never its own text."""
+    mcp, _ = _manual_server(RequestStateSecurity(codec=_RaisingSealCodec()))
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError) as exc:
+                await client.session.call_tool("deploy", {"env": "prod"}, allow_input_required=True)
+
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Internal error"
+
+
+async def test_a_non_string_principal_fails_closed_when_sealing() -> None:
+    """SDK-defined: a bind_principal returning a non-string denies the round with the sanitized internal error."""
+
+    def numeric_user_id(ctx: ServerRequestContext[Any, Any]) -> str:
+        return cast("str", 12345)
+
+    mcp, _ = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=numeric_user_id))
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError) as exc:
+                await client.session.call_tool("deploy", {"env": "prod"}, allow_input_required=True)
+
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Internal error"
+
+
+async def test_a_non_string_principal_fails_closed_when_verifying() -> None:
+    """SDK-defined: a non-string principal on the verify side rejects with the frozen error, not a crash."""
+    principal: list[Any] = ["alice"]
+    mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=lambda ctx: principal[0]))
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            token = await _first_round(client, "deploy", {"env": "prod"})
+            principal[0] = 12345
+            with pytest.raises(MCPError) as exc:
+                await _retry(client, "deploy", {"env": "prod"}, token)
+
+    _assert_frozen_rejection(exc)
+    assert seen == []
+
+
+# -- lone surrogates: every encode on the state path is total ----------------------------
+
+
+async def test_lone_surrogate_arguments_are_digested_not_crashed() -> None:
+    """SDK-defined: a lone UTF-16 surrogate in an argument string digests like any other value."""
+    mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY]))
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            token = await _first_round(client, "deploy", {"env": "\ud800-prod"})
+            with pytest.raises(MCPError) as exc:
+                await _retry(client, "deploy", {"env": "\udfff-prod"}, token)
+            second = await _retry(client, "deploy", {"env": "\ud800-prod"}, token)
+
+    _assert_frozen_rejection(exc)  # different args reject as a binding mismatch, not an internal error
+    assert isinstance(second, CallToolResult)
+    assert seen == ["awaiting-confirm"]
+
+
+async def test_lone_surrogate_handler_state_seals_and_restores() -> None:
+    """SDK-defined: handler-minted state containing a lone surrogate round-trips through the seal exactly."""
+    plaintext = "awaiting-\ud800-confirm"
+    mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY]), state=plaintext)
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            token = await _first_round(client, "deploy", {"env": "prod"})
+            second = await _retry(client, "deploy", {"env": "prod"}, token)
+
+    assert isinstance(second, CallToolResult)
+    assert seen == [plaintext]
+
+
+async def test_lone_surrogate_principal_binds_and_verifies() -> None:
+    """SDK-defined: a principal string containing a lone surrogate binds and verifies like any other."""
+    mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=lambda ctx: "tenant-\ud800"))
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            token = await _first_round(client, "deploy", {"env": "prod"})
+            second = await _retry(client, "deploy", {"env": "prod"}, token)
+
+    assert isinstance(second, CallToolResult)
+    assert seen == ["awaiting-confirm"]
+
+
+# -- fractional clocks: the configured ttl is the effective ttl --------------------------
+
+
+async def test_a_fractional_mint_instant_keeps_the_full_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK-defined: a token minted at a fractional instant lives the full configured ttl."""
+    mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], ttl=0.5))
+    clock = _Clock(_T0 + 0.9)
+    monkeypatch.setattr(request_state_module, "time", clock)
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            token = await _first_round(client, "deploy", {"env": "prod"})
+            clock.now = _T0 + 1.3  # 0.4s after mint, inside the 0.5s ttl
+            second = await _retry(client, "deploy", {"env": "prod"}, token)
+            clock.now = _T0 + 2.0
+            late = await _first_round(client, "deploy", {"env": "prod"})
+            clock.now = _T0 + 2.6  # 0.6s after mint, past the ttl
+            with pytest.raises(MCPError) as exc:
+                await _retry(client, "deploy", {"env": "prod"}, late)
+
+    assert isinstance(second, CallToolResult)
+    _assert_frozen_rejection(exc)
+    assert seen == ["awaiting-confirm"]

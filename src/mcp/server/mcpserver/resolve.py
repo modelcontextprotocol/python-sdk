@@ -31,6 +31,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import inspect
+import json
+import logging
 import types
 import typing
 from collections.abc import Callable, Hashable, Mapping
@@ -45,6 +47,7 @@ from mcp_types import (
     ElicitRequestFormParams,
     ElicitResult,
     FormElicitationCapability,
+    InputRequest,
     InputRequests,
     InputRequiredResult,
     InputResponses,
@@ -63,6 +66,7 @@ from mcp.server.elicitation import (
 )
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
+from mcp.server.request_state import compact_json
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 
@@ -75,7 +79,9 @@ _ELICITATION_RESULT_MEMBERS = (AcceptedElicitation, DeclinedElicitation, Cancell
 # `InputRequiredResult` rather than as a standalone server-to-client request.
 # Pinned (not `LATEST_MODERN_VERSION`, which moves when newer revisions are added).
 _INPUT_REQUIRED_VERSION = "2026-07-28"
-_STATE_VERSION = 2  # v2 adds per-entry question digests
+_STATE_VERSION = 3  # v3: recorded and pended outcomes pinned to ASCII-canonical question renders
+
+logger = logging.getLogger(__name__)
 
 
 class Resolve:
@@ -371,7 +377,11 @@ class _Resolution:
         self.context = context
         self.input_required = input_required
         self.answers: InputResponses = context.input_responses or {} if input_required else {}
-        self.state = _decode_state(context.request_state) if input_required else {}
+        decoded = _decode_state(context.request_state if input_required else None)
+        self.state = decoded.outcomes
+        # Digests of the questions asked last round: an answer is accepted only
+        # for the exact rendering the client was shown.
+        self.asked = decoded.asked
         # In-call dedup keyed by resolver identity (distinguishes two instances of
         # the same bound method); `persist` holds the wire-shaped record of each
         # elicited outcome, keyed by its wire key - exactly what the next round's
@@ -433,7 +443,8 @@ async def resolve_arguments(
         injected[name] = outcome if wants_union else _unwrap(outcome, name)
 
     if res.pending:
-        return InputRequiredResult(input_requests=res.pending, request_state=_encode_state(res.persist))
+        asked = {key: _request_digest(request) for key, request in res.pending.items()}
+        return InputRequiredResult(input_requests=res.pending, request_state=_encode_state(res.persist, asked))
     return injected
 
 
@@ -496,7 +507,8 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
     if not res.input_required:
         return await res.context.elicit(elicit.message, elicit.schema)
 
-    q = _question_digest(elicit)
+    request = _elicit_request(elicit)
+    q = _request_digest(request)
 
     # A recorded outcome from a prior round is consulted only here, after the body
     # decided to ask, so a `request_state` entry can never stand in for a resolver's
@@ -506,9 +518,14 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
         return outcome
 
     answer = res.answers.get(key)
+    # An answer counts only for the rendering recorded when it was asked; an answer to
+    # an unrecorded or differently-worded question re-asks instead of being consumed.
+    if answer is not None and res.asked.get(key) != q:
+        logger.info("Discarding the answer for resolver %r: the question changed since it was asked", key)
+        answer = None
     if answer is None:
         _require_form_elicitation(res.context, key)
-        res.pending[key] = _elicit_request(elicit)
+        res.pending[key] = request
         raise _Pending
     if not isinstance(answer, ElicitResult):
         raise ToolError(f"Resolver {key!r} received a non-elicitation response")
@@ -601,46 +618,54 @@ class _StateEntry(BaseModel):
     """Digest of the exact rendered question this outcome answered."""
 
 
-def _question_digest(elicit: Elicit[Any]) -> str:
+def _request_digest(request: InputRequest) -> str:
     """Pin an outcome to the exact rendered question the client was shown.
 
     A redeploy that rewords or reshapes a question re-asks it instead of reusing the recorded answer.
     """
-    rendered = _elicit_request(elicit).params.model_dump_json(by_alias=True, exclude_none=True)
+    params = request.params
+    rendered = compact_json(params.model_dump(mode="json", by_alias=True, exclude_none=True) if params else None)
     digest = hashlib.sha256(rendered.encode()).digest()[:16]
     return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
 class _State(BaseModel):
-    """The decoded `request_state`: resolver outcomes from earlier rounds."""
+    """The decoded `request_state`: resolver progress from earlier rounds."""
 
     v: int
     outcomes: dict[str, _StateEntry] = {}
+    asked: dict[str, str] = {}
+    """Question digest of each elicitation asked last round, keyed by wire key."""
 
 
-def _decode_state(request_state: str | None) -> dict[str, _StateEntry]:
+def _decode_state(request_state: str | None) -> _State:
     """Decode the per-call resolution progress from `request_state`.
 
-    The string arrives boundary-authenticated, so malformed content or a
-    version mismatch is drift within the operator's own fleet (e.g. a rolling
-    upgrade) and is treated as "no progress yet".
+    Parsed with stdlib `json.loads` because `_encode_state` may emit escaped
+    lone surrogates, which pydantic's JSON parser rejects. The string arrives
+    boundary-authenticated, so malformed content or a version mismatch is
+    drift within the operator's own fleet (e.g. a rolling upgrade) and is
+    treated as "no progress yet".
     """
+    empty = _State(v=_STATE_VERSION)
     if not request_state:
-        return {}
+        return empty
     try:
-        state = _State.model_validate_json(request_state)
-    except ValidationError:
-        return {}
-    return state.outcomes if state.v == _STATE_VERSION else {}
+        state = _State.model_validate(json.loads(request_state))
+    except ValueError:
+        return empty
+    return state if state.v == _STATE_VERSION else empty
 
 
-def _encode_state(outcomes: Mapping[str, _StateEntry]) -> str:
-    """Encode recorded elicitation outcomes (keyed by wire key) for the next round.
+def _encode_state(outcomes: Mapping[str, _StateEntry], asked: Mapping[str, str]) -> str:
+    """Encode recorded outcomes and asked-question digests for the next round.
 
-    Entries already hold the client's wire-shaped data exactly as it was sent (and
-    validated), so encoding is pure wrapping: encode-restore is the identity.
+    Outcome entries already hold the client's wire-shaped data exactly as it was
+    sent (and validated), so encoding is pure wrapping: encode-restore is the
+    identity.
     """
-    return _State(v=_STATE_VERSION, outcomes=dict(outcomes)).model_dump_json()
+    state = _State(v=_STATE_VERSION, outcomes=dict(outcomes), asked=dict(asked))
+    return compact_json(state.model_dump(mode="json"))
 
 
 def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel]) -> ElicitationResult[Any]:

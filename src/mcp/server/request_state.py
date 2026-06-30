@@ -27,6 +27,7 @@ from mcp_types import INTERNAL_ERROR, INVALID_PARAMS
 from mcp_types.methods import INPUT_REQUIRED_METHODS, is_input_required
 
 from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.provider import principal_components
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 
@@ -77,12 +78,17 @@ class RequestStateCodec(Protocol):
 
 
 def authenticated_principal(ctx: ServerRequestContext[Any, Any]) -> str | None:
-    """Default principal binding: the authenticated OAuth client's `client_id`.
+    """Default principal binding: the authenticated (client, issuer, subject) identity.
 
+    Uses the same components session ownership uses, so two users of one OAuth
+    client are distinct principals whenever the token verifier supplies a
+    subject, and the binding degrades to the client identity when it does not.
     Returns `None` (state not principal-bound) on unauthenticated transports.
     """
     token = get_access_token()
-    return token.client_id if token is not None else None
+    if token is None:
+        return None
+    return compact_json(principal_components(token))
 
 
 class RequestStateSecurity:
@@ -146,6 +152,17 @@ _KID_INFO = b"mcp/request-state/v1/kid:"
 _TOKEN_PREFIX = "v1."
 _KID_LEN = 4
 _NONCE_LEN = 12
+
+
+def compact_json(value: Any, *, sort_keys: bool = False) -> str:
+    """Canonical JSON for everything the state path digests or seals.
+
+    ASCII output keeps the encode total: a lone surrogate in client-supplied
+    text escapes instead of raising. Anything consuming this must parse with
+    stdlib `json.loads`, which accepts those escapes (pydantic's JSON parser
+    does not).
+    """
+    return json.dumps(value, sort_keys=sort_keys, separators=(",", ":"))
 
 
 def _b64u(data: bytes) -> str:
@@ -260,13 +277,12 @@ def _request_identity(method: str, params: Mapping[str, Any] | None) -> tuple[st
         target = str(p.get("uri", ""))
     else:
         target, args = str(p.get("name", "")), p.get("arguments") or args
-    canonical = json.dumps(args, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return target, _b64u(hashlib.sha256(canonical.encode()).digest()[:16])
+    return target, _b64u(hashlib.sha256(compact_json(args, sort_keys=True).encode()).digest()[:16])
 
 
 def _principal_claim(principal: str) -> str:
     salt = os.urandom(8)
-    tag = hashlib.sha256(_PRINCIPAL_LABEL + salt + principal.encode()).digest()[:16]
+    tag = hashlib.sha256(_PRINCIPAL_LABEL + salt + _principal_bytes(principal)).digest()[:16]
     return _b64u(salt + tag)
 
 
@@ -276,8 +292,34 @@ def _principal_matches(claim: str, principal: str) -> bool:
     except ValueError:
         return False
     # A wrong-length claim never matches: compare_digest handles mismatched sizes.
-    expected = hashlib.sha256(_PRINCIPAL_LABEL + raw[:8] + principal.encode()).digest()[:16]
+    expected = hashlib.sha256(_PRINCIPAL_LABEL + raw[:8] + _principal_bytes(principal)).digest()[:16]
     return hmac.compare_digest(raw[8:], expected)
+
+
+def _principal_bytes(principal: str) -> bytes:
+    # The digest input is one-way and never decoded, so surrogatepass keeps it total.
+    return principal.encode("utf-8", "surrogatepass")
+
+
+def _bound_principal(
+    security: RequestStateSecurity,
+    ctx: ServerRequestContext[Any, Any],
+    fail: Callable[[str], NoReturn],
+) -> str | None:
+    """Run `bind_principal` under the deny-on-error discipline, in one place for both directions.
+
+    `fail` converts a failure into the calling direction's wire shape: the
+    frozen rejection when verifying, the sanitized internal error when sealing.
+    """
+    try:
+        principal = security.bind_principal(ctx) if security.bind_principal is not None else None
+    except Exception:  # deny-on-error: a raising principal binding must fail closed
+        logger.exception("bind_principal raised while processing requestState on %s", ctx.method)
+        fail("principal binding error")
+    # The declared return type is str | None, but a user callback can ignore it.
+    if principal is not None and not isinstance(cast("object", principal), str):
+        fail(f"bind_principal returned {type(principal).__name__}, expected str or None")
+    return principal
 
 
 class RequestStateBoundary:
@@ -293,13 +335,15 @@ class RequestStateBoundary:
     `input_required` result carrying `requestState` is sealed in a fresh
     claims envelope; handlers and resolvers never call the codec.
 
-    `default_audience` seeds the audience claim when the policy sets none
-    (`MCPServer` passes its server name). `MCPServer` installs this when
-    `request_state_security=` is supplied; lowlevel `Server` users append one
-    to `server.middleware` for identical enforcement.
+    `default_audience` seeds the audience claim when the policy sets none, and
+    must be stated explicitly: it is the service identity that stops state
+    minted by another service sharing the same keys. `MCPServer` installs this
+    middleware with its server name when `request_state_security=` is supplied;
+    lowlevel `Server` users append one to `server.middleware`, passing their
+    server's name (or `None` to deliberately leave tokens audience-free).
     """
 
-    def __init__(self, security: RequestStateSecurity, *, default_audience: str | None = None) -> None:
+    def __init__(self, security: RequestStateSecurity, *, default_audience: str | None) -> None:
         self._security = security
         self._audience = security.audience if security.audience is not None else default_audience
 
@@ -345,11 +389,11 @@ class RequestStateBoundary:
             _reject(ctx.method, "request binding")
         if claims.get("aud") != self._audience:
             _reject(ctx.method, "audience")
-        try:
-            principal = security.bind_principal(ctx) if security.bind_principal is not None else None
-        except Exception:  # deny-on-error: a raising principal binding must fail closed
-            logger.exception("bind_principal raised while verifying requestState on %s", ctx.method)
-            _reject(ctx.method, "principal binding error")
+
+        def fail_verify(reason: str) -> NoReturn:
+            _reject(ctx.method, reason)
+
+        principal = _bound_principal(security, ctx, fail_verify)
         claim = claims.get("p")
         if (claim is None) != (principal is None):
             _reject(ctx.method, "principal drift")
@@ -377,15 +421,15 @@ class RequestStateBoundary:
     def _seal(self, ctx: ServerRequestContext[Any, Any], state: str, binding: _RoundBinding | None = None) -> str:
         security = self._security
         if binding is None:
+
+            def fail_seal(reason: str) -> NoReturn:
+                logger.error("refusing to seal requestState on %s: %s", ctx.method, reason)
+                raise MCPError(code=INTERNAL_ERROR, message="Internal error")
+
             target, args_digest = _request_identity(ctx.method, ctx.params)
-            try:
-                principal = security.bind_principal(ctx) if security.bind_principal is not None else None
-            except Exception:  # deny-on-error: a raising principal binding must not mint unbound state
-                logger.exception("bind_principal raised while sealing requestState on %s", ctx.method)
-                raise MCPError(code=INTERNAL_ERROR, message="Internal error") from None
-            binding = (target, args_digest, principal)
+            binding = (target, args_digest, _bound_principal(security, ctx, fail_seal))
         target, args_digest, principal = binding
-        now = int(time.time())
+        now = time.time()
         claims: dict[str, Any] = {
             "v": _ENVELOPE_VERSION,
             "iat": now,
@@ -399,4 +443,9 @@ class RequestStateBoundary:
             claims["aud"] = self._audience
         if principal is not None:
             claims["p"] = _principal_claim(principal)
-        return security.codec.seal(json.dumps(claims, separators=(",", ":"), ensure_ascii=False).encode())
+        payload = compact_json(claims).encode()
+        try:
+            return security.codec.seal(payload)
+        except Exception:  # deny-on-error: a raising custom codec must not leak its failure
+            logger.exception("requestState codec raised during seal on %s", ctx.method)
+            raise MCPError(code=INTERNAL_ERROR, message="Internal error") from None

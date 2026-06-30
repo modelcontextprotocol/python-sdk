@@ -56,7 +56,8 @@ uv run python -m stories.mrtr.client --http --server server_lowlevel
   then completes the round normally.
 - `server_lowlevel.py`: the lowlevel tier has no construction-time
   requirement; the same enforcement is one appended middleware:
-  `server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral()))`.
+  `server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral(),
+  default_audience=server.name))`.
 
 ## Caveats
 

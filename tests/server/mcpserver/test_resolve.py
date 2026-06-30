@@ -41,9 +41,10 @@ from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.resolve import (
     _check_elicit_return,
     _decode_state,
+    _elicit_request,
     _encode_state,
     _outcome_from_state,
-    _question_digest,
+    _request_digest,
     _resolver_key,
     _state_key,
     _StateEntry,
@@ -53,6 +54,11 @@ from mcp.server.mcpserver.resolve import (
 )
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.shared.exceptions import MCPError
+
+
+def _question_digest(elicit: Elicit[Any]) -> str:
+    """The digest `_elicit` pins: the rendered request the client would be shown."""
+    return _request_digest(_elicit_request(elicit))
 
 
 class Login(BaseModel):
@@ -916,7 +922,8 @@ def test_uses_input_required_version_gate():
     ],
 )
 def test_decode_state_tolerates_malformed_request_state(request_state: str | None):
-    assert _decode_state(request_state) == {}
+    state = _decode_state(request_state)
+    assert state.outcomes == {} and state.asked == {}
 
 
 def test_state_round_trips_accept_decline_cancel():
@@ -926,8 +933,10 @@ def test_state_round_trips_accept_decline_cancel():
         "c": _StateEntry(action="cancel"),
         "d": _StateEntry(action="accept", data="raw-token"),  # non-dict wire value
     }
-    decoded = _decode_state(_encode_state(entries))
+    state = _decode_state(_encode_state(entries, {"e": "asked-digest"}))
+    decoded = state.outcomes
     assert decoded == entries  # encode-restore is the identity on the stored entries
+    assert state.asked == {"e": "asked-digest"}
 
     accepted = _outcome_from_state(decoded["a"], Login)
     assert isinstance(accepted, AcceptedElicitation) and accepted.data == Login(username="octocat")
@@ -1689,7 +1698,7 @@ async def test_state_entry_never_replaces_a_resolver_computed_value():
 
     # A decodable v2 entry; the resolver never asks, so it must go unconsulted, not dropped as malformed.
     entry = {"action": "accept", "data": {"needed": True}, "q": _question_digest(Elicit("Restock?", Restock))}
-    crafted = json.dumps({"v": 2, "outcomes": {_wire_key(decide): entry}})
+    crafted = json.dumps({"v": 3, "outcomes": {_wire_key(decide): entry}})
 
     async with Client(mcp, elicitation_callback=_never) as client:
         result = await client.session.call_tool(
@@ -1720,7 +1729,7 @@ async def test_state_decline_entry_for_a_pure_resolver_is_ignored():
 
     # A decodable v2 entry: `lookup` never asks, so no digest can make the decline apply.
     entry = {"action": "decline", "q": _question_digest(Elicit("user?", Login))}
-    crafted = json.dumps({"v": 2, "outcomes": {_wire_key(lookup): entry}})
+    crafted = json.dumps({"v": 3, "outcomes": {_wire_key(lookup): entry}})
 
     async with Client(mcp, elicitation_callback=_never) as client:
         result = await client.session.call_tool(
@@ -1871,18 +1880,18 @@ def test_question_digest_pins_the_rendered_question():
     assert len(digest) == 22 and "=" not in digest
 
 
-def test_state_round_trips_question_digests_at_v2():
+def test_state_round_trips_question_digests_at_v3():
     # v2 carries digests for every action and round-trips exactly; v1 (mid rolling deploy) reads as no progress.
     entries = {
         "a": _StateEntry(action="accept", data={"username": "octocat"}, q="qa"),
         "b": _StateEntry(action="decline", q="qb"),
         "c": _StateEntry(action="cancel", q="qc"),
     }
-    encoded = _encode_state(entries)
-    assert json.loads(encoded)["v"] == 2
-    assert _decode_state(encoded) == entries
+    encoded = _encode_state(entries, {})
+    assert json.loads(encoded)["v"] == 3
+    assert _decode_state(encoded).outcomes == entries
     v1 = json.dumps({"v": 1, "outcomes": {"a": {"action": "decline"}}})
-    assert _decode_state(v1) == {}
+    assert _decode_state(v1).outcomes == {}
 
 
 @pytest.mark.anyio
@@ -2042,7 +2051,7 @@ async def test_state_entry_without_a_question_digest_is_dropped_and_reasked():
 
         # Schema-valid accept data under the live key, but no "q" pin.
         entry = {"action": "accept", "data": {"username": "spooky"}}
-        crafted = json.dumps({"v": 2, "outcomes": {key: entry}})
+        crafted = json.dumps({"v": 3, "outcomes": {key: entry}})
         second = await client.session.call_tool(
             "whoami",
             {},
@@ -2193,3 +2202,136 @@ async def test_decline_of_a_reworded_question_does_not_suppress_the_new_question
         assert isinstance(final, CallToolResult)
         assert isinstance(final.content[0], TextContent)
         assert final.content[0].text == "accepted:octocat"
+
+
+@pytest.mark.anyio
+async def test_reworded_question_reasks_even_when_the_answer_first_arrives():
+    # The pend round records each question's digest in the state, so an answer that
+    # first arrives after a reword (redeploy between ask and retry) re-asks instead
+    # of being consumed as consent to the new wording.
+    mcp = MCPServer(name="RewordArrival", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
+    wording = {"deploy": "Deploy to prod?"}
+
+    async def ask_deploy(ctx: Context) -> Elicit[Confirm]:
+        return Elicit(wording["deploy"], Confirm)
+
+    @mcp.tool()
+    async def act(deploy: Annotated[Confirm, Resolve(ask_deploy)]) -> str:
+        return f"deployed:{deploy.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        pended = json.loads(_unseal_inner(first.request_state))["asked"]
+        assert pended == {_wire_key(ask_deploy): _question_digest(Elicit("Deploy to prod?", Confirm))}
+
+        wording["deploy"] = "Deploy to staging?"
+
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_deploy): ElicitResult(action="accept", content={"ok": True})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        # The stale answer to the old wording is not consumed; the reworded question is asked.
+        assert isinstance(second, InputRequiredResult)
+        assert second.input_requests is not None
+        question = second.input_requests[_wire_key(ask_deploy)].params
+        assert isinstance(question, ElicitRequestFormParams)
+        assert question.message == "Deploy to staging?"
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_deploy): ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "deployed:True"
+
+
+@pytest.mark.anyio
+async def test_an_answer_without_the_echoed_state_is_reasked_not_consumed():
+    # Without the echoed state there is no record of which question the client was
+    # shown, so an answer arriving stateless re-asks instead of being consumed.
+    mcp = MCPServer(name="Stateless", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
+
+    async def ask(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("Proceed?", Confirm)
+
+    @mcp.tool()
+    async def act(go: Annotated[Confirm, Resolve(ask)]) -> str:
+        return f"went:{go.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask): ElicitResult(action="accept", content={"ok": True})},
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask): ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "went:True"
+
+
+@pytest.mark.anyio
+async def test_recorded_answer_containing_a_lone_surrogate_survives_to_later_rounds():
+    # The state encoder escapes lone surrogates, so the decoder must parse them back:
+    # a recorded answer with one must restore on the next round, not silently re-ask.
+    mcp = MCPServer(name="Surrogate", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
+
+    async def ask_name(ctx: Context) -> Elicit[Login]:
+        return Elicit("Name?", Login)
+
+    async def ask_confirm(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("Confirm?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        name: Annotated[Login, Resolve(ask_name)],
+        go: Annotated[Confirm, Resolve(ask_confirm)],
+    ) -> str:
+        return f"{name.username}:{go.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_name): ElicitResult(action="accept", content={"username": "oc\ud800t"})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        # The surrogate-bearing answer is recorded; only the unanswered question remains.
+        assert isinstance(second, InputRequiredResult)
+        assert second.input_requests is not None
+        assert set(second.input_requests) == {_wire_key(ask_confirm)}
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_confirm): ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "oc\ud800t:True"

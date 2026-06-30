@@ -181,3 +181,17 @@ def test_a_custom_codec_raises_invalid_request_state_for_any_bad_token() -> None
         codec.unseal(token + "00")
     with pytest.raises(InvalidRequestState):
         codec.unseal("not-a-token")
+
+
+def test_a_custom_codec_rejects_every_alias_of_a_minted_token() -> None:
+    """tutorial005: only the exact minted string verifies; rewritten spellings of it do not."""
+    codec = tutorial005.EnvelopeCodec(tutorial005.unwrap_data_key())
+    token = codec.seal(b"round-1")
+    body = token.removeprefix(tutorial005.PREFIX)
+    for alias in (
+        body,  # prefix stripped
+        tutorial005.PREFIX + body.upper(),  # non-canonical hex case
+        tutorial005.PREFIX + body[:8] + " " + body[8:],  # whitespace bytes.fromhex would skip
+    ):
+        with pytest.raises(InvalidRequestState):
+            codec.unseal(alias)
