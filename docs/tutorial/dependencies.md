@@ -131,7 +131,8 @@ That's the right default for a precondition: no answer, no order. When declining
     its question, an eliciting resolver must derive its question deterministically from the
     tool's arguments and earlier answers. A per-call generated value (a `default_factory` id, a
     timestamp) is re-derived on each round and must not appear in a question the answer is meant
-    to bind to.
+    to bind to. A question built from such volatile data makes every recorded answer look stale,
+    so the server re-asks it on every round until the client's round limit ends the call.
 
 ## Recap
 

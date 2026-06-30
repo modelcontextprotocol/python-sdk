@@ -1866,7 +1866,8 @@ async def test_read_resource_template_not_found():
         assert exc_info.value.error.data == {"uri": "resource://users/999"}
 
 
-async def test_tool_returning_input_required_result_reaches_client_unchanged():
+async def test_tool_returning_input_required_result_reaches_client_sealed():
+    # Default posture: the wire carries an opaque sealed token, never the handler's plaintext.
     mcp = MCPServer()
 
     @mcp.tool()
@@ -1878,7 +1879,7 @@ async def test_tool_returning_input_required_result_reaches_client_unchanged():
             result = await client.session.call_tool("ask", allow_input_required=True)
 
     assert isinstance(result, InputRequiredResult)
-    assert result.request_state == "round-1"
+    _assert_sealed(result.request_state, "round-1")
     assert result.input_requests is not None
     assert result.input_requests["roots"].method == "roots/list"
 
@@ -1927,6 +1928,13 @@ async def test_tool_reads_input_responses_and_request_state_from_context_on_retr
     assert block.text == "Hello, Alice! (state=r1)"
 
 
+def _assert_sealed(state: str | None, plaintext: str) -> None:
+    """The wire form is an opaque sealed token, never the handler's plaintext."""
+    assert state is not None
+    assert state != plaintext
+    assert state.startswith("v1.")
+
+
 def _ask_who() -> ElicitRequest:
     return ElicitRequest(
         params=ElicitRequestFormParams(
@@ -1940,9 +1948,9 @@ def _ask_who() -> ElicitRequest:
     )
 
 
-async def test_prompt_returning_input_required_result_reaches_client_unchanged():
-    """A prompt function may return an InputRequiredResult and the pipeline passes it
-    through to the client (spec-mandated: SEP-2322 allows it on prompts/get)."""
+async def test_prompt_returning_input_required_result_reaches_client_sealed():
+    """A prompt function may return an InputRequiredResult and the pipeline delivers it
+    to the client with the state sealed (spec-mandated: SEP-2322 allows it on prompts/get)."""
     mcp = MCPServer()
 
     @mcp.prompt()
@@ -1954,7 +1962,7 @@ async def test_prompt_returning_input_required_result_reaches_client_unchanged()
             result = await client.session.get_prompt("briefing", allow_input_required=True)
 
     assert isinstance(result, InputRequiredResult)
-    assert result.request_state == "round-1"
+    _assert_sealed(result.request_state, "round-1")
     assert result.input_requests is not None
     assert result.input_requests["who"].method == "elicitation/create"
 
@@ -2023,9 +2031,9 @@ async def test_resource_template_input_required_result_on_legacy_session_is_a_se
     assert exc.value.error.message == "Handler returned an invalid result"
 
 
-async def test_resource_template_returning_input_required_result_reaches_client_unchanged():
+async def test_resource_template_returning_input_required_result_reaches_client_sealed():
     """A resource template function may return an InputRequiredResult and the pipeline
-    passes it through to the client (spec-mandated: SEP-2322 allows it on resources/read)."""
+    delivers it with the state sealed (spec-mandated: SEP-2322 allows it on resources/read)."""
     mcp = MCPServer()
 
     @mcp.resource("ask://{topic}")
@@ -2037,7 +2045,7 @@ async def test_resource_template_returning_input_required_result_reaches_client_
             result = await client.session.read_resource("ask://databases", allow_input_required=True)
 
     assert isinstance(result, InputRequiredResult)
-    assert result.request_state == "round-1"
+    _assert_sealed(result.request_state, "round-1")
     assert result.input_requests is not None
     assert result.input_requests["who"].method == "elicitation/create"
 
@@ -2121,22 +2129,26 @@ async def test_context_read_resource_keeps_outer_input_responses_from_the_nested
         return f"{topic} content"
 
     @mcp.tool()
-    async def outer(ctx: Context) -> str:
+    async def outer(ctx: Context) -> str | InputRequiredResult:
+        if ctx.input_responses is None:
+            return InputRequiredResult(input_requests={"who": _ask_who()}, request_state="outer-state")
         contents = list(await ctx.read_resource("ask://databases"))
         assert isinstance(contents[0].content, str)
-        return contents[0].content
+        return f"{contents[0].content} (state={ctx.request_state})"
 
     with anyio.fail_after(5):
         async with Client(mcp, mode="2026-07-28") as client:
+            r1 = await client.session.call_tool("outer", allow_input_required=True)
+            assert isinstance(r1, InputRequiredResult)
             result = await client.session.call_tool(
                 "outer",
                 input_responses={"who": ElicitResult(action="accept", content={"name": "Alice"})},
-                request_state="outer-state",
+                request_state=r1.request_state,
             )
     assert isinstance(result, CallToolResult)
     block = result.content[0]
     assert isinstance(block, TextContent)
-    assert block.text == "databases content"
+    assert block.text == "databases content (state=outer-state)"
     assert seen_responses == [None]
     assert seen_state == [None]
 

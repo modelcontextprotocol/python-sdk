@@ -3,6 +3,14 @@
 from mcp_types import Icon
 
 from mcp.server.extension import Extension, MethodBinding, ResourceBinding, ToolBinding
+from mcp.server.request_state import (
+    AESGCMRequestStateCodec,
+    InvalidRequestState,
+    RequestStateBoundary,
+    RequestStateCodec,
+    RequestStateSecurity,
+    authenticated_principal,
+)
 
 from .context import Context
 from .resolve import (
@@ -36,4 +44,10 @@ __all__ = [
     "require_client_extension",
     "ResourceSecurity",
     "DEFAULT_RESOURCE_SECURITY",
+    "RequestStateSecurity",
+    "RequestStateCodec",
+    "RequestStateBoundary",
+    "AESGCMRequestStateCodec",
+    "InvalidRequestState",
+    "authenticated_principal",
 ]

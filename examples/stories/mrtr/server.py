@@ -13,19 +13,19 @@ CONFIRM_SCHEMA: ElicitRequestedSchema = {
 
 
 def build_server() -> MCPServer:
+    # requestState is sealed by default under a process-local key, which suits this
+    # single-process server; fleets share keys=[...] so any instance can verify.
     mcp = MCPServer("mrtr-example")
 
     @mcp.tool(description="Deploy to an environment, asking the user to confirm first.")
     async def deploy(env: str, ctx: Context) -> str | InputRequiredResult:
         responses = ctx.input_responses
         if responses is None or "confirm" not in responses:
-            # First round: ask the client to elicit confirmation. request_state is opaque
-            # to the client; here it carries the step name so the retry can verify the echo.
             ask = ElicitRequest(
                 params=ElicitRequestFormParams(message=f"Deploy to {env}?", requested_schema=CONFIRM_SCHEMA)
             )
+            # The boundary seals this plaintext request_state on the way out and unseals the echo on retry.
             return InputRequiredResult(input_requests={"confirm": ask}, request_state="awaiting-confirm")
-        # Retry round: the client echoed request_state byte-exact and supplied the answer.
         assert ctx.request_state == "awaiting-confirm", ctx.request_state
         answer = responses["confirm"]
         if isinstance(answer, ElicitResult) and answer.action == "accept" and (answer.content or {}).get("confirm"):

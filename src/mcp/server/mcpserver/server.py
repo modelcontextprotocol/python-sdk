@@ -83,6 +83,7 @@ from mcp.server.mcpserver.resources import (
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
+from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
@@ -133,6 +134,15 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     auth: AuthSettings | None
 
 
+_MISSING_AUDIENCE = (
+    "request_state_security is configured but this server has no name. Sealed\n"
+    "requestState carries the server name as an audience claim, so state minted by\n"
+    "another service that shares the same keys is rejected; unnamed servers would\n"
+    "all stamp the same placeholder and the check would mean nothing. Name the\n"
+    'server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).'
+)
+
+
 def lifespan_wrapper(
     app: MCPServer[LifespanResultT],
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
@@ -170,6 +180,7 @@ class MCPServer(Generic[LifespanResultT]):
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
         resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
+        request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
     ):
         self._resource_security = resource_security
@@ -210,6 +221,17 @@ class MCPServer(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
+        # Ordering: inside OpenTelemetry (spans record the sealed wire form),
+        # outside extension interceptors (extensions see plaintext).
+        if request_state_security is None:
+            security = RequestStateSecurity.ephemeral()
+        else:
+            # A supplied policy usually means shared keys, where the audience claim is
+            # what separates services; an unnamed server would stamp the placeholder.
+            if not name and request_state_security.audience is None:
+                raise ValueError(_MISSING_AUDIENCE)
+            security = request_state_security
+        self._lowlevel_server.middleware.append(RequestStateBoundary(security, default_audience=self.name))
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover

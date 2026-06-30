@@ -609,7 +609,9 @@ class Client:
         callbacks and the call is retried automatically (up to
         `input_required_max_rounds`). To drive the loop yourself — e.g. to
         persist `request_state` across process restarts — use
-        `client.session.call_tool(..., allow_input_required=True)`.
+        `client.session.call_tool(..., allow_input_required=True)`. Persisted
+        state is still subject to the server's TTL, request binding, and key
+        lifetime; a server on the default process-local key rejects it after a restart.
 
         Args:
             name: The name of the tool to call.

@@ -204,7 +204,7 @@ class ServerRunner(Generic[LifespanT]):
             if (hint := self.server.cache_hints.get(method)) is not None:
                 if isinstance(result, CacheableResult):
                     result = apply_cache_hint(result, hint)
-                elif isinstance(result, Mapping) and result.get("resultType") != "input_required":
+                elif isinstance(result, Mapping) and not _methods.is_input_required(result):
                     # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
                     result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
             # Dump and serialize inside the chain so the OpenTelemetry span (the
