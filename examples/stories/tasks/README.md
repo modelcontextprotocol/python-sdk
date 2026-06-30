@@ -51,8 +51,9 @@ finished (completed or failed) tasks live in a pluggable `TaskStore`
 (`Tasks(store=...)`, in-memory default) that enforces `default_ttl_ms`. Deferred
 to follow-ups, each needing deeper SDK plumbing: background execution (returning
 `working` tasks), the in-task `input_required`/`inputResponses` loop over
-`tasks/update`, and `notifications/tasks` (the SEP-2243 `Mcp-Name` routing
-header is already handled by the shared header table).
+`tasks/update`, and `notifications/tasks` (SEP-2663's `Mcp-Name` routing
+header — the SEP-2243 header family — is already handled by the shared header
+table).
 
 ## Spec
 

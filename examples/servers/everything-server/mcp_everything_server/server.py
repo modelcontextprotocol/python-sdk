@@ -594,8 +594,9 @@ async def confirm_delete(filename: str, ctx: Context) -> str | InputRequiredResu
     responses = ctx.input_responses
     if responses and "confirm" in responses:
         answer = responses["confirm"]
-        accepted = isinstance(answer, ElicitResult) and answer.action == "accept"
-        return f"Deleted {filename}" if accepted else f"Kept {filename}"
+        if isinstance(answer, ElicitResult) and answer.action == "accept" and (answer.content or {}).get("confirm"):
+            return f"Deleted {filename}"
+        return f"Kept {filename}"
     return InputRequiredResult(
         input_requests={
             "confirm": ElicitRequest(
