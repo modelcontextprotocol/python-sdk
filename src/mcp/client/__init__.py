@@ -17,6 +17,7 @@ from mcp.client.extension import (
     ClientExtension,
     NotificationBinding,
     ResultClaim,
+    UnexpectedClaimedResult,
     advertise,
 )
 from mcp.client.session import ClientSession
@@ -37,5 +38,6 @@ __all__ = [
     "ResponseCacheStore",
     "ResultClaim",
     "Transport",
+    "UnexpectedClaimedResult",
     "advertise",
 ]

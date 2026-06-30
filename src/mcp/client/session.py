@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import reduce
+from operator import or_
 from types import TracebackType
-from typing import Any, Literal, Protocol, cast, overload
+from typing import Annotated, Any, Final, Literal, Protocol, cast, overload
 
 import anyio
 import anyio.abc
 import anyio.lowlevel
 import mcp_types as types
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -27,10 +30,11 @@ from mcp_types.version import (
     LATEST_MODERN_VERSION,
     MODERN_PROTOCOL_VERSIONS,
 )
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, Discriminator, Tag, TypeAdapter, ValidationError
 from typing_extensions import Self, TypeVar, deprecated
 
 from mcp.client._transport import ReadStream, WriteStream
+from mcp.client.extension import NotificationBinding, ResultClaim, UnexpectedClaimedResult
 from mcp.shared._compat import resync_tracer
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
@@ -51,6 +55,7 @@ from mcp.shared.transport_context import TransportContext
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 DISCOVER_TIMEOUT_SECONDS = 10.0
+_NOTIFICATION_QUEUE_SIZE: Final = 256
 
 logger = logging.getLogger("client")
 
@@ -189,7 +194,9 @@ async def _default_logging_callback(
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
-_CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult] = TypeAdapter(
+# Declared against the wide tools/call parse union so the session's adopt-built
+# claim adapters (which add `Result` arms) share one attribute type with it.
+_CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult | types.Result] = TypeAdapter(
     types.CallToolResult | types.InputRequiredResult
 )
 _GetPromptResultAdapter: TypeAdapter[types.GetPromptResult | types.InputRequiredResult] = TypeAdapter(
@@ -198,6 +205,97 @@ _GetPromptResultAdapter: TypeAdapter[types.GetPromptResult | types.InputRequired
 _ReadResourceResultAdapter: TypeAdapter[types.ReadResourceResult | types.InputRequiredResult] = TypeAdapter(
     types.ReadResourceResult | types.InputRequiredResult
 )
+
+
+def _claim_active(claim: ResultClaim[Any], version: str) -> bool:
+    """A claim is active at modern versions only, narrowed by its optional version subset."""
+    return version in MODERN_PROTOCOL_VERSIONS and (
+        claim.protocol_versions is None or version in claim.protocol_versions
+    )
+
+
+def _active_claims_at(
+    claims_by_extension: Mapping[str, tuple[ResultClaim[Any], ...]], version: str
+) -> dict[str, ResultClaim[Any]]:
+    """Claims active at `version`, keyed by wire tag (unique across extensions by construction).
+
+    Empty at any legacy version: no claim is active there, so both `adopt()` arms
+    share this one rule.
+    """
+    return {
+        claim.result_type: claim
+        for claims in claims_by_extension.values()
+        for claim in claims
+        if _claim_active(claim, version)
+    }
+
+
+def _build_call_tool_adapter(
+    active: Mapping[str, ResultClaim[Any]],
+) -> TypeAdapter[types.CallToolResult | types.InputRequiredResult | types.Result]:
+    """Discriminated tools/call adapter: a core arm plus one arm per active claim.
+
+    Zero active claims returns the module-level `_CallToolResultAdapter` itself, keeping
+    the no-extensions parse path byte-identical.
+    """
+    if not active:
+        return _CallToolResultAdapter
+    tags = frozenset(active)
+
+    def _route(value: Any) -> str:
+        # pydantic hands the discriminator either the raw inbound dict or an
+        # already-built model (revalidation). A non-string or unknown tag stays on
+        # the core arm, so a malformed `resultType` fails core validation instead
+        # of blowing up the discriminator lookup.
+        if isinstance(value, dict):
+            tag = cast("dict[str, Any]", value).get("resultType")
+        else:
+            tag = getattr(value, "result_type", None)
+        return tag if isinstance(tag, str) and tag in tags else "core"
+
+    arms: list[Any] = [Annotated[types.CallToolResult | types.InputRequiredResult, Tag("core")]]
+    arms += [Annotated[claim.model, Tag(tag)] for tag, claim in active.items()]
+    # reduce(or_, ...) builds the Union dynamically; PEP-646 star-unpack needs py3.11+.
+    return TypeAdapter(Annotated[reduce(or_, arms), Discriminator(_route)])
+
+
+def _index_claims(
+    result_claims: Mapping[str, Sequence[ResultClaim[Any]]] | None,
+    extensions: dict[str, dict[str, Any]] | None,
+) -> dict[str, tuple[ResultClaim[Any], ...]]:
+    """Validate and copy the claims-by-extension mapping.
+
+    The mapping keys ARE the claim/ad association: at adopt the capability ad and the
+    claims dissolve together per extension identifier, so a key must name an
+    advertised extension and no wire tag may be claimed twice.
+    """
+    indexed: dict[str, tuple[ResultClaim[Any], ...]] = {}
+    seen: set[tuple[str, str]] = set()
+    for identifier, claims in (result_claims or {}).items():
+        if extensions is None or identifier not in extensions:
+            raise ValueError(
+                f"result_claims key {identifier!r} has no extensions entry; a claim is only "
+                "advertised through its extension's capability ad"
+            )
+        for claim in claims:
+            key = (claim.method, claim.result_type)
+            if key in seen:
+                raise ValueError(f"duplicate result claim for {claim.method!r} resultType {claim.result_type!r}")
+            seen.add(key)
+        indexed[identifier] = tuple(claims)
+    return indexed
+
+
+def _index_bindings(
+    notification_bindings: Sequence[NotificationBinding[Any]] | None,
+) -> dict[str, NotificationBinding[Any]]:
+    """Index bindings by wire method, rejecting duplicates."""
+    indexed: dict[str, NotificationBinding[Any]] = {}
+    for binding in notification_bindings or ():
+        if binding.method in indexed:
+            raise ValueError(f"duplicate notification binding for method {binding.method!r}")
+        indexed[binding.method] = binding
+    return indexed
 
 
 def _input_required_unexpected(method: str) -> RuntimeError:
@@ -216,6 +314,12 @@ class ClientSession:
     correlation; this class owns the typed MCP layer and the constructor
     callbacks. Transport `Exception` items reach `message_handler` only when
     the session builds its own dispatcher from a stream pair.
+
+    Extension contributions enter here too: `result_claims` (keyed by the
+    advertising identifier in `extensions`, so the capability ad and the claims
+    dissolve together) fold into tools/call parsing at `adopt()`, and
+    `notification_bindings` observe vendor notifications through per-binding
+    bounded FIFOs.
     """
 
     def __init__(
@@ -232,6 +336,8 @@ class ClientSession:
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         extensions: dict[str, dict[str, Any]] | None = None,
+        result_claims: Mapping[str, Sequence[ResultClaim[Any]]] | None = None,
+        notification_bindings: Sequence[NotificationBinding[Any]] | None = None,
         dispatcher: Dispatcher[Any] | None = None,
     ) -> None:
         self._session_read_timeout_seconds = read_timeout_seconds
@@ -239,6 +345,13 @@ class ClientSession:
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._extensions = extensions
+        self._result_claims = _index_claims(result_claims, extensions)
+        self._notification_bindings = _index_bindings(notification_bindings)
+        self._active_claims: dict[str, ResultClaim[Any]] = {}
+        self._call_tool_adapter = _CallToolResultAdapter
+        self._binding_queues: dict[
+            str, tuple[MemoryObjectSendStream[BaseModel], MemoryObjectReceiveStream[BaseModel]]
+        ] = {}
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
@@ -275,6 +388,10 @@ class ClientSession:
         await self._task_group.__aenter__()
         try:
             await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+            for binding in self._notification_bindings.values():
+                send, receive = anyio.create_memory_object_stream[BaseModel](_NOTIFICATION_QUEUE_SIZE)
+                self._binding_queues[binding.method] = (send, receive)
+                self._task_group.start_soon(self._deliver_bound_notifications, binding, receive)
         except BaseException:
             # Unwind the entered task group before propagating: a cancellation
             # landing here (e.g. `move_on_after` around connect) would abandon
@@ -286,6 +403,7 @@ class ClientSession:
             # so a pending outer cancellation cannot re-fire inside __aexit__.
             task_group.cancel_scope.shield = True
             await task_group.__aexit__(None, None, None)
+            self._close_binding_queues()
             raise
         return self
 
@@ -295,12 +413,38 @@ class ClientSession:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> bool | None:
-        # Exit must not block: cancel the dispatcher and in-flight callbacks.
+        # Exit must not block: cancel the dispatcher, binding consumers, and in-flight callbacks.
         assert self._task_group is not None
         self._task_group.cancel_scope.cancel()
         result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        self._close_binding_queues()
         await resync_tracer()
         return result
+
+    def _close_binding_queues(self) -> None:
+        # Memory object streams warn at garbage collection unless closed; the consumers
+        # die by task-group cancellation, so both ends are closed here (close is idempotent).
+        for send, receive in self._binding_queues.values():
+            send.close()
+            receive.close()
+        self._binding_queues.clear()
+
+    async def _deliver_bound_notifications(
+        self, binding: NotificationBinding[Any], receive: MemoryObjectReceiveStream[BaseModel]
+    ) -> None:
+        """Serialized consumer for one binding's FIFO.
+
+        Spawn-decoupled from the dispatcher so the handler may do session I/O without
+        deadlocking in-process delivery; dies with the session's task group.
+        """
+        while True:
+            params = await receive.receive()
+            try:
+                await binding.handler(params)
+            except Exception:
+                # Same containment contract as the notification callbacks in `_on_notify`:
+                # a raising handler costs only that delivery.
+                logger.exception("notification binding handler for %r raised", binding.method)
 
     async def send_request(
         self,
@@ -371,7 +515,23 @@ class ClientSession:
         self._stamp(data, opts)
         await self._dispatcher.notify(data["method"], data.get("params"), opts)
 
-    def _build_capabilities(self) -> types.ClientCapabilities:
+    def _build_capabilities(self, version: str) -> types.ClientCapabilities:
+        """Build the capability ad for a wire speaking `version`.
+
+        An identifier with result claims contributes to the ad only when at least one
+        of its claims is active at `version` — the ad and the claims dissolve
+        together, so the client never advertises an extension on a request whose
+        claimed result shapes it would reject. Claim-less identifiers always
+        contribute; when every identifier drops, the ad omits `extensions` entirely.
+        """
+        extensions = self._extensions
+        if extensions is not None and self._result_claims:
+            extensions = {
+                identifier: settings
+                for identifier, settings in extensions.items()
+                if identifier not in self._result_claims
+                or any(_claim_active(claim, version) for claim in self._result_claims[identifier])
+            } or None
         sampling = (
             (self._sampling_capabilities or types.SamplingCapability())
             if self._sampling_callback is not _default_sampling_callback
@@ -391,7 +551,7 @@ class ClientSession:
             else None
         )
         return types.ClientCapabilities(
-            sampling=sampling, elicitation=elicitation, experimental=None, extensions=self._extensions, roots=roots
+            sampling=sampling, elicitation=elicitation, experimental=None, extensions=extensions, roots=roots
         )
 
     async def initialize(self) -> types.InitializeResult:
@@ -401,7 +561,9 @@ class ClientSession:
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
                     protocol_version=LATEST_HANDSHAKE_VERSION,
-                    capabilities=self._build_capabilities(),
+                    # The handshake can only negotiate legacy versions, where no claim is
+                    # active — every claim-bearing identifier drops from this ad.
+                    capabilities=self._build_capabilities(LATEST_HANDSHAKE_VERSION),
                     client_info=self._client_info,
                 ),
             ),
@@ -435,17 +597,32 @@ class ClientSession:
                     f"No mutually supported modern protocol version "
                     f"(server: {result.supported_versions}, client: {list(MODERN_PROTOCOL_VERSIONS)})"
                 )
+            version = mutual[-1]
             client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
-            capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
-            self._stamp = _make_modern_stamp(mutual[-1], client_info, capabilities, self._resolve_param_headers)
+            capabilities = self._build_capabilities(version).model_dump(by_alias=True, mode="json", exclude_none=True)
+            self._stamp = _make_modern_stamp(version, client_info, capabilities, self._resolve_param_headers)
             self._discover_result = result
             self._initialize_result = None
-            self._negotiated_version = mutual[-1]
         else:
-            self._stamp = _make_handshake_stamp(result.protocol_version)
+            version = result.protocol_version
+            self._stamp = _make_handshake_stamp(version)
             self._initialize_result = result
             self._discover_result = None
-            self._negotiated_version = result.protocol_version
+        self._negotiated_version = version
+        # Assigned fresh in both arms (re-adopt safe): empty at any legacy version by the
+        # one activation rule. Claims tagged with core vocabulary are unconstructible
+        # (`ResultClaim.__post_init__`), so activation needs no core-tag exclusion.
+        self._active_claims = _active_claims_at(self._result_claims, version)
+        self._call_tool_adapter = _build_call_tool_adapter(self._active_claims)
+        for method in self._notification_bindings:
+            # Bindings are consulted only for methods core does not know (`_on_notify`'s
+            # KeyError branch), so a core-known binding can never fire — say so once here.
+            if (method, version) in _methods.SERVER_NOTIFICATIONS:
+                logger.warning(
+                    "notification binding for %r will never fire at %s: the core protocol defines this method",
+                    method,
+                    version,
+                )
 
     async def send_discover(self, version: str) -> dict[str, Any]:
         """Send a single ``server/discover`` at ``version`` and return the raw result dict.
@@ -461,7 +638,7 @@ class ClientSession:
                 synthesized into a JSON-RPC error by the transport).
         """
         client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
-        capabilities = self._build_capabilities().model_dump(by_alias=True, mode="json", exclude_none=True)
+        capabilities = self._build_capabilities(version).model_dump(by_alias=True, mode="json", exclude_none=True)
         request = types.DiscoverRequest(
             params=types.RequestParams(
                 _meta={
@@ -715,6 +892,7 @@ class ClientSession:
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
         allow_input_required: Literal[False] = False,
+        allow_claimed: Literal[False] = False,
     ) -> types.CallToolResult: ...
 
     @overload
@@ -729,7 +907,38 @@ class ClientSession:
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
         allow_input_required: bool,
+        allow_claimed: Literal[False] = False,
     ) -> types.CallToolResult | types.InputRequiredResult: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: Literal[False] = False,
+        allow_claimed: bool,
+    ) -> types.CallToolResult | types.Result: ...
+
+    @overload
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        allow_input_required: bool,
+        allow_claimed: bool,
+    ) -> types.CallToolResult | types.InputRequiredResult | types.Result: ...
 
     async def call_tool(
         self,
@@ -742,7 +951,8 @@ class ClientSession:
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
         allow_input_required: bool = False,
-    ) -> types.CallToolResult | types.InputRequiredResult:
+        allow_claimed: bool = False,
+    ) -> types.CallToolResult | types.InputRequiredResult | types.Result:
         """Send a tools/call request with optional progress callback support.
 
         On a modern (2026-07-28) connection, arguments annotated with `x-mcp-header`
@@ -756,10 +966,15 @@ class ClientSession:
             allow_input_required: When ``False`` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when ``True``, it is returned
                 so the caller can resolve the requests and retry.
+            allow_claimed: When ``False`` (default), a claimed (extension) result
+                shape raises `UnexpectedClaimedResult`; when ``True``, the parsed
+                claim model is returned for the caller to handle.
 
         Raises:
             RuntimeError: If the server returns an `InputRequiredResult` and
                 ``allow_input_required`` is ``False``.
+            UnexpectedClaimedResult: If a claimed result shape parses and
+                ``allow_claimed`` is ``False``; carries the parsed value.
         """
         result = await self.send_request(
             types.CallToolRequest(
@@ -771,7 +986,7 @@ class ClientSession:
                     _meta=meta,
                 ),
             ),
-            _CallToolResultAdapter,
+            self._call_tool_adapter,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
         )
@@ -779,8 +994,12 @@ class ClientSession:
         if isinstance(result, types.CallToolResult) and not result.is_error:
             await self.validate_tool_result(name, result)
 
+        # Driver-innermost ordering: the input_required arm stays first — a claimed
+        # shape exits the multi-round-trip driver as terminal.
         if isinstance(result, types.InputRequiredResult) and not allow_input_required:
             raise _input_required_unexpected("call_tool")
+        if not isinstance(result, types.CallToolResult | types.InputRequiredResult) and not allow_claimed:
+            raise UnexpectedClaimedResult(result)
         return result
 
     def _resolve_param_headers(self, name: str, arguments: Mapping[str, Any]) -> dict[str, str]:
@@ -1031,7 +1250,30 @@ class ClientSession:
         try:
             notification = cast(types.ServerNotification, _methods.parse_server_notification(method, version, params))
         except KeyError:
-            logger.debug("dropped %r: not defined at %s", method, version)
+            # Methods the negotiated version's core tables do not know are offered to
+            # the notification bindings; core-known methods structurally never get here.
+            binding = self._notification_bindings.get(method)
+            if binding is None:
+                logger.debug("dropped %r: not defined at %s", method, version)
+                return
+            try:
+                bound_params = binding.params_type.model_validate(params or {})
+            except ValidationError:
+                # Mirrors the core notification arm below: warn and drop.
+                logger.warning("Failed to validate notification: %s", method, exc_info=True)
+                return
+            send, receive = self._binding_queues[method]
+            try:
+                # Never awaits: DirectDispatcher awaits _on_notify inline in the peer's
+                # notify(), so blocking here would deadlock in-process servers.
+                send.send_nowait(bound_params)
+            except anyio.WouldBlock:
+                # Bounded FIFO: evict the oldest queued event (observation semantics
+                # tolerate the loss). No checkpoint since the failed send, so the
+                # buffer is still full and the eviction cannot itself block.
+                receive.receive_nowait()
+                logger.warning("notification queue for %r is full; dropped the oldest event", method)
+                send.send_nowait(bound_params)
             return
         except ValidationError:
             logger.warning("Failed to validate notification: %s", method, exc_info=True)

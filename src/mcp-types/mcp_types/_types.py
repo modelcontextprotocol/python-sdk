@@ -8,7 +8,7 @@ the negotiated version. Per-field docstrings note version availability. The
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar, get_args
 
 from pydantic import (
     BaseModel,
@@ -150,13 +150,18 @@ class Notification(MCPModel, Generic[NotificationParamsT, MethodT]):
     params: NotificationParamsT
 
 
-ResultType = Literal["complete", "input_required"] | str
+_CoreResultType = Literal["complete", "input_required"]
+
+ResultType = _CoreResultType | str
 """Tags a `Result` so the client knows how to parse it (2026-07-28).
 
 "complete" means the result is final; "input_required" means it is an
 `InputRequiredResult`. The union is open (the tasks extension reserves "task").
 Absent `resultType` is equivalent to "complete".
 """
+
+CORE_RESULT_TYPES: Final[frozenset[str]] = frozenset(get_args(_CoreResultType))
+"""The `resultType` tags owned by the core protocol vocabulary; extension claims may not re-key them."""
 
 
 class Result(MCPModel):

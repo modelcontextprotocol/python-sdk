@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, get_args
 
-from mcp_types import CallToolResult, InputRequiredResult, Result
+from mcp_types import CORE_RESULT_TYPES, CallToolResult, InputRequiredResult, Result
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 
@@ -28,6 +28,7 @@ __all__ = [
     "ClientExtension",
     "NotificationBinding",
     "ResultClaim",
+    "UnexpectedClaimedResult",
     "advertise",
 ]
 
@@ -81,7 +82,7 @@ class ResultClaim(Generic[ClaimedT]):
     protocol_versions: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
-        if self.result_type in ("complete", "input_required"):
+        if self.result_type in CORE_RESULT_TYPES:
             raise ValueError(f"resultType {self.result_type!r} is core protocol vocabulary")
         if issubclass(self.model, CallToolResult | InputRequiredResult):
             raise ValueError("claim models must not subclass core result types")
@@ -98,9 +99,30 @@ class ResultClaim(Generic[ClaimedT]):
             )
 
 
+class UnexpectedClaimedResult(RuntimeError):
+    """A claimed (extension) result shape arrived on a `call_tool` that did not opt in.
+
+    Raised by `ClientSession.call_tool` when a claimed shape parses and
+    `allow_claimed` is False. By the time this raises the server may have
+    durably created state (e.g. a task) — the parsed value is carried as
+    `result` so the caller can reach its id to clean up, not just read a
+    message. To handle claimed shapes, pass the owning extension to
+    `Client(extensions=[...])` (the transparent path) or call with
+    `allow_claimed=True` and handle the shape yourself.
+    """
+
+    def __init__(self, result: Result) -> None:
+        super().__init__(
+            f"Server returned a claimed result ({type(result).__name__}); pass the owning extension to "
+            "Client(extensions=[...]) for transparent resolution, or call with allow_claimed=True "
+            "and handle the shape. The carried result may reference server-side state needing cleanup."
+        )
+        self.result = result
+
+
 @dataclass(frozen=True, kw_only=True)
 class NotificationBinding(Generic[NotifyParamsT]):
-    """Deliver server notifications for `method` to `handler` (today: silently dropped).
+    """Deliver server notifications for `method` to `handler` (unbound methods stay silently dropped).
 
     Observation-only: the handler receives validated params, returns None, and
     cannot short-circuit anything. Delivery is per-binding serialized through a
