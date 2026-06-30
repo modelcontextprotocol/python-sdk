@@ -2258,16 +2258,11 @@ async def test_context_input_responses_and_request_state_are_none_on_initial_rou
     assert captured == {"responses": None, "state": None}
 
 
-def test_subscriptions_bus_defaults_to_in_memory_and_accepts_custom() -> None:
-    assert isinstance(MCPServer().subscriptions, InMemorySubscriptionBus)
+async def test_context_notify_methods_publish_to_the_configured_bus() -> None:
     bus = InMemorySubscriptionBus()
-    assert MCPServer(subscriptions=bus).subscriptions is bus
-
-
-async def test_context_notify_methods_publish_to_the_subscriptions_bus() -> None:
-    mcp = MCPServer()
+    mcp = MCPServer(subscriptions=bus)
     seen: list[ServerEvent] = []
-    mcp.subscriptions.subscribe(seen.append)
+    bus.subscribe(seen.append)
 
     @mcp.tool()
     async def touch(ctx: Context) -> str:
@@ -2287,3 +2282,27 @@ async def test_context_notify_methods_publish_to_the_subscriptions_bus() -> None
 def test_context_mcp_server_outside_request_raises() -> None:
     with pytest.raises(ValueError, match="outside of a request"):
         _ = Context().mcp_server
+
+
+async def test_context_notify_outside_a_request_raises() -> None:
+    with pytest.raises(ValueError, match="outside of a request"):
+        await Context().notify_tools_changed()
+
+
+def test_context_exposes_its_mcp_server() -> None:
+    mcp = MCPServer()
+    assert Context(mcp_server=mcp).mcp_server is mcp
+
+
+def test_remove_prompt_removes_and_unknown_name_raises() -> None:
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    def greeting() -> str:  # pragma: no cover
+        return "hello"
+
+    assert len(mcp._prompt_manager.list_prompts()) == 1
+    mcp.remove_prompt("greeting")
+    assert mcp._prompt_manager.list_prompts() == []
+    with pytest.raises(ValueError, match="Unknown prompt: greeting"):
+        mcp.remove_prompt("greeting")

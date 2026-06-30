@@ -8,6 +8,7 @@ the closed back-channel on the dispatch context, and the request-validation ladd
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import anyio
@@ -44,6 +45,7 @@ from mcp.server._streamable_http_modern import (
     _to_jsonrpc_response,
     handle_modern_request,
 )
+from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ServerEvent
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_NAME_HEADER, MCP_PROTOCOL_VERSION_HEADER
@@ -1008,3 +1010,60 @@ async def test_modern_post_with_deeply_nested_body_is_parse_error_not_a_crash() 
         response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 400
     assert response.json()["error"]["code"] == PARSE_ERROR
+
+
+class _OpenSignalBus(InMemorySubscriptionBus):
+    """Sets an event when a listen stream subscribes, so tests can sequence close()."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.opened = anyio.Event()
+
+    def subscribe(self, listener: Callable[[ServerEvent], None]) -> Callable[[], None]:
+        unsubscribe = super().subscribe(listener)
+        self.opened.set()
+        return unsubscribe
+
+
+async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
+    """SDK-defined (TypeScript/Go parity): a listen response IS a notification
+    stream, so `json_response=True` does not apply to it - the request takes
+    the SSE path, acks first, and ends with the stamped result on close()."""
+    bus = _OpenSignalBus()
+    handler = ListenHandler(bus)
+    server = Server("test", on_subscriptions_listen=handler)
+    body = {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "subscriptions/listen",
+        "params": {
+            "notifications": {"toolsListChanged": True},
+            "_meta": {
+                PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION,
+                CLIENT_INFO_META_KEY: {"name": "raw", "version": "0.0.0"},
+                CLIENT_CAPABILITIES_META_KEY: {},
+            },
+        },
+    }
+
+    responses: list[httpx.Response] = []
+    async with _asgi_client(server, json_response=True) as http:
+        async with anyio.create_task_group() as tg:
+
+            async def post() -> None:
+                responses.append(
+                    await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "subscriptions/listen"})
+                )
+
+            tg.start_soon(post)
+            with anyio.fail_after(5):
+                await bus.opened.wait()
+            handler.close()
+
+    response = responses[0]
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+    events = _sse_payloads(response.text)
+    assert events[0]["method"] == "notifications/subscriptions/acknowledged"
+    assert events[1]["id"] == 9
+    assert events[1]["result"]["_meta"] == {"io.modelcontextprotocol/subscriptionId": 9}

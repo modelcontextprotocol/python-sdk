@@ -38,9 +38,11 @@ async def main(target: Target, *, mode: str = "auto") -> None:
 
         async with anyio.create_task_group() as tg:
             # There is no client-side listen API yet, so the story drops to the
-            # `client.session` escape hatch: the request parks for the stream's
-            # lifetime, so it runs as a task and the client closes the stream by
-            # cancelling it (the spec's client-side close).
+            # `client.session` escape hatch. The request parks for the stream's
+            # lifetime, so it runs as a task; cancelling it releases the local
+            # awaiting scope. In-memory that also ends the server's stream; over
+            # HTTP today nothing aborts the POST, so the server-side stream ends
+            # when the connection closes (the `Client` exit right below).
             async def listen() -> None:
                 request = types.SubscriptionsListenRequest(
                     params=types.SubscriptionsListenRequestParams(
@@ -69,7 +71,8 @@ async def main(target: Target, *, mode: str = "auto") -> None:
             updated = received[1]
             assert isinstance(updated, types.ResourceUpdatedNotification), updated
             assert updated.params.uri == "note://todo"
-            assert updated.params.meta == ack.params.meta
+            assert updated.params.meta is not None
+            assert updated.params.meta[SUBSCRIPTION_ID] == ack.params.meta[SUBSCRIPTION_ID]
             assert len(received) == 2, "the journal edit must not have been delivered"
 
             # ── a runtime tool registration announces itself ──
@@ -77,8 +80,8 @@ async def main(target: Target, *, mode: str = "auto") -> None:
             await wait_for(3)
             assert isinstance(received[2], types.ToolListChangedNotification), received[2]
 
-            # The client is done listening: closing the stream is cancelling the
-            # parked request's scope.
+            # The client is done listening: cancel the parked request and let
+            # the connection teardown below end the stream server-side.
             tg.cancel_scope.cancel()
 
         # list_changed told us to re-fetch - the new tool is callable, and the

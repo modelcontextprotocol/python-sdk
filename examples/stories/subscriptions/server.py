@@ -22,11 +22,16 @@ def build_server() -> MCPServer:
     def search(query: str) -> list[str]:
         return [name for name, text in notes.items() if query in text]
 
+    enabled = False
+
     @mcp.tool()
     async def enable_search(ctx: Context) -> str:
         """Register the `search` tool at runtime and tell subscribers the list changed."""
-        mcp.add_tool(search)
-        await ctx.notify_tools_changed()
+        nonlocal enabled
+        if not enabled:
+            enabled = True
+            mcp.add_tool(search)
+            await ctx.notify_tools_changed()
         return "search is live"
 
     return mcp

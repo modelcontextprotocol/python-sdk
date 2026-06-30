@@ -14,16 +14,24 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
 from mcp.server import Server, ServerRequestContext
 
-# `Server._handle_discover` ignores its `ctx` argument entirely (it derives the
-# result from server state), so a sentinel keeps the call site type-correct
-# without dragging session machinery into a unit test.
-_UNUSED_CTX = cast("ServerRequestContext[Any]", None)
+
+# `Server._handle_discover` reads only `ctx.protocol_version` (capabilities are
+# era-dependent), so a minimal context keeps the call site honest without
+# dragging session machinery into a unit test.
+def _ctx(protocol_version: str) -> ServerRequestContext[Any]:
+    return ServerRequestContext(
+        session=cast("Any", None),
+        lifespan_context={},
+        protocol_version=protocol_version,
+        method="server/discover",
+        request_id=1,
+    )
 
 
-async def _discover(server: Server[Any]) -> types.DiscoverResult:
+async def _discover(server: Server[Any], protocol_version: str = MODERN_PROTOCOL_VERSIONS[0]) -> types.DiscoverResult:
     entry = server.get_request_handler("server/discover")
     assert entry is not None
-    result = await entry.handler(_UNUSED_CTX, types.RequestParams())
+    result = await entry.handler(_ctx(protocol_version), types.RequestParams())
     assert isinstance(result, types.DiscoverResult)
     return result
 
@@ -149,3 +157,66 @@ async def test_overridable_via_add_request_handler() -> None:
     server.add_request_handler("server/discover", types.RequestParams, custom_discover)
     result = await _discover(server)
     assert result is custom
+
+
+async def _listen_stub(
+    ctx: ServerRequestContext[Any], params: types.SubscriptionsListenRequestParams
+) -> types.SubscriptionsListenResult:
+    raise NotImplementedError
+
+
+@pytest.mark.anyio
+async def test_modern_subscription_bits_derive_from_listen_serving() -> None:
+    """Spec-driven (SEP-2575): at 2026-07-28, change notifications exist only on
+    `subscriptions/listen` streams, so the `listChanged`/`subscribe` bits mean
+    "this server serves listen" - they flip together with the handler."""
+
+    async def list_tools(
+        ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        raise NotImplementedError
+
+    async def list_resources(
+        ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        raise NotImplementedError
+
+    server = Server("caps", on_list_tools=list_tools, on_list_resources=list_resources)
+
+    before = await _discover(server)
+    assert before.capabilities.tools is not None and before.capabilities.tools.list_changed is False
+    assert before.capabilities.resources is not None
+    assert before.capabilities.resources.subscribe is False
+    assert before.capabilities.resources.list_changed is False
+
+    server.add_request_handler("subscriptions/listen", types.SubscriptionsListenRequestParams, _listen_stub)
+
+    after = await _discover(server)
+    assert after.capabilities.tools is not None and after.capabilities.tools.list_changed is True
+    assert after.capabilities.resources is not None
+    assert after.capabilities.resources.subscribe is True
+    assert after.capabilities.resources.list_changed is True
+
+
+@pytest.mark.anyio
+async def test_legacy_capability_derivation_ignores_listen() -> None:
+    """SDK-defined: without `protocol_version`, `get_capabilities` keeps the
+    handshake-era derivation - `NotificationOptions` drives `listChanged` and the
+    `resources/subscribe` handler drives `subscribe`; a registered listen handler
+    changes nothing on that path."""
+
+    async def list_tools(
+        ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        raise NotImplementedError
+
+    server = Server("caps", on_list_tools=list_tools)
+    server.add_request_handler("subscriptions/listen", types.SubscriptionsListenRequestParams, _listen_stub)
+
+    legacy = server.get_capabilities()
+    assert legacy.tools is not None and legacy.tools.list_changed is False
+
+    from mcp.server import NotificationOptions
+
+    opted_in = server.get_capabilities(NotificationOptions(tools_changed=True))
+    assert opted_in.tools is not None and opted_in.tools.list_changed is True

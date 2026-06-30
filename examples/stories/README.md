@@ -148,6 +148,7 @@ opens with a banner saying what replaces it.
 | [`starlette_mount`](starlette_mount/) | mounting `streamable_http_app()` under a Starlette/FastAPI sub-path | current |
 | [`sse_polling`](sse_polling/) | SEP-1699 `closeSSE()` + `Last-Event-ID` resume via `EventStore` | legacy |
 | [`standalone_get`](standalone_get/) | server-initiated `list_changed` over the sessionful GET stream | legacy |
+| [`subscriptions`](subscriptions/) | `subscriptions/listen` streams: `ctx.notify_*`, `SubscriptionBus`, `ListenHandler` | current |
 | [`reconnect`](reconnect/) | explicit `discover()`, persist `DiscoverResult`, zero-RTT reconnect | current |
 | [`bearer_auth`](bearer_auth/) | `TokenVerifier` + `AuthSettings` bearer gate, PRM metadata, `get_access_token()` | current |
 | [`oauth`](oauth/) | full `authorization_code` grant against an in-process AS | current |
@@ -155,7 +156,6 @@ opens with a banner saying what replaces it.
 | [`identity_assertion`](identity_assertion/) | SEP-990 enterprise IdP flow: present an ID-JAG under the `jwt-bearer` grant | current |
 | **— deferred (README only) —** | | |
 | [`caching`](caching/) | `CacheableResult` ttl/scope hints; client honouring | not yet implemented |
-| [`subscriptions`](subscriptions/) | `subscriptions/listen`, `ServerEventBus`, `Client.listen()` | not yet implemented — [#2901](https://github.com/modelcontextprotocol/python-sdk/issues/2901) |
 | [`tasks`](tasks/) | `io.modelcontextprotocol/tasks` extension | not yet implemented |
 | [`apps`](apps/) | MCP Apps: `ui://` resource + `_meta.ui` | not yet implemented — [#2896](https://github.com/modelcontextprotocol/python-sdk/issues/2896) |
 | [`skills`](skills/) | SEP-2640 skills extension | not yet implemented — [#2896](https://github.com/modelcontextprotocol/python-sdk/issues/2896) |

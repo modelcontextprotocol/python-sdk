@@ -295,3 +295,71 @@ async def test_listen_requires_a_request_id() -> None:
 def test_close_without_open_streams_is_a_no_op() -> None:
     """SDK-defined: `close()` with nothing open does nothing."""
     ListenHandler(InMemorySubscriptionBus()).close()
+
+
+@pytest.mark.anyio
+async def test_raising_listener_is_isolated_from_others() -> None:
+    """SDK-defined: one raising listener is logged and skipped; later listeners
+    and the publishing handler are unaffected."""
+    bus = InMemorySubscriptionBus()
+
+    def bad(event: ServerEvent) -> None:
+        raise RuntimeError("boom")
+
+    seen: list[ServerEvent] = []
+    bus.subscribe(bad)
+    bus.subscribe(seen.append)
+
+    await bus.publish(ToolsListChanged())
+    assert seen == [ToolsListChanged()]
+
+
+@pytest.mark.anyio
+async def test_subscription_limit_rejects_further_streams_pre_ack() -> None:
+    """SDK-defined cap (mirrors the TypeScript SDK): past `max_subscriptions`,
+    a listen request is rejected before any ack frame."""
+    handler = ListenHandler(InMemorySubscriptionBus(), max_subscriptions=1)
+    session = _RecordingSession()
+
+    async with anyio.create_task_group() as tg:
+
+        async def run() -> None:
+            await handler(_ctx(session), _params(tools_list_changed=True))
+
+        tg.start_soon(run)
+        await session.wait_for(1)
+
+        rejected_session = _RecordingSession()
+        with pytest.raises(MCPError) as exc_info:
+            await handler(_ctx(rejected_session, request_id=8), _params())
+        assert exc_info.value.error.message == "Subscription limit reached"
+        assert rejected_session.sent == []
+
+        handler.close()
+
+
+@pytest.mark.anyio
+async def test_backlog_overflow_ends_the_stream() -> None:
+    """SDK-defined: a stream whose client stopped reading is ended at
+    `max_buffered_events` rather than buffering forever; the client re-listens."""
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus, max_buffered_events=1)
+    session = _RecordingSession()
+    results: list[SubscriptionsListenResult] = []
+
+    async with anyio.create_task_group() as tg:
+
+        async def run() -> None:
+            results.append(await handler(_ctx(session), _params(tools_list_changed=True)))
+
+        tg.start_soon(run)
+        await session.wait_for(1)
+
+        # Two publishes before the handler task resumes: the first fills the
+        # one-slot buffer, the second overflows and ends the stream.
+        await bus.publish(ToolsListChanged())
+        await bus.publish(ToolsListChanged())
+
+    delivered = [notification for notification, _ in session.sent[1:]]
+    assert len(delivered) == 1  # the buffered event still drained
+    assert results[0].meta is not None  # the stream ended with the stamped result

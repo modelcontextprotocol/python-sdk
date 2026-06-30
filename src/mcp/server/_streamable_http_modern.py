@@ -412,7 +412,10 @@ async def handle_modern_request(
         progress_token=progress_token_from_params(req.params),
     )
 
-    if json_response:
+    if json_response and req.method != "subscriptions/listen":
+        # A listen response IS a notification stream, so it always takes the
+        # SSE path below regardless of the JSON-response preference (the
+        # TypeScript and Go SDKs route it the same way).
         msg = await _to_jsonrpc_response(
             req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
         )

@@ -10,7 +10,8 @@ per-stream filtering, subscription-id tagging). Replaces the handshake-era
 The client edits a note it did not subscribe to (silence), edits the one it
 did (a tagged `notifications/resources/updated`), registers a tool at runtime
 (`notifications/tools/list_changed`, then re-lists and calls it), and finally
-closes the stream by cancelling the parked request.
+stops listening - cancelling the parked request releases the local task, and
+closing the connection ends the stream server-side.
 
 ## Run it
 
@@ -27,9 +28,10 @@ uv run python -m stories.subscriptions.client --http --server server_lowlevel
 - `client.py` — stream frames arrive as ordinary server notifications via the
   constructor-only `message_handler=`. There is no client-side listen API yet,
   so opening the stream drops to the `client.session` escape hatch; the request
-  parks for the stream's lifetime and the client closes the stream by
-  cancelling it. Every frame's `_meta["io.modelcontextprotocol/subscriptionId"]`
-  is the listen request's JSON-RPC id.
+  parks for the stream's lifetime. Cancelling it releases the local task; over
+  HTTP the server-side stream ends when the connection closes. Every frame's
+  `_meta["io.modelcontextprotocol/subscriptionId"]` is the listen request's
+  JSON-RPC id.
 - `server.py` — publishing is one `await ctx.notify_*()` line per change; the
   filter, the tagging, and the ack ordering are the SDK's job. Publishing with
   no subscribers is a no-op.

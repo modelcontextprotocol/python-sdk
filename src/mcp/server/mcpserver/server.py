@@ -293,16 +293,6 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.version
 
     @property
-    def subscriptions(self) -> SubscriptionBus:
-        """The `subscriptions/listen` event bus.
-
-        Publish a `ServerEvent` here (or via the `Context.notify_*` methods)
-        to deliver it to subscribed clients. The bus passed to the constructor,
-        or the in-process default.
-        """
-        return self._subscriptions
-
-    @property
     def session_manager(self) -> StreamableHTTPSessionManager:
         """Get the StreamableHTTP session manager.
 
@@ -413,7 +403,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
     ) -> CallToolResult | InputRequiredResult:
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
@@ -429,7 +419,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult | InputRequiredResult:
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceNotFoundError as err:
@@ -473,7 +463,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult | InputRequiredResult:
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:
@@ -895,6 +885,17 @@ class MCPServer(Generic[LifespanResultT]):
             prompt: A Prompt instance to add
         """
         self._prompt_manager.add_prompt(prompt)
+
+    def remove_prompt(self, name: str) -> None:
+        """Remove a prompt from the server by name.
+
+        Args:
+            name: The name of the prompt to remove
+
+        Raises:
+            ValueError: If the prompt does not exist
+        """
+        self._prompt_manager.remove_prompt(name)
 
     def prompt(
         self,

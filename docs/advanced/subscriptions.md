@@ -57,7 +57,7 @@ class RedisSubscriptionBus:
 mcp = MCPServer("Notebook", subscriptions=RedisSubscriptionBus(...))
 ```
 
-The bus carries typed `ServerEvent` values — four small dataclasses — never JSON-RPC. Stamping, filtering, and stream lifecycles stay in the SDK, so a bus implementation cannot break the protocol; it can only move events between processes. The same instance is reachable as `mcp.subscriptions`, which is also how you publish from outside a request: `await mcp.subscriptions.publish(ToolsListChanged())`.
+The bus carries typed `ServerEvent` values — four small dataclasses — never JSON-RPC. Stamping, filtering, and stream lifecycles stay in the SDK, so a bus implementation cannot break the protocol; it can only move events between processes. To publish from outside a request, keep a reference to the bus you constructed and `await bus.publish(ToolsListChanged())` — the server holds the same instance.
 
 ## The low-level composition
 

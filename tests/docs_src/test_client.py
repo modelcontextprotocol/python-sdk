@@ -121,11 +121,12 @@ async def test_read_resource_fills_in_a_template() -> None:
         assert contents.text == "3 books filed under poetry."
 
 
-async def test_mcpserver_does_not_implement_resource_subscriptions() -> None:
-    """The Resources section: MCPServer advertises subscribe=False and rejects subscribe_resource with -32601."""
+async def test_resource_subscriptions_are_listen_based_on_the_modern_wire() -> None:
+    """The Resources section: at 2026-07-28 `resources.subscribe` is True (served via
+    subscriptions/listen) while the legacy subscribe_resource verb answers -32601."""
     async with Client(tutorial004.mcp) as client:
         assert client.server_capabilities.resources is not None
-        assert client.server_capabilities.resources.subscribe is False
+        assert client.server_capabilities.resources.subscribe is True
         with pytest.raises(MCPError) as exc_info:
             await client.subscribe_resource("catalog://genres")
         assert exc_info.value.error.code == -32601

@@ -561,12 +561,22 @@ class Server(Generic[LifespanResultT]):
         notification_options: NotificationOptions | None = None,
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
         extensions: dict[str, dict[str, Any]] | None = None,
+        *,
+        protocol_version: str | None = None,
     ) -> types.ServerCapabilities:
         """Convert existing handlers to a ServerCapabilities object.
 
         `extensions` is the SEP-2133 extension map (identifier -> settings)
         advertised under `ServerCapabilities.extensions`; it defaults to
         `self.extensions`.
+
+        `protocol_version` makes the subscription-delivered bits era-honest:
+        at 2026-07-28+ versions, change notifications are delivered only on
+        `subscriptions/listen` streams, so the `listChanged` flags and
+        `resources.subscribe` derive from whether that method is served -
+        `notification_options` and the legacy `resources/subscribe` handler
+        (which the modern wire cannot dispatch) are ignored. When omitted, the
+        handshake-era derivation applies unchanged.
         """
         notification_options = notification_options or NotificationOptions()
         prompts_capability = None
@@ -575,20 +585,29 @@ class Server(Generic[LifespanResultT]):
         logging_capability = None
         completions_capability = None
 
+        if protocol_version in MODERN_PROTOCOL_VERSIONS:
+            listen_served = "subscriptions/listen" in self._request_handlers
+            prompts_changed = tools_changed = resources_changed = subscribe = listen_served
+        else:
+            prompts_changed = notification_options.prompts_changed
+            tools_changed = notification_options.tools_changed
+            resources_changed = notification_options.resources_changed
+            subscribe = "resources/subscribe" in self._request_handlers
+
         # Set prompt capabilities if handler exists
         if "prompts/list" in self._request_handlers:
-            prompts_capability = types.PromptsCapability(list_changed=notification_options.prompts_changed)
+            prompts_capability = types.PromptsCapability(list_changed=prompts_changed)
 
         # Set resource capabilities if handler exists
         if "resources/list" in self._request_handlers:
             resources_capability = types.ResourcesCapability(
-                subscribe="resources/subscribe" in self._request_handlers,
-                list_changed=notification_options.resources_changed,
+                subscribe=subscribe,
+                list_changed=resources_changed,
             )
 
         # Set tool capabilities if handler exists
         if "tools/list" in self._request_handlers:
-            tools_capability = types.ToolsCapability(list_changed=notification_options.tools_changed)
+            tools_capability = types.ToolsCapability(list_changed=tools_changed)
 
         # Set logging capabilities if handler exists
         if "logging/setLevel" in self._request_handlers:
@@ -638,7 +657,7 @@ class Server(Generic[LifespanResultT]):
         """
         return types.DiscoverResult(
             supported_versions=list(MODERN_PROTOCOL_VERSIONS),
-            capabilities=self.get_capabilities(),
+            capabilities=self.get_capabilities(protocol_version=ctx.protocol_version),
             server_info=self.server_info,
             instructions=self.instructions,
         )

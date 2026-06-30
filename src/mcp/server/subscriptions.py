@@ -22,7 +22,7 @@ replay: a dropped stream is not resumable - clients re-listen and refetch.
 
 from __future__ import annotations
 
-import math
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -30,6 +30,7 @@ from typing import Any, Protocol
 import anyio
 import anyio.streams.memory
 from mcp_types import (
+    INTERNAL_ERROR,
     INVALID_REQUEST,
     NotificationParams,
     PromptListChangedNotification,
@@ -47,6 +48,8 @@ from mcp_types import (
 
 from mcp.server.context import ServerRequestContext
 from mcp.shared.exceptions import MCPError
+
+logger = logging.getLogger(__name__)
 
 SUBSCRIPTION_ID_META_KEY = "io.modelcontextprotocol/subscriptionId"
 """The `_meta` key carrying the subscription id on every listen-stream frame.
@@ -112,9 +115,16 @@ class InMemorySubscriptionBus:
         self._listeners: dict[object, Callable[[ServerEvent], None]] = {}
 
     async def publish(self, event: ServerEvent) -> None:
-        """Deliver `event` to every subscribed listener."""
+        """Deliver `event` to every subscribed listener.
+
+        A raising listener is logged and skipped: one bad listener must not
+        starve the others or fail the publishing handler.
+        """
         for listener in list(self._listeners.values()):
-            listener(event)
+            try:
+                listener(event)
+            except Exception:  # fan-out boundary: isolate listeners from each other
+                logger.exception("subscription listener raised; continuing")
 
     def subscribe(self, listener: Callable[[ServerEvent], None]) -> Callable[[], None]:
         """Register `listener` and return an idempotent unsubscribe callable."""
@@ -143,15 +153,19 @@ def _honored_subset(requested: SubscriptionFilter) -> SubscriptionFilter:
     )
 
 
-def _event_matches(honored: SubscriptionFilter, event: ServerEvent) -> bool:
-    """Whether `event` is within the stream's honored filter."""
+def _event_matches(honored: SubscriptionFilter, uris: frozenset[str], event: ServerEvent) -> bool:
+    """Whether `event` is within the stream's honored filter.
+
+    `uris` is the honored `resource_subscriptions` as a set: matching runs on
+    every publish, and the wire filter may name many URIs.
+    """
     if isinstance(event, ToolsListChanged):
         return honored.tools_list_changed is True
     if isinstance(event, PromptsListChanged):
         return honored.prompts_list_changed is True
     if isinstance(event, ResourcesListChanged):
         return honored.resources_list_changed is True
-    return honored.resource_subscriptions is not None and event.uri in honored.resource_subscriptions
+    return event.uri in uris
 
 
 def _event_to_notification(event: ServerEvent, meta: dict[str, Any]) -> ServerNotification:
@@ -177,10 +191,19 @@ class ListenHandler:
 
     Requires a transport that can stream a request's response (streamable
     HTTP's SSE mode).
+
+    `max_subscriptions` bounds concurrent streams (further listen requests are
+    rejected with `INTERNAL_ERROR`, before the ack). `max_buffered_events`
+    bounds each stream's event backlog: a stream whose client has stopped
+    reading is ended at the cap (the client re-listens and refetches - there
+    is no replay, so ending the stream loses nothing the backlog wasn't
+    already losing).
     """
 
-    def __init__(self, bus: SubscriptionBus) -> None:
+    def __init__(self, bus: SubscriptionBus, *, max_subscriptions: int = 1024, max_buffered_events: int = 1024) -> None:
         self._bus = bus
+        self._max_subscriptions = max_subscriptions
+        self._max_buffered_events = max_buffered_events
         self._streams: set[anyio.streams.memory.MemoryObjectSendStream[ServerEvent]] = set()
 
     async def __call__(
@@ -192,20 +215,27 @@ class ListenHandler:
         subscription_id = ctx.request_id
         if subscription_id is None:
             raise MCPError(INVALID_REQUEST, "subscriptions/listen requires a request id")
+        if len(self._streams) >= self._max_subscriptions:
+            raise MCPError(INTERNAL_ERROR, "Subscription limit reached")
         honored = _honored_subset(params.notifications)
+        honored_uris = frozenset(honored.resource_subscriptions or ())
         meta: dict[str, Any] = {SUBSCRIPTION_ID_META_KEY: subscription_id}
 
-        # Unbounded buffer so publishers never block on a slow consumer (the
-        # transport write happens in this handler task, not the publisher's).
-        send, recv = anyio.create_memory_object_stream[ServerEvent](math.inf)
+        # Buffered so publishers don't block on a slow consumer (the transport
+        # write happens in this handler task, not the publisher's). A stream
+        # whose backlog hits the cap is ended - see the class docstring.
+        send, recv = anyio.create_memory_object_stream[ServerEvent](self._max_buffered_events)
 
         def deliver(event: ServerEvent) -> None:
-            if _event_matches(honored, event):
+            if _event_matches(honored, honored_uris, event):
                 try:
                     send.send_nowait(event)
                 except anyio.ClosedResourceError:
                     # `close` closed this stream; the loop below is unwinding.
                     pass
+                except anyio.WouldBlock:
+                    logger.warning("listen stream %r backlog full; ending the stream", subscription_id)
+                    send.close()
 
         # Subscribe before sending the ack so an event published while the
         # ack write is suspended is buffered rather than lost. The ack is
@@ -232,11 +262,13 @@ class ListenHandler:
         return SubscriptionsListenResult(_meta=meta)
 
     def close(self) -> None:
-        """Gracefully end every open listen stream.
+        """Initiate graceful closure of every open listen stream.
 
-        Each stream sends its `SubscriptionsListenResult` (stamped with the
-        subscription id) as the final frame and closes - the spec's graceful
-        closure flow, signalling clients not to re-listen.
+        Each stream then drains its buffered events and sends its
+        `SubscriptionsListenResult` (stamped with the subscription id) as the
+        final frame from its own handler task - the spec's graceful closure
+        flow, signalling clients not to re-listen. This method only initiates
+        that; it does not wait for the streams to finish flushing.
         """
         for stream in list(self._streams):
             stream.close()

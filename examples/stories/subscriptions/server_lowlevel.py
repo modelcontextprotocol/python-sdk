@@ -56,7 +56,7 @@ def build_server() -> Server[Any]:
             search_enabled = True
             await bus.publish(ToolsListChanged())
             return types.CallToolResult(content=[types.TextContent(text="search is live")])
-        assert params.name == "search"
+        assert params.name == "search" and search_enabled
         matches = [name for name, text in notes.items() if args["query"] in text]
         return types.CallToolResult(content=[types.TextContent(text=", ".join(matches))])
 
