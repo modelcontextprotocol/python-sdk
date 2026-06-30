@@ -1,4 +1,5 @@
 from mcp import Client
+from mcp.client import advertise
 from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID, Apps, client_supports_apps
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.context import Context
@@ -32,7 +33,7 @@ mcp = MCPServer("clock", extensions=[apps])
 
 
 async def main() -> None:
-    async with Client(mcp, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as client:
+    async with Client(mcp, extensions=[advertise(EXTENSION_ID, {"mimeTypes": [APP_MIME_TYPE]})]) as client:
         result = await client.call_tool("get_time", {})
         print(result.content)
         # [TextContent(text='2026-06-26T12:00:00Z')]

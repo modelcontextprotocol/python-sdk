@@ -13,6 +13,7 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 
+from mcp.client import advertise
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.extension import Extension
@@ -82,7 +83,7 @@ async def test_server_accepts_capability_for_client_advertised_extension() -> No
         return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
 
     server = Server("checker", on_call_tool=call_tool, on_list_tools=list_tools)
-    async with Client(server, extensions={_EXTENSION_ID: {"mimeTypes": ["text/html"]}}) as client:
+    async with Client(server, extensions=[advertise(_EXTENSION_ID, {"mimeTypes": ["text/html"]})]) as client:
         await client.call_tool("probe", {})
 
     assert supported == [True]
@@ -105,7 +106,7 @@ async def test_server_rejects_capability_for_undeclared_extension() -> None:
         return types.ListToolsResult(tools=[types.Tool(name="probe", input_schema={"type": "object"})])
 
     server = Server("checker", on_call_tool=call_tool, on_list_tools=list_tools)
-    async with Client(server, extensions={_EXTENSION_ID: {"mimeTypes": ["text/html"]}}) as client:
+    async with Client(server, extensions=[advertise(_EXTENSION_ID, {"mimeTypes": ["text/html"]})]) as client:
         await client.call_tool("probe", {})
 
     assert supported == [False]

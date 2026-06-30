@@ -469,11 +469,42 @@ extension handler can call `mcp.server.mcpserver.require_client_extension(ctx, i
 to reject a request with the `-32021` (missing required client capability) error
 when the client did not declare the extension.
 
-Clients advertise extension support with the new `Client(extensions=...)` /
-`ClientSession(extensions=...)` argument, mirrored into `ClientCapabilities.extensions`.
-The extensions capability map is negotiated over `server/discover` (modern path);
-a legacy `initialize` handshake does not carry it. Extensions are off by default
-and never alter behaviour unless registered.
+On the client, `Client(extensions=...)` takes a sequence of
+`mcp.client.ClientExtension` instances. A client extension contributes its
+capability ad (mirrored into `ClientCapabilities.extensions`), its result
+claims (extra `tools/call` result shapes that `Client.call_tool` resolves
+transparently through the claim's resolver), and its notification bindings
+(handlers for vendor server notifications). The capability map rides
+`server/discover` and every modern request's `_meta` envelope; a legacy
+`initialize` handshake carries only the claim-less identifiers, since claimed
+result shapes cannot be delivered on a legacy wire. Extensions are off by
+default and never alter behaviour unless registered. (The low-level
+`ClientSession(extensions=...)` keeps the raw identifier-to-settings dict.)
+
+Changed in the v2 pre-releases: earlier alphas took
+`Client(extensions={identifier: settings})`, an advertisement-only dict.
+Extensions now contribute behaviour — claims and notification handlers — not
+just an ad, and a sequence of declaration objects is the shape that can carry
+that. An ad-only entry becomes an `advertise()` call:
+
+**Before (v2 alphas):**
+
+```python
+client = Client(server, extensions={"com.example/ui": {"mimeTypes": [...]}})
+```
+
+**After:**
+
+```python
+from mcp.client import advertise
+
+client = Client(server, extensions=[advertise("com.example/ui", {"mimeTypes": [...]})])
+```
+
+`advertise()` is only for identifiers with no client-side behaviour.
+For a behavioural extension — e.g. tasks, once its extension ships — construct
+that extension's object instead; advertising an identifier you do not
+implement asserts wire support you don't have.
 
 ### `McpError` renamed to `MCPError`
 

@@ -18,6 +18,7 @@ from mcp_types import (
     TextContent,
 )
 
+from mcp.client import advertise
 from mcp.client.client import Client
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import (
@@ -466,7 +467,7 @@ async def test_require_client_extension_passes_when_client_declared_it() -> None
     """SDK-defined: `require_client_extension` is a no-op when the client advertised the id."""
     server = MCPServer("test", extensions=[_RequiresExt()])
 
-    async with Client(server, extensions={_NEEDS_EXT: {}}) as client:
+    async with Client(server, extensions=[advertise(_NEEDS_EXT)]) as client:
         result = await client.call_tool("guarded", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))

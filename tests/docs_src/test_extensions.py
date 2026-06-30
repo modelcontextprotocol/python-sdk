@@ -8,6 +8,7 @@ from mcp_types import METHOD_NOT_FOUND, MISSING_REQUIRED_CLIENT_CAPABILITY, Text
 
 from docs_src.extensions import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005
 from mcp import Client, MCPError
+from mcp.client import advertise
 from mcp.server.extension import Extension
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -76,7 +77,7 @@ async def test_vendor_method_rejects_a_non_declaring_client_with_32021() -> None
 async def test_version_pinned_method_is_not_found_on_a_legacy_connection() -> None:
     """tutorial004: `protocol_versions={"2026-07-28"}` makes the method METHOD_NOT_FOUND
     at any other wire version; for a legacy client it doesn't exist."""
-    async with Client(tutorial004.mcp, mode="legacy", extensions={tutorial004.EXTENSION_ID: {}}) as client:
+    async with Client(tutorial004.mcp, mode="legacy", extensions=[advertise(tutorial004.EXTENSION_ID)]) as client:
         request = tutorial004.SearchRequest(params=tutorial004.SearchParams(query="mcp"))
         with pytest.raises(MCPError) as exc_info:
             await client.session.send_request(request, tutorial004.SearchResult)
