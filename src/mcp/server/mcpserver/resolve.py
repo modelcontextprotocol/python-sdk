@@ -28,6 +28,8 @@ Whether the consumer receives the unwrapped model or the full
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import inspect
 import types
 import typing
@@ -73,7 +75,7 @@ _ELICITATION_RESULT_MEMBERS = (AcceptedElicitation, DeclinedElicitation, Cancell
 # `InputRequiredResult` rather than as a standalone server-to-client request.
 # Pinned (not `LATEST_MODERN_VERSION`, which moves when newer revisions are added).
 _INPUT_REQUIRED_VERSION = "2026-07-28"
-_STATE_VERSION = 1
+_STATE_VERSION = 2  # v2 adds per-entry question digests
 
 
 class Resolve:
@@ -494,12 +496,19 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
     if not res.input_required:
         return await res.context.elicit(elicit.message, elicit.schema)
 
+    # Every recorded outcome - accept, decline, AND cancel - is pinned to the exact
+    # question it answered: a decline of one wording must not suppress a reworded
+    # question that reuses the same wire key after a redeploy. The digest is
+    # computed once per question per round and shared by restore and persist.
+    q = _question_digest(elicit)
+
     # A recorded outcome from a prior round is consulted only here, after the body
     # decided to ask, so a `request_state` entry can never stand in for a resolver's
-    # own computation. Re-validate it against the live `Elicit.schema`. A recorded
-    # outcome wins over a re-sent answer; an invalid entry self-deletes and falls
-    # through to the fresh answer (or to re-asking).
-    outcome = _restore_outcome(res, key, elicit.schema)
+    # own computation. It is honored only for the exact question being asked, and
+    # accept data is re-validated against the live `Elicit.schema`. A recorded
+    # outcome wins over a re-sent answer; a stale or invalid entry self-deletes and
+    # falls through to the fresh answer (or to re-asking).
+    outcome = _restore_outcome(res, key, elicit.schema, q)
     if outcome is not None:
         return outcome
 
@@ -521,12 +530,12 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
             ) from e
         # Persist the exact wire content that just passed validation - never the
         # model - so restoring next round revalidates the same bytes the client sent.
-        res.persist[key] = _StateEntry(action="accept", data=answer.content)
+        res.persist[key] = _StateEntry(action="accept", data=answer.content, q=q)
         return AcceptedElicitation(data=data)
     if answer.action == "decline":
-        res.persist[key] = _StateEntry(action="decline")
+        res.persist[key] = _StateEntry(action="decline", q=q)
         return DeclinedElicitation()
-    res.persist[key] = _StateEntry(action="cancel")
+    res.persist[key] = _StateEntry(action="cancel", q=q)
     return CancelledElicitation()
 
 
@@ -595,6 +604,21 @@ class _StateEntry(BaseModel):
 
     action: Literal["accept", "decline", "cancel"]
     data: Any = None
+    q: str | None = None
+    """Digest of the exact rendered question this outcome answered."""
+
+
+def _question_digest(elicit: Elicit[Any]) -> str:
+    """Pin an outcome to the exact rendered question the client was shown.
+
+    Computed over the rendered ElicitRequest params bytes - the same bytes the
+    client displayed - so a recorded outcome survives only as long as the
+    question is byte-identical. A redeploy that rewords the message or changes
+    the schema re-asks instead of silently reusing a stale answer.
+    """
+    rendered = _elicit_request(elicit).params.model_dump_json(by_alias=True, exclude_none=True)
+    digest = hashlib.sha256(rendered.encode()).digest()[:16]
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
 class _State(BaseModel):
@@ -607,8 +631,11 @@ class _State(BaseModel):
 def _decode_state(request_state: str | None) -> dict[str, _StateEntry]:
     """Decode the per-call resolution progress from `request_state`.
 
-    `request_state` is client-trusted (integrity sealing is a follow-up); validate
-    it through `_State` and treat anything malformed as "no progress yet".
+    The string arrives boundary-authenticated (the middleware only forwards
+    plaintext this server minted), so anything malformed or version-mismatched
+    here is inner-format drift within the operator's own fleet - e.g. a rolling
+    upgrade - where treating it as "no progress yet" and re-asking is exactly
+    right.
     """
     if not request_state:
         return {}
@@ -642,12 +669,15 @@ def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel]) -> Elicitat
     return _accepted(schema.model_validate(entry.data))
 
 
-def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel]) -> ElicitationResult[Any] | None:
+def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel], q: str) -> ElicitationResult[Any] | None:
     """Restore `key`'s recorded outcome from a prior round, or `None` when absent.
 
-    `request_state` is client-trusted, so an entry whose data fails validation gets
-    the `_decode_state` treatment - dropped as if no progress was recorded, so the
-    question is asked again - rather than surfacing a validation error.
+    An entry is honored only for the exact question being asked - `q` is the
+    live question's digest, precomputed by the caller: one pinned to a different
+    rendered question (the server reworded or reshaped it since the outcome was
+    recorded), or whose accepted data fails validation against the live
+    `schema`, is dropped as if no progress was recorded - so the question is
+    asked again - rather than surfacing an error.
 
     Carries the original decoded entry forward unchanged in `res.persist`: if a
     later resolver is still pending, the next round's `request_state` is built from
@@ -656,6 +686,9 @@ def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel]) -> Eli
     """
     entry = res.state.get(key)
     if entry is None:
+        return None
+    if entry.q != q:
+        del res.state[key]
         return None
     try:
         outcome = _outcome_from_state(entry, schema)

@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable
 from datetime import datetime
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Annotated, Any, Literal, TypeVar, cast
 
 import anyio
 import pytest
@@ -23,14 +23,18 @@ from typing_extensions import TypeAliasType
 
 from mcp import Client, InputRequiredRoundsExceededError
 from mcp.client import ClientRequestContext
+from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import (
     AcceptedElicitation,
+    AESGCMRequestStateCodec,
     CancelledElicitation,
     Context,
     DeclinedElicitation,
     Elicit,
     ElicitationResult,
     MCPServer,
+    RequestStateBoundary,
+    RequestStateSecurity,
     Resolve,
 )
 from mcp.server.mcpserver.exceptions import InvalidSignature
@@ -39,6 +43,7 @@ from mcp.server.mcpserver.resolve import (
     _decode_state,
     _encode_state,
     _outcome_from_state,
+    _question_digest,
     _resolver_key,
     _state_key,
     _StateEntry,
@@ -126,9 +131,55 @@ def _answer_round(
     return responses
 
 
+# A fixed key so tests can unseal the wire `request_state` a server minted (and
+# seal crafted state a server will accept): the boundary's claims envelope
+# carries the inner plaintext state as the "s" claim. Servers under test whose
+# wire state a test reads or writes are constructed with
+# `RequestStateSecurity(keys=[_PIN_KEY])`.
+_PIN_KEY = b"0123456789abcdef0123456789abcdef"
+
+
+def _unseal_inner(request_state: str | None) -> str:
+    """Unseal a wire `request_state` minted under `_PIN_KEY` into the inner plaintext state."""
+    assert request_state is not None
+    claims = json.loads(AESGCMRequestStateCodec([_PIN_KEY]).unseal(request_state))
+    inner = claims["s"]
+    assert isinstance(inner, str)
+    return inner
+
+
+def _outcomes_on_the_wire(request_state: str | None) -> dict[str, Any]:
+    """Unseal a wire `request_state` minted under `_PIN_KEY` and return its outcomes."""
+    return json.loads(_unseal_inner(request_state))["outcomes"]
+
+
+def _sealed_state(inner: str, *, tool: str, args: dict[str, Any], audience: str) -> str:
+    """Seal a hand-built inner state exactly as the boundary does for a `tools/call` retry.
+
+    Goes through the production `RequestStateBoundary._seal` so the claims
+    envelope cannot drift from what the server-side unseal verifies. The claims
+    bind method + tool + arguments + audience (and no principal: the in-memory
+    transport is unauthenticated, so both seal and unseal derive None), so the
+    test must then call exactly `tool` with exactly `args` on the MCPServer
+    named `audience` (the server name is the boundary's default audience).
+    """
+    ctx = ServerRequestContext(
+        session=cast("Any", None),
+        lifespan_context={},
+        protocol_version="2026-07-28",
+        method="tools/call",
+        params={"name": tool, "arguments": args},
+    )
+    return RequestStateBoundary(RequestStateSecurity(keys=[_PIN_KEY]), default_audience=audience)._seal(ctx, inner)
+
+
+def _wire_key(fn: Callable[..., Any]) -> str:
+    return f"{fn.__module__}:{fn.__qualname__}"
+
+
 @pytest.mark.anyio
 async def test_resolver_returns_value_directly_without_eliciting():
-    mcp = MCPServer(name="Direct")
+    mcp = MCPServer(name="Direct", request_state_security=RequestStateSecurity.ephemeral())
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
         username = (ctx.headers or {}).get("x-github-user")
@@ -149,7 +200,7 @@ async def test_resolver_returns_value_directly_without_eliciting():
 
 @pytest.mark.anyio
 async def test_resolver_elicits_and_injects_unwrapped_model_on_accept():
-    mcp = MCPServer(name="Accept")
+    mcp = MCPServer(name="Accept", request_state_security=RequestStateSecurity.ephemeral())
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
         return Elicit("GitHub username?", Login)
@@ -164,7 +215,7 @@ async def test_resolver_elicits_and_injects_unwrapped_model_on_accept():
 
 @pytest.mark.anyio
 async def test_consumer_receives_result_union_and_branches():
-    mcp = MCPServer(name="Union")
+    mcp = MCPServer(name="Union", request_state_security=RequestStateSecurity.ephemeral())
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
         return Elicit("GitHub username?", Login)
@@ -183,7 +234,7 @@ async def test_consumer_receives_result_union_and_branches():
 
 @pytest.mark.anyio
 async def test_decline_reaches_union_consumer_without_aborting():
-    mcp = MCPServer(name="UnionDecline")
+    mcp = MCPServer(name="UnionDecline", request_state_security=RequestStateSecurity.ephemeral())
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
         return Elicit("GitHub username?", Login)
@@ -202,7 +253,7 @@ async def test_decline_reaches_union_consumer_without_aborting():
 
 @pytest.mark.anyio
 async def test_decline_aborts_when_consumer_wants_unwrapped():
-    mcp = MCPServer(name="UnwrappedDecline")
+    mcp = MCPServer(name="UnwrappedDecline", request_state_security=RequestStateSecurity.ephemeral())
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
         return Elicit("GitHub username?", Login)
@@ -220,7 +271,7 @@ async def test_decline_aborts_when_consumer_wants_unwrapped():
 
 @pytest.mark.anyio
 async def test_nested_resolver_sees_dependency_and_tool_args():
-    mcp = MCPServer(name="Nested")
+    mcp = MCPServer(name="Nested", request_state_security=RequestStateSecurity.ephemeral())
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
         return Elicit("GitHub username?", Login)
@@ -251,7 +302,7 @@ async def test_nested_resolver_sees_dependency_and_tool_args():
 
 @pytest.mark.anyio
 async def test_resolver_runs_once_for_two_consumers():
-    mcp = MCPServer(name="ExactlyOnce")
+    mcp = MCPServer(name="ExactlyOnce", request_state_security=RequestStateSecurity.ephemeral())
     elicit_count = 0
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
@@ -281,7 +332,7 @@ async def test_resolver_runs_once_for_two_consumers():
 
 @pytest.mark.anyio
 async def test_sync_resolver():
-    mcp = MCPServer(name="Sync")
+    mcp = MCPServer(name="Sync", request_state_security=RequestStateSecurity.ephemeral())
 
     def login(ctx: Context) -> Login:
         return Login(username="sync-user")
@@ -428,7 +479,7 @@ def test_callable_object_resolver_error_uses_type_name():
 
 @pytest.mark.anyio
 async def test_by_name_resolver_param_uses_aliased_tool_arg():
-    mcp = MCPServer(name="Aliased")
+    mcp = MCPServer(name="Aliased", request_state_security=RequestStateSecurity.ephemeral())
 
     # `schema` collides with a BaseModel attribute, so func_metadata aliases the field;
     # the runtime kwarg key is the alias, which is what a by-name resolver must match.
@@ -448,7 +499,7 @@ async def test_by_name_resolver_param_uses_aliased_tool_arg():
 
 @pytest.mark.anyio
 async def test_resolver_may_return_non_basemodel_value():
-    mcp = MCPServer(name="NonModel")
+    mcp = MCPServer(name="NonModel", request_state_security=RequestStateSecurity.ephemeral())
 
     async def get_token(ctx: Context) -> str:
         return "secret-token"
@@ -466,7 +517,7 @@ async def test_resolver_may_return_non_basemodel_value():
 
 @pytest.mark.anyio
 async def test_resolver_accepts_optional_context_annotation():
-    mcp = MCPServer(name="OptionalContext")
+    mcp = MCPServer(name="OptionalContext", request_state_security=RequestStateSecurity.ephemeral())
 
     async def whoami(ctx: Context | None) -> str:
         assert ctx is not None
@@ -485,7 +536,7 @@ async def test_resolver_accepts_optional_context_annotation():
 
 @pytest.mark.anyio
 async def test_bound_method_resolver_runs_once_across_references():
-    mcp = MCPServer(name="BoundMethod")
+    mcp = MCPServer(name="BoundMethod", request_state_security=RequestStateSecurity.ephemeral())
     calls = 0
 
     class Service:
@@ -537,7 +588,7 @@ def test_bound_method_cycle_is_detected():
 
 @pytest.mark.anyio
 async def test_resolver_and_body_see_the_same_validated_default():
-    mcp = MCPServer(name="DefaultFactory")
+    mcp = MCPServer(name="DefaultFactory", request_state_security=RequestStateSecurity.ephemeral())
     counter = {"n": 0}
 
     def next_id() -> int:
@@ -590,7 +641,7 @@ def test_resolver_key_is_stable_for_methods_and_distinct_callables():
 
 def _delete_folder_server() -> tuple[MCPServer, dict[str, list[str]]]:
     """The `delete_folder` example from docs/migration.md, wired to an in-memory fs."""
-    mcp = MCPServer(name="files")
+    mcp = MCPServer(name="files", request_state_security=RequestStateSecurity.ephemeral())
     fs: dict[str, list[str]] = {}
 
     async def confirm_delete(path: str) -> Confirm | Elicit[Confirm]:
@@ -723,7 +774,7 @@ async def test_input_required_empty_folder_completes_without_eliciting():
 
 @pytest.mark.anyio
 async def test_input_required_asks_each_question_once_while_bodies_rerun():
-    mcp = MCPServer(name="ExactlyOnceMRTR")
+    mcp = MCPServer(name="ExactlyOnceMRTR", request_state_security=RequestStateSecurity.ephemeral())
     counts = {"login": 0, "confirm": 0}
 
     async def login(ctx: Context) -> Login | Elicit[Login]:
@@ -768,7 +819,7 @@ async def test_input_required_asks_each_question_once_while_bodies_rerun():
 
 @pytest.mark.anyio
 async def test_input_required_batches_independent_elicits_in_one_round():
-    mcp = MCPServer(name="BatchedMRTR")
+    mcp = MCPServer(name="BatchedMRTR", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ask_name(ctx: Context) -> Elicit[Login]:
         return Elicit("Name?", Login)
@@ -812,7 +863,7 @@ async def test_input_required_batches_independent_elicits_in_one_round():
 async def test_auto_driver_answers_independent_questions_in_a_single_round():
     # The pure `count_round` resolver is never persisted in `request_state`, so it
     # re-runs on every round: its run count is the number of rounds the call took.
-    mcp = MCPServer(name="AutoBatch")
+    mcp = MCPServer(name="AutoBatch", request_state_security=RequestStateSecurity.ephemeral())
     rounds = 0
 
     async def count_round(ctx: Context) -> int:
@@ -907,7 +958,7 @@ def test_check_elicit_return_allows_one_arm_and_rejects_two():
 
 @pytest.mark.anyio
 async def test_non_elicitation_response_raises():
-    mcp = MCPServer(name="WrongResponse")
+    mcp = MCPServer(name="WrongResponse", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("Name?", Login)
@@ -942,7 +993,7 @@ async def test_direct_call_tool_with_non_eliciting_resolver():
     # `MCPServer.call_tool()` called directly builds a Context with no request, so
     # `ctx.protocol_version` is None. A tool whose resolvers never elicit must still
     # work there (regression: it used to raise "Context is not available").
-    mcp = MCPServer(name="Direct")
+    mcp = MCPServer(name="Direct", request_state_security=RequestStateSecurity.ephemeral())
 
     async def whoami(ctx: Context) -> Login:
         return Login(username="direct")
@@ -959,7 +1010,7 @@ async def test_direct_call_tool_with_non_eliciting_resolver():
 
 @pytest.mark.anyio
 async def test_two_instances_of_one_method_do_not_collide():
-    mcp = MCPServer(name="Instances")
+    mcp = MCPServer(name="Instances", request_state_security=RequestStateSecurity.ephemeral())
 
     class Service:
         def __init__(self, name: str) -> None:
@@ -985,7 +1036,7 @@ async def test_two_instances_of_one_method_do_not_collide():
 
 @pytest.mark.anyio
 async def test_non_serializable_sibling_resolver_does_not_break_rounds():
-    mcp = MCPServer(name="NonSerializable")
+    mcp = MCPServer(name="NonSerializable", request_state_security=RequestStateSecurity.ephemeral())
 
     async def clock(ctx: Context) -> datetime:
         return datetime(2026, 1, 1)
@@ -1013,7 +1064,7 @@ async def test_non_serializable_sibling_resolver_does_not_break_rounds():
 async def test_bare_elicit_dependency_restored_as_model():
     # A `-> Elicit[Login]` (bare, no union) resolver feeds a dependent resolver. After
     # the round-trip the dependency must come back as a Login model, not a raw dict.
-    mcp = MCPServer(name="BareElicitDep")
+    mcp = MCPServer(name="BareElicitDep", request_state_security=RequestStateSecurity.ephemeral())
 
     async def login(ctx: Context) -> Elicit[Login]:
         return Elicit("user?", Login)
@@ -1045,7 +1096,7 @@ async def test_bare_elicit_dependency_restored_as_model():
 async def test_accept_with_no_content_is_an_error_not_a_cancel(mode: Literal["legacy", "auto"]):
     # Both transports must agree: mode="legacy" elicits synchronously mid-call,
     # mode="auto" rides the 2026-07-28 input_required loop.
-    mcp = MCPServer(name="AcceptNoContent")
+    mcp = MCPServer(name="AcceptNoContent", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("user?", Login)
@@ -1069,7 +1120,7 @@ async def test_eliciting_tool_without_client_capability_is_a_protocol_error():
     # The server must not send an `input_requests` entry the client has not declared
     # capability for: with no `elicitation` declared (no callback), the call fails as
     # a -32021 protocol error, not a CallToolResult execution failure.
-    mcp = MCPServer(name="NoElicitationCapability")
+    mcp = MCPServer(name="NoElicitationCapability", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("user?", Login)
@@ -1088,7 +1139,7 @@ async def test_eliciting_tool_without_client_capability_is_a_protocol_error():
 
 @pytest.mark.anyio
 async def test_independent_nested_deps_batch_into_one_round():
-    mcp = MCPServer(name="NestedBatch")
+    mcp = MCPServer(name="NestedBatch", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ask_a(ctx: Context) -> Elicit[Login]:
         return Elicit("A name?", Login)
@@ -1135,7 +1186,7 @@ async def test_independent_nested_deps_batch_into_one_round():
 async def test_deep_chain_keeps_early_answers_across_rounds():
     # A 4-round dependency chain where an early answer (A) must survive in
     # request_state while later resolvers are asked. It must be asked exactly once.
-    mcp = MCPServer(name="DeepChain")
+    mcp = MCPServer(name="DeepChain", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ra(ctx: Context) -> Elicit[Login]:
         return Elicit("A name?", Login)
@@ -1177,7 +1228,7 @@ async def test_deep_chain_keeps_early_answers_across_rounds():
 async def test_factory_closures_get_distinct_wire_keys():
     # Two resolvers from one factory share module:qualname; they must still get
     # distinct questions and their own values (regression: they collided on the wire).
-    mcp = MCPServer(name="FactoryClosures")
+    mcp = MCPServer(name="FactoryClosures", request_state_security=RequestStateSecurity.ephemeral())
 
     def make(label: str):
         async def resolver(ctx: Context) -> Elicit[Login]:
@@ -1222,7 +1273,7 @@ async def test_eliciting_resolver_without_elicit_arm_restores_a_typed_model():
     # round flow, must still come back as a Login model (not a raw dict): restore
     # validates against the live `Elicit.schema` the body produced, not the lying
     # annotation, so a dependent resolver/tool can use its attributes.
-    mcp = MCPServer(name="LyingAnnotation")
+    mcp = MCPServer(name="LyingAnnotation", request_state_security=RequestStateSecurity.ephemeral())
 
     # Annotated without an `Elicit[T]` return arm; the body asks anyway.
     async def login(ctx: Context) -> object:
@@ -1274,7 +1325,7 @@ async def test_declined_outcome_persists_in_request_state_and_is_not_reasked():
     # A decline is recorded in `request_state` just like an accept: RB elicits only
     # after seeing RA's decline, so RA's outcome must survive into the round that
     # answers RB without RA being asked again.
-    mcp = MCPServer(name="DeclinePersists")
+    mcp = MCPServer(name="DeclinePersists", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def ra(ctx: Context) -> Elicit[Login]:
         return Elicit("user?", Login)
@@ -1308,7 +1359,7 @@ async def test_declined_outcome_persists_in_request_state_and_is_not_reasked():
         assert second.input_requests is not None
         (rb_key,) = second.input_requests  # only RB's question; RA is not re-asked
         assert rb_key != ra_key
-        assert _decode_state(second.request_state)[ra_key].action == "decline"
+        assert _outcomes_on_the_wire(second.request_state)[ra_key]["action"] == "decline"
 
         final = await client.session.call_tool(
             "act",
@@ -1325,9 +1376,9 @@ async def test_declined_outcome_persists_in_request_state_and_is_not_reasked():
 @pytest.mark.anyio
 async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
     # `input_responses` keys the server never asked for and `request_state` outcome
-    # entries matching no resolver are tolerated (both are client-supplied), and the
-    # ghost state entry is not echoed into any later round's `request_state`.
-    mcp = MCPServer(name="GhostKeys")
+    # entries matching no resolver are tolerated, and the ghost state entry is not
+    # echoed into any later round's `request_state`.
+    mcp = MCPServer(name="GhostKeys", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def ra(ctx: Context) -> Elicit[Login]:
         return Elicit("user?", Login)
@@ -1349,8 +1400,14 @@ async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
         assert first.request_state is not None
         (ra_key,) = first.input_requests
 
-        spliced = json.loads(first.request_state)
-        spliced["outcomes"]["ghost"] = {"action": "accept", "data": {"username": "spooky"}}
+        spliced = json.loads(_unseal_inner(first.request_state))
+        # A well-formed v2 entry (question digest included) under a key matching
+        # no resolver: it must be dropped for being unknown, not as malformed.
+        spliced["outcomes"]["ghost"] = {
+            "action": "accept",
+            "data": {"username": "spooky"},
+            "q": _question_digest(Elicit("user?", Login)),
+        }
         second = await client.session.call_tool(
             "act",
             {},
@@ -1358,13 +1415,13 @@ async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
                 ra_key: ElicitResult(action="accept", content={"username": "octocat"}),
                 "ghost": ElicitResult(action="accept", content={"username": "spooky"}),
             },
-            request_state=json.dumps(spliced),
+            request_state=_sealed_state(json.dumps(spliced), tool="act", args={}, audience="GhostKeys"),
             allow_input_required=True,
         )
         assert isinstance(second, InputRequiredResult)
         assert second.input_requests is not None
         (rb_key,) = second.input_requests
-        outcomes = _decode_state(second.request_state)
+        outcomes = _outcomes_on_the_wire(second.request_state)
         assert ra_key in outcomes
         assert "ghost" not in outcomes  # the spliced entry is dropped, not carried onward
 
@@ -1389,10 +1446,11 @@ async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
     ],
 )
 async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(forged_data: str | dict[str, bool]):
-    # `request_state` is client-trusted JSON: an accept entry whose data does not
-    # validate against the resolver's schema reads as no recorded progress, so the
-    # question is asked again (not an error) and a proper answer completes the call.
-    mcp = MCPServer(name="ForgedState")
+    # Even boundary-authenticated state is not schema-trusted: an accept entry
+    # whose data does not validate against the resolver's schema reads as no
+    # recorded progress, so the question is asked again (not an error) and a
+    # proper answer completes the call.
+    mcp = MCPServer(name="ForgedState", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("user?", Login)
@@ -1408,15 +1466,24 @@ async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(for
         assert first.request_state is not None
         (key,) = first.input_requests
 
-        forged = json.loads(first.request_state)
-        forged["outcomes"][key] = {"action": "accept", "data": forged_data}
+        forged = json.loads(_unseal_inner(first.request_state))
+        # The digest matches the live question, so the forged entry survives the
+        # question-pinning gate and stands or falls on schema validation alone.
+        forged["outcomes"][key] = {
+            "action": "accept",
+            "data": forged_data,
+            "q": _question_digest(Elicit("user?", Login)),
+        }
         second = await client.session.call_tool(
-            "whoami", {}, request_state=json.dumps(forged), allow_input_required=True
+            "whoami",
+            {},
+            request_state=_sealed_state(json.dumps(forged), tool="whoami", args={}, audience="ForgedState"),
+            allow_input_required=True,
         )
         assert isinstance(second, InputRequiredResult)  # re-asked, not an error
         assert second.input_requests is not None
         assert set(second.input_requests) == {key}
-        assert _decode_state(second.request_state) == {}  # the forged entry is dropped
+        assert _outcomes_on_the_wire(second.request_state) == {}  # the forged entry is dropped
 
         final = await client.session.call_tool(
             "whoami",
@@ -1436,7 +1503,7 @@ async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_le
     # An accepted answer whose content fails the requested schema fails the call
     # with the framework's own message on both transports; pydantic's error text
     # (which carries an "errors.pydantic.dev" link) must not leak to the client.
-    mcp = MCPServer(name="MismatchedAnswer")
+    mcp = MCPServer(name="MismatchedAnswer", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("user?", Login)
@@ -1464,7 +1531,7 @@ async def test_auto_driver_gives_up_when_the_chain_outlasts_its_round_budget():
     # than the default `input_required_max_rounds`, so `client.call_tool` must raise
     # rather than loop on. The pure `count_leg` resolver is never persisted, so it
     # re-runs on every server leg: its final value is the exact number of legs.
-    mcp = MCPServer(name="TooDeep")
+    mcp = MCPServer(name="TooDeep", request_state_security=RequestStateSecurity.ephemeral())
     legs = 0
 
     async def count_leg(ctx: Context) -> int:
@@ -1514,7 +1581,7 @@ async def test_aliased_elicitation_model_round_trips_through_request_state():
     # the same validation the answer originally passed - aliases and all. A
     # re-derived (field-name) shape would fail validation on the round after
     # next, drop the stored answer, and re-ask the user forever.
-    mcp = MCPServer(name="AliasState")
+    mcp = MCPServer(name="AliasState", request_state_security=RequestStateSecurity.ephemeral())
 
     async def who(ctx: Context) -> Elicit[Handle]:
         return Elicit("handle?", Handle)
@@ -1566,7 +1633,7 @@ async def test_divergent_validation_and_serialization_aliases_round_trip():
     # the validated model (which serializes under the *serialization* alias) would
     # produce data the schema's own validation rejects, dropping the stored answer
     # on the round after next and re-asking the user.
-    mcp = MCPServer(name="DivergentAliases")
+    mcp = MCPServer(name="DivergentAliases", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def who(ctx: Context) -> Elicit[Account]:
         return Elicit("account?", Account)
@@ -1602,7 +1669,7 @@ async def test_divergent_validation_and_serialization_aliases_round_trip():
         (go_key,) = second.input_requests  # only the dependent question; the stored answer holds
         assert go_key != who_key
         # The stored entry is the client's wire content, not a re-serialization of it.
-        assert _decode_state(second.request_state)[who_key].data == {"vUser": "octocat"}
+        assert _outcomes_on_the_wire(second.request_state)[who_key]["data"] == {"vUser": "octocat"}
 
         final = await client.session.call_tool(
             "act",
@@ -1621,7 +1688,7 @@ async def test_state_entry_never_replaces_a_resolver_computed_value():
     # `request_state` is client-echoed: an accept entry under a resolver's wire key
     # must only satisfy a question the resolver is actually asking, never stand in
     # for the body's own computation on a branch that does not ask.
-    mcp = MCPServer(name="StateVsBody")
+    mcp = MCPServer(name="StateVsBody", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
     calls = {"decide": 0}
 
     async def decide(ctx: Context) -> Restock | Elicit[Restock]:
@@ -1632,11 +1699,20 @@ async def test_state_entry_never_replaces_a_resolver_computed_value():
     async def plan_restock(restock: Annotated[Restock, Resolve(decide)]) -> str:
         return str(restock.needed)
 
-    wire_key = f"{decide.__module__}:{decide.__qualname__}"
-    crafted = json.dumps({"v": 1, "outcomes": {wire_key: {"action": "accept", "data": {"needed": True}}}})
+    # A decodable v2 entry; the digest's value cannot matter because the
+    # resolver computes without asking, so there is no live question to pin to.
+    # The property is that the entry is never consulted, not that it is dropped
+    # as malformed.
+    entry = {"action": "accept", "data": {"needed": True}, "q": _question_digest(Elicit("Restock?", Restock))}
+    crafted = json.dumps({"v": 2, "outcomes": {_wire_key(decide): entry}})
 
     async with Client(mcp, elicitation_callback=_never) as client:
-        result = await client.session.call_tool("plan_restock", {}, request_state=crafted, allow_input_required=True)
+        result = await client.session.call_tool(
+            "plan_restock",
+            {},
+            request_state=_sealed_state(crafted, tool="plan_restock", args={}, audience="StateVsBody"),
+            allow_input_required=True,
+        )
         assert isinstance(result, CallToolResult)
         assert isinstance(result.content[0], TextContent)
         # The body ran and its computation won; the crafted entry was never consulted.
@@ -1648,7 +1724,7 @@ async def test_state_entry_never_replaces_a_resolver_computed_value():
 async def test_state_decline_entry_for_a_pure_resolver_is_ignored():
     # A decline/cancel entry can only answer a question; a resolver with no Elicit
     # arm never asks one, so such an entry cannot suppress its computed value.
-    mcp = MCPServer(name="PureVsDecline")
+    mcp = MCPServer(name="PureVsDecline", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def lookup(ctx: Context) -> Login:
         return Login(username="server-side")
@@ -1657,11 +1733,18 @@ async def test_state_decline_entry_for_a_pure_resolver_is_ignored():
     async def whoami(login: Annotated[Login, Resolve(lookup)]) -> str:
         return login.username
 
-    wire_key = f"{lookup.__module__}:{lookup.__qualname__}"
-    crafted = json.dumps({"v": 1, "outcomes": {wire_key: {"action": "decline"}}})
+    # A decodable v2 entry with a plausible digest: `lookup` has no Elicit arm,
+    # so no value of `q` could make this decline answer a question it asks.
+    entry = {"action": "decline", "q": _question_digest(Elicit("user?", Login))}
+    crafted = json.dumps({"v": 2, "outcomes": {_wire_key(lookup): entry}})
 
     async with Client(mcp, elicitation_callback=_never) as client:
-        result = await client.session.call_tool("whoami", {}, request_state=crafted, allow_input_required=True)
+        result = await client.session.call_tool(
+            "whoami",
+            {},
+            request_state=_sealed_state(crafted, tool="whoami", args={}, audience="PureVsDecline"),
+            allow_input_required=True,
+        )
         assert isinstance(result, CallToolResult)
         assert not result.is_error
         assert isinstance(result.content[0], TextContent)
@@ -1673,7 +1756,7 @@ async def test_dynamic_schema_resolver_restores_across_rounds():
     # `-> Elicit[BaseModel]` is the natural annotation for `create_model(...)`
     # schemas; the restored answer must validate against the live question's
     # schema, so the dynamic shape works across a multi-question chain.
-    mcp = MCPServer(name="DynamicSchema")
+    mcp = MCPServer(name="DynamicSchema", request_state_security=RequestStateSecurity.ephemeral())
     dyn = create_model("Dyn", token=(str, ...))
 
     async def first(ctx: Context) -> Elicit[BaseModel]:
@@ -1729,7 +1812,7 @@ async def test_dynamic_schema_resolver_restores_across_rounds():
 def test_tool_combining_resolvers_with_input_required_return_is_rejected(annotation: Any):
     # A call has one input_responses/request_state channel: resolver elicitation
     # and a hand-rolled InputRequiredResult body cannot share it.
-    mcp = MCPServer(name="ChannelOwnership")
+    mcp = MCPServer(name="ChannelOwnership", request_state_security=RequestStateSecurity.ephemeral())
 
     async def lookup(ctx: Context) -> Login:
         return Login(username="x")  # pragma: no cover - registration is rejected
@@ -1755,7 +1838,7 @@ def test_unevaluable_alias_and_parameterized_generics_declare_no_arm():
     # can see and must not break registration (the in-call guard still covers a
     # body that returns an InputRequiredResult anyway). A parameterized generic
     # return is never the InputRequiredResult class either.
-    mcp = MCPServer(name="RegistrationTolerance")
+    mcp = MCPServer(name="RegistrationTolerance", request_state_security=RequestStateSecurity.ephemeral())
 
     async def lookup(ctx: Context) -> Login:
         return Login(username="x")  # pragma: no cover - only registration is exercised
@@ -1778,7 +1861,7 @@ async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_er
     # The annotated form of this combination is rejected at registration; a body
     # that returns an InputRequiredResult without declaring it fails loudly at the
     # same boundary instead of silently fighting the resolvers for the channel.
-    mcp = MCPServer(name="DynamicChannelClash")
+    mcp = MCPServer(name="DynamicChannelClash", request_state_security=RequestStateSecurity.ephemeral())
 
     async def lookup(ctx: Context) -> Login:
         return Login(username="x")
@@ -1792,3 +1875,356 @@ async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_er
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
         assert "the multi-round flow is driven either by resolvers or by the tool body" in result.content[0].text
+
+
+def test_question_digest_pins_the_rendered_question():
+    # The digest is computed over the rendered wire question, so it is stable for
+    # an identical Elicit and changes when the message or the schema changes.
+    digest = _question_digest(Elicit("Name?", Login))
+    assert digest == _question_digest(Elicit("Name?", Login))
+    assert digest != _question_digest(Elicit("Your name, please?", Login))
+    assert digest != _question_digest(Elicit("Name?", Confirm))
+    # A 16-byte sha256 prefix, base64url without padding.
+    assert len(digest) == 22 and "=" not in digest
+
+
+def test_state_round_trips_question_digests_at_v2():
+    # v2 entries carry the question digest for every action; encode-decode is the
+    # identity on them. A v1 payload (a not-yet-upgraded fleet member during a
+    # rolling deploy) decodes to "no progress yet" - a graceful re-ask, not an error.
+    entries = {
+        "a": _StateEntry(action="accept", data={"username": "octocat"}, q="qa"),
+        "b": _StateEntry(action="decline", q="qb"),
+        "c": _StateEntry(action="cancel", q="qc"),
+    }
+    encoded = _encode_state(entries)
+    assert json.loads(encoded)["v"] == 2
+    assert _decode_state(encoded) == entries
+    v1 = json.dumps({"v": 1, "outcomes": {"a": {"action": "decline"}}})
+    assert _decode_state(v1) == {}
+
+
+@pytest.mark.anyio
+async def test_restored_answer_with_matching_digest_completes_without_reasking():
+    # The happy path under pinning: a stored accept answer whose question is
+    # unchanged restores on a later round and the flow completes without the
+    # question being asked a second time.
+    mcp = MCPServer(name="PinHappyPath", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def who(ctx: Context) -> Elicit[Login]:
+        return Elicit("Who?", Login)
+
+    async def check(login: Annotated[Login, Resolve(who)]) -> Elicit[Confirm]:
+        return Elicit(f"Go as {login.username}?", Confirm)
+
+    @mcp.tool()
+    async def act(
+        login: Annotated[Login, Resolve(who)],
+        confirm: Annotated[Confirm, Resolve(check)],
+    ) -> str:
+        return f"{login.username}:{confirm.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        assert set(first.input_requests) == {_wire_key(who)}
+
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(who): ElicitResult(action="accept", content={"username": "octocat"})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+        assert second.input_requests is not None
+        # Only the dependent question; the stored answer holds, "Who?" is not re-asked.
+        assert set(second.input_requests) == {_wire_key(check)}
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(check): ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat:True"
+
+
+@pytest.mark.anyio
+async def test_restored_entry_is_repersisted_with_its_question_digest_intact():
+    # An entry restored into a round that still pends is carried into that round's
+    # `request_state` unchanged - including its question digest - or the answer
+    # would be dropped and re-asked on the round after.
+    mcp = MCPServer(name="RepersistPin", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
+
+    async def who(ctx: Context) -> Elicit[Login]:
+        return Elicit("Who?", Login)
+
+    async def check(login: Annotated[Login, Resolve(who)]) -> Elicit[Confirm]:
+        return Elicit(f"Go as {login.username}?", Confirm)
+
+    async def plan(confirm: Annotated[Confirm, Resolve(check)], ctx: Context) -> Elicit[Restock]:
+        return Elicit("Restock too?", Restock)
+
+    # The test stops while a question pends, so the body never runs: a bare `...`
+    # is a constant statement the compiler eliminates - nothing for coverage to miss.
+    @mcp.tool()
+    async def act(restock: Annotated[Restock, Resolve(plan)]) -> str: ...
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(who): ElicitResult(action="accept", content={"username": "octocat"})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+        third = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(check): ElicitResult(action="accept", content={"ok": True})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(third, InputRequiredResult)
+
+    round_two = _outcomes_on_the_wire(second.request_state)
+    round_three = _outcomes_on_the_wire(third.request_state)
+    # Accept entries are pinned to the exact rendered question they answered.
+    assert round_two[_wire_key(who)]["q"] == _question_digest(Elicit("Who?", Login))
+    assert round_three[_wire_key(check)]["q"] == _question_digest(Elicit("Go as octocat?", Confirm))
+    # The restored entry rides into round 3's state exactly as round 2 stored it.
+    assert round_three[_wire_key(who)] == round_two[_wire_key(who)]
+
+
+@pytest.mark.anyio
+async def test_decline_and_cancel_entries_carry_the_question_digest():
+    mcp = MCPServer(name="PinAllActions", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
+
+    async def ask_name(ctx: Context) -> Elicit[Login]:
+        return Elicit("Name?", Login)
+
+    async def ask_confirm(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("Confirm?", Confirm)
+
+    async def ask_restock(ctx: Context) -> Elicit[Restock]:
+        return Elicit("Restock?", Restock)
+
+    # The test stops while a question pends, so the body never runs: a bare `...`
+    # is a constant statement the compiler eliminates - nothing for coverage to miss.
+    @mcp.tool()
+    async def act(
+        name: Annotated[ElicitationResult[Login], Resolve(ask_name)],
+        confirm: Annotated[ElicitationResult[Confirm], Resolve(ask_confirm)],
+        restock: Annotated[Restock, Resolve(ask_restock)],
+    ) -> str: ...
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        # Decline one question and cancel another; the third stays unanswered so the
+        # call pends and the recorded outcomes are observable on the wire.
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={
+                _wire_key(ask_name): ElicitResult(action="decline"),
+                _wire_key(ask_confirm): ElicitResult(action="cancel"),
+            },
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+
+    outcomes = _outcomes_on_the_wire(second.request_state)
+    assert outcomes[_wire_key(ask_name)]["action"] == "decline"
+    assert outcomes[_wire_key(ask_name)]["q"] == _question_digest(Elicit("Name?", Login))
+    assert outcomes[_wire_key(ask_confirm)]["action"] == "cancel"
+    assert outcomes[_wire_key(ask_confirm)]["q"] == _question_digest(Elicit("Confirm?", Confirm))
+
+
+@pytest.mark.anyio
+async def test_state_entry_without_a_question_digest_is_dropped_and_reasked():
+    # v2 semantics: an entry whose `q` is None (absent digest) cannot prove which
+    # rendered question it answered, so it reads as no recorded progress - the live
+    # question is asked again rather than honoring an unpinned answer - and a proper
+    # answer then completes the call.
+    mcp = MCPServer(name="UnpinnedEntry", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
+
+    async def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    @mcp.tool()
+    async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("whoami", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        (key,) = first.input_requests
+
+        # Schema-valid accept data under the live key, but no "q" pin.
+        entry = {"action": "accept", "data": {"username": "spooky"}}
+        crafted = json.dumps({"v": 2, "outcomes": {key: entry}})
+        second = await client.session.call_tool(
+            "whoami",
+            {},
+            request_state=_sealed_state(crafted, tool="whoami", args={}, audience="UnpinnedEntry"),
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)  # re-asked, not honored and not an error
+        assert second.input_requests is not None
+        assert set(second.input_requests) == {key}
+        assert _outcomes_on_the_wire(second.request_state) == {}  # the unpinned entry is dropped
+
+        final = await client.session.call_tool(
+            "whoami",
+            {},
+            input_responses={key: ElicitResult(action="accept", content={"username": "octocat"})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat"
+
+
+@pytest.mark.anyio
+async def test_reworded_question_drops_the_stored_answer_and_reasks():
+    # A stored accept answer is honored only while the question is byte-identical:
+    # rewording it between rounds (a redeploy) drops the entry and re-asks - a soft
+    # self-heal, never an error - while other entries in the same state survive.
+    mcp = MCPServer(name="RewordAccept", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
+    wording = {"deploy": "Deploy to prod?"}
+
+    async def ask_deploy(ctx: Context) -> Elicit[Confirm]:
+        return Elicit(wording["deploy"], Confirm)
+
+    async def ask_name(ctx: Context) -> Elicit[Login]:
+        return Elicit("Name?", Login)
+
+    @mcp.tool()
+    async def act(
+        deploy: Annotated[Confirm, Resolve(ask_deploy)],
+        name: Annotated[Login, Resolve(ask_name)],
+    ) -> str:
+        return f"{deploy.ok}:{name.username}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_deploy): ElicitResult(action="accept", content={"ok": True})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+        assert _outcomes_on_the_wire(second.request_state)[_wire_key(ask_deploy)]["q"] == _question_digest(
+            Elicit("Deploy to prod?", Confirm)
+        )
+
+        # The server rewords the question between rounds (a redeploy).
+        wording["deploy"] = "Deploy to staging?"
+
+        third = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_name): ElicitResult(action="accept", content={"username": "octocat"})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        # The stale answer is dropped and the reworded question is asked - not an error.
+        assert isinstance(third, InputRequiredResult)
+        assert third.input_requests is not None
+        assert set(third.input_requests) == {_wire_key(ask_deploy)}
+        question = third.input_requests[_wire_key(ask_deploy)].params
+        assert isinstance(question, ElicitRequestFormParams)
+        assert question.message == "Deploy to staging?"
+        # The sibling answer recorded in the same state survives the drop.
+        outcomes = _outcomes_on_the_wire(third.request_state)
+        assert _wire_key(ask_deploy) not in outcomes
+        assert outcomes[_wire_key(ask_name)]["action"] == "accept"
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_deploy): ElicitResult(action="accept", content={"ok": True})},
+            request_state=third.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "True:octocat"
+
+
+@pytest.mark.anyio
+async def test_decline_of_a_reworded_question_does_not_suppress_the_new_question():
+    # Decline entries are pinned too: a decline recorded for question A must not
+    # suppress re-asking once the question is reworded into question B.
+    mcp = MCPServer(name="RewordDecline", request_state_security=RequestStateSecurity.ephemeral())
+    wording = {"q": "Use defaults?"}
+
+    async def ask(ctx: Context) -> Elicit[Confirm]:
+        return Elicit(wording["q"], Confirm)
+
+    async def ask_name(ctx: Context) -> Elicit[Login]:
+        return Elicit("Name?", Login)
+
+    @mcp.tool()
+    async def act(
+        choice: Annotated[ElicitationResult[Confirm], Resolve(ask)],
+        name: Annotated[Login, Resolve(ask_name)],
+    ) -> str:
+        kind = "accepted" if isinstance(choice, AcceptedElicitation) else "declined"
+        return f"{kind}:{name.username}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        second = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask): ElicitResult(action="decline")},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(second, InputRequiredResult)
+
+        wording["q"] = "Use the new defaults?"
+
+        third = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask_name): ElicitResult(action="accept", content={"username": "octocat"})},
+            request_state=second.request_state,
+            allow_input_required=True,
+        )
+        # The stale decline is dropped and the reworded question is asked again.
+        assert isinstance(third, InputRequiredResult)
+        assert third.input_requests is not None
+        assert set(third.input_requests) == {_wire_key(ask)}
+        question = third.input_requests[_wire_key(ask)].params
+        assert isinstance(question, ElicitRequestFormParams)
+        assert question.message == "Use the new defaults?"
+
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask): ElicitResult(action="accept", content={"ok": True})},
+            request_state=third.request_state,
+            allow_input_required=True,
+        )
+        # Accepting the new question proves the old decline did not stick.
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "accepted:octocat"
