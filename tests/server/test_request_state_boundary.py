@@ -1082,9 +1082,13 @@ async def test_a_codec_that_raises_during_seal_yields_a_sanitized_internal_error
         async with Client(mcp) as client:
             with pytest.raises(MCPError) as exc:
                 await client.session.call_tool("deploy", {"env": "prod"}, allow_input_required=True)
-
-    assert exc.value.error.code == INTERNAL_ERROR
-    assert exc.value.error.message == "Internal error"
+            # The unseal direction of the same broken codec still maps to the frozen rejection.
+            with pytest.raises(MCPError) as inbound:
+                await _retry(client, "deploy", {"env": "prod"}, "token-this-codec-never-minted")
+            assert exc.value.error.code == INTERNAL_ERROR
+            assert exc.value.error.message == "Internal error"
+            _assert_frozen_rejection(inbound)
+    _assert_frozen_rejection(inbound)
 
 
 async def test_a_non_string_principal_fails_closed_when_sealing() -> None:
@@ -1099,9 +1103,8 @@ async def test_a_non_string_principal_fails_closed_when_sealing() -> None:
         async with Client(mcp) as client:
             with pytest.raises(MCPError) as exc:
                 await client.session.call_tool("deploy", {"env": "prod"}, allow_input_required=True)
-
-    assert exc.value.error.code == INTERNAL_ERROR
-    assert exc.value.error.message == "Internal error"
+            assert exc.value.error.code == INTERNAL_ERROR
+            assert exc.value.error.message == "Internal error"
 
 
 async def test_a_non_string_principal_fails_closed_when_verifying() -> None:
@@ -1115,9 +1118,8 @@ async def test_a_non_string_principal_fails_closed_when_verifying() -> None:
             principal[0] = 12345
             with pytest.raises(MCPError) as exc:
                 await _retry(client, "deploy", {"env": "prod"}, token)
-
-    _assert_frozen_rejection(exc)
-    assert seen == []
+            _assert_frozen_rejection(exc)
+            assert seen == []
 
 
 # -- lone surrogates: every encode on the state path is total ----------------------------
@@ -1185,7 +1187,7 @@ async def test_a_fractional_mint_instant_keeps_the_full_ttl(monkeypatch: pytest.
             clock.now = _T0 + 2.6  # 0.6s after mint, past the ttl
             with pytest.raises(MCPError) as exc:
                 await _retry(client, "deploy", {"env": "prod"}, late)
+            _assert_frozen_rejection(exc)
 
     assert isinstance(second, CallToolResult)
-    _assert_frozen_rejection(exc)
     assert seen == ["awaiting-confirm"]
