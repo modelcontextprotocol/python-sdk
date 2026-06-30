@@ -5,7 +5,7 @@ name: Docs Preview Cleanup
 # checks out PR code, so there is no untrusted-code execution risk.
 
 on:
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] never checks out PR code
     types: [closed]
 
 permissions: {}
@@ -30,7 +30,7 @@ jobs:
           # Collect matching ids across all pages first, then delete — deleting
           # mid-pagination would shift later pages and skip entries.
           ids=""
-          for page in $(seq 1 50); do
+          for page in $(seq 1 200); do
             resp=$(curl -fsS -H "Authorization: Bearer $CF_API_TOKEN" "$base?env=preview&per_page=25&page=$page")
             ids="$ids $(jq -r --arg b "$BRANCH" '.result[]? | select(.deployment_trigger.metadata.branch == $b) | .id' <<<"$resp")"
             [ "$(jq '.result | length' <<<"$resp")" -lt 25 ] && break

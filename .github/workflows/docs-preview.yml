@@ -15,7 +15,7 @@ name: Docs Preview
 #   - vars.CLOUDFLARE_PAGES_PROJECT  (existing Pages project, e.g. mcp-python-sdk-docs)
 
 on:
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] build is permission-gated and secret-isolated; see header comment
     types: [opened, reopened, synchronize]
     paths:
       - docs/**
@@ -28,7 +28,16 @@ on:
 permissions: {}
 
 concurrency:
-  group: docs-preview-pr-${{ github.event.pull_request.number || github.event.issue.number }}
+  # Workflow-level concurrency is evaluated when the run is queued — before any
+  # job-level `if:` — so an unrelated PR comment would otherwise cancel an
+  # in-flight build. Only runs that actually produce a preview share a group;
+  # everything else falls through to a unique run_id group.
+  group: >-
+    docs-preview-pr-${{
+      github.event_name == 'pull_request_target' && github.event.pull_request.number
+      || (github.event.issue.pull_request && startsWith(github.event.comment.body, '/preview-docs') && github.event.issue.number)
+      || github.run_id
+    }}
   cancel-in-progress: true
 
 jobs:
@@ -113,7 +122,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          enable-cache: true
+          # pull_request_target runs share the base-branch Actions cache; saving
+          # a cache populated while untrusted PR code ran would let it poison
+          # later trusted workflows. Mirrors publish-pypi.yml.
+          enable-cache: false
           version: 0.9.5
 
       - run: uv sync --frozen --group docs
