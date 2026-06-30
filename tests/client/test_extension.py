@@ -7,7 +7,7 @@ validation rule fires before an instance exists.
 """
 
 from dataclasses import FrozenInstanceError
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pytest
 from inline_snapshot import snapshot
@@ -140,6 +140,15 @@ def test_claim_rejects_mismatched_result_type_literal() -> None:
         _claim(model=_OtherTagResult)
 
     assert str(exc_info.value) == snapshot("_OtherTagResult.result_type must be Literal['task']")
+
+
+def test_claim_rejects_method_outside_the_closed_verb_set() -> None:
+    """SDK-defined: claims attach to `tools/call` only (the Literal is the static gate);
+    an unchecked runtime value must not fold into tools/call parsing silently."""
+    with pytest.raises(ValueError) as exc_info:
+        _claim(method=cast("Literal['tools/call']", "prompts/get"))
+
+    assert str(exc_info.value) == snapshot("claims attach to ['tools/call'] only; got method 'prompts/get'")
 
 
 def test_claim_rejects_empty_protocol_versions() -> None:

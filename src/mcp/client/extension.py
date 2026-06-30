@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, get_args
+from typing import TYPE_CHECKING, Any, Final, Generic, Literal, TypeVar, get_args
 
 from mcp_types import CORE_RESULT_TYPES, CallToolResult, InputRequiredResult, Result
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
@@ -31,6 +31,9 @@ __all__ = [
     "UnexpectedClaimedResult",
     "advertise",
 ]
+
+_CLAIM_METHODS: Final[frozenset[str]] = frozenset({"tools/call"})
+"""The closed set of verbs a claim may attach to (widened with the `method` Literal)."""
 
 ClaimedT = TypeVar("ClaimedT", bound=Result)
 NotifyParamsT = TypeVar("NotifyParamsT", bound=BaseModel)
@@ -82,6 +85,8 @@ class ResultClaim(Generic[ClaimedT]):
     protocol_versions: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
+        if self.method not in _CLAIM_METHODS:
+            raise ValueError(f"claims attach to {sorted(_CLAIM_METHODS)} only; got method {self.method!r}")
         if self.result_type in CORE_RESULT_TYPES:
             raise ValueError(f"resultType {self.result_type!r} is core protocol vocabulary")
         if issubclass(self.model, CallToolResult | InputRequiredResult):

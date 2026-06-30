@@ -277,6 +277,11 @@ def _index_claims(
                 f"result_claims key {identifier!r} has no extensions entry; a claim is only "
                 "advertised through its extension's capability ad"
             )
+        if not claims:
+            raise ValueError(
+                f"result_claims[{identifier!r}] is empty; an empty claim set would drop the "
+                "extension from the capability ad at every version — omit the key instead"
+            )
         for claim in claims:
             key = (claim.method, claim.result_type)
             if key in seen:
@@ -344,7 +349,7 @@ class ClientSession:
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
-        self._extensions = extensions
+        self._extensions = dict(extensions) if extensions is not None else None
         self._result_claims = _index_claims(result_claims, extensions)
         self._notification_bindings = _index_bindings(notification_bindings)
         self._active_claims: dict[str, ResultClaim[Any]] = {}
@@ -387,10 +392,14 @@ class ClientSession:
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
         try:
-            await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+            # Queues exist before the dispatcher can deliver: _on_notify may run as
+            # soon as the dispatcher starts, and its enqueue indexes this dict.
             for binding in self._notification_bindings.values():
                 send, receive = anyio.create_memory_object_stream[BaseModel](_NOTIFICATION_QUEUE_SIZE)
                 self._binding_queues[binding.method] = (send, receive)
+            await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+            for binding in self._notification_bindings.values():
+                _, receive = self._binding_queues[binding.method]
                 self._task_group.start_soon(self._deliver_bound_notifications, binding, receive)
         except BaseException:
             # Unwind the entered task group before propagating: a cancellation

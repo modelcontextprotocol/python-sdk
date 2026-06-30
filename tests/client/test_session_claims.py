@@ -166,6 +166,19 @@ def test_claims_keyed_to_unadvertised_extension_rejected() -> None:
     )
 
 
+def test_empty_claim_sequence_rejected() -> None:
+    """SDK-defined: an empty claim set would make the ad-filter treat the identifier as
+    claim-bearing and drop it from the capability ad at every version; "claim-less" and
+    "advertises everywhere" stay the same thing by rejecting the empty spelling."""
+    with pytest.raises(ValueError) as exc_info:
+        ClientSession(dispatcher=_RecordingDispatcher(), extensions={_TASKS_EXT: {}}, result_claims={_TASKS_EXT: []})
+
+    assert str(exc_info.value) == snapshot(
+        "result_claims['com.example/tasks'] is empty; an empty claim set would drop the "
+        "extension from the capability ad at every version — omit the key instead"
+    )
+
+
 def test_empty_settings_count_as_an_advertised_extension() -> None:
     """SDK-defined: an extension advertised with empty settings ({}) is still an ad —
     claims keyed to it construct fine."""
@@ -226,6 +239,25 @@ async def test_legacy_adopt_clears_active_claims() -> None:
                 await session.call_tool("t", {}, allow_claimed=True)
             # The rejection came from response parsing — the request did reach the wire.
             assert dispatcher.calls[-1][0] == "tools/call"
+
+
+@pytest.mark.anyio
+async def test_modern_readopt_after_legacy_reactivates_claims() -> None:
+    """SDK-defined: adoption is re-entrant in both directions — after modern→legacy→
+    modern the claims are active again and the adopt-built adapter routes claimed raws."""
+    dispatcher = _RecordingDispatcher(tool_result=_CLAIMED_TASK_RESULT)
+    session = _claims_session(dispatcher, _task_claim())
+    with anyio.fail_after(5):
+        async with session:
+            _adopt_modern(session)
+            _adopt_handshake(session)
+            assert session._call_tool_adapter is _CallToolResultAdapter
+
+            _adopt_modern(session)
+            result = await session.call_tool("t", {}, allow_claimed=True)
+
+    assert isinstance(result, _TaskResult)
+    assert session._call_tool_adapter is not _CallToolResultAdapter
 
 
 # ── The version-aware capability ad ─────────────────────────────────────────
@@ -301,6 +333,22 @@ async def test_discover_probe_ad_includes_claim_identifiers_at_the_probe_version
     assert params is not None
     capabilities = params["_meta"][CLIENT_CAPABILITIES_META_KEY]
     assert capabilities["extensions"] == {_TASKS_EXT: {}}
+
+
+@pytest.mark.anyio
+async def test_discover_probe_ad_drops_claim_identifiers_at_a_legacy_probe_version() -> None:
+    """SDK-defined: a lowlevel `send_discover` at a non-modern version string builds an
+    ad where no claim can be active, so the claim-bearing identifier drops coherently."""
+    dispatcher = _RecordingDispatcher()
+    session = _claims_session(dispatcher, _task_claim())
+    with anyio.fail_after(5):
+        async with session:
+            await session.send_discover(LATEST_HANDSHAKE_VERSION)
+
+    [(_, params, _)] = dispatcher.calls
+    assert params is not None
+    capabilities = params["_meta"][CLIENT_CAPABILITIES_META_KEY]
+    assert "extensions" not in capabilities
 
 
 # ── Routing through the adopt-built adapter ─────────────────────────────────
