@@ -2,6 +2,7 @@
 
 !!! info "You are viewing the in-development v2 documentation"
     For the current stable release, see the [v1.x documentation](https://py.sdk.modelcontextprotocol.io/).
+    Trying v2? [Tell us what you find](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) — it is the most useful thing you can do for the SDK right now.
 
 The **Model Context Protocol (MCP)** lets applications provide context to LLMs in a standardized way, separating the concern of *providing* context from the LLM interaction itself.
 
