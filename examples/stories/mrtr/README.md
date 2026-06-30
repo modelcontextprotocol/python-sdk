@@ -8,10 +8,10 @@ original `tools/call` carrying `inputResponses` and the echoed `requestState`.
 The story shows both the `Client` auto-loop (one `await call_tool`, callbacks
 fired transparently) and a manual `client.session` loop (the persistable
 form). Because `requestState` round-trips through the client, it also shows
-the security surface that protects it: the server is constructed with
-`request_state_security=RequestStateSecurity.ephemeral()`, handlers keep
-writing plaintext state, and the SDK seals it at the wire boundary. The manual
-loop tampers with the sealed token to show what a forged echo gets back.
+the security surface that protects it: `MCPServer` seals state by default
+under a process-local key, handlers keep writing plaintext, and the wire only
+ever carries an opaque token. The manual loop tampers with the sealed token to
+show what a forged echo gets back.
 
 ## Run it
 
@@ -25,15 +25,11 @@ uv run python -m stories.mrtr.client --http --server server_lowlevel
 
 ## What to look at
 
-- `server.py` `build_server`: the whole security opt-in is the single
-  constructor argument `request_state_security=RequestStateSecurity.ephemeral()`.
-  Opting in is this server's choice, since only tools with `Resolve(...)`
-  parameters are required to configure protection; a hand-built flow like
-  `deploy` would otherwise send its state across the wire as plaintext.
-  `ephemeral()` generates a key at process start, which is right for a
+- `server.py` `build_server`: no security configuration at all. The default
+  seals under a key generated at process start, which is right for a
   single-process server like this one; a fleet (multi-worker or load-balanced)
-  shares keys with `RequestStateSecurity(keys=[...])` so any instance can
-  verify state another minted.
+  shares keys with `request_state_security=RequestStateSecurity(keys=[...])`
+  so any instance can verify state another minted.
 - `server.py` `deploy`: handlers stay plaintext. The first round returns
   `InputRequiredResult(input_requests={...},
   request_state="awaiting-confirm")` and the retry asserts
@@ -54,8 +50,8 @@ uv run python -m stories.mrtr.client --http --server server_lowlevel
   The specific reason (tampered tag, expiry, wrong request, wrong principal)
   appears only in the server's log, never on the wire. The untampered token
   then completes the round normally.
-- `server_lowlevel.py`: the lowlevel tier has no construction-time
-  requirement; the same enforcement is one appended middleware:
+- `server_lowlevel.py`: the lowlevel tier doesn't seal by default; the same
+  enforcement is one appended middleware:
   `server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral(),
   default_audience=server.name))`.
 
@@ -64,7 +60,7 @@ uv run python -m stories.mrtr.client --http --server server_lowlevel
 - **Loop bound.** The auto-loop gives up after `input_required_max_rounds`
   (default 10) with `InputRequiredRoundsExceededError`; raise it on the
   `Client` ctor or drop to the manual loop.
-- **`ephemeral()` dies with the process.** The key is generated at startup and
+- **The default key dies with the process.** It is generated at startup and
   held only in memory, so a server restart (or a retry landing on a different
   instance) invalidates in-flight rounds: the client gets the same frozen
   rejection and must start the flow over. Use

@@ -128,7 +128,7 @@ opens with a banner saying what replaces it.
 | [`dual_era`](dual_era/) | one server factory serving both protocol eras; era-neutral accessors | current |
 | **— feature stories —** | | |
 | [`streaming`](streaming/) | progress notifications, in-flight logging, cancellation | current |
-| [`mrtr`](mrtr/) | `InputRequiredResult` round-trip: the `Client` auto-loop, a manual session-level loop, and `RequestStateSecurity` sealing `requestState` (a tampered echo gets one frozen error) | current |
+| [`mrtr`](mrtr/) | `InputRequiredResult` round-trip: the `Client` auto-loop, a manual session-level loop, and the default `requestState` sealing (a tampered echo gets one frozen error) | current |
 | [`legacy_elicitation`](legacy_elicitation/) | server pauses a tool to ask the user (form + url) via a push request | legacy |
 | [`refund_desk`](refund_desk/) | resolver DI: `Annotated[T, Resolve(fn)]` params filled server-side, hidden from the input schema | current |
 | [`sampling`](sampling/) | server asks the client's LLM mid-tool (push request) | deprecated |

@@ -611,7 +611,7 @@ class Client:
         persist `request_state` across process restarts — use
         `client.session.call_tool(..., allow_input_required=True)`. Persisted
         state is still subject to the server's TTL, request binding, and key
-        lifetime; an `ephemeral()` server rejects it after a restart.
+        lifetime; a server on the default process-local key rejects it after a restart.
 
         Args:
             name: The name of the tool to call.

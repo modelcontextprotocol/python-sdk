@@ -140,9 +140,11 @@ class RequestStateSecurity:
     def ephemeral(cls, *, ttl: float = 600.0, audience: str | None = None) -> RequestStateSecurity:
         """Protection under a key generated now and held only by this process.
 
-        Suits single-process deployments (stdio, one HTTP worker): state minted
-        before a restart or by another worker is rejected. Multi-instance
-        deployments must share a key via `keys=[...]`.
+        This is the policy `MCPServer` installs when `request_state_security=`
+        is omitted; call it yourself on the lowlevel tier or to set `ttl`/
+        `audience`. Suits single-process deployments (stdio, one HTTP worker):
+        state minted before a restart or by another worker is rejected.
+        Multi-instance deployments must share a key via `keys=[...]`.
         """
         return cls(keys=[os.urandom(32)], ttl=ttl, audience=audience)
 
@@ -338,9 +340,10 @@ class RequestStateBoundary:
     `default_audience` seeds the audience claim when the policy sets none, and
     must be stated explicitly: it is the service identity that stops state
     minted by another service sharing the same keys. `MCPServer` installs this
-    middleware with its server name when `request_state_security=` is supplied;
-    lowlevel `Server` users append one to `server.middleware`, passing their
-    server's name (or `None` to deliberately leave tokens audience-free).
+    middleware with its server name by default (under an ephemeral policy
+    unless `request_state_security=` supplies one); lowlevel `Server` users
+    append one to `server.middleware`, passing their server's name (or `None`
+    to deliberately leave tokens audience-free).
     """
 
     def __init__(self, security: RequestStateSecurity, *, default_audience: str | None) -> None:

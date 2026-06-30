@@ -11,7 +11,6 @@ from mcp.server.mcpserver import (
     Elicit,
     ElicitationResult,
     MCPServer,
-    RequestStateSecurity,
     Resolve,
 )
 from mcp.server.mcpserver.exceptions import ToolError
@@ -104,8 +103,9 @@ def ask_restock(
 
 
 def build_server() -> MCPServer:
-    # Resolver tools refuse to register without requestState protection; see mrtr/ for the full story.
-    mcp = MCPServer("refund-desk", request_state_security=RequestStateSecurity.ephemeral())
+    # Elicited answers ride between rounds in a requestState the SDK seals by default;
+    # see mrtr/ for the full security walk-through.
+    mcp = MCPServer("refund-desk")
 
     @mcp.tool(description="Refund an order. The amount comes from the order record, not from the caller.")
     def refund_order(

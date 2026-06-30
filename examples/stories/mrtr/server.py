@@ -2,7 +2,7 @@
 
 from mcp_types import ElicitRequest, ElicitRequestedSchema, ElicitRequestFormParams, ElicitResult, InputRequiredResult
 
-from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
+from mcp.server.mcpserver import Context, MCPServer
 from stories._hosting import run_server_from_args
 
 CONFIRM_SCHEMA: ElicitRequestedSchema = {
@@ -13,9 +13,9 @@ CONFIRM_SCHEMA: ElicitRequestedSchema = {
 
 
 def build_server() -> MCPServer:
-    # requestState round-trips through the client, so minting one requires a protection
-    # policy. ephemeral() suits single-process servers; fleets share keys=[...].
-    mcp = MCPServer("mrtr-example", request_state_security=RequestStateSecurity.ephemeral())
+    # requestState is sealed by default under a process-local key, which suits this
+    # single-process server; fleets share keys=[...] so any instance can verify.
+    mcp = MCPServer("mrtr-example")
 
     @mcp.tool(description="Deploy to an environment, asking the user to confirm first.")
     async def deploy(env: str, ctx: Context) -> str | InputRequiredResult:

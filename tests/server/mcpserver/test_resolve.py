@@ -2335,3 +2335,33 @@ async def test_recorded_answer_containing_a_lone_surrogate_survives_to_later_rou
         assert isinstance(final, CallToolResult)
         assert isinstance(final.content[0], TextContent)
         assert final.content[0].text == "oc\ud800t:True"
+
+
+@pytest.mark.anyio
+async def test_resolver_elicitation_seals_and_completes_on_a_fully_default_server():
+    # The headline default-posture invariant: a resolver tool on a bare MCPServer() -
+    # no name, no security configuration - mints sealed state and completes the round.
+    mcp = MCPServer()
+
+    async def ask(ctx: Context) -> Elicit[Confirm]:
+        return Elicit("Go?", Confirm)
+
+    @mcp.tool()
+    async def act(go: Annotated[Confirm, Resolve(ask)]) -> str:
+        return f"went:{go.ok}"
+
+    async with Client(mcp, elicitation_callback=_never) as client:
+        first = await client.session.call_tool("act", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.request_state is not None
+        assert first.request_state.startswith("v1.")
+        final = await client.session.call_tool(
+            "act",
+            {},
+            input_responses={_wire_key(ask): ElicitResult(action="accept", content={"ok": True})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "went:True"

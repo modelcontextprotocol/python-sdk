@@ -423,20 +423,6 @@ On the high-level `Client`, `call_tool`, `get_prompt`, and `read_resource` resol
 
 On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return the bare result and raise `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then drive the loop yourself with `input_responses=` / `request_state=`. `ClientSessionGroup.call_tool` accepts the same flag.
 
-### Tools with `Resolve(...)` parameters require `request_state_security=`
-
-`requestState` round-trips through the client, so what comes back is client-supplied input. `MCPServer` now requires a protection choice where the SDK authors that state itself: registering a tool that uses `Resolve(...)` parameters raises `ValueError` until you pass `request_state_security=`, because resolver state carries elicited answers the server later trusts. The one-line fix for a single-process server:
-
-```python
-from mcp.server.mcpserver import MCPServer, RequestStateSecurity
-
-mcp = MCPServer("my-server", request_state_security=RequestStateSecurity.ephemeral())
-```
-
-Multi-instance deployments share secret keys instead (`RequestStateSecurity(keys=[...])`) so every instance can verify what a sibling minted. A configured server must also be named (or pass `RequestStateSecurity(audience=...)`): the name becomes the sealed token's audience claim, so an unnamed server raises `ValueError` at construction. The choices, what gets sealed, key rotation, and custom codecs are covered in [Protecting `requestState`](advanced/multi-round-trip.md#protecting-requeststate).
-
-On a protected server the wire `requestState` is an opaque sealed token, and `ctx.request_state` returns the verified plaintext your handler originally wrote. Sealing and verification happen at the wire boundary, so handler code reads exactly what it minted. Hand-built `requestState` (a tool, prompt, or resource-template function returning `InputRequiredResult` itself) is unaffected unless you opt in, in which case it is sealed and verified automatically too.
-
 ### `call_tool` mirrors `x-mcp-header` arguments into `Mcp-Param-*` headers ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))
 
 For protocol 2026-07-28 over Streamable HTTP, a tool's input-schema property may carry an `x-mcp-header` annotation. When a tool the client has listed is called, each annotated argument is mirrored into an `Mcp-Param-<name>` request header (string verbatim, integer as decimal, boolean as `true`/`false`, base64-sentinel-wrapped when not header-safe; `null`/absent arguments are omitted). The argument is also left in the request body. `list_tools` caches a tool's annotations, so list a tool before calling it to enable mirroring; a tool the client never listed emits no `Mcp-Param-*` headers. Other transports ignore the annotation.

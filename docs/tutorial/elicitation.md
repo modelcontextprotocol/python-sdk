@@ -85,14 +85,13 @@ The booking tool above weaves the question into its own body. When the question 
 
 A parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn` before the tool body. The resolver returns the value directly when it already knows it, or returns `Elicit(...)` to have the framework ask:
 
-```python title="server.py" hl_lines="16 25-31 36-37"
+```python title="server.py" hl_lines="24-30 35-36"
 --8<-- "docs_src/elicitation/tutorial004.py"
 ```
 
 * `confirm_delete` reads the tool's own `path` argument by name, lists the folder, and **only elicits when it must** - an empty folder resolves to `Confirm(ok=True)` with no round-trip to the client.
 * `delete_folder` annotates `ElicitationResult[Confirm]`, so the framework injects the whole outcome and the tool `match`es every case: accept-and-confirm, accept-but-keep (`ok=False`), decline, cancel.
 * The `confirm` parameter never appears in the tool's input schema - the client supplies `path`, the resolver supplies `confirm`.
-* `request_state_security=` is new on this page's `MCPServer(...)`: on a 2026-07-28 connection the framework's question and its answer ride a resume token through the client, and a server with resolver tools must choose how that token is protected before it will construct. `ephemeral()` fits this single-process server; **[Protecting `requestState`](../advanced/multi-round-trip.md#protecting-requeststate)** explains the choices.
 
 Annotate the unwrapped model (`Annotated[Confirm, Resolve(confirm_delete)]`) instead when the tool doesn't need to branch: it receives the model on accept and the call aborts with an error on decline or cancel.
 

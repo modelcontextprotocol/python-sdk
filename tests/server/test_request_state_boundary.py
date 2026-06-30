@@ -33,6 +33,7 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.context import HandlerResult
 from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.server import _MISSING_AUDIENCE
 from mcp.server.request_state import (
     AESGCMRequestStateCodec,
     InvalidRequestState,
@@ -115,7 +116,10 @@ def _assert_frozen_rejection(exc: pytest.ExceptionInfo[MCPError]) -> None:
 def _manual_server(
     security: RequestStateSecurity | None, *, state: str = "awaiting-confirm", name: str = "manual"
 ) -> tuple[MCPServer, list[str | None]]:
-    """MCPServer with one manual MRTR tool: round 1 asks, the retry records the echoed `ctx.request_state`."""
+    """MCPServer with one manual MRTR tool: round 1 asks, the retry records the echoed `ctx.request_state`.
+
+    `security=None` exercises the default posture (process-local ephemeral sealing), not plaintext.
+    """
     seen: list[str | None] = []
     mcp = MCPServer(name, request_state_security=security)
 
@@ -616,11 +620,11 @@ async def test_each_round_is_resealed_with_a_fresh_token_and_a_restamped_iat(
     assert (claims_one["iat"], claims_two["iat"]) == (int(_T0), int(_T0) + 5)
 
 
-# -- unconfigured servers: plaintext passthrough (the unprotected posture) -------------
+# -- the default posture: every MCPServer seals under an ephemeral policy ---------------
 
 
-async def test_an_unconfigured_mcpserver_passes_request_state_through_verbatim() -> None:
-    """SDK-defined: an MCPServer without `request_state_security=` passes `requestState` through verbatim."""
+async def test_an_mcpserver_seals_request_state_by_default() -> None:
+    """SDK-defined: with no `request_state_security=`, an MCPServer seals under a process-local key."""
     plaintext = "plain-wizard-state"
     mcp, seen = _manual_server(None, state=plaintext)
 
@@ -628,11 +632,34 @@ async def test_an_unconfigured_mcpserver_passes_request_state_through_verbatim()
         async with Client(mcp) as client:
             first = await client.session.call_tool("deploy", {"env": "prod"}, allow_input_required=True)
             assert isinstance(first, InputRequiredResult)
-            assert first.request_state == plaintext
-            second = await _retry(client, "deploy", {"env": "prod"}, plaintext)
+            assert first.request_state is not None
+            assert first.request_state != plaintext
+            assert first.request_state.startswith("v1.")
+            with pytest.raises(MCPError) as fabricated:
+                await _retry(client, "deploy", {"env": "prod"}, plaintext)
+            second = await _retry(client, "deploy", {"env": "prod"}, first.request_state)
 
+    _assert_frozen_rejection(fabricated)
     assert isinstance(second, CallToolResult)
     assert seen == [plaintext]
+
+
+async def test_the_default_key_is_per_instance_so_servers_never_cross_accept() -> None:
+    """SDK-defined: each default MCPServer mints its own ephemeral key; another instance rejects its state."""
+    one, seen_one = _manual_server(None)
+    two, seen_two = _manual_server(None)
+
+    with anyio.fail_after(5):
+        async with Client(one) as on_one, Client(two) as on_two:
+            token = await _first_round(on_one, "deploy", {"env": "prod"})
+            with pytest.raises(MCPError) as exc:
+                await _retry(on_two, "deploy", {"env": "prod"}, token)
+            second = await _retry(on_one, "deploy", {"env": "prod"}, token)
+
+    _assert_frozen_rejection(exc)
+    assert isinstance(second, CallToolResult)
+    assert seen_one == ["awaiting-confirm"]
+    assert seen_two == []
 
 
 async def test_a_boundary_free_lowlevel_server_passes_request_state_through_verbatim() -> None:
@@ -1253,3 +1280,18 @@ async def test_default_principal_distinguishes_two_subjects_of_one_oauth_client(
         auth_context_var.reset(reset)
     assert isinstance(result, CallToolResult)
     assert seen == ["alice-secret"]
+
+
+@pytest.mark.parametrize("name", [None, ""], ids=["unnamed", "empty-string"])
+def test_a_shared_key_policy_without_a_real_name_must_set_an_audience(name: str | None) -> None:
+    """SDK-defined: explicit keys usually mean a fleet, where the audience claim is what
+    separates services; without a real name every server would stamp the same placeholder."""
+    with pytest.raises(ValueError) as excinfo:
+        MCPServer(name, request_state_security=RequestStateSecurity(keys=[_KEY]))
+    assert str(excinfo.value) == _MISSING_AUDIENCE
+
+    # Every neighboring posture constructs: the default needs no name, and a real
+    # name or an explicit audience satisfies a shared-key policy.
+    MCPServer(name)
+    MCPServer(name, request_state_security=RequestStateSecurity(keys=[_KEY], audience="svc"))
+    MCPServer("named", request_state_security=RequestStateSecurity(keys=[_KEY]))

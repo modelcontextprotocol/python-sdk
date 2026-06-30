@@ -73,7 +73,6 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resolve import find_resolved_parameters
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
     FunctionResource,
@@ -135,6 +134,15 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     auth: AuthSettings | None
 
 
+_MISSING_AUDIENCE = (
+    "request_state_security is configured but this server has no name. Sealed\n"
+    "requestState carries the server name as an audience claim, so state minted by\n"
+    "another service that shares the same keys is rejected; unnamed servers would\n"
+    "all stamp the same placeholder and the check would mean nothing. Name the\n"
+    'server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).'
+)
+
+
 def lifespan_wrapper(
     app: MCPServer[LifespanResultT],
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
@@ -145,42 +153,6 @@ def lifespan_wrapper(
             yield context
 
     return wrap
-
-
-def _format_missing_security(owner: str) -> str:
-    """The teaching error for a resolver tool registered without request-state security."""
-    return (
-        f"{owner} uses Resolve(...) parameters, so this server mints a\n"
-        "requestState carrying elicited answers that round-trips through the client. The\n"
-        "MCP spec requires that state to be integrity-protected, and rejected when\n"
-        "verification fails, whenever it can influence authorization, resource access,\n"
-        "or business logic. Configure protection:\n"
-        "\n"
-        "    MCPServer(..., request_state_security=RequestStateSecurity(keys=[key]))\n"
-        "        One or more shared secret keys (>= 32 bytes each). Required when a retry\n"
-        "        can reach a different instance (multi-worker or load-balanced HTTP).\n"
-        "        keys[0] seals, every key verifies; rotation is\n"
-        "        [old, new] -> [new, old] -> [new], each phase fully rolled out first.\n"
-        "\n"
-        "    MCPServer(..., request_state_security=RequestStateSecurity.ephemeral())\n"
-        "        A key generated at process start. Single-process deployments only\n"
-        "        (stdio, one HTTP worker): state minted before a restart, or by another\n"
-        "        instance, is rejected and the client must restart the flow.\n"
-        "\n"
-        "For your own crypto (a KMS, an existing token service), pass\n"
-        "RequestStateSecurity(codec=...).\n"
-        "\n"
-        "Spec: https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr"
-    )
-
-
-_MISSING_AUDIENCE = (
-    "request_state_security is configured but this server has no name. Sealed\n"
-    "requestState carries the server name as an audience claim, so state minted by\n"
-    "another service that shares the same keys is rejected; unnamed servers would\n"
-    "all stamp the same placeholder and the check would mean nothing. Name the\n"
-    'server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).'
-)
 
 
 class MCPServer(Generic[LifespanResultT]):
@@ -212,7 +184,6 @@ class MCPServer(Generic[LifespanResultT]):
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
     ):
         self._resource_security = resource_security
-        self._request_state_security = request_state_security
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -252,16 +223,15 @@ class MCPServer(Generic[LifespanResultT]):
         )
         # Ordering: inside OpenTelemetry (spans record the sealed wire form),
         # outside extension interceptors (extensions see plaintext).
-        if request_state_security is not None:
-            # `not name` mirrors the `name or "mcp-server"` fallback: any falsy name gets the placeholder.
+        if request_state_security is None:
+            security = RequestStateSecurity.ephemeral()
+        else:
+            # A supplied policy usually means shared keys, where the audience claim is
+            # what separates services; an unnamed server would stamp the placeholder.
             if not name and request_state_security.audience is None:
                 raise ValueError(_MISSING_AUDIENCE)
-            self._lowlevel_server.middleware.append(
-                RequestStateBoundary(request_state_security, default_audience=self.name)
-            )
-        # Constructor-supplied Tool objects bypass add_tool, so gate them here.
-        for tool in self._tool_manager.list_tools():
-            self._check_resolver_protection(tool, owner=f"Tool {tool.name!r}")
+            security = request_state_security
+        self._lowlevel_server.middleware.append(RequestStateBoundary(security, default_audience=self.name))
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -578,19 +548,6 @@ class MCPServer(Generic[LifespanResultT]):
             # If an exception happens when reading the resource, we should not leak the exception to the client.
             raise ResourceError(f"Error reading resource {uri}") from exc
 
-    def _check_resolver_protection(self, subject: Tool | Callable[..., Any], *, owner: str) -> None:
-        """Refuse a resolver-tool registration when the server has no request-state security.
-
-        The spec requires integrity protection for resolver state (SDK-authored
-        elicited answers). Manual `InputRequiredResult` flows stay ungated:
-        protection for their user-authored state is only recommended.
-        """
-        if self._request_state_security is not None:
-            return
-        resolved = subject.resolved_params if isinstance(subject, Tool) else find_resolved_parameters(subject)
-        if resolved:
-            raise ValueError(_format_missing_security(owner))
-
     def add_tool(
         self,
         fn: Callable[..., Any],
@@ -619,11 +576,7 @@ class MCPServer(Generic[LifespanResultT]):
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
-
-        Raises:
-            ValueError: If the tool uses `Resolve(...)` parameters without `request_state_security` configured.
         """
-        self._check_resolver_protection(fn, owner=f"Tool {name or fn.__name__!r}")
         self._tool_manager.add_tool(
             fn,
             name=name,
