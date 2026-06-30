@@ -423,9 +423,9 @@ On the high-level `Client`, `call_tool`, `get_prompt`, and `read_resource` resol
 
 On `ClientSession`, `call_tool` / `get_prompt` / `read_resource` still return the bare result and raise `RuntimeError` if the server requests input. Pass `allow_input_required=True` to receive the `InputRequiredResult` instead, then drive the loop yourself with `input_responses=` / `request_state=`. `ClientSessionGroup.call_tool` accepts the same flag.
 
-### Servers that mint `requestState` must configure `request_state_security=`
+### Tools with `Resolve(...)` parameters require `request_state_security=`
 
-`requestState` round-trips through the client, so what comes back is client-supplied input. `MCPServer` now requires a protection choice at construction from any server that can mint one: registering a tool that uses `Resolve(...)` parameters, or a tool, prompt, or resource-template function that declares an `InputRequiredResult` return, raises `ValueError` until you pass `request_state_security=`. The one-line fix for a single-process server:
+`requestState` round-trips through the client, so what comes back is client-supplied input. `MCPServer` now requires a protection choice where the SDK authors that state itself: registering a tool that uses `Resolve(...)` parameters raises `ValueError` until you pass `request_state_security=`, because resolver state carries elicited answers the server later trusts. The one-line fix for a single-process server:
 
 ```python
 from mcp.server.mcpserver import MCPServer, RequestStateSecurity
@@ -433,13 +433,9 @@ from mcp.server.mcpserver import MCPServer, RequestStateSecurity
 mcp = MCPServer("my-server", request_state_security=RequestStateSecurity.ephemeral())
 ```
 
-Multi-instance deployments share secret keys instead (`RequestStateSecurity(keys=[...])`) so every instance can verify what a sibling minted, and `RequestStateSecurity.unprotected()` is the explicit opt-out for manual flows where tampering can cause nothing worse than a failed request (refused at registration for `Resolve(...)` tools). The choices, what gets sealed, key rotation, and custom codecs are covered in [Protecting `requestState`](advanced/multi-round-trip.md#protecting-requeststate).
+Multi-instance deployments share secret keys instead (`RequestStateSecurity(keys=[...])`) so every instance can verify what a sibling minted. The choices, what gets sealed, key rotation, and custom codecs are covered in [Protecting `requestState`](advanced/multi-round-trip.md#protecting-requeststate).
 
-Three behavior changes ride along:
-
-* On a protected server, `ctx.request_state` returns the verified plaintext your handler originally wrote, not the wire token — sealing and verification happen at the wire boundary, so handler code reads exactly what it minted.
-* A handler that returns an `InputRequiredResult` carrying `requestState` without having declared that return type — no annotation, or annotations the registration gate cannot resolve — on a server with no `request_state_security=` now answers `-32603` *"Internal error"* instead of shipping the state unprotected. The remediation goes to the server log: declare the return type, or configure `request_state_security=`.
-* A server that never minted any state (no MRTR-capable registrations, no `request_state_security=`) now rejects any inbound `requestState` with `-32602` *"Invalid or expired requestState"* — the same frozen error every protected server answers when a token fails verification.
+On a protected server the wire `requestState` is an opaque sealed token, and `ctx.request_state` returns the verified plaintext your handler originally wrote — sealing and verification happen at the wire boundary, so handler code reads exactly what it minted. Hand-built `requestState` (a tool, prompt, or resource-template function returning `InputRequiredResult` itself) is unaffected unless you opt in, in which case it is sealed and verified automatically too.
 
 ### `call_tool` mirrors `x-mcp-header` arguments into `Mcp-Param-*` headers ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))
 

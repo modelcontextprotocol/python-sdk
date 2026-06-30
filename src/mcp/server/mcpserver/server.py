@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import enum
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -74,7 +73,7 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resolve import find_resolved_parameters, returns_input_required
+from mcp.server.mcpserver.resolve import find_resolved_parameters
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
     FunctionResource,
@@ -148,56 +147,14 @@ def lifespan_wrapper(
     return wrap
 
 
-class _MrtrCapability(enum.Enum):
-    """Why a registration can mint `requestState` (a multi-round-trip carrier)."""
-
-    RESOLVER = "uses Resolve(...) parameters"
-    DECLARED_MANUAL = "declares an InputRequiredResult return"
-
-
-def _mrtr_capability(fn: Callable[..., Any]) -> _MrtrCapability | None:
-    """Why this tool function can mint `requestState`, or None if it can't.
-
-    A function declaring both capabilities is an invalid registration that
-    `Tool.from_function` rejects with its own error (one call has one
-    input_required channel), so the gate stands aside for that combination;
-    for every valid registration at most one capability applies.
-    """
-    resolved = find_resolved_parameters(fn)
-    declared = returns_input_required(fn)
-    if resolved and declared:
-        return None
-    if resolved:
-        return _MrtrCapability.RESOLVER
-    if declared:
-        return _MrtrCapability.DECLARED_MANUAL
-    return None
-
-
-def _format_missing_security(owner: str, capability: _MrtrCapability, *, opted_out: bool) -> str:
-    """The teaching error for an MRTR-capable registration with no usable protection.
-
-    `opted_out` selects the closing block: an unconfigured server is shown the
-    `unprotected()` escape hatch; a server that already chose `unprotected()` is
-    told why a resolver tool refuses it.
-    """
-    if opted_out:
-        closing = (
-            "    Resolve(...) tools cannot opt out: their requestState carries elicited\n"
-            "    answers, which are business inputs. Use keys=[...] or .ephemeral()."
-        )
-    else:
-        closing = (
-            "    MCPServer(..., request_state_security=RequestStateSecurity.unprotected())\n"
-            "        No protection. Only valid when tampering can cause nothing worse than a\n"
-            "        failed request - not available for Resolve(...) tools, whose state\n"
-            "        carries elicited answers."
-        )
+def _format_missing_security(owner: str) -> str:
+    """The teaching error for a resolver tool registered without request-state security."""
     return (
-        f"{owner} {capability.value}, so this server mints a\n"
-        "requestState that round-trips through the client. The MCP spec requires that state\n"
-        "to be integrity-protected, and rejected when verification fails, whenever it can\n"
-        "influence authorization, resource access, or business logic. Configure protection:\n"
+        f"{owner} uses Resolve(...) parameters, so this server mints a\n"
+        "requestState carrying elicited answers that round-trips through the client. The\n"
+        "MCP spec requires that state to be integrity-protected, and rejected when\n"
+        "verification fails, whenever it can influence authorization, resource access,\n"
+        "or business logic. Configure protection:\n"
         "\n"
         "    MCPServer(..., request_state_security=RequestStateSecurity(keys=[key]))\n"
         "        One or more shared secret keys (>= 32 bytes each). Required when a retry\n"
@@ -210,7 +167,8 @@ def _format_missing_security(owner: str, capability: _MrtrCapability, *, opted_o
         "        (stdio, one HTTP worker): state minted before a restart, or by another\n"
         "        instance, is rejected and the client must restart the flow.\n"
         "\n"
-        f"{closing}\n"
+        "For your own crypto (a KMS, an existing token service), pass\n"
+        "RequestStateSecurity(codec=...).\n"
         "\n"
         "Spec: https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr"
     )
@@ -283,22 +241,23 @@ class MCPServer(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        # The boundary owns `requestState` at the wire in both directions. It is
-        # installed unconditionally so an unconfigured server fails safe (inbound
-        # state is rejected, an outbound emission is an internal error - never
-        # silent plaintext), and it is appended here - after the lowlevel server
-        # is built and before `_install_extension_interceptor` - so it sits
-        # inside OpenTelemetry (spans record the sealed wire truth) and outside
-        # extension interceptors (extensions see plaintext). The server name is
-        # the default audience, so services sharing a key reject each other's
+        # The boundary owns `requestState` at the wire in both directions when
+        # security is configured; without it, `requestState` passes through
+        # untouched (the explicitly unprotected posture). It is appended here -
+        # after the lowlevel server is built and before
+        # `_install_extension_interceptor` - so it sits inside OpenTelemetry
+        # (spans record the sealed wire truth) and outside extension
+        # interceptors (extensions see plaintext). The server name is the
+        # default audience, so services sharing a key reject each other's
         # state unless the policy names its own audience.
-        self._lowlevel_server.middleware.append(
-            RequestStateBoundary(request_state_security, default_audience=self.name)
-        )
+        if request_state_security is not None:
+            self._lowlevel_server.middleware.append(
+                RequestStateBoundary(request_state_security, default_audience=self.name)
+            )
         # Constructor-supplied Tool objects bypass `add_tool` (ToolManager
         # inserts them directly), so gate them here, before any client connects.
         for tool in self._tool_manager.list_tools():
-            self._check_mrtr_protection(tool, owner=f"Tool {tool.name!r}")
+            self._check_resolver_protection(tool, owner=f"Tool {tool.name!r}")
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -615,36 +574,29 @@ class MCPServer(Generic[LifespanResultT]):
             # If an exception happens when reading the resource, we should not leak the exception to the client.
             raise ResourceError(f"Error reading resource {uri}") from exc
 
-    def _check_mrtr_protection(self, subject: Tool | Callable[..., Any], *, owner: str) -> None:
-        """Refuse an MRTR-capable registration when the server has no request-state posture.
+    def _check_resolver_protection(self, subject: Tool | Callable[..., Any], *, owner: str) -> None:
+        """Refuse a resolver-tool registration when the server has no request-state security.
 
-        The single gate for every registration funnel; it derives the MRTR
-        capability itself. A `Tool` is judged by its stored authority -
-        `resolved_params` decides RESOLVER directly, with no combo-deferral,
-        because a hand-built Tool has no `from_function` validation to defer
-        to. A bare callable (the `add_tool`/`add_prompt`/`resource` funnels) is
-        judged by signature inspection, where `Tool.from_function`'s own combo
-        rejection takes precedence.
+        Resolver state carries elicited answers — business inputs the SDK
+        itself authors — so the spec's integrity requirement is not optional
+        for it. Manual `InputRequiredResult` flows (tools, prompts, resource
+        templates) are not gated: their state is user-authored, and an
+        unconfigured server passes it through as plaintext (protection is
+        recommended, not required).
 
         Runs before the registration reaches its manager, so a rejected
-        registration leaves no trace and the server stays usable. Raises the
-        teaching ValueError when the capability is set and the server has no
-        `request_state_security=` (or only `unprotected()`, which resolver
-        tools refuse - their state carries elicited answers).
+        registration leaves no trace and the server stays usable. A `Tool` is
+        judged by its stored `resolved_params`; a bare callable (the
+        `add_tool` funnel) by signature scan, before `Tool.from_function`
+        runs — for a function that also declares an `InputRequiredResult`
+        return (a combination `from_function` rejects), this gate fires
+        first; configuring security then surfaces the signature error.
         """
-        if isinstance(subject, Tool):
-            if subject.resolved_params:
-                capability = _MrtrCapability.RESOLVER
-            else:
-                capability = _MrtrCapability.DECLARED_MANUAL if returns_input_required(subject.fn) else None
-        else:
-            capability = _mrtr_capability(subject)
-        if capability is None:
+        if self._request_state_security is not None:
             return
-        security = self._request_state_security
-        if security is not None and not (security.is_unprotected and capability is _MrtrCapability.RESOLVER):
-            return
-        raise ValueError(_format_missing_security(owner, capability, opted_out=security is not None))
+        resolved = subject.resolved_params if isinstance(subject, Tool) else find_resolved_parameters(subject)
+        if resolved:
+            raise ValueError(_format_missing_security(owner))
 
     def add_tool(
         self,
@@ -676,12 +628,10 @@ class MCPServer(Generic[LifespanResultT]):
                 - If False, unconditionally creates an unstructured tool
 
         Raises:
-            ValueError: If the tool can mint `requestState` (it uses
-                `Resolve(...)` parameters or declares an `InputRequiredResult`
-                return) and the server was constructed without a usable
-                `request_state_security=`.
+            ValueError: If the tool uses `Resolve(...)` parameters and the
+                server was constructed without `request_state_security=`.
         """
-        self._check_mrtr_protection(fn, owner=f"Tool {name or fn.__name__!r}")
+        self._check_resolver_protection(fn, owner=f"Tool {name or fn.__name__!r}")
         self._tool_manager.add_tool(
             fn,
             name=name,
@@ -880,11 +830,9 @@ class MCPServer(Generic[LifespanResultT]):
         Raises:
             InvalidUriTemplate: If ``uri`` is not a valid RFC 6570 template.
             ValueError: If URI template parameters don't match the
-                function's parameters, if a parameter bound to a
+                function's parameters, or if a parameter bound to a
                 ``{?...}``/``{&...}`` query variable has no default
-                (the client may omit it), or if a template function declares
-                an `InputRequiredResult` return on a server constructed
-                without `request_state_security=`.
+                (the client may omit it).
             TypeError: If the decorator is applied without being called
                 (``@resource`` instead of ``@resource("uri")``).
         """
@@ -932,8 +880,6 @@ class MCPServer(Generic[LifespanResultT]):
                         f"parameter, so the matching handler parameter must declare a "
                         f"default."
                     )
-
-                self._check_mrtr_protection(fn, owner=f"Resource template {uri!r}")
 
                 # Register as template
                 self._resource_manager.add_template(
@@ -985,13 +931,7 @@ class MCPServer(Generic[LifespanResultT]):
 
         Args:
             prompt: A Prompt instance to add
-
-        Raises:
-            ValueError: If the prompt function declares an
-                `InputRequiredResult` return and the server was constructed
-                without `request_state_security=`.
         """
-        self._check_mrtr_protection(prompt.fn, owner=f"Prompt {prompt.name!r}")
         self._prompt_manager.add_prompt(prompt)
 
     def prompt(

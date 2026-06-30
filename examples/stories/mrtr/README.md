@@ -27,6 +27,9 @@ uv run python -m stories.mrtr.client --http --server server_lowlevel
 
 - `server.py` `build_server` — the whole security opt-in is one constructor
   argument: `request_state_security=RequestStateSecurity.ephemeral()`.
+  Opting in is this server's choice — only tools with `Resolve(...)`
+  parameters are required to configure protection; a hand-built flow like
+  `deploy` would otherwise send its state across the wire as plaintext.
   `ephemeral()` generates a key at process start, which is right for a
   single-process server like this one; a fleet (multi-worker or load-balanced)
   shares keys with `RequestStateSecurity(keys=[...])` so any instance can

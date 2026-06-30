@@ -8,8 +8,8 @@ that fails verification (basic/patterns/mrtr, server requirements 4-5).
 This module is the composable tier: `RequestStateBoundary` is a server middleware
 that seals every outgoing `requestState` and unseals (verifies) every inbound
 echo, so handlers and resolvers only ever see the plaintext state they minted.
-`MCPServer` installs it automatically from its `request_state_security=`
-parameter; lowlevel `Server` users append it to `Server.middleware` themselves.
+`MCPServer` installs it when its `request_state_security=` parameter is
+supplied; lowlevel `Server` users append it to `Server.middleware` themselves.
 """
 
 from __future__ import annotations
@@ -120,7 +120,6 @@ class RequestStateSecurity:
         RequestStateSecurity(keys=[secret])      # built-in AES-256-GCM, shared key(s)
         RequestStateSecurity(codec=MyKmsCodec()) # bring your own crypto
         RequestStateSecurity.ephemeral()         # process-local key; single process only
-        RequestStateSecurity.unprotected()       # explicit opt-out (read its docstring)
 
     `keys` is the rotation ring: `keys[0]` seals new state; every key may
     unseal. Zero-downtime rotation is three phases (each fully rolled out
@@ -144,7 +143,7 @@ class RequestStateSecurity:
     `default_audience`).
     """
 
-    codec: RequestStateCodec | None
+    codec: RequestStateCodec
     ttl: float
     bind_principal: Callable[[ServerRequestContext[Any, Any]], str | None] | None
     audience: str | None
@@ -157,20 +156,16 @@ class RequestStateSecurity:
         ttl: float = 600.0,
         bind_principal: Callable[[ServerRequestContext[Any, Any]], str | None] | None = authenticated_principal,
         audience: str | None = None,
-        _unprotected: bool = False,
     ) -> None:
-        if _unprotected:
-            # `unprotected()`'s spelling: no codec, no binding, no audience; `ttl` is never read.
-            self.codec = None
-            self.ttl = ttl
-            self.bind_principal = None
-            self.audience = None
-            return
         if (keys is None) == (codec is None):
             raise ValueError("RequestStateSecurity takes exactly one of keys= or codec=")
         if not (math.isfinite(ttl) and ttl > 0):
             raise ValueError(f"request-state ttl must be a positive finite number, got {ttl!r}")
-        self.codec = AESGCMRequestStateCodec(keys) if keys is not None else codec
+        if keys is not None:
+            self.codec = AESGCMRequestStateCodec(keys)
+        else:
+            assert codec is not None  # the exactly-one-of check above
+            self.codec = codec
         self.ttl = ttl
         self.bind_principal = bind_principal
         self.audience = audience
@@ -189,25 +184,6 @@ class RequestStateSecurity:
         meaning as on the main constructor.
         """
         return cls(keys=[os.urandom(32)], ttl=ttl, audience=audience)
-
-    @classmethod
-    def unprotected(cls) -> RequestStateSecurity:
-        """No protection: `requestState` crosses the wire exactly as handlers wrote it.
-
-        The spec permits this ONLY "when tampering can cause nothing worse than
-        request failure" (basic/patterns/mrtr). A client can then read, forge,
-        and replay your state at will — never put data that influences
-        authorization, resource access, or business logic in it. A server
-        configured this way fails the `input-required-result-tampered-state`
-        conformance scenario by design. Resolver-driven tools
-        (`Resolve(...)` parameters) refuse this mode at registration: their
-        state carries elicited answers, which are business inputs.
-        """
-        return cls(_unprotected=True)
-
-    @property
-    def is_unprotected(self) -> bool:
-        return self.codec is None
 
 
 _KDF_INFO = b"mcp/request-state/v1/aes-256-gcm"
@@ -371,22 +347,24 @@ def _principal_matches(claim: str, principal: str) -> bool:
 class RequestStateBoundary:
     """Server middleware sealing/unsealing `requestState` at the wire boundary.
 
-    Inbound: a request presenting `requestState` (any non-null value, on any
-    method) is handled before any extension interceptor or handler runs. On the
-    multi-round-trip carriers (tools/call, prompts/get, resources/read) the
-    value is verified (codec unseal + claims check: version, mint-time skew,
-    expiry, method, target, argument digest, audience, principal) and replaced
-    with the plaintext the server originally minted. Every other method has no
-    legal carrier for the field, so the request is rejected outright.
-    Verification failure answers a wire-level -32602 with the frozen message
-    "Invalid or expired requestState"; the underlying reason goes to the server
-    log only.
+    The boundary acts only on the multi-round-trip carriers (tools/call,
+    prompts/get, resources/read) — the only methods whose results may carry
+    `requestState`. Every other method passes through untouched: a
+    "requestState" member appearing in some other method's params is outside
+    the multi-round-trip protocol, is never verified, and must never be
+    trusted by whatever handles it.
 
-    Outbound: an `input_required` result carrying `requestState` on a
-    multi-round-trip carrier has it sealed inside a fresh claims envelope; on
-    any other method an emission is a server bug answered as an internal error,
-    never silent plaintext. Handlers and resolvers write plaintext and never
-    call the codec themselves.
+    Inbound: a carrier request presenting `requestState` (any non-null value)
+    is handled before any extension interceptor or handler runs: the value is
+    verified (codec unseal + claims check: version, mint-time skew, expiry,
+    method, target, argument digest, audience, principal) and replaced with
+    the plaintext the server originally minted. Verification failure answers a
+    wire-level -32602 with the frozen message "Invalid or expired
+    requestState"; the underlying reason goes to the server log only.
+
+    Outbound: an `input_required` result carrying `requestState` has it sealed
+    inside a fresh claims envelope. Handlers and resolvers write plaintext and
+    never call the codec themselves.
 
     `default_audience` seeds the envelope's audience claim when the policy does
     not set its own `audience`. `MCPServer` passes its server name, so two
@@ -399,34 +377,28 @@ class RequestStateBoundary:
     with `dataclasses.replace(ctx, params=...)` — the rewrite contract
     `ServerMiddleware` sanctions.
 
-    `MCPServer` installs this automatically from `request_state_security=`.
-    Lowlevel `Server` users append one to `server.middleware` — they get the
-    identical claims enforcement; nothing is private to MCPServer.
-
-    With `security=None` (an `MCPServer` that has no MRTR registrations and no
-    configuration) the boundary fails safe at runtime: inbound `requestState`
-    is rejected — this server never minted one — and an outbound emission is a
-    server bug answered as an internal error, never silent plaintext. Declared
-    MRTR surfaces never reach that branch — registration already failed at
-    construction (see the startup gate) — while statically-undetectable cases
-    (unannotated returns, TYPE_CHECKING-only annotations, wrapped functions)
-    land on the loud runtime error instead.
+    `MCPServer` installs this only when `request_state_security=` is supplied;
+    without it, `requestState` passes through untouched — the explicitly
+    unprotected posture, which the spec permits only when tampering can cause
+    nothing worse than a failed request. Protection is required only for
+    resolver tools (`Resolve(...)` parameters — state the SDK itself authors)
+    and recommended for everything else. Lowlevel `Server` users append one to
+    `server.middleware` — they get the identical claims enforcement; nothing
+    is private to MCPServer.
     """
 
-    def __init__(self, security: RequestStateSecurity | None, *, default_audience: str | None = None) -> None:
+    def __init__(self, security: RequestStateSecurity, *, default_audience: str | None = None) -> None:
         self._security = security
-        self._audience = (
-            security.audience if security is not None and security.audience is not None else default_audience
-        )
+        self._audience = security.audience if security.audience is not None else default_audience
 
     async def __call__(self, ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
+        if ctx.method not in _MRTR_METHODS:
+            return await call_next(ctx)
         binding: _RoundBinding | None = None
         if ctx.params is not None and ctx.params.get("requestState") is not None:
             # An explicit JSON null is the field's absence (a fresh flow): only
             # presented state is verified, and stripping the field is already
             # in any client's power.
-            if ctx.method not in _MRTR_METHODS:
-                _reject(ctx.method, "requestState on a non-MRTR method")
             plaintext, binding = self._unseal(ctx)
             ctx = replace(ctx, params={**ctx.params, "requestState": plaintext})
         result = await call_next(ctx)
@@ -434,17 +406,12 @@ class RequestStateBoundary:
 
     # -- inbound ------------------------------------------------------------
 
-    def _unseal(self, ctx: ServerRequestContext[Any, Any]) -> tuple[str, _RoundBinding | None]:
+    def _unseal(self, ctx: ServerRequestContext[Any, Any]) -> tuple[str, _RoundBinding]:
         assert ctx.params is not None
         wire = ctx.params["requestState"]
         if not isinstance(wire, str):
             _reject(ctx.method, "non-string requestState")
         security = self._security
-        if security is None:
-            _reject(ctx.method, "requestState received but no request_state_security is configured")
-        if security.is_unprotected:
-            return wire, None
-        assert security.codec is not None
         try:
             payload = security.codec.unseal(wire)
         except InvalidRequestState as exc:
@@ -498,14 +465,6 @@ class RequestStateBoundary:
         state = result.get("requestState") if isinstance(result, Mapping) else result.request_state
         if state is None:
             return result
-        if ctx.method not in _MRTR_METHODS:
-            logger.error(
-                "handler for %s returned an input_required result carrying requestState, but the spec "
-                "restricts InputRequiredResult to tools/call, prompts/get, and resources/read; extension "
-                "and custom methods must not mint requestState. Refusing to send it.",
-                ctx.method,
-            )
-            raise MCPError(code=INTERNAL_ERROR, message="Internal error")
         if isinstance(result, Mapping):
             if not isinstance(state, str):
                 # Only a short-circuiting middleware can put a non-string here
@@ -517,22 +476,6 @@ class RequestStateBoundary:
 
     def _seal(self, ctx: ServerRequestContext[Any, Any], state: str, binding: _RoundBinding | None = None) -> str:
         security = self._security
-        if security is None:
-            # Reachable only by an *undeclared* dynamic InputRequiredResult
-            # return (declared surfaces already failed at construction). Never
-            # emit unprotected state silently; tell the operator exactly what
-            # to do, in the log, and fail the request.
-            logger.error(
-                "handler for %s returned an InputRequiredResult with requestState, but no "
-                "request_state_security is configured on this server; refusing to send unprotected "
-                "state. Pass request_state_security=RequestStateSecurity(...) to MCPServer "
-                "(or .ephemeral() for single-process, or .unprotected() to accept the risk).",
-                ctx.method,
-            )
-            raise MCPError(code=INTERNAL_ERROR, message="Internal error")
-        if security.is_unprotected:
-            return state
-        assert security.codec is not None
         if binding is None:
             target, args_digest = _request_identity(ctx.method, ctx.params)
             try:

@@ -42,7 +42,7 @@ from mcp.client.client import Client
 from mcp.client.session import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from tests.interaction._connect import BASE_URL, mounted_app
@@ -625,7 +625,7 @@ async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_res
     """When the server returns `InputRequiredResult` carrying an elicitation,
     `Client.call_tool` routes it to `elicitation_callback` and retries
     automatically — the caller sees only the terminal `CallToolResult`."""
-    server = MCPServer("test", request_state_security=RequestStateSecurity.ephemeral())
+    server = MCPServer("test")
 
     @server.tool()
     async def greet(ctx: Context) -> str | types.InputRequiredResult:
@@ -662,7 +662,7 @@ async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_res
 async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result() -> None:
     """`InputRequiredResult` with an embedded `CreateMessageRequest` is routed
     to `sampling_callback` and the call retried with the model's reply."""
-    server = MCPServer("test", request_state_security=RequestStateSecurity.ephemeral())
+    server = MCPServer("test")
 
     @server.tool()
     async def ask(ctx: Context) -> str | types.InputRequiredResult:
@@ -707,7 +707,7 @@ async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result
 async def test_call_tool_auto_loop_dispatches_list_roots_then_returns_final_result() -> None:
     """`InputRequiredResult` with an embedded `ListRootsRequest` is routed to
     `list_roots_callback` and the call retried with the returned roots."""
-    server = MCPServer("test", request_state_security=RequestStateSecurity.ephemeral())
+    server = MCPServer("test")
 
     @server.tool()
     async def count_roots(ctx: Context) -> str | types.InputRequiredResult:
@@ -742,7 +742,7 @@ async def test_call_tool_auto_loop_round_trips_evolving_request_state_across_thr
     """A three-round flow where each `InputRequiredResult.request_state`
     encodes the round number: the driver echoes it back byte-exact, the server
     advances per round, and the elicitation callback runs once per round."""
-    server = MCPServer("test", request_state_security=RequestStateSecurity.ephemeral())
+    server = MCPServer("test")
 
     @server.tool()
     async def multi(ctx: Context) -> str | types.InputRequiredResult:
@@ -777,7 +777,7 @@ async def test_call_tool_auto_loop_raises_mcp_error_when_no_callback_registered(
     """SDK-defined: with no `elicitation_callback`, the default returns
     `ErrorData(INVALID_REQUEST, ...)` and the driver raises it as `MCPError`
     rather than retrying."""
-    server = MCPServer("test", request_state_security=RequestStateSecurity.ephemeral())
+    server = MCPServer("test")
 
     @server.tool()
     async def needs_input(ctx: Context) -> str | types.InputRequiredResult:

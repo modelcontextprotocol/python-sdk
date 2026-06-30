@@ -35,12 +35,12 @@ Everything else in that file (the explicit `input_schema`, the hand-built `CallT
 
 `tools/call` is not special: at 2026-07-28 a server may answer `prompts/get` and `resources/read` the same way. On `MCPServer`, an `@mcp.prompt()` function — or an `@mcp.resource()` **template** function — returns the `InputRequiredResult` itself and reads the retry's answers off the context:
 
-```python title="server.py" hl_lines="6 21 23 25"
+```python title="server.py" hl_lines="21 23 25"
 --8<-- "docs_src/mrtr/tutorial004.py"
 ```
 
 * The first round returns the `InputRequiredResult`. On the retry, `ctx.input_responses` holds the answers under the same keys and the function returns its ordinary result — prompt messages here, resource content for a template resource.
-* The `request_state_security=` argument is not optional: declaring an `InputRequiredResult` return means this server can mint a `requestState`, and `MCPServer` refuses to construct until you choose how to protect it. `ephemeral()` is the right answer for a single-process server like this one; **[Protecting `requestState`](#protecting-requeststate)** below covers what it does and the other choices.
+* Nothing extra is required to register this form — only `Resolve(...)` tools force a `request_state_security=` choice at construction. But if your function sets a `request_state`, what the client echoes back is client-supplied input; **[Protecting `requestState`](#protecting-requeststate)** below covers why you should configure protection anyway, and what you get when you do.
 * An `@mcp.tool()` function can return the result directly the same way, when the dependency form doesn't fit.
 * Static `@mcp.resource()` functions don't participate: they take no `Context`, so they could never read the retry. Only template resources can ask.
 * The era rules below apply unchanged: returning an `InputRequiredResult` on a pre-2026 session is the same `-32603` the warning describes.
@@ -89,9 +89,9 @@ Drop to the underlying session, where `allow_input_required=True` hands you the 
 
 Everything above treats `request_state` as an echo, and on the wire that is all it is. But the client holds it between legs — writing it down across processes is exactly what the previous section blessed — so what comes back is **client-supplied input**: it can be modified, expired, or lifted from a different call entirely. The spec requires servers to integrity-protect this state and reject the round when verification fails, whenever the state can influence authorization, resource access, or business logic.
 
-This SDK is deliberately stricter than that conditional requirement: `MCPServer` refuses to construct at all while any registration can mint a `requestState` — a `Resolve(...)` parameter, or a tool, prompt, or resource-template function declaring an `InputRequiredResult` return — until you pass `request_state_security=`. The alternative is a server that runs fine in development and ships unprotected state the first time it matters.
+The SDK requires a protection choice exactly where it authors the state itself: registering a `Resolve(...)` tool refuses to construct until you pass `request_state_security=`, because resolver state carries elicited answers the server will later trust. For state **you** build — returning `InputRequiredResult` from a tool, prompt, or resource template — nothing is required. But the echoed value is attacker-controlled input all the same, so you should configure protection there too: with `request_state_security=` set, your hand-built state is sealed and verified by the same machinery with zero code changes — write plaintext, read plaintext. Without it, your state crosses the wire exactly as written, and the spec's integrity requirement is yours to satisfy — running unconfigured is a risk you accept, not a default the SDK chose for you.
 
-There are three choices:
+There are two configurations:
 
 ```python
 from mcp.server.mcpserver import MCPServer, RequestStateSecurity
@@ -101,18 +101,15 @@ mcp = MCPServer("fleet", request_state_security=RequestStateSecurity(keys=[key])
 
 # Single process (stdio, one HTTP worker): a key generated at startup.
 mcp = MCPServer("dev", request_state_security=RequestStateSecurity.ephemeral())
-
-# No protection. Read the caveats before reaching for this.
-mcp = MCPServer("wizard", request_state_security=RequestStateSecurity.unprotected())
 ```
 
 * `keys=[...]` is the built-in encrypting codec under your secret(s). Required whenever a retry can reach a **different instance** — multi-worker or load-balanced HTTP — because every instance must be able to verify what any sibling minted.
-* `.ephemeral()` generates the key at process start. State minted before a restart, or by another instance, is rejected and the client must start the flow over — right for a single process, wrong for a fleet. The tutorial servers in these docs all use it for that reason.
-* `.unprotected()` sends state exactly as handlers wrote it and accepts whatever comes back. The spec permits this only when tampering can cause nothing worse than a failed request. `Resolve(...)` tools refuse this mode at registration: their state carries elicited answers, which are business inputs.
+* `.ephemeral()` generates the key at process start. State minted before a restart, or by another instance, is rejected and the client must start the flow over — right for a single process, wrong for a fleet. The resolver tutorials in these docs use it for that reason.
+* For your own crypto — a KMS, an existing token service — pass `RequestStateSecurity(codec=...)` instead of `keys`; **[Bring your own crypto](#bring-your-own-crypto)** below covers the contract.
 
 ### What the seal carries
 
-With either of the first two choices, `requestState` on the wire is an encrypted, authenticated token. Your code never sees it: handlers and resolvers write plaintext and read plaintext (`ctx.request_state`); the SDK seals on the way out and verifies on the way in. Beyond integrity, each token is bound to:
+With either built-in configuration, `requestState` on the wire is an encrypted, authenticated token. Your code never sees it: handlers and resolvers write plaintext and read plaintext (`ctx.request_state`); the SDK seals on the way out and verifies on the way in. Beyond integrity, each token is bound to:
 
 * **A time window.** Every round re-seals with a fresh expiry, so `RequestStateSecurity(ttl=...)` (default 600 seconds) bounds per-round think time, not the whole flow.
 * **The authenticated client.** When the request carries an OAuth access token the SDK validated, the state is bound to that `client_id`: a token minted for one principal fails under another. When auth is terminated outside the SDK — a fronting proxy — or the transport is unauthenticated, there is no principal to bind and this check is inert, unless `RequestStateSecurity(bind_principal=...)` supplies one from your own identity signal.
@@ -153,11 +150,13 @@ Every inbound failure — tampered, expired, replayed against a different reques
 {"code": -32602, "message": "Invalid or expired requestState"}
 ```
 
-One frozen message for every cause, so the wire never reveals which check failed; the real reason goes to the server log. A server that never mints state at all — no MRTR registrations, no `request_state_security=` — rejects any inbound `requestState` the same way.
+One frozen message for every cause, so the wire never reveals which check failed; the real reason goes to the server log. Verification is a configured server's behavior: with `request_state_security=` set, every inbound `requestState` on `tools/call`, `prompts/get`, and `resources/read` is checked — including one arriving for a handler that never mints state. Without it, nothing is checked: inbound state reaches your handler exactly as the client sent it.
 
 ### Hand-built state
 
-A `request_state` you set yourself — returning `InputRequiredResult` from a tool, prompt, or resource-template function — is sealed and verified by the same machinery: write plaintext, read plaintext. The one thing the SDK cannot pin for you is question identity, because it doesn't know which of *your* questions an answer in your state belongs to. If you store answers keyed by question, include your own question identifier in the state and check it on the retry.
+A `request_state` you set yourself — returning `InputRequiredResult` from a tool, prompt, or resource-template function — never requires `request_state_security=`. Configure it anyway and your hand-built state is sealed and verified by the same machinery, with zero code changes: write plaintext, read plaintext, and every binding above applies. Don't, and the state crosses the wire exactly as written — whatever comes back is the client's word, and the spec's integrity requirement is yours to satisfy before you act on it.
+
+The one thing the SDK cannot pin for you, even when configured, is question identity: it doesn't know which of *your* questions an answer in your state belongs to. If you store answers keyed by question, include your own question identifier in the state and check it on the retry.
 
 The low-level `Server` is the no-batteries tier: nothing is required at construction and nothing is sealed until you append the boundary yourself — one line, shown in **[The low-level Server](low-level-server.md#the-other-handlers)**.
 
@@ -185,6 +184,6 @@ The low-level `Server` is the no-batteries tier: nothing is required at construc
 * To inspect or persist rounds, use `client.session.call_tool(..., allow_input_required=True)` and own the `while isinstance(result, InputRequiredResult)` loop yourself.
 * On `@mcp.tool()`, a dependency that asks the user produces this result for you (**[Dependencies](../tutorial/dependencies.md)**); the **low-level** `Server` is the manual form.
 * Prompts and resources participate too: an `@mcp.prompt()` or template `@mcp.resource()` function returns the `InputRequiredResult` itself and reads `ctx.input_responses` on the retry.
-* `requestState` comes back as client-supplied input. `MCPServer` requires a `request_state_security=` choice before it will mint one, and the seal binds every token to a time window, the originating request, and — when the request carries auth the SDK validated, or `bind_principal=` supplies your own identity signal — the authenticated client (**[Protecting `requestState`](#protecting-requeststate)**).
+* `requestState` comes back as client-supplied input. `MCPServer` requires a `request_state_security=` choice before it will register a `Resolve(...)` tool, and seals hand-built state with the same machinery once you configure it. The seal binds every token to a time window, the originating request, and — when the request carries auth the SDK validated, or `bind_principal=` supplies your own identity signal — the authenticated client (**[Protecting `requestState`](#protecting-requeststate)**).
 
 This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **[Deprecated features](deprecated.md)**.

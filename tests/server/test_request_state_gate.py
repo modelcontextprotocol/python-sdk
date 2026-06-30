@@ -2,12 +2,15 @@
 (`mcp.server.request_state` + the `MCPServer` wiring).
 
 Every test here is synchronous registration-time behavior: no Client, no
-connection, no event loop. The gate is SDK-defined product policy, deliberately
-stricter than the spec's conditional MUST (basic/patterns/mrtr, server
-requirements 4-5 apply only when state influences authorization, resource
-access, or business logic): the SDK cannot see what authors put in their state,
-so every MRTR-capable registration must pick a `RequestStateSecurity` posture
-up front, before any client can connect.
+connection, no event loop. The gate is resolver-only: a `Resolve(...)` tool's
+requestState carries elicited answers — business inputs the SDK itself authors —
+so the spec's integrity requirement (basic/patterns/mrtr, server requirements
+4-5) is never optional for it, and registering one on a server constructed
+without `request_state_security=` fails up front, before any client can
+connect. Manual `InputRequiredResult` surfaces (tools, prompts, resource
+templates) are not gated: their state is author-written, and an unconfigured
+server deliberately passes it through as plaintext (the boundary tests pin that
+posture).
 """
 
 from typing import Annotated, Any
@@ -32,11 +35,12 @@ from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 async def _provide_login(ctx: Context) -> str: ...
 
 
-# Resolver-driven tool (RESOLVER capability):
+# Resolver-driven tool (the only gated capability):
 async def _deploy(target: str, login: Annotated[str, Resolve(_provide_login)]) -> str: ...
 
 
-# Manual-MRTR tool, prompt, and resource template (DECLARED_MANUAL capability):
+# Manual-MRTR tool, prompt, and resource template (declared InputRequiredResult
+# returns; not gated):
 async def _confirm_deploy(target: str) -> str | InputRequiredResult: ...
 
 
@@ -60,10 +64,10 @@ async def _plain_template(id: str) -> str: ...
 
 
 def test_resolver_tool_without_security_is_rejected_at_the_decorator_call() -> None:
-    """SDK-defined product bar (stricter than the spec's conditional MUST, mrtr server
-    reqs 4-5): a `Resolve(...)` tool mints requestState, so registering it on a server
-    constructed without `request_state_security=` raises at the `@mcp.tool()` call with
-    the full teaching text."""
+    """SDK-defined: a `Resolve(...)` tool's requestState carries elicited answers —
+    business inputs, squarely inside the spec's integrity MUST (mrtr server reqs 4-5) —
+    so registering it on a server constructed without `request_state_security=` raises
+    at the `@mcp.tool()` call with the full teaching text."""
     mcp = MCPServer("gate")
 
     with pytest.raises(ValueError) as excinfo:
@@ -71,9 +75,10 @@ def test_resolver_tool_without_security_is_rejected_at_the_decorator_call() -> N
 
     assert str(excinfo.value) == snapshot("""\
 Tool 'deploy' uses Resolve(...) parameters, so this server mints a
-requestState that round-trips through the client. The MCP spec requires that state
-to be integrity-protected, and rejected when verification fails, whenever it can
-influence authorization, resource access, or business logic. Configure protection:
+requestState carrying elicited answers that round-trips through the client. The
+MCP spec requires that state to be integrity-protected, and rejected when
+verification fails, whenever it can influence authorization, resource access,
+or business logic. Configure protection:
 
     MCPServer(..., request_state_security=RequestStateSecurity(keys=[key]))
         One or more shared secret keys (>= 32 bytes each). Required when a retry
@@ -86,10 +91,8 @@ influence authorization, resource access, or business logic. Configure protectio
         (stdio, one HTTP worker): state minted before a restart, or by another
         instance, is rejected and the client must restart the flow.
 
-    MCPServer(..., request_state_security=RequestStateSecurity.unprotected())
-        No protection. Only valid when tampering can cause nothing worse than a
-        failed request - not available for Resolve(...) tools, whose state
-        carries elicited answers.
+For your own crypto (a KMS, an existing token service), pass
+RequestStateSecurity(codec=...).
 
 Spec: https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr\
 """)
@@ -107,17 +110,6 @@ def test_constructor_supplied_resolver_tool_bypasses_add_tool_but_is_still_rejec
     assert "deploy" in str(excinfo.value)
 
 
-def test_constructor_supplied_declared_manual_tool_is_rejected() -> None:
-    """SDK-defined: the constructor scan also derives DECLARED_MANUAL — a hand-supplied
-    Tool whose function declares an InputRequiredResult return is rejected at
-    `MCPServer(tools=[...])`, naming it."""
-    with pytest.raises(ValueError) as excinfo:
-        MCPServer("gate", tools=[Tool.from_function(_confirm_deploy, name="confirm_deploy")])
-
-    assert "confirm_deploy" in str(excinfo.value)
-    assert "declares an InputRequiredResult return" in str(excinfo.value)
-
-
 def test_constructor_scan_trusts_the_tools_stored_resolver_authority() -> None:
     """SDK-defined: the constructor scan judges a hand-built Tool by its stored
     `resolved_params` — the authority that actually drives resolution at call time —
@@ -132,10 +124,10 @@ def test_constructor_scan_trusts_the_tools_stored_resolver_authority() -> None:
 
 
 def test_constructor_scan_does_not_defer_a_hand_built_combo_tool() -> None:
-    """SDK-defined: the decorator gate stands aside for a Resolve+InputRequiredResult
-    combination because `Tool.from_function` rejects it with its own error; a hand-built
-    Tool has no such backstop, so the constructor scan gates the combo as RESOLVER
-    (stored `resolved_params` decide) instead of silently admitting it."""
+    """SDK-defined: a hand-built Tool carrying both stored `resolved_params` and an fn
+    that declares an InputRequiredResult return (a combination `Tool.from_function`
+    rejects with its own error) is still judged by its stored resolver authority — the
+    constructor scan raises the resolver gate instead of silently admitting it."""
     tool = Tool.from_function(_deploy, name="combo").model_copy(update={"fn": _confirm_deploy})
 
     with pytest.raises(ValueError) as excinfo:
@@ -144,126 +136,46 @@ def test_constructor_scan_does_not_defer_a_hand_built_combo_tool() -> None:
     assert "uses Resolve(...) parameters" in str(excinfo.value)
 
 
-def test_declared_manual_tool_without_security_is_rejected_naming_the_declared_return() -> None:
-    """SDK-defined: a tool annotated `-> str | InputRequiredResult` (manual MRTR, no
-    Resolve) also mints requestState, so unconfigured registration raises with the
-    DECLARED_MANUAL variant text naming the declared return."""
+def test_decorator_combo_fn_on_an_unconfigured_server_raises_the_resolver_gate_error() -> None:
+    """SDK-defined: the `add_tool` gate scans the function before `Tool.from_function`
+    runs, so a function combining `Resolve(...)` parameters with a declared
+    `InputRequiredResult` return raises the resolver-security error on an unconfigured
+    server; configuring security then surfaces `Tool.from_function`'s own
+    `InvalidSignature` for the combination (pinned in test_resolve.py)."""
     mcp = MCPServer("gate")
 
-    with pytest.raises(ValueError) as excinfo:
-        mcp.tool(name="confirm_deploy")(_confirm_deploy)
-
-    assert str(excinfo.value) == snapshot("""\
-Tool 'confirm_deploy' declares an InputRequiredResult return, so this server mints a
-requestState that round-trips through the client. The MCP spec requires that state
-to be integrity-protected, and rejected when verification fails, whenever it can
-influence authorization, resource access, or business logic. Configure protection:
-
-    MCPServer(..., request_state_security=RequestStateSecurity(keys=[key]))
-        One or more shared secret keys (>= 32 bytes each). Required when a retry
-        can reach a different instance (multi-worker or load-balanced HTTP).
-        keys[0] seals, every key verifies; rotation is
-        [old, new] -> [new, old] -> [new], each phase fully rolled out first.
-
-    MCPServer(..., request_state_security=RequestStateSecurity.ephemeral())
-        A key generated at process start. Single-process deployments only
-        (stdio, one HTTP worker): state minted before a restart, or by another
-        instance, is rejected and the client must restart the flow.
-
-    MCPServer(..., request_state_security=RequestStateSecurity.unprotected())
-        No protection. Only valid when tampering can cause nothing worse than a
-        failed request - not available for Resolve(...) tools, whose state
-        carries elicited answers.
-
-Spec: https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr\
-""")
-
-
-def test_declared_manual_prompt_without_security_is_rejected_at_the_decorator_call() -> None:
-    """SDK-defined: prompts/get is an MRTR carrier too, so a prompt function declaring
-    `-> str | InputRequiredResult` is rejected at `@mcp.prompt()` on an unconfigured
-    server."""
-    mcp = MCPServer("gate")
+    async def combo(target: str, login: Annotated[str, Resolve(_provide_login)]) -> str | InputRequiredResult: ...
 
     with pytest.raises(ValueError) as excinfo:
-        mcp.prompt(name="briefing")(_briefing)
+        mcp.tool()(combo)
 
-    assert str(excinfo.value) == snapshot("""\
-Prompt 'briefing' declares an InputRequiredResult return, so this server mints a
-requestState that round-trips through the client. The MCP spec requires that state
-to be integrity-protected, and rejected when verification fails, whenever it can
-influence authorization, resource access, or business logic. Configure protection:
-
-    MCPServer(..., request_state_security=RequestStateSecurity(keys=[key]))
-        One or more shared secret keys (>= 32 bytes each). Required when a retry
-        can reach a different instance (multi-worker or load-balanced HTTP).
-        keys[0] seals, every key verifies; rotation is
-        [old, new] -> [new, old] -> [new], each phase fully rolled out first.
-
-    MCPServer(..., request_state_security=RequestStateSecurity.ephemeral())
-        A key generated at process start. Single-process deployments only
-        (stdio, one HTTP worker): state minted before a restart, or by another
-        instance, is rejected and the client must restart the flow.
-
-    MCPServer(..., request_state_security=RequestStateSecurity.unprotected())
-        No protection. Only valid when tampering can cause nothing worse than a
-        failed request - not available for Resolve(...) tools, whose state
-        carries elicited answers.
-
-Spec: https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr\
-""")
+    assert "uses Resolve(...) parameters" in str(excinfo.value)
 
 
-def test_declared_manual_prompt_via_add_prompt_is_rejected_the_same_way() -> None:
-    """SDK-defined: `add_prompt(Prompt.from_function(...))` is the same funnel the
-    decorator uses, so it trips the same gate and names the prompt."""
-    mcp = MCPServer("gate")
+def test_declared_manual_surfaces_register_cleanly_on_an_unconfigured_server() -> None:
+    """SDK-defined: declared manual surfaces — a tool, prompt, or resource template
+    annotated `-> ... | InputRequiredResult` — are NOT gated: their state is
+    author-written, so every funnel (decorator, constructor `tools=`, `add_prompt`)
+    registers cleanly on a server with no `request_state_security=`. The unconfigured
+    server passes their state through as plaintext (pinned in the boundary tests)."""
+    mcp = MCPServer("gate", tools=[Tool.from_function(_confirm_deploy, name="ctor_confirm_deploy")])
 
-    with pytest.raises(ValueError) as excinfo:
-        mcp.add_prompt(Prompt.from_function(_briefing, name="briefing"))
+    mcp.tool(name="confirm_deploy")(_confirm_deploy)
+    mcp.prompt(name="briefing")(_briefing)
+    mcp.add_prompt(Prompt.from_function(_briefing, name="briefing_via_add"))
+    mcp.resource("data://{id}")(_record)
 
-    assert "briefing" in str(excinfo.value)
-
-
-def test_declared_manual_resource_template_without_security_is_rejected_at_the_decorator_call() -> None:
-    """SDK-defined: resources/read is an MRTR carrier for templates, so a template
-    function declaring `-> str | InputRequiredResult` is rejected at
-    `@mcp.resource("data://{id}")` on an unconfigured server."""
-    mcp = MCPServer("gate")
-
-    with pytest.raises(ValueError) as excinfo:
-        mcp.resource("data://{id}")(_record)
-
-    assert str(excinfo.value) == snapshot("""\
-Resource template 'data://{id}' declares an InputRequiredResult return, so this server mints a
-requestState that round-trips through the client. The MCP spec requires that state
-to be integrity-protected, and rejected when verification fails, whenever it can
-influence authorization, resource access, or business logic. Configure protection:
-
-    MCPServer(..., request_state_security=RequestStateSecurity(keys=[key]))
-        One or more shared secret keys (>= 32 bytes each). Required when a retry
-        can reach a different instance (multi-worker or load-balanced HTTP).
-        keys[0] seals, every key verifies; rotation is
-        [old, new] -> [new, old] -> [new], each phase fully rolled out first.
-
-    MCPServer(..., request_state_security=RequestStateSecurity.ephemeral())
-        A key generated at process start. Single-process deployments only
-        (stdio, one HTTP worker): state minted before a restart, or by another
-        instance, is rejected and the client must restart the flow.
-
-    MCPServer(..., request_state_security=RequestStateSecurity.unprotected())
-        No protection. Only valid when tampering can cause nothing worse than a
-        failed request - not available for Resolve(...) tools, whose state
-        carries elicited answers.
-
-Spec: https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr\
-""")
+    assert mcp._tool_manager.get_tool("ctor_confirm_deploy") is not None
+    assert mcp._tool_manager.get_tool("confirm_deploy") is not None
+    assert mcp._prompt_manager.get_prompt("briefing") is not None
+    assert mcp._prompt_manager.get_prompt("briefing_via_add") is not None
+    assert [t.uri_template for t in mcp._resource_manager.list_templates()] == ["data://{id}"]
 
 
 def test_every_mrtr_surface_registers_cleanly_once_security_is_configured() -> None:
-    """SDK-defined: with `request_state_security=` supplied, the exact registrations
-    the gate rejects all succeed across every funnel (constructor `tools=`, tool and
-    prompt and resource decorators, `add_prompt`)."""
+    """SDK-defined: with `request_state_security=` supplied, the resolver tools the gate
+    rejects register cleanly — and so does every other MRTR surface, across every funnel
+    (constructor `tools=`, tool and prompt and resource decorators, `add_prompt`)."""
     mcp = MCPServer(
         "gate",
         request_state_security=RequestStateSecurity.ephemeral(),
@@ -281,52 +193,8 @@ def test_every_mrtr_surface_registers_cleanly_once_security_is_configured() -> N
     assert [t.uri_template for t in mcp._resource_manager.list_templates()] == ["data://{id}"]
 
 
-def test_unprotected_refuses_resolver_tools_at_registration() -> None:
-    """SDK-defined: `unprotected()` is not a lawful opt-out for `Resolve(...)` tools —
-    their state carries elicited answers, which are business inputs — so registration
-    still raises, with text pointing at `keys=`/`ephemeral()`."""
-    mcp = MCPServer("gate", request_state_security=RequestStateSecurity.unprotected())
-
-    with pytest.raises(ValueError) as excinfo:
-        mcp.tool(name="deploy")(_deploy)
-
-    assert str(excinfo.value) == snapshot("""\
-Tool 'deploy' uses Resolve(...) parameters, so this server mints a
-requestState that round-trips through the client. The MCP spec requires that state
-to be integrity-protected, and rejected when verification fails, whenever it can
-influence authorization, resource access, or business logic. Configure protection:
-
-    MCPServer(..., request_state_security=RequestStateSecurity(keys=[key]))
-        One or more shared secret keys (>= 32 bytes each). Required when a retry
-        can reach a different instance (multi-worker or load-balanced HTTP).
-        keys[0] seals, every key verifies; rotation is
-        [old, new] -> [new, old] -> [new], each phase fully rolled out first.
-
-    MCPServer(..., request_state_security=RequestStateSecurity.ephemeral())
-        A key generated at process start. Single-process deployments only
-        (stdio, one HTTP worker): state minted before a restart, or by another
-        instance, is rejected and the client must restart the flow.
-
-    Resolve(...) tools cannot opt out: their requestState carries elicited
-    answers, which are business inputs. Use keys=[...] or .ephemeral().
-
-Spec: https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr\
-""")
-
-
-def test_unprotected_is_a_lawful_opt_out_for_declared_manual_tools() -> None:
-    """SDK-defined: a manual `-> str | InputRequiredResult` flow may hold state the
-    spec's exception covers (tampering can cause nothing worse than request failure),
-    so `unprotected()` lets it register; the author has explicitly accepted the risk."""
-    mcp = MCPServer("gate", request_state_security=RequestStateSecurity.unprotected())
-
-    mcp.tool(name="confirm_deploy")(_confirm_deploy)
-
-    assert mcp._tool_manager.get_tool("confirm_deploy") is not None
-
-
 def test_mrtr_free_registrations_need_no_security_configuration() -> None:
-    """SDK-defined: the gate keys on MRTR capability, so plain tools (decorator and
+    """SDK-defined: the gate keys on `Resolve(...)` usage, so plain tools (decorator and
     constructor-supplied), prompts, and resources register on an unconfigured server
     exactly as before — this pins the gate against over-firing."""
     mcp = MCPServer("gate", tools=[Tool.from_function(_plain_tool, name="ctor_plain_tool")])

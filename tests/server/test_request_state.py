@@ -380,7 +380,8 @@ def test_keys_and_codec_together_are_rejected_at_policy_construction() -> None:
 
 def test_a_policy_with_neither_keys_nor_codec_is_rejected() -> None:
     """SDK-defined: there is no implicit default protection — a policy must name
-    its codec (or opt out via unprotected()), so the bare constructor fails."""
+    its codec, so the bare constructor fails. (Going without protection is spelled
+    by not configuring `request_state_security=` at all, not by an empty policy.)"""
     with pytest.raises(ValueError) as exc:
         RequestStateSecurity()
     assert str(exc.value) == snapshot("RequestStateSecurity takes exactly one of keys= or codec=")
@@ -424,28 +425,15 @@ def test_a_custom_codec_is_stored_on_the_policy_as_is() -> None:
 
 
 def test_ephemeral_policies_are_protected_and_mutually_unintelligible() -> None:
-    """SDK-defined: ephemeral() is real protection (not an opt-out) under a key
-    held only by its own process — so a sibling ephemeral() instance rejects its
-    tokens, the documented single-process limitation."""
+    """SDK-defined: ephemeral() is real protection under a key held only by its
+    own process — so a sibling ephemeral() instance rejects its tokens, the
+    documented single-process limitation."""
     first = RequestStateSecurity.ephemeral()
     second = RequestStateSecurity.ephemeral()
-    assert first.is_unprotected is False
-    assert first.codec is not None
-    assert second.codec is not None
     token = first.codec.seal(_PAYLOAD)
     assert first.codec.unseal(token) == _PAYLOAD
     with pytest.raises(InvalidRequestState):
         second.codec.unseal(token)
-
-
-def test_an_unprotected_policy_has_no_codec_no_principal_binding_and_no_audience() -> None:
-    """SDK-defined: unprotected() is the explicit opt-out — is_unprotected is
-    True and there is no codec, principal binding, or audience to apply."""
-    security = RequestStateSecurity.unprotected()
-    assert security.is_unprotected is True
-    assert security.codec is None
-    assert security.bind_principal is None
-    assert security.audience is None
 
 
 def test_the_policy_stores_an_explicit_audience_and_defaults_to_none() -> None:

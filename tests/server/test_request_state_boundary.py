@@ -15,7 +15,6 @@ from typing import Any, cast
 
 import anyio
 import pytest
-from inline_snapshot import snapshot
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
@@ -129,11 +128,11 @@ def _assert_frozen_rejection(exc: pytest.ExceptionInfo[MCPError]) -> None:
 
 
 def _manual_server(
-    security: RequestStateSecurity, *, state: str = "awaiting-confirm", name: str = "manual"
+    security: RequestStateSecurity | None, *, state: str = "awaiting-confirm", name: str = "manual"
 ) -> tuple[MCPServer, list[str | None]]:
     """An MCPServer with one manual MRTR tool: round 1 asks, the retry records the
-    restored `ctx.request_state` and completes. `name` is also the boundary's default
-    audience."""
+    echoed `ctx.request_state` and completes. With `security`, `name` is also the
+    boundary's default audience; with None no boundary is installed at all."""
     seen: list[str | None] = []
     mcp = MCPServer(name, request_state_security=security)
 
@@ -657,74 +656,17 @@ async def test_each_round_is_resealed_with_a_fresh_token_and_a_restamped_iat(
     assert (claims_one["iat"], claims_two["iat"]) == (int(_T0), int(_T0) + 5)
 
 
-# -- unconfigured boundary (lowlevel tier, no startup gate) ----------------------------
+# -- unconfigured servers: plaintext passthrough (the unprotected posture) -------------
 
 
-async def test_an_unconfigured_boundary_rejects_inbound_request_state_before_the_handler() -> None:
-    """Spec-mandated fail-safe (basic/patterns/mrtr server requirement 5): a server that
-    never minted state rejects any inbound echo with the frozen error before the handler
-    runs; a request without `requestState` is untouched."""
-    calls: list[str] = []
-
-    async def call_tool(ctx: ServerRequestContext[Any], params: CallToolRequestParams) -> CallToolResult:
-        calls.append(params.name)
-        return CallToolResult(content=[TextContent(text="ran")])
-
-    server = Server("srv", on_call_tool=call_tool, on_list_tools=_list_tools)
-    server.middleware.append(RequestStateBoundary(None))
-
-    with anyio.fail_after(5):
-        async with Client(server) as client:
-            with pytest.raises(MCPError) as exc:
-                await client.session.call_tool("t", {}, request_state="v1.forged", allow_input_required=True)
-            assert calls == []
-            ok = await client.session.call_tool("t", {})
-
-    _assert_frozen_rejection(exc)
-    assert isinstance(ok, CallToolResult)
-    assert calls == ["t"]
-
-
-async def test_an_unconfigured_boundary_answers_outbound_state_with_internal_error_and_logs_remediation(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """SDK-defined fail-safe: an unconfigured boundary never forwards plaintext state —
-    the request fails as a bare internal error and the full remediation (and nothing
-    secret) goes to the server log."""
-
-    async def call_tool(ctx: ServerRequestContext[Any], params: CallToolRequestParams) -> InputRequiredResult:
-        return InputRequiredResult(input_requests={"confirm": _ask("?")}, request_state="oops-plaintext")
-
-    server = Server("srv", on_call_tool=call_tool)
-    server.middleware.append(RequestStateBoundary(None))
-
-    with anyio.fail_after(5):
-        async with Client(server) as client:
-            with pytest.raises(MCPError) as exc:
-                await client.session.call_tool("t", {}, allow_input_required=True)
-            assert exc.value.error.code == INTERNAL_ERROR
-            assert exc.value.error.message == "Internal error"
-
-    errors = [r for r in caplog.records if r.name == "mcp.server.request_state" and r.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert errors[0].getMessage() == snapshot(
-        "handler for tools/call returned an InputRequiredResult with requestState, but no "
-        "request_state_security is configured on this server; refusing to send unprotected "
-        "state. Pass request_state_security=RequestStateSecurity(...) to MCPServer "
-        "(or .ephemeral() for single-process, or .unprotected() to accept the risk)."
-    )
-    assert "oops-plaintext" not in caplog.text
-
-
-# -- explicit opt-out ------------------------------------------------------------------
-
-
-async def test_unprotected_mode_passes_request_state_through_verbatim() -> None:
-    """SDK-defined: `RequestStateSecurity.unprotected()` is the spec's explicit opt-out
-    (MAY omit protection when tampering can cause nothing worse than request failure) —
-    the wire carries exactly the handler's plaintext and a verbatim echo is accepted."""
+async def test_an_unconfigured_mcpserver_passes_request_state_through_verbatim() -> None:
+    """SDK-defined: an MCPServer constructed without `request_state_security=` installs
+    no boundary — the deliberate unprotected posture (the spec MAY omit protection when
+    tampering can cause nothing worse than request failure). The wire carries exactly
+    the plaintext the manual handler wrote, a verbatim echo is accepted, and the flow
+    completes."""
     plaintext = "plain-wizard-state"
-    mcp, seen = _manual_server(RequestStateSecurity.unprotected(), state=plaintext)
+    mcp, seen = _manual_server(None, state=plaintext)
 
     with anyio.fail_after(5):
         async with Client(mcp) as client:
@@ -732,6 +674,35 @@ async def test_unprotected_mode_passes_request_state_through_verbatim() -> None:
             assert isinstance(first, InputRequiredResult)
             assert first.request_state == plaintext
             second = await _retry(client, "deploy", {"env": "prod"}, plaintext)
+
+    assert isinstance(second, CallToolResult)
+    assert seen == [plaintext]
+
+
+async def test_a_boundary_free_lowlevel_server_passes_request_state_through_verbatim() -> None:
+    """SDK-defined: the lowlevel tier has no implicit protection — without a
+    `RequestStateBoundary` in `Server.middleware`, `requestState` crosses the wire as
+    the handler's plaintext and the echo reaches the handler as sent (the no-middleware
+    control for the one-line-append test above)."""
+    plaintext = "lowlevel-plain-round-1"
+    seen: list[str | None] = []
+
+    async def call_tool(
+        ctx: ServerRequestContext[Any], params: CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"confirm": _ask("Proceed?")}, request_state=plaintext)
+        seen.append(params.request_state)
+        return CallToolResult(content=[TextContent(text="done")])
+
+    server = Server("srv", on_call_tool=call_tool, on_list_tools=_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            first = await client.session.call_tool("t", {}, allow_input_required=True)
+            assert isinstance(first, InputRequiredResult)
+            assert first.request_state == plaintext
+            second = await _retry(client, "t", {}, plaintext)
 
     assert isinstance(second, CallToolResult)
     assert seen == [plaintext]
@@ -766,17 +737,19 @@ async def test_non_string_inbound_request_state_is_rejected_with_the_frozen_erro
 
 
 @pytest.mark.parametrize(
-    "security",
+    "install_boundary",
     [
-        pytest.param(RequestStateSecurity(keys=[_KEY]), id="configured"),
-        pytest.param(None, id="unconfigured"),
+        pytest.param(True, id="boundary-installed"),
+        pytest.param(False, id="no-boundary"),
     ],
 )
-async def test_an_explicit_null_request_state_is_treated_as_absent(security: RequestStateSecurity | None) -> None:
+async def test_an_explicit_null_request_state_is_treated_as_absent(install_boundary: bool) -> None:
     """SDK-defined (spec-aligned): an explicit `"requestState": null` is the field's
     absence — a fresh flow, not presented state. The reject-MUST governs PRESENTED state,
     and stripping the field is already in any client's power, so the handler runs and
-    sees None — on a configured server and on an unconfigured boundary alike."""
+    sees None — through an installed boundary (which verifies only presented state) and
+    on a boundary-free server (where the null parses straight to the model's None)
+    alike."""
     seen: list[str | None] = []
 
     async def call_tool(ctx: ServerRequestContext[Any], params: CallToolRequestParams) -> CallToolResult:
@@ -784,7 +757,8 @@ async def test_an_explicit_null_request_state_is_treated_as_absent(security: Req
         return CallToolResult(content=[TextContent(text="ran")])
 
     server = Server("srv", on_call_tool=call_tool)
-    server.middleware.append(RequestStateBoundary(security))
+    if install_boundary:
+        server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
 
     async with connected_runner(server) as (client, _):
         result = await client.send_raw_request("tools/call", {"name": "t", "arguments": {}, "requestState": None})
@@ -793,15 +767,16 @@ async def test_an_explicit_null_request_state_is_treated_as_absent(security: Req
     assert seen == [None]
 
 
-# -- off-set methods: requestState has exactly three legal carriers ---------------------
+# -- boundary scope: only the three carrier methods are touched -------------------------
 
 
-async def test_inbound_request_state_on_a_non_mrtr_method_is_rejected_before_dispatch() -> None:
-    """Spec-aligned fail-closed: only tools/call, prompts/get, and resources/read may
-    carry `requestState`, so a custom (extension-style) method or any other spec method
-    presenting one is answered with the frozen rejection before any unseal or handler
-    dispatch — forged state can never be laundered through a method the claims check
-    does not cover."""
+async def test_inbound_request_state_on_a_non_carrier_method_passes_through_unverified() -> None:
+    """SDK-defined boundary scope: only tools/call, prompts/get, and resources/read are
+    multi-round-trip carriers, so the boundary never acts on any other method — a
+    `requestState` member a client places in a custom (extension-style) method's params
+    reaches the handler exactly as sent, never unsealed and never verified. Such a value
+    is outside the multi-round-trip protocol and must not be trusted by whatever handles
+    it."""
     calls: list[str] = []
 
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> dict[str, Any]:
@@ -813,50 +788,36 @@ async def test_inbound_request_state_on_a_non_mrtr_method_is_rejected_before_dis
     server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
 
     async with connected_runner(server) as (client, _):
-        for method in ("example/mrtr", "tools/list"):
-            with pytest.raises(MCPError) as exc:
-                await client.send_raw_request(method, {"requestState": "FORGED-BY-CLIENT"})
-            _assert_frozen_rejection(exc)
-        assert calls == []
-        ok = await client.send_raw_request("example/mrtr", {})  # no state: dispatch is untouched
+        ok = await client.send_raw_request("example/mrtr", {"requestState": "CLIENT-SENT-VALUE"})
+        fresh = await client.send_raw_request("example/mrtr", {})
 
     assert ok == {"resultType": "complete"}
-    assert calls == ["fresh"]
+    assert fresh == {"resultType": "complete"}
+    assert calls == ["CLIENT-SENT-VALUE", "fresh"]
 
 
-async def test_outbound_request_state_on_a_non_mrtr_method_is_an_internal_error_with_logged_remediation(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Spec-aligned fail-closed: the spec restricts InputRequiredResult to the three MRTR
-    carriers, so a custom method minting `requestState` is a server bug — the wire gets a
-    bare internal error (never plaintext, never a sealed token) and the remediation goes
-    to the server log."""
+async def test_outbound_request_state_on_a_non_carrier_method_is_not_sealed() -> None:
+    """SDK-defined boundary scope: an input_required-shaped result on a custom method is
+    outside the multi-round-trip protocol, so an installed boundary leaves its
+    `requestState` exactly as the handler wrote it — no sealing, no claims envelope
+    (the carrier methods' seal is pinned by the end-to-end tests above)."""
 
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> InputRequiredResult:
-        return InputRequiredResult(input_requests={"confirm": _ask("?")}, request_state="ext-secret-plaintext")
+        return InputRequiredResult(input_requests={"confirm": _ask("?")}, request_state="ext-handler-plaintext")
 
     server = Server("srv", on_list_tools=_list_tools)
     server.add_request_handler("example/mrtr", _CustomMethodParams, custom)
     server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[_KEY])))
 
     async with connected_runner(server) as (client, _):
-        with pytest.raises(MCPError) as exc:
-            await client.send_raw_request("example/mrtr", {})
+        result = await client.send_raw_request("example/mrtr", {})
 
-    assert exc.value.error.code == INTERNAL_ERROR
-    assert exc.value.error.message == "Internal error"
-    errors = [r for r in caplog.records if r.name == "mcp.server.request_state" and r.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert errors[0].getMessage() == snapshot(
-        "handler for example/mrtr returned an input_required result carrying requestState, but the spec "
-        "restricts InputRequiredResult to tools/call, prompts/get, and resources/read; extension "
-        "and custom methods must not mint requestState. Refusing to send it."
-    )
-    assert "ext-secret-plaintext" not in caplog.text
+    assert result["resultType"] == "input_required"
+    assert result["requestState"] == "ext-handler-plaintext"
 
 
 async def test_an_off_set_input_required_result_without_state_passes_through_untouched() -> None:
-    """SDK-defined: an input_required-shaped result on a non-MRTR method that mints no
+    """SDK-defined: an input_required-shaped result on a non-carrier method that mints no
     `requestState` is not this module's concern — it crosses the boundary unmodified."""
 
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> InputRequiredResult:
