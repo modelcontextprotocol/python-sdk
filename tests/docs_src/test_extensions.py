@@ -126,7 +126,7 @@ async def test_session_tier_allow_claimed_returns_the_raw_shape() -> None:
     async with Client(tutorial006.mcp, extensions=[tutorial006.Receipts()]) as client:
         result = await client.session.call_tool("buy", {"item": "lamp"}, allow_claimed=True)
     assert isinstance(result, tutorial006.ReceiptResult)
-    assert result.request_state == "r-117"
+    assert result.receipt_token == "r-117"
 
 
 async def test_the_jobs_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:

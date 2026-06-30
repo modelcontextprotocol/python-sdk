@@ -2428,6 +2428,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
+    "extensions:client:notification-binding-delivery": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
+        behavior=(
+            "A vendor server notification bound by a ClientExtension's NotificationBinding is validated "
+            "against the binding's params type and delivered to its handler in arrival order."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Covered at session tier by tests/client/test_session_notification_bindings.py: no public "
+            "server-side surface emits vendor-method notifications (ServerNotification is a closed union), "
+            "and HTTP-modern arrival additionally needs the subscriptions/listen client runtime."
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Transports (in-suite coverage)
     # ═══════════════════════════════════════════════════════════════════════════

@@ -16,7 +16,7 @@ class ReceiptResult(types.Result):
     """The claimed result shape; `result_type` pins the wire tag."""
 
     result_type: Literal["receipt"] = "receipt"
-    request_state: str
+    receipt_token: str
 
 
 class ReceiptIssuer(Extension):
@@ -32,7 +32,7 @@ class ReceiptIssuer(Extension):
     ) -> HandlerResult:
         if params.name != "buy":
             return await call_next(ctx)
-        return {"resultType": "receipt", "requestState": "r-117"}
+        return {"resultType": "receipt", "receiptToken": "r-117"}
 
 
 class Receipts(ClientExtension):
@@ -44,7 +44,7 @@ class Receipts(ClientExtension):
         return [ResultClaim(result_type="receipt", model=ReceiptResult, resolve=self._redeem)]
 
     async def _redeem(self, claimed: ReceiptResult, ctx: ClaimContext) -> types.CallToolResult:
-        return await ctx.session.call_tool("redeem", {"token": claimed.request_state})
+        return await ctx.session.call_tool("redeem", {"token": claimed.receipt_token})
 
 
 mcp = MCPServer("shop", extensions=[ReceiptIssuer()])

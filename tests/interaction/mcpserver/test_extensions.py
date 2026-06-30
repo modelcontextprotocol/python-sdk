@@ -2,12 +2,11 @@
 
 The servers here are MCPServers whose server extension substitutes a claimed `tools/call`
 shape via `intercept_tool_call`; the client declares the owning `ClientExtension` and its
-claim resolver finishes the call. The in-process server's 2026 result surface keeps only
-`resultType` / `requestState` / `inputRequests` / `_meta` on a claimed result, so claimed
-payloads here ride `requestState`.
+claim resolver finishes the call. A short-circuiting interceptor's dict is passed through
+verbatim (the runner trusts it as a well-formed result), so claimed shapes carry their
+vendor fields end to end — the models below prove that with top-level vendor fields.
 """
 
-import json
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal
 
@@ -32,10 +31,11 @@ _FLAGS = "com.example/flags"
 
 
 class ReceiptResult(Result):
-    """The claimed `tools/call` shape, tagged `receipt`; its payload rides `requestState`."""
+    """The claimed `tools/call` shape, tagged `receipt`, carrying vendor top-level fields."""
 
     result_type: Literal["receipt"] = "receipt"
-    request_state: str
+    receipt_token: str
+    settings_echo: dict[str, Any] | None = None
 
 
 _Resolver = Callable[[ReceiptResult, ClaimContext], Awaitable[CallToolResult]]
@@ -67,7 +67,7 @@ class _ReceiptIssuer(Extension):
     ) -> HandlerResult:
         if params.name != "buy":
             return await call_next(ctx)
-        return {"resultType": "receipt", "requestState": "r-117"}
+        return {"resultType": "receipt", "receiptToken": "r-117"}
 
 
 def _receipt_shop(issuer: Extension) -> MCPServer:
@@ -97,12 +97,12 @@ async def test_claimed_result_is_finished_by_the_owning_extensions_resolver(conn
 
     async def redeem_receipt(claimed: ReceiptResult, ctx: ClaimContext) -> CallToolResult:
         received.append(claimed)
-        return await ctx.session.call_tool("redeem", {"token": claimed.request_state})
+        return await ctx.session.call_tool("redeem", {"token": claimed.receipt_token})
 
     async with connect(_receipt_shop(_ReceiptIssuer()), extensions=[Receipts(redeem_receipt)]) as client:
         result = await client.call_tool("buy", {"item": "lamp"})
 
-    assert [claimed.request_state for claimed in received] == ["r-117"]
+    assert [claimed.receipt_token for claimed in received] == ["r-117"]
     assert result == snapshot(
         CallToolResult(content=[TextContent(text="goods for r-117")], structured_content={"result": "goods for r-117"})
     )
@@ -132,7 +132,7 @@ class _SettingsEchoIssuer(Extension):
         assert client_params is not None  # require_client_extension just read it
         extensions = client_params.capabilities.extensions
         assert extensions is not None
-        return {"resultType": "receipt", "requestState": json.dumps(extensions[_RECEIPTS], sort_keys=True)}
+        return {"resultType": "receipt", "receiptToken": "echo", "settingsEcho": extensions[_RECEIPTS]}
 
 
 @requirement("extensions:client:capability-ad:gates-server-behaviour")
@@ -157,7 +157,7 @@ async def test_per_request_ad_carries_settings_and_gates_the_claimed_substitutio
     async with connect(server, extensions=[Receipts(keep, settings={"tier": "gold"})]) as client:
         result = await client.call_tool("buy", {"item": "lamp"})
     assert result.content == [TextContent(text="done")]
-    assert [json.loads(claimed.request_state) for claimed in received] == [{"tier": "gold"}]
+    assert [claimed.settings_echo for claimed in received] == [{"tier": "gold"}]
 
     async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:

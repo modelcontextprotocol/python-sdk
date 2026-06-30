@@ -3,10 +3,8 @@ session at construction, and `call_tool` driving claim resolvers transparently.
 
 Claimed-shape servers here are real `MCPServer`s whose SEP-2133 server extension
 rewrites `tools/call` results via `intercept_tool_call` — the full public-API loop.
-The in-process server can only deliver claimed fields the v2026 tools/call surface
-keeps (`resultType`, `requestState`, `inputRequests`, `_meta`): the server-side
-`serialize_server_result` drops anything else, so claimed payloads here ride
-`requestState`.
+A short-circuiting interceptor's dict reaches the client verbatim (the runner trusts
+it as a well-formed result), so the claimed models carry vendor top-level fields.
 
 `tools/call` is never cached (`Client.call_tool` has no `_cached_fetch` weave and the
 SEP-2549 cacheable verbs do not include it), so the claim path needs no cache tests.
@@ -48,11 +46,11 @@ def _name_elicitation() -> types.ElicitRequest:
 
 
 class VoucherResult(Result):
-    """The claimed `tools/call` shape, tagged `voucher`; its payload rides `requestState`
-    (the only open payload-bearing field the in-process server's surface dump keeps)."""
+    """The claimed `tools/call` shape, tagged `voucher`, carrying a vendor top-level field
+    (a short-circuiting server interceptor's dict reaches the client verbatim)."""
 
     result_type: Literal["voucher"] = "voucher"
-    request_state: str | None = None
+    voucher_code: str | None = None
 
 
 _Resolver = Callable[[VoucherResult, ClaimContext], Awaitable[CallToolResult]]
@@ -78,7 +76,7 @@ class _VoucherIssuer(Extension):
     async def intercept_tool_call(
         self, params: types.CallToolRequestParams, ctx: ServerRequestContext[Any, Any], call_next: CallNext
     ) -> HandlerResult:
-        return {"resultType": "voucher", "requestState": "v-42"}
+        return {"resultType": "voucher", "voucherCode": "v-42"}
 
 
 class _TwoRoundVoucherIssuer(Extension):
@@ -91,7 +89,7 @@ class _TwoRoundVoucherIssuer(Extension):
     ) -> HandlerResult:
         if params.input_responses is None:
             return types.InputRequiredResult(input_requests={"user_name": _name_elicitation()})
-        return {"resultType": "voucher", "requestState": "after-input"}
+        return {"resultType": "voucher", "voucherCode": "after-input"}
 
 
 def _voucher_server(issuer: Extension | None = None) -> MCPServer:
@@ -414,7 +412,7 @@ async def test_claimed_result_resolves_transparently_to_the_resolvers_result() -
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
         received.append(claimed)
-        product = CallToolResult(content=[TextContent(text=f"honored {claimed.request_state}")])
+        product = CallToolResult(content=[TextContent(text=f"honored {claimed.voucher_code}")])
         produced.append(product)
         return product
 
@@ -423,7 +421,7 @@ async def test_claimed_result_resolves_transparently_to_the_resolvers_result() -
             result = await client.call_tool("issue", {})
             assert_type(result, CallToolResult)
 
-    assert [claimed.request_state for claimed in received] == ["v-42"]
+    assert [claimed.voucher_code for claimed in received] == ["v-42"]
     assert result is produced[0]
     assert result.content == [TextContent(text="honored v-42")]
 
@@ -442,7 +440,7 @@ async def test_claimed_shape_routes_to_its_owning_extensions_resolver() -> None:
         async with Client(_voucher_server(), extensions=extensions) as client:
             result = await client.call_tool("issue", {})
 
-    assert [claimed.request_state for claimed in received] == ["v-42"]
+    assert [claimed.voucher_code for claimed in received] == ["v-42"]
     assert result.content == [TextContent(text="routed")]
 
 
@@ -586,7 +584,7 @@ async def test_input_required_then_claimed_result_on_retry_resolves_transparentl
 
     async def resolve(claimed: VoucherResult, ctx: ClaimContext) -> CallToolResult:
         received.append(claimed)
-        return CallToolResult(content=[TextContent(text=f"honored {claimed.request_state}")])
+        return CallToolResult(content=[TextContent(text=f"honored {claimed.voucher_code}")])
 
     server = _voucher_server(issuer=_TwoRoundVoucherIssuer())
     with anyio.fail_after(5):
@@ -596,7 +594,7 @@ async def test_input_required_then_claimed_result_on_retry_resolves_transparentl
             result = await client.call_tool("issue", {})
 
     assert prompted == ["What is your name?"]
-    assert [claimed.request_state for claimed in received] == ["after-input"]
+    assert [claimed.voucher_code for claimed in received] == ["after-input"]
     assert result.content == [TextContent(text="honored after-input")]
 
 

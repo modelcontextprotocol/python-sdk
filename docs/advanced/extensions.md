@@ -188,10 +188,10 @@ kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
   is defined.
 * `claims()` returns `ResultClaim`s: a wire tag, the model that parses it, and the
   resolver that finishes it. The model must pin the tag with
-  `result_type: Literal["receipt"]` and must not subclass a core result type — both
-  enforced when the claim is constructed. (The payload rides `requestState` here
-  because an `MCPServer` substituting a claimed shape serializes only the core
-  `tools/call` surface fields; a server on another SDK may send richer shapes.)
+  `result_type: Literal["receipt"]` and must not subclass the verb's core result
+  types — both enforced when the claim is constructed. Vendor fields like
+  `receipt_token` ride the wire as-is: a substituted shape reaches the client
+  verbatim.
 * The resolver receives the parsed model and a `ClaimContext`; `ctx.session` is the
   same public handle as `client.session`, so follow-ups are ordinary session calls.
   It returns the verb's normal `CallToolResult`.
@@ -238,8 +238,9 @@ resources, methods, one `tools/call` interceptor; on the client: settings, resul
 claims, notification bindings. An extension cannot:
 
 * **Reach into the host.** It declares data; it holds no server or client reference.
-* **Replace core behaviour.** Spec methods are rejected at construction, and
-  `initialize` is reserved by the runner outright.
+* **Replace core behaviour.** Spec methods and core result tags are rejected at
+  construction (`initialize` is reserved by the runner outright); a notification
+  binding shadowed by core vocabulary goes quiet with a warning instead.
 * **Register late.** After `MCPServer(...)` or `Client(...)` returns, the extension
   set is what it is.
 
