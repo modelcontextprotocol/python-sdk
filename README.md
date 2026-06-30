@@ -41,10 +41,10 @@ Python 3.10+.
 ## Installation
 
 ```bash
-uv add "mcp[cli]==2.0.0a3"          # or: pip install "mcp[cli]==2.0.0a3"
+uv add "mcp[cli]==2.0.0b1"          # or: pip install "mcp[cli]==2.0.0b1"
 ```
 
-The pin matters while v2 is in pre-release: an unpinned install resolves to the latest stable v1.x, which this README does not describe. Check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release, and use `uv run --with "mcp==2.0.0a3"` for one-off commands.
+The pin matters while v2 is in pre-release: an unpinned install resolves to the latest stable v1.x, which this README does not describe. Check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release, and use `uv run --with "mcp==2.0.0b1"` for one-off commands.
 
 ## A server in 15 lines
 
