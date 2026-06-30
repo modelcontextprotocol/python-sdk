@@ -10,6 +10,7 @@ from mcp_types import (
     CallToolResult,
     ElicitRequestURLParams,
     ErrorData,
+    ImageContent,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
     TextContent,
@@ -131,6 +132,30 @@ async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> 
         result = await client.call_tool("nope", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True))
+
+
+@requirement("tools:call:is-error-with-content")
+async def test_tool_returning_call_tool_result_can_flag_is_error_on_non_text_content(connect: Connect) -> None:
+    """A tool may hand back a CallToolResult with is_error=True carrying non-text content.
+
+    Raising an exception is the usual way to produce an is_error result, but that only yields a
+    text message. A tool that wants to report failure while returning richer content (here, an
+    image) can return a CallToolResult directly; MCPServer passes it through unchanged, so both the
+    image block and the is_error flag reach the caller. Regression lock-in for issue #348.
+    """
+    mcp = MCPServer("imager")
+
+    @mcp.tool()
+    def render() -> CallToolResult:
+        return CallToolResult(
+            content=[ImageContent(data="aW1n", mime_type="image/png")],
+            is_error=True,
+        )
+
+    async with connect(mcp) as client:
+        result = await client.call_tool("render", {})
+
+    assert result == snapshot(CallToolResult(content=[ImageContent(data="aW1n", mime_type="image/png")], is_error=True))
 
 
 @requirement("mcpserver:tool:output-schema:model")

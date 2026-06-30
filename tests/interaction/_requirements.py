@@ -810,6 +810,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "in content, not as a JSON-RPC error."
         ),
     ),
+    "tools:call:is-error-with-content": Requirement(
+        source="issue:#348",
+        behavior=(
+            "A tool can return a hand-built CallToolResult with isError true that carries arbitrary "
+            "content (e.g. an image), not just text; the content blocks and the isError flag reach the "
+            "caller intact."
+        ),
+    ),
     "tools:call:logging-mid-execution": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
         behavior=(
