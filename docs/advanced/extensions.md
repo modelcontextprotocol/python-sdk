@@ -2,9 +2,10 @@
 
 An **extension** is an opt-in bundle of MCP behaviour behind one identifier.
 
-It can contribute tools, resources, and new request methods, and it can wrap `tools/call`.
-The server advertises it under `capabilities.extensions`, the client opts in the same way,
-and nothing changes for anyone who didn't ask for it. That is the contract ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)), and
+On a server it can contribute tools, resources, and new request methods, and it can wrap
+`tools/call`. On a client it can claim extra `tools/call` result shapes and observe vendor
+notifications. Each side advertises under its own `capabilities.extensions`, and nothing
+changes for anyone who didn't ask for it. That is the contract ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)), and
 it has one golden rule: **extensions are off by default**.
 
 ## Using an extension
@@ -79,7 +80,7 @@ And `main()` is the proof, an in-memory client straight against `mcp`:
 An extension can register **new request methods**: its own verbs, served next to the
 spec's:
 
-```python title="server.py" hl_lines="15-21 30 39-47"
+```python title="server.py" hl_lines="16-22 31 40-48"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -108,15 +109,15 @@ runtime:
 
 The same file's `main()` is the whole client story, both halves of it:
 
-```python title="server.py" hl_lines="53-57"
+```python title="server.py" hl_lines="54-58"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
-* `Client(..., extensions={EXTENSION_ID: {}})` declares the extension. That map
-  becomes `ClientCapabilities.extensions`: on a 2026-07-28 connection it travels in
-  the per-request `_meta` envelope, so the server sees it on **every** request; on
-  a legacy connection it rides the `initialize` handshake. Server code doesn't care
-  which: `require_client_extension(ctx, ...)` and
+* `Client(..., extensions=[advertise(EXTENSION_ID)])` declares the extension. The
+  declarations become `ClientCapabilities.extensions`: on a 2026-07-28 connection
+  the map travels in the per-request `_meta` envelope, so the server sees it on
+  **every** request; on a legacy connection it rides the `initialize` handshake.
+  Server code doesn't care which: `require_client_extension(ctx, ...)` and
   `ctx.session.check_client_capability(...)` read the right source on both paths.
 * Vendor methods drop one layer to `client.session.send_request(...)`; `Client`
   only grows first-class methods for spec verbs. `send_request` accepts any
@@ -144,15 +145,103 @@ or veto a tool call:
 The hook wraps `tools/call` and nothing else. For every-message concerns, use
 [Middleware](middleware.md). That is what it is for.
 
+## Using a client extension
+
+A **client extension** is the same contract from the consuming side: a bundle of
+client-side behaviour behind one identifier. Pass instances to
+`Client(extensions=[...])` and call tools normally:
+
+```python title="client.py" hl_lines="66-68"
+--8<-- "docs_src/extensions/tutorial006.py"
+```
+
+`call_tool("buy", ...)` returns a plain `CallToolResult`, like every other call. What
+the extension changed: the server may now answer `buy` with a `receipt` **result
+shape** instead of a final result, and `Receipts` finishes it — here by redeeming the
+receipt with a follow-up call — before `call_tool` returns. Nothing about the call
+site moves.
+
+Drop the extension and none of this exists: a `receipt` shape arriving at a client
+that didn't declare it fails validation, exactly as the spec requires for an
+unrecognized `resultType`. Off by default, on both ends of the wire.
+
+To advertise an identifier with **no** client-side behaviour — the server gates on
+the capability, the client does nothing, as in the search client above — use
+`advertise()`:
+
+```python
+from mcp.client import advertise
+
+client = Client(mcp, extensions=[advertise("com.example/search")])
+```
+
+## Writing a client extension
+
+Subclass `ClientExtension` and override only what you need. Three contribution
+kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
+
+```python title="client.py" hl_lines="18-19 43-44 46-47"
+--8<-- "docs_src/extensions/tutorial006.py"
+```
+
+* The identifier follows the same grammar as the server's, validated when the class
+  is defined.
+* `claims()` returns `ResultClaim`s: a wire tag, the model that parses it, and the
+  resolver that finishes it. The model must pin the tag with
+  `result_type: Literal["receipt"]` and must not subclass a core result type — both
+  enforced when the claim is constructed. (The payload rides `requestState` here
+  because an `MCPServer` substituting a claimed shape serializes only the core
+  `tools/call` surface fields; a server on another SDK may send richer shapes.)
+* The resolver receives the parsed model and a `ClaimContext`; `ctx.session` is the
+  same public handle as `client.session`, so follow-ups are ordinary session calls.
+  It returns the verb's normal `CallToolResult`.
+* `settings()` is the value advertised at `ClientCapabilities.extensions[identifier]`,
+  read once at `Client` construction.
+
+`notifications()` declares vendor server notifications to observe:
+
+```python
+def notifications(self) -> Sequence[NotificationBinding[Any]]:
+    return [NotificationBinding(method="notifications/receipts", params_type=ReceiptEvent, handler=self.on_receipt)]
+```
+
+The handler receives validated params, in arrival order. It observes; it cannot veto
+or reply.
+
+Two quiet rules. Claims are active on 2026-07-28 connections only, and the capability
+ad follows them: on a legacy connection the claims dissolve and the identifier drops
+out of the ad in the same breath, so the client never advertises an extension whose
+shapes it would reject. And when you want the claimed shape yourself instead of the
+resolver, call `client.session.call_tool(..., allow_claimed=True)` — the escape hatch
+`UnexpectedClaimedResult` names when a claimed shape reaches a session-tier caller
+that didn't opt in.
+
+### Extension verbs
+
+An extension's own request methods need no client-side registration. A vendor request
+type subclasses `mcp_types.Request` and goes through `client.session.send_request`,
+as in [Serving your own methods](#serving-your-own-methods). One addition: when a
+params key must ride the `Mcp-Name` header (extension specs such as tasks require
+this for their verbs), the request type declares `name_param`:
+
+```python title="client.py" hl_lines="23-26 47-48"
+--8<-- "docs_src/extensions/tutorial007.py"
+```
+
+The session mirrors `params["jobId"]` into `Mcp-Name` on every send path, and a
+missing value fails loudly rather than silently omitting a required header.
+
 ## What an extension cannot do
 
-The contribution surface is **closed** on purpose: settings, tools, resources,
-methods, one `tools/call` interceptor. An extension cannot:
+The contribution surface is **closed** on purpose — on the server: settings, tools,
+resources, methods, one `tools/call` interceptor; on the client: settings, result
+claims, notification bindings. An extension cannot:
 
-* **Reach into the server.** It declares data; it holds no server reference.
+* **Reach into the host.** It declares data; it holds no server or client reference.
 * **Replace core behaviour.** Spec methods are rejected at construction, and
   `initialize` is reserved by the runner outright.
-* **Register late.** After `MCPServer(...)` returns, the extension set is what it is.
+* **Register late.** After `MCPServer(...)` or `Client(...)` returns, the extension
+  set is what it is.
 
 If you are fighting these walls, you are not writing an extension. You are writing
 a fork. The walls are the feature: a user reading `extensions=[Apps(), Stamps()]`

@@ -5,8 +5,17 @@ import logging
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import METHOD_NOT_FOUND, MISSING_REQUIRED_CLIENT_CAPABILITY, TextContent
+from pydantic import ValidationError
 
-from docs_src.extensions import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005
+from docs_src.extensions import (
+    tutorial001,
+    tutorial002,
+    tutorial003,
+    tutorial004,
+    tutorial005,
+    tutorial006,
+    tutorial007,
+)
 from mcp import Client, MCPError
 from mcp.client import advertise
 from mcp.server.extension import Extension
@@ -94,3 +103,34 @@ async def test_interceptor_observes_the_call_and_passes_the_result_through(
     assert result.structured_content == {"result": 5}
     messages = [record.getMessage() for record in caplog.records if record.name == tutorial005.logger.name]
     assert messages == ["tool 'add' called"]
+
+
+async def test_the_receipts_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial006: `main()` is the literal client program on the page — the claimed
+    `receipt` shape never surfaces, and the printed content is the redeemed result."""
+    await tutorial006.main()
+    assert "goods for r-117" in capsys.readouterr().out
+
+
+async def test_a_claimed_shape_fails_validation_without_the_extension() -> None:
+    """The page's off-by-default claim: a client that does not construct `Receipts`
+    rejects the `receipt` shape as invalid (spec: an unrecognized resultType is invalid)."""
+    async with Client(tutorial006.mcp) as client:
+        with pytest.raises(ValidationError):
+            await client.call_tool("buy", {"item": "lamp"})
+
+
+async def test_session_tier_allow_claimed_returns_the_raw_shape() -> None:
+    """The page's escape hatch: `client.session.call_tool(..., allow_claimed=True)` hands
+    back the parsed claim model instead of running the resolver."""
+    async with Client(tutorial006.mcp, extensions=[tutorial006.Receipts()]) as client:
+        result = await client.session.call_tool("buy", {"item": "lamp"}, allow_claimed=True)
+    assert isinstance(result, tutorial006.ReceiptResult)
+    assert result.request_state == "r-117"
+
+
+async def test_the_jobs_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial007: a vendor request type with `name_param` goes through
+    `client.session.send_request` with no registration and returns its typed result."""
+    await tutorial007.main()
+    assert "job-7 is running" in capsys.readouterr().out

@@ -9,7 +9,7 @@ result-envelope shape, so every assertion here is necessarily wire-level.
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 import httpx
@@ -30,7 +30,9 @@ from mcp_types import (
     JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
+    Request,
     RequestParams,
+    Result,
     ServerCapabilities,
     TextContent,
     Tool,
@@ -551,3 +553,64 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
     before, after = tool_calls
     assert before.headers.get("mcp-param-region") == "x"
     assert not any(k.startswith("mcp-param-") for k in after.headers)
+
+
+class _JobParams(RequestParams):
+    job_id: str
+
+
+class _JobStatusRequest(Request[_JobParams, Literal["com.example/jobs.status"]]):
+    """A vendor (extension) request type that names its subject for the Mcp-Name header."""
+
+    method: Literal["com.example/jobs.status"] = "com.example/jobs.status"
+    name_param = "jobId"
+
+
+class _JobStatusResult(Result):
+    status: str
+
+
+@requirement("client-transport:http:vendor-name-param-header")
+async def test_vendor_request_with_name_param_carries_mcp_name_on_the_wire() -> None:
+    """A vendor request sent through `send_request` carries `Mcp-Name` from its `name_param` key.
+
+    The request type is never registered with the client; `send_request` reads the declared
+    `name_param` ("jobId"), mirrors the params value into the `Mcp-Name` header, and the value
+    stays in the body unchanged. Asserted at the wire because the client never surfaces the
+    outgoing headers. The server serves the vendor method through `add_request_handler`, so the
+    round trip also proves the typed result comes back without any client-side method table.
+    """
+
+    async def job_status(ctx: ServerRequestContext, params: _JobParams) -> _JobStatusResult:
+        assert params.job_id == "job-7"
+        return _JobStatusResult(status="running")
+
+    server = _server()
+    server.add_request_handler("com.example/jobs.status", _JobParams, job_status)
+
+    requests: list[httpx.Request] = []
+
+    async def on_request(request: httpx.Request) -> None:
+        requests.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="srv", version="0"),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server, on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            request = _JobStatusRequest(params=_JobParams(job_id="job-7"))
+            result = await client.session.send_request(request, _JobStatusResult)
+
+    assert result.status == "running"
+    [wire_request] = requests
+    assert wire_request.headers["mcp-name"] == "job-7"
+    assert json.loads(wire_request.content)["params"]["jobId"] == "job-7"

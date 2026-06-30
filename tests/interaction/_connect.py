@@ -7,7 +7,7 @@ server's real Starlette app through the in-process streaming bridge, so the full
 (session ids, SSE encoding, session management) runs with no sockets, threads, or subprocesses.
 """
 
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from functools import partial
 from typing import Any, Protocol
@@ -30,6 +30,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from mcp.client.client import Client
+from mcp.client.extension import ClientExtension
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
@@ -70,6 +71,7 @@ class Connect(Protocol):
         message_handler: MessageHandlerFnT | None = None,
         client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
+        extensions: Sequence[ClientExtension] | None = None,
         spec_version: str = LATEST_HANDSHAKE_VERSION,
     ) -> AbstractAsyncContextManager[Client]: ...
 
@@ -85,6 +87,7 @@ async def connect_in_memory(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    extensions: Sequence[ClientExtension] | None = None,
     spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server over the in-memory transport.
@@ -103,6 +106,7 @@ async def connect_in_memory(
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
+        extensions=extensions,
     ) as client:
         yield client
 
@@ -122,6 +126,7 @@ async def connect_over_streamable_http(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    extensions: Sequence[ClientExtension] | None = None,
     spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's streamable HTTP app, entirely in process.
@@ -156,6 +161,7 @@ async def connect_over_streamable_http(
             message_handler=message_handler,
             client_info=client_info,
             elicitation_callback=elicitation_callback,
+            extensions=extensions,
         ) as client,
     ):
         yield client
@@ -357,6 +363,7 @@ async def connect_over_sse(
     message_handler: MessageHandlerFnT | None = None,
     client_info: Implementation | None = None,
     elicitation_callback: ElicitationFnT | None = None,
+    extensions: Sequence[ClientExtension] | None = None,
     spec_version: str = LATEST_HANDSHAKE_VERSION,
 ) -> AsyncIterator[Client]:
     """Yield a Client connected to the server's legacy SSE transport, entirely in process."""
@@ -390,5 +397,6 @@ async def connect_over_sse(
         message_handler=message_handler,
         client_info=client_info,
         elicitation_callback=elicitation_callback,
+        extensions=extensions,
     ) as client:
         yield client
