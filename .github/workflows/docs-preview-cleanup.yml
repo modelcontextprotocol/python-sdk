@@ -1,0 +1,44 @@
+name: Docs Preview Cleanup
+
+# Deletes Cloudflare Pages preview deployments for a PR when it closes.
+# Runs as pull_request_target so secrets are available for fork PRs; it never
+# checks out PR code, so there is no untrusted-code execution risk.
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete preview deployments for this PR
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          BRANCH: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ] || [ -z "$CF_PROJECT" ]; then
+            echo "Cloudflare credentials/project not configured; skipping cleanup."
+            exit 0
+          fi
+          base="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/pages/projects/$CF_PROJECT/deployments"
+          # Collect matching ids across all pages first, then delete — deleting
+          # mid-pagination would shift later pages and skip entries.
+          ids=""
+          for page in $(seq 1 50); do
+            resp=$(curl -fsS -H "Authorization: Bearer $CF_API_TOKEN" "$base?env=preview&per_page=25&page=$page")
+            ids="$ids $(jq -r --arg b "$BRANCH" '.result[]? | select(.deployment_trigger.metadata.branch == $b) | .id' <<<"$resp")"
+            [ "$(jq '.result | length' <<<"$resp")" -lt 25 ] && break
+          done
+          deleted=0
+          for id in $ids; do
+            echo "Deleting deployment $id"
+            curl -fsS -X DELETE -H "Authorization: Bearer $CF_API_TOKEN" "$base/$id?force=true" > /dev/null
+            deleted=$((deleted + 1))
+          done
+          echo "Deleted $deleted deployment(s) for $BRANCH."
