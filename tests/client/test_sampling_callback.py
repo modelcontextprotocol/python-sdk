@@ -54,10 +54,12 @@ async def test_sampling_callback():
     # Test without sampling callback
     async with create_session(server._mcp_server) as client_session:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
-        assert result.isError is True
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"
+        # McpError propagates as a JSON-RPC error, not CallToolResult(isError=True)
+        from mcp.shared.exceptions import McpError
+
+        with pytest.raises(McpError) as exc_info:
+            await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
+        assert "Sampling not supported" in exc_info.value.error.message
 
 
 @pytest.mark.anyio
