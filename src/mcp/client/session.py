@@ -452,6 +452,8 @@ class ClientSession:
             MCPError: Error response, read timeout, or connection closed.
             RuntimeError: Called before entering the context manager.
             ValueError: The request declares `name_param` but its params carry no string name.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]

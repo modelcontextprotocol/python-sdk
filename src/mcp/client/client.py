@@ -629,6 +629,8 @@ class Client:
         Raises:
             InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
             MCPError: A callback returned `ErrorData` for an embedded input request.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
         """
 
         async def retry(r: InputResponses | None, s: str | None) -> ReadResourceResult | InputRequiredResult:
@@ -711,6 +713,8 @@ class Client:
         Raises:
             InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
             MCPError: A callback returned `ErrorData` for an embedded input request.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
         """
 
         async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
@@ -787,6 +791,8 @@ class Client:
         Raises:
             InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
             MCPError: A callback returned `ErrorData` for an embedded input request.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
         """
 
         async def retry(r: InputResponses | None, s: str | None) -> GetPromptResult | InputRequiredResult:
