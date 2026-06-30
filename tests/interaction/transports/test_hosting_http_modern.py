@@ -17,6 +17,7 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
+    HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
@@ -475,12 +476,13 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
     The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers.
     The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
     implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
+    The server validates `Mcp-Param-*` against its own catalog and rejects as the spec's scenario table
+    requires for an omitted header (the relist-and-retry recovery is a SHOULD the client does not implement yet).
     """
     requests: list[httpx.Request] = []
 
     async def on_request(request: httpx.Request) -> None:
-        if json.loads(request.content)["method"] == "tools/call":
-            requests.append(request)
+        requests.append(request)
 
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
@@ -496,8 +498,12 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
                 prior_discover=discover,
             ) as client,
         ):
-            await client.call_tool("run", {"region": "us-west1"})
+            with pytest.raises(MCPError) as excinfo:  # pragma: no branch
+                await client.call_tool("run", {"region": "us-west1"})
 
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    assert len(requests) == 1
+    assert json.loads(requests[0].content)["method"] == "tools/call"
     assert not any(k.startswith("mcp-param-") for k in requests[0].headers)
 
 
@@ -513,11 +519,13 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
     bad_schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}}
     valid = Tool(name="run", input_schema=schema)
     invalid = Tool(name="run", input_schema=bad_schema)
-    # Three pages: the call after the drop re-lists once because the prune also cleared `run`'s schema entry.
-    listings = iter([valid, invalid, invalid])
+    # First listing valid, every later one invalid; the count is not pinned because the server also
+    # reads its own catalog on each tools/call.
+    listings: list[None] = []
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[next(listings)], ttl_ms=0, cache_scope="public")
+        listings.append(None)
+        return ListToolsResult(tools=[valid if len(listings) == 1 else invalid], ttl_ms=0, cache_scope="public")
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         return CallToolResult(content=[TextContent(text="ok")])

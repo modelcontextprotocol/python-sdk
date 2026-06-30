@@ -14,7 +14,7 @@ validator so client emit and server validate read the same source of truth.
 import base64
 import binascii
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Final, cast
@@ -49,8 +49,10 @@ __all__ = [
     "classify_inbound_request",
     "decode_header_value",
     "encode_header_value",
+    "find_duplicated_routing_header",
     "find_invalid_x_mcp_header",
     "mcp_param_headers",
+    "validate_mcp_param_headers",
     "x_mcp_header_map",
 ]
 
@@ -161,18 +163,27 @@ def decode_header_value(value: str | None) -> str | None:
 
     Returns the value verbatim unless it carries the `=?base64?...?=` sentinel,
     in which case the payload is decoded as UTF-8. A malformed sentinel (bad
-    base64 or bad UTF-8) yields `None` so a corrupt header never matches a body
-    value by accident. `None` in → `None` out so callers can pass
-    `headers.get(...)` directly.
+    base64, non-canonical base64, or bad UTF-8) yields `None` so a corrupt
+    header never matches a body value by accident. `None` in → `None` out so
+    callers can pass `headers.get(...)` directly.
     """
     if value is None:
         return None
     m = _B64_SENTINEL.fullmatch(value)
     if m is None:
         return value
+    payload = m.group("payload")
     try:
-        return base64.b64decode(m.group("payload"), validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError):
+        decoded = base64.b64decode(payload, validate=True)
+    except binascii.Error:
+        return None
+    # Reject non-canonical base64 (e.g. non-zero trailing bits), which
+    # `validate=True` tolerates; the encoder only ever emits canonical form.
+    if base64.b64encode(decoded).decode("ascii") != payload:
+        return None
+    try:
+        return decoded.decode("utf-8")
+    except UnicodeDecodeError:
         return None
 
 
@@ -232,11 +243,33 @@ def x_mcp_header_map(input_schema: Any) -> dict[tuple[str, ...], str]:
     :func:`find_invalid_x_mcp_header` accepts; an invalid schema yields an
     undefined subset.
     """
-    mapping: dict[tuple[str, ...], str] = {}
+    return {path: token for path, token, _ in _annotated_positions(input_schema)}
+
+
+def _annotated_positions(input_schema: Any) -> Iterator[tuple[tuple[str, ...], str, dict[str, Any]]]:
+    """Yield `(path, token, schema)` for every statically-reachable `x-mcp-header` annotation.
+
+    Shared by client emit and server validate so both ends agree on what counts as a declared header.
+    """
     for path, schema in _walk_schema_positions(input_schema):
-        if path and isinstance(header := schema.get(X_MCP_HEADER_KEY), str):
-            mapping[path] = header
-    return mapping
+        if path and isinstance(token := schema.get(X_MCP_HEADER_KEY), str):
+            yield path, token, schema
+
+
+def _render_header_scalar(value: Any) -> str | None:
+    """Render `value` the way the client mirrors it into a header, or `None` when no rendering exists.
+
+    Shared by emit and validate so both sides agree on what is mirrorable:
+    non-primitives and ints beyond CPython's int-to-str digit limit are not.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if not isinstance(value, str | int | float):
+        return None
+    try:
+        return str(value)
+    except ValueError:
+        return None
 
 
 def mcp_param_headers(header_map: Mapping[tuple[str, ...], str], arguments: Mapping[str, Any]) -> dict[str, str]:
@@ -247,14 +280,14 @@ def mcp_param_headers(header_map: Mapping[tuple[str, ...], str], arguments: Mapp
     `Mcp-Param-<token>` carrying it: `bool` as `true`/`false`, other scalars via
     `str`, each passed through :func:`encode_header_value` so a non-token value
     is base64-wrapped. A path that hits a missing key or a non-mapping node is
-    skipped, matching the spec's "omit the header when no value is present".
+    skipped, matching the spec's "omit the header when no value is present",
+    as is a value with no header rendering.
     """
     headers: dict[str, str] = {}
     for path, token in header_map.items():
         value = _value_at_path(arguments, path)
-        if value is None:
+        if value is None or (rendered := _render_header_scalar(value)) is None:
             continue
-        rendered = ("true" if value else "false") if isinstance(value, bool) else str(value)
         headers[f"{MCP_PARAM_HEADER_PREFIX}{token}"] = encode_header_value(rendered)
     return headers
 
@@ -311,6 +344,26 @@ class InboundLadderRejection:
     code: int
     message: str
     data: Any = None
+
+
+_ROUTING_HEADER_NAMES: Final = frozenset({MCP_PROTOCOL_VERSION_HEADER, MCP_METHOD_HEADER, MCP_NAME_HEADER})
+
+
+def find_duplicated_routing_header(headers: Iterable[tuple[str, str]]) -> str | None:
+    """Name of a routing header supplied more than once in raw header lines, or `None`.
+
+    Takes raw `(name, value)` pairs — a folded mapping hides duplicates. A
+    duplicate is rejected because first-copy and last-copy readers would
+    disagree. `Mcp-Param-*` duplicates are :func:`validate_mcp_param_headers`'s job.
+    """
+    seen: set[str] = set()
+    for name, _ in headers:
+        key = name.lower()
+        if key in _ROUTING_HEADER_NAMES:
+            if key in seen:
+                return key
+            seen.add(key)
+    return None
 
 
 def classify_inbound_request(
@@ -395,3 +448,104 @@ def classify_inbound_request(
         client_info=client_info,
         client_capabilities=client_capabilities,
     )
+
+
+# Header values eligible for the spec's numeric-comparison SHOULD; scientific
+# notation never compares numerically (matching the typescript-sdk's gate).
+_CANONICAL_DECIMAL = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+
+
+def _mcp_param_value_matches(prop_type: Any, value: Any, rendered: str, decoded: str) -> bool:
+    """True when a decoded `Mcp-Param-*` header value agrees with the body argument.
+
+    Integer-typed declarations with an integral body value compare numerically
+    (`42` matches `42.0`, the spec's SHOULD) for canonical-decimal headers —
+    exact, no float round-trip, so values beyond the IEEE754 safe range still
+    compare. Anything else compares against `rendered`, the emit-side rendering.
+    """
+    if (
+        prop_type == "integer"
+        and not isinstance(value, bool)
+        and (isinstance(value, int) or (isinstance(value, float) and value.is_integer()))
+        and _CANONICAL_DECIMAL.fullmatch(decoded) is not None
+    ):
+        whole, _, fraction = decoded.partition(".")
+        if fraction and set(fraction) != {"0"}:
+            return False
+        try:
+            return int(whole) == int(value)
+        except ValueError:
+            return False
+    return decoded == rendered
+
+
+def validate_mcp_param_headers(
+    input_schema: Any,
+    arguments: Mapping[str, Any],
+    headers: Mapping[str, str],
+) -> InboundLadderRejection | None:
+    """Compare a `tools/call` request's `Mcp-Param-*` headers against its body arguments.
+
+    Each annotated property's header and argument must agree: present together
+    and equal after sentinel decoding, or absent together (`null` counts as
+    absent). Returns the first failure as a `HEADER_MISMATCH` rejection, else `None`.
+
+    A header whose argument is absent or unrenderable is deliberately rejected:
+    the spec's purpose clause is exactly an intermediary routing on a value the
+    body never carried. A duplicated recognized header is rejected — first-copy
+    and last-copy readers would disagree. A schema :func:`find_invalid_x_mcp_header`
+    rejects validates nothing: conforming clients drop the tool and emit no headers.
+    """
+    if find_invalid_x_mcp_header(input_schema) is not None:
+        return None
+    folded: dict[str, str] = {}
+    duplicated: set[str] = set()
+    for name, value in headers.items():
+        key = name.lower()
+        if key in folded:
+            duplicated.add(key)
+        folded[key] = value
+    for path, token, schema in _annotated_positions(input_schema):
+        header_name = f"{MCP_PARAM_HEADER_PREFIX}{token}"
+        key = header_name.lower()
+        raw = folded.get(key)
+        value = _value_at_path(arguments, path)
+        argument = ".".join(path)
+        if raw is not None and key in duplicated:
+            return InboundLadderRejection(
+                code=HEADER_MISMATCH,
+                message=f"{header_name} header appears more than once",
+            )
+        if value is None:
+            if raw is not None:
+                return InboundLadderRejection(
+                    code=HEADER_MISMATCH,
+                    message=f"{header_name} header is present but the request body's {argument!r} argument is absent",
+                )
+            continue
+        rendered = _render_header_scalar(value)
+        if rendered is None:
+            # Unrenderable value: a conforming client omitted the header, so one claiming it can never match.
+            if raw is not None:
+                return InboundLadderRejection(
+                    code=HEADER_MISMATCH,
+                    message=f"{header_name} header does not match the request body's {argument!r} argument",
+                )
+            continue
+        if raw is None:
+            return InboundLadderRejection(
+                code=HEADER_MISMATCH,
+                message=f"{header_name} header is missing but the request body's {argument!r} argument is present",
+            )
+        decoded = decode_header_value(raw)
+        if decoded is None:
+            return InboundLadderRejection(
+                code=HEADER_MISMATCH,
+                message=f"{header_name} header carries a malformed base64 sentinel value",
+            )
+        if not _mcp_param_value_matches(schema.get("type"), value, rendered, decoded):
+            return InboundLadderRejection(
+                code=HEADER_MISMATCH,
+                message=f"{header_name} header does not match the request body's {argument!r} argument",
+            )
+    return None
