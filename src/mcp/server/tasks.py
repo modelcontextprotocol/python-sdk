@@ -46,9 +46,10 @@ cancellation can still never take effect (terminal statuses are absorbing --
 unchanged invariant). Errors propagate untouched on every non-augmented path: a
 non-declaring client, a legacy connection, or an `augment` predicate that
 excluded the call. Background execution (returning `working` tasks), the in-task
-`input_required`/`inputResponses` loop over `tasks/update`, `notifications/tasks`
-over `subscriptions/listen`, and SEP-2243 `Mcp-Name` task routing headers are
-deferred follow-ups, each needing deeper SDK plumbing.
+`input_required`/`inputResponses` loop over `tasks/update`, and
+`notifications/tasks` over `subscriptions/listen` are deferred follow-ups, each
+needing deeper SDK plumbing. (The SEP-2243 `Mcp-Name: <taskId>` routing header
+is already handled by the shared header table in `mcp.shared.inbound`.)
 
 Task ids are unguessable bearer capabilities: any caller presenting a valid id
 may poll the task. That is deliberate -- the modern wire has no sessions, and a
