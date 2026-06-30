@@ -48,8 +48,9 @@ non-declaring client, a legacy connection, or an `augment` predicate that
 excluded the call. Background execution (returning `working` tasks), the in-task
 `input_required`/`inputResponses` loop over `tasks/update`, and
 `notifications/tasks` over `subscriptions/listen` are deferred follow-ups, each
-needing deeper SDK plumbing. (The SEP-2243 `Mcp-Name: <taskId>` routing header
-is already handled by the shared header table in `mcp.shared.inbound`.)
+needing deeper SDK plumbing. (SEP-2663's `Mcp-Name: <taskId>` routing header --
+the SEP-2243 header family -- is already handled by the shared header table in
+`mcp.shared.inbound`.)
 
 Task ids are unguessable bearer capabilities: any caller presenting a valid id
 may poll the task. That is deliberate -- the modern wire has no sessions, and a

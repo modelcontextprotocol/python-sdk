@@ -268,6 +268,29 @@ async def test_declaring_client_call_tool_transparently_polls_to_the_call_tool_r
     assert result.meta is None
 
 
+async def test_call_tool_read_timeout_seconds_bounds_each_task_poll(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK-defined: a caller's per-call `read_timeout_seconds` is forwarded to every
+    `tasks/get` poll as that request's own per-request bound (not a whole-loop
+    deadline), matching the bound the initial `tools/call` carries."""
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
+        session = client.session
+        inner_send_request = session.send_request
+        timeouts_by_method: dict[str, list[float | None]] = {}
+
+        async def recording_send_request(
+            request: Any, result_type: Any, request_read_timeout_seconds: float | None = None, **kwargs: Any
+        ) -> Any:
+            timeouts_by_method.setdefault(request.method, []).append(request_read_timeout_seconds)
+            return await inner_send_request(request, result_type, request_read_timeout_seconds, **kwargs)
+
+        monkeypatch.setattr(session, "send_request", recording_send_request)
+        result = await client.call_tool("echo", {"text": "hi"}, read_timeout_seconds=7.5)
+
+    assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="hi")]))
+    assert timeouts_by_method["tools/call"] == [7.5]
+    assert timeouts_by_method["tasks/get"] == [7.5]
+
+
 async def test_tool_error_result_under_augmentation_surfaces_as_is_error_call_tool_result() -> None:
     """SEP-2663: a tool result with `isError: true` is a `completed` task, so the
     transparent driver returns it as the ordinary error-shaped `CallToolResult`
