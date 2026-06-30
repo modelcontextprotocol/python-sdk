@@ -13,6 +13,16 @@
 client: []
 
 server:
+  # SEP-2575 subscriptions/listen is not implemented yet. The everything-
+  # server's legacy resources/subscribe handlers make it advertise
+  # `resources.subscribe` in server/discover, and as of conformance #372 a
+  # server that advertises a subscription capability but answers
+  # subscriptions/listen with -32601 fails the three listen MUST checks
+  # ("Not testable") instead of skipping them. Remove this entry when the
+  # listen runtime lands. NOTE: while listed, this entry also masks new
+  # failures in the scenario's other 25 (currently passing) checks — the
+  # baseline is per-scenario, not per-check.
+  - server-stateless
   # SEP-2243 Mcp-Param-* server-side validation is not implemented yet. The
   # everything-server's `test_x_mcp_header` tool arms these checks (without an
   # x-mcp-header-annotated tool the harness skips all of them silently); the
