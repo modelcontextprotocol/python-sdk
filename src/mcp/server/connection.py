@@ -100,25 +100,17 @@ class _NoChannelOutbound:
 _NO_CHANNEL = _NoChannelOutbound()
 
 
-class NotifyOnlyOutbound:
+class NotifyOnlyOutbound(_NoChannelOutbound):
     """Connection-scoped `Outbound` that forwards notifications and refuses requests.
 
     Installed by `serve_dual_era_loop` for modern (2026-07-28+) connections
     over duplex stream transports: the pipe is real, so server notifications
     ride it, but the modern protocol forbids server-initiated JSON-RPC
-    requests, so `send_raw_request` refuses by construction.
+    requests, so `send_raw_request` (inherited) refuses by construction.
     """
 
     def __init__(self, outbound: Outbound) -> None:
         self._outbound = outbound
-
-    async def send_raw_request(
-        self,
-        method: str,
-        params: Mapping[str, Any] | None,
-        opts: CallOptions | None = None,
-    ) -> dict[str, Any]:
-        raise NoBackChannelError(method)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         await self._outbound.notify(method, params, opts)
@@ -230,7 +222,12 @@ class Connection:
     def has_standalone_channel(self) -> bool:
         """Whether this connection has a real back-channel for server-initiated
         messages. Derived from `outbound` - the no-channel sentinel is the only
-        case that doesn't."""
+        case that doesn't.
+
+        Channel presence, not request permission: a modern (2026-07-28+)
+        duplex connection has a channel that carries notifications while
+        `send_raw_request` still refuses, because the protocol forbids
+        server-initiated requests."""
         return self.outbound is not _NO_CHANNEL
 
     @property
@@ -255,7 +252,9 @@ class Connection:
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: `has_standalone_channel` is `False`.
+            NoBackChannelError: no back-channel for server-initiated requests -
+                `has_standalone_channel` is `False`, or a modern (2026-07-28+)
+                connection, where the protocol forbids them.
         """
         return await self.outbound.send_raw_request(method, params, opts)
 
@@ -316,7 +315,9 @@ class Connection:
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: `has_standalone_channel` is `False`.
+            NoBackChannelError: no back-channel for server-initiated requests -
+                `has_standalone_channel` is `False`, or a modern (2026-07-28+)
+                connection, where the protocol forbids them.
         """
         await self.send_raw_request("ping", dump_params(None, meta), opts)
 

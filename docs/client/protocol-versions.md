@@ -26,9 +26,9 @@ Either way you come out connected, and `client.protocol_version` tells you which
 That is the whole feature. One `Client`, any era of server, no branching in your code.
 
 !!! info
-    `MCPServer` answers `server/discover`, so against your own in-memory server `auto` always lands
-    on `2026-07-28`. The fallback only ever fires against a real pre-2026 server, which is exactly
-    when you want it to.
+    `MCPServer` answers `server/discover` on every transport — in-memory, stdio, streamable
+    HTTP — so against your own server `auto` always lands on `2026-07-28`. The fallback only
+    ever fires against a real pre-2026 server, which is exactly when you want it to.
 
 ## `mode="legacy"`
 

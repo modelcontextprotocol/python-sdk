@@ -377,8 +377,8 @@ def classify_inbound_request(
     Rungs, in order — first failure wins:
 
     1. `params._meta` is a mapping carrying every reserved envelope key
-       (protocol version, client info, client capabilities) → else
-       :data:`~mcp_types.jsonrpc.INVALID_PARAMS`.
+       (protocol version, client info, client capabilities), and the protocol
+       version is a string → else :data:`~mcp_types.jsonrpc.INVALID_PARAMS`.
     2. When `headers` is given, `MCP-Protocol-Version` equals the envelope's
        protocol version, `Mcp-Method` equals `body.method`, and — for the
        methods in :data:`NAME_BEARING_METHODS` — `Mcp-Name` equals the named
@@ -410,6 +410,14 @@ def classify_inbound_request(
             code=INVALID_PARAMS,
             message="params._meta must carry the reserved protocol-version, client-info and "
             "client-capabilities envelope keys",
+        )
+    if not isinstance(protocol_version, str):
+        # A shape defect, not a version-negotiation outcome: -32022 is the one
+        # code auto-negotiating clients do NOT fall back from, and the typed
+        # rung-3 payload itself requires a string `requested`.
+        return InboundLadderRejection(
+            code=INVALID_PARAMS,
+            message="the protocol-version envelope value must be a string",
         )
 
     if headers is not None:

@@ -46,6 +46,12 @@ Two more things the stream is *not*:
 * **It is not a replay log.** A dropped stream is gone; events published while nobody was connected are not queued. The client's contract is to re-listen and re-fetch what it cares about.
 * **It is not the 2025 path.** Clients on earlier protocol versions that called `resources/subscribe` are served by `ctx.session.send_resource_updated(uri)` — the `notify_*` methods reach `subscriptions/listen` streams only.
 
+!!! warning "Streamable HTTP only, for now"
+    `subscriptions/listen` is served on the streamable-HTTP transport. Over stdio (and other
+    stream-pair transports) a 2026-07-28 connection rejects it with METHOD_NOT_FOUND — the
+    open-stream semantics haven't been built for that transport yet, even though
+    `server/discover` still advertises the subscription capabilities there.
+
 ## One process is the default. More takes a bus
 
 Publishes travel from your handler to the open streams over a `SubscriptionBus`. The default is in-memory: one process, every stream in it. That is the right answer until you run replicas behind a load balancer — then a client's stream is pinned to one replica, and a publish on another replica has to reach it.

@@ -128,6 +128,18 @@ def test_envelope_rung_rejects_non_mapping_shapes(body: dict[str, Any]) -> None:
     assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
 
 
+@pytest.mark.parametrize("version", [7, None, ["2026-07-28"]], ids=["int", "null", "list"])
+def test_envelope_rung_rejects_non_string_protocol_version(version: Any) -> None:
+    """A present-but-non-string protocol version is a shape defect, rejected
+    INVALID_PARAMS: it must never become -32022 (the one code auto-negotiating
+    clients do not fall back from), and must not escape as a ValidationError
+    from the version rung's own typed payload (`requested` is a `str` field)."""
+    body = envelope()
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = version
+    rejection = assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
+    assert "string" in rejection.message
+
+
 # --- rung 2: protocol-version-supported ----------------------------------------
 
 

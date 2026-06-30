@@ -16,6 +16,7 @@ from mcp_types import (
     JSONRPCResponse,
     jsonrpc_message_adapter,
 )
+from typing_extensions import Buffer
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
@@ -123,10 +124,11 @@ class _GatedStdin(io.RawIOBase):
     def readable(self) -> bool:
         return True
 
-    def readinto(self, b: bytearray | memoryview) -> int:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def readinto(self, b: Buffer) -> int:
+        view = memoryview(b)
         if self._pending:
-            n = min(len(b), len(self._pending))
-            b[:n] = self._pending[:n]
+            n = min(len(view), len(self._pending))
+            view[:n] = self._pending[:n]
             self._pending = self._pending[n:]
             return n
         # A missed release falls through to EOF after the bound; the caller's
@@ -155,7 +157,7 @@ class _NotifyingStdout(io.RawIOBase):
     def writable(self) -> bool:
         return True
 
-    def write(self, b: bytes | bytearray | memoryview) -> int:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def write(self, b: Buffer) -> int:
         data = bytes(b)
         with self._cond:
             self._chunks.append(data)
