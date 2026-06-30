@@ -304,7 +304,7 @@ class ClientSession:
 
     async def send_request(
         self,
-        request: types.ClientRequest,
+        request: types.ClientRequest | types.Request[Any, Any],
         result_type: type[ReceiveResultT] | TypeAdapter[ReceiveResultT],
         request_read_timeout_seconds: float | None = None,
         metadata: ClientMessageMetadata | None = None,
@@ -318,11 +318,22 @@ class ClientSession:
         Raises:
             MCPError: Error response, read timeout, or connection closed.
             RuntimeError: Called before entering the context manager.
+            ValueError: The request type declares `name_param` but the params
+                carry no string value under that key for the `Mcp-Name` header.
         """
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
         self._stamp(data, opts)
+        # Presence-keyed so the stamp's NAME_BEARING_METHODS rows win by ordering;
+        # a missing/non-string name fails loud rather than omitting a MUST header.
+        headers = opts.setdefault("headers", {})
+        if (key := type(request).name_param) is not None and MCP_NAME_HEADER not in headers:
+            params_data: dict[str, Any] = data.get("params") or {}
+            name = params_data.get(key)
+            if not isinstance(name, str):
+                raise ValueError(f"{method} requires params[{key!r}] for Mcp-Name")
+            headers[MCP_NAME_HEADER] = encode_header_value(name)
         timeout = (
             request_read_timeout_seconds
             if request_read_timeout_seconds is not None
@@ -766,7 +777,7 @@ class ClientSession:
         )
 
         if isinstance(result, types.CallToolResult) and not result.is_error:
-            await self._validate_tool_result(name, result)
+            await self.validate_tool_result(name, result)
 
         if isinstance(result, types.InputRequiredResult) and not allow_input_required:
             raise _input_required_unexpected("call_tool")
@@ -779,8 +790,17 @@ class ClientSession:
             return {}
         return mcp_param_headers(header_map, arguments)
 
-    async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
-        """Validate the structured content of a tool result against its output schema."""
+    async def validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
+        """Revalidate a `CallToolResult` against the tool's declared output schema.
+
+        Fetches the tool listing first when `name` has no cached schema. Tools
+        without an output schema (or not listed by the server) pass without
+        validation.
+
+        Raises:
+            RuntimeError: The result's structured content is missing or does
+                not conform to the tool's output schema.
+        """
         if name not in self._tool_output_schemas:
             # refresh output schema cache
             await self.list_tools()
@@ -970,7 +990,7 @@ class ClientSession:
             ctx = ClientRequestContext(
                 session=self, request_id=dctx.request_id, meta=request.params.meta if request.params else None
             )
-            response = await self._dispatch_input_request(ctx, request)
+            response = await self.dispatch_input_request(ctx, request)
         client_response = ClientResponse.validate_python(response)
         if isinstance(client_response, types.ErrorData):
             raise MCPError.from_error_data(client_response)
@@ -982,16 +1002,19 @@ class ClientSession:
             raise MCPError(code=INTERNAL_ERROR, message="Client callback returned an invalid result") from None
         return dumped
 
-    async def _dispatch_input_request(
-        self, ctx: ClientRequestContext, req: types.InputRequest
+    async def dispatch_input_request(
+        self, ctx: ClientRequestContext, request: types.InputRequest
     ) -> types.InputResponse | types.ErrorData:
-        """Route a server-initiated input request to the matching constructor callback.
+        """Route an input request through the client's callback table.
 
         Shared by the legacy server→client RPC path (`_on_request`) and the
         2026-07-28 multi-round-trip driver, which dispatches the embedded
         `InputRequiredResult.input_requests` through the same callbacks.
+
+        Returns the callback's `InputResponse`, or `ErrorData` when the
+        callback declines — the refusal path; callers must handle that arm.
         """
-        match req:
+        match request:
             case types.CreateMessageRequest(params=p):
                 return await self._sampling_callback(ctx, p)
             case types.ElicitRequest(params=p):

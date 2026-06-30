@@ -28,10 +28,9 @@ uv run python -m stories.custom_methods.client --http
   method string is the wire `method`; use a vendor prefix so it can never
   collide with a future spec method.
 - `client.py` `client.session.send_request(...)` — `Client` only exposes spec
-  verbs, so vendor methods go through the underlying `ClientSession`. The
-  `cast("types.ClientRequest", ...)` is needed because `send_request`'s
-  `request` parameter is currently typed as the closed spec union; widening it
-  (or adding `Client.send_request`) is tracked for beta.
+  verbs, so vendor methods go through the underlying `ClientSession`.
+  `send_request` accepts any `types.Request` subclass, so the vendor request
+  passes as-is, no cast.
 
 ## Caveats
 

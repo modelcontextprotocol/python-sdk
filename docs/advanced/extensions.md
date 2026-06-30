@@ -119,8 +119,8 @@ The same file's `main()` is the whole client story, both halves of it:
   which: `require_client_extension(ctx, ...)` and
   `ctx.session.check_client_capability(...)` read the right source on both paths.
 * Vendor methods drop one layer to `client.session.send_request(...)`; `Client`
-  only grows first-class methods for spec verbs. The `cast` is there because
-  `send_request` is typed against the spec's closed request union.
+  only grows first-class methods for spec verbs. `send_request` accepts any
+  `Request` subclass, so the vendor request passes as-is.
 
 ### Intercepting `tools/call`
 

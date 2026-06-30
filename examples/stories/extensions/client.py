@@ -1,6 +1,6 @@
 """Discover an extension's capability entry, call its tool, then send its vendor method."""
 
-from typing import Literal, cast
+from typing import Literal
 
 import mcp_types as types
 from mcp_types import TextContent
@@ -43,10 +43,9 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "mcp-suggestion", result.content[0].text
 
-        # Vendor methods drop one layer to `client.session` (see custom_methods/);
-        # the cast is needed because `send_request` is typed against the spec union.
+        # Vendor methods drop one layer to `client.session` (see custom_methods/).
         request = SearchRequest(params=SearchParams(query="mcp", limit=3))
-        found = await client.session.send_request(cast("types.ClientRequest", request), SearchResult)
+        found = await client.session.send_request(request, SearchResult)
         assert found.items == ["mcp-0", "mcp-1", "mcp-2"], found
 
 

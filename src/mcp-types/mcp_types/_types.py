@@ -8,7 +8,7 @@ the negotiated version. Per-field docstrings note version availability. The
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -127,6 +127,12 @@ class Request(MCPModel, Generic[RequestParamsT, MethodT]):
 
     method: MethodT
     params: RequestParamsT
+
+    name_param: ClassVar[str | None] = None
+    """Wire-params key mirrored into the `Mcp-Name` header on sends (SEP-2243
+    family; SEP-2663 requires it for tasks/*). The request type declares; the
+    host emits. Subclasses override by bare assignment (`name_param = "taskId"`)
+    — re-annotating as `ClassVar[str]` trips pyright's ClassVar invariance."""
 
 
 class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):

@@ -715,7 +715,7 @@ class Client:
 
         async def dispatch(key: str, req: InputRequest) -> InputResponse | ErrorData:
             ctx = ClientRequestContext(session=session, request_id=key, meta=req.params.meta if req.params else None)
-            return await session._dispatch_input_request(ctx, req)  # pyright: ignore[reportPrivateUsage]
+            return await session.dispatch_input_request(ctx, req)
 
         return await run_input_required_driver(
             first, dispatch=dispatch, retry=retry, max_rounds=self.input_required_max_rounds

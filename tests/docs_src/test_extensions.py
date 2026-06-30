@@ -1,9 +1,7 @@
 """`docs/advanced/extensions.md`: every claim the page makes, proved against the real SDK."""
 
 import logging
-from typing import cast
 
-import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import METHOD_NOT_FOUND, MISSING_REQUIRED_CLIENT_CAPABILITY, TextContent
@@ -70,7 +68,7 @@ async def test_vendor_method_rejects_a_non_declaring_client_with_32021() -> None
     async with Client(tutorial004.mcp) as client:
         request = tutorial004.SearchRequest(params=tutorial004.SearchParams(query="mcp"))
         with pytest.raises(MCPError) as exc_info:
-            await client.session.send_request(cast("types.ClientRequest", request), tutorial004.SearchResult)
+            await client.session.send_request(request, tutorial004.SearchResult)
     assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
     assert exc_info.value.error.data == {"requiredCapabilities": {"extensions": {"com.example/search": {}}}}
 
@@ -81,7 +79,7 @@ async def test_version_pinned_method_is_not_found_on_a_legacy_connection() -> No
     async with Client(tutorial004.mcp, mode="legacy", extensions={tutorial004.EXTENSION_ID: {}}) as client:
         request = tutorial004.SearchRequest(params=tutorial004.SearchParams(query="mcp"))
         with pytest.raises(MCPError) as exc_info:
-            await client.session.send_request(cast("types.ClientRequest", request), tutorial004.SearchResult)
+            await client.session.send_request(request, tutorial004.SearchResult)
     assert exc_info.value.code == METHOD_NOT_FOUND
 
 
