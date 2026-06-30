@@ -1,4 +1,4 @@
-"""Declare the tasks extension, let the server defer a tool call, then poll tasks/get.
+"""Declare the tasks extension, let the server defer a tool call, then fetch the result via tasks/get.
 
 The client declares `io.modelcontextprotocol/tasks` (via `Client(extensions=...)`),
 so the server is free to answer `tools/call` with a `CreateTaskResult`. `Client`
@@ -32,8 +32,14 @@ async def main(target: Target, *, mode: str = "auto") -> None:
     async with Client(target, mode=mode, extensions=[advertise(EXTENSION_ID)]) as client:
         # The extension is a modern-only capability negotiated over server/discover.
         # A legacy connection cannot carry it, and the server then must not
-        # augment, so the task flow only runs once it is negotiated.
+        # augment: the same tools/call degrades to a plain CallToolResult.
         if client.server_capabilities.extensions is None:
+            result = await client.call_tool("render_report", {"title": "Q3", "sections": 2})
+            assert isinstance(result.content[0], types.TextContent), result
+            assert result.content[0].text.startswith("# Q3"), result
+            # No 2025-style related-task _meta either; SEP-2663 augmentation would
+            # have replaced the whole result, failing CallToolResult parsing above.
+            assert result.meta is None, result
             return
         assert client.server_capabilities.extensions == {EXTENSION_ID: {}}
 

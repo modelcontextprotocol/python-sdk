@@ -1,10 +1,10 @@
-"""Tasks (SEP-2663): the server defers a tool call as a task the client polls.
+"""Tasks (SEP-2663): the server defers a tool call as a task the client fetches.
 
 `Tasks` is an opt-in `Extension`. The server decides, per request, to return a
 `CreateTaskResult` instead of a `CallToolResult` for a client that declared the
-`io.modelcontextprotocol/tasks` extension; the client then polls `tasks/get` for
-status and the eventual result. `render_report` is the kind of slower, multi-step
-tool a caller would rather run as a task than block on.
+`io.modelcontextprotocol/tasks` extension; the client then fetches the result via
+`tasks/get`. `render_report` is the kind of slower, multi-step tool a caller
+would rather run as a task than block on.
 """
 
 from mcp.server.mcpserver import MCPServer
