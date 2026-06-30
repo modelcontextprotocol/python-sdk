@@ -33,6 +33,14 @@ The SDK serves `subscriptions/listen` for you — `MCPServer` registers the hand
 
 The filter is a contract. A stream that requested tool-list changes and one resource URI receives those two kinds and nothing else — publish a prompt change and that stream stays silent. Resource URIs are matched as exact strings: `note://todo` does not cover `note://todo/draft`.
 
+!!! warning
+    Filters are honored without per-client authorization: any client may name any URI —
+    including one it cannot read — and will receive update notifications for it (resource
+    existence and change timing, never content). On a multi-tenant server, don't publish
+    sensitive per-user URIs through `notify_resource_updated`, or serve the method with
+    your own handler on the low-level `Server` and narrow the filter there before acking —
+    the honored subset exists in the protocol precisely so servers can do this.
+
 Two more things the stream is *not*:
 
 * **It is not a replay log.** A dropped stream is gone; events published while nobody was connected are not queued. The client's contract is to re-listen and re-fetch what it cares about.
