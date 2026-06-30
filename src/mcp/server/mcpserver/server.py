@@ -88,7 +88,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.server.subscriptions import EventBus, InMemoryEventBus, ListenHandler
+from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
@@ -183,7 +183,7 @@ class MCPServer(Generic[LifespanResultT]):
         resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        subscriptions: EventBus | None = None,
+        subscriptions: SubscriptionBus | None = None,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -204,9 +204,9 @@ class MCPServer(Generic[LifespanResultT]):
         )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # The subscriptions/listen fan-out seam (2026-07-28). The default bus is
-        # in-process; pass an `EventBus` implementation over an external pub/sub
+        # in-process; pass an `SubscriptionBus` implementation over an external pub/sub
         # backend to fan events out across replicas.
-        self._subscriptions: EventBus = subscriptions if subscriptions is not None else InMemoryEventBus()
+        self._subscriptions: SubscriptionBus = subscriptions if subscriptions is not None else InMemorySubscriptionBus()
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -293,7 +293,7 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.version
 
     @property
-    def subscriptions(self) -> EventBus:
+    def subscriptions(self) -> SubscriptionBus:
         """The `subscriptions/listen` event bus.
 
         Publish a `ServerEvent` here (or via the `Context.notify_*` methods)

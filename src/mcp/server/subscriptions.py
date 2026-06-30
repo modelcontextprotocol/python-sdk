@@ -4,11 +4,11 @@ On the 2026-07-28 wire there is no standing GET stream: a client opts in to
 server events by sending a `subscriptions/listen` request whose response IS
 the stream. This module provides the two pieces a server needs:
 
-- `EventBus`: the pluggable fan-out seam. The bus carries typed `ServerEvent`
+- `SubscriptionBus`: the pluggable fan-out seam. The bus carries typed `ServerEvent`
   values, not wire notifications - the listen handler owns subscription-id
   stamping and per-stream filtering, so a custom bus (e.g. backed by Redis
   pub/sub for multi-replica deployments) never sees JSON-RPC. The in-process
-  default is `InMemoryEventBus`.
+  default is `InMemorySubscriptionBus`.
 - `ListenHandler`: the request handler that serves `subscriptions/listen`.
   `MCPServer` registers one automatically; lowlevel `Server` users pass an
   instance as `on_subscriptions_listen=`.
@@ -81,7 +81,7 @@ ServerEvent = ToolsListChanged | PromptsListChanged | ResourcesListChanged | Res
 """An event a server publishes for delivery to listen subscribers."""
 
 
-class EventBus(Protocol):
+class SubscriptionBus(Protocol):
     """Fan-out seam between event publishers and open listen streams.
 
     Implement this over an external pub/sub backend (Redis, NATS, ...) to fan
@@ -89,11 +89,12 @@ class EventBus(Protocol):
     and each replica's bus invokes its local listeners for events arriving
     from the backend. The same instance can be shared across servers.
 
-    Both methods are synchronous and must be called from the server's event
-    loop thread. Listeners must not raise.
+    `publish` is async so backend implementations can do network I/O.
+    `subscribe` is synchronous local registration. Listeners are synchronous,
+    must not raise, and are invoked on the server's event loop.
     """
 
-    def publish(self, event: ServerEvent) -> None:
+    async def publish(self, event: ServerEvent) -> None:
         """Deliver `event` to every subscribed listener."""
         ...
 
@@ -102,23 +103,26 @@ class EventBus(Protocol):
         ...
 
 
-class InMemoryEventBus:
-    """In-process `EventBus`: synchronous fan-out to a set of listeners."""
+class InMemorySubscriptionBus:
+    """In-process `SubscriptionBus`: synchronous fan-out to listeners in subscription order."""
 
     def __init__(self) -> None:
-        self._listeners: set[Callable[[ServerEvent], None]] = set()
+        # Keyed by a per-subscription token so the same callable can be
+        # registered more than once (bound methods compare equal).
+        self._listeners: dict[object, Callable[[ServerEvent], None]] = {}
 
-    def publish(self, event: ServerEvent) -> None:
+    async def publish(self, event: ServerEvent) -> None:
         """Deliver `event` to every subscribed listener."""
-        for listener in list(self._listeners):
+        for listener in list(self._listeners.values()):
             listener(event)
 
     def subscribe(self, listener: Callable[[ServerEvent], None]) -> Callable[[], None]:
         """Register `listener` and return an idempotent unsubscribe callable."""
-        self._listeners.add(listener)
+        token = object()
+        self._listeners[token] = listener
 
         def unsubscribe() -> None:
-            self._listeners.discard(listener)
+            self._listeners.pop(token, None)
 
         return unsubscribe
 
@@ -172,10 +176,10 @@ class ListenHandler:
     contract) or `close` ends all streams gracefully.
 
     Requires a transport that can stream a request's response (streamable
-    HTTP's SSE mode, stdio).
+    HTTP's SSE mode).
     """
 
-    def __init__(self, bus: EventBus) -> None:
+    def __init__(self, bus: SubscriptionBus) -> None:
         self._bus = bus
         self._streams: set[anyio.streams.memory.MemoryObjectSendStream[ServerEvent]] = set()
 
@@ -191,14 +195,6 @@ class ListenHandler:
         honored = _honored_subset(params.notifications)
         meta: dict[str, Any] = {SUBSCRIPTION_ID_META_KEY: subscription_id}
 
-        # Ack first, subscribe second: no event can precede the ack frame.
-        await ctx.session.send_notification(
-            SubscriptionsAcknowledgedNotification(
-                params=SubscriptionsAcknowledgedNotificationParams(notifications=honored, _meta=meta)
-            ),
-            related_request_id=subscription_id,
-        )
-
         # Unbounded buffer so publishers never block on a slow consumer (the
         # transport write happens in this handler task, not the publisher's).
         send, recv = anyio.create_memory_object_stream[ServerEvent](math.inf)
@@ -208,12 +204,22 @@ class ListenHandler:
                 try:
                     send.send_nowait(event)
                 except anyio.ClosedResourceError:
-                    # `aclose` closed this stream; the loop below is unwinding.
+                    # `close` closed this stream; the loop below is unwinding.
                     pass
 
+        # Subscribe before sending the ack so an event published while the
+        # ack write is suspended is buffered rather than lost. The ack is
+        # still the first frame: this task alone writes the stream, and it
+        # only starts draining the buffer after the ack send returns.
         unsubscribe = self._bus.subscribe(deliver)
         self._streams.add(send)
         try:
+            await ctx.session.send_notification(
+                SubscriptionsAcknowledgedNotification(
+                    params=SubscriptionsAcknowledgedNotificationParams(notifications=honored, _meta=meta)
+                ),
+                related_request_id=subscription_id,
+            )
             async for event in recv:
                 await ctx.session.send_notification(
                     _event_to_notification(event, meta), related_request_id=subscription_id

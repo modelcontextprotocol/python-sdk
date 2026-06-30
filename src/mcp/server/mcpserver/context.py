@@ -16,7 +16,12 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.subscriptions import PromptsListChanged, ResourcesListChanged, ResourceUpdated, ToolsListChanged
+from mcp.server.subscriptions import (
+    PromptsListChanged,
+    ResourcesListChanged,
+    ResourceUpdated,
+    ToolsListChanged,
+)
 from mcp.shared.exceptions import MCPDeprecationWarning
 
 if TYPE_CHECKING:
@@ -110,21 +115,27 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         await self.request_context.session.report_progress(progress, total, message)
 
-    def notify_tools_changed(self) -> None:
+    async def notify_tools_changed(self) -> None:
         """Publish a tools list-changed event to `subscriptions/listen` subscribers."""
-        self.mcp_server.subscriptions.publish(ToolsListChanged())
+        await self.mcp_server.subscriptions.publish(ToolsListChanged())
 
-    def notify_prompts_changed(self) -> None:
+    async def notify_prompts_changed(self) -> None:
         """Publish a prompts list-changed event to `subscriptions/listen` subscribers."""
-        self.mcp_server.subscriptions.publish(PromptsListChanged())
+        await self.mcp_server.subscriptions.publish(PromptsListChanged())
 
-    def notify_resources_changed(self) -> None:
+    async def notify_resources_changed(self) -> None:
         """Publish a resources list-changed event to `subscriptions/listen` subscribers."""
-        self.mcp_server.subscriptions.publish(ResourcesListChanged())
+        await self.mcp_server.subscriptions.publish(ResourcesListChanged())
 
-    def notify_resource_updated(self, uri: str | AnyUrl) -> None:
-        """Publish a resource-updated event for `uri` to `subscriptions/listen` subscribers."""
-        self.mcp_server.subscriptions.publish(ResourceUpdated(uri=str(uri)))
+    async def notify_resource_updated(self, uri: str | AnyUrl) -> None:
+        """Publish a resource-updated event for `uri` to `subscriptions/listen` subscribers.
+
+        The URI is matched as an exact string against each stream's filter.
+        Reaches `subscriptions/listen` streams only; clients on earlier
+        protocol versions that used `resources/subscribe` are notified via
+        `ctx.session.send_resource_updated(uri)` instead.
+        """
+        await self.mcp_server.subscriptions.publish(ResourceUpdated(uri=str(uri)))
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """Read a resource by URI.

@@ -1,5 +1,6 @@
 """Tests for `subscriptions/listen` serving (mcp.server.subscriptions)."""
 
+from collections.abc import Callable
 from typing import Any, cast
 
 import anyio
@@ -22,7 +23,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.session import ServerSession
 from mcp.server.subscriptions import (
     SUBSCRIPTION_ID_META_KEY,
-    InMemoryEventBus,
+    InMemorySubscriptionBus,
     ListenHandler,
     PromptsListChanged,
     ResourcesListChanged,
@@ -67,14 +68,14 @@ def _params(**fields: Any) -> SubscriptionsListenRequestParams:
     return SubscriptionsListenRequestParams(notifications=SubscriptionFilter(**fields))
 
 
-class _SpyBus(InMemoryEventBus):
+class _SpyBus(InMemorySubscriptionBus):
     """Counts unsubscribe calls so tests can assert stream cleanup."""
 
     def __init__(self) -> None:
         super().__init__()
         self.unsubscribed = 0
 
-    def subscribe(self, listener: Any) -> Any:
+    def subscribe(self, listener: Callable[[ServerEvent], None]) -> Callable[[], None]:
         unsubscribe = super().subscribe(listener)
 
         def counting_unsubscribe() -> None:
@@ -84,26 +85,47 @@ class _SpyBus(InMemoryEventBus):
         return counting_unsubscribe
 
 
-def test_in_memory_bus_fans_out_until_unsubscribed() -> None:
-    bus = InMemoryEventBus()
+@pytest.mark.anyio
+async def test_in_memory_bus_fans_out_until_unsubscribed() -> None:
+    """SDK-defined bus contract: fan-out to all listeners; unsubscribe is idempotent."""
+    bus = InMemorySubscriptionBus()
     seen_a: list[ServerEvent] = []
     seen_b: list[ServerEvent] = []
     unsubscribe_a = bus.subscribe(seen_a.append)
     bus.subscribe(seen_b.append)
 
-    bus.publish(ToolsListChanged())
+    await bus.publish(ToolsListChanged())
     assert seen_a == [ToolsListChanged()]
     assert seen_b == [ToolsListChanged()]
 
     unsubscribe_a()
     unsubscribe_a()  # idempotent
-    bus.publish(PromptsListChanged())
+    await bus.publish(PromptsListChanged())
     assert seen_a == [ToolsListChanged()]
     assert seen_b == [ToolsListChanged(), PromptsListChanged()]
 
 
 @pytest.mark.anyio
+async def test_in_memory_bus_keeps_equal_callables_distinct() -> None:
+    """SDK-defined: registering the same callable twice yields two registrations,
+    and each unsubscribe detaches exactly one (bound methods compare equal)."""
+    bus = InMemorySubscriptionBus()
+    seen: list[ServerEvent] = []
+    first = bus.subscribe(seen.append)
+    bus.subscribe(seen.append)
+
+    await bus.publish(ToolsListChanged())
+    assert len(seen) == 2
+
+    first()
+    await bus.publish(ToolsListChanged())
+    assert len(seen) == 3
+
+
+@pytest.mark.anyio
 async def test_ack_first_honored_subset_and_stamped_graceful_result() -> None:
+    """Spec-mandated: the ack is the first frame, echoes the honored subset, and
+    every frame (graceful result included) carries the subscription-id tag."""
     bus = _SpyBus()
     handler = ListenHandler(bus)
     session = _RecordingSession()
@@ -129,7 +151,7 @@ async def test_ack_first_honored_subset_and_stamped_graceful_result() -> None:
         assert ack.params.notifications == SubscriptionFilter(tools_list_changed=True, resource_subscriptions=["r://a"])
         assert ack.params.meta == {SUBSCRIPTION_ID_META_KEY: 7}
 
-        bus.publish(ToolsListChanged())
+        await bus.publish(ToolsListChanged())
         await session.wait_for(2)
         event, related = session.sent[1]
         assert isinstance(event, ToolListChangedNotification)
@@ -144,7 +166,9 @@ async def test_ack_first_honored_subset_and_stamped_graceful_result() -> None:
 
 @pytest.mark.anyio
 async def test_only_requested_event_kinds_are_delivered() -> None:
-    bus = InMemoryEventBus()
+    """Spec-mandated: the server never sends a notification type (or resource URI)
+    the client did not request on this stream."""
+    bus = InMemorySubscriptionBus()
     handler = ListenHandler(bus)
     session = _RecordingSession()
 
@@ -159,11 +183,11 @@ async def test_only_requested_event_kinds_are_delivered() -> None:
         tg.start_soon(run)
         await session.wait_for(1)
 
-        bus.publish(ToolsListChanged())  # not requested
-        bus.publish(ResourceUpdated(uri="r://other"))  # URI not subscribed
-        bus.publish(PromptsListChanged())
-        bus.publish(ResourcesListChanged())
-        bus.publish(ResourceUpdated(uri="r://a"))
+        await bus.publish(ToolsListChanged())  # not requested
+        await bus.publish(ResourceUpdated(uri="r://other"))  # URI not subscribed
+        await bus.publish(PromptsListChanged())
+        await bus.publish(ResourcesListChanged())
+        await bus.publish(ResourceUpdated(uri="r://a"))
         await session.wait_for(4)
         handler.close()
 
@@ -178,7 +202,9 @@ async def test_only_requested_event_kinds_are_delivered() -> None:
 
 @pytest.mark.anyio
 async def test_empty_filter_honors_nothing_and_delivers_nothing() -> None:
-    bus = InMemoryEventBus()
+    """SDK-defined: falsy flags and an empty URI list are dropped from the ack
+    rather than echoed, and such a stream delivers nothing."""
+    bus = InMemorySubscriptionBus()
     handler = ListenHandler(bus)
     session = _RecordingSession()
 
@@ -195,7 +221,7 @@ async def test_empty_filter_honors_nothing_and_delivers_nothing() -> None:
         assert ack.params.notifications == SubscriptionFilter()
 
         for event in (ToolsListChanged(), PromptsListChanged(), ResourcesListChanged(), ResourceUpdated(uri="r://a")):
-            bus.publish(event)
+            await bus.publish(event)
         handler.close()
 
     assert len(session.sent) == 1  # the ack only
@@ -203,7 +229,8 @@ async def test_empty_filter_honors_nothing_and_delivers_nothing() -> None:
 
 @pytest.mark.anyio
 async def test_publish_after_close_is_dropped() -> None:
-    bus = InMemoryEventBus()
+    """SDK-defined: an event racing `close()` while the stream unwinds is dropped."""
+    bus = InMemorySubscriptionBus()
     handler = ListenHandler(bus)
     session = _RecordingSession()
 
@@ -218,14 +245,47 @@ async def test_publish_after_close_is_dropped() -> None:
         handler.close()
         # The handler task has not resumed yet, so the listener is still
         # subscribed but its stream is closed: the event is dropped.
-        bus.publish(ToolsListChanged())
+        await bus.publish(ToolsListChanged())
 
     assert len(session.sent) == 1
 
 
 @pytest.mark.anyio
+async def test_event_published_during_ack_send_is_delivered_after_the_ack() -> None:
+    """SDK-defined: the stream subscribes before sending the ack, so an event
+    published while the ack write is suspended is buffered and delivered after
+    it - never lost, and never ahead of the ack frame."""
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus)
+
+    class _PublishDuringAck(_RecordingSession):
+        async def send_notification(
+            self, notification: ServerNotification, related_request_id: RequestId | None = None
+        ) -> None:
+            if not self.sent:
+                # Publish while the handler is still inside the ack send.
+                await bus.publish(ToolsListChanged())
+            await super().send_notification(notification, related_request_id)
+
+    session = _PublishDuringAck()
+
+    async with anyio.create_task_group() as tg:
+
+        async def run() -> None:
+            await handler(_ctx(session), _params(tools_list_changed=True))
+
+        tg.start_soon(run)
+        await session.wait_for(2)
+        handler.close()
+
+    assert isinstance(session.sent[0][0], SubscriptionsAcknowledgedNotification)
+    assert isinstance(session.sent[1][0], ToolListChangedNotification)
+
+
+@pytest.mark.anyio
 async def test_listen_requires_a_request_id() -> None:
-    handler = ListenHandler(InMemoryEventBus())
+    """SDK-defined: a context without a request id cannot open a stream."""
+    handler = ListenHandler(InMemorySubscriptionBus())
 
     with pytest.raises(MCPError) as exc_info:
         await handler(_ctx(_RecordingSession(), request_id=None), _params())
@@ -233,4 +293,5 @@ async def test_listen_requires_a_request_id() -> None:
 
 
 def test_close_without_open_streams_is_a_no_op() -> None:
-    ListenHandler(InMemoryEventBus()).close()
+    """SDK-defined: `close()` with nothing open does nothing."""
+    ListenHandler(InMemorySubscriptionBus()).close()

@@ -52,7 +52,7 @@ from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.subscriptions import (
-    InMemoryEventBus,
+    InMemorySubscriptionBus,
     PromptsListChanged,
     ResourcesListChanged,
     ResourceUpdated,
@@ -2259,8 +2259,8 @@ async def test_context_input_responses_and_request_state_are_none_on_initial_rou
 
 
 def test_subscriptions_bus_defaults_to_in_memory_and_accepts_custom() -> None:
-    assert isinstance(MCPServer().subscriptions, InMemoryEventBus)
-    bus = InMemoryEventBus()
+    assert isinstance(MCPServer().subscriptions, InMemorySubscriptionBus)
+    bus = InMemorySubscriptionBus()
     assert MCPServer(subscriptions=bus).subscriptions is bus
 
 
@@ -2270,11 +2270,11 @@ async def test_context_notify_methods_publish_to_the_subscriptions_bus() -> None
     mcp.subscriptions.subscribe(seen.append)
 
     @mcp.tool()
-    def touch(ctx: Context) -> str:
-        ctx.notify_tools_changed()
-        ctx.notify_prompts_changed()
-        ctx.notify_resources_changed()
-        ctx.notify_resource_updated("r://x")
+    async def touch(ctx: Context) -> str:
+        await ctx.notify_tools_changed()
+        await ctx.notify_prompts_changed()
+        await ctx.notify_resources_changed()
+        await ctx.notify_resource_updated("r://x")
         return "ok"
 
     with anyio.fail_after(5):
