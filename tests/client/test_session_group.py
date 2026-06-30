@@ -402,3 +402,46 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("advertised", ["tools", "prompts", "resources"])
+async def test_client_session_group_skips_unsupported_capabilities(advertised: str):
+    """Only the capability the server advertised is queried during aggregation."""
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    mock_session.initialize_result = types.InitializeResult(
+        protocol_version=types.LATEST_PROTOCOL_VERSION,
+        capabilities=types.ServerCapabilities(
+            tools=types.ToolsCapability() if advertised == "tools" else None,
+            prompts=types.PromptsCapability() if advertised == "prompts" else None,
+            resources=types.ResourcesCapability() if advertised == "resources" else None,
+        ),
+        server_info=types.Implementation(name="srv", version="1"),
+    )
+    mock_tool = mock.Mock(spec=types.Tool)
+    mock_tool.name = "tool_a"
+    mock_resource = mock.Mock(spec=types.Resource)
+    mock_resource.name = "resource_b"
+    mock_prompt = mock.Mock(spec=types.Prompt)
+    mock_prompt.name = "prompt_c"
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[mock_tool])
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[mock_resource])
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[mock_prompt])
+
+    group = ClientSessionGroup()
+    await group.connect_with_session(types.Implementation(name="srv", version="1"), mock_session)
+
+    list_methods = {
+        "tools": mock_session.list_tools,
+        "prompts": mock_session.list_prompts,
+        "resources": mock_session.list_resources,
+    }
+    for capability, list_method in list_methods.items():
+        if capability == advertised:
+            list_method.assert_awaited_once()
+        else:
+            list_method.assert_not_awaited()
+
+    assert group.tools == ({"tool_a": mock_tool} if advertised == "tools" else {})
+    assert group.prompts == ({"prompt_c": mock_prompt} if advertised == "prompts" else {})
+    assert group.resources == ({"resource_b": mock_resource} if advertised == "resources" else {})
