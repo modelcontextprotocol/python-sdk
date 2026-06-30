@@ -127,7 +127,7 @@ async def run_task_driver(
         if snapshot.status == "input_required":
             raise TaskInputRequiredError(created.task_id)
         interval_ms = snapshot.poll_interval_ms if snapshot.poll_interval_ms is not None else created.poll_interval_ms
-        await sleep(DEFAULT_POLL_INTERVAL_SECONDS if interval_ms is None else interval_ms / 1000)
+        await sleep(DEFAULT_POLL_INTERVAL_SECONDS if interval_ms is None else max(0, interval_ms) / 1000)
 
 
 class TasksExtension(ClientExtension):

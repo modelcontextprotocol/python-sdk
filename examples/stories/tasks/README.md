@@ -47,11 +47,12 @@ uv run python -m stories.tasks.client --http
 
 This is the core SEP-2663 surface. The tool runs to completion inline, so a task
 is recorded directly as `completed` (the SEP allows any initial status), and
-completed tasks live in a pluggable `TaskStore` (`Tasks(store=...)`, in-memory
-default) that enforces `default_ttl_ms`. Deferred to follow-ups, each needing
-deeper SDK plumbing: background execution (returning `working` tasks), the
-in-task `input_required`/`inputResponses` loop over `tasks/update`,
-`notifications/tasks`, and SEP-2243 task routing headers.
+finished (completed or failed) tasks live in a pluggable `TaskStore`
+(`Tasks(store=...)`, in-memory default) that enforces `default_ttl_ms`. Deferred
+to follow-ups, each needing deeper SDK plumbing: background execution (returning
+`working` tasks), the in-task `input_required`/`inputResponses` loop over
+`tasks/update`, and `notifications/tasks` (the SEP-2243 `Mcp-Name` routing
+header is already handled by the shared header table).
 
 ## Spec
 

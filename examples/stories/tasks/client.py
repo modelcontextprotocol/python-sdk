@@ -15,8 +15,7 @@ from typing import cast
 import mcp_types as types
 
 from mcp.client import Client, TasksExtension
-from mcp.server.tasks import EXTENSION_ID
-from mcp.shared.tasks import CreateTaskResult, GetTaskRequest, GetTaskRequestParams, GetTaskResult
+from mcp.shared.tasks import EXTENSION_ID, CreateTaskResult, GetTaskRequest, GetTaskRequestParams, GetTaskResult
 from stories._harness import Target, run_client
 
 
