@@ -44,6 +44,7 @@ from mcp_types import (
     ProgressToken,
     RequestId,
 )
+from mcp_types import methods as _methods
 from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
@@ -242,6 +243,13 @@ async def _tool_input_schema(
         CLIENT_CAPABILITIES_META_KEY: verdict.client_capabilities,
     }
     list_params: dict[str, Any] = {"_meta": meta}
+    try:
+        _methods.validate_client_request("tools/list", verdict.protocol_version, list_params)
+    except ValidationError:
+        # Client-fault envelope: the real dispatch produces the INVALID_PARAMS
+        # reply, and anything above a debug line would let clients flood the log.
+        logger.debug("Mcp-Param header validation skipped: the request envelope fails tools/list validation")
+        return None
     seen_cursors: set[str] = set()
     client_info = _typed(Implementation, verdict.client_info)
     client_capabilities = _typed(ClientCapabilities, verdict.client_capabilities)
@@ -261,11 +269,6 @@ async def _tool_input_schema(
                 if tool.get("name") == name:
                     return tool.get("inputSchema")
             cursor = result.get("nextCursor")
-        except ValidationError:
-            # Client-fault envelope: the real dispatch produces the INVALID_PARAMS
-            # reply, and anything above a debug line would let clients flood the log.
-            logger.debug("Mcp-Param header validation skipped: the request envelope fails tools/list validation")
-            return None
         except Exception:
             # Fail-open boundary by design: header validation must never break a
             # working call path. Loud, precisely because the skip is fail-open.
@@ -357,8 +360,8 @@ async def handle_modern_request(
     body = await request.body()
     try:
         decoded = json.loads(body)
-    except ValueError:
-        # Not just JSONDecodeError: integer literals beyond CPython's digit limit raise bare ValueError.
+    except (ValueError, RecursionError):
+        # Not just JSONDecodeError: oversized integer literals raise bare ValueError, deep nesting RecursionError.
         rej = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
         await _write(rej, scope, receive, send)
         return

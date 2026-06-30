@@ -978,3 +978,33 @@ async def test_modern_post_with_an_oversized_integer_literal_is_parse_error_not_
         response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 400
     assert response.json()["error"]["code"] == PARSE_ERROR
+
+
+async def test_modern_tools_call_logs_a_handler_raised_validation_error_loudly(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ValidationError from inside the tools/list handler is a server fault: the skip is
+    logged at error level, not mistaken for a client-fault envelope."""
+
+    async def broken_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool.model_validate({"bogus": 1})], ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=broken_list, on_call_tool=_ok_call_tool)
+    with caplog.at_level(logging.ERROR, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(server) as http:
+            response = await http.post(
+                "/mcp",
+                json=_tool_call_body({"region": "us"}),
+                headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+            )
+    assert response.status_code == 200
+    assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
+
+
+async def test_modern_post_with_deeply_nested_body_is_parse_error_not_a_crash() -> None:
+    """Deep nesting makes json.loads raise RecursionError; still an unparseable body: 400 + PARSE_ERROR."""
+    body = b"[" * 100_000 + b"]" * 100_000
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == PARSE_ERROR
