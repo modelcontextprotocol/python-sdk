@@ -241,6 +241,9 @@ def _build_call_tool_adapter(
     if not active:
         return _CallToolResultAdapter
     tags = frozenset(active)
+    core_arm = "core"
+    while core_arm in tags:  # the routing sentinel must never collide with a claimed tag
+        core_arm += "-"
 
     def _route(value: Any) -> str:
         # pydantic hands the discriminator either the raw inbound dict or an
@@ -251,9 +254,9 @@ def _build_call_tool_adapter(
             tag = cast("dict[str, Any]", value).get("resultType")
         else:
             tag = getattr(value, "result_type", None)
-        return tag if isinstance(tag, str) and tag in tags else "core"
+        return tag if isinstance(tag, str) and tag in tags else core_arm
 
-    arms: list[Any] = [Annotated[types.CallToolResult | types.InputRequiredResult, Tag("core")]]
+    arms: list[Any] = [Annotated[types.CallToolResult | types.InputRequiredResult, Tag(core_arm)]]
     arms += [Annotated[claim.model, Tag(tag)] for tag, claim in active.items()]
     # reduce(or_, ...) builds the Union dynamically; PEP-646 star-unpack needs py3.11+.
     return TypeAdapter(Annotated[reduce(or_, arms), Discriminator(_route)])
@@ -270,7 +273,7 @@ def _index_claims(
     advertised extension and no wire tag may be claimed twice.
     """
     indexed: dict[str, tuple[ResultClaim[Any], ...]] = {}
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for identifier, claims in (result_claims or {}).items():
         if extensions is None or identifier not in extensions:
             raise ValueError(
@@ -283,10 +286,9 @@ def _index_claims(
                 "extension from the capability ad at every version — omit the key instead"
             )
         for claim in claims:
-            key = (claim.method, claim.result_type)
-            if key in seen:
-                raise ValueError(f"duplicate result claim for {claim.method!r} resultType {claim.result_type!r}")
-            seen.add(key)
+            if claim.result_type in seen:
+                raise ValueError(f"duplicate result claim for resultType {claim.result_type!r}")
+            seen.add(claim.result_type)
         indexed[identifier] = tuple(claims)
     return indexed
 
@@ -411,8 +413,10 @@ class ClientSession:
             # Shield the group's own scope (a new one would break LIFO exit)
             # so a pending outer cancellation cannot re-fire inside __aexit__.
             task_group.cancel_scope.shield = True
-            await task_group.__aexit__(None, None, None)
-            self._close_binding_queues()
+            try:
+                await task_group.__aexit__(None, None, None)
+            finally:
+                self._close_binding_queues()
             raise
         return self
 
@@ -425,8 +429,10 @@ class ClientSession:
         # Exit must not block: cancel the dispatcher, binding consumers, and in-flight callbacks.
         assert self._task_group is not None
         self._task_group.cancel_scope.cancel()
-        result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
-        self._close_binding_queues()
+        try:
+            result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        finally:
+            self._close_binding_queues()
         await resync_tracer()
         return result
 
@@ -975,15 +981,15 @@ class ClientSession:
             allow_input_required: When ``False`` (default), an `InputRequiredResult`
                 from the server raises `RuntimeError`; when ``True``, it is returned
                 so the caller can resolve the requests and retry.
-            allow_claimed: When ``False`` (default), a claimed (extension) result
-                shape raises `UnexpectedClaimedResult`; when ``True``, the parsed
+            allow_claimed: When `False` (default), a claimed (extension) result
+                shape raises `UnexpectedClaimedResult`; when `True`, the parsed
                 claim model is returned for the caller to handle.
 
         Raises:
             RuntimeError: If the server returns an `InputRequiredResult` and
                 ``allow_input_required`` is ``False``.
             UnexpectedClaimedResult: If a claimed result shape parses and
-                ``allow_claimed`` is ``False``; carries the parsed value.
+                `allow_claimed` is `False`; carries the parsed value.
         """
         result = await self.send_request(
             types.CallToolRequest(

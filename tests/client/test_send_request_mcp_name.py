@@ -7,7 +7,6 @@ always win by ordering. The vendor sends below also pin the widened
 `send_request` typing: a `Request[...]` subclass passes without a cast.
 """
 
-from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any, Literal

@@ -139,7 +139,7 @@ def test_duplicate_claim_tag_across_extensions_rejected() -> None:
             result_claims={_TASKS_EXT: [_task_claim()], _AD_ONLY_EXT: [_task_claim()]},
         )
 
-    assert str(exc_info.value) == snapshot("duplicate result claim for 'tools/call' resultType 'task'")
+    assert str(exc_info.value) == snapshot("duplicate result claim for resultType 'task'")
 
 
 def test_claims_keyed_to_unadvertised_extension_rejected() -> None:
@@ -349,6 +349,35 @@ async def test_discover_probe_ad_drops_claim_identifiers_at_a_legacy_probe_versi
     assert params is not None
     capabilities = params["_meta"][CLIENT_CAPABILITIES_META_KEY]
     assert "extensions" not in capabilities
+
+
+class _CoreTaggedResult(Result):
+    """A claim whose wire tag collides with the adapter's internal routing sentinel."""
+
+    result_type: Literal["core"] = "core"
+    payload: str = ""
+
+
+async def _resolve_core_tagged(result: _CoreTaggedResult, ctx: ClaimContext) -> CallToolResult:
+    raise NotImplementedError
+
+
+@pytest.mark.anyio
+async def test_claim_tagged_core_cannot_hijack_core_parsing() -> None:
+    """SDK-defined: "core" is not protocol vocabulary, so a claim may use it as a wire
+    tag — and the adapter's internal routing sentinel must not collide: ordinary tool
+    results still parse as core results, and a claimed `core` raw routes to the model."""
+    claim = ResultClaim(result_type="core", model=_CoreTaggedResult, resolve=_resolve_core_tagged)
+    dispatcher = _RecordingDispatcher(tool_result={"resultType": "core", "payload": "p-1"})
+    session = ClientSession(dispatcher=dispatcher, extensions={_TASKS_EXT: {}}, result_claims={_TASKS_EXT: [claim]})
+    with anyio.fail_after(5):
+        async with session:
+            _adopt_modern(session)
+            ordinary = session._call_tool_adapter.validate_python(_COMPLETE_TOOL_RESULT)
+            claimed = await session.call_tool("t", {}, allow_claimed=True)
+
+    assert isinstance(ordinary, CallToolResult)
+    assert isinstance(claimed, _CoreTaggedResult)
 
 
 # ── Routing through the adopt-built adapter ─────────────────────────────────

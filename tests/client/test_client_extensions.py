@@ -185,7 +185,7 @@ def test_one_extension_claiming_a_tag_twice_reads_as_one_owner() -> None:
         Client(_add_server(), extensions=[_SelfConflictingClaims()])
 
     assert str(exc_info.value) == snapshot(
-        "extension 'com.example/twice' claims 'tools/call' resultType 'twice'; a wire tag can have only one resolver"
+        "extension 'com.example/twice' claims resultType 'twice'; a wire tag can have only one resolver"
     )
 
 
@@ -252,8 +252,8 @@ def test_conflicting_claims_across_extensions_name_both_owners() -> None:
         Client(_add_server(), extensions=[_VoucherExtension(_unreachable_resolve), _RivalVoucherExtension()])
 
     assert str(exc_info.value) == snapshot(
-        "extensions 'com.example/voucher' and 'com.example/rival' both claim 'tools/call' "
-        "resultType 'voucher'; a wire tag can have only one resolver"
+        "extensions 'com.example/voucher' and 'com.example/rival' both claim resultType "
+        "'voucher'; a wire tag can have only one resolver"
     )
 
 

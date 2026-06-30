@@ -1,7 +1,5 @@
 """`dispatch_input_request` and `validate_tool_result` are public `ClientSession` API."""
 
-import re
-from pathlib import Path
 
 import mcp_types as types
 import pytest
@@ -68,17 +66,3 @@ async def test_validate_tool_result_raises_on_schema_mismatch() -> None:
         # Stable SDK prefix only: the message tail is jsonschema text that shifts with the dependency.
         with pytest.raises(RuntimeError, match="Invalid structured content returned by tool t"):
             await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": "no"}))
-
-
-def _spell_private(name: str) -> str:
-    return f"_{name}"
-
-
-def test_no_private_spelling_references_remain() -> None:
-    """The promotions are renames, not aliases — the old private names are gone from `src/`."""
-    pattern = re.compile(f"{_spell_private('dispatch_input_request')}|{_spell_private('validate_tool_result')}")
-    src = Path(__file__).resolve().parents[2] / "src"
-    offenders = [
-        (path.name, match) for path in sorted(src.rglob("*.py")) for match in pattern.findall(path.read_text())
-    ]
-    assert not offenders

@@ -207,22 +207,22 @@ def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExt
     Mirrors the server's consumption-time posture (`MCPServer._apply_extension`): a
     per-instance identifier is validated here because no class attribute existed to
     validate at definition time. `settings()` is read exactly once per extension and
-    the returned dict is held by reference. Duplicate `(method, resultType)` claims
-    and duplicate notification methods are rejected here, where both owning extensions
+    the returned dict is held by reference. Duplicate resultType claims and
+    duplicate notification methods are rejected here, where both owning extensions
     can be named — the session's own duplicate checks know only methods and tags.
     """
-    if not extensions:
-        return _FoldedExtensions(ad=None, claims=None, bindings=None, by_model={})
     if isinstance(extensions, Mapping):
         raise TypeError(
             "extensions= takes a sequence of ClientExtension instances; the mapping form was "
             "replaced — use advertise(identifier, settings) for advertise-only entries"
         )
+    if not extensions:
+        return _FoldedExtensions(ad=None, claims=None, bindings=None, by_model={})
     ad: dict[str, dict[str, Any]] = {}
     claims: dict[str, tuple[ResultClaim[Any], ...]] = {}
     bindings: list[NotificationBinding[Any]] = []
     by_model: dict[type[Result], ResultClaim[Any]] = {}
-    claim_owners: dict[tuple[str, str], str] = {}
+    claim_owners: dict[str, str] = {}
     binding_owners: dict[str, str] = {}
     for extension in extensions:
         identifier = getattr(extension, "identifier", None)
@@ -237,20 +237,18 @@ def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExt
         ad[identifier] = extension.settings()
         extension_claims = tuple(extension.claims())
         for claim in extension_claims:
-            key = (claim.method, claim.result_type)
-            if key in claim_owners:
-                owner = claim_owners[key]
+            tag = claim.result_type
+            if tag in claim_owners:
+                owner = claim_owners[tag]
                 both = (
                     f"extension {identifier!r} claims"
                     if owner == identifier
                     else (f"extensions {owner!r} and {identifier!r} both claim")
                 )
-                raise ValueError(
-                    f"{both} {claim.method!r} resultType {claim.result_type!r}; a wire tag can have only one resolver"
-                )
-            claim_owners[key] = identifier
-            # Collision-free by construction: a model's `result_type` Literal pins it to
-            # exactly one tag, and each (method, tag) pair has exactly one owner.
+                raise ValueError(f"{both} resultType {tag!r}; a wire tag can have only one resolver")
+            claim_owners[tag] = identifier
+            # One model, one tag: the model's result_type Literal is pinned to exactly
+            # this tag at claim construction, so the type-keyed index cannot collide.
             by_model[claim.model] = claim
         if extension_claims:
             claims[identifier] = extension_claims
