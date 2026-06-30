@@ -13,7 +13,7 @@ from typing import Annotated, Any
 import click
 from mcp.server import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
-from mcp.server.mcpserver.prompts.base import UserMessage
+from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
@@ -583,6 +583,34 @@ async def test_reconnection(ctx: Context) -> str:
 
     await ctx.info("After reconnect")  # pyright: ignore[reportDeprecated]
     return "Reconnection test completed"
+
+
+def _dynamic_tool() -> str:
+    """A tool registered and removed by test_trigger_tool_change."""
+    return "dynamic"
+
+
+def _dynamic_prompt() -> str:
+    """A prompt registered and removed by test_trigger_prompt_change."""
+    return "dynamic"
+
+
+@mcp.tool()
+async def test_trigger_tool_change(ctx: Context) -> str:
+    """Mutates the tool list and announces it to subscriptions/listen streams (SEP-2575)"""
+    mcp.add_tool(_dynamic_tool, name="test_dynamic_tool")
+    mcp.remove_tool("test_dynamic_tool")
+    await ctx.notify_tools_changed()
+    return "tool list changed"
+
+
+@mcp.tool()
+async def test_trigger_prompt_change(ctx: Context) -> str:
+    """Mutates the prompt list and announces it to subscriptions/listen streams (SEP-2575)"""
+    mcp.add_prompt(Prompt.from_function(_dynamic_prompt, name="test_dynamic_prompt", description="dynamic"))
+    mcp.remove_prompt("test_dynamic_prompt")
+    await ctx.notify_prompts_changed()
+    return "prompt list changed"
 
 
 # Resources

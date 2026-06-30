@@ -16,6 +16,13 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.subscriptions import (
+    PromptsListChanged,
+    ResourcesListChanged,
+    ResourceUpdated,
+    SubscriptionBus,
+    ToolsListChanged,
+)
 from mcp.shared.exceptions import MCPDeprecationWarning
 
 if TYPE_CHECKING:
@@ -59,6 +66,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
     _input_params: InputResponseRequestParams | None
+    _subscriptions: SubscriptionBus | None
 
     # TODO(maxisbey): Consider making request_context/mcp_server required, or refactor Context entirely.
     def __init__(
@@ -67,6 +75,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
         mcp_server: MCPServer | None = None,
         input_params: InputResponseRequestParams | None = None,
+        subscriptions: SubscriptionBus | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
     ):
@@ -74,13 +83,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         self._request_context = request_context
         self._mcp_server = mcp_server
         self._input_params = input_params
+        self._subscriptions = subscriptions
 
     @property
     def mcp_server(self) -> MCPServer:
         """Access to the MCPServer instance."""
-        if self._mcp_server is None:  # pragma: no cover
+        if self._mcp_server is None:
             raise ValueError("Context is not available outside of a request")
-        return self._mcp_server  # pragma: no cover
+        return self._mcp_server
 
     @property
     def request_context(self) -> ServerRequestContext[LifespanContextT, RequestT]:
@@ -97,7 +107,9 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         request's own target — their keys are ones that handler minted — so a nested
         invocation always starts on round one.
         """
-        return Context(request_context=self._request_context, mcp_server=self._mcp_server)
+        return Context(
+            request_context=self._request_context, mcp_server=self._mcp_server, subscriptions=self._subscriptions
+        )
 
     async def report_progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         """Report progress for the current operation.
@@ -108,6 +120,34 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             message: Optional message (e.g., "Starting render...")
         """
         await self.request_context.session.report_progress(progress, total, message)
+
+    @property
+    def _bus(self) -> SubscriptionBus:
+        if self._subscriptions is None:
+            raise ValueError("Context is not available outside of a request")
+        return self._subscriptions
+
+    async def notify_tools_changed(self) -> None:
+        """Publish a tools list-changed event to `subscriptions/listen` subscribers."""
+        await self._bus.publish(ToolsListChanged())
+
+    async def notify_prompts_changed(self) -> None:
+        """Publish a prompts list-changed event to `subscriptions/listen` subscribers."""
+        await self._bus.publish(PromptsListChanged())
+
+    async def notify_resources_changed(self) -> None:
+        """Publish a resources list-changed event to `subscriptions/listen` subscribers."""
+        await self._bus.publish(ResourcesListChanged())
+
+    async def notify_resource_updated(self, uri: str | AnyUrl) -> None:
+        """Publish a resource-updated event for `uri` to `subscriptions/listen` subscribers.
+
+        The URI is matched as an exact string against each stream's filter.
+        Reaches `subscriptions/listen` streams only; clients on earlier
+        protocol versions that used `resources/subscribe` are notified via
+        `ctx.session.send_resource_updated(uri)` instead.
+        """
+        await self._bus.publish(ResourceUpdated(uri=str(uri)))
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
         """Read a resource by URI.

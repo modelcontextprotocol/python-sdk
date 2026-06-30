@@ -51,6 +51,14 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
+from mcp.server.subscriptions import (
+    InMemorySubscriptionBus,
+    PromptsListChanged,
+    ResourcesListChanged,
+    ResourceUpdated,
+    ServerEvent,
+    ToolsListChanged,
+)
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import InvalidUriTemplate
@@ -2248,3 +2256,84 @@ async def test_context_input_responses_and_request_state_are_none_on_initial_rou
             await client.call_tool("probe")
 
     assert captured == {"responses": None, "state": None}
+
+
+async def test_context_notify_methods_publish_to_the_configured_bus() -> None:
+    bus = InMemorySubscriptionBus()
+    mcp = MCPServer(subscriptions=bus)
+    seen: list[ServerEvent] = []
+    bus.subscribe(seen.append)
+
+    @mcp.tool()
+    async def touch(ctx: Context) -> str:
+        await ctx.notify_tools_changed()
+        await ctx.notify_prompts_changed()
+        await ctx.notify_resources_changed()
+        await ctx.notify_resource_updated("r://x")
+        return "ok"
+
+    with anyio.fail_after(5):
+        async with Client(mcp) as client:
+            await client.call_tool("touch")
+
+    assert seen == [ToolsListChanged(), PromptsListChanged(), ResourcesListChanged(), ResourceUpdated(uri="r://x")]
+
+
+async def test_programmatic_entry_points_carry_the_subscription_bus() -> None:
+    """`ctx.notify_*` works when tools, resources, and prompts are invoked
+    programmatically (no wire request): the server-scoped bus rides along in
+    the fallback Context."""
+    bus = InMemorySubscriptionBus()
+    mcp = MCPServer(subscriptions=bus)
+    seen: list[ServerEvent] = []
+    bus.subscribe(seen.append)
+
+    @mcp.tool()
+    async def touch_tools(ctx: Context) -> str:
+        await ctx.notify_tools_changed()
+        return "ok"
+
+    @mcp.resource("res://{name}")
+    async def thing(name: str, ctx: Context) -> str:
+        await ctx.notify_resources_changed()
+        return "data"
+
+    @mcp.prompt()
+    async def ask(ctx: Context) -> str:
+        await ctx.notify_prompts_changed()
+        return "question"
+
+    await mcp.call_tool("touch_tools", {})
+    await mcp.read_resource("res://thing")
+    await mcp.get_prompt("ask")
+
+    assert seen == [ToolsListChanged(), ResourcesListChanged(), PromptsListChanged()]
+
+
+def test_context_mcp_server_outside_request_raises() -> None:
+    with pytest.raises(ValueError, match="outside of a request"):
+        _ = Context().mcp_server
+
+
+async def test_context_notify_outside_a_request_raises() -> None:
+    with pytest.raises(ValueError, match="outside of a request"):
+        await Context().notify_tools_changed()
+
+
+def test_context_exposes_its_mcp_server() -> None:
+    mcp = MCPServer()
+    assert Context(mcp_server=mcp).mcp_server is mcp
+
+
+def test_remove_prompt_removes_and_unknown_name_raises() -> None:
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    def greeting() -> str:  # pragma: no cover
+        return "hello"
+
+    assert len(mcp._prompt_manager.list_prompts()) == 1
+    mcp.remove_prompt("greeting")
+    assert mcp._prompt_manager.list_prompts() == []
+    with pytest.raises(ValueError, match="Unknown prompt: greeting"):
+        mcp.remove_prompt("greeting")

@@ -383,6 +383,13 @@ async def handle_modern_request(
         await _write(rej, scope, receive, send)
         return
 
+    if req.method == "subscriptions/listen" and not has_sse:
+        # A listen response IS a notification stream, never JSON (the
+        # json_response carve-out below), so this one method requires the
+        # SSE accept even in JSON-response mode; SSE mode gated it above.
+        await Response(status_code=406)(scope, receive, send)
+        return
+
     duplicated = find_duplicated_routing_header(request.headers.items())
     if duplicated is not None:
         # The raw carrier is the only place duplicates are visible; the classifier sees a folded mapping.
@@ -412,7 +419,10 @@ async def handle_modern_request(
         progress_token=progress_token_from_params(req.params),
     )
 
-    if json_response:
+    if json_response and req.method != "subscriptions/listen":
+        # A listen response IS a notification stream, so it always takes the
+        # SSE path below regardless of the JSON-response preference (the
+        # TypeScript and Go SDKs route it the same way).
         msg = await _to_jsonrpc_response(
             req.id, serve_one(app, dctx, req.method, req.params, connection=connection, lifespan_state=lifespan_state)
         )
