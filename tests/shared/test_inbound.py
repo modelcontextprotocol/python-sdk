@@ -6,6 +6,7 @@ or protocol-version literals — all facts are imported from their one source.
 """
 
 import dataclasses
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import pytest
@@ -41,6 +42,7 @@ from mcp.shared.inbound import (
     encode_header_value,
     find_invalid_x_mcp_header,
     mcp_param_headers,
+    validate_mcp_param_headers,
     x_mcp_header_map,
 )
 
@@ -574,3 +576,244 @@ def test_mcp_param_headers_omits_when_nested_path_is_broken() -> None:
     header_map = {("outer", "inner"): "Inner"}
     assert mcp_param_headers(header_map, {"outer": "not-a-mapping"}) == {}
     assert mcp_param_headers(header_map, {}) == {}
+
+
+# --- validate_mcp_param_headers --------------------------------------------
+
+REGION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"region": {"type": "string", "x-mcp-header": "Region"}},
+}
+
+
+@pytest.mark.parametrize(
+    ("argument", "header"),
+    [
+        pytest.param("Hello", "Hello", id="plain-literal"),
+        pytest.param("Hello", "=?base64?SGVsbG8=?=", id="valid-sentinel"),
+        pytest.param("", "=?base64??=", id="empty-sentinel"),
+        pytest.param("SGVsbG8=", "SGVsbG8=", id="missing-prefix-is-literal"),
+        pytest.param("=?base64?SGVsbG8=", "=?base64?SGVsbG8=", id="missing-suffix-is-literal"),
+    ],
+)
+def test_validate_mcp_param_headers_accepts_agreeing_header_and_argument(argument: str, header: str) -> None:
+    """Spec Value Encoding: a fully-wrapped sentinel decodes before comparison; a value
+    missing either sentinel marker is a literal and compares verbatim."""
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": argument}, {"Mcp-Param-Region": header}) is None
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        pytest.param("=?base64?SGVsbG8?=", id="missing-padding"),
+        pytest.param("=?base64?SGVs!!!bG8=?=", id="non-alphabet-chars"),
+        pytest.param("=?base64?SGVsbG9=?=", id="non-canonical-trailing-bits"),
+        pytest.param("=?base64?gA==?=", id="invalid-utf8"),
+    ],
+)
+def test_validate_mcp_param_headers_rejects_malformed_sentinel(header: str) -> None:
+    """Spec: servers MUST reject a recognized `Mcp-Param-*` header that cannot be strictly
+    decoded — undecodable base64 is invalid characters, not a literal value."""
+    rejection = assert_rejected(
+        validate_mcp_param_headers(REGION_SCHEMA, {"region": "Hello"}, {"Mcp-Param-Region": header}),
+        HEADER_MISMATCH,
+    )
+    assert "malformed base64" in rejection.message
+
+
+def test_validate_mcp_param_headers_rejects_missing_header_for_present_argument() -> None:
+    """Spec table: client omits the header but the value is in the body → server MUST reject."""
+    rejection = assert_rejected(
+        validate_mcp_param_headers(REGION_SCHEMA, {"region": "test-value"}, {}), HEADER_MISMATCH
+    )
+    assert "missing" in rejection.message
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [pytest.param({}, id="absent"), pytest.param({"region": None}, id="null")],
+)
+def test_validate_mcp_param_headers_rejects_orphan_header_for_absent_or_null_argument(
+    arguments: dict[str, Any],
+) -> None:
+    """SDK-defined posture on a spec gap (streamable-http.mdx Server Validation): a header value
+    with no body counterpart cannot match it — this is the routing-spoof case the section's
+    purpose clause names, so it rejects (go-sdk agrees; typescript-sdk skips)."""
+    rejection = assert_rejected(
+        validate_mcp_param_headers(REGION_SCHEMA, arguments, {"Mcp-Param-Region": "eu"}), HEADER_MISMATCH
+    )
+    assert "absent" in rejection.message
+
+
+def test_validate_mcp_param_headers_rejects_value_mismatch() -> None:
+    rejection = assert_rejected(
+        validate_mcp_param_headers(REGION_SCHEMA, {"region": "us"}, {"Mcp-Param-Region": "eu"}), HEADER_MISMATCH
+    )
+    assert "does not match" in rejection.message
+
+
+def test_validate_mcp_param_headers_accepts_absent_argument_with_no_header() -> None:
+    """Spec table: parameter not in arguments / null → client MUST omit, server MUST NOT expect."""
+    assert validate_mcp_param_headers(REGION_SCHEMA, {}, {}) is None
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": None}, {}) is None
+
+
+def test_validate_mcp_param_headers_matches_header_names_case_insensitively() -> None:
+    """Spec Case Sensitivity: header-name comparison MUST be case-insensitive regardless of
+    how the carrier canonicalized the mapping's keys."""
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": "eu"}, {"MCP-PARAM-REGION": "eu"}) is None
+    rejection = validate_mcp_param_headers(REGION_SCHEMA, {"region": "us"}, {"MCP-PARAM-REGION": "eu"})
+    assert_rejected(rejection, HEADER_MISMATCH)
+
+
+def test_validate_mcp_param_headers_ignores_undeclared_mcp_param_headers() -> None:
+    """Spec: an `Mcp-Param-*` header with no matching declaration is unrecognized — forwarded
+    and otherwise ignored, never a validation failure."""
+    headers = {"Mcp-Param-Region": "eu", "Mcp-Param-Undeclared": "=?base64?not even base64?="}
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": "eu"}, headers) is None
+
+
+def test_validate_mcp_param_headers_validates_nothing_for_an_invalid_annotation_schema() -> None:
+    """The spec assigns definition rejection to clients (they drop the tool from `tools/list`),
+    so a schema `find_invalid_x_mcp_header` rejects recognizes no headers at all."""
+    invalid = {
+        "type": "object",
+        "properties": {
+            "region": {"type": "string", "x-mcp-header": "Region"},
+            "dupe": {"type": "string", "x-mcp-header": "region"},
+        },
+    }
+    assert find_invalid_x_mcp_header(invalid) is not None
+    assert validate_mcp_param_headers(invalid, {"region": "us"}, {"Mcp-Param-Region": "eu"}) is None
+
+
+def test_validate_mcp_param_headers_reads_nested_argument_paths() -> None:
+    """A nested annotated property compares against the value at the matching nested
+    `arguments` path; a broken path counts as absent."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "outer": {"type": "object", "properties": {"inner": {"type": "string", "x-mcp-header": "Inner"}}}
+        },
+    }
+    assert validate_mcp_param_headers(schema, {"outer": {"inner": "deep"}}, {"Mcp-Param-Inner": "deep"}) is None
+    rejection = validate_mcp_param_headers(schema, {"outer": {"inner": "deep"}}, {"Mcp-Param-Inner": "other"})
+    assert_rejected(rejection, HEADER_MISMATCH)
+    assert validate_mcp_param_headers(schema, {"outer": "not-a-mapping"}, {}) is None
+
+
+def test_validate_mcp_param_headers_compares_booleans_against_true_false_rendering() -> None:
+    """Booleans compare against the lowercase `true`/`false` rendering the client emits."""
+    schema = {"type": "object", "properties": {"flag": {"type": "boolean", "x-mcp-header": "Flag"}}}
+    assert validate_mcp_param_headers(schema, {"flag": True}, {"Mcp-Param-Flag": "true"}) is None
+    assert validate_mcp_param_headers(schema, {"flag": False}, {"Mcp-Param-Flag": "false"}) is None
+    rejection = validate_mcp_param_headers(schema, {"flag": True}, {"Mcp-Param-Flag": "True"})
+    assert_rejected(rejection, HEADER_MISMATCH)
+
+
+INTEGER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"n": {"type": "integer", "x-mcp-header": "N"}},
+}
+
+
+@pytest.mark.parametrize(
+    ("body_value", "header", "matches"),
+    [
+        pytest.param(42, "42", True, id="exact"),
+        pytest.param(42, "42.0", True, id="trailing-zero-fraction"),
+        pytest.param(42, "42.000", True, id="long-zero-fraction"),
+        pytest.param(42, "42.5", False, id="real-fraction"),
+        pytest.param(42, "1e2", False, id="scientific-notation-never-numeric"),
+        pytest.param(42, "43", False, id="different-value"),
+        pytest.param(-7, "-7.0", True, id="negative"),
+        pytest.param(9007199254740993, "9007199254740993", True, id="beyond-ieee754-safe-range-exact"),
+        pytest.param(9007199254740993, "9007199254740992", False, id="beyond-ieee754-safe-range-off-by-one"),
+    ],
+)
+def test_validate_mcp_param_headers_compares_integers_numerically(body_value: int, header: str, matches: bool) -> None:
+    """Spec SHOULD: integer values compare numerically (`42` equals `42.0`) — gated to
+    canonical decimals, compared exactly (no float round-trip), per the typescript-sdk's
+    header-side canonical-decimal rule."""
+    result = validate_mcp_param_headers(INTEGER_SCHEMA, {"n": body_value}, {"Mcp-Param-N": header})
+    if matches:
+        assert result is None
+    else:
+        assert_rejected(result, HEADER_MISMATCH)
+
+
+def test_validate_mcp_param_headers_non_primitive_body_value_rejects_only_when_a_header_claims_it() -> None:
+    """No scalar rendering can match a non-primitive argument, so a header claiming one is a
+    mismatch (the routing-spoof case); without the header the schema fault is params
+    validation's to reject at dispatch (-32602), not the header gate's."""
+    rejection = assert_rejected(
+        validate_mcp_param_headers(REGION_SCHEMA, {"region": {"k": "v"}}, {"Mcp-Param-Region": "x"}),
+        HEADER_MISMATCH,
+    )
+    assert "does not match" in rejection.message
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": {"k": "v"}}, {}) is None
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": [1, 2]}, {}) is None
+
+
+class _RepeatedHeaders(Mapping[str, str]):
+    """A header carrier whose `items()` yields duplicate names, like a raw HTTP header list."""
+
+    def __init__(self, pairs: list[tuple[str, str]]) -> None:
+        self._pairs = pairs
+
+    def __getitem__(self, key: str) -> str:
+        return next(value for name, value in self._pairs if name == key)
+
+    def __iter__(self) -> Iterator[str]:
+        return (name for name, _ in self._pairs)
+
+    def __len__(self) -> int:
+        return len(self._pairs)
+
+    def items(self) -> Any:
+        return list(self._pairs)
+
+
+def test_validate_mcp_param_headers_rejects_a_recognized_header_supplied_more_than_once() -> None:
+    """Duplicate copies of a recognized header are rejected even when one copy matches the
+    body: consumers reading the first copy and a last-wins validator would otherwise
+    disagree — the exact divergence the gate exists to prevent."""
+    headers = _RepeatedHeaders([("Mcp-Param-Region", "spoofed"), ("mcp-param-region", "eu")])
+    # The carrier behaves like a raw header list: first-wins lookup, every line iterated.
+    assert headers["Mcp-Param-Region"] == "spoofed"
+    assert len(headers) == len(list(headers)) == 2
+    rejection = assert_rejected(validate_mcp_param_headers(REGION_SCHEMA, {"region": "eu"}, headers), HEADER_MISMATCH)
+    assert "more than once" in rejection.message
+    # An unrecognized duplicate stays ignored.
+    noisy = _RepeatedHeaders([("Mcp-Param-Region", "eu"), ("Mcp-Param-Other", "a"), ("mcp-param-other", "b")])
+    assert validate_mcp_param_headers(REGION_SCHEMA, {"region": "eu"}, noisy) is None
+
+
+def test_validate_mcp_param_headers_rejects_a_header_exceeding_the_int_conversion_limit() -> None:
+    """A canonical-decimal header whose integer part exceeds CPython's int-conversion digit
+    limit names no JSON-expressible value: a clean mismatch, never an unhandled error."""
+    rejection = validate_mcp_param_headers(INTEGER_SCHEMA, {"n": 1}, {"Mcp-Param-N": "1" * 5000})
+    assert_rejected(rejection, HEADER_MISMATCH)
+
+
+def test_validate_mcp_param_headers_compares_integral_float_bodies_numerically() -> None:
+    """JSON Schema admits `42.0` as an integer; the numeric SHOULD applies in both
+    directions, so an integral-float body matches the integer header rendering."""
+    assert validate_mcp_param_headers(INTEGER_SCHEMA, {"n": 42.0}, {"Mcp-Param-N": "42"}) is None
+    assert validate_mcp_param_headers(INTEGER_SCHEMA, {"n": 42.0}, {"Mcp-Param-N": "42.0"}) is None
+    assert_rejected(validate_mcp_param_headers(INTEGER_SCHEMA, {"n": 42.0}, {"Mcp-Param-N": "43"}), HEADER_MISMATCH)
+    # A genuinely fractional body value falls back to the exact string rendering.
+    assert validate_mcp_param_headers(INTEGER_SCHEMA, {"n": 42.5}, {"Mcp-Param-N": "42.5"}) is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("=?base64?SGVsbG9=?=", id="non-canonical-trailing-bits"),
+        pytest.param("=?base64?SGVsbG8?=", id="missing-padding"),
+    ],
+)
+def test_decode_header_value_returns_none_for_non_canonical_base64(value: str) -> None:
+    """The decoder requires canonical base64: a payload that decodes but does not re-encode
+    byte-identically (or lacks padding) is malformed, not a lenient near-miss."""
+    assert decode_header_value(value) is None

@@ -22,14 +22,17 @@ import json
 import logging
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final, TypeVar
+from typing import TYPE_CHECKING, Any, Final, TypeVar, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
 from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
     ClientCapabilities,
     ErrorData,
     Implementation,
@@ -53,8 +56,11 @@ from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.inbound import (
     ERROR_CODE_HTTP_STATUS,
+    MCP_PARAM_HEADER_PREFIX,
     InboundLadderRejection,
+    InboundModernRoute,
     classify_inbound_request,
+    validate_mcp_param_headers,
 )
 from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data, progress_token_from_params
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
@@ -172,6 +178,22 @@ def _sse_event(msg: JSONRPCResponse | JSONRPCError | JSONRPCNotification) -> byt
     return f"event: message\r\ndata: {data}\r\n\r\n".encode()
 
 
+async def _write_rejection(
+    rejection: InboundLadderRejection,
+    request_id: RequestId,
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+) -> None:
+    """Send a ladder rejection as its JSON-RPC error with the table-mapped HTTP status."""
+    rej = JSONRPCError(
+        jsonrpc="2.0",
+        id=request_id,
+        error=ErrorData(code=rejection.code, message=rejection.message, data=rejection.data),
+    )
+    await _write(rej, scope, receive, send)
+
+
 async def _write(
     msg: JSONRPCResponse | JSONRPCError,
     scope: Scope,
@@ -190,6 +212,123 @@ async def _write(
         status_code=status,
         media_type="application/json",
     )(scope, receive, send)
+
+
+_MCP_PARAM_PREFIX_LOWER: Final = MCP_PARAM_HEADER_PREFIX.lower()
+
+_MCP_PARAM_LIST_PAGE_CAP: Final = 100
+"""Upper bound on `tools/list` pages walked while resolving a tool schema for
+`Mcp-Param-*` validation. A paginator bug (non-terminating or cycling cursor
+chain) must degrade to a logged validation skip, never a request-path hang."""
+
+
+async def _tool_input_schema(
+    app: Server[Any],
+    request: Request,
+    request_id: RequestId,
+    verdict: InboundModernRoute,
+    lifespan_state: Any,
+    name: str,
+) -> Any | None:
+    """Resolve `name`'s inputSchema from the server's own registered `tools/list` handler.
+
+    The synthetic listing runs through the normal `serve_one` path — the
+    caller's envelope (rebuilt from the classifier verdict, so caller-side
+    `_meta` extras like a progress token are not replayed), the middleware
+    chain, a fresh per-page `Connection`, and an absorbing dispatch context
+    (no SSE sink, so request-scoped notifications drop instead of raising) —
+    so a visibility-scoped catalog yields exactly what *this* caller was
+    advertised. Returns `None` (caller skips validation) when the listing
+    raises, paginates past the cap or cycles, or never advertises the tool.
+    """
+    meta = {
+        PROTOCOL_VERSION_META_KEY: verdict.protocol_version,
+        CLIENT_INFO_META_KEY: verdict.client_info,
+        CLIENT_CAPABILITIES_META_KEY: verdict.client_capabilities,
+    }
+    list_params: dict[str, Any] = {"_meta": meta}
+    seen_cursors: set[str] = set()
+    client_info = _typed(Implementation, verdict.client_info)
+    client_capabilities = _typed(ClientCapabilities, verdict.client_capabilities)
+    dctx = _SingleExchangeDispatchContext(
+        transport=TransportContext(kind="streamable-http", can_send_request=False, headers=request.headers),
+        request_id=request_id,
+        message_metadata=ServerMessageMetadata(request_context=request),
+    )
+    for _ in range(_MCP_PARAM_LIST_PAGE_CAP):
+        # A fresh per-page Connection is load-bearing: serve_one tears down
+        # the connection's exit stack on the way out. The dispatch context is
+        # page-independent and reused.
+        connection = Connection.from_envelope(verdict.protocol_version, client_info, client_capabilities)
+        try:
+            result = await serve_one(
+                app, dctx, "tools/list", list_params, connection=connection, lifespan_state=lifespan_state
+            )
+        except Exception:
+            # Boundary by design: header validation must never break a working
+            # call path, so a raising listing skips validation for this request
+            # — loudly, because the skip is fail-open. (A server broken here is
+            # broken for real discovery too.)
+            logger.exception("Mcp-Param header validation skipped: the tools/list handler raised")
+            return None
+        for tool in result.get("tools", []):
+            if tool.get("name") == name:
+                return tool.get("inputSchema")
+        cursor = result.get("nextCursor")
+        if not isinstance(cursor, str):
+            # Listing exhausted without advertising `name`: nothing was
+            # declared to this caller, so there is nothing to validate —
+            # dispatch owns rejecting a genuinely unknown tool.
+            return None
+        if cursor in seen_cursors:
+            logger.warning("Mcp-Param header validation skipped: the tools/list handler returned a cursor cycle")
+            return None
+        seen_cursors.add(cursor)
+        list_params = {"_meta": meta, "cursor": cursor}
+    logger.warning(
+        "Mcp-Param header validation skipped: tools/list pagination did not terminate within %d pages",
+        _MCP_PARAM_LIST_PAGE_CAP,
+    )
+    return None
+
+
+async def _mcp_param_rejection(
+    app: Server[Any],
+    request: Request,
+    req: JSONRPCRequest,
+    verdict: InboundModernRoute,
+    lifespan_state: Any,
+) -> InboundLadderRejection | None:
+    """Validate a `tools/call` request's `Mcp-Param-*` headers against the called tool's schema.
+
+    Runs post-classification, pre-dispatch — and before any SSE machinery, so
+    a rejection is always a plain `application/json` 400 (the spec's MUST for
+    header-validation failures). The schema source is the registered
+    `tools/list` handler; with none registered the catalog is undiscoverable,
+    no client can have been told about an `x-mcp-header` annotation, and there
+    is no recognized header to validate. A mis-shaped `name`/`arguments` is
+    left to params validation at dispatch.
+    """
+    if req.method != "tools/call" or app.get_request_handler("tools/list") is None:
+        return None
+    params = req.params or {}
+    name = params.get("name")
+    if not isinstance(name, str):
+        return None
+    raw_arguments = params.get("arguments")
+    if raw_arguments is not None and not isinstance(raw_arguments, Mapping):
+        return None
+    arguments: Mapping[str, Any] = cast("Mapping[str, Any]", raw_arguments) if raw_arguments is not None else {}
+    # ASGI guarantees lowercase header names, same invariant the classifier
+    # leans on; the pure validator re-folds for arbitrary carriers.
+    if not arguments and not any(header.startswith(_MCP_PARAM_PREFIX_LOWER) for header in request.headers):
+        # With no argument values and no `Mcp-Param-*` headers, no declaration
+        # could be violated in either direction — skip the listing outright.
+        return None
+    input_schema = await _tool_input_schema(app, request, req.id, verdict, lifespan_state, name)
+    if input_schema is None:
+        return None
+    return validate_mcp_param_headers(input_schema, arguments, request.headers)
 
 
 async def handle_modern_request(
@@ -254,10 +393,12 @@ async def handle_modern_request(
 
     verdict = classify_inbound_request(decoded, headers=dict(request.headers))
     if isinstance(verdict, InboundLadderRejection):
-        rej = JSONRPCError(
-            jsonrpc="2.0", id=req.id, error=ErrorData(code=verdict.code, message=verdict.message, data=verdict.data)
-        )
-        await _write(rej, scope, receive, send)
+        await _write_rejection(verdict, req.id, scope, receive, send)
+        return
+
+    mcp_param_rejection = await _mcp_param_rejection(app, request, req, verdict, lifespan_state)
+    if mcp_param_rejection is not None:
+        await _write_rejection(mcp_param_rejection, req.id, scope, receive, send)
         return
 
     connection = Connection.from_envelope(
