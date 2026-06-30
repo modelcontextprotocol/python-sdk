@@ -245,6 +245,19 @@ def test_header_rung_rejects_missing_method_header() -> None:
     ("method", "name_key"),
     [(m, k) for m, k in NAME_BEARING_METHODS.items()],
 )
+def test_header_rung_passes_matching_name_header_for_name_bearing_methods(method: str, name_key: str) -> None:
+    """Spec-mandated: an `Mcp-Name` header equal to the named body param passes rung 3 for every
+    name-bearing method — SEP-2243 for `tools/call`/`prompts/get`/`resources/read`, SEP-2663
+    §Streamable HTTP: Routing Headers for `tasks/*` (`Mcp-Name` MUST carry `params.taskId`)."""
+    body = envelope(method, extra_params={name_key: "expected"})
+    result = classify_inbound_request(body, headers=matching_headers(body))
+    assert isinstance(result, InboundModernRoute)
+
+
+@pytest.mark.parametrize(
+    ("method", "name_key"),
+    [(m, k) for m, k in NAME_BEARING_METHODS.items()],
+)
 def test_header_rung_rejects_missing_or_mismatched_name_header_for_name_bearing_methods(
     method: str, name_key: str
 ) -> None:
@@ -379,8 +392,18 @@ def test_decode_header_value_returns_none_for_malformed_sentinel(bad: str) -> No
 
 
 def test_name_bearing_methods_table_matches_spec() -> None:
-    """Spec-mandated: pins the method → name-param table the client emit and server validate share."""
-    assert NAME_BEARING_METHODS == {"tools/call": "name", "prompts/get": "name", "resources/read": "uri"}
+    """Spec-mandated: pins the method → name-param table the client emit and server validate share.
+
+    The first three rows are SEP-2243; the `tasks/*` rows are SEP-2663 §Streamable HTTP: Routing
+    Headers ("the client MUST set the `Mcp-Name` header ... to the value of `params.taskId`")."""
+    assert NAME_BEARING_METHODS == {
+        "tools/call": "name",
+        "prompts/get": "name",
+        "resources/read": "uri",
+        "tasks/get": "taskId",
+        "tasks/update": "taskId",
+        "tasks/cancel": "taskId",
+    }
 
 
 # --- find_invalid_x_mcp_header -------------------------------------------------
