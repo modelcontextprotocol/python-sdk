@@ -610,10 +610,8 @@ class Client:
         `input_required_max_rounds`). To drive the loop yourself — e.g. to
         persist `request_state` across process restarts — use
         `client.session.call_tool(..., allow_input_required=True)`. Persisted
-        state resumes only within the server's constraints: the token expires
-        after the server's per-round TTL (default 10 minutes), is bound to the
-        exact original request, and dies with the server's key — an
-        `ephemeral()` server rejects it after a restart.
+        state is still subject to the server's TTL, request binding, and key
+        lifetime; an `ephemeral()` server rejects it after a restart.
 
         Args:
             name: The name of the tool to call.

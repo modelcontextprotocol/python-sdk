@@ -432,16 +432,11 @@ INPUT_REQUIRED_METHODS: Final[frozenset[str]] = frozenset(
         issubclass(arm, types.InputRequiredResult) for arm in (get_args(row) if isinstance(row, UnionType) else (row,))
     )
 )
-"""Methods whose results may be `InputRequiredResult` (the MRTR carriers), derived from `MONOLITH_RESULTS`."""
+"""Methods whose results may be `InputRequiredResult`, derived from `MONOLITH_RESULTS`."""
 
 
 def is_input_required(result: object) -> TypeGuard[types.InputRequiredResult | dict[str, Any]]:
-    """True when `result` is an `input_required` interim result, typed or wire-shaped.
-
-    Covers both shapes a server result takes in-process: the `InputRequiredResult`
-    model, and the serialized wire dict discriminated by `resultType` (any mapping
-    matches at runtime; the guard claims the SDK's wire-dict shape).
-    """
+    """True when `result` is an `input_required` interim result, typed or wire-shaped."""
     if isinstance(result, types.InputRequiredResult):
         return True
     return isinstance(result, Mapping) and cast("Mapping[str, Any]", result).get("resultType") == "input_required"

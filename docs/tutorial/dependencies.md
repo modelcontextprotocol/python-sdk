@@ -15,7 +15,7 @@ Wrap the parameter's type in `Annotated[...]` and add `Resolve(fn)`:
 * `check_stock` is a **resolver**: a plain function the SDK runs before `reserve_book`, whose return value becomes the `stock` argument.
 * Its `title` parameter is the tool's own `title` argument, matched **by name**. The resolver sees exactly the validated value the tool body will see.
 * The tool body starts from a `Stock` that already exists. No lookup code in the tool, no "what if it's missing" preamble.
-* `request_state_security=` is the one piece of ceremony. A tool with resolvers can pause mid-call to ask the user — that's later in this chapter — and resuming sends a token through the client, so the SDK makes you choose how that token is protected before it will build the server. `ephemeral()`, a key generated at process start, is the right choice for a single-process server like this one; **[Protecting `requestState`](../advanced/multi-round-trip.md#protecting-requeststate)** has the full story.
+* `request_state_security=` is the one piece of ceremony. A tool with resolvers can pause mid-call to ask the user (that's later in this chapter), and resuming sends a token through the client, so the SDK makes you choose how that token is protected before it will build the server. `ephemeral()`, a key generated at process start, is the right choice for a single-process server like this one; **[Protecting `requestState`](../advanced/multi-round-trip.md#protecting-requeststate)** has the full story.
 
 !!! info
     If you've used FastAPI, this is `Depends`. Same move, same reason: the function declares what

@@ -32,7 +32,7 @@ uv run python -m stories.refund_desk.client --http
   `required` are exactly `{order_id, reason}`. The server is constructed with
   `request_state_security=RequestStateSecurity.ephemeral()` because at 2026 the
   resolver's elicited answers ride between rounds inside a sealed
-  `requestState` — see `mrtr/` for the full security walk-through.
+  `requestState`; see `mrtr/` for the full security walk-through.
 - `server.py` `refund_scope` — the no-round-trip fast path: a one-line order
   returns `Scope(full=True)` directly; only a multi-line order returns
   `Elicit(...)`. The ORD-7001 call completes with zero elicitations.

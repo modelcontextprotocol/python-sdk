@@ -1,12 +1,4 @@
-"""`mcp.server.request_state`: the `RequestStateBoundary` middleware and its claims
-envelope, proven through the public wire surfaces — `requestState` is sealed on the way
-out, verified and restored on the way back, and every verification failure collapses to
-one frozen wire error (MCP 2026-07-28, basic/patterns/mrtr server requirements 4-5).
-
-Servers here use MANUAL multi-round-trip tools (a plain `@mcp.tool()` returning
-`str | InputRequiredResult` that reads `ctx.input_responses` / `ctx.request_state`),
-driven by the manual client loop on `client.session.call_tool`.
-"""
+"""`RequestStateBoundary` end to end: seal outbound, verify and restore inbound, one frozen error on failure."""
 
 import json
 import logging
@@ -50,7 +42,7 @@ from .test_runner import connected_runner
 
 pytestmark = pytest.mark.anyio
 
-_KEY = b"0123456789abcdef0123456789abcdef"  # 32 bytes; a test fixture, not a secret
+_KEY = b"0123456789abcdef0123456789abcdef"  # 32 bytes
 _T0 = 1_782_345_600.0  # frozen mint instant for clock-controlled tests
 _TTL = 600.0
 
@@ -74,17 +66,12 @@ def _accept() -> ElicitResult:
 
 
 async def _list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
-    """Minimal listing for lowlevel fixtures: `ClientSession.call_tool` consults
-    tools/list for output-schema validation, so the server must answer it."""
+    """`ClientSession.call_tool` consults tools/list, so lowlevel fixtures must answer it."""
     return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
 
 
 class _PassthroughCodec:
-    """A contract-valid codec with no crypto: the token IS the payload bytes.
-
-    Lets a test place arbitrary payload bytes behind a successful unseal, to
-    prove the boundary's own claims checks reject what a codec cannot vouch for.
-    """
+    """Cryptography-free codec (the token IS the payload) that puts arbitrary bytes behind a successful unseal."""
 
     def seal(self, payload: bytes) -> str:
         return payload.decode()
@@ -94,7 +81,7 @@ class _PassthroughCodec:
 
 
 class _CustomMethodParams(RequestParams):
-    """Params for a lowlevel custom (extension-style) method in the off-set tests."""
+    """Params for a custom (non-carrier) method."""
 
     request_state: str | None = None
 
@@ -110,18 +97,13 @@ class _Clock:
 
 
 def _tamper(token: str) -> str:
-    """Flip one mid-token character. Strict canonical decoding means any single-character
-    change rejects — including the final char, whose don't-care padding bits a lax decoder
-    would ignore (pinned by the canonicality tests in test_request_state.py)."""
+    """Flip one mid-token character; strict canonical decoding rejects any single-character change."""
     i = len(token) // 2
     return token[:i] + ("A" if token[i] != "A" else "B") + token[i + 1 :]
 
 
 def _assert_frozen_rejection(exc: pytest.ExceptionInfo[MCPError]) -> None:
-    """The single frozen wire shape for every inbound verification failure.
-
-    Frozen contract — asserted explicitly, never snapshotted.
-    """
+    """Assert the single frozen wire shape for every inbound verification failure."""
     assert exc.value.error.code == INVALID_PARAMS
     assert exc.value.error.message == "Invalid or expired requestState"
     assert exc.value.error.data == {"reason": "invalid_request_state"}
@@ -130,9 +112,7 @@ def _assert_frozen_rejection(exc: pytest.ExceptionInfo[MCPError]) -> None:
 def _manual_server(
     security: RequestStateSecurity | None, *, state: str = "awaiting-confirm", name: str = "manual"
 ) -> tuple[MCPServer, list[str | None]]:
-    """An MCPServer with one manual MRTR tool: round 1 asks, the retry records the
-    echoed `ctx.request_state` and completes. With `security`, `name` is also the
-    boundary's default audience; with None no boundary is installed at all."""
+    """MCPServer with one manual MRTR tool: round 1 asks, the retry records the echoed `ctx.request_state`."""
     seen: list[str | None] = []
     mcp = MCPServer(name, request_state_security=security)
 
@@ -166,8 +146,7 @@ async def _retry(client: Client, name: str, args: dict[str, Any], token: str) ->
 
 async def test_request_state_is_sealed_on_the_wire_and_restored_for_the_handler() -> None:
     """Spec-mandated (basic/patterns/mrtr server requirements 4-5): the wire carries an
-    opaque integrity-protected token — never the handler's plaintext — and a faithful
-    echo hands the handler back exactly the state it minted."""
+    opaque token, never the handler's plaintext, and a faithful echo restores it."""
     plaintext = "awaiting-confirm:9f2e"
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY]), state=plaintext)
 
@@ -189,8 +168,7 @@ async def test_request_state_is_sealed_on_the_wire_and_restored_for_the_handler(
 
 async def test_lowlevel_server_gets_identical_sealing_from_the_one_line_middleware_append() -> None:
     """Spec-mandated (basic/patterns/mrtr server requirements 4-5): appending the public
-    `RequestStateBoundary` to `Server.middleware` gives the lowlevel tier the same sealed
-    wire and the same plaintext restore — nothing is private to MCPServer."""
+    `RequestStateBoundary` to `Server.middleware` gives the lowlevel tier the same sealing."""
     plaintext = "lowlevel-round-1"
     seen: list[str | None] = []
 
@@ -220,9 +198,7 @@ async def test_lowlevel_server_gets_identical_sealing_from_the_one_line_middlewa
 
 async def test_a_resource_template_flow_seals_on_resources_read_and_restores_the_plaintext() -> None:
     """Spec-mandated (basic/patterns/mrtr server requirements 4-5): resources/read is an
-    MRTR carrier too — a template's `requestState` crosses the wire sealed and bound to
-    the originating uri, and the faithful retry hands the template function back its
-    plaintext."""
+    MRTR carrier, so a template's `requestState` crosses sealed and bound to the uri."""
     plaintext = "resource-round-1"
     seen: list[str | None] = []
     mcp = MCPServer("templated", request_state_security=RequestStateSecurity(keys=[_KEY]))
@@ -260,8 +236,8 @@ async def test_a_resource_template_flow_seals_on_resources_read_and_restores_the
 
 
 async def test_tampered_request_state_is_rejected_with_the_frozen_wire_error() -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 5): a modified echo fails
-    authentication and is rejected with the frozen -32602 shape; the handler never runs."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 5): a modified echo is
+    rejected with the frozen -32602 shape and the handler never runs."""
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY]))
 
     with anyio.fail_after(5):
@@ -277,8 +253,8 @@ async def test_tampered_request_state_is_rejected_with_the_frozen_wire_error() -
 async def test_expired_request_state_is_rejected_and_just_inside_ttl_is_accepted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirements 4-5, expiration bound): one
-    second past `ttl` is the frozen rejection; one second inside completes the flow."""
+    """Spec-mandated (basic/patterns/mrtr server requirements 4-5): one second past `ttl`
+    is rejected, one second inside completes."""
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], ttl=_TTL))
     clock = _Clock(_T0)
     monkeypatch.setattr(request_state_module, "time", clock)
@@ -301,7 +277,7 @@ async def test_state_minted_in_the_future_is_rejected_beyond_the_sixty_second_sk
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Spec-mandated (basic/patterns/mrtr server requirements 4-5): a token minted 120 s
-    ahead of the verifier's clock is rejected; 30 s ahead is inside the skew allowance."""
+    ahead of the verifier's clock is rejected, 30 s ahead is inside the skew allowance."""
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], ttl=_TTL))
     clock = _Clock(_T0)
     monkeypatch.setattr(request_state_module, "time", clock)
@@ -324,9 +300,8 @@ async def test_state_minted_in_the_future_is_rejected_beyond_the_sixty_second_sk
 
 
 async def test_round_one_state_replayed_on_a_different_tool_is_rejected() -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 4, originating-request
-    binding): a token minted for tool A fails verification when echoed on tool B of the
-    same server, while the faithful retry on tool A still completes."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 4): a token minted for tool
+    A is rejected when echoed on tool B of the same server."""
     seen: list[str | None] = []
 
     def make_tool(state: str) -> Callable[[Context], Awaitable[str | InputRequiredResult]]:
@@ -355,9 +330,8 @@ async def test_round_one_state_replayed_on_a_different_tool_is_rejected() -> Non
 
 
 async def test_retry_with_different_arguments_is_rejected_and_the_original_arguments_complete() -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 4, argument binding): the
-    same tool retried with different arguments is the frozen rejection; the retry that
-    repeats the original arguments completes."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 4): the same tool retried
+    with different arguments is rejected."""
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY]))
 
     with anyio.fail_after(5):
@@ -376,9 +350,8 @@ async def test_retry_with_different_arguments_is_rejected_and_the_original_argum
 
 
 async def test_state_minted_with_a_principal_is_rejected_when_the_verifier_derives_none() -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 4, user binding): principal
-    binding fails closed — state sealed for a principal is rejected by a round on which
-    `bind_principal` derives none."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 4): state sealed for a
+    principal is rejected when the verifying round derives none."""
     principal: list[str | None] = ["alice"]
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=lambda ctx: principal[0]))
 
@@ -394,9 +367,8 @@ async def test_state_minted_with_a_principal_is_rejected_when_the_verifier_deriv
 
 
 async def test_state_minted_without_a_principal_is_rejected_when_the_verifier_derives_one() -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 4, user binding): the other
-    drift direction also fails closed — unbound state is rejected once the verifying
-    round derives a principal."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 4): unbound state is
+    rejected once the verifying round derives a principal."""
     principal: list[str | None] = [None]
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=lambda ctx: principal[0]))
 
@@ -412,9 +384,8 @@ async def test_state_minted_without_a_principal_is_rejected_when_the_verifier_de
 
 
 async def test_state_for_a_different_principal_is_rejected_and_the_same_principal_completes() -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 4, user binding): a token
-    minted for one principal is rejected when echoed by another, and accepted when the
-    same principal returns."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 4): one principal's token is
+    rejected when echoed by another and accepted when the same principal returns."""
     principal: list[str | None] = ["alice"]
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=lambda ctx: principal[0]))
 
@@ -435,8 +406,7 @@ async def test_state_for_a_different_principal_is_rejected_and_the_same_principa
 async def test_a_principal_binding_that_raises_fails_the_seal_as_an_internal_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """SDK-defined fail-safe: a raising `bind_principal` must not mint unbound state —
-    the round fails as a bare internal error and the traceback stays in the server log."""
+    """SDK-defined: a raising `bind_principal` fails the seal as a bare internal error, not an unbound mint."""
 
     def boom(ctx: ServerRequestContext[Any, Any]) -> str | None:
         raise RuntimeError("identity provider down")
@@ -458,16 +428,14 @@ async def test_a_principal_binding_that_raises_fails_the_seal_as_an_internal_err
 async def test_a_principal_binding_that_raises_fails_the_unseal_with_the_frozen_rejection(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """SDK-defined fail-safe: a `bind_principal` that raises while verifying must not
-    bypass the frozen contract — the round collapses to the frozen -32602 and the
-    traceback stays in the server log."""
+    """SDK-defined: a `bind_principal` that raises while verifying collapses to the frozen rejection."""
     rounds: list[int] = []
 
     def flaky(ctx: ServerRequestContext[Any, Any]) -> str | None:
         rounds.append(1)
         if len(rounds) == 1:
-            return "alice"  # the mint succeeds...
-        raise RuntimeError("identity provider down")  # ...the verify round raises
+            return "alice"  # mint round succeeds
+        raise RuntimeError("identity provider down")  # verify round raises
 
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=flaky))
 
@@ -483,9 +451,7 @@ async def test_a_principal_binding_that_raises_fails_the_unseal_with_the_frozen_
 
 
 async def test_two_mints_for_the_same_principal_carry_different_salted_principal_claims() -> None:
-    """SDK-defined: the `p` claim is salted per mint, so two tokens for the same
-    principal are not linkable by their principal digests (and `p` is present whenever a
-    principal is bound)."""
+    """SDK-defined: the `p` claim is salted per mint, so two tokens for the same principal are not linkable."""
     mcp, _ = _manual_server(RequestStateSecurity(keys=[_KEY], bind_principal=lambda ctx: "alice"))
 
     with anyio.fail_after(5):
@@ -505,9 +471,7 @@ async def test_two_mints_for_the_same_principal_carry_different_salted_principal
 
 
 async def test_two_servers_sharing_a_key_reject_each_others_state_via_the_name_audience() -> None:
-    """SDK-defined: `MCPServer` wires its server name as the boundary's default audience,
-    so two services sharing (or accidentally reusing) a secret reject each other's state
-    out of the box — while each still completes its own flow."""
+    """SDK-defined: the server name is the default audience, so servers sharing a key reject each other's state."""
     mcp_billing, seen_billing = _manual_server(RequestStateSecurity(keys=[_KEY]), name="billing")
     mcp_payments, seen_payments = _manual_server(RequestStateSecurity(keys=[_KEY]), name="payments")
 
@@ -525,10 +489,7 @@ async def test_two_servers_sharing_a_key_reject_each_others_state_via_the_name_a
 
 
 async def test_audience_presence_drift_is_rejected_in_both_directions() -> None:
-    """SDK-defined fail-closed: state minted with an audience is rejected by a boundary
-    expecting none, and audience-unbound state is rejected by a boundary expecting one —
-    while each boundary still accepts its own mint (lowlevel tier: the audience is the
-    boundary's `default_audience`, no MCPServer involved)."""
+    """SDK-defined: audience presence drift is rejected in both directions; each boundary accepts its own mint."""
 
     def make_server(boundary: RequestStateBoundary) -> Server:
         async def call_tool(
@@ -562,8 +523,7 @@ async def test_audience_presence_drift_is_rejected_in_both_directions() -> None:
 
 
 async def test_an_explicit_policy_audience_overrides_the_server_name_default() -> None:
-    """SDK-defined: `RequestStateSecurity(audience=...)` wins over the server-name
-    default — the envelope carries the policy's audience and the flow still completes."""
+    """SDK-defined: `RequestStateSecurity(audience=...)` overrides the server-name default."""
     mcp, seen = _manual_server(RequestStateSecurity(keys=[_KEY], audience="prod-fleet"), name="one-box")
 
     with anyio.fail_after(5):
@@ -581,10 +541,7 @@ async def test_an_explicit_policy_audience_overrides_the_server_name_default() -
 
 
 async def test_claims_envelope_carries_the_documented_fields_and_omits_p_when_unbound() -> None:
-    """SDK-defined envelope contract: the sealed payload is the documented claims JSON —
-    version, mint/expiry stamps, originating method/target/argument digest, the audience
-    (an MCPServer defaults it to the server name), and the plaintext — with no `p` claim
-    when `bind_principal` returns None."""
+    """SDK-defined: the sealed payload is the documented claims JSON; no `p` claim when the principal is None."""
     plaintext = "step-one"
     mcp, _ = _manual_server(
         RequestStateSecurity(keys=[_KEY], ttl=_TTL, bind_principal=lambda ctx: None), state=plaintext
@@ -608,9 +565,7 @@ async def test_claims_envelope_carries_the_documented_fields_and_omits_p_when_un
 async def test_each_round_is_resealed_with_a_fresh_token_and_a_restamped_iat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SDK-defined: a multi-round flow reseals every round — round 2's token differs from
-    round 1's and carries a fresh mint stamp, so `ttl` bounds per-round think time rather
-    than total flow time."""
+    """SDK-defined: every round reseals with a fresh token and `iat`, so `ttl` bounds per-round think time."""
     mcp = MCPServer("wizard-server", request_state_security=RequestStateSecurity(keys=[_KEY], ttl=_TTL))
 
     @mcp.tool()
@@ -660,11 +615,7 @@ async def test_each_round_is_resealed_with_a_fresh_token_and_a_restamped_iat(
 
 
 async def test_an_unconfigured_mcpserver_passes_request_state_through_verbatim() -> None:
-    """SDK-defined: an MCPServer constructed without `request_state_security=` installs
-    no boundary — the deliberate unprotected posture (the spec MAY omit protection when
-    tampering can cause nothing worse than request failure). The wire carries exactly
-    the plaintext the manual handler wrote, a verbatim echo is accepted, and the flow
-    completes."""
+    """SDK-defined: an MCPServer without `request_state_security=` passes `requestState` through verbatim."""
     plaintext = "plain-wizard-state"
     mcp, seen = _manual_server(None, state=plaintext)
 
@@ -680,10 +631,7 @@ async def test_an_unconfigured_mcpserver_passes_request_state_through_verbatim()
 
 
 async def test_a_boundary_free_lowlevel_server_passes_request_state_through_verbatim() -> None:
-    """SDK-defined: the lowlevel tier has no implicit protection — without a
-    `RequestStateBoundary` in `Server.middleware`, `requestState` crosses the wire as
-    the handler's plaintext and the echo reaches the handler as sent (the no-middleware
-    control for the one-line-append test above)."""
+    """SDK-defined: without a boundary in `Server.middleware`, `requestState` crosses as the handler's plaintext."""
     plaintext = "lowlevel-plain-round-1"
     seen: list[str | None] = []
 
@@ -712,10 +660,8 @@ async def test_a_boundary_free_lowlevel_server_passes_request_state_through_verb
 
 
 async def test_non_string_inbound_request_state_is_rejected_with_the_frozen_error() -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 5): a structurally invalid
-    (non-string) `requestState` placed raw in the params fails at the boundary — before
-    model validation — with the frozen shape; a stateless request still reaches the
-    handler."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 5): a non-string
+    `requestState` fails at the boundary with the frozen shape."""
     calls: list[str] = []
 
     async def call_tool(ctx: ServerRequestContext[Any], params: CallToolRequestParams) -> CallToolResult:
@@ -744,12 +690,7 @@ async def test_non_string_inbound_request_state_is_rejected_with_the_frozen_erro
     ],
 )
 async def test_an_explicit_null_request_state_is_treated_as_absent(install_boundary: bool) -> None:
-    """SDK-defined (spec-aligned): an explicit `"requestState": null` is the field's
-    absence — a fresh flow, not presented state. The reject-MUST governs PRESENTED state,
-    and stripping the field is already in any client's power, so the handler runs and
-    sees None — through an installed boundary (which verifies only presented state) and
-    on a boundary-free server (where the null parses straight to the model's None)
-    alike."""
+    """SDK-defined: an explicit `"requestState": null` is the field's absence, so the handler runs and sees None."""
     seen: list[str | None] = []
 
     async def call_tool(ctx: ServerRequestContext[Any], params: CallToolRequestParams) -> CallToolResult:
@@ -771,12 +712,7 @@ async def test_an_explicit_null_request_state_is_treated_as_absent(install_bound
 
 
 async def test_inbound_request_state_on_a_non_carrier_method_passes_through_unverified() -> None:
-    """SDK-defined boundary scope: only tools/call, prompts/get, and resources/read are
-    multi-round-trip carriers, so the boundary never acts on any other method — a
-    `requestState` member a client places in a custom (extension-style) method's params
-    reaches the handler exactly as sent, never unsealed and never verified. Such a value
-    is outside the multi-round-trip protocol and must not be trusted by whatever handles
-    it."""
+    """SDK-defined: only the MRTR carriers are touched; a custom method's `requestState` arrives as sent."""
     calls: list[str] = []
 
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> dict[str, Any]:
@@ -797,10 +733,7 @@ async def test_inbound_request_state_on_a_non_carrier_method_passes_through_unve
 
 
 async def test_outbound_request_state_on_a_non_carrier_method_is_not_sealed() -> None:
-    """SDK-defined boundary scope: an input_required-shaped result on a custom method is
-    outside the multi-round-trip protocol, so an installed boundary leaves its
-    `requestState` exactly as the handler wrote it — no sealing, no claims envelope
-    (the carrier methods' seal is pinned by the end-to-end tests above)."""
+    """SDK-defined: an input_required result on a custom method keeps its `requestState` unsealed."""
 
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> InputRequiredResult:
         return InputRequiredResult(input_requests={"confirm": _ask("?")}, request_state="ext-handler-plaintext")
@@ -817,8 +750,7 @@ async def test_outbound_request_state_on_a_non_carrier_method_is_not_sealed() ->
 
 
 async def test_an_off_set_input_required_result_without_state_passes_through_untouched() -> None:
-    """SDK-defined: an input_required-shaped result on a non-carrier method that mints no
-    `requestState` is not this module's concern — it crosses the boundary unmodified."""
+    """SDK-defined: an input_required result on a non-carrier method minting no state crosses unmodified."""
 
     async def custom(ctx: ServerRequestContext[Any], params: _CustomMethodParams) -> InputRequiredResult:
         return InputRequiredResult(input_requests={"confirm": _ask("?")})
@@ -841,9 +773,8 @@ async def test_an_off_set_input_required_result_without_state_passes_through_unt
 async def test_a_codec_that_raises_unexpectedly_fails_closed_with_the_frozen_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Spec-mandated fail-safe (basic/patterns/mrtr server requirement 5): a buggy custom
-    codec denies on error — the wire gets the frozen rejection while the traceback stays
-    in the server log."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 5): a codec that raises
+    unexpectedly denies with the frozen rejection."""
 
     class ExplodingCodec:
         def seal(self, payload: bytes) -> str:
@@ -860,8 +791,6 @@ async def test_a_codec_that_raises_unexpectedly_fails_closed_with_the_frozen_err
             assert token == "opaque-token"
             with pytest.raises(MCPError) as exc:
                 await _retry(client, "deploy", {"env": "prod"}, token)
-            # The exact-match frozen assertions also prove the exception text
-            # never reached the wire.
             _assert_frozen_rejection(exc)
 
     assert seen == []
@@ -871,9 +800,8 @@ async def test_a_codec_that_raises_unexpectedly_fails_closed_with_the_frozen_err
 async def test_a_codec_reject_reason_reaches_the_log_but_never_the_wire(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 5) plus the SDK log
-    contract: an `InvalidRequestState` reason from a custom codec is logged server-side
-    while the wire stays the frozen shape."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 5): a custom codec's
+    `InvalidRequestState` reason is logged server-side, never sent on the wire."""
 
     class RefusingCodec:
         def seal(self, payload: bytes) -> str:
@@ -889,7 +817,6 @@ async def test_a_codec_reject_reason_reaches_the_log_but_never_the_wire(
             token = await _first_round(client, "deploy", {"env": "prod"})
             with pytest.raises(MCPError) as exc:
                 await _retry(client, "deploy", {"env": "prod"}, token)
-            # Exact-match frozen assertions prove "boom" is not on the wire.
             _assert_frozen_rejection(exc)
 
     assert "boom" in caplog.text
@@ -906,11 +833,7 @@ async def test_a_codec_reject_reason_reaches_the_log_but_never_the_wire(
     ],
 )
 async def test_codec_authenticated_bytes_that_are_not_a_claims_envelope_are_rejected(payload: str) -> None:
-    """SDK-defined (claims enforcement for every codec): bytes a codec vouches for are
-    still nothing until they parse as the SDK's claims envelope — non-JSON payloads and
-    well-formed JSON of the wrong shape both collapse to the frozen rejection before the
-    handler runs (crafted via a passthrough codec; the built-in AEAD only ever
-    authenticates envelopes it sealed itself)."""
+    """SDK-defined: codec-authenticated bytes that are not the claims envelope collapse to the frozen rejection."""
     mcp, seen = _manual_server(RequestStateSecurity(codec=_PassthroughCodec(), bind_principal=None))
 
     with anyio.fail_after(5):
@@ -923,10 +846,7 @@ async def test_codec_authenticated_bytes_that_are_not_a_claims_envelope_are_reje
 
 
 async def test_a_forged_principal_claim_that_is_not_base64_is_rejected() -> None:
-    """SDK-defined (principal binding): a `p` claim that does not decode as base64 can
-    never match any principal, so the round collapses to the frozen rejection even
-    inside a token the codec authenticated (crafted via a passthrough codec; the
-    built-in AEAD makes the claim untouchable)."""
+    """SDK-defined: a `p` claim that does not decode as base64 collapses to the frozen rejection."""
     mcp, seen = _manual_server(RequestStateSecurity(codec=_PassthroughCodec(), bind_principal=lambda ctx: "alice"))
 
     with anyio.fail_after(5):
@@ -943,10 +863,7 @@ async def test_a_forged_principal_claim_that_is_not_base64_is_rejected() -> None
 
 @pytest.mark.parametrize("forged", [pytest.param(7, id="int"), pytest.param({"x": 1}, id="object")])
 async def test_a_non_string_principal_claim_is_rejected_with_the_frozen_error(forged: Any) -> None:
-    """SDK-defined (principal binding): a non-string `p` claim inside a validly-sealed
-    envelope (possible only through a weak custom codec) collapses to the frozen
-    rejection — it can never raise past `_reject` and leak exception text onto the
-    wire."""
+    """SDK-defined: a non-string `p` claim inside a validly-sealed envelope collapses to the frozen rejection."""
     mcp, seen = _manual_server(RequestStateSecurity(codec=_PassthroughCodec(), bind_principal=lambda ctx: "alice"))
 
     with anyio.fail_after(5):
@@ -968,10 +885,8 @@ async def test_the_wire_error_never_varies_by_cause_and_logs_never_leak_secrets(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Spec-mandated (basic/patterns/mrtr server requirement 5) plus the SDK log
-    contract: tampered, expired, and rebound echoes produce byte-identical wire errors
-    (no failure oracle), the real reasons are logged at WARNING, and no log record ever
-    carries the token, the plaintext state, or the principal."""
+    """Spec-mandated (basic/patterns/mrtr server requirement 5): tampered, expired, and rebound
+    echoes get identical wire errors, with reasons logged but no secrets in any record."""
     plaintext = "secret-plaintext-state-1f9b"
     principal = "principal-alice-7c3d"
     mcp, seen = _manual_server(
@@ -998,8 +913,8 @@ async def test_the_wire_error_never_varies_by_cause_and_logs_never_leak_secrets(
     assert seen == []
 
     reject_logs = [r for r in caplog.records if r.name == "mcp.server.request_state" and r.levelno == logging.WARNING]
-    assert len(reject_logs) == 3  # the real reasons ARE logged...
-    for record in caplog.records:  # ...but never the secrets
+    assert len(reject_logs) == 3
+    for record in caplog.records:
         message = record.getMessage()
         assert token not in message
         assert plaintext not in message
@@ -1010,8 +925,7 @@ async def test_the_wire_error_never_varies_by_cause_and_logs_never_leak_secrets(
 
 
 async def test_a_complete_result_crosses_the_boundary_untouched() -> None:
-    """SDK-defined: the outbound seam keys off `resultType` — a complete tools/call wire
-    result passes through as the identical object."""
+    """SDK-defined: a complete tools/call wire result passes the boundary as the identical object."""
     boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
     complete: dict[str, Any] = {"resultType": "complete", "content": []}
 
@@ -1030,9 +944,7 @@ async def test_a_complete_result_crosses_the_boundary_untouched() -> None:
 
 
 async def test_input_required_without_request_state_is_untouched() -> None:
-    """SDK-defined: sealing keys off the `requestState` field — an `input_required`
-    result that asks without minting state crosses the boundary unmodified, and the
-    response-only retry completes."""
+    """SDK-defined: an `input_required` result that asks without minting state crosses the boundary unmodified."""
     seen: list[str | None] = []
     mcp = MCPServer("stateless-ask", request_state_security=RequestStateSecurity(keys=[_KEY]))
 
@@ -1057,10 +969,7 @@ async def test_input_required_without_request_state_is_untouched() -> None:
 
 
 async def test_an_input_required_mapping_with_a_non_string_state_is_not_sealed() -> None:
-    """SDK-defined: only a middleware short-circuiting below the boundary can put a
-    non-string `requestState` in a wire mapping (the spec path validates the field as a
-    string); that value is not state this module minted or seals, so the result crosses
-    unchanged."""
+    """SDK-defined: a non-string `requestState` in a wire mapping is not this module's mint; it crosses unchanged."""
     boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
     malformed: dict[str, Any] = {"resultType": "input_required", "inputRequests": {}, "requestState": 7}
 
@@ -1079,8 +988,7 @@ async def test_an_input_required_mapping_with_a_non_string_state_is_not_sealed()
 
 
 async def test_a_notification_crosses_the_boundary_unharmed() -> None:
-    """SDK-defined: the boundary is inert for notifications — the context reaches
-    `call_next` as the identical object and the None result comes back unchanged."""
+    """SDK-defined: the boundary is inert for notifications."""
     boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
     forwarded: list[ServerRequestContext[Any, Any]] = []
 
@@ -1102,8 +1010,7 @@ async def test_a_notification_crosses_the_boundary_unharmed() -> None:
 
 
 async def test_a_non_mrtr_method_with_no_params_is_untouched() -> None:
-    """SDK-defined: methods outside the MRTR trio pass the boundary inert — `tools/list`
-    with absent params is forwarded and its result returned identically."""
+    """SDK-defined: a non-carrier method with absent params passes the boundary inert."""
     boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
     listing: dict[str, Any] = {"tools": [], "resultType": "complete"}
 
@@ -1125,9 +1032,7 @@ async def test_a_non_mrtr_method_with_no_params_is_untouched() -> None:
 
 
 async def test_a_short_circuited_input_required_model_is_sealed_via_the_model_path() -> None:
-    """SDK-defined: a middleware below the boundary that short-circuits with an
-    `InputRequiredResult` MODEL (not the serialized wire dict) still has its state
-    sealed — the boundary returns a copy carrying the sealed token, requests intact."""
+    """SDK-defined: a short-circuited `InputRequiredResult` model is sealed via the model path, on a copy."""
     boundary = RequestStateBoundary(RequestStateSecurity(keys=[_KEY], bind_principal=None))
     interim = InputRequiredResult(input_requests={"confirm": _ask("Go?")}, request_state="model-plaintext")
 
@@ -1151,4 +1056,4 @@ async def test_a_short_circuited_input_required_model_is_sealed_via_the_model_pa
     assert result.request_state.startswith("v1.")
     claims = json.loads(AESGCMRequestStateCodec([_KEY]).unseal(result.request_state))
     assert (claims["m"], claims["t"], claims["s"]) == ("tools/call", "shortcut", "model-plaintext")
-    assert interim.request_state == "model-plaintext"  # sealed on a copy; the original is untouched
+    assert interim.request_state == "model-plaintext"

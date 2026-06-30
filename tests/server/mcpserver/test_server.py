@@ -1867,8 +1867,7 @@ async def test_read_resource_template_not_found():
 
 
 async def test_tool_returning_input_required_result_reaches_client_unchanged():
-    # Unconfigured server: the wire carries the handler's requestState exactly as
-    # written, the plaintext posture a declared-manual surface gets by default.
+    # Unconfigured server: the wire carries the handler's requestState as plaintext.
     mcp = MCPServer()
 
     @mcp.tool()
@@ -1944,10 +1943,7 @@ def _ask_who() -> ElicitRequest:
 
 async def test_prompt_returning_input_required_result_reaches_client_unchanged():
     """A prompt function may return an InputRequiredResult and the pipeline passes it
-    through to the client (spec-mandated: SEP-2322 allows it on prompts/get).
-
-    Unconfigured server: the assertion is on the verbatim wire requestState, the
-    plaintext posture a declared-manual surface gets by default."""
+    through to the client (spec-mandated: SEP-2322 allows it on prompts/get)."""
     mcp = MCPServer()
 
     @mcp.prompt()
@@ -2030,10 +2026,7 @@ async def test_resource_template_input_required_result_on_legacy_session_is_a_se
 
 async def test_resource_template_returning_input_required_result_reaches_client_unchanged():
     """A resource template function may return an InputRequiredResult and the pipeline
-    passes it through to the client (spec-mandated: SEP-2322 allows it on resources/read).
-
-    Unconfigured server: the assertion is on the verbatim wire requestState, the
-    plaintext posture a declared-manual surface gets by default."""
+    passes it through to the client (spec-mandated: SEP-2322 allows it on resources/read)."""
     mcp = MCPServer()
 
     @mcp.resource("ask://{topic}")
@@ -2119,9 +2112,8 @@ async def test_context_read_resource_keeps_outer_input_responses_from_the_nested
     template must not see the outer request's input_responses/request_state — a colliding
     key would otherwise consume an answer meant for the outer handler's own question.
 
-    Unconfigured server: the probe below is client-built plaintext state that must
-    reach the outer request's context as-sent - the subject is nested-context
-    isolation, not the wire seal (no surface here mints state at all)."""
+    Unconfigured server: the client-built plaintext probe must reach the outer
+    context as-sent; the subject is isolation, not the wire seal."""
     mcp = MCPServer()
     seen_responses: list[InputResponses | None] = []
     seen_state: list[str | None] = []

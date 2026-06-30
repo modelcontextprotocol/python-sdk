@@ -1,15 +1,8 @@
 """Integrity protection for the multi-round-trip `requestState` (MCP 2026-07-28).
 
-`requestState` round-trips through the client, so the spec requires servers to
-treat the echoed value as attacker-controlled, integrity-protect any state that
-influences authorization, resource access, or business logic, and reject state
-that fails verification (basic/patterns/mrtr, server requirements 4-5).
-
-This module is the composable tier: `RequestStateBoundary` is a server middleware
-that seals every outgoing `requestState` and unseals (verifies) every inbound
-echo, so handlers and resolvers only ever see the plaintext state they minted.
-`MCPServer` installs it when its `request_state_security=` parameter is
-supplied; lowlevel `Server` users append it to `Server.middleware` themselves.
+The spec requires servers to treat the client-echoed `requestState` as
+attacker-controlled: `RequestStateBoundary` seals every outgoing value and
+verifies every inbound echo, so handlers only ever see plaintext they minted.
 """
 
 from __future__ import annotations
@@ -52,37 +45,22 @@ logger = logging.getLogger(__name__)
 class InvalidRequestState(Exception):
     """A sealed `requestState` token failed verification.
 
-    Raised by `RequestStateCodec.unseal` implementations for any failure —
-    malformed token, failed authentication, unknown key. The message is a short
-    reason code for server logs only; the boundary never puts it on the wire.
-
-    (Deliberately not named `InvalidSignature`: that name already exists in
-    `mcp.server.mcpserver.exceptions` and means a bad Python callable signature.)
+    The message is a log-only reason code; the boundary never puts it on the wire.
     """
 
 
 class RequestStateCodec(Protocol):
-    """Seals the framework's request-state envelope for its trip through the client.
+    """Authenticated crypto over the framework's request-state envelope.
 
-    Implementations do authenticated crypto over opaque bytes and NOTHING else.
-    The framework owns the envelope: it stamps mint time, expiry, the originating
-    request's method/target/argument digest, and the principal tag into the
-    payload before `seal`, and re-verifies every one of them after `unseal`. A
-    codec therefore cannot get TTL, replay-binding, or principal-binding wrong —
-    its only obligations are integrity (tamper -> raise) and, ideally,
-    confidentiality.
+    The framework stamps and re-verifies every envelope claim (expiry, request
+    binding, principal); a codec only provides integrity and, ideally,
+    confidentiality (a sign-only codec leaves the payload client-readable).
 
-    Requirements:
-      - `unseal(seal(payload))` round-trips `payload`; `unseal` MUST raise
-        `InvalidRequestState` for any token it did not mint, or that was
-        modified in any way.
-      - The token MUST NOT name its algorithm; version it with a format prefix
-        bound under the authentication tag (RFC 8725 discipline).
-      - Comparisons MUST be constant-time (an AEAD primitive satisfies this).
-      - Prefer an encrypting construction: the payload carries server state and
-        a salted principal digest; a sign-only codec makes both client-readable.
-      - Both methods are synchronous; cache key material locally (envelope
-        encryption) rather than calling a KMS per token — see the docs example.
+    Requirements: `unseal(seal(payload))` round-trips, and `unseal` raises
+    `InvalidRequestState` for any token it did not mint unmodified; tokens
+    never name their algorithm (version with a format prefix bound under the
+    authentication tag, RFC 8725); comparisons are constant-time. Both methods
+    are synchronous, so cache key material rather than calling a KMS per token.
     """
 
     def seal(self, payload: bytes) -> str:
@@ -93,54 +71,36 @@ class RequestStateCodec(Protocol):
         """Reverse `seal`.
 
         Raises:
-            InvalidRequestState: If the token is malformed, fails
-                authentication, or was sealed under an unknown key.
+            InvalidRequestState: Malformed, unauthentic, or unknown-key token.
         """
         ...
 
 
 def authenticated_principal(ctx: ServerRequestContext[Any, Any]) -> str | None:
-    """Default principal binding: the authenticated OAuth client, when present.
+    """Default principal binding: the authenticated OAuth client's `client_id`.
 
-    Reads the access token that `AuthContextMiddleware` stored for this request
-    and returns its `client_id`. Returns `None` on unauthenticated transports
-    (stdio, auth-less HTTP), in which case state is not principal-bound.
-    Replace via `RequestStateSecurity(bind_principal=...)` to bind to a richer
-    identity (e.g. an end-user subject from your own auth layer).
+    Returns `None` (state not principal-bound) on unauthenticated transports.
     """
     token = get_access_token()
     return token.client_id if token is not None else None
 
 
 class RequestStateSecurity:
-    """Policy for protecting `requestState`: which codec, what TTL, which principal.
+    """Policy for protecting `requestState`: codec, TTL, principal, audience.
 
     Exactly one of `keys` or `codec`:
 
-        RequestStateSecurity(keys=[secret])      # built-in AES-256-GCM, shared key(s)
+        RequestStateSecurity(keys=[secret])      # built-in AES-256-GCM
         RequestStateSecurity(codec=MyKmsCodec()) # bring your own crypto
-        RequestStateSecurity.ephemeral()         # process-local key; single process only
+        RequestStateSecurity.ephemeral()         # process-local key
 
-    `keys` is the rotation ring: `keys[0]` seals new state; every key may
-    unseal. Zero-downtime rotation is three phases (each fully rolled out
-    before the next): `keys=[old, new]` (every instance learns to verify the
-    new key; old still mints) -> `keys=[new, old]` (new mints; in-flight old
-    state keeps verifying) -> after one TTL, `keys=[new]`.
+    `keys` is the rotation ring: `keys[0]` seals, every key unseals.
+    Zero-downtime rotation, each phase fully rolled out before the next:
+    `keys=[old, new]`, then `keys=[new, old]`, then `keys=[new]` after one TTL.
 
-    The sealed envelope carries mint time, a short expiry, the originating
-    request's method + target + argument digest, and a salted digest of
-    `bind_principal(ctx)` — the spec's three recommended replay bounds, on by
-    default and enforced by the boundary for EVERY codec, including custom
-    ones. Principal binding applies when the SDK authenticates the request (the
-    default binding derives no principal on unauthenticated transports) and is
-    fail-closed in both directions: state sealed with a principal is rejected
-    by a verifier that derives none, and vice versa.
-
-    `audience` distinguishes services that share — or accidentally reuse — a
-    secret: it is stamped into the envelope and verified fail-closed in both
-    directions. `None` leaves state audience-unbound unless the server tier
-    supplies a default (`MCPServer` passes its server name as the boundary's
-    `default_audience`).
+    The boundary enforces expiry, request binding, audience, and principal for
+    every codec, fail-closed in both directions. `audience=None` defers to the
+    boundary's `default_audience` (`MCPServer` passes its server name).
     """
 
     codec: RequestStateCodec
@@ -164,7 +124,7 @@ class RequestStateSecurity:
         if keys is not None:
             self.codec = AESGCMRequestStateCodec(keys)
         else:
-            assert codec is not None  # the exactly-one-of check above
+            assert codec is not None
             self.codec = codec
         self.ttl = ttl
         self.bind_principal = bind_principal
@@ -174,14 +134,9 @@ class RequestStateSecurity:
     def ephemeral(cls, *, ttl: float = 600.0, audience: str | None = None) -> RequestStateSecurity:
         """Protection under a key generated now and held only by this process.
 
-        Valid for single-process deployments (stdio, a single HTTP worker): the
-        one process that mints state is the one that receives the retry. It
-        FAILS across instances and restarts — state minted before a restart, or
-        by another worker behind a load balancer, is rejected with the standard
-        "Invalid or expired requestState" error and the client must start the
-        flow over. Multi-instance deployments must share a key:
-        `RequestStateSecurity(keys=[...])`. `ttl` and `audience` carry the same
-        meaning as on the main constructor.
+        Suits single-process deployments (stdio, one HTTP worker): state minted
+        before a restart or by another worker is rejected. Multi-instance
+        deployments must share a key via `keys=[...]`.
         """
         return cls(keys=[os.urandom(32)], ttl=ttl, audience=audience)
 
@@ -198,12 +153,7 @@ def _b64u(data: bytes) -> str:
 
 
 def _b64u_decode(text: str) -> bytes:
-    """Strict inverse of `_b64u`: only the canonical unpadded encoding decodes.
-
-    The round-trip check rejects every malleable variant a lax decoder admits —
-    non-zero trailing don't-care bits, injected non-alphabet characters, and
-    appended padding — raising ValueError for all of them.
-    """
+    """Strict inverse of `_b64u`: only the canonical unpadded encoding decodes."""
     raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
     if _b64u(raw) != text:
         raise ValueError("non-canonical base64url")
@@ -218,21 +168,12 @@ def _derive_key(secret: bytes) -> bytes:
 class AESGCMRequestStateCodec:
     """Built-in codec: AES-256-GCM under key(s) derived with HKDF-SHA256.
 
-    The token is opaque: contents are encrypted, not merely signed, so clients
-    (and anything that logs the wire) cannot read resolver keys, elicited
-    answers, or whatever a manual flow put in its state. `keys[0]` seals; all
-    keys unseal (rotation, see `RequestStateSecurity`). Each token carries a
-    4-byte non-secret fingerprint of its key, so verification is an O(1) ring
-    lookup — never trial decryption. Key bytes are copied at construction, so
-    later mutation of a caller-held bytearray has no effect.
-
-    The "v1." prefix and the key fingerprint are fed into the GCM associated
-    data, so both are bound under the authentication tag: a v1 token cannot be
-    replayed into a future "v2." format, nor transplanted across ring slots
-    (RFC 8725 discipline — the token never names an algorithm; the version
-    prefix pins the whole construction server-side). Authentication failure is
-    constant-time inside the AEAD primitive, and every failure raises
-    `InvalidRequestState` with a log-only reason code.
+    Tokens are encrypted, not merely signed, so clients cannot read the state.
+    `keys[0]` seals; all keys unseal (rotation, see `RequestStateSecurity`).
+    Each token carries a 4-byte non-secret key fingerprint for an O(1) ring
+    lookup, and the "v1." prefix and fingerprint are bound into the GCM
+    associated data, so a token cannot be replayed into another format version
+    or ring slot. Key bytes are copied at construction.
     """
 
     def __init__(self, keys: Sequence[bytes | bytearray | str]) -> None:
@@ -288,15 +229,14 @@ class AESGCMRequestStateCodec:
             raise InvalidRequestState("seal") from None
 
 
-# The multi-round-trip carriers — the only methods whose results may carry
-# `requestState`. Single source: the monolith result map in `mcp_types.methods`.
+# The multi-round-trip carriers: the only methods whose results may carry `requestState`.
 _MRTR_METHODS = INPUT_REQUIRED_METHODS
 _ENVELOPE_VERSION = 1
 _FUTURE_SKEW = 60.0
 _PRINCIPAL_LABEL = b"mcp/request-state/principal:"
 
 _RoundBinding = tuple[str, str, str | None]
-"""(target, args-digest, principal) one round's envelope binds — computed once per round."""
+"""The (target, args-digest, principal) one round's envelope binds, computed once per round."""
 
 
 def _reject(method: str, reason: str) -> NoReturn:
@@ -312,10 +252,7 @@ def _reject(method: str, reason: str) -> NoReturn:
 def _request_identity(method: str, params: Mapping[str, Any] | None) -> tuple[str, str]:
     """Salient (target, args-digest) for the request a token binds to.
 
-    Explicit per-method allowlist (never a denylist): tools/call and
-    prompts/get bind name + arguments; resources/read binds the uri. Retry-only
-    fields (inputResponses, requestState, _meta) are structurally excluded, and
-    a future wire field cannot silently join the digest.
+    Per-method allowlist, never a denylist: a future wire field cannot silently join the digest.
     """
     p: Mapping[str, Any] = params or {}
     args: dict[str, Any] = {}
@@ -338,8 +275,7 @@ def _principal_matches(claim: str, principal: str) -> bool:
         raw = _b64u_decode(claim)
     except ValueError:
         return False
-    # A wrong-length claim cannot match: the recomputed 16-byte tag never
-    # equals a differently-sized remainder (compare_digest handles the sizes).
+    # A wrong-length claim never matches: compare_digest handles mismatched sizes.
     expected = hashlib.sha256(_PRINCIPAL_LABEL + raw[:8] + principal.encode()).digest()[:16]
     return hmac.compare_digest(raw[8:], expected)
 
@@ -347,44 +283,20 @@ def _principal_matches(claim: str, principal: str) -> bool:
 class RequestStateBoundary:
     """Server middleware sealing/unsealing `requestState` at the wire boundary.
 
-    The boundary acts only on the multi-round-trip carriers (tools/call,
-    prompts/get, resources/read) — the only methods whose results may carry
-    `requestState`. Every other method passes through untouched: a
-    "requestState" member appearing in some other method's params is outside
-    the multi-round-trip protocol, is never verified, and must never be
-    trusted by whatever handles it.
+    Acts only on the multi-round-trip carriers (tools/call, prompts/get,
+    resources/read); every other method passes through untouched.
 
-    Inbound: a carrier request presenting `requestState` (any non-null value)
-    is handled before any extension interceptor or handler runs: the value is
-    verified (codec unseal + claims check: version, mint-time skew, expiry,
-    method, target, argument digest, audience, principal) and replaced with
-    the plaintext the server originally minted. Verification failure answers a
-    wire-level -32602 with the frozen message "Invalid or expired
-    requestState"; the underlying reason goes to the server log only.
+    Inbound state is verified (codec unseal plus claims check) and replaced
+    with the plaintext the server minted before any interceptor or handler
+    runs; failure answers -32602 with the frozen message "Invalid or expired
+    requestState", the real reason going to the server log only. Outbound, an
+    `input_required` result carrying `requestState` is sealed in a fresh
+    claims envelope; handlers and resolvers never call the codec.
 
-    Outbound: an `input_required` result carrying `requestState` has it sealed
-    inside a fresh claims envelope. Handlers and resolvers write plaintext and
-    never call the codec themselves.
-
-    `default_audience` seeds the envelope's audience claim when the policy does
-    not set its own `audience`. `MCPServer` passes its server name, so two
-    services sharing (or accidentally reusing) a key reject each other's state
-    by default.
-
-    `ctx.params` is the raw, unvalidated wire mapping (no model validation has
-    happened yet), so the field is the camelCase wire key "requestState"; the
-    inbound rewrite replaces that key on a copy of the params and forwards it
-    with `dataclasses.replace(ctx, params=...)` — the rewrite contract
-    `ServerMiddleware` sanctions.
-
-    `MCPServer` installs this only when `request_state_security=` is supplied;
-    without it, `requestState` passes through untouched — the explicitly
-    unprotected posture, which the spec permits only when tampering can cause
-    nothing worse than a failed request. Protection is required only for
-    resolver tools (`Resolve(...)` parameters — state the SDK itself authors)
-    and recommended for everything else. Lowlevel `Server` users append one to
-    `server.middleware` — they get the identical claims enforcement; nothing
-    is private to MCPServer.
+    `default_audience` seeds the audience claim when the policy sets none
+    (`MCPServer` passes its server name). `MCPServer` installs this when
+    `request_state_security=` is supplied; lowlevel `Server` users append one
+    to `server.middleware` for identical enforcement.
     """
 
     def __init__(self, security: RequestStateSecurity, *, default_audience: str | None = None) -> None:
@@ -396,15 +308,11 @@ class RequestStateBoundary:
             return await call_next(ctx)
         binding: _RoundBinding | None = None
         if ctx.params is not None and ctx.params.get("requestState") is not None:
-            # An explicit JSON null is the field's absence (a fresh flow): only
-            # presented state is verified, and stripping the field is already
-            # in any client's power.
+            # An explicit JSON null counts as absent: stripping the field is already in any client's power.
             plaintext, binding = self._unseal(ctx)
             ctx = replace(ctx, params={**ctx.params, "requestState": plaintext})
         result = await call_next(ctx)
         return self._seal_result(ctx, result, binding)
-
-    # -- inbound ------------------------------------------------------------
 
     def _unseal(self, ctx: ServerRequestContext[Any, Any]) -> tuple[str, _RoundBinding]:
         assert ctx.params is not None
@@ -427,9 +335,7 @@ class RequestStateBoundary:
         if version != _ENVELOPE_VERSION or not isinstance(inner, str):
             _reject(ctx.method, "malformed")
         now = time.time()
-        # Accept-conditions are stated positively so a claim that defeats
-        # comparison (a NaN smuggled through a weak custom codec) reads as
-        # unproven and rejects.
+        # Accept-conditions are stated positively so a NaN claim fails the comparison and rejects.
         if not isinstance(iat, int | float) or not (iat <= now + _FUTURE_SKEW):
             _reject(ctx.method, "minted in the future")
         if not isinstance(exp, int | float) or not (now < exp):
@@ -438,7 +344,7 @@ class RequestStateBoundary:
         if claims.get("m") != ctx.method or claims.get("t") != target or claims.get("a") != args_digest:
             _reject(ctx.method, "request binding")
         if claims.get("aud") != self._audience:
-            _reject(ctx.method, "audience")  # fail closed in BOTH directions
+            _reject(ctx.method, "audience")
         try:
             principal = security.bind_principal(ctx) if security.bind_principal is not None else None
         except Exception:  # deny-on-error: a raising principal binding must fail closed
@@ -446,20 +352,16 @@ class RequestStateBoundary:
             _reject(ctx.method, "principal binding error")
         claim = claims.get("p")
         if (claim is None) != (principal is None):
-            _reject(ctx.method, "principal drift")  # fail closed in BOTH directions
+            _reject(ctx.method, "principal drift")
         if claim is not None and principal is not None:
             if not isinstance(claim, str) or not _principal_matches(claim, principal):
                 _reject(ctx.method, "principal")
         return inner, (target, args_digest, principal)
 
-    # -- outbound -----------------------------------------------------------
-
     def _seal_result(
         self, ctx: ServerRequestContext[Any, Any], result: HandlerResult, binding: _RoundBinding | None
     ) -> HandlerResult:
-        # Results arrive as wire mappings on the spec path (serialization runs
-        # inside the chain); a middleware short-circuiting below the boundary
-        # may return a model. Both shapes are sealed.
+        # Spec-path results arrive as wire mappings; a short-circuiting middleware may return a model.
         if not is_input_required(result):
             return result
         state = result.get("requestState") if isinstance(result, Mapping) else result.request_state
@@ -467,9 +369,7 @@ class RequestStateBoundary:
             return result
         if isinstance(result, Mapping):
             if not isinstance(state, str):
-                # Only a short-circuiting middleware can put a non-string here
-                # (the spec path validated the field as a string); there is no
-                # state for this module to seal.
+                # Only a short-circuiting middleware can put a non-string here; nothing to seal.
                 return result
             return {**result, "requestState": self._seal(ctx, state, binding)}
         return result.model_copy(update={"request_state": self._seal(ctx, state, binding)})

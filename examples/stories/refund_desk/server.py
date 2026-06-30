@@ -104,8 +104,7 @@ def ask_restock(
 
 
 def build_server() -> MCPServer:
-    # At 2026 the elicited answers ride between rounds inside requestState; resolver
-    # tools refuse to register without protection. See mrtr/ for the full story.
+    # Resolver tools refuse to register without requestState protection; see mrtr/ for the full story.
     mcp = MCPServer("refund-desk", request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.tool(description="Refund an order. The amount comes from the order record, not from the caller.")

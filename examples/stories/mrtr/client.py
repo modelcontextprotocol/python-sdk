@@ -28,18 +28,14 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         first = await client.session.call_tool("deploy", {"env": "staging"}, allow_input_required=True)
         assert isinstance(first, types.InputRequiredResult)
         assert first.input_requests is not None and "confirm" in first.input_requests
-        # The wire request_state is OPAQUE: server.py wrote "awaiting-confirm", but the
-        # boundary middleware sealed it before it left the server — the plaintext never
-        # crosses the wire, and the client just echoes the token byte-exact.
+        # The boundary sealed server.py's plaintext "awaiting-confirm"; the wire token is opaque.
         token = first.request_state
         assert token is not None and token != "awaiting-confirm", token
 
         responses: types.InputResponses = {"confirm": types.ElicitResult(action="decline")}
 
-        # Tamper demonstration: flip one character and retry. The token decodes strictly
-        # canonically, so changing ANY character — including the final one — rejects.
-        # Every verification failure collapses to ONE frozen wire error; the real reason
-        # (here: a failed authentication tag) appears only in the server's log.
+        # Tamper demo: flipping any one character fails verification, and every failure
+        # maps to one frozen wire error; the real reason appears only in the server log.
         i = len(token) // 2
         tampered = token[:i] + ("A" if token[i] != "A" else "B") + token[i + 1 :]
         try:
@@ -57,8 +53,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         else:
             raise AssertionError("expected MCPError for a tampered requestState")
 
-        # The untampered token still completes the round. Decline this time so the path
-        # diverges from the auto-loop run above.
+        # The untampered token still completes the round; decline so this path diverges from the auto run.
         second = await client.session.call_tool(
             "deploy",
             {"env": "staging"},

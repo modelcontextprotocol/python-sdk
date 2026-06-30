@@ -10,7 +10,7 @@ PREFIX = "kms1."  # format version; fed to GCM as associated data, so it is boun
 
 
 def unwrap_data_key() -> bytes:
-    """One KMS call at process start - kms.decrypt(CiphertextBlob=...) - then every token is local crypto."""
+    """One KMS call at process start, kms.decrypt(CiphertextBlob=...); every token after that is local crypto."""
     return os.urandom(32)  # stand-in for the unwrapped 32-byte data key
 
 

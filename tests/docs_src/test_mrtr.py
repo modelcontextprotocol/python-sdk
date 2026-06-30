@@ -174,11 +174,10 @@ def test_a_custom_codec_round_trips_what_it_sealed() -> None:
 
 
 def test_a_custom_codec_raises_invalid_request_state_for_any_bad_token() -> None:
-    """tutorial005: a modified token and a token it never minted both raise `InvalidRequestState` -
-    the codec's whole contract. TTL, principal, and request binding are the SDK's job, not the codec's."""
+    """tutorial005: any token the codec did not mint intact raises `InvalidRequestState`."""
     codec = tutorial005.EnvelopeCodec(tutorial005.unwrap_data_key())
     token = codec.seal(b"round-1")
     with pytest.raises(InvalidRequestState):
-        codec.unseal(token + "00")  # extra ciphertext bytes: authentication fails
+        codec.unseal(token + "00")
     with pytest.raises(InvalidRequestState):
         codec.unseal("not-a-token")

@@ -554,14 +554,12 @@ def test_cacheable_methods_mirror_the_cacheable_method_literal():
 
 
 def test_input_required_methods_mirror_the_monolith_input_required_arms():
-    """MRTR weld: the set derived from `MONOLITH_RESULTS` is exactly the spec's three
-    multi-round-trip carriers — the only methods whose results may be input_required."""
+    """MRTR weld: the spec's three multi-round-trip carriers are the only input_required methods."""
     assert methods.INPUT_REQUIRED_METHODS == frozenset({"prompts/get", "resources/read", "tools/call"})
 
 
 def test_is_input_required_matches_typed_and_wire_shapes():
-    """The shared interim-result predicate: True for the `InputRequiredResult` model and
-    for a wire mapping tagged `resultType: "input_required"`; False for everything else."""
+    """SDK-defined predicate: True only for the typed model and the tagged wire mapping."""
     assert methods.is_input_required(types.InputRequiredResult(request_state="s"))
     assert methods.is_input_required({"resultType": "input_required", "inputRequests": {}})
     assert not methods.is_input_required({"resultType": "complete", "content": []})

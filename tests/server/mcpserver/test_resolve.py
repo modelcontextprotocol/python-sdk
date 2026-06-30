@@ -131,11 +131,8 @@ def _answer_round(
     return responses
 
 
-# A fixed key so tests can unseal the wire `request_state` a server minted (and
-# seal crafted state a server will accept): the boundary's claims envelope
-# carries the inner plaintext state as the "s" claim. Servers under test whose
-# wire state a test reads or writes are constructed with
-# `RequestStateSecurity(keys=[_PIN_KEY])`.
+# Fixed key shared with servers under test, so tests can unseal minted wire
+# state and seal crafted state the server will accept.
 _PIN_KEY = b"0123456789abcdef0123456789abcdef"
 
 
@@ -156,12 +153,9 @@ def _outcomes_on_the_wire(request_state: str | None) -> dict[str, Any]:
 def _sealed_state(inner: str, *, tool: str, args: dict[str, Any], audience: str) -> str:
     """Seal a hand-built inner state exactly as the boundary does for a `tools/call` retry.
 
-    Goes through the production `RequestStateBoundary._seal` so the claims
-    envelope cannot drift from what the server-side unseal verifies. The claims
-    bind method + tool + arguments + audience (and no principal: the in-memory
-    transport is unauthenticated, so both seal and unseal derive None), so the
-    test must then call exactly `tool` with exactly `args` on the MCPServer
-    named `audience` (the server name is the boundary's default audience).
+    The production `RequestStateBoundary._seal` binds method, tool, arguments, and
+    audience (the server name), so the test must then call exactly `tool` with
+    exactly `args` on the MCPServer named `audience`.
     """
     ctx = ServerRequestContext(
         session=cast("Any", None),
@@ -1376,8 +1370,7 @@ async def test_declined_outcome_persists_in_request_state_and_is_not_reasked():
 @pytest.mark.anyio
 async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
     # `input_responses` keys the server never asked for and `request_state` outcome
-    # entries matching no resolver are tolerated, and the ghost state entry is not
-    # echoed into any later round's `request_state`.
+    # entries matching no resolver are tolerated and not echoed into later rounds.
     mcp = MCPServer(name="GhostKeys", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def ra(ctx: Context) -> Elicit[Login]:
@@ -1401,8 +1394,7 @@ async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
         (ra_key,) = first.input_requests
 
         spliced = json.loads(_unseal_inner(first.request_state))
-        # A well-formed v2 entry (question digest included) under a key matching
-        # no resolver: it must be dropped for being unknown, not as malformed.
+        # A well-formed v2 entry under an unknown key: dropped as unknown, not as malformed.
         spliced["outcomes"]["ghost"] = {
             "action": "accept",
             "data": {"username": "spooky"},
@@ -1446,10 +1438,7 @@ async def test_unknown_response_keys_and_ghost_state_entries_are_ignored():
     ],
 )
 async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(forged_data: str | dict[str, bool]):
-    # Even boundary-authenticated state is not schema-trusted: an accept entry
-    # whose data does not validate against the resolver's schema reads as no
-    # recorded progress, so the question is asked again (not an error) and a
-    # proper answer completes the call.
+    # Authenticated state is not schema-trusted: a failing accept entry reads as no progress and is re-asked.
     mcp = MCPServer(name="ForgedState", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -1467,8 +1456,7 @@ async def test_forged_state_entry_failing_the_schema_is_reasked_not_an_error(for
         (key,) = first.input_requests
 
         forged = json.loads(_unseal_inner(first.request_state))
-        # The digest matches the live question, so the forged entry survives the
-        # question-pinning gate and stands or falls on schema validation alone.
+        # The digest matches the live question, so the entry stands or falls on schema alone.
         forged["outcomes"][key] = {
             "action": "accept",
             "data": forged_data,
@@ -1699,10 +1687,7 @@ async def test_state_entry_never_replaces_a_resolver_computed_value():
     async def plan_restock(restock: Annotated[Restock, Resolve(decide)]) -> str:
         return str(restock.needed)
 
-    # A decodable v2 entry; the digest's value cannot matter because the
-    # resolver computes without asking, so there is no live question to pin to.
-    # The property is that the entry is never consulted, not that it is dropped
-    # as malformed.
+    # A decodable v2 entry; the resolver never asks, so it must go unconsulted, not dropped as malformed.
     entry = {"action": "accept", "data": {"needed": True}, "q": _question_digest(Elicit("Restock?", Restock))}
     crafted = json.dumps({"v": 2, "outcomes": {_wire_key(decide): entry}})
 
@@ -1733,8 +1718,7 @@ async def test_state_decline_entry_for_a_pure_resolver_is_ignored():
     async def whoami(login: Annotated[Login, Resolve(lookup)]) -> str:
         return login.username
 
-    # A decodable v2 entry with a plausible digest: `lookup` has no Elicit arm,
-    # so no value of `q` could make this decline answer a question it asks.
+    # A decodable v2 entry: `lookup` never asks, so no digest can make the decline apply.
     entry = {"action": "decline", "q": _question_digest(Elicit("user?", Login))}
     crafted = json.dumps({"v": 2, "outcomes": {_wire_key(lookup): entry}})
 
@@ -1878,8 +1862,7 @@ async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_er
 
 
 def test_question_digest_pins_the_rendered_question():
-    # The digest is computed over the rendered wire question, so it is stable for
-    # an identical Elicit and changes when the message or the schema changes.
+    # Computed over the rendered wire question: identical Elicits agree, any change diverges.
     digest = _question_digest(Elicit("Name?", Login))
     assert digest == _question_digest(Elicit("Name?", Login))
     assert digest != _question_digest(Elicit("Your name, please?", Login))
@@ -1889,9 +1872,7 @@ def test_question_digest_pins_the_rendered_question():
 
 
 def test_state_round_trips_question_digests_at_v2():
-    # v2 entries carry the question digest for every action; encode-decode is the
-    # identity on them. A v1 payload (a not-yet-upgraded fleet member during a
-    # rolling deploy) decodes to "no progress yet" - a graceful re-ask, not an error.
+    # v2 carries digests for every action and round-trips exactly; v1 (mid rolling deploy) reads as no progress.
     entries = {
         "a": _StateEntry(action="accept", data={"username": "octocat"}, q="qa"),
         "b": _StateEntry(action="decline", q="qb"),
@@ -1906,9 +1887,6 @@ def test_state_round_trips_question_digests_at_v2():
 
 @pytest.mark.anyio
 async def test_restored_answer_with_matching_digest_completes_without_reasking():
-    # The happy path under pinning: a stored accept answer whose question is
-    # unchanged restores on a later round and the flow completes without the
-    # question being asked a second time.
     mcp = MCPServer(name="PinHappyPath", request_state_security=RequestStateSecurity.ephemeral())
 
     async def who(ctx: Context) -> Elicit[Login]:
@@ -1956,9 +1934,7 @@ async def test_restored_answer_with_matching_digest_completes_without_reasking()
 
 @pytest.mark.anyio
 async def test_restored_entry_is_repersisted_with_its_question_digest_intact():
-    # An entry restored into a round that still pends is carried into that round's
-    # `request_state` unchanged - including its question digest - or the answer
-    # would be dropped and re-asked on the round after.
+    # A restored entry must ride into the next round's state digest-intact, or it would be re-asked next round.
     mcp = MCPServer(name="RepersistPin", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def who(ctx: Context) -> Elicit[Login]:
@@ -1970,8 +1946,7 @@ async def test_restored_entry_is_repersisted_with_its_question_digest_intact():
     async def plan(confirm: Annotated[Confirm, Resolve(check)], ctx: Context) -> Elicit[Restock]:
         return Elicit("Restock too?", Restock)
 
-    # The test stops while a question pends, so the body never runs: a bare `...`
-    # is a constant statement the compiler eliminates - nothing for coverage to miss.
+    # The body never runs (a question always pends); a bare `...` costs no coverage.
     @mcp.tool()
     async def act(restock: Annotated[Restock, Resolve(plan)]) -> str: ...
 
@@ -2000,7 +1975,6 @@ async def test_restored_entry_is_repersisted_with_its_question_digest_intact():
     # Accept entries are pinned to the exact rendered question they answered.
     assert round_two[_wire_key(who)]["q"] == _question_digest(Elicit("Who?", Login))
     assert round_three[_wire_key(check)]["q"] == _question_digest(Elicit("Go as octocat?", Confirm))
-    # The restored entry rides into round 3's state exactly as round 2 stored it.
     assert round_three[_wire_key(who)] == round_two[_wire_key(who)]
 
 
@@ -2017,8 +1991,7 @@ async def test_decline_and_cancel_entries_carry_the_question_digest():
     async def ask_restock(ctx: Context) -> Elicit[Restock]:
         return Elicit("Restock?", Restock)
 
-    # The test stops while a question pends, so the body never runs: a bare `...`
-    # is a constant statement the compiler eliminates - nothing for coverage to miss.
+    # The body never runs (a question always pends); a bare `...` costs no coverage.
     @mcp.tool()
     async def act(
         name: Annotated[ElicitationResult[Login], Resolve(ask_name)],
@@ -2029,8 +2002,7 @@ async def test_decline_and_cancel_entries_carry_the_question_digest():
     async with Client(mcp, elicitation_callback=_never) as client:
         first = await client.session.call_tool("act", {}, allow_input_required=True)
         assert isinstance(first, InputRequiredResult)
-        # Decline one question and cancel another; the third stays unanswered so the
-        # call pends and the recorded outcomes are observable on the wire.
+        # The third question stays unanswered, so the call pends and outcomes hit the wire.
         second = await client.session.call_tool(
             "act",
             {},
@@ -2052,10 +2024,7 @@ async def test_decline_and_cancel_entries_carry_the_question_digest():
 
 @pytest.mark.anyio
 async def test_state_entry_without_a_question_digest_is_dropped_and_reasked():
-    # v2 semantics: an entry whose `q` is None (absent digest) cannot prove which
-    # rendered question it answered, so it reads as no recorded progress - the live
-    # question is asked again rather than honoring an unpinned answer - and a proper
-    # answer then completes the call.
+    # An entry with no digest cannot prove its question, so it reads as no progress and is re-asked.
     mcp = MCPServer(name="UnpinnedEntry", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -2099,9 +2068,7 @@ async def test_state_entry_without_a_question_digest_is_dropped_and_reasked():
 
 @pytest.mark.anyio
 async def test_reworded_question_drops_the_stored_answer_and_reasks():
-    # A stored accept answer is honored only while the question is byte-identical:
-    # rewording it between rounds (a redeploy) drops the entry and re-asks - a soft
-    # self-heal, never an error - while other entries in the same state survive.
+    # An answer holds only while its question is byte-identical: a reword (redeploy) drops it and re-asks.
     mcp = MCPServer(name="RewordAccept", request_state_security=RequestStateSecurity(keys=[_PIN_KEY]))
     wording = {"deploy": "Deploy to prod?"}
 
@@ -2133,7 +2100,6 @@ async def test_reworded_question_drops_the_stored_answer_and_reasks():
             Elicit("Deploy to prod?", Confirm)
         )
 
-        # The server rewords the question between rounds (a redeploy).
         wording["deploy"] = "Deploy to staging?"
 
         third = await client.session.call_tool(
@@ -2143,7 +2109,7 @@ async def test_reworded_question_drops_the_stored_answer_and_reasks():
             request_state=second.request_state,
             allow_input_required=True,
         )
-        # The stale answer is dropped and the reworded question is asked - not an error.
+        # The stale answer is dropped and the reworded question is asked, not an error.
         assert isinstance(third, InputRequiredResult)
         assert third.input_requests is not None
         assert set(third.input_requests) == {_wire_key(ask_deploy)}
@@ -2169,8 +2135,7 @@ async def test_reworded_question_drops_the_stored_answer_and_reasks():
 
 @pytest.mark.anyio
 async def test_decline_of_a_reworded_question_does_not_suppress_the_new_question():
-    # Decline entries are pinned too: a decline recorded for question A must not
-    # suppress re-asking once the question is reworded into question B.
+    # A decline pinned to the old wording must not suppress the reworded question.
     mcp = MCPServer(name="RewordDecline", request_state_security=RequestStateSecurity.ephemeral())
     wording = {"q": "Use defaults?"}
 

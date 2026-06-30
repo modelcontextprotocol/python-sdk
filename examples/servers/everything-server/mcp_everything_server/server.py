@@ -97,8 +97,7 @@ watched_resource_content = "Watched resource content"
 # Create event store for SSE resumability (SEP-1699)
 event_store = InMemoryEventStore()
 
-# Fixed key for the conformance fixture; a real deployment would load a shared secret.
-# RequestStateSecurity requires keys of at least 32 bytes — this one is 43.
+# Fixed fixture key (RequestStateSecurity requires at least 32 bytes); a real deployment would load a shared secret.
 _REQUEST_STATE_KEY = b"everything-server-fixture-request-state-key"
 
 mcp = MCPServer(
@@ -503,9 +502,7 @@ async def test_input_required_result_multi_round(ctx: Context) -> str | InputReq
 async def test_input_required_result_tampered_state(ctx: Context) -> str | InputRequiredResult:
     """Tests that the server rejects a tampered requestState echo.
 
-    The handler writes and reads plaintext state; sealing and tamper rejection
-    happen in the SDK's request-state boundary, so a tampered echo never
-    reaches this code.
+    The handler stays plaintext; tamper rejection happens in the SDK's request-state boundary.
     """
     if ctx.request_state is None:
         confirm = ElicitRequest(

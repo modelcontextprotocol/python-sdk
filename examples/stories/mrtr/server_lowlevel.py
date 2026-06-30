@@ -57,9 +57,7 @@ def build_server() -> Server[Any]:
         return types.CallToolResult(content=[types.TextContent(text=f"deployment to {env} cancelled")])
 
     server = Server("mrtr-example", on_list_tools=list_tools, on_call_tool=call_tool)
-    # The lowlevel tier has no construction-time requirement; appending the boundary
-    # middleware is the whole opt-in, and it is the identical enforcement MCPServer
-    # installs from its request_state_security= parameter.
+    # Lowlevel opt-in: append the same boundary middleware MCPServer installs from request_state_security=.
     server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral()))
     return server
 

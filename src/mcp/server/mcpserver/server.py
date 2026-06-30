@@ -241,21 +241,13 @@ class MCPServer(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        # The boundary owns `requestState` at the wire in both directions when
-        # security is configured; without it, `requestState` passes through
-        # untouched (the explicitly unprotected posture). It is appended here -
-        # after the lowlevel server is built and before
-        # `_install_extension_interceptor` - so it sits inside OpenTelemetry
-        # (spans record the sealed wire truth) and outside extension
-        # interceptors (extensions see plaintext). The server name is the
-        # default audience, so services sharing a key reject each other's
-        # state unless the policy names its own audience.
+        # Ordering: inside OpenTelemetry (spans record the sealed wire form),
+        # outside extension interceptors (extensions see plaintext).
         if request_state_security is not None:
             self._lowlevel_server.middleware.append(
                 RequestStateBoundary(request_state_security, default_audience=self.name)
             )
-        # Constructor-supplied Tool objects bypass `add_tool` (ToolManager
-        # inserts them directly), so gate them here, before any client connects.
+        # Constructor-supplied Tool objects bypass add_tool, so gate them here.
         for tool in self._tool_manager.list_tools():
             self._check_resolver_protection(tool, owner=f"Tool {tool.name!r}")
         # Validate auth configuration
@@ -577,20 +569,9 @@ class MCPServer(Generic[LifespanResultT]):
     def _check_resolver_protection(self, subject: Tool | Callable[..., Any], *, owner: str) -> None:
         """Refuse a resolver-tool registration when the server has no request-state security.
 
-        Resolver state carries elicited answers — business inputs the SDK
-        itself authors — so the spec's integrity requirement is not optional
-        for it. Manual `InputRequiredResult` flows (tools, prompts, resource
-        templates) are not gated: their state is user-authored, and an
-        unconfigured server passes it through as plaintext (protection is
-        recommended, not required).
-
-        Runs before the registration reaches its manager, so a rejected
-        registration leaves no trace and the server stays usable. A `Tool` is
-        judged by its stored `resolved_params`; a bare callable (the
-        `add_tool` funnel) by signature scan, before `Tool.from_function`
-        runs — for a function that also declares an `InputRequiredResult`
-        return (a combination `from_function` rejects), this gate fires
-        first; configuring security then surfaces the signature error.
+        The spec requires integrity protection for resolver state (SDK-authored
+        elicited answers). Manual `InputRequiredResult` flows stay ungated:
+        protection for their user-authored state is only recommended.
         """
         if self._request_state_security is not None:
             return
@@ -628,8 +609,7 @@ class MCPServer(Generic[LifespanResultT]):
                 - If False, unconditionally creates an unstructured tool
 
         Raises:
-            ValueError: If the tool uses `Resolve(...)` parameters and the
-                server was constructed without `request_state_security=`.
+            ValueError: If the tool uses `Resolve(...)` parameters without `request_state_security` configured.
         """
         self._check_resolver_protection(fn, owner=f"Tool {name or fn.__name__!r}")
         self._tool_manager.add_tool(
