@@ -1,0 +1,231 @@
+name: Docs Preview
+
+# Builds the mkdocs site for a PR and deploys it to Cloudflare Pages.
+#
+# Security: mkdocs executes Python from the PR (mkdocstrings imports src/mcp,
+# `!!python/name:` directives). The build is gated by `authorize` (admin sender
+# for auto-preview, admin/maintainer commenter for /preview-docs) and isolated
+# from Cloudflare secrets — `build` runs PR code with no secrets and hands the
+# static site to `deploy` via an artifact, so PR code never shares a runner
+# with the Cloudflare token.
+#
+# Required configuration:
+#   - secrets.CLOUDFLARE_API_TOKEN   (scope: Account → Cloudflare Pages → Edit)
+#   - secrets.CLOUDFLARE_ACCOUNT_ID
+#   - vars.CLOUDFLARE_PAGES_PROJECT  (existing Pages project, e.g. mcp-python-sdk-docs)
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] build is permission-gated and secret-isolated; see header comment
+    types: [opened, reopened, synchronize]
+    paths:
+      - docs/**
+      - docs_src/**
+      - mkdocs.yml
+      - pyproject.toml
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  # Workflow-level concurrency is evaluated when the run is queued — before any
+  # job-level `if:` — so an unrelated PR comment would otherwise cancel an
+  # in-flight build. Only runs that actually produce a preview share a group;
+  # everything else falls through to a unique run_id group.
+  group: >-
+    docs-preview-pr-${{
+      github.event_name == 'pull_request_target' && github.event.pull_request.number
+      || (github.event.issue.pull_request && startsWith(github.event.comment.body, '/preview-docs') && github.event.issue.number)
+      || github.run_id
+    }}
+  cancel-in-progress: true
+
+jobs:
+  authorize:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/preview-docs'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      authorized: ${{ steps.check.outputs.authorized }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      head_sha: ${{ steps.check.outputs.head_sha }}
+      slash_attempt: ${{ steps.check.outputs.slash_attempt }}
+    steps:
+      - name: Determine authorization
+        id: check
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            async function permissionFor(username) {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username });
+              return { level: data.permission, role: data.role_name };
+            }
+
+            let authorized = false;
+            let prNumber = '';
+            let headSha = '';
+            let slashAttempt = false;
+
+            if (context.eventName === 'pull_request_target') {
+              // Gate on the *sender* (whoever caused this run — on synchronize that
+              // is the pusher), not the PR author, so a non-admin pushing to an
+              // admin-opened branch does not get an automatic build.
+              const actor = context.payload.sender.login;
+              prNumber = String(context.payload.pull_request.number);
+              headSha = context.payload.pull_request.head.sha;
+              const perm = await permissionFor(actor);
+              authorized = perm.level === 'admin';
+              core.info(`pull_request_target by ${actor} (level=${perm.level}, role=${perm.role}) → authorized=${authorized}`);
+            } else {
+              // issue_comment: the job-level `if:` already guarantees this is a PR
+              // comment starting with /preview-docs.
+              slashAttempt = true;
+              const actor = context.payload.comment.user.login;
+              prNumber = String(context.payload.issue.number);
+              const perm = await permissionFor(actor);
+              authorized = perm.level === 'admin' || perm.role === 'maintain';
+              if (authorized) {
+                const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: Number(prNumber) });
+                if (pr.state !== 'open') {
+                  authorized = false;
+                  core.info(`PR #${prNumber} is ${pr.state}; refusing to preview.`);
+                } else {
+                  headSha = pr.head.sha;
+                }
+              }
+              core.info(`/preview-docs by ${actor} (level=${perm.level}, role=${perm.role}) → authorized=${authorized}`);
+            }
+
+            core.setOutput('authorized', String(authorized));
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('head_sha', headSha);
+            core.setOutput('slash_attempt', String(slashAttempt));
+
+  build:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.authorize.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          # pull_request_target runs share the base-branch Actions cache; saving
+          # a cache populated while untrusted PR code ran would let it poison
+          # later trusted workflows. Mirrors publish-pypi.yml.
+          enable-cache: false
+          version: 0.9.5
+
+      - run: uv sync --frozen --group docs
+      - run: uv run --frozen --no-sync mkdocs build
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site
+          path: site/
+          retention-days: 1
+
+  deploy:
+    needs: [authorize, build]
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      deployment_url: ${{ steps.wrangler.outputs.deployment-url }}
+      alias_url: ${{ steps.wrangler.outputs.pages-deployment-alias-url }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site
+          path: site
+
+      - name: Deploy to Cloudflare Pages
+        id: wrangler
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: npm
+          command: >-
+            pages deploy ./site
+            --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+            --branch=pr-${{ needs.authorize.outputs.pr_number }}
+            --commit-hash=${{ needs.authorize.outputs.head_sha }}
+            --commit-dirty=true
+
+  comment:
+    needs: [authorize, build, deploy]
+    if: >-
+      always() &&
+      needs.deploy.result != 'cancelled' &&
+      (needs.authorize.outputs.authorized == 'true' || needs.authorize.outputs.slash_attempt == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post or update preview comment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          AUTHORIZED: ${{ needs.authorize.outputs.authorized }}
+          PR_NUMBER: ${{ needs.authorize.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.authorize.outputs.head_sha }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          DEPLOYMENT_URL: ${{ needs.deploy.outputs.deployment_url }}
+          ALIAS_URL: ${{ needs.deploy.outputs.alias_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const env = process.env;
+            const issue_number = Number(env.PR_NUMBER);
+            const marker = '<!-- docs-preview -->';
+
+            async function upsert(body) {
+              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+              const existing = comments.find(c => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              }
+            }
+
+            if (env.AUTHORIZED !== 'true') {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number,
+                body: `@${context.actor} — only repository admins or maintainers can run \`/preview-docs\` (and the PR must be open).`,
+              });
+              return;
+            }
+
+            if (env.DEPLOY_RESULT !== 'success') {
+              await upsert(
+                `${marker}\n### 📚 Documentation preview\n\n` +
+                `❌ Preview build **failed** for \`${env.HEAD_SHA.slice(0, 7)}\` — [workflow logs](${env.RUN_URL}).`
+              );
+              return;
+            }
+
+            const previewUrl = env.ALIAS_URL || env.DEPLOYMENT_URL;
+            const ts = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+            await upsert(
+              `${marker}\n### 📚 Documentation preview\n\n` +
+              `| | |\n|---|---|\n` +
+              `| **Preview** | ${previewUrl} |\n` +
+              `| **Deployment** | ${env.DEPLOYMENT_URL} |\n` +
+              `| **Commit** | \`${env.HEAD_SHA.slice(0, 7)}\` |\n` +
+              `| **Triggered by** | @${context.actor} |\n` +
+              `| **Updated** | ${ts} |\n`
+            );
