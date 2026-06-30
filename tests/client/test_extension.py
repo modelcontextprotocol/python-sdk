@@ -88,20 +88,31 @@ def test_claim_accepts_modern_protocol_versions() -> None:
     assert claim.protocol_versions == versions
 
 
-@pytest.mark.parametrize("result_type", ["complete", "input_required"])
-def test_claim_rejects_core_result_type_vocabulary(result_type: str) -> None:
+def test_claim_rejects_core_result_type_vocabulary() -> None:
     """SDK-defined: "complete" and "input_required" are core protocol vocabulary —
     a claim cannot re-key the shapes the session itself routes on."""
-    with pytest.raises(ValueError, match="core protocol vocabulary"):
-        ResultClaim(result_type=result_type, model=_TaskResult, resolve=_resolve)
+    messages: dict[str, str] = {}
+    for result_type in ("complete", "input_required"):
+        with pytest.raises(ValueError) as exc_info:
+            ResultClaim(result_type=result_type, model=_TaskResult, resolve=_resolve)
+        messages[result_type] = str(exc_info.value)
+
+    assert messages == snapshot(
+        {
+            "complete": "resultType 'complete' is core protocol vocabulary",
+            "input_required": "resultType 'input_required' is core protocol vocabulary",
+        }
+    )
 
 
 @pytest.mark.parametrize("model", [_ClaimedCallToolResult, _ClaimedInputRequiredResult])
 def test_claim_rejects_model_subclassing_core_result_types(model: type[Result]) -> None:
     """SDK-defined: a claim model subclassing `CallToolResult` or `InputRequiredResult`
     would satisfy the session's isinstance branches and bypass claim routing."""
-    with pytest.raises(ValueError, match="must not subclass core result types"):
+    with pytest.raises(ValueError) as exc_info:
         _claim(model=model)
+
+    assert str(exc_info.value) == snapshot("claim models must not subclass core result types")
 
 
 def test_claim_rejects_model_without_result_type_field() -> None:
@@ -140,19 +151,29 @@ def test_claim_rejects_empty_protocol_versions() -> None:
     assert str(exc_info.value) == snapshot("empty protocol_versions could never activate; use None for all")
 
 
-@pytest.mark.parametrize(
-    "versions",
-    [
+def test_claim_rejects_non_modern_protocol_versions() -> None:
+    """SDK-defined: claimed shapes cannot be delivered on a legacy wire, so a
+    non-None version set must be a subset of the modern protocol revisions."""
+    messages: list[str] = []
+    for versions in (
         frozenset({"2025-11-25"}),
         frozenset({"2026-07-28", "2025-11-25"}),
         frozenset({"never-a-version"}),
-    ],
-)
-def test_claim_rejects_non_modern_protocol_versions(versions: frozenset[str]) -> None:
-    """SDK-defined: claimed shapes cannot be delivered on a legacy wire, so a
-    non-None version set must be a subset of the modern protocol revisions."""
-    with pytest.raises(ValueError, match="not modern protocol revisions"):
-        _claim(protocol_versions=versions)
+    ):
+        with pytest.raises(ValueError) as exc_info:
+            _claim(protocol_versions=versions)
+        messages.append(str(exc_info.value))
+
+    assert messages == snapshot(
+        [
+            "protocol_versions ['2025-11-25'] are not modern protocol revisions; claimed shapes "
+            "cannot be delivered on a legacy wire (None means every modern version)",
+            "protocol_versions ['2025-11-25'] are not modern protocol revisions; claimed shapes "
+            "cannot be delivered on a legacy wire (None means every modern version)",
+            "protocol_versions ['never-a-version'] are not modern protocol revisions; claimed shapes "
+            "cannot be delivered on a legacy wire (None means every modern version)",
+        ]
+    )
 
 
 def test_result_claim_is_frozen() -> None:
