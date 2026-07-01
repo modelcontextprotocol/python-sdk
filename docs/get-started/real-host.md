@@ -10,8 +10,9 @@ Which means connecting to a host is one act: you tell it **the command that star
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
-Two tools and a resource, one file. Two things about that file matter to every host below:
+Two tools and a resource, one file. Three things about that file matter to every host below:
 
+* `mcp.run()` with no arguments starts a **stdio** server: it blocks, reads protocol messages on stdin, and writes them on stdout. That is the transport every host on this page speaks — the host starts your file as a child process and owns those two pipes — and it is why connecting is only ever "here is the command". You never pick a port, and nothing listens on one.
 * `run()` is under `if __name__ == "__main__":`. Everything below **imports** this file rather than executing it, so an unguarded `run()` would start a server the moment anything loaded the module.
 * The server object is a module-level global named `mcp`. That's the name `mcp run` looks for (`server` and `app` also work). Call it something else and you name it explicitly: `mcp run server.py:bookshop`.
 
@@ -38,6 +39,19 @@ It is also the command `mcp install` writes into Claude Desktop's config for you
     A host spawns your server with a minimal `PATH`, and `uv` may not be on it. Replace the bare
     `uv` with the absolute path from `which uv` (macOS/Linux) or `where uv` (Windows). That is
     exactly what `mcp install` writes.
+
+!!! note "This page is the local story"
+    Everything here runs your server on the machine the host is on: the host launches your
+    file, over stdio. That is exactly right for a personal or single-machine tool. To give a
+    server to people who do *not* have your file, you hand out a **URL**, not a command — the
+    same `mcp` object served over Streamable HTTP. **[Running your server](../run/index.md)**
+    is that decision in one table, and **[Deploy & scale](../run/deploy.md)** is the road from
+    there to a real hostname.
+
+    And a host is nothing more than an application with an MCP client inside it, so your own
+    Python can play the host's part: **[Client transports](../client/transports.md)** launches
+    this same file as a subprocess with `stdio_client(...)`, and **[Testing](testing.md)**
+    connects to it in memory with no process at all.
 
 ## Claude Desktop
 
