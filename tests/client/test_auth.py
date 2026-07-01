@@ -2016,6 +2016,7 @@ class TestWWWAuthenticate:
                 "resource_metadata",
                 "https://api.example.com/auth/metadata?version=1",
             ),
+            ('Bearer error_scope="decoy", scope="read write"', "scope", "read write"),
         ],
     )
     def test_extract_field_from_www_auth_valid_cases(
@@ -2047,6 +2048,12 @@ class TestWWWAuthenticate:
             # Header without requested field
             ('Bearer realm="api", error="insufficient_scope"', "scope", "no scope parameter"),
             ('Bearer realm="api", scope="read write"', "resource_metadata", "no resource_metadata parameter"),
+            ('Bearer custom_scope="leaked"', "scope", "field name appears only as a substring"),
+            (
+                'Bearer x_resource_metadata="https://decoy.example.com"',
+                "resource_metadata",
+                "field name appears only as a substring",
+            ),
             # Malformed field (empty value)
             ("Bearer scope=", "scope", "malformed scope parameter"),
             ("Bearer resource_metadata=", "resource_metadata", "malformed resource_metadata parameter"),
