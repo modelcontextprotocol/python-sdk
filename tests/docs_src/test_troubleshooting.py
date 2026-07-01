@@ -8,7 +8,6 @@ import pytest
 from mcp_types import (
     INVALID_PARAMS,
     INVALID_REQUEST,
-    METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     ElicitRequestParams,
     ElicitResult,
@@ -183,21 +182,25 @@ async def test_a_session_id_the_server_never_issued_gets_a_404_session_not_found
     assert response.json() == {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Session not found"}}
 
 
-async def test_ctx_elicit_at_2026_raises_method_not_found() -> None:
-    """tutorial006: at 2026-07-28 there is no server-to-client `elicitation/create` for the tool to send."""
+async def test_ctx_elicit_at_2026_has_no_back_channel() -> None:
+    """tutorial006: at 2026-07-28 the server refuses to send `elicitation/create` at all."""
     async with Client(tutorial006.mcp) as client:
         assert client.protocol_version == "2026-07-28"
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("book_table", {"date": "Friday"})
     assert exc_info.value.error == ErrorData(
-        code=METHOD_NOT_FOUND, message="Method not found", data="elicitation/create"
+        code=INVALID_REQUEST,
+        message=(
+            "Cannot send 'elicitation/create': "
+            "this transport context has no back-channel for server-initiated requests."
+        ),
     )
 
 
 async def test_an_elicitation_callback_does_not_fix_ctx_elicit_at_2026() -> None:
-    """The page's `!!! warning`: registering the callback changes nothing. The method itself is gone."""
+    """The page's claim: registering the callback changes nothing. No request ever reaches the client."""
     async with Client(tutorial006.mcp, elicitation_callback=_confirm) as client:
-        with pytest.raises(MCPError, match="^Method not found$"):
+        with pytest.raises(MCPError, match="no back-channel for server-initiated requests"):
             await client.call_tool("book_table", {"date": "Friday"})
 
 

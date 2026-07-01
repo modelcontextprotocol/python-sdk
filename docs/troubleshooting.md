@@ -260,37 +260,9 @@ For the server operator, the matching log line is `Rejected request with unknown
 
 ## `MCPError: Method not found`
 
-One side sent a JSON-RPC request the other side has no handler for, and `e.error.data` names the method. The one everybody hits has `data` equal to `elicitation/create`:
+One side sent a JSON-RPC request the other has no handler for, and `e.error.data` names the method. The usual cause is an **era mismatch**: a method that exists in one protocol revision and not in the other, sent to a peer on the wrong one — a `2025`-era `resources/subscribe` arriving at a `2026-07-28` connection, a `2026`-only `subscriptions/listen` sent by a client pinned to `mode="legacy"`. **[Protocol versions](protocol-versions.md)** is the map of which side speaks what, and the other honest cause — an optional capability you never registered a handler for — is on **[Completions](servers/completions.md)**.
 
-```python title="server.py" hl_lines="16"
---8<-- "docs_src/troubleshooting/tutorial006.py"
-```
-
-```python
-async def main() -> None:
-    async with Client(mcp) as client:
-        await client.call_tool("book_table", {"date": "Friday"})
-```
-
-```text
-mcp.shared.exceptions.MCPError: Method not found
-```
-
-`ctx.elicit()` (and `ctx.elicit_url()`) is a request from the *server* to the *client*, and the **2026-07-28** protocol has no server-initiated requests. The in-memory `Client(server)` negotiates `2026-07-28` without being asked, so this fails on the very first test, and passing `elicitation_callback=` changes nothing: the method itself is what's missing, not the handler.
-
-The fix is to move the question out of the tool body and into a **resolver**, which works on every protocol version:
-
-```python title="server.py" hl_lines="15-17 21"
---8<-- "docs_src/troubleshooting/tutorial007.py"
-```
-
-Same question, same `elicitation_callback` on the client. The difference is under the hood: a resolver lets the server *return* the question from the call instead of pushing it, so nothing ever flows server-to-client. **[Elicitation](handlers/elicitation.md)** covers resolvers; **[Multi-round-trip requests](handlers/multi-round-trip.md)** covers what actually happens on the wire.
-
-!!! check
-    The tool with `ctx.elicit()` is not wrong, it is *pre-2026*. Connect with `mode="legacy"`
-    (the classic `initialize` handshake, spec `2025-11-25` and earlier) and it works, because the
-    server-to-client channel exists there. **[Protocol versions](protocol-versions.md)** is the
-    page on what each version has.
+One thing does **not** produce this error, despite being a request the modern protocol removed: a tool calling `ctx.elicit()` on a `2026-07-28` connection. The server refuses to *send* that request at all, so what you get instead is `Cannot send 'elicitation/create': ...`, further down this page.
 
 ## `MCPError: Client did not declare the form elicitation capability required by resolver '<name>'`
 
@@ -333,9 +305,25 @@ You see this one from `ctx.elicit()` on a legacy connection, and — on any conn
 
 ## `MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.`
 
-Your handler tried to reach the client mid-request, on a transport where nothing can.
+Your handler tried to reach the client mid-request, on a connection where nothing can carry a request from the server. There are exactly two ways to be on one.
 
-Stateless HTTP is the usual trigger. `stateless_http=True` means every request is its own world: no session, no server-to-client stream, and so nowhere to send an `elicitation/create` (or `sampling/createMessage`, or `roots/list`):
+**A `2026-07-28` connection — any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this — on the very first in-memory test, since `Client(server)` negotiates `2026-07-28` without being asked — and passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
+
+```python title="server.py" hl_lines="16"
+--8<-- "docs_src/troubleshooting/tutorial006.py"
+```
+
+```python
+async def main() -> None:
+    async with Client(mcp) as client:
+        await client.call_tool("book_table", {"date": "Friday"})
+```
+
+```text
+mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.
+```
+
+**A legacy connection on a `stateless_http=True` server.** Statelessness means every request is its own world: no session, no server-to-client stream, and so nowhere to send an `elicitation/create` (or `sampling/createMessage`, or `roots/list`) even for the era that has them:
 
 ```python title="server.py" hl_lines="16 23"
 --8<-- "docs_src/troubleshooting/tutorial008.py"
@@ -343,7 +331,19 @@ Stateless HTTP is the usual trigger. `stateless_http=True` means every request i
 
 The message names the method it could not send. `NoBackChannelError` is the class the server raises, but the wire carries only the base `MCPError`, so the sentence above is your traceback's last line, not the class name.
 
-The fix is the same as for `Method not found`: don't reach back mid-call. A **resolver** (or a returned `InputRequiredResult`) turns the question into part of the *response*, which every transport can carry, stateless or not. **[Multi-round-trip requests](handlers/multi-round-trip.md)** is that mechanism.
+The fix is the same for both: don't reach back mid-call. Move the question into a **resolver** (or return an `InputRequiredResult` yourself) and it becomes part of the *response*, which every connection can carry:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Same question, same `elicitation_callback` on the client. The difference is under the hood: a resolver lets the server *return* the question from the call instead of pushing it, so nothing ever flows server-to-client. **[Elicitation](handlers/elicitation.md)** covers resolvers; **[Multi-round-trip requests](handlers/multi-round-trip.md)** covers what happens on the wire.
+
+!!! check
+    The tool with `ctx.elicit()` is not wrong, it is *pre-2026*. Connect with `mode="legacy"`
+    (the classic `initialize` handshake, spec `2025-11-25` and earlier) to a server that is not
+    `stateless_http=True`, and it works, because the server-to-client channel exists there.
+    **[Protocol versions](protocol-versions.md)** is the page on what each version has.
 
 ## `MCPError: Invalid or expired requestState`
 
@@ -407,6 +407,6 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * One 421, three spellings: `Server returned an error response` (the python `Client`), `421 Misdirected Request` / `Invalid Host header` (everything else), `Invalid Host header: <host>` (the server log). Fix: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> a mounted app whose host lifespan never entered `mcp.session_manager.run()`.
 * `Session not found` -> the server restarted; reconnect.
-* `Method not found` on `elicitation/create` -> `ctx.elicit()` needs a server-to-client channel and `2026-07-28` has none. Use a resolver.
+* `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` needs a server-to-client channel: a `2026-07-28` connection never has one, and `stateless_http=True` takes away the legacy one. Use a resolver. Its neighbour `Method not found` is a request for a method the other side's protocol revision doesn't have.
 * `Client did not declare the form elicitation capability ...` and `Elicitation not supported` -> the client is missing `elicitation_callback=`.
 * `Invalid or expired requestState` never says why on the wire. The server log does; `unknown key` means share `RequestStateSecurity(keys=[...])` across workers.
