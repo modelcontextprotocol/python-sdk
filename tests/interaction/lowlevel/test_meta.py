@@ -16,7 +16,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("meta:request-to-handler")
+@requirement("protocol:meta:request-to-handler")
 async def test_request_meta_reaches_handler(connect: Connect) -> None:
     """The _meta object the client attaches to a request arrives at the tool handler unchanged."""
     request_meta: RequestParamsMeta = {"example.com/trace": "abc-123"}
@@ -41,7 +41,7 @@ async def test_request_meta_reaches_handler(connect: Connect) -> None:
     assert observed_metas == [dict(request_meta)]
 
 
-@requirement("meta:result-to-client")
+@requirement("protocol:meta:result-to-client")
 async def test_result_meta_reaches_client(connect: Connect) -> None:
     """The _meta object a handler attaches to its result is delivered to the client unchanged."""
     result_meta = {"example.com/cost": 3}

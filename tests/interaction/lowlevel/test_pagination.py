@@ -58,6 +58,32 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
     assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})]))
 
 
+@requirement("protocol:pagination:empty-cursor-valid")
+async def test_an_empty_string_next_cursor_round_trips_as_a_cursor_not_end_of_results(connect: Connect) -> None:
+    """An empty-string next_cursor round-trips verbatim, distinct from absent.
+
+    Spec-mandated: an empty string is a valid cursor and MUST NOT be treated as the end of results.
+    """
+    seen_cursors: list[str | None] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        assert params is not None
+        seen_cursors.append(params.cursor)
+        if params.cursor is None:
+            return ListToolsResult(tools=[Tool(name="alpha", input_schema={"type": "object"})], next_cursor="")
+        return ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})])
+
+    server = Server("paginated", on_list_tools=list_tools)
+
+    async with connect(server) as client:
+        first_page = await client.list_tools()
+        second_page = await client.list_tools(cursor=first_page.next_cursor)
+
+    assert first_page.next_cursor == ""
+    assert seen_cursors == [None, ""]
+    assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})]))
+
+
 @requirement("pagination:exhaustion")
 @requirement("tools:list:pagination")
 async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect: Connect) -> None:

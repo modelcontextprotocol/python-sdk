@@ -16,9 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlsplit
 
+import anyio
 import httpx
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.client import Client
@@ -132,25 +133,38 @@ class HeadlessOAuth:
     `redirect_handler` GETs the authorize URL on the bound client (with `auth=None` so the
     request does not re-enter the locked auth flow), parses `code` and `state` from the 302
     `Location`, and stashes them; `callback_handler` returns the stashed pair. Tests inspect
-    `authorize_url` to assert what the SDK put on the authorize request.
+    `authorize_url` to assert what the SDK put on the authorize request, and `iss`/`error` to
+    assert what the redirect carried.
 
     `state_override`: when set, `callback_handler` returns this value as the state instead of
     the one parsed from the redirect, so tests can drive the state-mismatch path.
 
     `iss_override`: when set, `callback_handler` returns this value as the RFC 9207 issuer
     instead of the one parsed from the redirect, so tests can drive the iss-mismatch path.
+
+    `code_override`: when set, returned as the code instead of the parsed one (token-endpoint rejection path).
+    `omit_iss`: when set, no iss is returned, overriding everything (`iss_override` cannot express absence).
     """
 
-    def __init__(self, *, state_override: str | None = None, iss_override: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        state_override: str | None = None,
+        iss_override: str | None = None,
+        code_override: str | None = None,
+        omit_iss: bool = False,
+    ) -> None:
         self.authorize_url: str | None = None
         self.authorize_urls: list[str] = []
         self.error: str | None = None
+        self.iss: str | None = None
         self._state_override = state_override
         self._iss_override = iss_override
+        self._code_override = code_override
+        self._omit_iss = omit_iss
         self._http: httpx.AsyncClient | None = None
         self._code: str = ""
         self._state: str | None = None
-        self._iss: str | None = None
 
     def bind(self, http_client: httpx.AsyncClient) -> None:
         self._http = http_client
@@ -166,14 +180,15 @@ class HeadlessOAuth:
         params = parse_qs(urlsplit(response.headers["location"]).query)
         self._code = params.get("code", [""])[0]
         self._state = params.get("state", [None])[0]
-        self._iss = params.get("iss", [None])[0]
+        self.iss = params.get("iss", [None])[0]
         self.error = params.get("error", [None])[0]
 
     async def callback_handler(self) -> AuthorizationCodeResult:
+        iss = self._iss_override if self._iss_override is not None else self.iss
         return AuthorizationCodeResult(
-            code=self._code,
+            code=self._code_override if self._code_override is not None else self._code,
             state=self._state_override if self._state_override is not None else self._state,
-            iss=self._iss_override if self._iss_override is not None else self._iss,
+            iss=None if self._omit_iss else iss,
         )
 
 
@@ -308,7 +323,7 @@ def first_challenge_shim(www_authenticate: str, *, path: str = "/mcp") -> Callab
     return lambda app: _FirstChallenge(app, path, www_authenticate)
 
 
-def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -> AppShim:
+def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2, persist: bool = False) -> AppShim:
     """Build an `app_shim` that 403s the Nth authenticated POST to `/mcp` with the given challenge.
 
     Subsequent requests pass through. Used to drive the client's `insufficient_scope` step-up
@@ -320,6 +335,8 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -
     first authenticated POST is the auth flow's retry of the original initialize request (yielded
     after the 401 branch, where the generator ends without inspecting the response), so a 403
     there would not reach the step-up handler.
+
+    `persist`: when set, 403s every authenticated POST from the Nth onward, re-challenging the step-up retry.
     """
     seen = 0
     fired = False
@@ -328,7 +345,7 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -
         async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
             nonlocal seen, fired
             if (
-                not fired
+                (persist or not fired)
                 and scope["type"] == "http"
                 and scope["path"] == "/mcp"
                 and scope["method"] == "POST"
@@ -353,6 +370,55 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2) -
         return wrapped
 
     return factory
+
+
+def get_stream_step_up_shim(www_authenticate: str) -> tuple[list[int], anyio.Event, AppShim]:
+    """Build an `app_shim` that 403s the first authenticated GET to `/mcp` with the given challenge.
+
+    Returns:
+        The statuses of every authenticated GET response (live-updated), an event set when one
+        of those responses starts with status 200 (the reopened stream), and the shim factory.
+    """
+    statuses: list[int] = []
+    reopened = anyio.Event()
+    fired = False
+
+    def factory(app: ASGIApp) -> ASGIApp:
+        async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal fired
+            if not (
+                scope["type"] == "http"
+                and scope["path"] == "/mcp"
+                and scope["method"] == "GET"
+                and b"authorization" in dict(scope["headers"])
+            ):
+                await app(scope, receive, send)
+                return
+
+            async def recording_send(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    statuses.append(message["status"])
+                    if message["status"] == 200:
+                        reopened.set()
+                await send(message)
+
+            if not fired:
+                fired = True
+                await recording_send(
+                    {
+                        "type": "http.response.start",
+                        "status": 403,
+                        "headers": [(b"www-authenticate", www_authenticate.encode())],
+                    }
+                )
+                await recording_send({"type": "http.response.body", "body": b""})
+                return
+            # The reopened SSE stream stays open until the test's exit cancels it; nothing may follow this await.
+            await app(scope, receive, recording_send)
+
+        return wrapped
+
+    return statuses, reopened, factory
 
 
 def m2m_token_shim(provider: InMemoryAuthorizationServerProvider, *, scopes: list[str]) -> AppShim:

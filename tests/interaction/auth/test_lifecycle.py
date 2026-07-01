@@ -14,13 +14,13 @@ import anyio
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INTERNAL_ERROR, ListToolsResult, Tool
+from mcp_types import INTERNAL_ERROR, ErrorData, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -29,6 +29,7 @@ from tests.interaction.auth._harness import (
     RecordedRequest,
     auth_settings,
     connect_with_oauth,
+    get_stream_step_up_shim,
     m2m_token_shim,
     metadata_body,
     record_requests,
@@ -135,6 +136,61 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
     assert storage.tokens.expires_in == 3600
 
 
+@requirement("client-auth:refresh:rotation-handling")
+async def test_the_rotated_refresh_token_from_a_refresh_response_replaces_the_stored_one() -> None:
+    """A new refresh token in a refresh response replaces the stored one (RFC 6749 §6 rotation)."""
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
+    storage = InMemoryTokenStorage()
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            await client.list_tools()
+
+    token_posts = find(recorded, "POST", "/token")
+    assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code", "refresh_token"])
+
+    presented = form_body(token_posts[1])["refresh_token"]
+    assert storage.tokens is not None
+    assert storage.tokens.refresh_token != presented
+    # The stored token is the one the AS minted; the AS consumed the presented one.
+    assert storage.tokens.refresh_token in provider.refresh_tokens
+    assert presented not in provider.refresh_tokens
+
+
+@requirement("client-auth:refresh:rotation-handling")
+async def test_a_refresh_response_without_a_refresh_token_preserves_the_stored_one() -> None:
+    """A refresh response that omits `refresh_token` leaves the stored one in place.
+
+    RFC 6749 §6 lets the authorization server omit `refresh_token` from a refresh response;
+    `rotate_refresh_tokens=False` models that non-rotating AS.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(issue_expired_first=True, rotate_refresh_tokens=False)
+    storage = InMemoryTokenStorage()
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+
+    token_posts = find(recorded, "POST", "/token")
+    assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code", "refresh_token"])
+
+    assert storage.tokens is not None
+    assert storage.tokens.refresh_token == form_body(token_posts[1])["refresh_token"]
+    # expires_in flipping from -3600 proves the refresh response was adopted, not dropped.
+    assert storage.tokens.expires_in == 3600
+
+    # The omission triggered no re-authorization or re-registration.
+    counts = path_counts(recorded)
+    assert counts[("GET", "/authorize")] == 1
+    assert counts[("POST", "/register")] == 1
+
+
 @requirement("client-auth:403-scope-upgrade")
 async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challenged_scope() -> None:
     """A 403 `insufficient_scope` challenge is answered by one re-authorize with the challenge's scope.
@@ -145,7 +201,7 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     wider scope; step-up reuses cached metadata and the existing client registration,
     re-authorizes with the new scope, and the connect completes. The client is pre-registered
     with both scopes so the server's authorize handler accepts the wider second request. One
-    re-authorize, one retry; the spec's SHOULD-retry-limit ("a few") is not enforced.
+    re-authorize, one retry; the per-send bound is pinned by `client-auth:stepup:retry-cap`.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
@@ -179,7 +235,7 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     assert counts[("POST", "/token")] == 2
 
 
-@requirement("client-auth:403-scope-union")
+@requirement("client-auth:stepup:scope-union")
 async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenged_scopes() -> None:
     """The step-up re-authorize requests the union of the previously requested and challenged scopes.
 
@@ -208,7 +264,8 @@ async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenge
     assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
 
 
-@requirement("client-auth:as-binding")
+@requirement("client-auth:as-binding:reregister")
+@requirement("client-auth:as-binding:no-cred-reuse")
 async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_client_re_registers() -> None:
     """Credentials bound to a stale issuer are dropped and re-registered against the current AS.
 
@@ -239,6 +296,134 @@ async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_cli
     # The persisted client is now bound to the current AS.
     assert storage.client_info is not None
     assert storage.client_info.client_id != "stale-as-client"
+    assert storage.client_info.issuer == f"{BASE_URL}/"
+
+
+@requirement("client-auth:as-binding:no-token-reuse")
+async def test_tokens_from_the_previous_authorization_server_are_never_replayed_after_migration() -> None:
+    """Tokens from the previous authorization server are discarded with its credentials, never replayed.
+
+    Storage carries an old-issuer registration plus that server's tokens (SEP-2352); the discard
+    must drop both, so the stale refresh token reaches no endpoint of the new authorization server.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    # Not via `seeded_client`: the old AS's client must not be registered with the current provider.
+    stale = OAuthClientInformationFull.model_validate(
+        {
+            "client_id": "stale-as-client",
+            "token_endpoint_auth_method": "none",
+            "redirect_uris": [AnyUrl(REDIRECT_URI)],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "scope": "mcp",
+            "issuer": "https://old-as.example.com",
+        }
+    )
+    storage = InMemoryTokenStorage(client_info=stale)
+    storage.tokens = OAuthToken(
+        access_token="stale-access-token",
+        token_type="Bearer",
+        expires_in=3600,
+        scope="mcp",
+        refresh_token="stale-refresh-token",
+    )
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            result = await client.list_tools()
+
+    token_posts = find(recorded, "POST", "/token")
+    assert [form_body(r)["grant_type"] for r in token_posts] == snapshot(["authorization_code"])
+
+    for r in recorded:
+        assert "stale-refresh-token" not in r.content.decode()
+        assert "stale-refresh-token" not in r.url.query.decode()
+
+    # Non-vacuity: the stale access token was actually presented, and refused.
+    stale_bearer_paths = [r.path for r in recorded if r.headers.get("authorization") == "Bearer stale-access-token"]
+    assert stale_bearer_paths == ["/mcp"]
+
+    assert path_counts(recorded)[("POST", "/register")] == 1
+
+    assert result.tools[0].name == "echo"
+    assert storage.tokens is not None
+    assert storage.tokens.refresh_token != "stale-refresh-token"
+
+
+@requirement("client-auth:as-binding:cimd-portable")
+async def test_a_cimd_client_id_survives_an_authorization_server_change_without_reregistration() -> None:
+    """A CIMD client_id keeps working across an authorization-server change with no re-registration.
+
+    CIMD client IDs are URLs the authorization server resolves on demand; pre-seeding the
+    provider stands in for that resolution (the SDK server has no CIMD-aware client lookup).
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    info = seeded_client(provider, client_id=CIMD_URL, issuer="https://old-as.example.com")
+    storage = InMemoryTokenStorage(client_info=info)
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            client_metadata_url=CIMD_URL,
+            on_request=on_request,
+        ) as (client, headless):
+            result = await client.list_tools()
+
+    # The spec sentence itself: "no re-registration is needed when the authorization server changes".
+    assert find(recorded, "POST", "/register") == []
+
+    assert headless.authorize_url is not None
+    assert authorize_params(headless.authorize_url)["client_id"] == CIMD_URL
+
+    assert result.tools[0].name == "echo"
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == snapshot(["authorization_code"])
+
+    # The issuer stamp is deliberately not re-stamped on CIMD credentials; a re-stamp fails here consciously.
+    assert storage.client_info is not None
+    assert storage.client_info.client_id == CIMD_URL
+    assert storage.client_info.issuer == "https://old-as.example.com"
+
+
+@requirement("client-auth:as-binding:prereg-mismatch-error")
+async def test_preregistered_credentials_bound_to_a_different_issuer_are_silently_replaced_without_an_error() -> None:
+    """Pre-registered credentials with a mismatched issuer are silently replaced rather than erroring.
+
+    The spec's SHOULD-surface-an-error is missed: the SDK cannot tell pre-registered from
+    DCR-persisted credentials, so the mismatch takes the discard-and-re-register path -- a recorded divergence.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    prereg = seeded_client(
+        provider,
+        client_id="prereg-old-as",
+        client_secret="prereg-secret",
+        token_endpoint_auth_method="client_secret_post",
+        issuer="https://old-as.example.com",
+    )
+    storage = InMemoryTokenStorage(client_info=prereg)
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, storage=storage, on_request=on_request) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+
+    assert path_counts(recorded)[("POST", "/register")] == 1
+
+    # Only the error half of the SHOULD is missed: the mismatched credential is never presented.
+    for r in recorded:
+        assert "prereg-old-as" not in r.url.query.decode()
+        assert "prereg-old-as" not in r.content.decode()
+        assert "prereg-secret" not in r.content.decode()
+
+    assert storage.client_info is not None
+    assert storage.client_info.client_id != "prereg-old-as"
     assert storage.client_info.issuer == f"{BASE_URL}/"
 
 
@@ -507,3 +692,89 @@ async def test_registration_priority_prefers_preregistered_then_cimd_then_dcr(
     else:
         assert find(recorded, "POST", "/register") == []
         assert chosen_client_id == expected_client_id
+
+
+@requirement("client-auth:stepup:retry-cap")
+async def test_a_second_insufficient_scope_403_after_a_step_up_surfaces_without_another_authorize() -> None:
+    """A persistent 403 gets one step-up and one retry, then the retried request's 403 surfaces as an error.
+
+    The bound is structural, not a counter: the auth flow re-authorizes once, yields one retry,
+    and its generator ends, so the second 403 surfaces as the legacy transport's INTERNAL_ERROR.
+    The shim 403s from the third authenticated POST (the `list_tools` request) because the
+    client silently drops a non-2xx response to a notification POST.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
+    challenge = 'Bearer error="insufficient_scope", scope="mcp write"'
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            settings=settings,
+            app_shim=step_up_shim(challenge, on_nth_authenticated_post=3, persist=True),
+            on_request=on_request,
+        ) as (client, headless):
+            # A sync `with` beside an `async with` mis-traces its body arc under branch coverage.
+            with pytest.raises(MCPError) as exc_info:  # pragma: no branch
+                await client.list_tools()
+
+    assert exc_info.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Server returned an error response"))
+
+    assert len(headless.authorize_urls) == 2
+    assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
+    assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
+
+    # init-retry, initialized, challenged list_tools, retried list_tools -- and no fifth.
+    authenticated_posts = [r for r in find(recorded, "POST", "/mcp") if "authorization" in r.headers]
+    assert len(authenticated_posts) == 4
+    counts = path_counts(recorded)
+    assert counts[("POST", "/mcp")] == 5
+    assert counts[("POST", "/token")] == 2
+
+
+@requirement("client-auth:stepup:get-stream-403")
+async def test_a_403_on_the_get_stream_open_steps_up_and_reopens_the_stream_with_the_upgraded_token() -> None:
+    """A 403 `insufficient_scope` on the standalone GET stream open steps up and reopens the stream.
+
+    The standalone GET (a 2025-11-25 mechanism, removed at 2026-07-28) is opened by the SDK in the
+    background and is invisible to `Client`, so the harness shim records each authenticated
+    GET's response status and the test waits on the reopened stream's 200 before acting. The
+    failure arm stays unpinned: the transport swallows GET failures into a timed reconnect loop
+    this suite cannot observe without sleeps.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
+    statuses, reopened, app_shim = get_stream_step_up_shim('Bearer error="insufficient_scope", scope="mcp write"')
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            settings=settings,
+            app_shim=app_shim,
+            on_request=on_request,
+        ) as (client, headless):
+            await reopened.wait()
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+
+    assert statuses == [403, 200]
+
+    assert len(headless.authorize_urls) == 2
+    assert authorize_params(headless.authorize_urls[0])["scope"] == "mcp"
+    assert authorize_params(headless.authorize_urls[1])["scope"] == "mcp write"
+
+    first_get, second_get = find(recorded, "GET", "/mcp")
+    assert storage.tokens is not None
+    assert second_get.headers["authorization"] == f"Bearer {storage.tokens.access_token}"
+    assert first_get.headers["authorization"] != second_get.headers["authorization"]

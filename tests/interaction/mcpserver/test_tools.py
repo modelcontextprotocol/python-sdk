@@ -394,9 +394,8 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
 
     add_tool and remove_tool only update the registry: a connected client that listed the tools
     before the mutation has no way to learn it should list them again. The spec provides
-    notifications/tools/list_changed for exactly this; MCPServer never sends it. The tool emits
-    one log message as a sentinel so the test proves notifications do reach the collector -- the
-    log message arrives, a list_changed does not.
+    notifications/tools/list_changed for exactly this; MCPServer never sends it. The sentinel's
+    log message proves notifications do reach the collector -- it arrives, a list_changed does not.
     """
     received: list[IncomingMessage] = []
     mcp = MCPServer("mutable")
@@ -411,22 +410,87 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
         raise NotImplementedError
 
     @mcp.tool()
-    async def grow(ctx: Context) -> str:
-        mcp.add_tool(extra, name="extra")
-        mcp.remove_tool("doomed")
-        await ctx.info("tool set changed")  # pyright: ignore[reportDeprecated]
-        return "mutated"
+    async def sentinel(ctx: Context) -> str:
+        await ctx.info("after the mutation")  # pyright: ignore[reportDeprecated]
+        return "sentinel ran"
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
 
     async with connect(mcp, message_handler=collect) as client:
         before = await client.list_tools()
-        await client.call_tool("grow", {})
+        # Mutate between requests: the spec forbids varying the set as a side effect of another request.
+        mcp.add_tool(extra, name="extra")
+        mcp.remove_tool("doomed")
+        await client.call_tool("sentinel", {})
         after = await client.list_tools()
 
-    assert [tool.name for tool in before.tools] == ["doomed", "grow"]
-    assert [tool.name for tool in after.tools] == ["grow", "extra"]
+    assert [tool.name for tool in before.tools] == ["doomed", "sentinel"]
+    assert [tool.name for tool in after.tools] == ["sentinel", "extra"]
     assert received == snapshot(
-        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="tool set changed"))]
+        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="after the mutation"))]
     )
+
+
+@requirement("tools:list:connection-independent")
+async def test_tool_list_is_identical_across_connections_and_unchanged_by_other_requests(
+    connect: Connect,
+) -> None:
+    """Concurrent connections to one server see the same tool list, before and after one of them calls a tool.
+
+    Spec-mandated (2026-07-28): the set MUST NOT vary per-connection or as a side effect of other requests.
+    """
+    mcp = MCPServer("registry")
+
+    @mcp.tool()
+    def cherry() -> str:
+        raise NotImplementedError
+
+    @mcp.tool()
+    def apple() -> str:
+        return "ate"
+
+    @mcp.tool()
+    def banana() -> str:
+        raise NotImplementedError
+
+    async with connect(mcp) as first_client, connect(mcp) as second_client:
+        first_list = await first_client.list_tools()
+        second_list = await second_client.list_tools()
+        assert second_list == first_list
+        # An unrelated request on the first connection: proves it ran AND changed nothing.
+        result = await first_client.call_tool("apple", {})
+        assert await first_client.list_tools() == first_list
+        assert await second_client.list_tools() == first_list
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="ate")], structured_content={"result": "ate"}))
+    assert [tool.name for tool in first_list.tools] == snapshot(["cherry", "apple", "banana"])
+
+
+@requirement("tools:list:deterministic-order")
+async def test_tool_list_order_is_stable_across_repeated_requests(connect: Connect) -> None:
+    """tools/list returns the same ordering on repeated requests against an unchanged tool set.
+
+    Spec-mandated SHOULD (2026-07-28), requiring only *some* stable order; the snapshot pins the SDK's
+    registration order. Tools are registered non-alphabetically to expose any accidental re-sort.
+    """
+    mcp = MCPServer("registry")
+
+    @mcp.tool()
+    def cherry() -> str:
+        raise NotImplementedError
+
+    @mcp.tool()
+    def apple() -> str:
+        raise NotImplementedError
+
+    @mcp.tool()
+    def banana() -> str:
+        raise NotImplementedError
+
+    async with connect(mcp) as client:
+        first = await client.list_tools()
+        second = await client.list_tools()
+
+    assert [tool.name for tool in first.tools] == snapshot(["cherry", "apple", "banana"])
+    assert second == first

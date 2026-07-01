@@ -16,10 +16,11 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 from inline_snapshot import snapshot
+from pydantic import AnyUrl
 
 from mcp.server import Server
 from mcp.server.auth.provider import ProviderTokenVerifier
-from mcp.shared.auth import OAuthClientInformationFull
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from tests.interaction._connect import mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import REDIRECT_URI, auth_settings, oauth_client_metadata
@@ -298,3 +299,25 @@ async def test_a_non_loopback_http_redirect_uri_is_accepted_at_registration(
     info = OAuthClientInformationFull.model_validate_json(response.content)
     assert [str(u) for u in (info.redirect_uris or [])] == ["http://evil.example/callback"]
     assert info.client_id in provider.clients
+
+
+@requirement("hosting:auth:as:register-echo-application-type")
+async def test_register_echoes_native_for_a_client_that_registered_application_type_web(
+    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+) -> None:
+    """A client registering `application_type: "web"` is told `"native"` in the registration echo.
+
+    When the passthrough fix lands: re-pin the echo to `"web"` and delete the Divergence.
+    """
+    http, _ = as_app
+    metadata = OAuthClientMetadata(
+        client_name="interaction-suite", redirect_uris=[AnyUrl(REDIRECT_URI)], application_type="web"
+    )
+
+    response = await http.post("/register", content=metadata.model_dump_json())
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["application_type"] == "native"
+    # The omission is specific to application_type, not a generally lossy echo.
+    assert body["client_name"] == "interaction-suite"

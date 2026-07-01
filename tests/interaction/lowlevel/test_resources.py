@@ -11,9 +11,14 @@ from mcp_types import (
     Annotations,
     BlobResourceContents,
     CallToolResult,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
     EmptyResult,
     ErrorData,
     Icon,
+    InputRequiredResult,
+    InputResponses,
     ListResourcesResult,
     ListResourceTemplatesResult,
     ReadResourceResult,
@@ -26,6 +31,7 @@ from mcp_types import (
 )
 
 from mcp import MCPError
+from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
@@ -140,12 +146,43 @@ async def test_read_resource_binary(connect: Connect) -> None:
     )
 
 
-@requirement("resources:read:unknown-uri")
-async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.
+@requirement("resources:read:multiple-contents")
+async def test_read_resource_returns_multiple_contents_in_order(connect: Connect) -> None:
+    """A multi-entry resources/read result reaches the client intact and in order. Spec-mandated."""
 
-    The spec reserves -32002 for resource-not-found; the code is the handler's choice and reaches
-    the client verbatim.
+    async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
+        assert params.uri == "file:///project/"
+        return ReadResourceResult(
+            contents=[
+                TextResourceContents(uri="file:///project/a.txt", mime_type="text/plain", text="alpha"),
+                TextResourceContents(uri="file:///project/b.txt", mime_type="text/plain", text="beta"),
+                BlobResourceContents(uri="file:///project/logo.png", mime_type="image/png", blob="aW1n"),
+            ]
+        )
+
+    server = Server("library", on_read_resource=read_resource)
+
+    async with connect(server) as client:
+        result = await client.read_resource("file:///project/")
+
+    assert result == snapshot(
+        ReadResourceResult(
+            contents=[
+                TextResourceContents(uri="file:///project/a.txt", mime_type="text/plain", text="alpha"),
+                TextResourceContents(uri="file:///project/b.txt", mime_type="text/plain", text="beta"),
+                BlobResourceContents(uri="file:///project/logo.png", mime_type="image/png", blob="aW1n"),
+            ]
+        )
+    )
+
+
+@requirement("protocol:error:handler-error-passthrough")
+async def test_handler_raised_mcperror_code_and_message_reach_the_client_verbatim(connect: Connect) -> None:
+    """A handler-raised MCPError's code and message reach the client verbatim.
+
+    The -32002 here is only this handler's choice (the pre-2026 resource-not-found code; the 2026
+    spec reserves -32602 for an unknown URI). The real unknown-URI posture lives in the resource
+    registry and is pinned in mcpserver/test_resources.py; this test asserts the generic passthrough.
     """
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
@@ -217,6 +254,30 @@ async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> N
         result = await client.subscribe_resource("file:///watched.txt")
 
     assert result == snapshot(EmptyResult())
+
+
+@requirement("lifecycle:version:era-method-gate")
+async def test_resources_subscribe_on_a_2026_connection_is_method_not_found_despite_a_registered_handler(
+    connect: Connect,
+) -> None:
+    """On a 2026-07-28 connection, `resources/subscribe` is METHOD_NOT_FOUND even with a handler registered.
+
+    resources/subscribe is removed from the 2026-07-28 surface; the registry rejects it before handler lookup.
+    """
+
+    async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
+        """Registered so the rejection provably comes from the era gate, not a missing handler."""
+        raise NotImplementedError
+
+    server = Server("library", on_subscribe_resource=subscribe_resource)
+
+    async with connect(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.subscribe_resource("file:///watched.txt")
+
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/subscribe")
+    )
 
 
 @requirement("resources:subscribe:capability-required")
@@ -312,3 +373,49 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
     assert received == snapshot(
         [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
     )
+
+
+@requirement("resources:mrtr:read:basic")
+async def test_read_resource_input_required_is_fulfilled_and_the_retry_returns_the_contents(connect: Connect) -> None:
+    """A resources/read answered with input_required is fulfilled by the elicitation callback and retried.
+
+    Spec-mandated: resources/read is an MRTR-supported request (basic/patterns/mrtr, Supported Requests).
+    """
+    sent = ElicitRequestFormParams(
+        message="Who is reading?",
+        requested_schema={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+    )
+    answer = ElicitResult(action="accept", content={"name": "alice"})
+    state = "state-1"
+    rounds: list[tuple[InputResponses | None, str | None]] = []
+    callback_received: list[ElicitRequestFormParams] = []
+
+    async def read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> ReadResourceResult | InputRequiredResult:
+        assert params.uri == "file:///profile.txt"
+        rounds.append((params.input_responses, params.request_state))
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"who": ElicitRequest(params=sent)}, request_state=state)
+        response = params.input_responses["who"]
+        assert isinstance(response, ElicitResult)
+        assert response.content is not None
+        return ReadResourceResult(
+            contents=[TextResourceContents(uri=params.uri, text=f"hello {response.content['name']}")]
+        )
+
+    server = Server("library", on_read_resource=read_resource)
+
+    async def elicit(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        assert isinstance(params, ElicitRequestFormParams)
+        callback_received.append(params)
+        return answer
+
+    async with connect(server, elicitation_callback=elicit) as client:
+        result = await client.read_resource("file:///profile.txt")
+
+    assert result == snapshot(
+        ReadResourceResult(contents=[TextResourceContents(uri="file:///profile.txt", text="hello alice")])
+    )
+    assert callback_received == [sent]
+    assert rounds == [(None, None), ({"who": answer}, state)]

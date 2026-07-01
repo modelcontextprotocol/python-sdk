@@ -102,8 +102,10 @@ async def test_claimed_shape_fails_validation_for_a_client_without_the_extension
     """Spec-mandated: an unrecognized `resultType` is invalid, so a client without the
     owning extension fails to parse the claimed shape."""
     async with connect(_receipt_shop(_ReceiptIssuer())) as client:
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError) as exc_info:
             await client.call_tool("buy", {"item": "lamp"})
+    # Structured error fields, not message text: pydantic's rendering changes across versions.
+    assert ("literal_error", "receipt") in [(error["type"], error["input"]) for error in exc_info.value.errors()]
 
 
 class _SettingsEchoIssuer(Extension):
