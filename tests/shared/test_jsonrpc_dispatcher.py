@@ -34,11 +34,10 @@ from mcp import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
-from mcp.shared.dispatcher import CallOptions, DispatchContext
+from mcp.shared.dispatcher import CallOptions, DispatchContext, coerce_request_id
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
     JSONRPCDispatcher,
-    _coerce_id,
     _OutboundPlan,
     _Pending,
     _plan_outbound,
@@ -1821,7 +1820,7 @@ async def test_response_with_string_id_correlates_to_int_keyed_pending_request()
 
 @pytest.mark.anyio
 async def test_error_response_with_string_id_correlates_to_int_keyed_pending_request():
-    """A JSONRPCError echoing the request ID as a JSON string still resolves the waiter (same `_coerce_id` path)."""
+    """A JSONRPCError echoing the request ID as a JSON string still resolves the waiter (`coerce_request_id` path)."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
@@ -1900,10 +1899,10 @@ async def test_progress_with_string_token_reaches_callback_for_int_keyed_request
     assert seen == [0.5]
 
 
-def test_coerce_id_passes_through_non_numeric_string_and_int():
-    assert _coerce_id("7") == 7
-    assert _coerce_id("not-an-int") == "not-an-int"
-    assert _coerce_id(42) == 42
+def test_coerce_request_id_passes_through_non_numeric_string_and_int():
+    assert coerce_request_id("7") == 7
+    assert coerce_request_id("not-an-int") == "not-an-int"
+    assert coerce_request_id(42) == 42
 
 
 @pytest.mark.anyio
@@ -2154,7 +2153,7 @@ async def test_request_with_bool_meta_progress_token_is_not_adopted():
     ids=["string-cancel-for-int-request", "int-cancel-for-string-request"],
 )
 async def test_cancelled_correlates_across_string_and_int_request_id_forms(request_id: RequestId, cancel_id: object):
-    """A peer that stringifies the id between request and cancel still cancels (same `_coerce_id` path)."""
+    """A peer that stringifies the id between request and cancel still cancels (same `coerce_request_id` path)."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
@@ -2381,3 +2380,38 @@ async def test_server_middleware_observes_cancelled_notification():
     assert observed[0][0] == "notifications/cancelled"
     assert observed[0][1]["requestId"] == request_id
     assert observed[0][1]["reason"] == "user clicked stop"
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_with_caller_supplied_string_id_is_verbatim_on_the_wire():
+    """A supplied "7" goes on the wire as the string "7", and the response still
+    correlates when the peer echoes it back as the integer 7 — the pending key gets
+    the same coercion `_resolve_pending` applies to inbound ids."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    result_box: list[dict[str, Any]] = []
+    done = anyio.Event()
+    try:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def call() -> None:
+                    result_box.append(await client.send_raw_request("tools/list", None, {"request_id": "7"}))
+                    done.set()
+
+                await tg.start(client.run, on_request, on_notify)
+                tg.start_soon(call)
+                wire = await c2s_recv.receive()
+                assert isinstance(wire, SessionMessage)
+                assert isinstance(wire.message, JSONRPCRequest)
+                assert wire.message.id == "7"
+                assert type(wire.message.id) is str
+                await s2c_send.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=7, result={"ok": True})))
+                await done.wait()
+                tg.cancel_scope.cancel()
+    finally:
+        for stream in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            stream.close()
+    assert result_box == [{"ok": True}]
