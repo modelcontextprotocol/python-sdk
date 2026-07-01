@@ -72,6 +72,8 @@ from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_READ_EOF_DRAIN_TIMEOUT_SECONDS = 1.0
+
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 
 _ParamsT = TypeVar("_ParamsT", bound=BaseModel, default=BaseModel)
@@ -686,6 +688,18 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
+        # When True, the server is stateless and
+        # clients can perform initialization with any node. The client must still follow
+        # the initialization lifecycle, but can do so with any available node
+        # rather than requiring initialization for each connection.
+        stateless: bool = False,
+        # When True, treat read EOF as a half-close and allow in-flight handlers
+        # to drain their responses via the still-open write stream (e.g. stdio
+        # with bash-redirected stdin).
+        drain_on_read_close: bool = False,
+        # Maximum time to wait for in-flight handlers to drain after read EOF.
+        # None means wait indefinitely.
+        read_eof_drain_timeout_seconds: float | None = DEFAULT_READ_EOF_DRAIN_TIMEOUT_SECONDS,
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
@@ -703,6 +717,9 @@ class Server(Generic[LifespanResultT]):
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
                 raise_exceptions=raise_exceptions,
+                session_id=None,
+                close_write_stream_on_read_close=not drain_on_read_close,
+                read_eof_drain_timeout_seconds=read_eof_drain_timeout_seconds,
             )
 
     def streamable_http_app(
