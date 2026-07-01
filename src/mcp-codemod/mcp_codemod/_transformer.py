@@ -32,8 +32,6 @@ import libcst as cst
 from libcst.helpers import get_full_name_for_node
 from libcst.metadata import (
     CodeRange,
-    ExpressionContext,
-    ExpressionContextProvider,
     MetadataWrapper,
     PositionProvider,
     QualifiedNameProvider,
@@ -44,6 +42,7 @@ from mcp_codemod._mappings import (
     CAMEL_FIELDS,
     ERRORDATA_QNAMES,
     FASTMCP_QNAMES,
+    LOWLEVEL_CTOR_POSITIONAL_PARAMS,
     LOWLEVEL_DECORATOR_METHODS,
     LOWLEVEL_REMOVED_ATTRS,
     LOWLEVEL_SERVER_QNAMES,
@@ -276,7 +275,7 @@ class _PrePass(cst.CSTVisitor):
 
 
 class _V1ToV2(cst.CSTTransformer):
-    METADATA_DEPENDENCIES = (QualifiedNameProvider, PositionProvider, ExpressionContextProvider)
+    METADATA_DEPENDENCIES = (QualifiedNameProvider, PositionProvider)
 
     def __init__(self, prepass: _PrePass, *, add_markers: bool) -> None:
         super().__init__()
@@ -302,7 +301,6 @@ class _V1ToV2(cst.CSTTransformer):
         # and whether its type names `McpError`. An inner handler that re-binds a
         # name shadows the outer binding of that name; any other inner handler is
         # transparent to the lookup.
-        self._except_bindings: list[tuple[str, bool]] = []
         # Calls that are a `with` item bound to a three-element tuple: the one form
         # whose result tuple `leave_WithItem` can rewrite rather than flag.
         self._narrowable_calls: set[int] = set()
@@ -408,37 +406,6 @@ class _V1ToV2(cst.CSTTransformer):
 
     def visit_Param(self, node: cst.Param) -> None:
         self._not_a_reference.add(id(node.name))
-
-    def _is_mcperror_binding(self, name: str) -> bool:
-        """Whether the nearest enclosing handler that binds `name` catches `McpError`.
-
-        Handlers that bind some other name (or none) are transparent, so a nested
-        `try`/`except` inside an `except McpError as e:` does not hide `e`; one
-        that re-binds `e` itself shadows the outer binding.
-        """
-        for bound, is_mcperror in reversed(self._except_bindings):
-            if bound == name:
-                return is_mcperror
-        return False
-
-    def visit_ExceptHandler(self, node: cst.ExceptHandler) -> None:
-        bound = ""
-        if node.name is not None and isinstance(node.name.name, cst.Name):
-            bound = node.name.name.value
-        # `except (McpError, ValueError) as e:` catches a tuple of types.
-        if isinstance(node.type, cst.Tuple):
-            caught: list[cst.BaseExpression] = [element.value for element in node.type.elements]
-        elif node.type is not None:
-            caught = [node.type]
-        else:
-            caught = []
-        self._except_bindings.append((bound, any(self._qualified(kind) & MCPERROR_QNAMES for kind in caught)))
-
-    def leave_ExceptHandler(
-        self, original_node: cst.ExceptHandler, updated_node: cst.ExceptHandler
-    ) -> cst.ExceptHandler:
-        self._except_bindings.pop()
-        return updated_node
 
     # ------------------------------------------------------------------ imports
 
@@ -580,22 +547,10 @@ class _V1ToV2(cst.CSTTransformer):
         return updated_node
 
     def leave_Attribute(self, original_node: cst.Attribute, updated_node: cst.Attribute) -> cst.BaseExpression:
-        # A READ of `e.error.code` -> `e.code` when `e` is bound by `except McpError
-        # as e:`. Only the full three-part chain in a load context is touched: a bare
-        # `e.error` may be a whole `ErrorData` being passed somewhere, and an
-        # ASSIGNMENT like `e.error.message = ...` must stay as written -- v2's
-        # `MCPError.message` is a read-only property over the still-mutable `.error`,
-        # so collapsing a write would break code that works on v2 today.
-        if (
-            original_node.attr.value in ("code", "message", "data")
-            and isinstance(original_node.value, cst.Attribute)
-            and original_node.value.attr.value == "error"
-            and isinstance(original_node.value.value, cst.Name)
-            and self._is_mcperror_binding(original_node.value.value.value)
-            and self.get_metadata(ExpressionContextProvider, original_node, None) is ExpressionContext.LOAD
-        ):
-            self.rewrites["mcperror_attr"] += 1
-            return updated_node.with_changes(value=cst.ensure_type(updated_node.value, cst.Attribute).value)
+        # `e.error.code` on a caught error is deliberately NOT collapsed to `e.code`:
+        # v2's `MCPError` keeps a typed `.error` ErrorData, so the v1 spelling runs
+        # and type-checks unchanged -- touching it would be modernization, not
+        # migration.
 
         # An attribute the lowlevel `Server` lost whose name survives elsewhere on
         # v2, matched only against a receiver the pre-pass proved is such a server
@@ -679,15 +634,22 @@ class _V1ToV2(cst.CSTTransformer):
     def leave_Call(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
         callee = self._qualified(original_node.func)
 
-        # `McpError(ErrorData(code=..., message=..., data=...))` flattened to
-        # `MCPError(code=..., message=..., data=...)`; the name itself is renamed by
-        # `leave_Name`, which has already run on the inner nodes. v1's constructor
-        # took a single `ErrorData`; when that one argument is anything other than
-        # an inline `ErrorData(...)` call there is nothing safe to unpack, so the
-        # call is marked instead -- v2's signature is `(code, message, data=None)`.
+        # v1's constructor took a single `ErrorData`; v2's classmethod
+        # `MCPError.from_error_data(...)` takes exactly that argument, so any
+        # one-argument call converts uniformly -- the user's expression is kept as
+        # written, whatever it is. The name itself is renamed by `leave_Name`,
+        # which has already run on the inner nodes.
+        if callee & MCPERROR_QNAMES and len(original_node.args) == 1:
+            self.rewrites["mcperror_ctor"] += 1
+            return updated_node.with_changes(
+                func=cst.Attribute(value=updated_node.func, attr=cst.Name("from_error_data"))
+            )
+
         # A subclass's `super().__init__(...)` is the same constructor spelled the
-        # one way a qualified name cannot reach, so it gets the same treatment.
-        if (callee & MCPERROR_QNAMES or self._is_mcperror_super_init(original_node)) and len(original_node.args) == 1:
+        # one way a classmethod cannot replace, so the inline `ErrorData(...)` is
+        # flattened into v2's `(code, message, data=None)` arguments; any other
+        # single argument has nothing safe to unpack and is marked.
+        if self._is_mcperror_super_init(original_node) and len(original_node.args) == 1:
             wrapped = original_node.args[0].value
             if isinstance(wrapped, cst.Call) and self._qualified(wrapped.func) & ERRORDATA_QNAMES:
                 self.rewrites["mcperror_ctor"] += 1
@@ -700,12 +662,12 @@ class _V1ToV2(cst.CSTTransformer):
                 "unpack the `ErrorData` being passed here into those arguments",
             )
 
-        # camelCase keyword arguments still work on v2 (every model field also
-        # accepts its camelCase alias by name), so unlike an attribute READ this
-        # rename is cosmetic and cannot break the call -- which is why, unlike the
-        # attribute form, the risky tier needs no review marker here. Every
-        # hand-migrated example in the SDK converted them, so the codemod follows
-        # suit, gated on the callee resolving into the SDK.
+        # camelCase keyword arguments still work at RUNTIME on v2 (every model
+        # field accepts its camelCase alias by name), but the synthesized
+        # `__init__` signatures are snake_case, so leaving them fails the user's
+        # own type-checking. The rename cannot break the call -- which is why,
+        # unlike the attribute form, the risky tier needs no review marker here --
+        # and is gated on the callee resolving into the SDK.
         if any(name == "mcp" or name.startswith(("mcp.", "mcp_types.")) for name in callee):
             arguments: list[cst.Arg] = []
             renamed_any = False
@@ -746,6 +708,29 @@ class _V1ToV2(cst.CSTTransformer):
                     )
                 elif keyword in REMOVED_CTOR_PARAMS:
                     self._diag(argument, "removed_ctor_param", "manual", f"`{keyword}=` {REMOVED_CTOR_PARAMS[keyword]}")
+
+        # The lowlevel `Server` constructor is keyword-only after `name` on v2, but
+        # its parameters kept v1's names and order, so v1 positionals convert to
+        # keywords one for one. A `*`-splat hides how many positions it fills, so a
+        # call carrying one is left for v2 to reject loudly at construction.
+        if (
+            callee & LOWLEVEL_SERVER_QNAMES
+            and 1 < len(original_node.args) <= 1 + len(LOWLEVEL_CTOR_POSITIONAL_PARAMS)
+            and not any(argument.star for argument in original_node.args)
+        ):
+            arguments = []
+            for index, argument in enumerate(updated_node.args):
+                if index > 0 and argument.keyword is None:
+                    self.rewrites["lowlevel_ctor_kwargs"] += 1
+                    argument = argument.with_changes(
+                        keyword=cst.Name(LOWLEVEL_CTOR_POSITIONAL_PARAMS[index - 1]),
+                        equal=cst.AssignEqual(
+                            whitespace_before=cst.SimpleWhitespace(""), whitespace_after=cst.SimpleWhitespace("")
+                        ),
+                    )
+                arguments.append(argument)
+            if arguments != list(updated_node.args):
+                updated_node = updated_node.with_changes(args=arguments)
 
         # The streamable-HTTP client's keyword surface and yield shape both changed.
         # The keyword check lives here so that it fires however the call is used (an

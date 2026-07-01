@@ -28,9 +28,9 @@ manual fix-up.
   `streamablehttp_client` -> `streamable_http_client`), resolved through the
   file's imports so an aliased import or an unrelated symbol with the same name
   is never touched.
-- `McpError(ErrorData(code=..., message=...))` to the flat `MCPError(...)`
-  constructor, and `e.error.code` / `e.error.message` / `e.error.data` to
-  `e.code` / `e.message` / `e.data` inside an `except McpError as e:` block.
+- `McpError(...)` calls to `MCPError.from_error_data(...)`, which takes the
+  same single `ErrorData` argument the v1 constructor did. (`e.error.code` and
+  friends are deliberately left alone: they still work on v2.)
 - camelCase attribute reads on `mcp.types` models to their snake_case v2
   spellings (`.inputSchema` -> `.input_schema`), restricted to the field names
   the v1 types actually declared. Other camelCase APIs (`logging.getLogger`, a
@@ -54,8 +54,8 @@ The codemod never guesses at these; it leaves them exactly as written and adds a
 
 - Removed APIs that have no drop-in replacement (`create_connected_server_and_client_session`,
   the WebSocket transport, `mcp.shared.progress`, `get_context()`), and imports
-  of whole module namespaces v2 deleted (the experimental tasks API, which is
-  first-class on v2). Together with the renames these account for every public
+  of whole module namespaces v2 deleted (the removed experimental tasks
+  API). Together with the renames these account for every public
   module v1 shipped, so an import is never left to fail unexplained.
 - The v1 `mcp.types` names with no v2 home (`Cursor`, the `TASK_*` constants, the
   type-machinery aliases). `mcp_types` is not a name-superset of v1's `mcp.types`,

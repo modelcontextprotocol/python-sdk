@@ -567,9 +567,9 @@ def test_a_dynamic_attribute_argument_to_getattr_is_untouched() -> None:
     assert transform(source).code == source
 
 
-def test_mcperror_wrapping_errordata_is_flattened_to_keyword_arguments() -> None:
-    """An `McpError(ErrorData(...))` raise is rewritten to `MCPError(...)` with the
-    `ErrorData` fields promoted to direct keyword arguments, and both imports renamed."""
+def test_a_single_argument_mcperror_call_becomes_from_error_data() -> None:
+    """A v1 `McpError(...)` call took one `ErrorData`; v2's `MCPError.from_error_data(...)`
+    takes exactly that argument, so the call converts with the expression kept as written."""
     source = textwrap.dedent("""\
         from mcp.shared.exceptions import McpError
         from mcp.types import ErrorData
@@ -580,31 +580,39 @@ def test_mcperror_wrapping_errordata_is_flattened_to_keyword_arguments() -> None
 from mcp.shared.exceptions import MCPError
 from mcp_types import ErrorData
 
-raise MCPError(code=1, message="x", data=None)
+raise MCPError.from_error_data(ErrorData(code=1, message="x", data=None))
 """)
 
 
-def test_mcperror_with_a_non_errordata_argument_is_renamed_and_marked() -> None:
-    """`McpError(err)` cannot be unpacked into v2's flat `MCPError(code, message, data)`
-    constructor, so the call is renamed and the site is marked rather than left to
-    fail with a confusing `TypeError` at the raise."""
+def test_a_mcperror_call_with_a_non_inline_argument_is_rewritten_without_a_marker() -> None:
+    """`McpError(err)` needs no unpacking under `from_error_data`, so the once-marked
+    non-inline form is now just rewritten."""
     source = textwrap.dedent("""\
         from mcp.shared.exceptions import McpError
-
 
         def reraise(err):
             raise McpError(err)
         """)
     result = transform(source)
-    assert [diagnostic.severity for diagnostic in result.diagnostics] == ["manual"]
-    assert "MCPError(code, message, data=None)" in result.diagnostics[0].message
-    assert "    # mcp-codemod: " in result.code
-    assert "    raise MCPError(err)" in result.code
+    assert "raise MCPError.from_error_data(err)" in result.code
+    assert result.diagnostics == []
 
 
-def test_error_attribute_chains_on_a_caught_mcperror_are_flattened() -> None:
-    """Inside `except McpError as e:`, the v1 `e.error.code` / `e.error.message` /
-    `e.error.data` chains each collapse to the v2 direct attribute on `e`."""
+def test_a_dotted_mcperror_call_converts_on_its_full_spelling() -> None:
+    """The `from_error_data` conversion composes with the symbol rename when the
+    constructor is reached through its module path."""
+    source = textwrap.dedent("""\
+        import mcp.shared.exceptions
+
+        raise mcp.shared.exceptions.McpError(build_error())
+        """)
+    result = transform(source)
+    assert "raise mcp.shared.exceptions.MCPError.from_error_data(build_error())" in result.code
+
+
+def test_error_attribute_chains_on_a_caught_error_are_left_alone() -> None:
+    """`e.error.code` and friends still work on v2 (`MCPError.error` is a typed
+    `ErrorData`), so inside `except McpError as e:` only the exception name changes."""
     source = textwrap.dedent("""\
         from mcp.shared.exceptions import McpError
 
@@ -619,87 +627,7 @@ from mcp.shared.exceptions import MCPError
 try:
     run()
 except MCPError as e:
-    print(e.code, e.message, e.data)
-""")
-
-
-def test_a_bare_error_attribute_on_a_caught_mcperror_is_not_collapsed() -> None:
-    """A bare `e.error` inside `except McpError as e:` may be a whole `ErrorData`
-    being passed somewhere, so it is never collapsed to `e`."""
-    source = textwrap.dedent("""\
-        from mcp.shared.exceptions import McpError
-
-        try:
-            run()
-        except McpError as e:
-            handle(e.error)
-        """)
-    assert "handle(e.error)" in transform(source).code
-
-
-def test_error_chains_outside_a_mcperror_handler_are_untouched() -> None:
-    """An `e.error.code` chain only collapses inside an `except McpError as e:` handler;
-    at module level and inside an `except ValueError as e:` it is left as written."""
-    source = textwrap.dedent("""\
-        from mcp.shared.exceptions import McpError
-
-        e = current_error()
-        top = e.error.code
-        try:
-            run()
-        except ValueError as e:
-            low = e.error.code
-        """)
-    result = transform(source)
-    assert "top = e.error.code" in result.code
-    assert "low = e.error.code" in result.code
-
-
-def test_a_mcperror_handler_without_a_binding_does_not_flatten() -> None:
-    """An `except McpError:` clause with no `as` name leaves an `<obj>.error.<field>` chain in its
-    body byte-unchanged: without a bound name there is nothing to key the flatten on.
-    """
-    source = textwrap.dedent("""\
-        from mcp import McpError
-
-        try:
-            run()
-        except McpError:
-            log(err.error.code)
-        """)
-    result = transform(source)
-    # The handler type itself was recognized (and renamed), so the non-flatten is not vacuous.
-    assert "except MCPError:" in result.code
-    assert "err.error.code" in result.code
-
-
-def test_nested_handlers_track_the_innermost_binding() -> None:
-    """Only the name bound by the innermost enclosing `except McpError as ...:` is flattened; once
-    that nested handler is left, the enclosing non-McpError handler's binding is not treated as one.
-    """
-    source = textwrap.dedent("""\
-        from mcp import McpError
-
-        try:
-            run()
-        except ValueError as e:
-            try:
-                run()
-            except McpError as inner:
-                log(inner.error.code)
-            log(e.error.code)
-        """)
-    assert transform(source).code == snapshot("""\
-from mcp import MCPError
-
-try:
-    run()
-except ValueError as e:
-    try:
-        run()
-    except MCPError as inner:
-        log(inner.code)
-    log(e.error.code)
+    print(e.error.code, e.error.message, e.error.data)
 """)
 
 
@@ -1232,60 +1160,6 @@ def test_two_identical_findings_on_one_statement_produce_one_marker() -> None:
     assert len(result.diagnostics) == 2
 
 
-def test_an_assignment_to_a_caught_error_field_is_never_collapsed() -> None:
-    """`e.error.message = ...` works on v2 (`MCPError.error` is still a mutable
-    `ErrorData`), but `e.message = ...` would not -- `message` became a read-only
-    property -- so only the READ of the chain is collapsed, never a write target.
-    """
-    source = textwrap.dedent("""\
-        from mcp import McpError
-
-        try:
-            run()
-        except McpError as e:
-            e.error.message = "while syncing: " + e.error.message
-            raise
-        """)
-    result = transform(source)
-    assert 'e.error.message = "while syncing: " + e.message' in result.code
-    assert result.diagnostics == []
-
-
-def test_a_nested_handler_does_not_hide_the_caught_mcperror() -> None:
-    """A nested `try`/`except` inside an `except McpError as e:` handler does not
-    re-bind `e`, so `e.error.code` in the nested body is still collapsed.
-    """
-    source = textwrap.dedent("""\
-        from mcp import McpError
-
-        try:
-            run()
-        except McpError as e:
-            try:
-                cleanup()
-            except:
-                log(e.error.code)
-        """)
-    assert "log(e.code)" in transform(source).code
-
-
-def test_a_tuple_except_clause_binding_mcperror_is_recognized() -> None:
-    """`except (McpError, ValueError) as e:` binds `e` to a possible `McpError`, so the
-    exception types and the `e.error.code` read are both rewritten.
-    """
-    source = textwrap.dedent("""\
-        from mcp import McpError
-
-        try:
-            run()
-        except (McpError, ValueError) as e:
-            log(e.error.code)
-        """)
-    result = transform(source)
-    assert "except (MCPError, ValueError) as e:" in result.code
-    assert "log(e.code)" in result.code
-
-
 def test_a_v1_client_with_item_bound_to_a_single_name_is_flagged() -> None:
     """`async with streamablehttp_client(...) as streams:` cannot have its unpacking
     rewritten (it happens somewhere else), so the call gets the yield-shape marker.
@@ -1537,7 +1411,7 @@ def test_a_from_import_out_of_a_removed_namespace_gets_one_marker() -> None:
     result = transform(source)
     assert result.code.count("# mcp-codemod:") == 1
     assert [diagnostic.severity for diagnostic in result.diagnostics] == ["manual"]
-    assert "first-class on v2" in result.diagnostics[0].message
+    assert "has no replacement" in result.diagnostics[0].message
 
 
 def test_a_removed_module_imported_from_its_parent_package_is_marked() -> None:
@@ -1648,3 +1522,37 @@ def test_unpacking_a_call_result_is_passed_over() -> None:
     result = transform(source)
     assert result.code == source
     assert result.diagnostics == []
+
+
+def test_lowlevel_server_positional_arguments_become_keywords() -> None:
+    """v2 makes everything after `name` keyword-only on the lowlevel `Server` but keeps
+    v1's parameter names and order, so positionals convert one for one."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        server = Server("srv", "1.2.0", "does things")
+        """)
+    result = transform(source)
+    assert 'Server("srv", version="1.2.0", instructions="does things")' in result.code
+    assert result.diagnostics == []
+
+
+def test_a_lowlevel_server_call_with_a_splat_is_left_for_v2_to_reject() -> None:
+    """A `*`-splat hides how many positions it fills, so the call is left as written --
+    v2 raises a TypeError at construction, which is loud and immediate."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        server = Server("srv", *extra)
+        """)
+    assert transform(source).code == source
+
+
+def test_lowlevel_keyword_arguments_are_never_touched() -> None:
+    """A v1 call already passing keywords is valid v2; nothing changes."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        server = Server("srv", version="1.2.0")
+        """)
+    assert transform(source).code == source

@@ -47,6 +47,11 @@ MARKER_RADIUS = 3
 # failed to flag looks exactly like that.
 DRIFT_RULES = frozenset({"reportArgumentType", "reportOptionalSubscript", "reportOptionalMemberAccess"})
 
+# Argument types that detonate at RUNTIME on v2 (`timedelta` where v2 takes float
+# seconds, `AnyUrl` where v2 takes `str`). A `reportArgumentType` error naming one
+# of these is a real break pyright happens to catch, never strictness drift.
+DETONATOR_TYPES = ("timedelta", "AnyUrl")
+
 # The v1 environment lives OUTSIDE the SDK checkout: inside it, uv resolves the
 # SDK workspace itself no matter the cwd, and the env would silently hold v2.
 V1_ENV_DIR = Path.home() / ".cache" / "mcp-codemod-batch-test" / "v1env"
@@ -258,7 +263,12 @@ def _audit_repo(repo: Repo, *, v1_python: Path, fresh: bool) -> tuple[dict[str, 
         # Uncovered errors are actionable unless everything says v2 strictness
         # drift: an untouched file, no mcp symbol in the message, and a rule
         # from the drift list. A silent codemod miss fails any one of these.
-        if error.file not in rewritten_files and "mcp" not in error.message.lower() and error.rule in DRIFT_RULES:
+        if (
+            error.file not in rewritten_files
+            and "mcp" not in error.message.lower()
+            and error.rule in DRIFT_RULES
+            and not any(f'of type "{detonator}"' in error.message for detonator in DETONATOR_TYPES)
+        ):
             drift.append(error)
         else:
             actionable.append(error)

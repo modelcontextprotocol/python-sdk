@@ -15,6 +15,7 @@ __all__ = [
     "CAMEL_FIELDS",
     "ERRORDATA_QNAMES",
     "FASTMCP_QNAMES",
+    "LOWLEVEL_CTOR_POSITIONAL_PARAMS",
     "LOWLEVEL_DECORATOR_METHODS",
     "LOWLEVEL_REMOVED_ATTRS",
     "LOWLEVEL_SERVER_QNAMES",
@@ -61,23 +62,15 @@ REHOMED_IMPORTS: dict[tuple[str, str], str] = {
 # for every public module v1 shipped, which `tests/codemod/test_mappings.py`
 # pins against the frozen v1 module list and the installed v2 package.
 REMOVED_MODULES: dict[str, str] = {
-    "mcp.client.experimental": (
-        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
-    ),
-    "mcp.server.experimental": (
-        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
-    ),
-    "mcp.server.lowlevel.experimental": (
-        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
-    ),
-    "mcp.shared.experimental": (
-        "removed: the experimental tasks API is first-class on v2; see the tasks section of the migration guide"
-    ),
+    "mcp.client.experimental": ("removed: the v1 experimental tasks API was deleted and has no replacement"),
+    "mcp.server.experimental": ("removed: the v1 experimental tasks API was deleted and has no replacement"),
+    "mcp.server.lowlevel.experimental": ("removed: the v1 experimental tasks API was deleted and has no replacement"),
+    "mcp.shared.experimental": ("removed: the v1 experimental tasks API was deleted and has no replacement"),
     "mcp.client.websocket": "removed: the WebSocket transport was deleted",
     "mcp.server.websocket": "removed: the WebSocket transport was deleted",
     "mcp.server.lowlevel.func_inspection": "removed: it was an internal helper of the lowlevel server",
     "mcp.shared.progress": "removed: report progress with `ctx.report_progress()` inside a handler",
-    "mcp.shared.response_router": "removed: superseded by `JSONRPCDispatcher`",
+    "mcp.shared.response_router": "removed: it was internal session machinery; there is no public replacement",
 }
 
 # Symbol renames, keyed by every v1 qualified name the symbol was reachable from.
@@ -102,7 +95,8 @@ SYMBOL_RENAMES: dict[str, str] = {
 # `# mcp-codemod:` marker carrying the replacement guidance.
 REMOVED_APIS: dict[str, str] = {
     "mcp.shared.memory.create_connected_server_and_client_session": (
-        "removed: connect an in-memory pair with `mcp.Client(server)` instead"
+        "removed: pair `create_client_server_memory_streams()` with `Server.run()` and a `ClientSession` "
+        "to keep the v1 test shape, or use `mcp.Client(server)`"
     ),
     "mcp.shared.progress.progress": "removed: report progress with `ctx.report_progress()` inside a handler",
     "mcp.shared.progress.Progress": "removed: `mcp.shared.progress` was deleted",
@@ -113,12 +107,12 @@ REMOVED_APIS: dict[str, str] = {
         "split: use `mcp.server.context.ServerRequestContext` or `mcp.client.context.ClientRequestContext`"
     ),
     "mcp.os.win32.utilities.terminate_windows_process": "removed",
-    "mcp.shared.session.BaseSession": "removed: sessions now run on `JSONRPCDispatcher`",
+    "mcp.shared.session.BaseSession": "removed: use `ClientSession` or `ServerSession` directly",
     "mcp.server.lowlevel.server.request_ctx": (
         "removed: the module-level ContextVar is gone; handlers now receive `ctx` explicitly"
     ),
     # The v1 `mcp.types` names with no same-name home in `mcp_types`. The task
-    # vocabulary collapsed into the literal strings on v2 and the rest were v1
+    # vocabulary left with the experimental tasks API and the rest were v1
     # type-machinery aliases. Enumerating every one is what keeps the
     # `mcp.types` -> `mcp_types` rewrite honest: `tests/codemod/test_mappings.py`
     # checks that every other public v1 name resolves on `mcp_types`, so an
@@ -138,15 +132,15 @@ REMOVED_APIS: dict[str, str] = {
     "mcp.types.ServerRequestType": "removed: use the `ServerRequest` union",
     "mcp.types.ServerNotificationType": "removed: use the `ServerNotification` union",
     "mcp.types.ServerResultType": "removed: use the `ServerResult` union",
-    "mcp.types.TaskExecutionMode": "removed: `ToolExecution.task_support` takes the literal string on v2",
-    "mcp.types.TASK_REQUIRED": 'removed: use the literal string `"required"`',
-    "mcp.types.TASK_OPTIONAL": 'removed: use the literal string `"optional"`',
-    "mcp.types.TASK_FORBIDDEN": 'removed: use the literal string `"forbidden"`',
-    "mcp.types.TASK_STATUS_WORKING": 'removed: use the literal string `"working"`',
-    "mcp.types.TASK_STATUS_INPUT_REQUIRED": 'removed: use the literal string `"input_required"`',
-    "mcp.types.TASK_STATUS_COMPLETED": 'removed: use the literal string `"completed"`',
-    "mcp.types.TASK_STATUS_FAILED": 'removed: use the literal string `"failed"`',
-    "mcp.types.TASK_STATUS_CANCELLED": 'removed: use the literal string `"cancelled"`',
+    "mcp.types.TaskExecutionMode": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_REQUIRED": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_OPTIONAL": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_FORBIDDEN": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_STATUS_WORKING": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_STATUS_INPUT_REQUIRED": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_STATUS_COMPLETED": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_STATUS_FAILED": "removed with the v1 experimental tasks API",
+    "mcp.types.TASK_STATUS_CANCELLED": "removed with the v1 experimental tasks API",
 }
 
 # Extras the v1 `mcp` distribution declared that v2 does not, with guidance.
@@ -284,6 +278,12 @@ TRANSPORT_CTOR_PARAMS: frozenset[str] = frozenset(
 REMOVED_CTOR_PARAMS: dict[str, str] = {
     "mount_path": "removed: mount the app under a Starlette route instead",
 }
+
+# The v1 lowlevel `Server.__init__` parameters after `name`, in positional order.
+# v2 makes everything after `name` keyword-only but keeps these names, so a v1
+# positional argument converts to the keyword at its position one for one.
+# Pinned against the installed v2 constructor by `tests/codemod/test_mappings.py`.
+LOWLEVEL_CTOR_POSITIONAL_PARAMS: tuple[str, ...] = ("version", "instructions", "website_url", "icons", "lifespan")
 
 # Attributes removed from the lowlevel `Server` whose NAMES survive elsewhere on
 # v2 (`Context.request_context` is a live idiom), so unlike `REMOVED_ATTRS` they

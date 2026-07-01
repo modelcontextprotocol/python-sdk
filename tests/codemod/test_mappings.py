@@ -17,6 +17,7 @@ import pytest
 from mcp_codemod import transform
 from mcp_codemod._mappings import (
     CAMEL_FIELDS,
+    LOWLEVEL_CTOR_POSITIONAL_PARAMS,
     LOWLEVEL_DECORATOR_METHODS,
     LOWLEVEL_REMOVED_ATTRS,
     MODULE_RENAMES,
@@ -592,3 +593,11 @@ def test_every_lowlevel_removed_attribute_is_really_gone_from_the_v2_server() ->
     for name in LOWLEVEL_REMOVED_ATTRS:
         assert not hasattr(Server, name), name
         assert hasattr(Context, name), name
+
+
+def test_the_lowlevel_positional_params_are_keyword_only_on_the_installed_server() -> None:
+    """Every v1 positional the codemod converts must exist, keyword-only, on the
+    installed v2 `Server.__init__` -- otherwise the conversion emits a `TypeError`."""
+    parameters = inspect.signature(Server.__init__).parameters
+    for name in LOWLEVEL_CTOR_POSITIONAL_PARAMS:
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
