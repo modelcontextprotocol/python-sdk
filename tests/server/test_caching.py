@@ -168,7 +168,7 @@ async def test_every_page_of_a_paginated_list_carries_the_configured_scope() -> 
     """Spec-mandated: the same `cacheScope` MUST apply to all pages of one list.
     The map is keyed by method, not cursor, so a handler that leaves scope unset
     gets the same scope on every page. (A handler that overrides the scope owns
-    that consistency itself - see `docs/advanced/caching.md`.)"""
+    that consistency itself - see `docs/client/caching.md`.)"""
     names = [f"r-{n}" for n in range(4)]
 
     async def list_resources(

@@ -1,4 +1,4 @@
-"""`docs/tutorial/logging.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/handlers/logging.md`: every claim the page makes, proved against the real SDK."""
 
 import logging
 

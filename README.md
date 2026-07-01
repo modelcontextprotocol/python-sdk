@@ -24,7 +24,7 @@
 
 **The documentation lives at <https://py.sdk.modelcontextprotocol.io/v2/>.**
 
-It has the full [tutorial](https://py.sdk.modelcontextprotocol.io/v2/tutorial/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
+It has a [Get started guide](https://py.sdk.modelcontextprotocol.io/v2/get-started/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
 
 ## What is MCP?
 
@@ -82,7 +82,7 @@ Call `add` with `a=1`, `b=2` and you get `3` back.
 
 Notice what you did **not** write: no JSON Schema (`a: int, b: int` _is_ the schema), no request parsing, no validation code, no protocol handling. Two type-hinted Python functions and a docstring.
 
-[The tutorial](https://py.sdk.modelcontextprotocol.io/v2/tutorial/) takes it from here.
+[Get started](https://py.sdk.modelcontextprotocol.io/v2/get-started/) takes it from here.
 
 ## A client in 10 lines
 

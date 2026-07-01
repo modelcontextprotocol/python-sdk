@@ -48,7 +48,7 @@ Every `list_*` method on `Client` (`list_tools`, `list_resources`, `list_resourc
 
 Run its `main()` and it prints `100 resources`: ten pages of ten, stitched together by a loop that never knew there were ten pages.
 
-This is the same loop **[The Client](../client/index.md)** chapter showed you, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
+This is the same loop **[The Client](../client/index.md)** shows for every `list_*` verb, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
 
 ## The three rules
 

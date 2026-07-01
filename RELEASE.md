@@ -35,7 +35,7 @@ the publish job — `skip-existing` makes it skip whatever already landed. The
 
 1. Update the pre-release version examples in `README.md` and the docs
    (grep the outgoing version — the pins live in the README Installation
-   section, `docs/index.md`, and `docs/installation.md`) so the tagged
+   section, `docs/index.md`, `docs/get-started/installation.md`, and `docs/get-started/real-host.md`) so the tagged
    commit — and therefore the README PyPI publishes — names the version
    being released. When entering a new phase (alpha → beta → rc), update
    the banner wording too.

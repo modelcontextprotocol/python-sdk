@@ -1,4 +1,4 @@
-"""`docs/advanced/opentelemetry.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/run/opentelemetry.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from logfire.testing import CaptureLogfire

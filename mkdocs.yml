@@ -12,48 +12,57 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 
 nav:
   - MCP Python SDK: index.md
-  - Installation: installation.md
-  - Tutorial - User Guide:
-      - tutorial/index.md
-      - First steps: tutorial/first-steps.md
-      - Tools: tutorial/tools.md
-      - Structured Output: tutorial/structured-output.md
-      - Resources: tutorial/resources.md
-      - Prompts: tutorial/prompts.md
-      - The Context: tutorial/context.md
-      - Dependencies: tutorial/dependencies.md
-      - Handling errors: tutorial/handling-errors.md
-      - Lifespan: tutorial/lifespan.md
-      - Media: tutorial/media.md
-      - Completions: tutorial/completions.md
-      - Elicitation: tutorial/elicitation.md
-      - Progress: tutorial/progress.md
-      - Logging: tutorial/logging.md
-      - Testing: tutorial/testing.md
+  - Get started:
+      - get-started/index.md
+      - Installation: get-started/installation.md
+      - First steps: get-started/first-steps.md
+      - Connect to a real host: get-started/real-host.md
+      - Testing: get-started/testing.md
+  - Servers:
+      - servers/index.md
+      - Tools: servers/tools.md
+      - Structured Output: servers/structured-output.md
+      - Resources: servers/resources.md
+      - URI templates: servers/uri-templates.md
+      - Prompts: servers/prompts.md
+      - Completions: servers/completions.md
+      - "Images, audio & icons": servers/media.md
+      - Handling errors: servers/handling-errors.md
+  - Inside your handler:
+      - handlers/index.md
+      - The Context: handlers/context.md
+      - Dependencies: handlers/dependencies.md
+      - Lifespan: handlers/lifespan.md
+      - Elicitation: handlers/elicitation.md
+      - Multi-round-trip requests: handlers/multi-round-trip.md
+      - Progress: handlers/progress.md
+      - Logging: handlers/logging.md
+      - Subscriptions: handlers/subscriptions.md
   - Running your server:
       - run/index.md
-      - ASGI: run/asgi.md
-  - The Client:
+      - Add to an existing app: run/asgi.md
+      - Deploy & scale: run/deploy.md
+      - Authorization: run/authorization.md
+      - OpenTelemetry: run/opentelemetry.md
+      - Serving legacy clients: run/legacy-clients.md
+  - Clients:
       - client/index.md
-      - Client callbacks: client/callbacks.md
-      - Client transports: client/transports.md
-      - Protocol versions: client/protocol-versions.md
+      - Callbacks: client/callbacks.md
+      - Transports: client/transports.md
+      - OAuth: client/oauth-clients.md
+      - Identity assertion: client/identity-assertion.md
+      - Multiple servers: client/session-groups.md
+      - Caching: client/caching.md
+  - Protocol versions: protocol-versions.md
+  - Deprecated features: deprecated.md
   - Advanced:
-      - Multi-round-trip requests: advanced/multi-round-trip.md
+      - advanced/index.md
       - The low-level Server: advanced/low-level-server.md
-      - URI templates: advanced/uri-templates.md
       - Pagination: advanced/pagination.md
-      - Caching hints: advanced/caching.md
-      - Subscriptions: advanced/subscriptions.md
       - Middleware: advanced/middleware.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
-      - OpenTelemetry: advanced/opentelemetry.md
-      - Authorization: advanced/authorization.md
-      - OAuth clients: advanced/oauth-clients.md
-      - Identity assertion: advanced/identity-assertion.md
-      - Session groups: advanced/session-groups.md
-      - Deprecated features: advanced/deprecated.md
+  - Troubleshooting: troubleshooting.md
   - Migration Guide: migration.md
   - API Reference: api/
 

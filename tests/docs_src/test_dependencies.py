@@ -1,4 +1,4 @@
-"""`docs/tutorial/dependencies.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/handlers/dependencies.md`: every claim the page makes, proved against the real SDK."""
 
 from typing import Literal
 

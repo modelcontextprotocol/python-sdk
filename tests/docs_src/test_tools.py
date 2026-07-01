@@ -1,4 +1,4 @@
-"""`docs/tutorial/tools.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/servers/tools.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot

@@ -1020,7 +1020,7 @@ docs = [
     { name = "mkdocs-gen-files", specifier = ">=0.5.0" },
     { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
     { name = "mkdocs-literate-nav", specifier = ">=0.6.1" },
-    { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.5.45" },
+    { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.7.0" },
     { name = "mkdocstrings-python", specifier = ">=2.0.1" },
 ]
 
