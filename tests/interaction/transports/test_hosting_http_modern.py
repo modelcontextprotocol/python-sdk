@@ -1437,19 +1437,24 @@ async def test_custom_request_header_reaches_the_handler_request_context_on_both
 
 
 @requirement("hosting:http:modern:mcp-param-mismatch-400")
-async def test_modern_entry_accepts_a_mismatching_mcp_param_header_without_validation() -> None:
-    """A tools/call whose Mcp-Param header disagrees with the body argument is accepted, pinning the gap.
+async def test_modern_mcp_param_header_disagreeing_with_body_argument_is_rejected_400_header_mismatch() -> None:
+    """A ``Mcp-Param-*`` header disagreeing with its body argument is rejected with HTTP 400 and HeaderMismatch.
 
-    Pins a recorded divergence: the spec mandates 400/-32020 HeaderMismatch on a decoded-header /
-    body disagreement, but the ladder compares only MCP-Protocol-Version, Mcp-Method and Mcp-Name,
-    so the handler runs on the body value. When validation lands: this test flips to 400 and
-    re-pins, while the null-and-absent acceptance test above must stay green.
+    Spec-mandated: the server resolves the ``x-mcp-header`` annotation from the tool's advertised
+    ``inputSchema`` via its own tools/list handler and rejects the decoded-header/body disagreement
+    before dispatch. Raw httpx because the HTTP status is a wire-only observable and the typed
+    client cannot emit a mismatching header by construction.
     """
 
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        tool = Tool(
+            name="run",
+            input_schema={"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}},
+        )
+        return ListToolsResult(tools=[tool])
+
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-        assert params.name == "run"
-        assert params.arguments == {"region": "us-west1"}
-        return CallToolResult(content=[TextContent(text="ok")])
+        raise NotImplementedError  # The mismatch is rejected before dispatch reaches the handler.
 
     body = {
         "jsonrpc": "2.0",
@@ -1459,13 +1464,15 @@ async def test_modern_entry_accepts_a_mismatching_mcp_param_header_without_valid
     }
     headers = _modern_headers(method="tools/call", name="run") | {"mcp-param-region": "eu-central1"}
     with anyio.fail_after(5):
-        async with mounted_app(Server("param-mismatch", on_call_tool=call_tool)) as (http, _):
+        async with mounted_app(Server("param-mismatch", on_list_tools=list_tools, on_call_tool=call_tool)) as (
+            http,
+            _,
+        ):
             response = await http.post("/mcp", json=body, headers=headers)
 
-    # 200, not the spec-mandated 400: the request is served despite the mismatching header.
-    assert response.status_code == 200
-    parsed = JSONRPCResponse.model_validate(response.json())
-    assert parsed.id == 1
-    assert parsed.result == snapshot(
-        {"content": [{"text": "ok", "type": "text"}], "isError": False, "resultType": "complete"}
+    assert response.status_code == 400
+    assert JSONRPCError.model_validate(response.json()).error == snapshot(
+        ErrorData(
+            code=HEADER_MISMATCH, message="Mcp-Param-Region header does not match the request body's 'region' argument"
+        )
     )

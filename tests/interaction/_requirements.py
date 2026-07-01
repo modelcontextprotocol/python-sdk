@@ -4356,20 +4356,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/server/utilities/caching#time-to-live-ttl-field",
         behavior="A negative ttlMs on an inbound result is ignored and treated as 0.",
         added_in="2026-07-28",
-        divergence=Divergence(
-            note=(
-                "The client rejects a negative ttlMs with a pydantic ValidationError out of the "
-                "request call instead of ignoring it and treating it as 0: Field(ge=0) on the "
-                "2026-07-28 wire surface (and on the monolith CacheableResult) raises before any "
-                "coerce-to-zero leniency could run, and there is no response cache for 'treat as "
-                "0' to act on. The gap is asymmetric: ge=0 on server-authored EMISSION is correct "
-                "by-construction strictness (a conformant server can never author a negative "
-                "ttlMs through the typed API); the gap is ONLY the client's inbound parse, which "
-                "validates before any clamp-to-0 could apply. The remedy is receive-side leniency "
-                "-- clamp a negative inbound ttlMs to 0 before validation -- NOT loosening the "
-                "shared type, which would silently bless negative emission server-side."
-            ),
-            issue="L112",
+        note=(
+            "The leniency is receive-side only: the client clamps a negative inbound ttlMs to 0 "
+            "before validation, while emission keeps ge=0 on the shared type -- a conformant "
+            "server can never author a negative ttlMs through the typed API."
         ),
     ),
     "caching:ttl:positive-fresh-window": Requirement(
@@ -6094,22 +6084,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
-        divergence=Divergence(
-            note=(
-                "The server performs no Mcp-Param-* header validation: the inbound ladder "
-                "compares only MCP-Protocol-Version, Mcp-Method and Mcp-Name, so a request "
-                "whose decoded Mcp-Param header disagrees with the body argument is accepted "
-                "and the handler runs on the body value; the same gap covers the spec's "
-                "'client omits header but value is in body' reject row. The SDK has no notion "
-                "of a 'recognized' param header (the inbound ladder never sees a tool schema); "
-                "the pinned accept uses a header that name-matches a body argument -- the "
-                "strongest candidate for any future validation -- and the unknown-header arm "
-                "(a header with no corresponding body argument) is deliberately not pinned: "
-                "its reject-vs-ignore consequence must be decided when validation lands."
-            ),
-            issue="L110",
+        note=(
+            "TS implements this (createMcpHandler) with no requirement id of its own. When the "
+            "server registers no tools/list handler the validation deliberately fails open and "
+            "the call is served."
         ),
-        note="TS implements this (createMcpHandler) with no requirement id of its own.",
     ),
     "hosting:http:modern:invalid-header-chars-rejected": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-behavior-for-custom-headers",
