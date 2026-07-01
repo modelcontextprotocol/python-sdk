@@ -58,7 +58,7 @@ from mcp.client.session import (
     SamplingFnT,
 )
 from mcp.client.streamable_http import streamable_http_client
-from mcp.client.subscriptions import Subscription
+from mcp.client.subscriptions import ServerEvent, Subscription
 from mcp.client.subscriptions import listen as _listen
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
@@ -69,6 +69,7 @@ from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.session import RequestResponder
+from mcp.shared.subscriptions import event_to_notification
 
 logger = logging.getLogger(__name__)
 
@@ -684,7 +685,8 @@ class Client:
                     tools = await client.list_tools()  # refetch on change
 
         A graceful server close ends the loop; an abrupt drop raises
-        `SubscriptionLost` (re-listen and refetch - there is no replay).
+        `SubscriptionLost`. Either way the stream is gone and there is no
+        replay: a client that keeps watching re-listens and refetches.
         Exiting the context ends the subscription. Multiple subscriptions may
         be open concurrently.
 
@@ -702,7 +704,27 @@ class Client:
             prompts_list_changed=prompts_list_changed,
             resources_list_changed=resources_list_changed,
             resource_subscriptions=resource_subscriptions,
+            on_event=self._evict_for_listen_event if self._response_cache is not None else None,
         )
+
+    async def _evict_for_listen_event(self, event: ServerEvent) -> None:
+        """Finish response-cache eviction before a listen consumer can refetch.
+
+        The eviction wrapper on message_handler runs on a spawned path; the
+        consumer's iterator would otherwise wake first, refetch through a
+        still-warm entry, and - events being deduplicated level triggers -
+        never get a second wake to correct it. The event's notification still
+        tees to that wrapper, so the same eviction fires twice; that is
+        deliberate (eviction is idempotent, and the tee-path one covers
+        non-iterating consumers sharing this cache). Same containment boundary
+        as `_evicting_message_handler`: a cache fault must not block delivery.
+        """
+        cache = self._response_cache
+        assert cache is not None  # installed as the event barrier only when a cache exists
+        try:
+            await cache.evict_for_notification(event_to_notification(event, {}))
+        except Exception:  # boundary: eviction reaches user store code; a cache fault must not block delivery
+            logger.exception("Response cache eviction failed; the event is still delivered")
 
     @deprecated(
         "resources/subscribe is removed as of 2026-07-28; use Client.listen() instead.",

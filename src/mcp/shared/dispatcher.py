@@ -16,6 +16,7 @@ See `JSONRPCDispatcher` for the production implementation and
 embedding a server in-process.
 """
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 
@@ -26,16 +27,20 @@ from mcp_types import RequestId
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "CallOptions",
     "DispatchContext",
     "Dispatcher",
     "OnNotify",
+    "OnNotifyIntercept",
     "OnRequest",
     "Outbound",
     "ProgressFnT",
     "as_request_id",
     "coerce_request_id",
+    "run_notify_intercept",
 ]
 
 TransportT_co = TypeVar("TransportT_co", bound=TransportContext, covariant=True)
@@ -223,6 +228,36 @@ OnRequest = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] 
 OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[None]]
 """Handler for inbound notifications: `(ctx, method, params)`."""
 
+OnNotifyIntercept = Callable[[str, Mapping[str, Any] | None], bool]
+"""Synchronous receive-order intercept for inbound notifications: `(method, params) -> consumed`.
+
+Dispatchers invoke it for every inbound notification, in receive order, before
+`on_notify` is scheduled. This is the seam for correlation state that must
+advance in wire order relative to response resolution (the client demultiplexes
+its listen streams here: an ack or event handled in a spawned task could lose
+the race against the listen request's own result). Returning True consumes the
+notification - `on_notify` never sees it. Runs on the receive path, so it must
+not block; a raising intercept costs that one notification, not the connection.
+Implementations honor it through `run_notify_intercept`, the one spelling of
+that containment contract.
+"""
+
+
+def run_notify_intercept(intercept: OnNotifyIntercept | None, method: str, params: Mapping[str, Any] | None) -> bool:
+    """Invoke a notify intercept under the shared containment contract.
+
+    The single spelling every dispatcher uses, so the substrates cannot drift:
+    a raising intercept costs that one interception (the frame passes through),
+    never the receive loop.
+    """
+    if intercept is None:
+        return False
+    try:
+        return intercept(method, params)
+    except Exception:
+        logger.exception("notification intercept raised; passing %r through", method)
+        return False
+
 
 class Dispatcher(Outbound, Protocol[TransportT_co]):
     """A duplex request/notification channel with call-return semantics.
@@ -237,6 +272,7 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -244,7 +280,12 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
 
         Each inbound request is dispatched to `on_request` in its own task;
         the returned dict (or raised `MCPError`) is sent back as the response.
-        Inbound notifications go to `on_notify`.
+        Implementations MUST offer every inbound notification to
+        `on_notify_intercept` first, synchronously in receive order (via
+        `run_notify_intercept`), handing only the ones it does not consume to
+        `on_notify` - `ClientSession`'s subscription demux depends on this,
+        and a dispatcher that skips the intercept leaves `listen()` waiting
+        for an acknowledgment that is never recorded.
 
         `task_status.started()` is called once the dispatcher is ready to
         accept `send_request`/`notify` calls, so callers can use

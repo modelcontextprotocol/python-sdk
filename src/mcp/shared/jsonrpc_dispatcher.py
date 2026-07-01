@@ -44,10 +44,12 @@ from mcp.shared.dispatcher import (
     DispatchContext,
     Dispatcher,
     OnNotify,
+    OnNotifyIntercept,
     OnRequest,
     ProgressFnT,
     as_request_id,
     coerce_request_id,
+    run_notify_intercept,
 )
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import (
@@ -294,6 +296,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
+        self._on_notify_intercept: OnNotifyIntercept | None = None
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
         self._closed = False
@@ -463,6 +466,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -471,6 +475,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         `task_status.started()` fires once `send_raw_request` is usable.
         Single-shot: once the loop ends the dispatcher stays closed and cannot be restarted.
         """
+        self._on_notify_intercept = on_notify_intercept
         try:
             # LIFO exits: the write stream closes only after the task-group join, so teardown writes still land.
             async with self._write_stream:
@@ -600,7 +605,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
         `notifications/cancelled` and `notifications/progress` are intercepted
         here (they correlate against the `_in_flight`/`_pending` tables this
-        layer owns) and still teed to `on_notify` afterwards.
+        layer owns) and still teed to `on_notify` afterwards. The caller's
+        `on_notify_intercept` then runs, synchronously in receive order, for
+        correlation state the layer above owns; only notifications it does not
+        consume are handed to the spawned `on_notify`.
         """
         if msg.method == "notifications/cancelled":
             rid = cancelled_request_id_from_params(msg.params)
@@ -627,6 +635,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     )
                 case _:
                     pass
+        if run_notify_intercept(self._on_notify_intercept, msg.method, msg.params):
+            return
         try:
             transport_ctx = self._transport_builder(metadata)
         except Exception:

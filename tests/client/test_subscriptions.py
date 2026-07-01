@@ -19,9 +19,11 @@ from mcp import Client, MCPError
 from mcp.client.session import ClientSession
 from mcp.client.subscriptions import (
     ListenNotSupportedError,
+    ListenRoute,
     PromptsListChanged,
     ResourcesListChanged,
     ResourceUpdated,
+    ServerEvent,
     Subscription,
     SubscriptionLost,
     ToolsListChanged,
@@ -498,6 +500,173 @@ async def test_a_bare_string_for_resource_subscriptions_is_rejected():
             await client.listen(resource_subscriptions="note://todo").__aenter__()  # pyright: ignore[reportArgumentType]
 
 
+def test_the_route_admits_only_honored_events_and_only_while_live():
+    """Admission control at the route: nothing before the ack; after it, kind
+    events match the honored flags exactly, while a ResourceUpdated is admitted
+    whenever URI subscriptions were honored at all (the spec lets the stamped
+    URI be a sub-resource of a subscribed one); nothing once the stream ended."""
+    route = ListenRoute()
+    route.deliver(ToolsListChanged())  # before the ack nothing is admissible
+    assert route._pending == {}  # pyright: ignore[reportPrivateUsage]
+    route.set_acked(SubscriptionFilter(tools_list_changed=True, resource_subscriptions=["note://todo"]))
+    route.deliver(PromptsListChanged())  # kind not honored
+    route.deliver(ResourceUpdated(uri="note://todo/draft"))  # sub-resource of a subscribed URI: admitted
+    route.deliver(ResourceUpdated(uri="note://todo"))
+    route.deliver(ToolsListChanged())
+    route.deliver(ToolsListChanged())  # duplicate pending consumption collapses
+    assert list(route._pending) == [  # pyright: ignore[reportPrivateUsage]
+        ResourceUpdated(uri="note://todo/draft"),
+        ResourceUpdated(uri="note://todo"),
+        ToolsListChanged(),
+    ]
+    route.settle("graceful")
+    route.deliver(ResourceUpdated(uri="note://todo"))  # post-close noise is refused
+    assert len(route._pending) == 3  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_peer_flooding_distinct_uris_costs_the_subscription_not_client_memory():
+    """`_MAX_PENDING_EVENTS` backstops the one backlog admission cannot bound:
+    URI admission is deliberately loose (sub-resources), so a flooding peer
+    settles the route lost - re-listen and refetch - instead of growing the
+    pending map without bound."""
+    route = ListenRoute()
+    route.set_acked(SubscriptionFilter(resource_subscriptions=["note://todo"]))
+    for n in range(subscriptions_module._MAX_PENDING_EVENTS):  # pyright: ignore[reportPrivateUsage]
+        route.deliver(ResourceUpdated(uri=f"note://todo/{n}"))
+    assert route.end is None
+    route.deliver(ResourceUpdated(uri="note://todo/one-too-many"))
+    assert route.end == "lost"
+    assert route.error is not None
+    assert "backlog" in route.error.error.message
+    # The overflowing event was not queued; the drained backlog stays at the cap.
+    assert len(route._pending) == subscriptions_module._MAX_PENDING_EVENTS  # pyright: ignore[reportPrivateUsage]
+
+
+async def test_a_cancelled_on_event_barrier_does_not_lose_the_event():
+    """The event stays pending while the barrier runs: a consumer-side timeout
+    cancelling `anext` mid-barrier leaves the level trigger queued, and the
+    next `anext` re-runs the (idempotent) barrier and returns it."""
+    bus = InMemorySubscriptionBus()
+    entered = anyio.Event()
+    release = anyio.Event()
+
+    async def parked_barrier(event: ServerEvent) -> None:
+        entered.set()
+        await release.wait()
+
+    async with Client(_bus_server(bus)) as client:
+        with anyio.fail_after(5):
+            async with listen(
+                client.session, tools_list_changed=True, on_event=parked_barrier
+            ) as sub:  # pragma: no branch
+                await bus.publish(ToolsListChanged())
+                async with anyio.create_task_group() as tg:
+                    cancel_scope = anyio.CancelScope()
+
+                    async def first_attempt() -> None:
+                        with cancel_scope:
+                            await anext(sub)
+                            raise AssertionError("must be cancelled mid-barrier")  # pragma: no cover
+
+                    tg.start_soon(first_attempt)
+                    await entered.wait()
+                    cancel_scope.cancel()
+                release.set()
+                assert await anext(sub) == ToolsListChanged()
+
+
+async def test_events_outside_the_honored_filter_are_never_delivered():
+    """A server that violates its acknowledged filter cannot reach the consumer
+    (or grow the backlog): the route admits only honored events."""
+    proceed = anyio.Event()
+
+    async def overreaching_listen(
+        ctx: ServerRequestContext[Any, Any], params: types.SubscriptionsListenRequestParams
+    ) -> types.SubscriptionsListenResult:
+        meta = await _ack(ctx, params.notifications)  # honors exactly what was requested: tools only
+        await ctx.session.send_notification(
+            types.ResourceUpdatedNotification(
+                params=types.ResourceUpdatedNotificationParams(uri="note://uninvited", _meta=meta)
+            ),
+            related_request_id=ctx.request_id,
+        )
+        await ctx.session.send_notification(
+            types.ToolListChangedNotification(params=types.NotificationParams(_meta=meta)),
+            related_request_id=ctx.request_id,
+        )
+        await proceed.wait()
+        return types.SubscriptionsListenResult(_meta=meta)
+
+    server = Server("subs", on_subscriptions_listen=overreaching_listen)
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            async with client.listen(tools_list_changed=True) as sub:  # pragma: no branch
+                assert await anext(sub) == ToolsListChanged()
+                proceed.set()
+                with pytest.raises(StopAsyncIteration):  # pragma: no branch
+                    await anext(sub)
+
+
+async def test_the_on_event_barrier_completes_before_each_event_is_returned():
+    """`on_event` is awaited between the route handing over an event and the
+    iterator returning it - the seam consumers use for must-happen-before work
+    (the Client wires cache eviction here)."""
+    bus = InMemorySubscriptionBus()
+    order: list[str] = []
+
+    async def barrier(event: ServerEvent) -> None:
+        order.append(f"barrier:{type(event).__name__}")
+
+    async with Client(_bus_server(bus)) as client:
+        with anyio.fail_after(5):
+            async with listen(client.session, tools_list_changed=True, on_event=barrier) as sub:  # pragma: no branch
+                await bus.publish(ToolsListChanged())
+                event = await anext(sub)
+                order.append(f"returned:{type(event).__name__}")
+    assert order == ["barrier:ToolsListChanged", "returned:ToolsListChanged"]
+
+
+async def test_client_listen_installs_the_cache_eviction_barrier_exactly_when_a_cache_exists():
+    """`Client.listen` wires its response-cache evictor as the event barrier;
+    with caching disabled there is no barrier to pay for."""
+    bus = InMemorySubscriptionBus()
+    async with Client(_bus_server(bus)) as cached_client:
+        with anyio.fail_after(5):
+            async with cached_client.listen(tools_list_changed=True) as sub:  # pragma: no branch
+                assert sub._on_event == cached_client._evict_for_listen_event  # pyright: ignore[reportPrivateUsage]
+    async with Client(_bus_server(bus), cache=False) as uncached_client:
+        with anyio.fail_after(5):
+            async with uncached_client.listen(tools_list_changed=True) as sub:  # pragma: no branch
+                assert sub._on_event is None  # pyright: ignore[reportPrivateUsage]
+
+
+async def test_the_cache_eviction_barrier_maps_events_and_contains_store_faults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The barrier evicts through the same notification mapping as the
+    message_handler wrapper, and a raising store costs a log line, not the
+    event delivery."""
+    client = Client(_bus_server(InMemorySubscriptionBus()))
+    cache = client._response_cache  # pyright: ignore[reportPrivateUsage]
+    assert cache is not None
+    evicted: list[types.ServerNotification] = []
+
+    async def record(notification: types.ServerNotification) -> None:
+        evicted.append(notification)
+
+    monkeypatch.setattr(cache, "evict_for_notification", record)
+    await client._evict_for_listen_event(ResourceUpdated(uri="note://x"))  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(evicted[0], types.ResourceUpdatedNotification)
+    assert evicted[0].params.uri == "note://x"
+
+    async def broken(notification: types.ServerNotification) -> None:
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(cache, "evict_for_notification", broken)
+    # Contained: a cache fault must not block delivery.
+    await client._evict_for_listen_event(ToolsListChanged())  # pyright: ignore[reportPrivateUsage]
+
+
 async def test_a_raw_request_id_collision_fails_the_subscription_not_the_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -530,6 +699,9 @@ async def test_a_raw_request_id_collision_fails_the_subscription_not_the_session
                 with pytest.raises(MCPError) as exc_info:
                     await client.listen(tools_list_changed=True).__aenter__()
                 assert "already in flight" in exc_info.value.error.message
+                # The failed open released the colliding id's demux registration:
+                # only the raw caller may see frames stamped with it.
+                assert client.session._listen_routes == {}  # pyright: ignore[reportPrivateUsage]
                 raw_scope.cancel()
                 # The session is intact: the next listen mints a fresh id and opens.
                 async with client.listen(tools_list_changed=True) as sub:  # pragma: no branch

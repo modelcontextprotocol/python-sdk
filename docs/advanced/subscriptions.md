@@ -88,9 +88,9 @@ Consuming a subscription is one context manager:
 ```
 
 * `client.listen(...)` takes the filter as keyword arguments — they mirror the wire `SubscriptionFilter` field for field. Entering sends the request and returns once the server's acknowledgment arrives, so `sub.honored` (the subset the server agreed to deliver) is always there before the first event.
-* Iteration yields the same four typed events the server publishes: `ToolsListChanged`, `PromptsListChanged`, `ResourcesListChanged`, and `ResourceUpdated(uri=...)`. An event is a cue to refetch — it carries no payload beyond identity, and duplicates pending consumption collapse into one.
+* Iteration yields the same four typed events the server publishes: `ToolsListChanged`, `PromptsListChanged`, `ResourcesListChanged`, and `ResourceUpdated(uri=...)` — where the URI may be a sub-resource of one you subscribed to, at the server's discretion. An event is a cue to refetch — it carries no payload beyond identity, and duplicates pending consumption collapse into one.
 * Leaving the block ends the subscription, with the transport's own spelling: over streamable HTTP the request's response stream is closed (that is the 2026 cancellation signal), on stream transports `notifications/cancelled` is sent.
-* The stream's two endings are control flow. The server closing gracefully simply ends the `async for`; an abrupt drop raises `SubscriptionLost`. There is no replay and no automatic re-listen — a client that reconnects refetches what it depends on:
+* The stream's two endings are control flow. The server closing gracefully simply ends the `async for`; an abrupt drop raises `SubscriptionLost`. The distinction is diagnostic — a clean end versus a connection worth suspecting — not a difference in what to do next: either way the stream is gone, nothing is replayed, and a watcher that still cares re-listens and refetches. Servers close streams gracefully for their own reasons — shutdown, or shedding a subscriber whose backlog grew past bounds, as this SDK's `ListenHandler` does — so a graceful close is not a signal to stop watching:
 
 ```python
 async def watch(client: Client, uri: str) -> None:
@@ -101,12 +101,14 @@ async def watch(client: Client, uri: str) -> None:
                 async for _event in sub:
                     await client.read_resource(uri)
         except SubscriptionLost:
-            continue  # transport dropped - re-listen
-        else:
-            break  # the server ended it deliberately
+            pass
+        # Graceful close or abrupt drop, the stream is gone either way. Back
+        # off before re-listening - a graceful close may be the server
+        # shedding load, and reconnecting instantly recreates the pressure.
+        await anyio.sleep(1)
 ```
 
-* Checking the acknowledgment (the spec's client SHOULD) is reading `sub.honored` — for example, `if not sub.honored.prompts_list_changed:` the server has no prompts to watch. Multiple subscriptions may be open concurrently; each demultiplexes by its own subscription id.
+* Checking the acknowledgment (the spec's client SHOULD) is reading `sub.honored` — the kinds this stream will actually receive. A server may narrow the filter it agrees to honor (a multi-tenant server declining a URI, say), and `sub.honored` is that delivery contract — it says nothing about what exists in the catalog. Multiple subscriptions may be open concurrently; each demultiplexes by its own subscription id.
 * Tool calls and other requests run freely beside an open stream — from the same task between events, or from sibling tasks sharing the client. A watcher task that refetches inside its event loop is the intended pattern, not a re-entrancy hazard.
 * `listen()` requires a 2026-07-28 connection and raises `ListenNotSupportedError` on older ones, steering to the deprecated `subscribe_resource` and `message_handler` spelling those wires use.
 

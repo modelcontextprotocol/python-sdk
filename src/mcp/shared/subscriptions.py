@@ -13,6 +13,7 @@ buffers by deduplication.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,7 @@ from mcp_types import (
     ResourceUpdatedNotification,
     ResourceUpdatedNotificationParams,
     ServerNotification,
+    SubscriptionFilter,
     ToolListChangedNotification,
 )
 
@@ -33,7 +35,8 @@ __all__ = [
     "ResourcesListChanged",
     "ServerEvent",
     "ToolsListChanged",
-    "event_from_notification",
+    "event_from_wire",
+    "event_matches",
     "event_to_notification",
 ]
 
@@ -81,19 +84,43 @@ def event_to_notification(event: ServerEvent, meta: dict[str, Any]) -> ServerNot
     return ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri=event.uri, _meta=meta))
 
 
-def event_from_notification(notification: ServerNotification) -> ServerEvent | None:
-    """The event a listen-stream notification announces (the client's direction).
+_LIST_CHANGED_EVENTS: dict[str, ServerEvent] = {
+    "notifications/tools/list_changed": ToolsListChanged(),
+    "notifications/prompts/list_changed": PromptsListChanged(),
+    "notifications/resources/list_changed": ResourcesListChanged(),
+}
 
-    Returns None for notification kinds that are not subscription events.
+
+def event_from_wire(method: str, params: Mapping[str, Any] | None) -> ServerEvent | None:
+    """The event a raw listen-stream frame announces (the client's direction).
+
+    Reads the wire dict directly: the client demultiplexes on the dispatcher's
+    receive path, before the typed notification parse. Returns None for
+    non-event methods, and for a `resources/updated` frame with no string
+    `uri` (surface validation rejects those shapes downstream).
     """
-    match notification:
-        case ToolListChangedNotification():
-            return ToolsListChanged()
-        case PromptListChangedNotification():
-            return PromptsListChanged()
-        case ResourceListChangedNotification():
-            return ResourcesListChanged()
-        case ResourceUpdatedNotification(params=params):
-            return ResourceUpdated(uri=params.uri)
-        case _:
-            return None
+    if (event := _LIST_CHANGED_EVENTS.get(method)) is not None:
+        return event
+    if method == "notifications/resources/updated":
+        uri = (params or {}).get("uri")
+        if isinstance(uri, str):
+            return ResourceUpdated(uri=uri)
+    return None
+
+
+def event_matches(honored: SubscriptionFilter, uris: frozenset[str], event: ServerEvent) -> bool:
+    """Whether `event` is within a stream's honored filter.
+
+    The one admission predicate both sides share: the server delivers only
+    what it acknowledged, and the client admits only what was acknowledged -
+    which is what bounds the client's backlog by the filter's width against
+    any peer, honest or not. `uris` is the honored `resource_subscriptions`
+    as a set: matching runs on every event, and the filter may name many URIs.
+    """
+    if isinstance(event, ToolsListChanged):
+        return honored.tools_list_changed is True
+    if isinstance(event, PromptsListChanged):
+        return honored.prompts_list_changed is True
+    if isinstance(event, ResourcesListChanged):
+        return honored.resources_list_changed is True
+    return event.uri in uris
