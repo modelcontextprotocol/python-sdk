@@ -363,12 +363,7 @@ class ClientSession:
         self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
-        # subscriptions/listen demux routes, keyed by the listen request's id
-        # (verbatim-typed: a plain dict already keeps 1 and "1" distinct).
-        # Fed by `_intercept_notification` on the dispatcher's receive path;
-        # membership alone decides ack consumption, so a closed subscription
-        # releases its id completely - raw escape-hatch listens (never
-        # registered here) keep receiving their acks via message_handler.
+        # subscriptions/listen demux routes; membership decides ack consumption (raw listens are never registered)
         self._listen_routes: dict[RequestId, ListenRoute] = {}
         if dispatcher is not None:
             if read_stream is not None or write_stream is not None:
@@ -1257,43 +1252,25 @@ class ClientSession:
         self._listen_routes.pop(request_id, None)
 
     def _settle_listen_routes_closed(self) -> None:
-        """End every open subscription as lost: the session is gone.
-
-        Without this, a consumer iterating in a sibling task would park forever -
-        the driver task dies by cancellation and can never settle its route.
-        """
+        """Settle all open listen routes as lost on session exit; cancelled driver tasks cannot."""
         closed = MCPError(code=CONNECTION_CLOSED, message="Connection closed")
         for route in self._listen_routes.values():
             route.settle("lost", error=closed)
         self._listen_routes.clear()
 
     def _intercept_notification(self, method: str, params: Mapping[str, Any] | None) -> bool:
-        """Wire-order listen demux, run by the dispatcher on its receive path.
+        """Wire-order listen demux, run synchronously on the dispatcher's receive path.
 
-        Route bookkeeping must advance in receive order relative to the listen
-        request's own result: the result resolves synchronously on this same
-        path, so an ack or event handled on the spawned `_on_notify` path could
-        lose the race and be dropped after the stream settled - a graceful
-        close swallowing the events that preceded it. Only the synchronous
-        bookkeeping happens here; the user-facing tee (message_handler,
-        logging) stays on the spawned path.
-
-        Returns True to consume the frame: an ack for a live driver route is
-        driver state, never surfaced. Raw escape-hatch listens have no route
-        registered and keep observing their acks via message_handler - as does
-        a stray ack for an already-closed driver id, whose registration is gone.
-
-        The `as_request_id` guard is not a tripwire: this reads raw wire
-        dicts, where a non-id (even unhashable) `_meta` value is
-        constructible and would fail the dict lookup.
+        Bookkeeping must advance in receive order with the listen result (resolved on
+        this same path); the spawned `_on_notify` path would race it and drop events.
+        Returns True to consume the frame: a live route's ack is driver state, never surfaced.
         """
         if not self._listen_routes:
             return False
         if method == "notifications/cancelled":
             request_id = cancelled_request_id_from_params(params)
             if request_id is not None and (listen_route := self._listen_routes.get(request_id)) is not None:
-                # A server-sent cancel naming one of our listen requests is
-                # that stream's teardown signal (the stream-transport spelling).
+                # a server-sent cancel naming a listen request is that stream's teardown signal
                 listen_route.settle("lost")
             return False  # _on_notify swallows every cancelled either way (v1 parity)
         if params is None:
@@ -1301,20 +1278,18 @@ class ClientSession:
         meta = params.get("_meta")
         if not isinstance(meta, Mapping):
             return False
+        # as_request_id is not a tripwire: raw wire _meta can carry a non-id (even unhashable) value
         subscription_id = as_request_id(cast("Mapping[str, Any]", meta).get(SUBSCRIPTION_ID_META_KEY))
         if subscription_id is None or (listen_route := self._listen_routes.get(subscription_id)) is None:
             return False
         if method == "notifications/subscriptions/acknowledged":
             raw_filter = params.get("notifications")
             if raw_filter is None:
-                # The wire shape requires `notifications`; a frame without it is
-                # malformed, not an empty filter - leave it to the spawned
-                # path's validation warning rather than fabricating honored={}.
+                # malformed, not an empty filter: leave it to the spawned path's validation warning
                 return False
             try:
                 honored = types.SubscriptionFilter.model_validate(raw_filter)
             except ValidationError:
-                # Malformed ack: leave it to the spawned path's validation warning.
                 return False
             listen_route.set_acked(honored)
             return True
@@ -1356,9 +1331,7 @@ class ClientSession:
             logger.warning("Failed to validate notification: %s", method, exc_info=True)
             return
         if isinstance(notification, types.CancelledNotification):
-            # Never surfaced to message_handler (v1 parity): the dispatcher
-            # already applied any in-flight cancellation, and a cancel naming
-            # one of our listen streams was settled by the wire-order intercept.
+            # Never surfaced (v1 parity): the dispatcher already applied it; listen cancels settled by the intercept.
             return
         try:
             if isinstance(notification, types.LoggingMessageNotification):

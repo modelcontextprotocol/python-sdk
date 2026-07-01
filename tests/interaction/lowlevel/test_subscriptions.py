@@ -18,8 +18,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("subscriptions:listen:client:graceful-close")
 async def test_a_graceful_server_close_ends_iteration_after_buffered_events(connect: Connect) -> None:
-    """`ListenHandler.close()` sends the stamped result as the final frame; the
-    client loop drains what was published first, then ends without an exception."""
+    """`ListenHandler.close()` sends the result last; iteration drains published events, then ends cleanly."""
     bus = InMemorySubscriptionBus()
     handler = ListenHandler(bus)
     server = Server("subs", on_subscriptions_listen=handler)
@@ -35,8 +34,7 @@ async def test_a_graceful_server_close_ends_iteration_after_buffered_events(conn
 
 @requirement("subscriptions:listen:client:lost")
 async def test_a_stream_dropped_after_the_ack_raises_subscription_lost(connect: Connect) -> None:
-    """A server erroring the listen request after the ack (an abrupt end, not the
-    graceful close) surfaces as SubscriptionLost at the iteration site."""
+    """Erroring the listen request after the ack (abrupt, not graceful) raises SubscriptionLost from iteration."""
     proceed = anyio.Event()
 
     async def dropping_listen(

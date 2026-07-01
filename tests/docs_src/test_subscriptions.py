@@ -139,8 +139,7 @@ async def test_lowlevel_composition_serves_the_same_stream() -> None:
 
 
 async def test_client_listen_delivers_one_typed_event_then_closes() -> None:
-    """tutorial003: `Client.listen` yields a typed event for the subscribed URI and
-    leaving the block closes the stream (two clients, one server instance)."""
+    """tutorial003: `Client.listen` yields typed events for the subscribed URI; leaving the block closes the stream."""
     results: list[str] = []
 
     async def watch() -> None:
@@ -149,8 +148,7 @@ async def test_client_listen_delivers_one_typed_event_then_closes() -> None:
     with anyio.fail_after(10):
         async with anyio.create_task_group() as tg:
             tg.start_soon(watch)
-            # The watcher parks on its stream (the ack round trip is complete)
-            # before the edit is published.
+            # Let the watcher park on its stream (ack complete) before the edit is published.
             await anyio.wait_all_tasks_blocked()
             async with Client(tutorial001.mcp) as editor:  # pragma: no branch
                 await editor.call_tool("edit_note", {"name": "todo", "text": "water plants"})

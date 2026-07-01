@@ -13,9 +13,7 @@ the stream. This module provides the two pieces a server needs:
   `MCPServer` registers one automatically; lowlevel `Server` users pass an
   instance as `on_subscriptions_listen=`.
 
-The event vocabulary (the four `ServerEvent` dataclasses and the
-`_meta` subscription-id key) is defined in `mcp.shared.subscriptions`,
-shared with the client driver, and re-exported here.
+The event vocabulary lives in `mcp.shared.subscriptions`, shared with the client driver, and is re-exported here.
 
 Per the spec, the handler acknowledges first (the ack is the first frame on
 the stream), tags every frame with the listen request's JSON-RPC id under

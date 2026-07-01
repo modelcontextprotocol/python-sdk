@@ -12,7 +12,6 @@ pytestmark = pytest.mark.anyio
 
 
 def _notebook() -> MCPServer:
-    """A server whose tools publish both change kinds through their Context."""
     mcp = MCPServer("notebook")
 
     @mcp.tool()
@@ -31,9 +30,8 @@ def _notebook() -> MCPServer:
 @requirement("subscriptions:listen:client:honored-surfacing")
 @requirement("subscriptions:listen:client:iteration")
 async def test_listen_surfaces_the_ack_and_iterates_typed_events(connect: Connect) -> None:
-    """Entering waits for the acknowledgment (the honored filter is on the handle
-    before any event), and iteration yields the typed events the server's
-    notify calls produce - only the kinds this stream opted in to."""
+    """Entering waits for the ack (honored is set before any event); iteration yields
+    only the typed event kinds this stream opted in to."""
     mcp = _notebook()
     async with connect(mcp) as client:
         with anyio.fail_after(10):
@@ -53,8 +51,7 @@ async def test_listen_surfaces_the_ack_and_iterates_typed_events(connect: Connec
 
 @requirement("subscriptions:listen:client:era-guard")
 async def test_listen_on_a_pre_2026_connection_raises_the_typed_steer(connect: Connect) -> None:
-    """On 2025-era connections the guard fires before anything touches the wire,
-    steering to the legacy verbs."""
+    """On 2025-era connections the guard fires before anything touches the wire, steering to the legacy verbs."""
     mcp = _notebook()
     async with connect(mcp) as client:
         with anyio.fail_after(10):

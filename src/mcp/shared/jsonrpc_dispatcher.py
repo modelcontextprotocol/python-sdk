@@ -606,9 +606,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         `notifications/cancelled` and `notifications/progress` are intercepted
         here (they correlate against the `_in_flight`/`_pending` tables this
         layer owns) and still teed to `on_notify` afterwards. The caller's
-        `on_notify_intercept` then runs, synchronously in receive order, for
-        correlation state the layer above owns; only notifications it does not
-        consume are handed to the spawned `on_notify`.
+        `on_notify_intercept` then runs in receive order; only unconsumed
+        notifications reach the spawned `on_notify`.
         """
         if msg.method == "notifications/cancelled":
             rid = cancelled_request_id_from_params(msg.params)

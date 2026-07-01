@@ -1817,10 +1817,8 @@ async def test_session_read_resource_returns_input_required_result_when_opted_in
 
 @pytest.mark.anyio
 async def test_a_late_ack_for_a_closed_driver_listen_reaches_message_handler():
-    """Ack consumption is keyed on the live route registry alone: once a
-    subscription closes its id is fully released, so a stray ack still
-    carrying it surfaces through message_handler like any other unowned
-    frame - nothing consumes it, and nothing remembers the id forever."""
+    """Ack consumption is keyed on the live route registry alone: a stray ack for a
+    closed subscription's id surfaces through message_handler like any other unowned frame."""
     seen: list[object] = []
     follow_up = anyio.Event()
 
@@ -1858,12 +1856,8 @@ async def test_a_late_ack_for_a_closed_driver_listen_reaches_message_handler():
 
 @pytest.mark.anyio
 async def test_a_graceful_result_does_not_outrun_the_events_that_preceded_it():
-    """[ack, event, result] written back-to-back: the consumer drains the event
-    and the wire ack's filter survives, even with the message_handler tee parked
-    forever - route bookkeeping advances on the dispatcher's receive path in
-    wire order, not on the spawned tee's schedule (which a slow user handler
-    stalls arbitrarily). Regression: the result used to settle the route first,
-    dropping the event and clobbering the ack with a fabricated empty filter."""
+    """[ack, event, result] written back-to-back: the event delivers and the wire ack's filter
+    survives a parked message_handler tee, because routes settle on the dispatcher's receive path in wire order."""
 
     async def parked_handler(message: object) -> None:
         await anyio.sleep_forever()
@@ -1907,9 +1901,7 @@ def _intercept_only_session() -> ClientSession:
 
 
 def test_intercept_settles_only_the_named_listen_route_on_cancelled():
-    """SDK-defined demux contract: a server-sent cancel settles exactly the
-    listen route it names, and is never consumed (the session's v1-parity
-    swallow of cancelled happens downstream either way)."""
+    """SDK demux contract: a server-sent cancel settles exactly the listen route it names and is never consumed."""
     session = _intercept_only_session()
     route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
     intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
@@ -1920,40 +1912,31 @@ def test_intercept_settles_only_the_named_listen_route_on_cancelled():
 
 
 def test_intercept_ignores_frames_without_a_route_or_with_broken_meta():
-    """SDK-defined demux contract: frames that correlate to no live route -
-    no open subscriptions, non-mapping `_meta`, an unknown subscription id, or
-    a malformed event shape - flow through to the normal notification path."""
+    """SDK demux contract: frames that correlate to no live route flow through to the normal notification path."""
     session = _intercept_only_session()
     intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
-    # Fast path: no open subscriptions, nothing to correlate.
     assert intercept("notifications/tools/list_changed", {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}) is False
     route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
     route.set_acked(types.SubscriptionFilter(tools_list_changed=True))
-    # A params-less frame carries no meta at all.
     assert intercept("notifications/tools/list_changed", None) is False
-    # A frame whose `_meta` is not a mapping (constructible on pre-2026 wires) correlates to nothing.
+    # A non-mapping `_meta` is constructible on pre-2026 wires.
     assert intercept("notifications/tools/list_changed", {"_meta": "oops"}) is False
-    # A stamped frame for an id with no route flows through untouched.
     assert intercept("notifications/tools/list_changed", {"_meta": {SUBSCRIPTION_ID_META_KEY: "other"}}) is False
-    # A resources/updated frame with a non-string uri is not an event (surface validation owns it).
+    # A non-string uri is not an event; surface validation owns it.
     meta = {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}
     assert intercept("notifications/resources/updated", {"uri": 7, **meta}) is False
     assert route._pending == {}  # pyright: ignore[reportPrivateUsage]
 
 
 def test_intercept_consumes_acks_for_live_routes_and_leaves_malformed_ones():
-    """SDK-defined demux contract: a well-formed ack for a live route is driver
-    state (consumed, never surfaced); a malformed one is left to the spawned
-    path's validation warning; events deliver but still tee."""
+    """SDK demux contract: a well-formed ack for a live route is consumed as driver state; malformed acks pass on."""
     session = _intercept_only_session()
     route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
     intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
     meta = {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}
-    # A malformed ack is not consumed: the spawned path's validation warning owns it.
     assert intercept("notifications/subscriptions/acknowledged", {"notifications": ["nope"], **meta}) is False
     assert route.honored is None
-    # So is an ack missing the required `notifications` field entirely - it must
-    # not be read as an (all-refusing) empty filter.
+    # A missing `notifications` field must not be read as an (all-refusing) empty filter.
     assert intercept("notifications/subscriptions/acknowledged", dict(meta)) is False
     assert route.honored is None
     assert (
@@ -1961,6 +1944,6 @@ def test_intercept_consumes_acks_for_live_routes_and_leaves_malformed_ones():
         is True
     )
     assert route.honored == types.SubscriptionFilter(tools_list_changed=True)
-    # Events are delivered but never consumed - they still tee to message_handler.
+    # Events deliver but are never consumed - they still tee to message_handler.
     assert intercept("notifications/tools/list_changed", meta) is False
     assert list(route._pending) == [ToolsListChanged()]  # pyright: ignore[reportPrivateUsage]
