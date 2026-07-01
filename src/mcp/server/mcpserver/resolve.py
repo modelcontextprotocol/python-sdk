@@ -3,17 +3,14 @@
 A tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running the
 resolver `fn` before the tool body, instead of from the LLM-supplied arguments.
 Resolvers form a DAG: a resolver may declare its own `Resolve(...)` dependencies,
-take tool arguments by name, and take the `Context`. A resolver may return
-`Elicit[T]` to ask the client; the framework runs the elicitation and injects the
-answer.
+take tool arguments by name, and take the `Context`. A resolver may return a
+request marker (`Elicit[T]` to ask the user, `Sample` to sample the client's
+LLM, `ListRoots` to fetch its roots); the framework injects the response.
 
-The framework picks the elicitation transport from the negotiated protocol. At
->= 2026-07-28 it returns an `InputRequiredResult` carrying the batched questions
-and resumes when the client retries with `input_responses`/`request_state`
-(independent resolvers are asked in one round; a resolver depending on another's
-answer is asked in a later round). At <= 2025-11-25 it issues a synchronous
-`elicitation/create` request mid-call. Only *elicited* outcomes are carried in
-`request_state` across rounds (so the user is asked each question once). Resolver
+The transport follows the negotiated protocol: >= 2026-07-28 batches the requests
+into an `InputRequiredResult` and resumes when the client retries with
+`input_responses`/`request_state`; <= 2025-11-25 sends each standalone server-to-client
+request mid-call. Only *asked* outcomes ride `request_state`, so each question is asked once. Resolver
 bodies may re-run on every round; a recorded outcome is consulted only when the
 body asks its question again, so a resolver's own computation always wins over
 anything the client echoes back in `request_state`.
@@ -24,6 +21,8 @@ Whether the consumer receives the unwrapped model or the full
 - `Annotated[T, Resolve(fn)]` -> unwrapped `T`; decline/cancel aborts the call.
 - `Annotated[ElicitationResult[T], Resolve(fn)]` (or a specific member) -> the
   full outcome; the consumer branches on accept/decline/cancel.
+
+`Sample` and `ListRoots` have no decline arm; their consumers annotate the result type directly.
 """
 
 from __future__ import annotations
@@ -42,16 +41,30 @@ import anyio.to_thread
 from mcp_types import (
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     ClientCapabilities,
+    CreateMessageRequest,
+    CreateMessageRequestParams,
+    CreateMessageResult,
+    CreateMessageResultWithTools,
     ElicitationCapability,
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
     FormElicitationCapability,
+    IncludeContext,
     InputRequest,
     InputRequests,
     InputRequiredResult,
     InputResponses,
+    ListRootsRequest,
+    ListRootsResult,
     MissingRequiredClientCapabilityErrorData,
+    ModelPreferences,
+    RootsCapability,
+    SamplingCapability,
+    SamplingMessage,
+    SamplingToolsCapability,
+    Tool,
+    ToolChoice,
 )
 from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, ValidationError
@@ -67,8 +80,10 @@ from mcp.server.elicitation import (
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.request_state import compact_json
+from mcp.server.validation import validate_tool_use_result_messages
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import ServerMessageMetadata
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -101,6 +116,52 @@ class Elicit(Generic[T]):
     def __init__(self, message: str, schema: type[T]) -> None:
         self.message = message
         self.schema = schema
+
+
+class Sample:
+    """A resolver's request to sample the client's LLM via `sampling/createMessage`.
+
+    The framework injects a `CreateMessageResult` (`CreateMessageResultWithTools` when `tools` are
+    given); requires the `sampling` capability (`sampling.tools` when tools are given). On
+    >= 2026-07-28 the request must render identically across retry rounds, and the sampled result
+    rides `request_state` on every later round. `include_context` other than "none" is deprecated in the draft spec.
+    """
+
+    def __init__(
+        self,
+        messages: list[SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: ModelPreferences | None = None,
+        tools: list[Tool] | None = None,
+        tool_choice: ToolChoice | None = None,
+    ) -> None:
+        validate_tool_use_result_messages(messages)
+        self.params = CreateMessageRequestParams(
+            messages=messages,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt,
+            include_context=include_context,
+            temperature=temperature,
+            stop_sequences=stop_sequences,
+            metadata=metadata,
+            model_preferences=model_preferences,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
+
+
+class ListRoots:
+    """A resolver's request for the client's roots via `roots/list`; the framework injects the `ListRootsResult`."""
+
+
+_Marker = Elicit[Any] | Sample | ListRoots
+"""The request markers a resolver may return."""
 
 
 class _ParamPlan:
@@ -221,19 +282,23 @@ def _contains_resolve(annotation: Any) -> bool:
 
 
 def _check_elicit_return(return_annotation: Any, name: str) -> None:
-    """Validate the `Elicit[...]` arms of a resolver's return annotation.
+    """Validate the request-marker arms of a resolver's return annotation.
 
     Raises:
-        InvalidSignature: If the annotation has more than one `Elicit[...]` arm;
-            a resolver asks one question - a second arm means it should be split.
+        InvalidSignature: If the annotation has more than one marker arm.
     """
-    # A bare `Elicit[T]` is itself a candidate; a union contributes its members.
     candidates = get_args(return_annotation) if _is_union(return_annotation) else (return_annotation,)
     # Typing dedupes equal union members, so two arms here are genuinely distinct.
-    arms = [c for c in candidates if get_origin(c) is Elicit]
+    arms: list[Any] = [
+        c
+        for c in candidates
+        # Origin guard for 3.10: `dict[str, Any]` passes `isinstance(c, type)` there and would crash `issubclass`.
+        if get_origin(c) is Elicit
+        or (get_origin(c) is None and isinstance(c, type) and issubclass(c, Elicit | Sample | ListRoots))
+    ]
     if len(arms) > 1:
         raise InvalidSignature(
-            f"Resolver {name!r} return annotation has multiple Elicit arms; "
+            f"Resolver {name!r} return annotation has multiple Elicit/Sample/ListRoots arms; "
             "a resolver asks one question - split it into separate resolvers"
         )
 
@@ -360,9 +425,9 @@ class _Pending(Exception):
 class _Resolution:
     """Per-`tools/call` resolution state, shared across the DAG walk.
 
-    `input_required` selects the transport: at >= 2026-07-28 elicitations are
+    `input_required` selects the transport: at >= 2026-07-28 requests are
     batched into `pending` and surfaced as an `InputRequiredResult`; at older
-    revisions each `Elicit` is answered synchronously via `ctx.elicit`.
+    revisions each marker is answered synchronously over the back-channel.
     """
 
     def __init__(
@@ -490,8 +555,8 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
     else:
         result = await anyio.to_thread.run_sync(lambda: fn(**kwargs))
 
-    if _is_elicit(result):
-        outcome = await _elicit(result, wire_key, res)
+    if _is_marker(result):
+        outcome = await _fulfil(result, wire_key, res)
     else:
         # A resolver may return any type (not just `BaseModel`), so accept it as the
         # outcome without validating against the schema bound. Plain outcomes are not
@@ -502,18 +567,29 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
     return outcome
 
 
-async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> ElicitationResult[Any]:
-    """Turn a resolver's `Elicit` into an outcome via the negotiated transport."""
+async def _fulfil(marker: _Marker, key: str, res: _Resolution) -> ElicitationResult[Any]:
+    """Turn a resolver's request marker into an outcome via the negotiated transport."""
     if not res.input_required:
-        return await res.context.elicit(elicit.message, elicit.schema)
+        # Gate only when the handshake's declaration is visible: a session with no
+        # client info (e.g. stateless HTTP) has no back-channel, and the send path reports that.
+        if res.context.client_capabilities is not None:
+            _require_capability(res.context, marker, key)
+        if isinstance(marker, Elicit):
+            return await res.context.elicit(marker.message, marker.schema)
+        result = await res.context.session.send_request(
+            _render_request(marker),
+            _result_type(marker),
+            metadata=ServerMessageMetadata(related_request_id=res.context.request_id),
+        )
+        return _accepted(result)
 
-    request = _elicit_request(elicit)
+    request = _render_request(marker)
     q = _request_digest(request)
 
     # A recorded outcome from a prior round is consulted only here, after the body
     # decided to ask, so a `request_state` entry can never stand in for a resolver's
     # own computation. A recorded outcome wins over a re-sent answer.
-    outcome = _restore_outcome(res, key, elicit.schema, q)
+    outcome = _restore_outcome(res, key, marker, q)
     if outcome is not None:
         return outcome
 
@@ -524,16 +600,25 @@ async def _elicit(elicit: Elicit[Any], key: str, res: _Resolution) -> Elicitatio
         logger.info("Discarding the answer for resolver %r: the question changed since it was asked", key)
         answer = None
     if answer is None:
-        _require_form_elicitation(res.context, key)
+        _require_capability(res.context, marker, key)
         res.pending[key] = request
         raise _Pending
+    if not isinstance(marker, Elicit):
+        # A no-tool-use answer to a tools request parses as the plain result; validate against the marker's model.
+        wire = answer.model_dump(mode="json", by_alias=True, exclude_none=True)
+        try:
+            result = _result_type(marker).model_validate(wire)
+        except ValidationError as e:
+            raise ToolError(f"Resolver {key!r} received a response of the wrong kind") from e
+        res.persist[key] = _StateEntry(action="accept", data=wire, q=q)
+        return _accepted(result)
     if not isinstance(answer, ElicitResult):
         raise ToolError(f"Resolver {key!r} received a non-elicitation response")
     if answer.action == "accept":
         if answer.content is None:
             raise ToolError(f"Resolver {key!r} received an accepted elicitation with no content")
         try:
-            data = elicit.schema.model_validate(answer.content)
+            data = marker.schema.model_validate(answer.content)
         except ValidationError as e:
             raise ToolError(
                 f"Resolver {key!r} received an accepted elicitation whose content does not match the requested schema"
@@ -555,9 +640,8 @@ def _unwrap(outcome: ElicitationResult[Any], name: str) -> Any:
     raise ToolError(f"Resolver for parameter {name!r} could not resolve: elicitation was {outcome.action}")
 
 
-def _is_elicit(value: Any) -> TypeGuard[Elicit[Any]]:
-    """Runtime narrow of a resolver's return value to a (parameter-erased) `Elicit`."""
-    return isinstance(value, Elicit)
+def _is_marker(value: Any) -> TypeGuard[_Marker]:
+    return isinstance(value, Elicit | Sample | ListRoots)
 
 
 def _accepted(data: Any) -> AcceptedElicitation[Any]:
@@ -578,35 +662,61 @@ def _uses_input_required(protocol_version: str | None) -> bool:
     return protocol_version is not None and is_version_at_least(protocol_version, _INPUT_REQUIRED_VERSION)
 
 
-def _require_form_elicitation(context: Context[Any, Any], key: str) -> None:
-    """Assert the client declared form elicitation before queueing a question for it.
+def _require_capability(context: Context[Any, Any], marker: _Marker, key: str) -> None:
+    """Assert the client declared the capability `marker`'s request needs.
 
-    The spec forbids sending an `input_requests` entry the client has not declared a
-    capability for. A bare `elicitation: {}` declaration (the only shape before modes
-    existed) counts as form support; an explicit url-only declaration does not.
+    A bare `elicitation: {}` (the only shape before modes existed) counts as form support; url-only does not.
 
     Raises:
         MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` and a
-            `requiredCapabilities` payload when form elicitation is not declared.
+            `requiredCapabilities` payload when the capability is not declared.
     """
     capabilities = context.client_capabilities
-    elicitation = capabilities.elicitation if capabilities is not None else None
-    if elicitation is not None and (elicitation.form is not None or elicitation.url is None):
-        return
-    data = MissingRequiredClientCapabilityErrorData(
-        required_capabilities=ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability()))
-    )
+    if isinstance(marker, Elicit):
+        elicitation = capabilities.elicitation if capabilities is not None else None
+        if elicitation is not None and (elicitation.form is not None or elicitation.url is None):
+            return
+        required = ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability()))
+        name = "form elicitation"
+    elif isinstance(marker, Sample):
+        sampling = capabilities.sampling if capabilities is not None else None
+        wants_tools = marker.params.tools is not None or marker.params.tool_choice is not None
+        if sampling is not None and (not wants_tools or sampling.tools is not None):
+            return
+        required = ClientCapabilities(
+            sampling=SamplingCapability(tools=SamplingToolsCapability() if wants_tools else None)
+        )
+        name = "sampling.tools" if wants_tools else "sampling"
+    else:
+        if capabilities is not None and capabilities.roots is not None:
+            return
+        required = ClientCapabilities(roots=RootsCapability())
+        name = "roots"
+    data = MissingRequiredClientCapabilityErrorData(required_capabilities=required)
     raise MCPError(
         code=MISSING_REQUIRED_CLIENT_CAPABILITY,
-        message=f"Client did not declare the form elicitation capability required by resolver {key!r}",
+        message=f"Client did not declare the {name} capability required by resolver {key!r}",
         data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
     )
 
 
-def _elicit_request(elicit: Elicit[Any]) -> ElicitRequest:
-    """Render an `Elicit[T]` as the embedded `elicitation/create` request for `input_requests`."""
-    json_schema = render_elicitation_schema(elicit.schema)
-    return ElicitRequest(params=ElicitRequestFormParams(message=elicit.message, requested_schema=json_schema))
+def _render_request(marker: _Marker) -> InputRequest:
+    """Render a marker as its wire request - the same shape on both transports."""
+    if isinstance(marker, Elicit):
+        json_schema = render_elicitation_schema(marker.schema)
+        return ElicitRequest(params=ElicitRequestFormParams(message=marker.message, requested_schema=json_schema))
+    if isinstance(marker, Sample):
+        return CreateMessageRequest(params=marker.params)
+    return ListRootsRequest()
+
+
+def _result_type(
+    marker: Sample | ListRoots,
+) -> type[CreateMessageResult] | type[CreateMessageResultWithTools] | type[ListRootsResult]:
+    """The result model a `Sample`/`ListRoots` response must validate against."""
+    if isinstance(marker, ListRoots):
+        return ListRootsResult
+    return CreateMessageResult if marker.params.tools is None else CreateMessageResultWithTools
 
 
 class _StateEntry(BaseModel):
@@ -668,21 +778,22 @@ def _encode_state(outcomes: Mapping[str, _StateEntry], asked: Mapping[str, str])
     return compact_json(state.model_dump(mode="json"))
 
 
-def _outcome_from_state(entry: _StateEntry, schema: type[BaseModel]) -> ElicitationResult[Any]:
-    """Rebuild an `ElicitationResult` from a decoded `request_state` entry.
+def _outcome_from_state(entry: _StateEntry, marker: _Marker) -> ElicitationResult[Any]:
+    """Rebuild an outcome from a decoded `request_state` entry.
 
     Raises:
-        ValidationError: If an accepted entry's data does not validate against
-            `schema` (the live `Elicit.schema` of the question being asked).
+        ValidationError: If the entry does not fit the live marker.
     """
-    if entry.action == "decline":
-        return DeclinedElicitation()
-    if entry.action == "cancel":
-        return CancelledElicitation()
-    return _accepted(schema.model_validate(entry.data))
+    if isinstance(marker, Elicit):
+        if entry.action == "decline":
+            return DeclinedElicitation()
+        if entry.action == "cancel":
+            return CancelledElicitation()
+        return _accepted(marker.schema.model_validate(entry.data))
+    return _accepted(_result_type(marker).model_validate(entry.data))
 
 
-def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel], q: str) -> ElicitationResult[Any] | None:
+def _restore_outcome(res: _Resolution, key: str, marker: _Marker, q: str) -> ElicitationResult[Any] | None:
     """Restore `key`'s recorded outcome from a prior round, or `None` when absent.
 
     An entry pinned to a question digest other than `q`, or whose accepted
@@ -701,7 +812,7 @@ def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel], q: str
         del res.state[key]
         return None
     try:
-        outcome = _outcome_from_state(entry, schema)
+        outcome = _outcome_from_state(entry, marker)
     except ValidationError:
         del res.state[key]
         return None
@@ -712,6 +823,8 @@ def _restore_outcome(res: _Resolution, key: str, schema: type[BaseModel], q: str
 __all__ = [
     "Resolve",
     "Elicit",
+    "Sample",
+    "ListRoots",
     "ElicitationResult",
     "AcceptedElicitation",
     "DeclinedElicitation",

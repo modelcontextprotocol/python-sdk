@@ -40,6 +40,21 @@ to receive the `InputRequiredResult` and forward it as its own result calls
 dependencies elicit via `Resolve(...)`: the resolver owns that tool's
 `request_state` channel, and a forwarded result's state would clobber it.
 
+### Resolver-routed requests require the client capability on every protocol version
+
+A v1 server could call `ctx.elicit()`, `create_message()`, or `list_roots()`
+against any client; nothing checked what the client had declared. In v2 the
+`Resolve(...)` markers (`Elicit`, `Sample`, `ListRoots`) enforce the spec's
+egress rule on both transports: if the client never declared the matching
+capability (`elicitation`, `sampling` — plus `sampling.tools` when the request
+carries tools — or `roots`), the call fails with a `-32021`
+`MISSING_REQUIRED_CLIENT_CAPABILITY` JSON-RPC error instead of sending a
+request the client cannot handle. This applies on 2025-11-25 sessions too, so a
+client that answered elicitations without declaring the capability now sees the
+error: declare the capability (the SDK client does this automatically when the
+matching callback is set) or drop the asking dependency. Direct `ctx.elicit()`
+and `ctx.session.*` calls outside resolvers are not gated.
+
 ### `MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error
 
 Raising `MCPError` (or a subclass such as `UrlElicitationRequiredError`) inside

@@ -10,15 +10,28 @@ import pytest
 from mcp_types import (
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     CallToolResult,
+    CreateMessageRequest,
+    CreateMessageRequestParams,
     CreateMessageResult,
+    CreateMessageResultWithTools,
+    ElicitRequest,
     ElicitRequestFormParams,
     ElicitRequestParams,
     ElicitResult,
     InputRequiredResult,
     InputResponses,
+    ListRootsResult,
+    Root,
+    SamplingCapability,
+    SamplingMessage,
+    SamplingToolsCapability,
     TextContent,
+    ToolChoice,
 )
-from pydantic import BaseModel, Field, ValidationError, create_model
+from mcp_types import (
+    Tool as SamplingTool,
+)
+from pydantic import BaseModel, Field, FileUrl, ValidationError, create_model
 from typing_extensions import TypeAliasType
 
 from mcp import Client, InputRequiredRoundsExceededError
@@ -32,18 +45,20 @@ from mcp.server.mcpserver import (
     DeclinedElicitation,
     Elicit,
     ElicitationResult,
+    ListRoots,
     MCPServer,
     RequestStateBoundary,
     RequestStateSecurity,
     Resolve,
+    Sample,
 )
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.resolve import (
     _check_elicit_return,
     _decode_state,
-    _elicit_request,
     _encode_state,
     _outcome_from_state,
+    _render_request,
     _request_digest,
     _resolver_key,
     _state_key,
@@ -57,8 +72,8 @@ from mcp.shared.exceptions import MCPError
 
 
 def _question_digest(elicit: Elicit[Any]) -> str:
-    """The digest `_elicit` pins: the rendered request the client would be shown."""
-    return _request_digest(_elicit_request(elicit))
+    """The digest `_fulfil` pins: the rendered request the client would be shown."""
+    return _request_digest(_render_request(elicit))
 
 
 class Login(BaseModel):
@@ -425,7 +440,7 @@ def test_multiple_elicit_arms_raise_at_registration():
     async def tool(login: Annotated[Login, Resolve(ambiguous)]) -> str:
         return login.username  # pragma: no cover
 
-    with pytest.raises(InvalidSignature, match="multiple Elicit arms"):
+    with pytest.raises(InvalidSignature, match="multiple Elicit/Sample/ListRoots arms"):
         Tool.from_function(tool)
 
 
@@ -938,15 +953,16 @@ def test_state_round_trips_accept_decline_cancel():
     assert decoded == entries  # encode-restore is the identity on the stored entries
     assert state.asked == {"e": "asked-digest"}
 
-    accepted = _outcome_from_state(decoded["a"], Login)
+    ask = Elicit("q", Login)
+    accepted = _outcome_from_state(decoded["a"], ask)
     assert isinstance(accepted, AcceptedElicitation) and accepted.data == Login(username="octocat")
     # Decline/cancel entries carry no data; the schema is not consulted for them.
-    assert isinstance(_outcome_from_state(decoded["b"], Login), DeclinedElicitation)
-    assert isinstance(_outcome_from_state(decoded["c"], Login), CancelledElicitation)
+    assert isinstance(_outcome_from_state(decoded["b"], ask), DeclinedElicitation)
+    assert isinstance(_outcome_from_state(decoded["c"], ask), CancelledElicitation)
     # An accepted restore always validates against the question's live schema -
     # data that doesn't fit is rejected, never passed through raw.
     with pytest.raises(ValidationError):
-        _outcome_from_state(decoded["d"], Login)
+        _outcome_from_state(decoded["d"], ask)
 
 
 def test_check_elicit_return_allows_one_arm_and_rejects_two():
@@ -955,7 +971,7 @@ def test_check_elicit_return_allows_one_arm_and_rejects_two():
     _check_elicit_return(Login, "r")  # no Elicit arm
     _check_elicit_return(None, "r")  # unannotated
     # A resolver asks one question: two distinct Elicit arms mean it should be split.
-    with pytest.raises(InvalidSignature, match="'r' return annotation has multiple Elicit arms"):
+    with pytest.raises(InvalidSignature, match="'r' return annotation has multiple Elicit/Sample/ListRoots arms"):
         _check_elicit_return(Elicit[Login] | Elicit[Confirm], "r")
 
 
@@ -2365,3 +2381,345 @@ async def test_resolver_elicitation_seals_and_completes_on_a_fully_default_serve
         assert isinstance(final, CallToolResult)
         assert isinstance(final.content[0], TextContent)
         assert final.content[0].text == "went:True"
+
+
+# --- Sample / ListRoots markers ---
+
+
+async def _sample_never(  # pragma: no cover - declares the capability; never invoked
+    context: ClientRequestContext, params: CreateMessageRequestParams
+) -> CreateMessageResult:
+    raise AssertionError("should not be called")
+
+
+async def _roots_never(context: ClientRequestContext) -> ListRootsResult:  # pragma: no cover - see _sample_never
+    raise AssertionError("should not be called")
+
+
+def _sample_capital(ctx: Context) -> Sample:
+    return Sample(
+        [SamplingMessage(role="user", content=TextContent(type="text", text="Capital of France?"))],
+        max_tokens=16,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_sample_resolver_injects_result(mode: Literal["legacy", "auto"]):
+    # The marker form is the 2026-blessed carrier: no SEP-2577 deprecation warning on either mode.
+    mcp = MCPServer(name="Sampler", request_state_security=RequestStateSecurity.ephemeral())
+    prompts: list[str] = []
+
+    async def sampler(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
+        content = params.messages[0].content
+        assert isinstance(content, TextContent)
+        prompts.append(content.text)
+        return CreateMessageResult(role="assistant", content=TextContent(type="text", text="Paris"), model="m")
+
+    @mcp.tool()
+    async def capital(answer: Annotated[CreateMessageResult, Resolve(_sample_capital)]) -> str:
+        assert isinstance(answer.content, TextContent)
+        return answer.content.text
+
+    async with Client(mcp, mode=mode, sampling_callback=sampler) as client:
+        assert await _text(client, "capital", {}) == "Paris"
+    assert prompts == ["Capital of France?"]
+
+
+@pytest.mark.anyio
+@pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_list_roots_resolver_injects_result(mode: Literal["legacy", "auto"]):
+    mcp = MCPServer(name="Rooted", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def client_roots(context: ClientRequestContext) -> ListRootsResult:
+        return ListRootsResult(roots=[Root(uri=FileUrl("file:///workspace"))])
+
+    def fetch_roots(ctx: Context) -> ListRoots:
+        return ListRoots()
+
+    @mcp.tool()
+    async def workspace(roots: Annotated[ListRootsResult, Resolve(fetch_roots)]) -> str:
+        return str(len(roots.roots))
+
+    async with Client(mcp, mode=mode, list_roots_callback=client_roots) as client:
+        assert await _text(client, "workspace", {}) == "1"
+
+
+@pytest.mark.anyio
+async def test_mixed_kinds_batch_into_one_round():
+    mcp = MCPServer(name="Mixed", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def ask_name(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    async def fetch_roots(ctx: Context) -> ListRoots:
+        return ListRoots()
+
+    @mcp.tool()
+    async def combo(
+        login: Annotated[Login, Resolve(ask_name)],
+        answer: Annotated[CreateMessageResult, Resolve(_sample_capital)],
+        roots: Annotated[ListRootsResult, Resolve(fetch_roots)],
+    ) -> str:
+        assert isinstance(answer.content, TextContent)
+        return f"{login.username}/{answer.content.text}/{len(roots.roots)}"
+
+    async with Client(
+        mcp, elicitation_callback=_never, sampling_callback=_sample_never, list_roots_callback=_roots_never
+    ) as client:
+        first = await client.session.call_tool("combo", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        kinds = sorted(type(req).__name__ for req in first.input_requests.values())
+        assert kinds == ["CreateMessageRequest", "ElicitRequest", "ListRootsRequest"]
+        responses: InputResponses = {}
+        for key, req in first.input_requests.items():
+            if isinstance(req, ElicitRequest):
+                responses[key] = ElicitResult(action="accept", content={"username": "octocat"})
+            elif isinstance(req, CreateMessageRequest):
+                responses[key] = CreateMessageResult(
+                    role="assistant", content=TextContent(type="text", text="hey"), model="m"
+                )
+            else:
+                responses[key] = ListRootsResult(roots=[])
+        final = await client.session.call_tool(
+            "combo", {}, input_responses=responses, request_state=first.request_state, allow_input_required=True
+        )
+        assert isinstance(final, CallToolResult)
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "octocat/hey/0"
+
+
+@pytest.mark.anyio
+async def test_sampling_tool_without_client_capability_is_a_protocol_error():
+    mcp = MCPServer(name="NoSamplingCapability", request_state_security=RequestStateSecurity.ephemeral())
+
+    @mcp.tool()
+    async def capital(answer: Annotated[CreateMessageResult, Resolve(_sample_capital)]) -> str:
+        return "unreachable"  # pragma: no cover
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.call_tool("capital", {}, allow_input_required=True)
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc_info.value.error.data is not None
+    assert "sampling" in exc_info.value.error.data["requiredCapabilities"]
+
+
+@pytest.mark.anyio
+async def test_roots_tool_without_client_capability_is_a_protocol_error():
+    mcp = MCPServer(name="NoRootsCapability", request_state_security=RequestStateSecurity.ephemeral())
+
+    def fetch_roots(ctx: Context) -> ListRoots:
+        return ListRoots()
+
+    @mcp.tool()
+    async def workspace(roots: Annotated[ListRootsResult, Resolve(fetch_roots)]) -> str:
+        return "unreachable"  # pragma: no cover
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.call_tool("workspace", {}, allow_input_required=True)
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc_info.value.error.data is not None
+    assert "roots" in exc_info.value.error.data["requiredCapabilities"]
+
+
+@pytest.mark.anyio
+async def test_legacy_eliciting_tool_without_capability_is_a_protocol_error():
+    # Same egress gate as the input_requests leg; the session stays usable after the refusal.
+    mcp = MCPServer(name="LegacyGate", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    @mcp.tool()
+    async def tool(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username  # pragma: no cover
+
+    @mcp.tool()
+    def plain() -> str:
+        return "ok"
+
+    async with Client(mcp, mode="legacy") as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("tool", {})
+        assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+        assert await _text(client, "plain", {}) == "ok"
+
+
+def _ask_with_tools(ctx: Context) -> Sample:
+    return Sample(
+        [SamplingMessage(role="user", content=TextContent(type="text", text="2+2?"))],
+        max_tokens=16,
+        tools=[SamplingTool(name="calc", input_schema={"type": "object"})],
+    )
+
+
+def _ask_with_tool_choice(ctx: Context) -> Sample:
+    return Sample(
+        [SamplingMessage(role="user", content=TextContent(type="text", text="2+2?"))],
+        max_tokens=16,
+        tool_choice=ToolChoice(mode="none"),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("ask", [_ask_with_tools, _ask_with_tool_choice])
+async def test_sample_tools_require_the_tools_subcapability(ask: Callable[[Context], Sample]):
+    mcp = MCPServer(name="NoToolsSubcapability", request_state_security=RequestStateSecurity.ephemeral())
+
+    @mcp.tool()
+    async def calc(answer: Annotated[CreateMessageResultWithTools, Resolve(ask)]) -> str:
+        return "unreachable"  # pragma: no cover
+
+    # The callback declares base `sampling` but not `sampling.tools`.
+    async with Client(mcp, sampling_callback=_sample_never) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.session.call_tool("calc", {}, allow_input_required=True)
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc_info.value.error.data is not None
+    assert exc_info.value.error.data["requiredCapabilities"] == {"sampling": {"tools": {}}}
+
+
+@pytest.mark.anyio
+async def test_sample_with_tools_round_trips_with_declared_subcapability():
+    mcp = MCPServer(name="ToolsSampling", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def sampler(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResultWithTools:
+        assert params.tools is not None and params.tools[0].name == "calc"
+        return CreateMessageResultWithTools(role="assistant", content=[TextContent(type="text", text="4")], model="m")
+
+    @mcp.tool()
+    async def calc(answer: Annotated[CreateMessageResultWithTools, Resolve(_ask_with_tools)]) -> str:
+        assert isinstance(answer.content, list) and isinstance(answer.content[0], TextContent)
+        return answer.content[0].text
+
+    async with Client(
+        mcp,
+        sampling_callback=sampler,
+        sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability()),
+    ) as client:
+        assert await _text(client, "calc", {}) == "4"
+
+
+@pytest.mark.anyio
+async def test_no_tool_use_answer_to_a_tools_request_is_accepted():
+    # The answer parses off the wire as plain CreateMessageResult but must inject as CreateMessageResultWithTools.
+    mcp = MCPServer(name="NoToolUse", request_state_security=RequestStateSecurity.ephemeral())
+
+    @mcp.tool()
+    async def calc(answer: Annotated[CreateMessageResultWithTools, Resolve(_ask_with_tools)]) -> str:
+        assert isinstance(answer, CreateMessageResultWithTools)
+        assert isinstance(answer.content, TextContent)
+        return answer.content.text
+
+    async with Client(
+        mcp,
+        sampling_callback=_sample_never,
+        sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability()),
+    ) as client:
+        first = await client.session.call_tool("calc", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        (key,) = first.input_requests
+        final = await client.session.call_tool(
+            "calc",
+            {},
+            input_responses={
+                key: CreateMessageResult(role="assistant", content=TextContent(type="text", text="4"), model="m")
+            },
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert not final.is_error
+        assert isinstance(final.content[0], TextContent)
+        assert final.content[0].text == "4"
+
+
+@pytest.mark.anyio
+async def test_sample_outcome_persists_across_rounds():
+    # The confirm arm depends on the sample, forcing extra rounds that restore the result instead of re-sampling.
+    mcp = MCPServer(name="Chain", request_state_security=RequestStateSecurity.ephemeral())
+    samples = 0
+
+    async def sampler(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
+        nonlocal samples
+        samples += 1
+        return CreateMessageResult(role="assistant", content=TextContent(type="text", text="Paris"), model="m")
+
+    async def confirm(
+        answer: Annotated[CreateMessageResult, Resolve(_sample_capital)], ctx: Context
+    ) -> Elicit[Confirm]:
+        return Elicit("Accept the model's answer?", Confirm)
+
+    @mcp.tool()
+    async def tool(
+        ok: Annotated[Confirm, Resolve(confirm)],
+        answer: Annotated[CreateMessageResult, Resolve(_sample_capital)],
+    ) -> str:
+        assert isinstance(answer.content, TextContent)
+        return f"{answer.content.text}:{ok.ok}"
+
+    async with Client(mcp, sampling_callback=sampler, elicitation_callback=_accept({"ok": True})) as client:
+        assert await _text(client, "tool", {}) == "Paris:True"
+    assert samples == 1
+
+
+@pytest.mark.anyio
+async def test_wrong_kind_response_for_sample_raises():
+    mcp = MCPServer(name="WrongKind", request_state_security=RequestStateSecurity.ephemeral())
+
+    @mcp.tool()
+    async def capital(answer: Annotated[CreateMessageResult, Resolve(_sample_capital)]) -> str:
+        return "unreachable"  # pragma: no cover
+
+    async with Client(mcp, sampling_callback=_sample_never) as client:
+        first = await client.session.call_tool("capital", {}, allow_input_required=True)
+        assert isinstance(first, InputRequiredResult)
+        assert first.input_requests is not None
+        (key,) = first.input_requests
+        final = await client.session.call_tool(
+            "capital",
+            {},
+            input_responses={key: ElicitResult(action="accept", content={"x": "y"})},
+            request_state=first.request_state,
+            allow_input_required=True,
+        )
+        assert isinstance(final, CallToolResult)
+        assert final.is_error
+        assert isinstance(final.content[0], TextContent)
+        assert "wrong kind" in final.content[0].text
+
+
+def test_mixed_marker_arms_raise_at_registration():
+    async def ambiguous(ctx: Context) -> Sample | Elicit[Login]:
+        raise NotImplementedError  # pragma: no cover
+
+    async def tool(login: Annotated[Login, Resolve(ambiguous)]) -> str:
+        return login.username  # pragma: no cover
+
+    with pytest.raises(InvalidSignature, match="multiple Elicit/Sample/ListRoots arms"):
+        Tool.from_function(tool)
+
+
+def test_marker_union_with_generic_alias_member_registers():
+    # dict[str, Any] passes isinstance(c, type) on Python 3.10; the arm filter must not feed it to issubclass.
+    async def maybe_ask(ctx: Context) -> Sample | dict[str, Any]:
+        raise NotImplementedError  # pragma: no cover
+
+    async def tool(answer: Annotated[CreateMessageResult, Resolve(maybe_ask)]) -> str:
+        return "ok"  # pragma: no cover
+
+    Tool.from_function(tool)
+
+
+def test_decline_entry_for_a_sample_marker_is_invalid():
+    # Decline outcomes exist only for elicitations; for a Sample the entry's None data fails validation.
+    with pytest.raises(ValidationError):
+        _outcome_from_state(_StateEntry(action="decline"), _sample_capital(cast(Context, None)))
