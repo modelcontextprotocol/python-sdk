@@ -1,22 +1,14 @@
 #!/bin/bash
 # Run a client conformance suite, re-verifying unexpected failures solo.
-#
-# Suite mode launches every scenario's client subprocess concurrently; on a
-# 2-vCPU runner that contention can push scenarios with real-time waits (the
-# SSE reconnect timing in sse-retry) past their tolerances. So a scenario the
-# suite run flags as an unexpected failure is re-run alone on the then-quiet
-# runner: a real failure fails again and the job stays red; a contention
-# artifact passes and the job goes green, with a FLAKE_RESCUED marker written
-# into the --output-dir so the artifact upload preserves the evidence.
-# Failures that only reproduce under concurrency are deliberately traded
-# away - the suite asserts spec compliance, not behavior under parallel load.
+# Concurrent suite runs on a 2-vCPU runner can push scenarios with real-time
+# waits past tolerance; solo, a real failure fails again while a contention
+# artifact passes. Failures that only reproduce under concurrency are excused.
 set -uo pipefail
 
 : "${CONFORMANCE_PKG:?set CONFORMANCE_PKG (pinned in .github/workflows/conformance.yml)}"
 SOLO_ATTEMPTS="${CONFORMANCE_SOLO_ATTEMPTS:-2}"
 
-# Relative paths in the arguments (the client command, --output-dir) resolve
-# from the repo root, same contract as run-server.sh.
+# Relative args resolve from the repo root; same contract as run-server.sh.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../../.." || exit 1
 
@@ -31,12 +23,8 @@ fi
 
 plain="$(sed 's/\x1b\[[0-9;]*m//g' "$log")"
 
-# Scenarios listed under "Unexpected failures (not in baseline):". Anything
-# else behind the nonzero exit (stale baseline entries, harness or infra
-# errors) is not retried. The extraction is coupled to the pinned harness's
-# summary wording and print order; if a pin bump changes either, the list
-# comes up empty and the original failure passes through - never a false
-# green.
+# If the harness's summary wording changes, the list comes up empty and the
+# original exit code passes through - never a false green.
 mapfile -t scenarios < <(
     printf '%s\n' "$plain" |
         sed -n '/^Unexpected failures (not in baseline):$/,/^$/p' |
@@ -58,10 +46,8 @@ if printf '%s\n' "$plain" | grep -q '^Stale baseline entries'; then
     exit "$rc"
 fi
 
-# Reuse the suite invocation's arguments for the solo runs, minus the flags
-# that only make sense for a suite (--scenario replaces --suite; single runs
-# are judged directly, not against the baseline). Solo results are saved next
-# to the suite's so the uploaded artifact carries both.
+# Drop the suite-only flags: --scenario replaces --suite, and solo runs are
+# judged directly rather than against the baseline.
 rerun_args=()
 output_dir=""
 skip_next=0
