@@ -675,28 +675,19 @@ class Client:
     ) -> AbstractAsyncContextManager[Subscription]:
         """Open a `subscriptions/listen` stream of typed change events (2026-07-28 only).
 
-        The keyword arguments mirror the wire `SubscriptionFilter` field for
-        field; `resource_subscriptions` names exact resource URIs to watch.
-        Entering waits for the server's acknowledgment - the subset it agreed
-        to deliver is `sub.honored` - then the handle yields events:
+        Keyword args mirror the wire `SubscriptionFilter`; entering waits for the ack (honored subset: `sub.honored`):
 
             async with client.listen(tools_list_changed=True) as sub:
                 async for event in sub:
                     tools = await client.list_tools()  # refetch on change
 
-        A graceful server close ends the loop; an abrupt drop raises
-        `SubscriptionLost`. Either way the stream is gone and there is no
-        replay: a client that keeps watching re-listens and refetches.
-        Exiting the context ends the subscription. Multiple subscriptions may
-        be open concurrently.
+        A graceful close ends the loop; an abrupt drop raises `SubscriptionLost`. No replay: re-listen and refetch.
 
         Raises:
-            ListenNotSupportedError: The negotiated protocol version predates
-                2026-07-28 (use `subscribe_resource` and `message_handler` there).
-            MCPError: The server rejected the request, or the connection
-                failed before the acknowledgment arrived.
+            ListenNotSupportedError: The negotiated protocol version predates 2026-07-28.
+            MCPError: The server rejected the request or the connection failed first.
             SubscriptionLost: The stream ended before it was acknowledged.
-            TimeoutError: The session's read timeout elapsed before the acknowledgment.
+            TimeoutError: The read timeout elapsed before the acknowledgment.
         """
         return _listen(
             self.session,
@@ -710,14 +701,9 @@ class Client:
     async def _evict_for_listen_event(self, event: ServerEvent) -> None:
         """Finish response-cache eviction before a listen consumer can refetch.
 
-        The eviction wrapper on message_handler runs on a spawned path; the
-        consumer's iterator would otherwise wake first, refetch through a
-        still-warm entry, and - events being deduplicated level triggers -
-        never get a second wake to correct it. The event's notification still
-        tees to that wrapper, so the same eviction fires twice; that is
-        deliberate (eviction is idempotent, and the tee-path one covers
-        non-iterating consumers sharing this cache). Same containment boundary
-        as `_evicting_message_handler`: a cache fault must not block delivery.
+        Without it the iterator wakes first and refetches a still-warm entry, with no
+        corrective wake (events are deduplicated level triggers). The tee path repeats
+        the eviction; deliberate: idempotent, and it covers non-iterating consumers.
         """
         cache = self._response_cache
         assert cache is not None  # installed as the event barrier only when a cache exists

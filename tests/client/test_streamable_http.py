@@ -609,10 +609,8 @@ class _DyingSSEStream(httpx.AsyncByteStream):
 
 @pytest.mark.anyio
 async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> None:
-    """A per-request SSE stream that dies having carried no event ids can never
-    deliver its response; the transport resolves the waiter with CONNECTION_CLOSED
-    instead of leaving the request pending for the session's lifetime (a listen
-    stream's consumer would otherwise hang instead of learning it is lost)."""
+    """A per-request SSE stream that dies having carried no event ids can never deliver its
+    response; the transport resolves the waiter with CONNECTION_CLOSED instead of hanging forever."""
     dying = _DyingSSEStream()
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -649,10 +647,7 @@ def _abandoned_request_context(
 
 @pytest.mark.anyio
 async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error() -> None:
-    """The sibling of the non-resumable drop: an id-bearing stream whose
-    reconnection budget runs out also resolves the waiter - the no-silent-hang
-    guarantee is unconditional, not conditional on the server never stamping
-    event ids."""
+    """An id-bearing stream that exhausts its reconnection budget also resolves the waiter with CONNECTION_CLOSED."""
     transport = StreamableHTTPTransport("http://test/mcp")
     send, receive = create_context_streams[SessionMessage | Exception](1)
     async with httpx.AsyncClient() as http:
@@ -671,9 +666,7 @@ async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error
 
 @pytest.mark.anyio
 async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contained() -> None:
-    """Teardown race: the session can close the read stream's receive end while
-    a request's SSE stream is still dying; the resolution write is best-effort
-    (nobody is waiting) and must not crash the transport task group."""
+    """Teardown race: a stream dying after the reader closed resolves best-effort and must not crash."""
     transport = StreamableHTTPTransport("http://test/mcp")
     send, receive = create_context_streams[SessionMessage | Exception](1)
     receive.close()

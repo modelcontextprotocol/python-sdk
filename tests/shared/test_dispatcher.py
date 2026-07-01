@@ -514,8 +514,7 @@ async def test_supplied_numeric_string_id_collides_with_its_int_twin(pair_factor
 
 @pytest.mark.anyio
 async def test_notify_intercept_sees_every_notification_and_consumes_on_true(pair_factory: PairFactory):
-    """The intercept observes each inbound notification before `on_notify` is
-    scheduled; a frame it consumes never reaches `on_notify`, the rest do."""
+    """The intercept sees every inbound notification; a frame it consumes never reaches `on_notify`, the rest do."""
     intercepted: list[str] = []
 
     def intercept(method: str, params: Mapping[str, Any] | None) -> bool:
@@ -533,9 +532,7 @@ async def test_notify_intercept_sees_every_notification_and_consumes_on_true(pai
 
 @pytest.mark.anyio
 async def test_notify_intercept_completes_before_a_later_response_resolves(pair_factory: PairFactory):
-    """Notifications written before a response are intercepted before that
-    response resolves: correlation state fed through the intercept is ordered
-    against `send_raw_request`'s return, whatever the spawned handlers do."""
+    """Notifications written before a response are intercepted before it resolves, whatever spawned handlers do."""
     seen: list[str] = []
 
     def intercept(method: str, params: Mapping[str, Any] | None) -> bool:
@@ -559,8 +556,7 @@ async def test_notify_intercept_completes_before_a_later_response_resolves(pair_
 
 @pytest.mark.anyio
 async def test_a_raising_notify_intercept_is_contained_and_passes_the_frame_through(pair_factory: PairFactory):
-    """An intercept exception costs only that interception: the notification
-    still reaches `on_notify` and the receive loop survives."""
+    """An intercept exception costs only that interception: the frame still reaches `on_notify`, the loop survives."""
 
     def broken_intercept(method: str, params: Mapping[str, Any] | None) -> bool:
         raise RuntimeError("intercept exploded")

@@ -1,14 +1,6 @@
-"""The typed event vocabulary `subscriptions/listen` shares between server and client (2026-07-28, SEP-2575).
+"""Typed event vocabulary for `subscriptions/listen` (2026-07-28, SEP-2575), shared by server and client.
 
-A server publishes these events (`mcp.server.subscriptions`); a client
-iterating a `Subscription` (`mcp.client.subscriptions`) receives the same
-values back. The two conversion helpers map between events and their wire
-notifications, one direction per side.
-
-Every event kind is a level trigger: it says "this changed, refetch if you
-care", and carries no payload beyond identity - so two equal pending events
-mean exactly what one means, which is what lets both sides bound their
-buffers by deduplication.
+Every event is a level trigger ("this changed, refetch if you care"), so both sides bound buffers by dedupe.
 """
 
 from __future__ import annotations
@@ -41,10 +33,7 @@ __all__ = [
 ]
 
 SUBSCRIPTION_ID_META_KEY = "io.modelcontextprotocol/subscriptionId"
-"""The `_meta` key carrying the subscription id on every listen-stream frame.
-
-The value is the `subscriptions/listen` request's JSON-RPC id, verbatim.
-"""
+"""The `_meta` key on every listen-stream frame; the value is the `subscriptions/listen` request's JSON-RPC id."""
 
 
 @dataclass(frozen=True)
@@ -92,13 +81,9 @@ _LIST_CHANGED_EVENTS: dict[str, ServerEvent] = {
 
 
 def event_from_wire(method: str, params: Mapping[str, Any] | None) -> ServerEvent | None:
-    """The event a raw listen-stream frame announces (the client's direction).
+    """The event a raw listen-stream frame announces, or None if it carries none.
 
-    Reads the wire dict directly: the client demultiplexes on the dispatcher's
-    receive path, before the typed notification parse. Returns None for
-    non-event methods, and for a `resources/updated` frame with no string
-    `uri` (surface validation rejects those shapes downstream).
-    """
+    Takes the raw wire dict: the client demultiplexes before the typed notification parse."""
     if (event := _LIST_CHANGED_EVENTS.get(method)) is not None:
         return event
     if method == "notifications/resources/updated":
@@ -109,14 +94,9 @@ def event_from_wire(method: str, params: Mapping[str, Any] | None) -> ServerEven
 
 
 def event_matches(honored: SubscriptionFilter, uris: frozenset[str], event: ServerEvent) -> bool:
-    """Whether `event` is within a stream's honored filter.
+    """Whether `event` is within the stream's honored filter (`uris`: the honored resource subscriptions as a set).
 
-    The one admission predicate both sides share: the server delivers only
-    what it acknowledged, and the client admits only what was acknowledged -
-    which is what bounds the client's backlog by the filter's width against
-    any peer, honest or not. `uris` is the honored `resource_subscriptions`
-    as a set: matching runs on every event, and the filter may name many URIs.
-    """
+    The admission predicate both sides share: server delivery and client intake honor only what was acknowledged."""
     if isinstance(event, ToolsListChanged):
         return honored.tools_list_changed is True
     if isinstance(event, PromptsListChanged):

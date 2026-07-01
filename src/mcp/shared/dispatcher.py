@@ -47,11 +47,7 @@ TransportT_co = TypeVar("TransportT_co", bound=TransportContext, covariant=True)
 
 
 def as_request_id(value: object) -> RequestId | None:
-    """Narrow an untyped wire value to a `RequestId`, or None.
-
-    Rejects bool explicitly: bool subclasses int, so True would alias
-    request id 1 in every correlation table keyed by id.
-    """
+    """Narrow an untyped wire value to a `RequestId`, or None; rejects bool (True would alias request id 1)."""
     if isinstance(value, str | int) and not isinstance(value, bool):
         return value
     return None
@@ -231,25 +227,14 @@ OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] |
 OnNotifyIntercept = Callable[[str, Mapping[str, Any] | None], bool]
 """Synchronous receive-order intercept for inbound notifications: `(method, params) -> consumed`.
 
-Dispatchers invoke it for every inbound notification, in receive order, before
-`on_notify` is scheduled. This is the seam for correlation state that must
-advance in wire order relative to response resolution (the client demultiplexes
-its listen streams here: an ack or event handled in a spawned task could lose
-the race against the listen request's own result). Returning True consumes the
-notification - `on_notify` never sees it. Runs on the receive path, so it must
-not block; a raising intercept costs that one notification, not the connection.
-Implementations honor it through `run_notify_intercept`, the one spelling of
-that containment contract.
+Runs before `on_notify` is scheduled so correlation state advances in wire order
+relative to response resolution (the client's listen demux depends on this).
+Returning True consumes the notification. Must not block the receive path.
 """
 
 
 def run_notify_intercept(intercept: OnNotifyIntercept | None, method: str, params: Mapping[str, Any] | None) -> bool:
-    """Invoke a notify intercept under the shared containment contract.
-
-    The single spelling every dispatcher uses, so the substrates cannot drift:
-    a raising intercept costs that one interception (the frame passes through),
-    never the receive loop.
-    """
+    """Invoke `intercept`, containing a raise to that one notification (never the receive loop)."""
     if intercept is None:
         return False
     try:
@@ -281,11 +266,8 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
         Each inbound request is dispatched to `on_request` in its own task;
         the returned dict (or raised `MCPError`) is sent back as the response.
         Implementations MUST offer every inbound notification to
-        `on_notify_intercept` first, synchronously in receive order (via
-        `run_notify_intercept`), handing only the ones it does not consume to
-        `on_notify` - `ClientSession`'s subscription demux depends on this,
-        and a dispatcher that skips the intercept leaves `listen()` waiting
-        for an acknowledgment that is never recorded.
+        `on_notify_intercept` synchronously in receive order (via
+        `run_notify_intercept`), handing only unconsumed ones to `on_notify`.
 
         `task_status.started()` is called once the dispatcher is ready to
         accept `send_request`/`notify` calls, so callers can use

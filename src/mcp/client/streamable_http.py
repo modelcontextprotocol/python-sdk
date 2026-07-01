@@ -443,10 +443,8 @@ class StreamableHTTPTransport:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
         else:
-            # Not resumable: the response can never arrive. Resolve the waiter
-            # instead of leaving the request pending for the session's lifetime
-            # (a listen stream's consumer would otherwise hang instead of
-            # learning the subscription is lost).
+            # Not resumable: resolve the waiter, else a listen stream's consumer
+            # would hang forever instead of learning the subscription is lost.
             await self._resolve_abandoned_request(
                 ctx.read_stream_writer, original_request_id, "SSE stream ended without a response"
             )
@@ -456,9 +454,7 @@ class StreamableHTTPTransport:
     ) -> None:
         """Resolve a request whose response can never arrive with a synthesized error.
 
-        Best-effort, like the dispatcher's own resolution writes: the read
-        stream closing first means the session is being torn down and nobody
-        is waiting on this request anymore.
+        Best-effort: a closed read stream means the session is tearing down.
         """
         error_data = ErrorData(code=CONNECTION_CLOSED, message=message)
         error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data))
@@ -475,16 +471,13 @@ class StreamableHTTPTransport:
         attempt: int = 0,
     ) -> None:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
-        # Only requests reconnect: every caller reaches here from a request's
-        # response stream (`_handle_sse_response` asserts the same), so the
-        # original id to map responses onto is always present.
+        # Only requests reconnect: every caller arrives from a request's response stream.
         assert isinstance(ctx.session_message.message, JSONRPCRequest)
         original_request_id = ctx.session_message.message.id
 
         if attempt >= MAX_RECONNECTION_ATTEMPTS:
-            # Give up AND resolve: without a synthesized error the waiter is
-            # pending for the session's lifetime, and a request with no read
-            # timeout (a listen stream) would hang its caller forever.
+            # Resolve on give-up: a request with no read timeout (a listen
+            # stream) would otherwise hang its caller forever.
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
             await self._resolve_abandoned_request(
                 ctx.read_stream_writer,

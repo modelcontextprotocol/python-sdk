@@ -1,9 +1,6 @@
-"""Behavioral tests for the client-side `subscriptions/listen` driver.
+"""Behavioral tests for the client-side `subscriptions/listen` driver (SDK-defined contract).
 
-Everything runs through the public API (`Client.listen`) against in-process
-servers, per the repo's mirror rule for `src/mcp/client/subscriptions.py`.
-Wire-shape assertions (subscription-id tagging, ack-first ordering) live in
-the interaction suite; these tests pin the driver's contract.
+Public API only, against in-process servers; wire-shape assertions live in the interaction suite.
 """
 
 from itertools import count
@@ -63,8 +60,7 @@ async def _ack(ctx: ServerRequestContext[Any, Any], honored: SubscriptionFilter)
 
 
 async def test_listen_surfaces_the_honored_filter_and_subscription_id():
-    """Entering waits for the ack: `honored` and `subscription_id` are populated
-    before the first event is consumed."""
+    """Entering waits for the server ack and surfaces the honored filter and subscription id."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus)) as client:
         with anyio.fail_after(5):
@@ -100,8 +96,7 @@ async def test_listen_delivers_all_four_typed_event_kinds():
 
 
 async def test_unconsumed_duplicate_events_coalesce():
-    """Events are level triggers: duplicates pending consumption collapse to one,
-    so a slow consumer wakes once per distinct fact, not once per publish."""
+    """Events are level triggers: duplicates pending consumption collapse to one."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus)) as client:
         with anyio.fail_after(5):
@@ -113,13 +108,11 @@ async def test_unconsumed_duplicate_events_coalesce():
                 await bus.publish(ResourceUpdated(uri="note://todo"))
                 await anyio.wait_all_tasks_blocked()
                 assert await anext(sub) == ToolsListChanged()
-                # The duplicates collapsed: the next event is the resource update.
                 assert await anext(sub) == ResourceUpdated(uri="note://todo")
 
 
 async def test_graceful_server_close_ends_the_loop_cleanly():
-    """The server's deliberate close (the empty listen result) ends iteration
-    without an exception - a clean end, not a loss."""
+    """The server's deliberate close ends iteration cleanly, after draining prior events."""
     bus = InMemorySubscriptionBus()
     handler = ListenHandler(bus)
     server = Server("subs", on_subscriptions_listen=handler)
@@ -130,13 +123,11 @@ async def test_graceful_server_close_ends_the_loop_cleanly():
                 await bus.publish(ToolsListChanged())
                 handler.close()
                 events.extend([event async for event in sub])
-    # The event published before the close was still delivered.
     assert events == [ToolsListChanged()]
 
 
 async def test_abrupt_stream_end_raises_subscription_lost():
-    """A stream that dies without the graceful result raises `SubscriptionLost`
-    from iteration, with the underlying error chained."""
+    """A stream dying without the graceful result raises `SubscriptionLost` with the cause chained."""
     proceed = anyio.Event()
 
     async def dropping_listen(
@@ -158,8 +149,7 @@ async def test_abrupt_stream_end_raises_subscription_lost():
 
 
 async def test_listen_on_a_legacy_connection_raises_the_typed_steer():
-    """On a 2025 connection `listen` fails fast with the typed error steering to
-    the legacy verbs, instead of leaking a -32601 from the wire."""
+    """On a 2025 connection `listen` fails fast with the typed error steering to the legacy verbs."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus), mode="legacy") as client:
         with anyio.fail_after(5):
@@ -171,8 +161,7 @@ async def test_listen_on_a_legacy_connection_raises_the_typed_steer():
 
 
 async def test_server_rejection_raises_from_enter_not_from_iteration():
-    """A server without the listen handler rejects the request; the error surfaces
-    immediately from entering the context (raise, don't degrade)."""
+    """A server without the listen handler fails the open from entering the context."""
     server = Server("no-listen")
     async with Client(server) as client:
         with anyio.fail_after(5):
@@ -182,8 +171,7 @@ async def test_server_rejection_raises_from_enter_not_from_iteration():
 
 
 async def test_immediate_result_without_ack_opens_already_closed():
-    """A server answering with the bare result and no ack yields a subscription
-    that is already gracefully over: empty honored filter, no events."""
+    """A bare result with no ack yields a subscription already gracefully over: no filter, no events."""
 
     async def degenerate_listen(
         ctx: ServerRequestContext[Any, Any], params: types.SubscriptionsListenRequestParams
@@ -201,8 +189,7 @@ async def test_immediate_result_without_ack_opens_already_closed():
 
 
 async def test_server_sent_cancelled_for_the_listen_id_raises_subscription_lost():
-    """A server tearing the stream down with notifications/cancelled (the
-    stream-transport spelling) surfaces as a lost subscription."""
+    """Server-sent notifications/cancelled for the listen id surfaces as a lost subscription."""
     proceed = anyio.Event()
 
     async def cancelling_listen(
@@ -228,8 +215,7 @@ async def test_server_sent_cancelled_for_the_listen_id_raises_subscription_lost(
 
 
 async def test_exiting_the_context_frees_the_server_slot():
-    """Leaving the block ends the subscription server-side: with a one-slot
-    handler, a second listen succeeds only because the first was released."""
+    """Leaving the block ends the subscription server-side: a one-slot handler admits a second listen."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus, max_subscriptions=1)) as client:
         with anyio.fail_after(5):
@@ -259,14 +245,11 @@ async def test_concurrent_subscriptions_demux_independently():
 
 
 async def test_change_notifications_still_reach_message_handler():
-    """The demux tees: a delivered event's notification still flows to
-    message_handler (cache eviction and observers keep working); the ack is
-    driver state and is consumed."""
+    """The demux tees: a delivered event's notification still reaches message_handler; the ack never does."""
     bus = InMemorySubscriptionBus()
     seen: list[str] = []
 
     async def on_message(message: object) -> None:
-        # The ack never reaches the handler - it is driver state, consumed by the demux.
         assert not isinstance(message, types.SubscriptionsAcknowledgedNotification)
         if isinstance(message, types.ToolListChangedNotification):  # pragma: no branch
             seen.append("tools-changed")
@@ -281,8 +264,7 @@ async def test_change_notifications_still_reach_message_handler():
 
 
 async def test_enter_times_out_when_the_ack_never_arrives():
-    """The ack wait rides the session's read timeout, so a wedged server cannot
-    hang the open forever."""
+    """The ack wait rides the session's read timeout, so a wedged server cannot hang the open."""
 
     async def silent_listen(
         ctx: ServerRequestContext[Any, Any], params: types.SubscriptionsListenRequestParams
@@ -298,8 +280,7 @@ async def test_enter_times_out_when_the_ack_never_arrives():
 
 
 async def test_an_open_stream_outlives_the_session_read_timeout():
-    """The listen request itself is exempt from the read timeout: the stream
-    stays open and delivers long after the per-request deadline passed."""
+    """The listen request is exempt from the read timeout: the stream delivers after the deadline."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus), read_timeout_seconds=0.05) as client:
         with anyio.fail_after(5):
@@ -332,8 +313,7 @@ async def test_a_duplicate_ack_does_not_overwrite_the_honored_filter():
 
 
 async def test_a_non_event_frame_with_the_subscription_id_is_teed_not_delivered():
-    """A stamped notification that is not a change event (a log line on the
-    stream) never surfaces as an event; it flows to message_handler as usual."""
+    """A stamped non-event notification never surfaces as an event; it flows to message_handler."""
     proceed = anyio.Event()
 
     async def logging_listen(
@@ -368,8 +348,7 @@ async def test_a_non_event_frame_with_the_subscription_id_is_teed_not_delivered(
 
 
 async def test_session_teardown_unblocks_a_sibling_consumer_with_subscription_lost():
-    """Closing the client while a watcher task is parked on the stream must not
-    strand it: teardown settles every open route as lost."""
+    """Session teardown settles every open route as lost, unblocking parked consumers."""
     bus = InMemorySubscriptionBus()
     outcome: list[str] = []
     entered = anyio.Event()
@@ -386,14 +365,11 @@ async def test_session_teardown_unblocks_a_sibling_consumer_with_subscription_lo
             async with Client(_bus_server(bus)) as client:  # pragma: no branch
                 tg.start_soon(consume, client)
                 await entered.wait()
-            # The client exited above while the watcher was still parked on the
-            # stream; teardown settles the route, unblocking it with a lost end.
     assert outcome == ["lost"]
 
 
 async def test_server_cancel_before_the_ack_raises_subscription_lost_from_enter():
-    """A stream torn down before it was ever acknowledged is a failed open:
-    enter raises instead of yielding a handle with a fabricated empty filter."""
+    """A stream torn down before it was ever acknowledged is a failed open: enter raises."""
 
     async def cancel_first_listen(
         ctx: ServerRequestContext[Any, Any], params: types.SubscriptionsListenRequestParams
@@ -414,8 +390,7 @@ async def test_server_cancel_before_the_ack_raises_subscription_lost_from_enter(
 
 
 async def test_listen_on_an_exited_session_raises_and_leaks_no_route():
-    """Opening against a session whose context already exited fails loudly, and
-    the demux registration does not outlive the failed open."""
+    """Opening on an exited session fails loudly and leaves no demux registration behind."""
     bus = InMemorySubscriptionBus()
     client = Client(_bus_server(bus))
     async with client:
@@ -442,8 +417,7 @@ async def test_listen_on_a_never_entered_session_raises_runtime_error():
 
 
 async def test_a_retained_handle_after_exit_does_not_serve_stale_events():
-    """Leaving the block abandons the backlog: a stashed handle must not replay
-    buffered events as if they were live."""
+    """Leaving the block abandons the backlog: a stashed handle must not replay buffered events."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus)) as client:
         with anyio.fail_after(5):
@@ -455,8 +429,7 @@ async def test_a_retained_handle_after_exit_does_not_serve_stale_events():
 
 
 async def test_a_stray_ack_outside_the_driver_namespace_still_reaches_message_handler():
-    """Acks for ids the driver never minted flow to message_handler - the raw
-    escape-hatch listen (send_request directly) observes its ack there."""
+    """Acks for ids the driver never minted flow to message_handler (the raw-listen escape hatch)."""
     proceed = anyio.Event()
 
     async def stray_acking_listen(
@@ -492,8 +465,7 @@ async def test_a_stray_ack_outside_the_driver_namespace_still_reaches_message_ha
 
 
 async def test_a_bare_string_for_resource_subscriptions_is_rejected():
-    """`resource_subscriptions="uri"` would explode into per-character URIs; the
-    classic footgun is rejected before anything touches the wire."""
+    """A bare string would explode into per-character URIs; it is rejected before touching the wire."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus)) as client:
         with pytest.raises(TypeError, match="sequence of URIs"):
@@ -501,16 +473,13 @@ async def test_a_bare_string_for_resource_subscriptions_is_rejected():
 
 
 def test_the_route_admits_only_honored_events_and_only_while_live():
-    """Admission control at the route: nothing before the ack; after it, kind
-    events match the honored flags exactly, while a ResourceUpdated is admitted
-    whenever URI subscriptions were honored at all (the spec lets the stamped
-    URI be a sub-resource of a subscribed one); nothing once the stream ended."""
+    """Route admission: nothing before the ack, only honored events while live, nothing after the end."""
     route = ListenRoute()
-    route.deliver(ToolsListChanged())  # before the ack nothing is admissible
+    route.deliver(ToolsListChanged())
     assert route._pending == {}  # pyright: ignore[reportPrivateUsage]
     route.set_acked(SubscriptionFilter(tools_list_changed=True, resource_subscriptions=["note://todo"]))
     route.deliver(PromptsListChanged())  # kind not honored
-    route.deliver(ResourceUpdated(uri="note://todo/draft"))  # sub-resource of a subscribed URI: admitted
+    route.deliver(ResourceUpdated(uri="note://todo/draft"))  # sub-resource of a subscribed URI: spec says admit
     route.deliver(ResourceUpdated(uri="note://todo"))
     route.deliver(ToolsListChanged())
     route.deliver(ToolsListChanged())  # duplicate pending consumption collapses
@@ -525,10 +494,8 @@ def test_the_route_admits_only_honored_events_and_only_while_live():
 
 
 def test_a_peer_flooding_distinct_uris_costs_the_subscription_not_client_memory():
-    """`_MAX_PENDING_EVENTS` backstops the one backlog admission cannot bound:
-    URI admission is deliberately loose (sub-resources), so a flooding peer
-    settles the route lost - re-listen and refetch - instead of growing the
-    pending map without bound."""
+    """A peer flooding distinct URIs trips the `_MAX_PENDING_EVENTS` backstop: the route
+    settles lost instead of growing client memory without bound."""
     route = ListenRoute()
     route.set_acked(SubscriptionFilter(resource_subscriptions=["note://todo"]))
     for n in range(subscriptions_module._MAX_PENDING_EVENTS):  # pyright: ignore[reportPrivateUsage]
@@ -538,14 +505,13 @@ def test_a_peer_flooding_distinct_uris_costs_the_subscription_not_client_memory(
     assert route.end == "lost"
     assert route.error is not None
     assert "backlog" in route.error.error.message
-    # The overflowing event was not queued; the drained backlog stays at the cap.
+    # The overflowing event was not queued.
     assert len(route._pending) == subscriptions_module._MAX_PENDING_EVENTS  # pyright: ignore[reportPrivateUsage]
 
 
 async def test_a_cancelled_on_event_barrier_does_not_lose_the_event():
-    """The event stays pending while the barrier runs: a consumer-side timeout
-    cancelling `anext` mid-barrier leaves the level trigger queued, and the
-    next `anext` re-runs the (idempotent) barrier and returns it."""
+    """Cancelling `anext` mid-barrier leaves the event queued; the next `anext` re-runs the
+    idempotent barrier and returns it."""
     bus = InMemorySubscriptionBus()
     entered = anyio.Event()
     release = anyio.Event()
@@ -576,8 +542,7 @@ async def test_a_cancelled_on_event_barrier_does_not_lose_the_event():
 
 
 async def test_events_outside_the_honored_filter_are_never_delivered():
-    """A server that violates its acknowledged filter cannot reach the consumer
-    (or grow the backlog): the route admits only honored events."""
+    """A server violating its acknowledged filter cannot reach the consumer or grow the backlog."""
     proceed = anyio.Event()
 
     async def overreaching_listen(
@@ -608,9 +573,7 @@ async def test_events_outside_the_honored_filter_are_never_delivered():
 
 
 async def test_the_on_event_barrier_completes_before_each_event_is_returned():
-    """`on_event` is awaited between the route handing over an event and the
-    iterator returning it - the seam consumers use for must-happen-before work
-    (the Client wires cache eviction here)."""
+    """`on_event` is awaited before the iterator returns each event (the Client wires cache eviction here)."""
     bus = InMemorySubscriptionBus()
     order: list[str] = []
 
@@ -627,8 +590,7 @@ async def test_the_on_event_barrier_completes_before_each_event_is_returned():
 
 
 async def test_client_listen_installs_the_cache_eviction_barrier_exactly_when_a_cache_exists():
-    """`Client.listen` wires its response-cache evictor as the event barrier;
-    with caching disabled there is no barrier to pay for."""
+    """`Client.listen` wires the response-cache evictor as the barrier only when a cache exists."""
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus)) as cached_client:
         with anyio.fail_after(5):
@@ -643,9 +605,8 @@ async def test_client_listen_installs_the_cache_eviction_barrier_exactly_when_a_
 async def test_the_cache_eviction_barrier_maps_events_and_contains_store_faults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The barrier evicts through the same notification mapping as the
-    message_handler wrapper, and a raising store costs a log line, not the
-    event delivery."""
+    """The barrier evicts through the same notification mapping as the message_handler wrapper;
+    a raising store costs a log line, not the delivery."""
     client = Client(_bus_server(InMemorySubscriptionBus()))
     cache = client._response_cache  # pyright: ignore[reportPrivateUsage]
     assert cache is not None
@@ -670,9 +631,8 @@ async def test_the_cache_eviction_barrier_maps_events_and_contains_store_faults(
 async def test_a_raw_request_id_collision_fails_the_subscription_not_the_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A raw caller occupying the driver's next minted id fails that ONE listen
-    with a typed error from enter; the session survives and the next listen
-    (a fresh id) opens normally."""
+    """A raw caller occupying the driver's next minted id fails that one listen from enter;
+    the session survives and the next listen opens normally."""
     monkeypatch.setattr(subscriptions_module, "_listen_ids", count(7000))
     bus = InMemorySubscriptionBus()
     async with Client(_bus_server(bus)) as client:
@@ -699,10 +659,8 @@ async def test_a_raw_request_id_collision_fails_the_subscription_not_the_session
                 with pytest.raises(MCPError) as exc_info:
                     await client.listen(tools_list_changed=True).__aenter__()
                 assert "already in flight" in exc_info.value.error.message
-                # The failed open released the colliding id's demux registration:
-                # only the raw caller may see frames stamped with it.
+                # The failed open released the colliding id's demux registration.
                 assert client.session._listen_routes == {}  # pyright: ignore[reportPrivateUsage]
                 raw_scope.cancel()
-                # The session is intact: the next listen mints a fresh id and opens.
                 async with client.listen(tools_list_changed=True) as sub:  # pragma: no branch
                     assert sub.subscription_id == "listen-7001"
