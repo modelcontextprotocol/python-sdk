@@ -701,12 +701,12 @@ class OAuthClientProvider(httpx.Auth):
                 # Retry with new tokens
                 self._add_auth_header(request)
                 yield request
-            elif response.status_code == 403:
+            elif response.status_code == 403:  # pragma: no branch
                 # Step 1: Extract error field from WWW-Authenticate header
                 error = extract_field_from_www_auth(response, "error")
 
                 # Step 2: Check if we need to step-up authorization
-                if error == "insufficient_scope":  # pragma: no branch
+                if error == "insufficient_scope":
                     try:
                         # Step 2a: Union previously requested scopes with the newly challenged
                         # scopes (SEP-2350) so escalating one operation keeps the others' grants.
@@ -729,6 +729,8 @@ class OAuthClientProvider(httpx.Auth):
                         logger.exception("OAuth flow error")
                         raise
 
-                # Retry with new tokens
-                self._add_auth_header(request)
-                yield request
+                    # Retry with new tokens
+                    self._add_auth_header(request)
+                    yield request
+                else:
+                    raise OAuthFlowError(f"Access forbidden: {error or 'insufficient permissions'}")
