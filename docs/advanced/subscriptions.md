@@ -79,6 +79,39 @@ Down on the low-level `Server` there is no pre-wired anything — and the same p
 * `ListenHandler(bus)` is the same handler `MCPServer` registers; `on_subscriptions_listen=` is an ordinary handler slot. Don't want the SDK's semantics? Write your own handler for the slot — the spec obligations come with it.
 * `ListenHandler.close()` gracefully ends every open stream: each one receives the listen request's result as its final frame, the spec's signal that the server ended the subscription deliberately — a clean end, as opposed to the abrupt drop a client may treat as a cue to reconnect. Without it, streams end when the client disconnects.
 
+## The client side
+
+Consuming a subscription is one context manager:
+
+```python title="client.py" hl_lines="9 10"
+--8<-- "docs_src/subscriptions/tutorial003.py"
+```
+
+* `client.listen(...)` takes the filter as keyword arguments — they mirror the wire `SubscriptionFilter` field for field. Entering sends the request and returns once the server's acknowledgment arrives, so `sub.honored` (the subset the server agreed to deliver) is always there before the first event.
+* Iteration yields the same four typed events the server publishes: `ToolsListChanged`, `PromptsListChanged`, `ResourcesListChanged`, and `ResourceUpdated(uri=...)` — where the URI may be a sub-resource of one you subscribed to, at the server's discretion. An event is a cue to refetch — it carries no payload beyond identity, and duplicates pending consumption collapse into one.
+* Leaving the block ends the subscription, with the transport's own spelling: over streamable HTTP the request's response stream is closed (that is the 2026 cancellation signal), on stream transports `notifications/cancelled` is sent.
+* The stream's two endings are control flow. The server closing gracefully simply ends the `async for`; an abrupt drop raises `SubscriptionLost`. The distinction is diagnostic — a clean end versus a connection worth suspecting — not a difference in what to do next: either way the stream is gone, nothing is replayed, and a watcher that still cares re-listens and refetches. Servers close streams gracefully for their own reasons — shutdown, or shedding a subscriber whose backlog grew past bounds, as this SDK's `ListenHandler` does — so a graceful close is not a signal to stop watching:
+
+```python
+async def watch(client: Client, uri: str) -> None:
+    while True:
+        try:
+            async with client.listen(resource_subscriptions=[uri]) as sub:
+                await client.read_resource(uri)  # refetch: no replay across streams
+                async for _event in sub:
+                    await client.read_resource(uri)
+        except SubscriptionLost:
+            pass
+        # Graceful close or abrupt drop, the stream is gone either way. Back
+        # off before re-listening - a graceful close may be the server
+        # shedding load, and reconnecting instantly recreates the pressure.
+        await anyio.sleep(1)
+```
+
+* Checking the acknowledgment (the spec's client SHOULD) is reading `sub.honored` — the kinds this stream will actually receive. A server may narrow the filter it agrees to honor (a multi-tenant server declining a URI, say), and `sub.honored` is that delivery contract — it says nothing about what exists in the catalog. Multiple subscriptions may be open concurrently; each demultiplexes by its own subscription id.
+* Tool calls and other requests run freely beside an open stream — from the same task between events, or from sibling tasks sharing the client. A watcher task that refetches inside its event loop is the intended pattern, not a re-entrancy hazard.
+* `listen()` requires a 2026-07-28 connection and raises `ListenNotSupportedError` on older ones, steering to the deprecated `subscribe_resource` and `message_handler` spelling those wires use.
+
 ## Recap
 
 * A client opts in with one `subscriptions/listen` request; the response is the stream. There is nothing to configure server-side — serving it is built in.
@@ -86,3 +119,4 @@ Down on the low-level `Server` there is no pre-wired anything — and the same p
 * Streams receive only what their filter requested; URIs match exactly; nothing is replayed.
 * Scaling out means implementing `SubscriptionBus` — two methods — over your own pub/sub, and passing it as `MCPServer(subscriptions=...)`.
 * The low-level spelling is the same machinery held in your hands: a bus, `ListenHandler(bus)`, one constructor argument.
+* Consuming is `async with client.listen(...)` and `async for event in sub` — typed events, honored filter on the handle, clean end vs `SubscriptionLost`.
