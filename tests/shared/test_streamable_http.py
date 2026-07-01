@@ -1542,6 +1542,45 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("header_version", "body_version"),
+    [
+        ("2025-03-26", "2025-06-18"),
+        ("2025-06-18", "2025-03-26"),
+    ],
+)
+async def test_server_rejects_initialize_protocol_version_mismatch(
+    basic_app: Starlette, header_version: str, body_version: str
+) -> None:
+    """initialize is rejected with 400 when the header and body protocol versions disagree."""
+    init_request: dict[str, Any] = {
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test-client", "version": "1.0"},
+            "protocolVersion": body_version,
+            "capabilities": {},
+        },
+        "id": "init-1",
+    }
+
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                MCP_PROTOCOL_VERSION_HEADER: header_version,
+            },
+            json=init_request,
+        )
+
+    assert response.status_code == 400
+    assert MCP_PROTOCOL_VERSION_HEADER in response.text
+    assert "protocolVersion" in response.text
+
+
+@pytest.mark.anyio
 async def test_server_backwards_compatibility_no_protocol_version(basic_app: Starlette) -> None:
     """A request without a protocol version header is accepted for backwards compatibility."""
     async with make_client(basic_app) as client:
