@@ -262,9 +262,7 @@ async def test_opt_in_read_eof_drains_accepted_inbound_request_response():
     """
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage](32)
-    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
-        c2s_recv, s2c_send, drain_inbound_on_read_eof=True
-    )
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send, drain_inbound_on_read_eof=True)
     handler_started = anyio.Event()
 
     async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -272,12 +270,9 @@ async def test_opt_in_read_eof_drains_accepted_inbound_request_response():
         await anyio.sleep(0.05)
         return {"ok": True}
 
-    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
-        pass
-
     try:
         async with anyio.create_task_group() as tg:
-            await tg.start(server.run, on_request, on_notify)
+            await tg.start(server.run, on_request, echo_handlers(Recorder())[1])
             await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
             await handler_started.wait()
 
@@ -313,12 +308,9 @@ async def test_opt_in_read_eof_drains_transport_builder_rejection_response():
     async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         raise NotImplementedError
 
-    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
-        pass
-
     try:
         async with anyio.create_task_group() as tg:
-            await tg.start(server.run, on_request, on_notify)
+            await tg.start(server.run, on_request, echo_handlers(Recorder())[1])
             await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
             c2s_send.close()
 

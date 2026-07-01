@@ -693,7 +693,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         with anyio.move_on_after(_DRAIN_INBOUND_ON_EOF_TIMEOUT) as scope:
             while self._active_inbound_requests:
                 await anyio.sleep(_DRAIN_INBOUND_ON_EOF_POLL_INTERVAL)
-        if scope.cancelled_caught:
+        if scope.cancelled_caught:  # pragma: no cover
             logger.warning(
                 "timed out waiting for %d inbound request(s) to finish after read EOF",
                 self._active_inbound_requests,
