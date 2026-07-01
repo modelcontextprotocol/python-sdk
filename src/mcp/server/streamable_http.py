@@ -626,9 +626,18 @@ class StreamableHTTPServerTransport:
 
                 # Start the SSE response (this will send headers immediately)
                 try:
+
+                    async def run_response_with_cleanup() -> None:
+                        try:
+                            await response(scope, receive, send)
+                        finally:
+                            self._sse_stream_writers.pop(request_id, None)
+                            await sse_stream_writer.aclose()
+                            await self._clean_up_memory_streams(request_id)
+
                     # First send the response to establish the SSE connection
                     async with anyio.create_task_group() as tg:
-                        tg.start_soon(response, scope, receive, send)
+                        tg.start_soon(run_response_with_cleanup)
                         # Then send the message to be processed by the server
                         session_message = self._create_session_message(message, request, request_id, protocol_version)
                         await writer.send(session_message)
