@@ -101,7 +101,7 @@ async def watch(client: Client, uri: str) -> None:
                 async for _event in sub:
                     await client.read_resource(uri)
         except SubscriptionLost:
-            continue  # transport dropped — re-listen
+            continue  # transport dropped - re-listen
         else:
             break  # the server ended it deliberately
 ```
