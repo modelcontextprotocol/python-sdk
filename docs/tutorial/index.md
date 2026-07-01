@@ -1,8 +1,8 @@
-# Tutorial - User Guide
+# Get started
 
-This tutorial shows you how to use the MCP Python SDK, step by step.
-
-Each section gradually builds on the previous ones, but it's written so you can go straight to any specific section to solve a specific problem. It also works as a future reference: you can come back to exactly the part you need.
+New to MCP, or new to this SDK? Start here. These pages take you from nothing to a
+working, tested server: [install the SDK](../installation.md), build your
+[first server](first-steps.md), and [test it](testing.md) with an in-memory client.
 
 ## Run the code
 
@@ -18,7 +18,7 @@ It is **HIGHLY encouraged** that you write (or copy) the code, edit it, and run 
 
 ## You will not be guessing
 
-Every example in this tutorial is a complete file under [`docs_src/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/docs_src) in the SDK's own repository, and every one of them is exercised by the SDK's test suite through an **in-memory client**:
+Every example in these docs is a complete file under [`docs_src/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/docs_src) in the SDK's own repository, and every one of them is exercised by the SDK's test suite through an **in-memory client**:
 
 ```python
 import pytest
@@ -38,14 +38,14 @@ No subprocess, no port, no transport. `Client(mcp)` connects to the server objec
 
 If a change to the SDK breaks an example on one of these pages, CI goes red before the page does. The code you read here is the code that runs.
 
-You'll use this yourself in the [Testing](testing.md) chapter; it's how you test your own servers, too.
+You'll use this yourself in [Testing](testing.md); it's how you test your own servers, too.
 
-## Install the SDK
+## Where to go next
 
-If you haven't yet, [install the SDK](../installation.md) first.
+Once you have a server running, the rest of these docs are a reference, not a course.
+Every page stands on its own — jump straight to what you need:
 
-## Advanced User Guide
-
-There is also an **Advanced User Guide** you can read after this one.
-
-It builds on this tutorial, uses the same concepts, and teaches you the extra things: the low-level `Server`, middleware, authorization, the 2026-07-28 protocol negotiation. But you should read this first: everything in the Advanced guide assumes you know the basics.
+* What a server exposes — tools, resources, prompts — is **[Servers](../servers/index.md)**.
+* What's available inside the functions you register is **[Inside your handler](../handlers/index.md)**.
+* Getting it in front of clients — stdio, HTTP, your existing FastAPI app — is **[Running your server](../run/index.md)**.
+* Building the other side, an application that *uses* MCP servers, is **[Clients](../client/index.md)**.

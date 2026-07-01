@@ -12,48 +12,53 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 
 nav:
   - MCP Python SDK: index.md
-  - Installation: installation.md
-  - Tutorial - User Guide:
+  - Get started:
       - tutorial/index.md
+      - Installation: installation.md
       - First steps: tutorial/first-steps.md
+      - Testing: tutorial/testing.md
+  - Servers:
+      - servers/index.md
       - Tools: tutorial/tools.md
       - Structured Output: tutorial/structured-output.md
       - Resources: tutorial/resources.md
+      - URI templates: advanced/uri-templates.md
       - Prompts: tutorial/prompts.md
+      - Completions: tutorial/completions.md
+      - "Images, audio & icons": tutorial/media.md
+      - Handling errors: tutorial/handling-errors.md
+  - Inside your handler:
+      - handlers/index.md
       - The Context: tutorial/context.md
       - Dependencies: tutorial/dependencies.md
-      - Handling errors: tutorial/handling-errors.md
       - Lifespan: tutorial/lifespan.md
-      - Media: tutorial/media.md
-      - Completions: tutorial/completions.md
       - Elicitation: tutorial/elicitation.md
+      - Multi-round-trip requests: advanced/multi-round-trip.md
       - Progress: tutorial/progress.md
       - Logging: tutorial/logging.md
-      - Testing: tutorial/testing.md
+      - Subscriptions: advanced/subscriptions.md
   - Running your server:
       - run/index.md
-      - ASGI: run/asgi.md
-  - The Client:
+      - Add to an existing app: run/asgi.md
+      - Authorization: advanced/authorization.md
+      - OpenTelemetry: advanced/opentelemetry.md
+  - Clients:
       - client/index.md
-      - Client callbacks: client/callbacks.md
-      - Client transports: client/transports.md
-      - Protocol versions: client/protocol-versions.md
+      - Callbacks: client/callbacks.md
+      - Transports: client/transports.md
+      - OAuth: advanced/oauth-clients.md
+      - Identity assertion: advanced/identity-assertion.md
+      - Multiple servers: advanced/session-groups.md
+      - Caching: advanced/caching.md
+  - Protocol versions: client/protocol-versions.md
+  - Deprecated features: advanced/deprecated.md
   - Advanced:
-      - Multi-round-trip requests: advanced/multi-round-trip.md
+      - advanced/index.md
       - The low-level Server: advanced/low-level-server.md
-      - URI templates: advanced/uri-templates.md
       - Pagination: advanced/pagination.md
-      - Caching hints: advanced/caching.md
-      - Subscriptions: advanced/subscriptions.md
       - Middleware: advanced/middleware.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
-      - OpenTelemetry: advanced/opentelemetry.md
-      - Authorization: advanced/authorization.md
-      - OAuth clients: advanced/oauth-clients.md
-      - Identity assertion: advanced/identity-assertion.md
-      - Session groups: advanced/session-groups.md
-      - Deprecated features: advanced/deprecated.md
   - Migration Guide: migration.md
   - API Reference: api/
 
