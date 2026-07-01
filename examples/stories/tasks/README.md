@@ -39,9 +39,11 @@ uv run python -m stories.tasks.client --http
   call returns the plain `CallToolResult` — the story guards its manual leg
   on the negotiated capability.
 - The manual leg — `session.call_tool(..., allow_claimed=True)` returns the
-  typed `CreateTaskResult` (mirroring `allow_input_required`), and the shared
-  `mcp.shared.tasks` wrappers (`GetTaskRequest`/`GetTaskResult`) drive `tasks/get`
-  by hand over `session.send_request`.
+  typed `CreateTaskResult` (mirroring `allow_input_required`), and the typed
+  `mcp.client.tasks` functions drive it by hand: `get_task` fetches one
+  `tasks/get` snapshot with the outcome inlined, then `wait_task` polls the
+  same task to its final `CallToolResult` — from the bare persisted id, the
+  resume-after-reconnect shape.
 
 ## Scope
 
