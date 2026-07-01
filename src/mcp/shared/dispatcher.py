@@ -34,10 +34,22 @@ __all__ = [
     "OnRequest",
     "Outbound",
     "ProgressFnT",
+    "as_request_id",
     "coerce_request_id",
 ]
 
 TransportT_co = TypeVar("TransportT_co", bound=TransportContext, covariant=True)
+
+
+def as_request_id(value: object) -> RequestId | None:
+    """Narrow an untyped wire value to a `RequestId`, or None.
+
+    Rejects bool explicitly: bool subclasses int, so True would alias
+    request id 1 in every correlation table keyed by id.
+    """
+    if isinstance(value, str | int) and not isinstance(value, bool):
+        return value
+    return None
 
 
 def coerce_request_id(request_id: RequestId) -> RequestId:

@@ -18,6 +18,7 @@ from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CONNECTION_CLOSED,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     JSONRPCError,
@@ -583,3 +584,44 @@ async def test_a_finished_post_task_does_not_evict_a_reused_ids_new_registration
             )
             await parked.closed.wait()
     assert [body["method"] for body in posted] == ["tools/call", "subscriptions/listen"]
+
+
+class _DyingSSEStream(httpx.AsyncByteStream):
+    """Emits one id-less comment then breaks - a non-resumable stream dropping."""
+
+    def __init__(self) -> None:
+        self.opened = anyio.Event()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        self.opened.set()
+        yield b": hello\n\n"
+        raise httpx.ReadError("connection reset")
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.anyio
+async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> None:
+    """A per-request SSE stream that dies having carried no event ids can never
+    deliver its response; the transport resolves the waiter with CONNECTION_CLOSED
+    instead of leaving the request pending for the session's lifetime (a listen
+    stream's consumer would otherwise hang instead of learning it is lost)."""
+    dying = _DyingSSEStream()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=dying)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={}))
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED

@@ -44,6 +44,7 @@ from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY
 from mcp.shared.transport_context import TransportContext
 
 _SendToClient = anyio.streams.memory.MemoryObjectSendStream[SessionMessage | Exception]
@@ -1808,3 +1809,40 @@ async def test_session_read_resource_returns_input_required_result_when_opted_in
             result = await client.session.read_resource("memory://r", allow_input_required=True)
     assert isinstance(result, types.InputRequiredResult)
     assert result.request_state == "resource-state"
+
+
+@pytest.mark.anyio
+async def test_a_late_ack_for_a_closed_driver_listen_is_dropped():
+    """Ack consumption is namespaced, not timing-dependent: an ack for a
+    driver-minted listen id whose route is already unregistered (enter timed
+    out, context exited) is dropped instead of leaking to message_handler."""
+    seen: list[object] = []
+    follow_up = anyio.Event()
+
+    async def handler(msg: object) -> None:
+        seen.append(msg)
+        follow_up.set()
+
+    async with raw_client_session(message_handler=handler) as (session, to_client, _):
+        _set_negotiated_version(session, "2026-07-28")
+        session._register_listen_route("listen-99")  # pyright: ignore[reportPrivateUsage]
+        session._unregister_listen_route("listen-99")  # pyright: ignore[reportPrivateUsage]
+        await to_client.send(
+            SessionMessage(
+                JSONRPCNotification(
+                    jsonrpc="2.0",
+                    method="notifications/subscriptions/acknowledged",
+                    params={
+                        "notifications": {"toolsListChanged": True},
+                        "_meta": {SUBSCRIPTION_ID_META_KEY: "listen-99"},
+                    },
+                )
+            )
+        )
+        # A follow-up notification proves processing moved past the dropped ack.
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed", params={}))
+        )
+        with anyio.fail_after(5):
+            await follow_up.wait()
+    assert [type(message).__name__ for message in seen] == ["ToolListChangedNotification"]

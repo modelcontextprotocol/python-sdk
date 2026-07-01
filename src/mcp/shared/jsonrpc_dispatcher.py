@@ -46,6 +46,7 @@ from mcp.shared.dispatcher import (
     OnNotify,
     OnRequest,
     ProgressFnT,
+    as_request_id,
     coerce_request_id,
 )
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -107,12 +108,8 @@ def progress_token_from_params(params: Mapping[str, Any] | None) -> ProgressToke
 
 
 def cancelled_request_id_from_params(params: Mapping[str, Any] | None) -> RequestId | None:
-    """Read `params.requestId` from a `notifications/cancelled`; reject bool (True would alias request id 1)."""
-    match params:
-        case {"requestId": str() | int() as request_id} if not isinstance(request_id, bool):
-            return request_id
-        case _:
-            return None
+    """Read `params.requestId` from a `notifications/cancelled` (`as_request_id` shape rules)."""
+    return as_request_id((params or {}).get("requestId"))
 
 
 @dataclass(slots=True)
