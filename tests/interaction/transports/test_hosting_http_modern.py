@@ -1331,9 +1331,9 @@ async def test_modern_client_disconnect_mid_request_cancels_the_running_handler(
 async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call_still_completes() -> None:
     """A request-scoped push elicit over the modern HTTP entry loud-fails locally and the call still completes.
 
-    Spec-mandated outcome; the enforcement here is incidental (no back-channel, not an era gate).
-    The in-memory twin of this leg still transmits the frame -- the divergence pinned in
-    lowlevel/test_mrtr.py -- so the modern entry's gate gets its own regression pin.
+    Spec-mandated outcome: the modern HTTP entry builds its per-request channel with no
+    back-channel, so the refusal is local by construction. The in-memory twin of this leg is
+    pinned in lowlevel/test_mrtr.py; this pin keeps the HTTP entry's own gate regression-covered.
     """
     caught: list[NoBackChannelError] = []
 

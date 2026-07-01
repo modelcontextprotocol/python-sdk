@@ -16,7 +16,6 @@ from mcp_types import (
     CLIENT_INFO_META_KEY,
     INVALID_PARAMS,
     INVALID_REQUEST,
-    METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     CallToolResult,
     ClientCapabilities,
@@ -481,8 +480,10 @@ async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_com
 async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_completes(connect: Connect) -> None:
     """A push API call on a 2026 connection raises a typed local error and the call still completes.
 
-    Spec-mandated outcome, incidental enforcement: the gate is "no back-channel", not "wrong era".
-    One push API stands for all four: they share ServerSession.send_request's channel selection.
+    Spec-mandated outcome, era-routed enforcement: every modern dispatch path installs a
+    channel-less context by construction, so the gate is "no back-channel", never a send-time
+    era check. One push API stands for all four: they share ServerSession.send_request's
+    channel selection.
     """
     caught: list[NoBackChannelError] = []
 
@@ -524,14 +525,16 @@ async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_compl
 
 
 @requirement("mrtr:push-api:loud-fail-2026")
-async def test_request_scoped_push_elicit_on_in_memory_2026_transmits_the_forbidden_frame() -> None:
-    """PINS A KNOWN GAP: a request-scoped push elicit on in-memory 2026 transmits the forbidden frame.
+async def test_request_scoped_push_elicit_on_in_memory_2026_loud_fails_locally_and_the_call_still_completes() -> None:
+    """A request-scoped push elicit on in-memory 2026 loud-fails locally and the call still completes.
 
-    The no-back-channel gate is per-transport and the in-memory request-scoped channel still has one,
-    so the failure comes back from the client's 2026 version gate instead of arising locally. When an
-    era-aware send gate lands: re-pin to the local NoBackChannelError and delete the Divergence.
+    The related id routes the send onto the per-request dispatch channel -- the one leg whose
+    channel is otherwise live in-memory -- so this pin proves local provenance: the typed
+    NoBackChannelError (never a peer answer) and a callback that never fires. A delivered frame
+    would raise NotImplementedError in the callback, surface as a non-NoBackChannelError error,
+    escape the narrowed except, and fail the test loudly.
     """
-    caught: list[MCPError] = []
+    caught: list[NoBackChannelError] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -544,26 +547,32 @@ async def test_request_scoped_push_elicit_on_in_memory_2026_transmits_the_forbid
         try:
             # The related id routes the send onto the per-request dispatch channel.
             await ctx.session.elicit_form("Need a name", _NAME_SCHEMA, related_request_id=ctx.request_id)
-        except MCPError as exc:
-            # MCPError, not NoBackChannelError: nothing is raised locally -- the failure is the peer's answer.
+        except NoBackChannelError as exc:
+            # Narrow on purpose: a peer-answered MCPError would propagate and fail the test.
             caught.append(exc)
         return CallToolResult(content=[TextContent(text="fallback")])
 
     server = Server("scoped-push", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    # Declares the elicitation capability; the body is itself the never-delivered assertion.
+    # Registering the callback declares the elicitation capability; it must never fire.
     async def never_deliverable(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         raise NotImplementedError
 
     async with Client(server, mode=LATEST_MODERN_VERSION, elicitation_callback=never_deliverable) as client:
         result = await client.call_tool("ask", {})
 
-    # The connection survives the rejected frame.
+    # The failed push did not poison the request: the call completes with the handler's fallback.
     assert result == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
     assert len(caught) == 1
-    # Only the pre-dispatch client version gate answers data=<method>: transmission proven, callback never reached.
+    assert caught[0].method == "elicitation/create"
     assert caught[0].error == snapshot(
-        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="elicitation/create")
+        ErrorData(
+            code=INVALID_REQUEST,
+            message=(
+                "Cannot send 'elicitation/create': this transport context has no back-channel "
+                "for server-initiated requests."
+            ),
+        )
     )
 
 

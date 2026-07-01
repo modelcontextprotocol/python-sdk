@@ -3975,22 +3975,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(NoBackChannelError, INVALID_REQUEST) before any request reaches the client; a handler "
             "can catch it and fall back, and the originating call still completes."
         ),
-        divergence=Divergence(
-            note=(
-                "The prohibition is enforced by each transport's missing back-channel, not by an "
-                "era gate on the send path, and the enforcement splits per transport and per leg. "
-                "Standalone sends (no related_request_id) raise NoBackChannelError locally on both "
-                "2026 transports because the per-request Connection has no outbound channel. "
-                "Request-scoped sends (related_request_id=...) ride the per-request dispatch "
-                "context, whose can_send_request the modern HTTP entry hard-codes to False but the "
-                "in-memory direct-dispatcher pair leaves at its True default -- so in-memory the "
-                "forbidden elicitation/create frame IS transmitted, and the failure comes back from "
-                "the client's 2026 version gate (METHOD_NOT_FOUND) instead of arising locally. An "
-                "era-aware gate on the send path would loud-fail both legs on every transport; when "
-                "it lands, re-pin the request-scoped in-memory test to the local NoBackChannelError "
-                "and delete this divergence."
-            ),
-            issue="L107",
+        note=(
+            "Era-routed by construction: every modern dispatch path hands handlers a request-scoped "
+            "channel that refuses server-initiated requests and a connection with no standalone "
+            "back-channel, so the refusal is local on both legs of every 2026 transport, while legacy "
+            "connections keep their live back-channel."
         ),
         added_in="2026-07-28",
     ),
@@ -7478,15 +7467,18 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("stdio",),
         deferred=(
             "Not yet covered here: stream-pair 2026 serving landed -- serve_dual_era_loop "
-            "(src/mcp/server/runner.py) locks each stream-pair connection's era on its first "
-            "era-distinctive frame (a request that classifies as modern locks modern before it is "
-            "served; a successful initialize locks legacy; a rejected classification never locks), "
-            "routing server/discover and envelope-bearing requests to a per-request "
-            "Connection.from_envelope, and Server.run drives it for stdio, so the suite's "
-            "subprocess server (tests/interaction/transports/_stdio_server.py) already serves both "
-            "eras unchanged. The test connects a mode='auto' client that negotiates 2026-07-28 via "
-            "server/discover alongside the existing legacy-mode connection against the same "
-            "factory, over a real child-process pipe."
+            "(src/mcp/server/runner.py) locks each stream-pair connection's era on the first "
+            "era-distinctive frame to succeed (a request that classifies as modern locks modern "
+            "only after it is served to a client-visible success; a successful initialize locks "
+            "legacy; no failure of any kind locks -- rejected classification, malformed envelope "
+            "content, unknown method, handler error -- and a success the peer cancelled away from "
+            "does not lock either; the lock settles once, so a straggling other-era success "
+            "cannot move it), routing server/discover and envelope-bearing requests to a "
+            "per-request Connection.from_envelope, and Server.run drives it for stdio, so the "
+            "suite's subprocess server (tests/interaction/transports/_stdio_server.py) already "
+            "serves both eras unchanged. The test connects a mode='auto' client that negotiates "
+            "2026-07-28 via server/discover alongside the existing legacy-mode connection against "
+            "the same factory, over a real child-process pipe."
         ),
         note=(
             "stdio-only by definition: the dual-era HTTP analogue is the session manager's "
