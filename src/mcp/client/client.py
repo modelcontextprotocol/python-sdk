@@ -727,7 +727,8 @@ class Client:
                 reached `input_required`; the SDK's automatic in-task input
                 loop is not implemented yet — drive the task manually via
                 `session.call_tool(..., allow_claimed=True)` and the
-                `mcp.shared.tasks` wrappers.
+                `mcp.client.tasks` functions (`get_task`, `update_task`,
+                `wait_task`). The task errors share the `TaskError` base.
         """
 
         async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:

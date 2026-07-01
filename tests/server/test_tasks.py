@@ -37,6 +37,7 @@ from mcp.client import TasksExtension, advertise
 from mcp.client.client import Client
 from mcp.client.session import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
+from mcp.client.tasks import cancel_task, get_task, update_task, wait_task
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import MCPServer
@@ -674,6 +675,39 @@ async def test_get_task_result_parses_completed_and_failed_wire_shapes() -> None
     assert failed.ttl_ms is None
 
 
+async def test_get_task_function_returns_typed_snapshots_for_completed_and_failed_tasks() -> None:
+    """SDK-defined: `mcp.client.tasks.get_task` is the typed manual poll -- one
+    `tasks/get` over the session, parsed as `GetTaskResult`, for terminal tasks
+    of both shapes."""
+    tasks = Tasks(clock=lambda: _FIXED_NOW)
+    mcp = MCPServer("demo", extensions=[tasks])
+
+    @mcp.tool(structured_output=False)
+    def echo(text: str) -> str:
+        return text
+
+    @mcp.tool(structured_output=False)
+    def rejecting() -> str:
+        raise MCPError(code=INVALID_PARAMS, message="bad input")
+
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
+        ok = await client.session.call_tool("echo", {"text": "hi"}, allow_claimed=True)
+        bad = await client.session.call_tool("rejecting", {}, allow_claimed=True)
+        assert isinstance(ok, CreateTaskResult)
+        assert isinstance(bad, CreateTaskResult)
+        completed = await get_task(client.session, ok.task_id)
+        failed = await get_task(client.session, bad.task_id)
+
+    assert completed.status == "completed"
+    assert completed.result is not None
+    assert completed.result["content"] == [{"text": "hi", "type": "text"}]
+    assert completed.error is None
+    assert failed.status == "failed"
+    assert failed.status_message == "bad input"
+    assert failed.error == {"code": INVALID_PARAMS, "message": "bad input"}
+    assert failed.result is None
+
+
 async def test_input_required_interim_passes_through_and_only_the_completing_leg_mints_a_task() -> None:
     """SEP-2663: MRTR exchanges resolve on the original `tools/call` before task
     creation, so an `input_required` interim is passed through un-augmented and only
@@ -755,6 +789,22 @@ async def test_update_acks_empty_and_ignores_input_responses_for_unissued_keys()
 
     assert ack == snapshot({"resultType": "complete"})
     assert after["status"] == "completed"
+
+
+async def test_update_task_and_cancel_task_hide_the_ack_and_return_none() -> None:
+    """SDK-defined: the typed `mcp.client.tasks.update_task`/`cancel_task` functions
+    swallow the empty acknowledgement and return `None`; the terminal task is
+    unchanged (cancellation is cooperative, and here the work already finished)."""
+    async with Client(_tasks_server(), extensions=[TasksExtension()]) as client:
+        created = await client.session.call_tool("echo", {"text": "hi"}, allow_claimed=True)
+        assert isinstance(created, CreateTaskResult)
+        updated = await update_task(client.session, created.task_id, {"never-issued": {"value": 1}})
+        cancelled = await cancel_task(client.session, created.task_id)
+        after = await get_task(client.session, created.task_id)
+
+    assert updated is None
+    assert cancelled is None
+    assert after.status == "completed"
 
 
 async def test_update_without_input_responses_is_invalid_params() -> None:
@@ -895,6 +945,23 @@ async def test_task_id_is_a_bearer_capability_across_connections() -> None:
     inlined = detailed["result"]
     assert isinstance(inlined, dict)
     assert inlined["content"] == [{"text": "hi", "type": "text"}]
+
+
+async def test_wait_task_resumes_a_bare_persisted_id_on_a_new_connection() -> None:
+    """SDK-defined: `mcp.client.tasks.wait_task` accepts a bare task id, so a
+    reconnecting client -- holding nothing but the persisted id -- drives another
+    connection's task to its final `CallToolResult` (task ids are bearer
+    capabilities)."""
+    server = _tasks_server()
+    async with Client(server, extensions=[TasksExtension()]) as creator:
+        created = await creator.session.call_tool("echo", {"text": "hi"}, allow_claimed=True)
+        assert isinstance(created, CreateTaskResult)
+        task_id = created.task_id
+
+    async with Client(server, extensions=[TasksExtension()]) as reconnected:
+        result = await wait_task(reconnected.session, task_id)
+
+    assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="hi")]))
 
 
 async def test_legacy_connection_is_not_augmented_even_when_client_declares_tasks() -> None:

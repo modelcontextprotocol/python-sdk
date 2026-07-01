@@ -29,7 +29,8 @@ then come back.
   `TaskFailedError` carrying the inlined JSON-RPC error; a `cancelled` one raises
   `TaskCancelledError`; an `input_required` one raises `TaskInputRequiredError` —
   the automatic in-task input loop is not implemented yet, so drive that task
-  manually (below).
+  manually (below). All three subclass `TaskError`, so one `except TaskError`
+  catches any non-completion.
 
 Degradation is built in. A modern client that does not declare the extension is
 never augmented: it keeps getting plain `CallToolResult`s. And a legacy
@@ -105,9 +106,10 @@ Background execution is on the roadmap (below).
 ## Driving the task yourself
 
 The transparent flow is a convenience, not a requirement. Drop one layer to get the
-`CreateTaskResult` and poll on your own schedule:
+`CreateTaskResult`, then drive `tasks/*` with the typed functions in
+`mcp.client.tasks`:
 
-```python title="client.py" hl_lines="22 27-28"
+```python title="client.py" hl_lines="19 24 29"
 --8<-- "docs_src/tasks/tutorial003.py"
 ```
 
@@ -115,10 +117,19 @@ The transparent flow is a convenience, not a requirement. Drop one layer to get 
   `CreateTaskResult` instead of polling. Without the flag, an unexpected
   `CreateTaskResult` raises `RuntimeError` rather than leaking the widened union
   into code that expected a `CallToolResult`.
-* The `mcp.shared.tasks` wrappers — `GetTaskRequest`, `UpdateTaskRequest`,
-  `CancelTaskRequest` — drive the `tasks/*` methods over `session.send_request`,
-  and `GetTaskResult` parses the snapshot: `result` is set on a `completed` task,
-  `error` on a `failed` one, never both.
+* `get_task` is one `tasks/get`: it returns the `GetTaskResult` snapshot —
+  `result` is set on a `completed` task, `error` on a `failed` one, never both.
+* `wait_task` polls to a terminal status and returns the final `CallToolResult`,
+  raising the same typed errors as the transparent flow. Pass the
+  `CreateTaskResult` and its `pollIntervalMs` hint seeds the cadence — or pass a
+  bare task id: task ids are bearer capabilities (above), so a client that
+  reconnected, or restarted with nothing but the persisted id, can resume a task
+  it no longer holds the `CreateTaskResult` for.
+* `update_task` answers a task's in-task `inputRequests`, and `cancel_task` asks
+  the server to stop one. Both hide the empty acknowledgement and return `None`.
+  Cancellation is cooperative in SEP-2663 — it may never take effect, and in this
+  SDK the work has always finished already — so follow with `get_task` for the
+  status that actually resulted.
 
 ## Who sees what
 
