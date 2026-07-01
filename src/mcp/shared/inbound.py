@@ -415,7 +415,10 @@ def classify_inbound_request(
             "client-capabilities envelope keys",
         )
     if headers is not None:
-        if headers.get(MCP_PROTOCOL_VERSION_HEADER) != protocol_version:
+        version_header = headers.get(MCP_PROTOCOL_VERSION_HEADER)
+        # Presence is checked explicitly: a null body version would otherwise
+        # slip the equality check (None == None) and mask the absent header.
+        if version_header is None or version_header != protocol_version:
             return InboundLadderRejection(
                 code=HEADER_MISMATCH,
                 message=f"{MCP_PROTOCOL_VERSION_HEADER} header does not match the request envelope's protocol version",
@@ -440,9 +443,11 @@ def classify_inbound_request(
         # Rung 3's precondition: a shape defect, not a version-negotiation
         # outcome - -32022 is the one code auto-negotiating clients do NOT
         # fall back from, and the typed rung-3 payload itself requires a
-        # string `requested`. Sits after the header rung so the HTTP wire is
-        # untouched when the version header is present (a string header can
-        # never equal a non-string body value, so rung 2 fires first there).
+        # string `requested`. Sits after the header rung, which fires first
+        # for every header-bearing entry (an absent version header is a
+        # mismatch, and a present one is a string that can never equal a
+        # non-string body value) - so this rejection is reachable only on
+        # header-less transports.
         return InboundLadderRejection(
             code=INVALID_PARAMS,
             message="the protocol-version envelope value must be a string",

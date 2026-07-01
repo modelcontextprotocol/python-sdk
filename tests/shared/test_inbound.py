@@ -151,28 +151,17 @@ def test_non_string_protocol_version_over_http_still_rejects_at_the_header_rung(
     assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
 
 
-def test_non_string_protocol_version_with_absent_header_is_a_header_mismatch() -> None:
-    """SDK-defined: an absent version header is a header defect first - the
-    same HEADER_MISMATCH a string-bodied request gets - even when the body
-    version is also mis-shaped (a non-string value never equals the absent
-    header's None, so rung 2 owns this cell)."""
+@pytest.mark.parametrize("version", [7, None], ids=["int", "null"])
+def test_absent_version_header_rejects_before_the_string_guard(version: Any) -> None:
+    """SDK-defined: the version header must be PRESENT, not merely equal - a
+    null body version would otherwise slip the equality check (None == None)
+    - so an absent header is HEADER_MISMATCH for every body value and the
+    string guard stays reachable only on header-less transports."""
     body = envelope()
     headers = matching_headers(body)
     del headers[MCP_PROTOCOL_VERSION_HEADER]
-    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = 7
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = version
     assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
-
-
-def test_non_string_protocol_version_with_no_version_header_hits_the_guard() -> None:
-    """SDK-defined: a null body version with the version header absent slips
-    the header equality check (None == None), so the string guard is the
-    backstop that keeps the version rung's typed payload from raising."""
-    body = envelope()
-    headers = matching_headers(body)
-    del headers[MCP_PROTOCOL_VERSION_HEADER]
-    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = None
-    rejection = assert_rejected(classify_inbound_request(body, headers=headers), INVALID_PARAMS)
-    assert "string" in rejection.message
 
 
 # --- rung 2: protocol-version-supported ----------------------------------------
