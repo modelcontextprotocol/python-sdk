@@ -546,6 +546,7 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
     server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
     async with connect(server) as client:
+        # The {} args matter: on http-2026 a non-empty call adds the server's internal Mcp-Param validation listing.
         first = await client.call_tool("forecast", {})
         assert list_calls == ["called"]
         second = await client.call_tool("forecast", {})

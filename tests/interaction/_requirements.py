@@ -241,13 +241,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: capabilities.extensions has wire types but no runtime -- "
-            "neither side can declare extensions through the public API (_build_capabilities in "
-            "src/mcp/client/session.py never sets the field; get_capabilities in "
-            "src/mcp/server/lowlevel/server.py takes no extensions argument), and nothing in src/mcp "
-            "reads it (the one planned consumer is the in-code TODO on the resultType gate in "
-            "src/mcp/server/runner.py), so a supporting party's revert-or-reject fallback cannot be "
-            "constructed or observed."
+            "Not yet covered here: the extension runtime landed on both sides -- clients declare "
+            "via Client(extensions=[...]) (src/mcp/client/extension.py) and servers via "
+            "MCPServer(extensions=[...]) (src/mcp/server/extension.py). The reject arm is pinned by "
+            "extensions:client:capability-ad:gates-server-behaviour (require_client_extension "
+            "refuses a non-declaring client with -32021 in tests/interaction/mcpserver/"
+            "test_extensions.py), and the revert-to-core arm is publicly drivable: an extension's "
+            "intercept_tool_call can branch on the peer's capabilities.extensions ad and call_next "
+            "for a non-declaring client; no test drives that fallback yet. Whether this entry "
+            "survives as the negotiation umbrella or retires into the extensions:client:* family "
+            "is an open owner ruling."
         ),
     ),
     "lifecycle:initialize:basic": Requirement(
@@ -581,13 +584,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "hosting:http:modern:initialize-removed (initialize) and "
             "hosting:http:modern:removed-method-status-404 (ping + the HTTP status half). The "
             "same call's 2025 success arm is resources:subscribe (removed_in 2026-07-28). The "
-            "NC's other two legs are not entries: capability stripping is not implemented in "
-            "python -- the era-agnostic derivation can advertise capabilities for "
-            "era-removed methods on a 2026 discover result (probed: logging, "
-            "resources.subscribe), ruled era-agnostic and conformant (schema.ts keeps "
-            "logging deprecated-but-valid and subscribe era-unqualified) and deliberately "
-            "unpinned as capability-API-redesign territory (the runtime advertises "
-            "resources.subscribe while the listen runtime does not exist) -- and a client-side "
+            "NC's other two legs are not entries: capability derivation is era-honest for the "
+            "subscription bits (at modern versions the listChanged flags and resources.subscribe "
+            "derive from whether subscriptions/listen is served, src/mcp/server/lowlevel/server.py) "
+            "but logging remains era-agnostic -- a 2026 discover result can still advertise "
+            "logging for the era-removed logging/setLevel, ruled conformant (schema.ts keeps "
+            "logging deprecated-but-valid) and deliberately unpinned -- and a client-side "
             "typed local era error is a TS surface python does not have."
         ),
     ),
@@ -790,7 +792,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             "stream. A single superseded_by cannot encode the split; the 2026 faces are pinned by "
             "protocol:cancel:stdio-sends-cancelled and protocol:cancel:http-stream-close, both landed "
             "as deferred entries; they flip to pinning tests when the missing client-side cancel API "
-            "(and, for stdio, 2026-era serving) exists."
+            "lands (stdio 2026-era serving, the other former prerequisite, exists now)."
         ),
     ),
     "protocol:cancel:handler-abort-propagates": Requirement(
@@ -880,11 +882,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler "
-            "hook, but no runtime -- no server machinery tears down a listen stream, and the only "
-            "notifications/cancelled send machinery is the client-side courtesy cancel on abandoning a "
-            "server-initiated request (src/mcp/shared/jsonrpc_dispatcher.py), so the teardown emission "
-            "cannot be driven."
+            "Not implemented in the SDK: listen-stream teardown machinery now exists "
+            "(src/mcp/server/subscriptions.py -- close() and the buffered-event cap both end streams) "
+            "but it answers the listen request with the stamped empty result and never emits "
+            "notifications/cancelled; the only notifications/cancelled send machinery remains the "
+            "shared dispatcher's courtesy cancel, sent by whichever peer issued an outbound request "
+            "when it abandons that request "
+            "(src/mcp/shared/jsonrpc_dispatcher.py). Pinning the absence would take a side in the "
+            "contradiction described in the note, and observing a teardown through this suite's client "
+            "needs the subscriptions/listen client driver."
         ),
         note=(
             "The spec is self-contradictory at this revision: the cancellation page says the server "
@@ -935,12 +941,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler "
-            "hook, but no runtime -- no server machinery tears down a listen stream, so the one "
-            "permitted emission cannot be driven; and the only other emitter, the courtesy cancel on "
-            "abandoning a server-initiated request (src/mcp/shared/jsonrpc_dispatcher.py), is "
-            "unreachable at 2026-07-28 where no server-initiated JSON-RPC requests exist, leaving the "
-            "prohibition vacuously satisfied with nothing to observe."
+            "Not implemented in the SDK: the one permitted emission never occurs -- listen-stream "
+            "teardown exists (src/mcp/server/subscriptions.py) but deliberately answers with the "
+            "stamped empty result rather than notifications/cancelled -- and the only other emitter, "
+            "the courtesy cancel on abandoning a server-initiated request "
+            "(src/mcp/shared/jsonrpc_dispatcher.py), is unreachable at 2026-07-28 where no "
+            "server-initiated JSON-RPC requests exist, leaving the prohibition vacuously satisfied "
+            "with nothing to observe; observing a listen stream through this suite's client needs the "
+            "subscriptions/listen client driver."
         ),
     ),
     "protocol:cancel:server-survives": Requirement(
@@ -986,11 +994,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("stdio",),
         deferred=(
             "Not implemented in the SDK: there is no public client-side API to cancel an in-flight "
-            "request (the standing gap recorded on protocol:cancel:abort-signal); and the stdio "
-            "stream-loop server cannot serve 2026-era requests at all -- the legacy loop's init gate "
-            "(src/mcp/server/runner.py) rejects envelope-bearing requests with INVALID_PARAMS, so no "
-            "2026 stdio exchange exists on which the wire act could be observed (the same gap recorded "
-            "on transport:stdio:dual-era-serving)."
+            "request (the standing gap recorded on protocol:cancel:abort-signal), so the sender-side "
+            "wire act cannot be driven. The former second blocker is gone: stream-pair 2026 serving "
+            "landed (serve_dual_era_loop, src/mcp/server/runner.py, serves 2026-era requests over "
+            "stdio and every other stream pair), so a 2026 stdio exchange now exists; only the "
+            "cancel trigger is missing."
         ),
         note=(
             "Only observable over stdio: the streamable HTTP face of the same transport split is "
@@ -1045,8 +1053,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         deferred=(
             "Not implemented in the SDK: neither seat checks the peer's declared capabilities before "
             "sending -- there is no local pre-send capability gate and no typed capability error class; "
-            "the only capability-check surface is the server-side ServerSession.check_client_capability "
-            "boolean (src/mcp/server/session.py), which no send path consults."
+            "the capability-check surfaces that do exist are receive-side (the server-side "
+            "ServerSession.check_client_capability boolean, src/mcp/server/session.py, and the "
+            "require_client_extension gate, src/mcp/server/mcpserver/server.py), and no send path "
+            "consults them."
         ),
         note=(
             "The capability-gating gaps are also recorded on lifecycle:capability:client-not-declared "
@@ -1467,9 +1477,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         supersedes=("tools:list-changed",),
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py) "
+            "and a scripted in-memory ClientSession subscriptions/listen request already delivers the "
+            "stamped notification to the client's registered handler; the typed subscriptions/listen "
+            "client driver is still missing, so the test either drives that session seam now or waits "
+            "for the driver."
         ),
     ),
     "tools:list:basic": Requirement(
@@ -2164,9 +2176,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         supersedes=("resources:list-changed",),
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py) "
+            "and a scripted in-memory ClientSession subscriptions/listen request already delivers the "
+            "stamped notification to the client's registered handler; the typed subscriptions/listen "
+            "client driver is still missing, so the test either drives that session seam now or waits "
+            "for the driver."
         ),
     ),
     "resources:list:basic": Requirement(
@@ -2298,9 +2312,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         supersedes=("resources:subscribe",),
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py "
+            "-- ListenHandler acks first, stamps io.modelcontextprotocol/subscriptionId, filters per "
+            "stream; MCPServer registers it by default) and this behaviour is drivable server-side; "
+            "pending the typed subscriptions/listen client driver the test drives the wire directly "
+            "(raw modern HTTP or the in-memory session seam)."
         ),
     ),
     "subscriptions:listen:capacity-guard": Requirement(
@@ -2312,10 +2328,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. There is "
-            "no subscription-capacity knob either."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py "
+            "-- ListenHandler acks first, stamps io.modelcontextprotocol/subscriptionId, filters per "
+            "stream; MCPServer registers it by default) and this behaviour is drivable server-side; "
+            "pending the typed subscriptions/listen client driver the test drives the wire directly "
+            "(raw modern HTTP or the in-memory session seam). The capacity knobs exist on "
+            "ListenHandler (max_subscriptions, over-limit listens refused with INTERNAL_ERROR before "
+            "any ack; max_buffered_events) but are lowlevel-only -- MCPServer exposes no way to set "
+            "them."
         ),
     ),
     "subscriptions:listen:concurrent-demux": Requirement(
@@ -2327,10 +2347,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. No SDK "
-            "code stamps or reads the io.modelcontextprotocol/subscriptionId key."
+            "Not implemented in the SDK: the server runtime stamps io.modelcontextprotocol/subscriptionId "
+            "per stream (src/mcp/server/subscriptions.py), but there is no subscriptions/listen client "
+            "driver -- src/mcp/client contains no listen method, no ack consumption, and nothing that "
+            "reads the subscriptionId key to demultiplex concurrent streams."
         ),
     ),
     "subscriptions:listen:demux-by-subscription-id": Requirement(
@@ -2347,10 +2367,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "own response stream, so transport framing already correlates notifications."
         ),
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. No SDK "
-            "code stamps or reads the io.modelcontextprotocol/subscriptionId key."
+            "Not implemented in the SDK: there is no subscriptions/listen client driver "
+            "(src/mcp/client contains no listen surface and nothing reads the "
+            "io.modelcontextprotocol/subscriptionId key), and stream-pair listen serving is refused -- "
+            "src/mcp/server/runner.py answers subscriptions/listen with METHOD_NOT_FOUND ('not served "
+            "over this transport'), so on this entry's stdio scope even the server half cannot run."
         ),
     ),
     "subscriptions:listen:graceful-close": Requirement(
@@ -2362,10 +2383,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. There is "
-            "no server-side teardown path that could emit the closing result."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py "
+            "-- ListenHandler acks first, stamps io.modelcontextprotocol/subscriptionId, filters per "
+            "stream; MCPServer registers it by default) and this behaviour is drivable server-side; "
+            "pending the typed subscriptions/listen client driver the test drives the wire directly "
+            "(raw modern HTTP or the in-memory session seam). ListenHandler.close() flushes each "
+            "stream and ends it with the stamped empty result; close is reachable only on a lowlevel "
+            "Server (MCPServer exposes no teardown)."
         ),
     ),
     "subscriptions:listen:honored-filter-narrows-to-advertised": Requirement(
@@ -2378,9 +2402,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         supersedes=("resources:subscribe:capability-required",),
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not yet covered here: the ack machinery landed (src/mcp/server/subscriptions.py) but "
+            "deliberately honors every requested kind -- there is no narrowing hook, so a test today "
+            "would pin honor-everything against this entry's narrowed-subset behaviour; coverage needs "
+            "an owner ruling first (record a divergence or rewrite the behaviour). The typed "
+            "subscriptions/listen client driver is also still missing."
         ),
     ),
     "subscriptions:listen:notification-stamped": Requirement(
@@ -2392,10 +2418,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream. No SDK "
-            "code stamps or reads the io.modelcontextprotocol/subscriptionId key."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py "
+            "-- ListenHandler acks first, stamps io.modelcontextprotocol/subscriptionId, filters per "
+            "stream; MCPServer registers it by default) and this behaviour is drivable server-side; "
+            "pending the typed subscriptions/listen client driver the test drives the wire directly "
+            "(raw modern HTTP or the in-memory session seam). The server stamps every delivered "
+            "frame; no client code reads the key."
         ),
     ),
     "subscriptions:listen:per-stream-filter": Requirement(
@@ -2406,9 +2434,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py "
+            "-- ListenHandler acks first, stamps io.modelcontextprotocol/subscriptionId, filters per "
+            "stream; MCPServer registers it by default) and this behaviour is drivable server-side; "
+            "pending the typed subscriptions/listen client driver the test drives the wire directly "
+            "(raw modern HTTP or the in-memory session seam)."
         ),
     ),
     "subscriptions:listen:stdio-resubscribe-after-reconnect": Requirement(
@@ -2422,9 +2452,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("stdio",),
         note="Only observable over stdio: the re-send obligation is tied to stdio connection re-establishment.",
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not implemented in the SDK: there is no subscriptions/listen client driver to re-send the "
+            "listen request, and stream-pair listen serving is refused -- src/mcp/server/runner.py "
+            "answers subscriptions/listen with METHOD_NOT_FOUND on the stdio loop. The no-state half "
+            "of the premise is implemented truth: delivery is fire-and-forget with no replay "
+            "(src/mcp/server/subscriptions.py), so no subscription survives a reconnect."
         ),
     ),
     "resources:templates:list": Requirement(
@@ -2480,9 +2512,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         supersedes=("resources:subscribe:updated", "resources:updated-notification"),
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py "
+            "-- ListenHandler acks first, stamps io.modelcontextprotocol/subscriptionId, filters per "
+            "stream; MCPServer registers it by default) and this behaviour is drivable server-side; "
+            "pending the typed subscriptions/listen client driver the test drives the wire directly "
+            "(raw modern HTTP or the in-memory session seam). Context.notify_resource_updated "
+            "publishes to the bus (src/mcp/server/mcpserver/context.py) and the resourceSubscriptions "
+            "filter matches by exact URI string."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -2630,9 +2666,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         supersedes=("prompts:list-changed",),
         deferred=(
-            "Not implemented in the SDK: subscriptions/listen has wire types and a lowlevel handler hook, "
-            "but no runtime -- there is no client-side listen API, and no server machinery emits the "
-            "acknowledgment, narrows the filter, or routes notifications onto a listen stream."
+            "Not yet covered here: the server listen runtime landed (src/mcp/server/subscriptions.py) "
+            "and a scripted in-memory ClientSession subscriptions/listen request already delivers the "
+            "stamped notification to the client's registered handler; the typed subscriptions/listen "
+            "client driver is still missing, so the test either drives that session seam now or waits "
+            "for the driver."
         ),
     ),
     "prompts:list:basic": Requirement(
@@ -2713,8 +2751,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         deferred=(
             "Not implemented in the SDK: prompt registration returns the Prompt model itself, not a "
-            "handle -- PromptManager (src/mcp/server/mcpserver/prompts/manager.py) exposes no update "
-            "or remove operation and MCPServer emits no list_changed on registration mutation."
+            "handle -- removal is now public (MCPServer.remove_prompt, delegating to "
+            "PromptManager.remove_prompt, src/mcp/server/mcpserver/prompts/manager.py) but there is "
+            "no update operation and MCPServer emits no list_changed on registration mutation."
         ),
     ),
     "mcpserver:prompt:optional-args": Requirement(
@@ -3529,8 +3568,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         removed_in="2026-07-28",
         note=(
-            "removed in 2026-07-28 (spec PR #2891); notifications/elicitation/complete and elicitationId removed, no "
-            "replacement (under MRTR the client learns completion by retrying)."
+            "removed in 2026-07-28 (no-SEP spec fix-up following SEP-2322's MRTR model); "
+            "notifications/elicitation/complete and elicitationId removed, no replacement (under MRTR the "
+            "client learns completion by retrying)."
         ),
         arm_exclusions=(ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),),
     ),
@@ -3541,7 +3581,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "already-completed elicitationId without error."
         ),
         removed_in="2026-07-28",
-        note="removed in 2026-07-28 (spec PR #2891); notifications/elicitation/complete removed, no replacement.",
+        note=(
+            "removed in 2026-07-28 (no-SEP spec fix-up following SEP-2322's MRTR model); "
+            "notifications/elicitation/complete removed, no replacement."
+        ),
     ),
     "elicitation:url:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#error-handling",
@@ -3869,12 +3912,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: requestState integrity protection is left to the server "
-            "application -- the SDK never constructs an InputRequiredResult or mints request_state, and "
-            "delivers it to the handler as an opaque string (CallToolRequestParams.request_state; the "
-            "mcpserver Context.request_state property); the only integrity-comparison code in src/mcp/ "
-            "is the OAuth client-secret check (src/mcp/server/auth/middleware/client_auth.py), so a "
-            "test's verification logic would be fixture code pinning nothing of the SDK."
+            "Not yet covered here: requestState integrity protection landed "
+            "(src/mcp/server/request_state.py) -- RequestStateBoundary seals outbound requestState "
+            "and verifies inbound echoes, installed by default on MCPServer (opt-in middleware for "
+            "the lowlevel Server), rejecting a tampered echo with the frozen -32602 'Invalid or "
+            "expired requestState' error. The test tampers with the sealed token on retry through "
+            "the public client API against an MCPServer and asserts that rejection."
         ),
     ),
     "mrtr:request-state:replay-binding": Requirement(
@@ -3887,10 +3930,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: there is no SDK-defined requestState payload -- the SDK never "
-            "mints request_state (its only appearances in src/mcp/client/ are the opaque echo on retry) "
-            "and has no signing or verification surface into which a principal, TTL, or request digest "
-            "could be bound; replay binding is the server application's encoding of its own opaque blob."
+            "Not yet covered here: the requestState integrity envelope landed "
+            "(src/mcp/server/request_state.py) and binds the spec's full list -- iat/exp expiry, "
+            "method plus target plus arguments digest for the originating request, and a salted "
+            "principal claim (inert on unauthenticated transports) -- all verified fail-closed on "
+            "receipt with the same frozen -32602 rejection. The test replays a sealed state against "
+            "different arguments and asserts the rejection; the expiry arm needs a TTL design call "
+            "(this suite refuses real-time waits) and the principal arm needs two authenticated "
+            "identities through the in-process OAuth rig."
         ),
     ),
     "mrtr:request-state:scoped-to-originating-request": Requirement(
@@ -4095,8 +4142,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         supersedes=("client:list-changed:auto-refresh",),
         deferred=(
-            "Not implemented in the SDK: the client has no subscriptions/listen API and no list-changed "
-            "auto-refresh mechanism."
+            "Not implemented in the SDK: the client has no subscriptions/listen client driver and no "
+            "list-changed auto-refresh mechanism."
         ),
     ),
     "client:listen:signal-only": Requirement(
@@ -4108,8 +4155,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client has no subscriptions/listen API and no client-side "
-            "list-changed handling to configure."
+            "Not implemented in the SDK: the client has no subscriptions/listen client driver and no "
+            "client-side list-changed handling to configure."
         ),
         note="The 2025-era push-notification sibling is client:list-changed:signal-only.",
     ),
@@ -4136,8 +4183,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         deferred=(
             "Not implemented in the SDK: MCPServer registration returns the registered model, not a "
             "handle -- there is no disable/enable lifecycle and no list-change publication on mutation "
-            "(see mcpserver:register:post-connect); the only registration mutation surface is "
-            "MCPServer.remove_tool (src/mcp/server/mcpserver/server.py)."
+            "(see mcpserver:register:post-connect); the registration mutation surfaces are "
+            "MCPServer.remove_tool and MCPServer.remove_prompt (src/mcp/server/mcpserver/server.py), "
+            "neither a disable/enable pair."
         ),
     ),
     "mcpserver:list-changed:debounce": Requirement(
@@ -4187,8 +4235,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "MCPServer never sends list_changed notifications on registration changes, so a connected "
-                "client cannot learn that the set changed without polling."
+                "MCPServer never publishes anything on registration changes -- add/remove only mutate "
+                "the registry. At 2026-07-28 a handler can announce a change itself via "
+                "ctx.notify_tools_changed() to subscriptions/listen subscribers "
+                "(src/mcp/server/mcpserver/context.py); absent such an app-driven notification, a "
+                "connected client can only learn that the set changed by polling."
             ),
         ),
     ),
@@ -4330,10 +4381,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         note=(
-            "Satisfied by construction at this pin -- the client has no response cache, so every "
-            "call re-fetches regardless of ttlMs (the positive-ttl fresh window is the deferred "
-            "sibling caching:ttl:positive-fresh-window). The pin is the regression bar for a "
-            "future cache: one that wrongly served a ttlMs 0 entry would fail it."
+            "Load-bearing against the live client response cache: a ttlMs-0 result is never "
+            "stored, so both calls reach the handler, while the same seam with a positive ttl_ms "
+            "serves the second access from cache. The fresh window itself is the sibling "
+            "caching:ttl:positive-fresh-window."
         ),
     ),
     "caching:input-required:no-hints": Requirement(
@@ -4348,8 +4399,9 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The no-hints half is by construction (InputRequiredResult does not extend "
             "CacheableResult and rejects extras); the wire pin proves the serialized frame, where "
             "typed models hide absent-vs-default. The sentence's 'are not cacheable' consumer "
-            "half is unobservable: the client has no response cache (see the caching:key:* and "
-            "caching:freshness:* deferrals)."
+            "half is now observable -- the client response cache never stores input_required or "
+            "driver-round results (src/mcp/client/client.py) -- and is the deferred sibling "
+            "caching:key:mrtr-retry-not-cached."
         ),
     ),
     "caching:ttl:negative-treated-as-zero": Requirement(
@@ -4370,10 +4422,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client has no SEP-2549 response cache -- nothing in "
-            "src/mcp/client/ consults ttl_ms after deserialization, and every list call "
-            "unconditionally re-issues the request -- so a positive ttlMs never produces a fresh "
-            "window in which a re-fetch is suppressed."
+            "Not yet covered here: the SEP-2549 response cache landed (src/mcp/client/caching.py, "
+            "default-on for Client) and a positive ttlMs now opens a real fresh window. The test "
+            "drives Client against a handler stamping a positive ttl_ms and asserts the second "
+            "access is served without a second fetch; note the SDK caps the window at 24 hours "
+            "(MAX_TTL_MS), which the spec does not mention."
         ),
     ),
     "caching:freshness:stale-refetch-on-access": Requirement(
@@ -4381,9 +4434,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=("Once a cached response's TTL expires it is stale, and the client re-fetches on the next access."),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client has no SEP-2549 response cache, so the "
-            "fresh-serve half of the staleness transition does not exist -- every access is "
-            "already a fetch -- and the transition is unconstructible."
+            "Not yet covered here: the SEP-2549 response cache landed and checks expiry on access "
+            "against an injectable epoch source (CacheConfig clock, src/mcp/client/caching.py), so "
+            "the transition is constructible without real time: the test serves within the window, "
+            "advances the injected clock past expiry, and asserts the next access re-fetches."
         ),
     ),
     "caching:freshness:no-background-polling": Requirement(
@@ -4394,9 +4448,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client has no SEP-2549 response cache and never "
-            "reads a result's ttl_ms, so there is no TTL machinery whose non-polling could be "
-            "observed -- the test would assert that absent code did not run."
+            "Not yet covered here: the SEP-2549 response cache landed and its TTL machinery checks "
+            "freshness only inside the access path -- src/mcp/client/caching.py spawns no tasks -- "
+            "so the negative is no longer vacuous: the test advances the injected clock past expiry "
+            "with no access, asserts the handler saw no fetch, then accesses once and sees exactly "
+            "one."
         ),
     ),
     "caching:key:no-cross-key-serve": Requirement(
@@ -4407,10 +4463,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client never serves a cached response at all (no "
-            "SEP-2549 response cache exists under src/mcp/client/), so cache-key discipline has "
-            "no positive half to exercise and a two-requests-both-reach-the-server test would "
-            "pass vacuously."
+            "Not yet covered here: the SEP-2549 response cache landed and serves hits keyed by "
+            "method plus the uri for resources/read (src/mcp/client/caching.py), giving cross-key "
+            "discipline its positive half: the test reads two hinted URIs and asserts each serves "
+            "only its own entry. For the list verbs the cursor never enters the key -- cursored "
+            "calls skip the cache entirely (src/mcp/client/client.py) -- so the MUST NOT is "
+            "satisfied by non-participation, not by a cursor-bearing key."
         ),
     ),
     "caching:key:mrtr-retry-not-cached": Requirement(
@@ -4421,9 +4479,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client has no SEP-2549 response cache, so there is "
-            "no cacher whose refusal to store an MRTR-retry result could be driven or observed; "
-            "the negative is indistinguishable from 'the client never caches anything'."
+            "Not yet covered here: the SEP-2549 response cache landed and implements the MUST "
+            "directly -- seeded reads skip the cache, an interim input_required result is never "
+            "stored, and a terminal result reached through driver rounds is never stored "
+            "(src/mcp/client/client.py) -- so the refusal is now distinguishable from "
+            "never-caching: the test pairs a plain hinted read (one fetch, then served) with an "
+            "input_required exchange whose full round-trip re-runs on every access."
         ),
     ),
     "caching:notification:invalidates-fresh-cache": Requirement(
@@ -4434,10 +4495,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: there is no SEP-2549 response cache with a freshness "
-            "clock for a notification to invalidate, and the client has no server-to-client "
-            "list_changed pipeline that could feed one (the only list_changed code in "
-            "src/mcp/client/ is the outbound roots/list_changed sender)."
+            "Not implemented in the SDK: the eviction half exists -- the SEP-2549 response cache "
+            "maps list_changed and resources/updated notifications to evictions via a "
+            "message-handler wrap (src/mcp/client/caching.py, src/mcp/client/client.py) -- but at "
+            "2026-07-28 no delivery vehicle can feed it: unsolicited list_changed is retired "
+            "(SEP-2575), delivery rides subscriptions/listen, and nothing in src/mcp/client/ "
+            "issues a subscriptions/listen request -- the typed listen client driver is still "
+            "missing."
         ),
     ),
     "caching:pagination:per-page-independent": Requirement(
@@ -4448,10 +4512,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the per-receipt freshness clock and independent expiry "
-            "need a SEP-2549 response cache that records per-page receipt times; none exists. The "
-            "carriage half (each page carries its own ttlMs, set per handler invocation) is "
-            "expressible today and can be split out if wanted."
+            "Not implemented in the SDK: the SEP-2549 response cache deliberately caches only the "
+            "cursor-less first page -- continuation pages skip it entirely "
+            "(src/mcp/client/client.py) -- so there are no per-page receipt times or independent "
+            "expiries to observe. The carriage half (each page carries its own ttlMs, set per "
+            "handler invocation) is expressible today and can be split out if wanted."
         ),
     ),
     "caching:pagination:expired-page-refetch-by-cursor": Requirement(
@@ -4462,9 +4527,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client has no SEP-2549 response cache, no per-page "
-            "ttlMs bookkeeping, and no autonomous re-fetch loop -- the list methods are one-shot "
-            "and caller-cursored -- so there is no expired cached page to selectively re-fetch."
+            "Not implemented in the SDK: the SEP-2549 response cache keeps no per-page ttlMs "
+            "bookkeeping (pages after the first never enter it, src/mcp/client/client.py) and runs "
+            "no autonomous re-fetch loop -- freshness is checked only on access -- so the spec "
+            "scenario of one expired page re-fetched by cursor while fresh siblings stand remains "
+            "unconstructible."
         ),
     ),
     "caching:pagination:invalid-cursor-discards-all": Requirement(
@@ -4475,9 +4542,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client retains no list pages (no SEP-2549 response "
-            "cache), so there are no cached pages to discard and no re-fetch-from-the-beginning "
-            "reaction to observe; the -32602 surfacing itself is pinned by pagination:invalid-cursor."
+            "Not yet covered here: the SEP-2549 response cache landed and implements the reaction "
+            "-- an INVALID_PARAMS rejection of a cursored list call evicts the method's cached "
+            "entry (src/mcp/client/client.py) -- so the test primes the cursor-less entry, has a "
+            "cursored call rejected with -32602 (the surfacing itself stays pinned by "
+            "pagination:invalid-cursor), and asserts the next cursor-less access re-fetches. Only "
+            "the cursor-less first page is ever cached, so 'all cached pages' is that single "
+            "entry, and the re-fetch happens on next access, not autonomously."
         ),
     ),
     "caching:scope:private-not-shared-across-auth-contexts": Requirement(
@@ -4488,9 +4559,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Not implemented in the SDK: the client has no SEP-2549 response cache and therefore "
-            "no per-authorization-context cache keying -- there is no stored entry that could be "
-            "served across an access-token change, on either side of the connection."
+            "Not yet covered here: the SEP-2549 response cache landed with per-authorization-"
+            "context partitions (CacheConfig partition, src/mcp/client/caching.py; private entries "
+            "are always partition-scoped), so the test shares one custom store between two Clients "
+            "with different partitions and asserts a private-scoped entry served to one is never "
+            "served to the other. The partition is caller-supplied -- the SDK does not derive it "
+            "from the access token."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -4880,9 +4954,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         deferred=(
-            "Covered at session tier by tests/client/test_session_notification_bindings.py: no public "
-            "server-side surface emits vendor-method notifications (ServerNotification is a closed union), "
-            "and HTTP-modern arrival additionally needs the subscriptions/listen client runtime."
+            "Not implemented in the SDK: no public server-side surface emits vendor-method "
+            "notifications (ServerNotification is a closed union, src/mcp-types/mcp_types/_types.py), "
+            "and HTTP-modern arrival additionally needs the subscriptions/listen client runtime; the "
+            "client-side binding half is covered at session tier by "
+            "tests/client/test_session_notification_bindings.py."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -6054,10 +6130,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note=(
             "Only observable over streamable HTTP: header encoding never surfaces through the client "
-            "API. Only the Mcp-Name member of the spec's 'Mcp-Name or Mcp-Param-{Name}' pair is "
-            "server-validated; the SDK performs no Mcp-Param-* header-to-body comparison at all (the "
-            "recorded gap on hosting:http:modern:mcp-param-mismatch-400), so the Mcp-Param decode leg "
-            "is vacuous until that validation lands."
+            "API. Both members of the spec's 'Mcp-Name or Mcp-Param-{Name}' pair are now "
+            "server-validated: the Mcp-Param decode leg runs live inside validate_mcp_param_headers "
+            "(src/mcp/shared/inbound.py), with strictly canonical base64 on both rungs; its reject "
+            "arm is tracked by hosting:http:modern:invalid-header-chars-rejected. The tests here pin "
+            "the Mcp-Name rung."
         ),
     ),
     "hosting:http:modern:mcp-param-null-absent-not-required": Requirement(
@@ -6069,10 +6146,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note=(
-            "Only observable over streamable HTTP. The acceptance arm currently holds by "
-            "construction (the server validates no Mcp-Param-* headers at all -- see "
-            "hosting:http:modern:mcp-param-mismatch-400); the pin is the regression bar for "
-            "when that validation lands."
+            "Only observable over streamable HTTP. The acceptance arm is a real validation pass: "
+            "validate_mcp_param_headers (src/mcp/shared/inbound.py) resolves the tool's advertised "
+            "schema and verifies that null or absent annotated arguments carry no header (an orphan "
+            "header for such an argument is actively rejected) before the call is served."
         ),
     ),
     "hosting:http:modern:mcp-param-mismatch-400": Requirement(
@@ -6099,18 +6176,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         deferred=(
-            "Not implemented in the SDK: the server never validates Mcp-Param-{Name} headers -- "
-            "classify_inbound_request (src/mcp/shared/inbound.py) checks only "
-            "MCP-Protocol-Version/Mcp-Method/Mcp-Name, and MCP_PARAM_HEADER_PREFIX / the "
-            "x-mcp-header schema map have client-emit-only consumers (src/mcp/client/session.py), "
-            "so there is no server-side notion of a 'recognized' param header, no "
-            "invalid-character check, and no rejection to assert."
+            "Not yet covered here: server-side Mcp-Param validation landed -- "
+            "validate_mcp_param_headers (src/mcp/shared/inbound.py) recognizes headers via the "
+            "tool's advertised x-mcp-header annotations and rejects with -32020. The SDK has no "
+            "literal character-class check on raw header values (HTTP itself constrains what is "
+            "transmittable): 'invalid characters' surfaces as the malformed-base64-sentinel "
+            "rejection or a plain value mismatch. The test sends a recognized Mcp-Param header "
+            "carrying a malformed sentinel over raw modern HTTP and asserts the 400/-32020 "
+            "rejection."
         ),
-        note=(
-            "Only observable over streamable HTTP: Mcp-Param-* are HTTP request headers. Sibling of "
-            "the gap recorded on hosting:http:modern:mcp-param-mismatch-400 (issue L110): both await "
-            "the same server-side Mcp-Param validation."
-        ),
+        note=("Only observable over streamable HTTP: Mcp-Param-* are HTTP request headers."),
     ),
     "hosting:http:modern:numeric-header-comparison": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#server-validation",
@@ -6122,16 +6197,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         deferred=(
-            "Not implemented in the SDK: the server performs no Mcp-Param-{Name} header-vs-body "
-            "validation (classify_inbound_request in src/mcp/shared/inbound.py checks only "
-            "MCP-Protocol-Version/Mcp-Method/Mcp-Name; MCP_PARAM_HEADER_PREFIX has no server-side "
-            "consumer), so there is no integer comparison -- numeric or string -- to observe; a "
-            "42.0-vs-42 request is accepted only because nothing is checked."
+            "Not yet covered here: server-side Mcp-Param validation landed and implements the "
+            "numeric SHOULD -- _mcp_param_value_matches (src/mcp/shared/inbound.py) compares "
+            "integer-typed declarations numerically for canonical-decimal headers (42.0 matches "
+            "42; the non-canonical 1e2 deliberately does not match 100). The test drives an "
+            "integer-annotated tool over raw modern HTTP, pinning the 42.0-vs-42 accept and a "
+            "mismatch reject."
         ),
         note=(
             "Only observable over streamable HTTP: the comparison's input is an HTTP request header. "
-            "The SHOULD is the lenient arm of the Mcp-Param header-vs-body comparison whose absence "
-            "is recorded on hosting:http:modern:mcp-param-mismatch-400 (issue L110)."
+            "The SHOULD is the lenient arm of the Mcp-Param header-vs-body comparison pinned by "
+            "hosting:http:modern:mcp-param-mismatch-400."
         ),
     ),
     "hosting:http:request-headers-in-handler": Requirement(
@@ -7400,11 +7476,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("stdio",),
         deferred=(
-            "Not implemented in the SDK: the stdio stream-loop server cannot serve 2026-era "
-            "requests -- the legacy loop's init gate (src/mcp/server/runner.py) rejects "
-            "envelope-bearing requests with INVALID_PARAMS because a pinned-2026 client never "
-            "sends initialize, and nothing on the stdio path wires Connection.from_envelope, "
-            "so a dual-era stdio factory is unconstructible."
+            "Not yet covered here: stream-pair 2026 serving landed -- serve_dual_era_loop "
+            "(src/mcp/server/runner.py) locks each stream-pair connection's era on its first "
+            "era-distinctive frame (a request that classifies as modern locks modern before it is "
+            "served; a successful initialize locks legacy; a rejected classification never locks), "
+            "routing server/discover and envelope-bearing requests to a per-request "
+            "Connection.from_envelope, and Server.run drives it for stdio, so the suite's "
+            "subprocess server (tests/interaction/transports/_stdio_server.py) already serves both "
+            "eras unchanged. The test connects a mode='auto' client that negotiates 2026-07-28 via "
+            "server/discover alongside the existing legacy-mode connection against the same "
+            "factory, over a real child-process pipe."
         ),
         note=(
             "stdio-only by definition: the dual-era HTTP analogue is the session manager's "

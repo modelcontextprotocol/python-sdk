@@ -177,11 +177,12 @@ async def test_read_resource_returns_multiple_contents_in_order(connect: Connect
 
 
 @requirement("protocol:error:handler-error-passthrough")
-async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> None:
-    """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.
+async def test_handler_raised_mcperror_code_and_message_reach_the_client_verbatim(connect: Connect) -> None:
+    """A handler-raised MCPError's code and message reach the client verbatim.
 
-    The spec reserves -32002 for resource-not-found; the code is the handler's choice and reaches
-    the client verbatim.
+    The -32002 here is only this handler's choice (the pre-2026 resource-not-found code; the 2026
+    spec reserves -32602 for an unknown URI). The real unknown-URI posture lives in the resource
+    registry and is pinned in mcpserver/test_resources.py; this test asserts the generic passthrough.
     """
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:

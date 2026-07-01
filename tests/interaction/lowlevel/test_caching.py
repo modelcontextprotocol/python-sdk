@@ -1,7 +1,8 @@
 """SEP-2549 caching hints: producer-side stamping and client-facing TTL/scope semantics.
 
 One test pins 2026 wire frames (typed models hide absent-vs-default keys); one scripts a
-non-conformant server (the typed Server cannot author the malformed value); response caching is deferred.
+non-conformant server (the typed Server cannot author the malformed value). The client response
+cache is live but its serve/evict behaviours are not yet pinned here (see the caching:* deferrals).
 """
 
 import anyio
@@ -160,8 +161,9 @@ async def test_a_result_without_ttl_from_a_2025_server_surfaces_the_immediately_
 async def test_ttl_zero_results_are_refetched_on_every_access(connect: Connect) -> None:
     """Two consecutive list_tools calls against a ttlMs-0 server both reach the handler.
 
-    Passes by construction (the client has no response cache); the pin is the regression bar for
-    a future cache that wrongly serves a ttlMs-0 entry.
+    Load-bearing against the live response cache: a ttlMs-0 result is never stored, so every
+    access re-fetches, while the same seam with a positive ttl_ms serves the second access from
+    cache (one fetch).
     """
     fetches: list[int] = []
 

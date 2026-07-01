@@ -548,7 +548,9 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
 
     The tool is first listed with a valid annotation (so a call mirrors `Mcp-Param-Region`), then re-listed
     with an invalid annotation -- the modern client drops it and evicts the cached map, so a later `tools/call`
-    by name carries no `Mcp-Param-*` header. Asserted at the wire, where the eviction is observable.
+    by name carries no `Mcp-Param-*` header. The server serves that header-less call only because the same
+    invalid schema disables its own validation (the shared validator skips schemas it rejects); a valid
+    annotated schema would reject the missing header. Asserted at the wire, where the eviction is observable.
     """
     schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}}
     bad_schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}}
@@ -737,9 +739,10 @@ async def test_sentinel_lookalike_argument_value_is_base64_wrapped_in_its_param_
 async def test_null_and_absent_annotated_arguments_emit_no_param_headers_and_the_server_accepts() -> None:
     """Null and absent annotated arguments emit no ``Mcp-Param-*`` headers and the server accepts the call.
 
-    Spec-mandated by the behaviour matrix's null and absent rows. Acceptance currently holds
-    because the server validates no param headers at all; when that validation lands, null and
-    absent must not start being rejected.
+    Spec-mandated by the behaviour matrix's null and absent rows. The fixture advertises the
+    annotated schema, so this acceptance is a validated accept: the server checks each annotated
+    argument against its `Mcp-Param-*` header and would reject an orphan header for the null or
+    absent argument (a header matching no annotation is ignored).
     """
     requests: list[httpx.Request] = []
 

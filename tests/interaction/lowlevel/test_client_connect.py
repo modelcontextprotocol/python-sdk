@@ -394,8 +394,10 @@ async def test_discover_carries_server_instructions_and_omits_them_when_undeclar
 async def test_discover_capabilities_reflect_registered_handlers() -> None:
     """The discover result advertises a capability per registered handler area and omits the rest.
 
-    Only era-clean areas are registered: the derivation is era-agnostic, so a subscribe or logging
-    handler would advertise an era-removed method -- a quirk deliberately left unpinned here.
+    Only era-clean areas are registered. The subscription-delivered bits are era-honest (at 2026
+    they derive from whether subscriptions/listen is served, so a legacy subscribe handler
+    advertises nothing), but logging derivation is still era-agnostic: a setLevel handler would
+    advertise the era-deprecated logging capability -- a quirk deliberately left unpinned here.
     """
 
     # The handlers exist only so their capability is advertised; none is ever called.

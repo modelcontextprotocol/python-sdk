@@ -388,7 +388,9 @@ async def connect_over_sse(
     transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
     async with Client(
         transport,
-        # SSE is a legacy-only transport; the modern path has no SSE story.
+        # A policy lock, not a capability one: the dual-era server loop behind build_sse_app
+        # would negotiate 2026 if probed, but SSE is the deprecated legacy transport and its
+        # clients run the handshake era by design.
         mode="legacy",
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,

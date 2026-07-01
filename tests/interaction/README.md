@@ -61,6 +61,12 @@ stateless configurations), and over the legacy SSE transport the same way. A tes
 `async with connect(server, ...) as client:` and asserts the same output on every leg, because the
 transport is not supposed to change observable behaviour. Requirements that need a server-to-client
 back-channel or persisted session state are carved out of the stateless arm via `arm_exclusions`.
+
+The 2026 cells run the client's response cache in its default-on configuration. Servers stamp
+`ttlMs: 0` by default, so nothing is served from cache unless a test opts in server-side by
+authoring a positive `ttl_ms` — a test that does so and then repeats a call must expect the
+repeat to be served from cache instead of reaching the handler.
+
 Tests that are tied to one transport do not use the fixture: the wire-recording tests
 (their seam is the in-memory stream pair), the bare-`ClientSession` lifecycle tests, the
 real-clock timeout tests (the timeout machinery is transport-independent and must not race
@@ -163,10 +169,11 @@ What admits or excludes a cell:
   closes, grep for the reason string to find every cell to re-admit.
 - **`known_failures`** keep a cell in the grid but mark it as a strict xfail — the test runs and
   must fail; an unexpected pass fails the suite.
-- **`TRANSPORT_SPEC_VERSIONS`** era-locks a transport to a subset of spec versions (currently only
-  `sse` is locked to `2025-11-25`). A `(transport, version)` cell is dropped if the version is not
-  in the transport's entry; transports absent from the map serve every spec version. This is the
-  mechanism for cutting an entire transport off from a new revision (or admitting it).
+- **`TRANSPORT_SPEC_VERSIONS`** era-locks a transport to a subset of spec versions (currently
+  `sse` and `streamable-http-stateless` are locked to `2025-11-25`). A `(transport, version)`
+  cell is dropped if the version is not in the transport's entry; transports absent from the
+  map serve every spec version. This is the mechanism for cutting an entire transport off from
+  a new revision (or admitting it).
 - **`transports`** is descriptive metadata for the non-`connect` transport-specific suites under
   `transports/` and does **not** drive cell generation. Only `arm_exclusions`, `added_in`,
   `removed_in`, and `TRANSPORT_SPEC_VERSIONS` filter the grid.
