@@ -16,6 +16,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CONNECTION_CLOSED,
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
@@ -35,8 +36,9 @@ from typing_extensions import Self, TypeVar, deprecated
 
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.extension import NotificationBinding, ResultClaim, UnexpectedClaimedResult
+from mcp.client.subscriptions import ListenRoute
 from mcp.shared._compat import resync_tracer
-from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT, as_request_id
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.inbound import (
     MCP_METHOD_HEADER,
@@ -51,6 +53,7 @@ from mcp.shared.inbound import (
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY, event_from_notification
 from mcp.shared.transport_context import TransportContext
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -360,6 +363,13 @@ class ClientSession:
         self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
+        # subscriptions/listen demux routes, keyed by the listen request's id
+        # (verbatim-typed: a plain dict already keeps 1 and "1" distinct).
+        self._listen_routes: dict[RequestId, ListenRoute] = {}
+        # Every id the driver ever minted on this session: a late ack for a
+        # closed driver listen must be dropped, while raw escape-hatch listens
+        # (never in this set) keep receiving their acks via message_handler.
+        self._driver_listen_ids: set[RequestId] = set()
         if dispatcher is not None:
             if read_stream is not None or write_stream is not None:
                 raise ValueError("pass read_stream/write_stream or dispatcher, not both")
@@ -422,6 +432,7 @@ class ClientSession:
             result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
         finally:
             self._close_binding_queues()
+            self._settle_listen_routes_closed()
         await resync_tracer()
         return result
 
@@ -859,15 +870,23 @@ class ClientSession:
             raise _input_required_unexpected("read_resource")
         return result
 
+    @deprecated(
+        "resources/subscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
-        """Send a resources/subscribe request."""
+        """Send a resources/subscribe request (2025-era servers only)."""
         return await self.send_request(
             types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
 
+    @deprecated(
+        "resources/unsubscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
     async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
-        """Send a resources/unsubscribe request."""
+        """Send a resources/unsubscribe request (2025-era servers only)."""
         return await self.send_request(
             types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
@@ -1225,6 +1244,44 @@ class ClientSession:
             case types.ListRootsRequest():  # pragma: no branch
                 return await self._list_roots_callback(ctx)
 
+    def _register_listen_route(self, request_id: RequestId) -> ListenRoute:
+        """Create the demux route for a listen request id; the caller registers BEFORE sending."""
+        route = ListenRoute()
+        self._listen_routes[request_id] = route
+        self._driver_listen_ids.add(request_id)
+        return route
+
+    def _unregister_listen_route(self, request_id: RequestId) -> None:
+        """Drop a listen route; the handle owns membership, so a missing key is a no-op."""
+        self._listen_routes.pop(request_id, None)
+
+    def _settle_listen_routes_closed(self) -> None:
+        """End every open subscription as lost: the session is gone.
+
+        Without this, a consumer iterating in a sibling task would park forever -
+        the driver task dies by cancellation and can never settle its route.
+        """
+        closed = MCPError(code=CONNECTION_CLOSED, message="Connection closed")
+        for route in self._listen_routes.values():
+            route.settle("lost", error=closed)
+        self._listen_routes.clear()
+
+    def _listen_subscription_id(self, notification: types.ServerNotification) -> RequestId | None:
+        """The frame's `_meta` subscription id, shape-checked.
+
+        The `as_request_id` guard is not a tripwire: on pre-2026 wires the meta
+        key is untyped, so a non-id (even unhashable) value is constructible
+        and would fail the dict lookup; 2026 surface validation already
+        rejects those shapes.
+        """
+        meta = notification.params.meta if notification.params is not None else None
+        return as_request_id(meta.get(SUBSCRIPTION_ID_META_KEY)) if meta is not None else None
+
+    def _listen_route_for(self, notification: types.ServerNotification) -> ListenRoute | None:
+        """The route a listen-stream frame belongs to, by its `_meta` subscription id."""
+        subscription_id = self._listen_subscription_id(notification)
+        return self._listen_routes.get(subscription_id) if subscription_id is not None else None
+
     async def _on_notify(
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> None:
@@ -1259,8 +1316,24 @@ class ClientSession:
             logger.warning("Failed to validate notification: %s", method, exc_info=True)
             return
         if isinstance(notification, types.CancelledNotification):
-            # The dispatcher already applied the cancellation; not surfaced to message_handler.
+            # A server-sent cancel naming one of our listen requests is that
+            # stream's teardown signal (the stream-transport spelling); any
+            # other cancellation was already applied by the dispatcher.
+            # Neither is surfaced to message_handler.
+            cancelled_id = notification.params.request_id
+            if cancelled_id is not None and (listen_route := self._listen_routes.get(cancelled_id)) is not None:
+                listen_route.settle("lost")
             return
+        if isinstance(notification, types.SubscriptionsAcknowledgedNotification):
+            subscription_id = self._listen_subscription_id(notification)
+            if subscription_id is not None and subscription_id in self._driver_listen_ids:
+                # Driver state, never surfaced: a late ack for an already-closed
+                # driver listen is dropped rather than leaking to message_handler.
+                # Acks outside the driver's id namespace fall through - a raw
+                # escape-hatch listen observes its ack there.
+                if (listen_route := self._listen_routes.get(subscription_id)) is not None:
+                    listen_route.set_acked(notification.params.notifications)
+                return
         try:
             if isinstance(notification, types.LoggingMessageNotification):
                 await self._logging_callback(notification.params)
@@ -1271,6 +1344,14 @@ class ClientSession:
             # would otherwise fail the peer's send. A raising logging_callback
             # skips the message_handler tee for that notification (v1 parity).
             logger.exception("notification callback for %r raised", method)
+        # Deliver AFTER the tee: the caching layer's eviction wrapper runs in
+        # message_handler, and a consumer woken first could refetch into the
+        # stale entry - with deduplicated level-trigger events there would be
+        # no second wake to correct it.
+        if (listen_route := self._listen_route_for(notification)) is not None:
+            event = event_from_notification(notification)
+            if event is not None:
+                listen_route.deliver(event)
 
     async def _on_stream_exception(self, exc: Exception) -> None:
         """Deliver a transport-level fault to message_handler via a spawned task.

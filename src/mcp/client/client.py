@@ -6,7 +6,7 @@ import hashlib
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import AsyncExitStack
+from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar, cast
 
@@ -58,6 +58,8 @@ from mcp.client.session import (
     SamplingFnT,
 )
 from mcp.client.streamable_http import streamable_http_client
+from mcp.client.subscriptions import Subscription
+from mcp.client.subscriptions import listen as _listen
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.server.runner import modern_on_request
@@ -662,13 +664,61 @@ class Client:
         # Driver rounds carry inputResponses, so a terminal result reached through them is never cached (spec MUST).
         return await self._drive_input_required(first, retry)
 
-    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
-        """Subscribe to resource updates."""
-        return await self.session.subscribe_resource(uri, meta=meta)
+    def listen(
+        self,
+        *,
+        tools_list_changed: bool = False,
+        prompts_list_changed: bool = False,
+        resources_list_changed: bool = False,
+        resource_subscriptions: Sequence[str] = (),
+    ) -> AbstractAsyncContextManager[Subscription]:
+        """Open a `subscriptions/listen` stream of typed change events (2026-07-28 only).
 
+        The keyword arguments mirror the wire `SubscriptionFilter` field for
+        field; `resource_subscriptions` names exact resource URIs to watch.
+        Entering waits for the server's acknowledgment - the subset it agreed
+        to deliver is `sub.honored` - then the handle yields events:
+
+            async with client.listen(tools_list_changed=True) as sub:
+                async for event in sub:
+                    tools = await client.list_tools()  # refetch on change
+
+        A graceful server close ends the loop; an abrupt drop raises
+        `SubscriptionLost` (re-listen and refetch - there is no replay).
+        Exiting the context ends the subscription. Multiple subscriptions may
+        be open concurrently.
+
+        Raises:
+            ListenNotSupportedError: The negotiated protocol version predates
+                2026-07-28 (use `subscribe_resource` and `message_handler` there).
+            MCPError: The server rejected the request, or the connection
+                failed before the acknowledgment arrived.
+            SubscriptionLost: The stream ended before it was acknowledged.
+            TimeoutError: The session's read timeout elapsed before the acknowledgment.
+        """
+        return _listen(
+            self.session,
+            tools_list_changed=tools_list_changed,
+            prompts_list_changed=prompts_list_changed,
+            resources_list_changed=resources_list_changed,
+            resource_subscriptions=resource_subscriptions,
+        )
+
+    @deprecated(
+        "resources/subscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
+        """Subscribe to resource updates (2025-era servers only)."""
+        return await self.session.subscribe_resource(uri, meta=meta)  # pyright: ignore[reportDeprecated]
+
+    @deprecated(
+        "resources/unsubscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
     async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
-        """Unsubscribe from resource updates."""
-        return await self.session.unsubscribe_resource(uri, meta=meta)
+        """Unsubscribe from resource updates (2025-era servers only)."""
+        return await self.session.unsubscribe_resource(uri, meta=meta)  # pyright: ignore[reportDeprecated]
 
     async def call_tool(
         self,

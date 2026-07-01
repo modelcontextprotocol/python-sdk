@@ -13,6 +13,7 @@ import httpx
 from anyio.abc import TaskGroup
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from mcp_types import (
+    CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
@@ -438,9 +439,17 @@ class StreamableHTTPTransport:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
         # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:
+            # Not resumable: the response can never arrive. Resolve the waiter
+            # instead of leaving the request pending for the session's lifetime
+            # (a listen stream's consumer would otherwise hang instead of
+            # learning the subscription is lost).
+            error_data = ErrorData(code=CONNECTION_CLOSED, message="SSE stream ended without a response")
+            error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
+            await ctx.read_stream_writer.send(error_msg)
 
     async def _handle_reconnection(
         self,
