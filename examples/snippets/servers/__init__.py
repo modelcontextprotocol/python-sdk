@@ -20,8 +20,8 @@ def run_server():
     """
     if len(sys.argv) < 2:
         print("Usage: server <server-name> [transport]")
-        print("Available servers: basic_tool, basic_resource, basic_prompt, tool_progress,")
-        print("                   sampling, elicitation, completion, notifications,")
+        print("Available servers: basic_tool, basic_resource, basic_prompt, prompt_server,")
+        print("                   tool_progress, sampling, elicitation, completion, notifications,")
         print("                   mcpserver_quickstart, structured_output, images")
         print("Available transports: stdio (default), sse, streamable-http")
         sys.exit(1)
