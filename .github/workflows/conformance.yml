@@ -64,17 +64,20 @@ jobs:
           ./.github/actions/conformance/run-server.sh
           --suite active
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/server-active
       - name: Run server conformance (draft suite)
         run: >-
           ./.github/actions/conformance/run-server.sh
           --suite draft
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/server-draft
       - name: Run server conformance (2026-07-28 wire, all suite)
         run: >-
           ./.github/actions/conformance/run-server.sh
           --suite all
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
+          --output-dir conformance-results/server-2026-07-28
       - name: Run server conformance (all suite, extension scenarios)
         # A bare `--suite all` (no --spec-version) selects every scenario
         # shipped with the pinned harness — including the extension-tagged
@@ -91,6 +94,16 @@ jobs:
           ./.github/actions/conformance/run-server.sh
           --suite all
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/server-all
+      - name: Upload conformance results
+        # The suite summary only prints counts for warning-level findings; the
+        # per-check measurements live in the checks.json files saved above.
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-conformance-results
+          path: conformance-results/
+          if-no-files-found: ignore
 
   client-conformance:
     runs-on: ubuntu-latest
@@ -118,22 +131,46 @@ jobs:
               echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
               ;;
           esac
-      - run: uv sync --frozen --all-extras --package mcp
+      # --compile-bytecode: the harness spawns every scenario's client
+      # concurrently; without pre-compiled site-packages, ~40 fresh
+      # interpreters race to byte-compile the same modules on a 2-core
+      # runner, saturating it for the first ~20s of the suite — exactly when
+      # timing-sensitive scenarios take their measurements.
+      - run: uv sync --frozen --all-extras --package mcp --compile-bytecode
+      - name: Pre-compile bytecode (editable sources)
+        run: uv run --frozen python -m compileall -q src .github/actions/conformance
       - name: Run client conformance (all suite)
         # The harness runs all scenarios via unbounded Promise.all; with 40
         # scenarios on a 2-core runner the slowest one (sse-retry, which has a
         # real-time SSE reconnect wait) needs more than the 30s default budget.
+        # The client command execs the synced venv's interpreter directly:
+        # `uv run` would re-check the lockfile in every one of the ~40
+        # concurrent spawns, compounding the startup storm. run-client.sh
+        # re-verifies unexpected failures solo before failing the job.
         run: >-
-          npx --yes "$CONFORMANCE_PKG" client
-          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          ./.github/actions/conformance/run-client.sh
+          --command '.venv/bin/python .github/actions/conformance/client.py'
           --suite all
           --timeout 60000
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/client-all
       - name: Run client conformance (2026-07-28 wire, all suite)
         run: >-
-          npx --yes "$CONFORMANCE_PKG" client
-          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          ./.github/actions/conformance/run-client.sh
+          --command '.venv/bin/python .github/actions/conformance/client.py'
           --suite all
           --timeout 60000
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
+          --output-dir conformance-results/client-2026-07-28
+      - name: Upload conformance results
+        # The suite summary only prints counts for warning-level findings; the
+        # per-check measurements live in the checks.json files saved above.
+        # Also upload when run-client.sh rescued a flake (job green, but the
+        # contention evidence should not be discarded).
+        if: failure() || hashFiles('conformance-results/**/FLAKE_RESCUED') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: client-conformance-results
+          path: conformance-results/
+          if-no-files-found: ignore

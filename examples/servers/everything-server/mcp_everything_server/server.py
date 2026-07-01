@@ -191,10 +191,14 @@ async def test_tool_with_progress(ctx: Context) -> str:
 async def test_sampling(prompt: str, ctx: Context) -> str:
     """Tests server-initiated sampling (LLM completion request)"""
     try:
-        # Request sampling from client
+        # Request sampling from client. related_request_id routes the request onto
+        # the originating tools/call SSE stream, which exists for the whole handler;
+        # without it the request targets the standalone GET stream and is dropped if
+        # the client has not finished opening that stream yet.
         result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],
             max_tokens=100,
+            related_request_id=ctx.request_id,
         )
 
         # Since we're not passing tools param, result.content is single content
