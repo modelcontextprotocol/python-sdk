@@ -55,8 +55,8 @@ class TransportSecurityMiddleware:
             if allowed.endswith(":*"):
                 # Extract base host from pattern
                 base_host = allowed[:-2]
-                # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
+                # Check if the actual host is base host plus a numeric port.
+                if host.startswith(base_host + ":") and host[len(base_host) + 1 :].isdigit():
                     return True
 
         logger.warning(f"Invalid Host header: {host}")
@@ -77,8 +77,8 @@ class TransportSecurityMiddleware:
             if allowed.endswith(":*"):
                 # Extract base origin from pattern
                 base_origin = allowed[:-2]
-                # Check if the actual origin starts with base origin and has a port
-                if origin.startswith(base_origin + ":"):
+                # Check if the actual origin is base origin plus a numeric port.
+                if origin.startswith(base_origin + ":") and origin[len(base_origin) + 1 :].isdigit():
                     return True
 
         logger.warning(f"Invalid Origin header: {origin}")
