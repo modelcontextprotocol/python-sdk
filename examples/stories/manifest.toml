@@ -74,6 +74,13 @@ era        = "dual-in-body"
 # cancelling the awaiting scope (the spec's client-side close).
 era = "modern"
 
+[story.tasks]
+# SEP-2663 tasks extension; server-decided augmentation + tasks/get drop to client.session.
+# extensions ride server/discover (modern-only), so the connection is pinned to "auto".
+lowlevel   = false
+transports = ["in-memory", "http-asgi"]
+era        = "dual-in-body"
+
 [story.schema_validators]
 
 [story.middleware]
@@ -172,6 +179,5 @@ fixed_port    = 8000                            # issuer/PRM metadata bake in :8
 
 [deferred]
 caching       = "client honouring + per-result override unlanded"
-tasks         = "SEP-2663 — tasks extension runtime (server-decided augmentation, CreateTaskResult)"
 skills        = "#2896 — SEP-2640"
 events        = "#2901 + #2896"

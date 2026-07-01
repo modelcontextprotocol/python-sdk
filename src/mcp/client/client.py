@@ -715,6 +715,16 @@ class Client:
             MCPError: A callback returned `ErrorData` for an embedded input request.
             pydantic.ValidationError: The server returned a result that does not
                 conform to the negotiated protocol version.
+            TaskFailedError: The call was augmented into a task that `failed`
+                (a JSON-RPC error during execution).
+            TaskCancelledError: The call was augmented into a task that was
+                cancelled before completing.
+            TaskInputRequiredError: The call was augmented into a task that
+                reached `input_required`; the SDK's automatic in-task input
+                loop is not implemented yet — drive the task manually via
+                `session.call_tool(..., allow_claimed=True)` and the
+                `mcp.client.tasks` functions (`get_task`, `update_task`,
+                `wait_task`). The task errors share the `TaskError` base.
         """
 
         async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:

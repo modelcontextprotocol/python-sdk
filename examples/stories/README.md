@@ -134,6 +134,7 @@ opens with a banner saying what replaces it.
 | [`sampling`](sampling/) | server asks the client's LLM mid-tool (push request) | deprecated |
 | [`stickynotes`](stickynotes/) | capstone: tools mutate state → resources + `list_changed` + elicit guard | current |
 | [`custom_methods`](custom_methods/) | vendor-prefixed JSON-RPC via `add_request_handler` / `send_request` | current |
+| [`tasks`](tasks/) | `io.modelcontextprotocol/tasks` extension: server-decided `CreateTaskResult`, `tasks/get` | current |
 | [`schema_validators`](schema_validators/) | tool input schema from pydantic / TypedDict / dataclass / dict | current |
 | [`middleware`](middleware/) | server-side request/response middleware | current |
 | [`parallel_calls`](parallel_calls/) | two clients rendezvous in one tool; per-call progress attribution | current |
@@ -156,7 +157,6 @@ opens with a banner saying what replaces it.
 | [`identity_assertion`](identity_assertion/) | SEP-990 enterprise IdP flow: present an ID-JAG under the `jwt-bearer` grant | current |
 | **— deferred (README only) —** | | |
 | [`caching`](caching/) | `CacheableResult` ttl/scope hints; client honouring | not yet implemented |
-| [`tasks`](tasks/) | `io.modelcontextprotocol/tasks` extension | not yet implemented |
 | [`apps`](apps/) | MCP Apps: `ui://` resource + `_meta.ui` | not yet implemented — [#2896](https://github.com/modelcontextprotocol/python-sdk/issues/2896) |
 | [`skills`](skills/) | SEP-2640 skills extension | not yet implemented — [#2896](https://github.com/modelcontextprotocol/python-sdk/issues/2896) |
 | [`events`](events/) | `io.modelcontextprotocol/events` extension | not yet implemented |

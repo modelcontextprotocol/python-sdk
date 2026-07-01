@@ -457,15 +457,43 @@ from mcp.server.apps import Apps
 mcp = MCPServer("demo", extensions=[Apps()])
 ```
 
-The reference extension is `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`):
-it binds a tool to a `ui://` UI resource via `_meta.ui.resourceUri`, and
-`client_supports_apps(ctx)` gates the SEP-2133 text-only fallback — `True` only
-when the client's ui-extension settings list the `text/html;profile=mcp-app`
-MIME type, per the Apps spec's required `mimeTypes` field. Every
-`@apps.tool(resource_uri=...)` must have a matching resource registered on the
-same `Apps` instance (`add_html_resource` for inline HTML, `add_resource` for a
-pre-built `Resource`); a tool bound to an unregistered URI raises at
-`MCPServer(...)` construction rather than 404ing on `resources/read` at runtime.
+Two reference extensions ship in their own modules:
+
+- `mcp.server.apps.Apps` (`io.modelcontextprotocol/ui`) binds a tool to a `ui://`
+  UI resource via `_meta.ui.resourceUri`, and `client_supports_apps(ctx)` gates
+  the SEP-2133 text-only fallback — `True` only when the client's ui-extension
+  settings list the `text/html;profile=mcp-app` MIME type, per the Apps spec's
+  required `mimeTypes` field. Every `@apps.tool(resource_uri=...)` must have a
+  matching resource registered on the same `Apps` instance (`add_html_resource`
+  for inline HTML, `add_resource` for a pre-built `Resource`); a tool bound to an
+  unregistered URI raises at `MCPServer(...)` construction rather than 404ing on
+  `resources/read` at runtime.
+- `mcp.server.tasks.Tasks` (`io.modelcontextprotocol/tasks`, SEP-2663) defers a
+  `tools/call` as a task: for a client that declared the extension on a modern
+  connection, the server may return a `CreateTaskResult` (`resultType: "task"`)
+  instead of the `CallToolResult`, and the client fetches the result via
+  `tasks/get` (`tasks/update` and `tasks/cancel` are empty acknowledgements).
+  The server decides augmentation (the legacy `params.task` field is ignored),
+  passes multi round-trip `input_required` interims through un-augmented, and
+  keeps finished (completed or failed) tasks in a pluggable `TaskStore` (`Tasks(store=...)`,
+  in-memory default) that enforces `default_ttl_ms`. A `tasks/*` call from a
+  non-declaring modern client is rejected with `-32021` (missing required
+  client capability); legacy calls get `METHOD_NOT_FOUND`. The client half is a
+  `ClientExtension` result claim: constructing `TasksExtension()` into
+  `Client(extensions=[...])` declares the extension and claims the `task`
+  resultType on `tools/call`, so `Client.call_tool` admits the
+  `CreateTaskResult`, polls `tasks/get` (honoring `pollIntervalMs`), and
+  returns the final `CallToolResult` unchanged, while `failed`/`cancelled`
+  tasks surface as the typed `TaskFailedError`/`TaskCancelledError` (all task
+  errors share the `TaskError` base). Manual driving stays available —
+  `client.session.call_tool(..., allow_claimed=True)` returns the typed
+  `CreateTaskResult`, and the typed `mcp.client.tasks` functions
+  (`get_task`/`wait_task`/`update_task`/`cancel_task`) drive
+  `tasks/get`/`tasks/update`/`tasks/cancel` over the session, with
+  the `Mcp-Name` routing header stamped automatically over Streamable HTTP.
+  This is the core SEP-2663 surface — see [Tasks](advanced/tasks.md);
+  background execution (`working` tasks), the in-task `input_required` loop
+  over `tasks/update`, and `notifications/tasks` are deferred.
 
 Extension methods are strictly additive: a `MethodBinding` cannot name a
 spec-defined request method, and registering one whose method collides with
@@ -473,7 +501,8 @@ another handler raises at construction. A `MethodBinding` may set
 `protocol_versions` to scope an extension method to specific wire versions
 (`frozenset()` is rejected — use `None` to admit every version); a request at
 any other version is `METHOD_NOT_FOUND`. An
-extension handler can call `mcp.server.mcpserver.require_client_extension(ctx, identifier)`
+extension handler can call `mcp.server.extension.require_client_extension(ctx, identifier)`
+(also re-exported from `mcp.server.mcpserver`)
 to reject a request with the `-32021` (missing required client capability) error
 when the client did not declare the extension.
 
@@ -510,7 +539,7 @@ client = Client(server, extensions=[advertise("com.example/ui", {"mimeTypes": [.
 ```
 
 `advertise()` is only for identifiers with no client-side behaviour. For a
-behavioural extension (e.g. tasks, once its extension ships), construct that
+behavioural extension (e.g. tasks — `mcp.client.TasksExtension`), construct that
 extension's object instead; advertising an identifier you do not implement
 asserts wire support you don't have.
 
@@ -1510,7 +1539,7 @@ Behavior changes:
 
 Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions.
 
-Tasks are expected to return as a separate MCP extension in a future release.
+Tasks have since returned as the built-in `Tasks` extension ([SEP-2663](https://modelcontextprotocol.io/seps/2663-tasks-extension.md)), with a different wire shape than the experimental SEP-1686 surface — see [Server extensions API](#server-extensions-api-sep-2133) above and [Tasks](advanced/tasks.md).
 
 ## Deprecations
 
