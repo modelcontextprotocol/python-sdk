@@ -1,11 +1,7 @@
 """The v1 -> v2 rename and removal tables.
 
-These tables are the single source of truth for what the codemod does. Every
-transform in `_transformer.py` is driven by one of them; nothing is pattern-matched
-by name alone. Each entry was derived by comparing `origin/v1.x` against `main`
-in this repository, and the camelCase table is additionally pinned against the
-installed `mcp_types` package by `tests/codemod/test_mappings.py`, so it cannot
-silently drift as v2 evolves.
+Every transform in `_transformer.py` is driven by one of these tables, and
+`tests/codemod/test_mappings.py` pins them against the installed v2 packages.
 """
 
 import re
@@ -15,11 +11,16 @@ __all__ = [
     "CAMEL_FIELDS",
     "ERRORDATA_QNAMES",
     "FASTMCP_QNAMES",
+    "CLIENT_SESSION_QNAMES",
     "LOWLEVEL_CTOR_POSITIONAL_PARAMS",
-    "LOWLEVEL_DECORATOR_METHODS",
     "LOWLEVEL_REMOVED_ATTRS",
     "LOWLEVEL_SERVER_QNAMES",
     "MCPERROR_QNAMES",
+    "PYDANTIC_URL_QNAMES",
+    "SESSION_LIST_METHODS",
+    "SESSION_URI_METHODS",
+    "TIMEDELTA_QNAMES",
+    "UNION_TYPE_ALIASES",
     "MODULE_RENAMES",
     "REHOMED_IMPORTS",
     "REMOVED_APIS",
@@ -35,11 +36,7 @@ __all__ = [
     "CamelField",
 ]
 
-# Module-path renames, applied by longest prefix to `import X` / `from X import ...`
-# statements and to fully-dotted usages such as `mcp.types.Tool`. Every right side
-# must be importable on v2, and `tests/codemod/test_mappings.py` further pins that
-# the public names of each old module are all importable from the new one (or are
-# themselves renamed or removed), so a rewritten import always resolves.
+# Module-path renames, applied by longest prefix to imports and fully-dotted usages.
 MODULE_RENAMES: dict[str, str] = {
     "mcp.server.fastmcp": "mcp.server.mcpserver",
     "mcp.server.fastmcp.server": "mcp.server.mcpserver.server",
@@ -47,20 +44,14 @@ MODULE_RENAMES: dict[str, str] = {
     "mcp.types": "mcp_types",
 }
 
-# Imports whose v2 module is importable but is not the name's PUBLIC home,
-# keyed by (renamed module, imported name) and applied after `MODULE_RENAMES`:
-# `Context` moved out of `server.py` on v2, and while the module still imports
-# it, a type checker treats a name a module does not re-export as private. The
-# package declares it in `__all__`, so the import is split out to point there.
+# (renamed module, imported name) -> the name's PUBLIC v2 home, applied after
+# `MODULE_RENAMES`: a type checker treats a name a module does not re-export as private.
 REHOMED_IMPORTS: dict[tuple[str, str], str] = {
     ("mcp.server.mcpserver.server", "Context"): "mcp.server.mcpserver",
 }
 
-# v1 module namespaces that no longer exist on v2 under any name, keyed by their
-# roots and matched by longest prefix like `MODULE_RENAMES`. An import of one is
-# marked (never rewritten or deleted); together with the renames these account
-# for every public module v1 shipped, which `tests/codemod/test_mappings.py`
-# pins against the frozen v1 module list and the installed v2 package.
+# v1 module roots with no v2 home under any name, matched by longest prefix. Imports
+# are marked, never rewritten; with `MODULE_RENAMES` these cover every public v1 module.
 REMOVED_MODULES: dict[str, str] = {
     "mcp.client.experimental": ("removed: the v1 experimental tasks API was deleted and has no replacement"),
     "mcp.server.experimental": ("removed: the v1 experimental tasks API was deleted and has no replacement"),
@@ -74,9 +65,7 @@ REMOVED_MODULES: dict[str, str] = {
 }
 
 # Symbol renames, keyed by every v1 qualified name the symbol was reachable from.
-# The transformer resolves a usage to its qualified name through the file's imports
-# (`libcst.metadata.QualifiedNameProvider`), so an aliased import is never broken
-# and a user's own symbol that happens to share a name is never touched.
+# Usages resolve through the file's imports, so aliases and same-named user symbols are safe.
 SYMBOL_RENAMES: dict[str, str] = {
     "mcp.server.FastMCP": "MCPServer",
     "mcp.server.fastmcp.FastMCP": "MCPServer",
@@ -90,9 +79,7 @@ SYMBOL_RENAMES: dict[str, str] = {
     "mcp.types.ResourceReference": "ResourceTemplateReference",
 }
 
-# v1 public symbols that no longer exist on v2 under any name. The codemod never
-# rewrites these (there is nothing correct to rewrite them to); it inserts a
-# `# mcp-codemod:` marker carrying the replacement guidance.
+# v1 public symbols with no v2 home: never rewritten, a `# mcp-codemod:` marker carries the guidance.
 REMOVED_APIS: dict[str, str] = {
     "mcp.shared.memory.create_connected_server_and_client_session": (
         "removed: pair `create_client_server_memory_streams()` with `Server.run()` and a `ClientSession` "
@@ -111,12 +98,8 @@ REMOVED_APIS: dict[str, str] = {
     "mcp.server.lowlevel.server.request_ctx": (
         "removed: the module-level ContextVar is gone; handlers now receive `ctx` explicitly"
     ),
-    # The v1 `mcp.types` names with no same-name home in `mcp_types`. The task
-    # vocabulary left with the experimental tasks API and the rest were v1
-    # type-machinery aliases. Enumerating every one is what keeps the
-    # `mcp.types` -> `mcp_types` rewrite honest: `tests/codemod/test_mappings.py`
-    # checks that every other public v1 name resolves on `mcp_types`, so an
-    # import this codemod produces is never one that cannot be imported.
+    # Every v1 `mcp.types` name with no same-name home in `mcp_types`. Enumerating
+    # them all is what lets the tests prove every other rewritten import resolves.
     "mcp.types.Cursor": "removed: it was an alias of `str`; use `str`",
     # A nested class, so the per-name module check in the tests cannot see it.
     "mcp.types.RequestParams.Meta": (
@@ -143,22 +126,17 @@ REMOVED_APIS: dict[str, str] = {
     "mcp.types.TASK_STATUS_CANCELLED": "removed with the v1 experimental tasks API",
 }
 
-# Extras the v1 `mcp` distribution declared that v2 does not, with guidance.
-# Pinned against the installed distribution's `Provides-Extra` metadata by
-# `tests/codemod/test_mappings.py`.
+# Extras the v1 `mcp` distribution declared that v2 does not.
 REMOVED_EXTRAS: dict[str, str] = {
     "ws": "the `ws` extra was removed with the WebSocket transport",
 }
 
-# Attribute and method names that vanished from a class that still exists. These
-# can only be matched by name (the codemod cannot know a receiver's type), so a
-# name qualifies only when it is distinctive enough that a false match is
-# implausible AND no surviving v2 API spells it. The lowlevel
-# `Server.request_context` property fails the second bar -- `Context.request_context`
-# is a live, documented v2 idiom -- so its removal is deliberately not flagged here.
+# Removed attributes matched by NAME only (receiver types are unknown): an entry must be
+# distinctive AND not spelled by any surviving v2 API (see `LOWLEVEL_REMOVED_ATTRS`).
 REMOVED_ATTRS: dict[str, str] = {
     "get_context": "`MCPServer.get_context()` was removed: accept a `ctx: Context` parameter on the handler instead",
     "get_server_capabilities": "removed: read `session.initialize_result` instead",
+    "_mcp_server": "renamed on v2: the wrapped lowlevel server is the private `_lowlevel_server` attribute",
 }
 
 
@@ -173,15 +151,9 @@ def _to_snake(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
-# The camelCase field names a "safe" attribute rewrite needs human eyes on anyway.
-# Two reasons land a name here: it is generic enough to plausibly exist on a
-# non-mcp object in the same file (`createdAt`, `requestId`, `mimeType`, ...), or
-# the v1 field also lived somewhere whose v2 home is NOT a renamed attribute.
-# `progressToken` is the canonical second case: `ProgressNotificationParams`
-# renamed it to `progress_token`, but v1's `RequestParams.Meta` model became the
-# `RequestParamsMeta` TypedDict, so `params.meta.progressToken` needs a subscript
-# (`params.meta["progress_token"]`), not a rename. Safe-tier renames are reported;
-# risky-tier renames are reported AND get an inline `# mcp-codemod: review:` marker.
+# camelCase names whose rename still needs human eyes: generic enough to exist on a
+# non-mcp object in the same file, or with a v1 home whose v2 shape is not a rename
+# (`params.meta.progressToken` needs a `params.meta["progress_token"]` subscript).
 _RISKY: frozenset[str] = frozenset(
     {
         "createdAt",
@@ -204,9 +176,8 @@ _RISKY: frozenset[str] = frozenset(
     }
 )
 
-# Every camelCase field name declared in v1's `mcp/types.py`. Anything outside
-# this set is never renamed -- this is what keeps `logging.getLogger`, stdlib and
-# third-party camelCase APIs, and the user's own attributes untouched.
+# Every camelCase field name declared in v1's `mcp/types.py`. Names outside this set
+# are never renamed, keeping stdlib, third-party, and user camelCase attributes untouched.
 _V1_CAMEL_FIELDS: tuple[str, ...] = (
     "clientInfo",
     "costPriority",
@@ -254,11 +225,9 @@ CAMEL_FIELDS: dict[str, CamelField] = {
     name: CamelField(_to_snake(name), "risky" if name in _RISKY else "safe") for name in _V1_CAMEL_FIELDS
 }
 
-# `MCPServer.__init__` keyword arguments that moved to `run()` / `sse_app()` /
-# `streamable_http_app()`. The right destination depends on how the server is
-# started, and may not be in the same file, so these are never rewritten: the
-# kwarg is left in place (v2 then fails loudly with a `TypeError`) and a marker
-# is inserted. Deleting the kwarg instead would silently lose configuration.
+# `MCPServer.__init__` kwargs that moved to `run()` / the app factories. The right
+# destination depends on how the server is started, so the kwarg is only marked and
+# left in place (v2 fails loudly): deleting it would silently lose configuration.
 TRANSPORT_CTOR_PARAMS: frozenset[str] = frozenset(
     {
         "event_store",
@@ -279,44 +248,28 @@ REMOVED_CTOR_PARAMS: dict[str, str] = {
     "mount_path": "removed: mount the app under a Starlette route instead",
 }
 
-# The v1 lowlevel `Server.__init__` parameters after `name`, in positional order.
-# v2 makes everything after `name` keyword-only but keeps these names, so a v1
-# positional argument converts to the keyword at its position one for one.
-# Pinned against the installed v2 constructor by `tests/codemod/test_mappings.py`.
+# v1 lowlevel `Server.__init__` parameters after `name`, in positional order; v2 keeps
+# the names but makes them keyword-only, so positional arguments convert one for one.
 LOWLEVEL_CTOR_POSITIONAL_PARAMS: tuple[str, ...] = ("version", "instructions", "website_url", "icons", "lifespan")
 
-# Attributes removed from the lowlevel `Server` whose NAMES survive elsewhere on
-# v2 (`Context.request_context` is a live idiom), so unlike `REMOVED_ATTRS` they
-# are only matched against a receiver the pre-pass proved is a lowlevel server.
+# Removed lowlevel `Server` attributes whose NAMES survive elsewhere on v2, so they
+# only match receivers the pre-pass proved are lowlevel servers.
 LOWLEVEL_REMOVED_ATTRS: dict[str, str] = {
     "request_context": (
         "`Server.request_context` and the `request_ctx` ContextVar were removed: handlers now receive `ctx` explicitly"
     ),
+    "request_handlers": (
+        "the type-keyed `request_handlers` dict was replaced: register with "
+        "`add_request_handler(method, params_type, handler)` and look up with `get_request_handler(method)`"
+    ),
+    "notification_handlers": (
+        "the type-keyed `notification_handlers` dict was replaced: register with "
+        "`add_notification_handler(method, params_type, handler)`"
+    ),
 }
 
-# The v1 lowlevel `Server` decorator-factory methods and the `on_*` keyword each
-# became on the v2 `Server` constructor. This transform is flag-only by design:
-# moving the registration means reordering statements across the module AND
-# rewriting the handler to `(ctx, params) -> Result` with no return auto-wrapping,
-# and a codemod that guesses at that loses more trust than it saves time.
-LOWLEVEL_DECORATOR_METHODS: dict[str, str] = {
-    "call_tool": "on_call_tool",
-    "completion": "on_completion",
-    "get_prompt": "on_get_prompt",
-    "list_prompts": "on_list_prompts",
-    "list_resource_templates": "on_list_resource_templates",
-    "list_resources": "on_list_resources",
-    "list_tools": "on_list_tools",
-    "progress_notification": "on_progress",
-    "read_resource": "on_read_resource",
-    "set_logging_level": "on_set_logging_level",
-    "subscribe_resource": "on_subscribe_resource",
-    "unsubscribe_resource": "on_unsubscribe_resource",
-}
-
-# Qualified-name sets the transformer resolves callees and constructors against.
-# The two that name renamed classes are DERIVED from `SYMBOL_RENAMES` rather than
-# written out, so a v1 import path added there can never be silently missing here.
+# Qualified-name sets the transformer resolves callees and constructors against;
+# the renamed-class sets are derived from `SYMBOL_RENAMES` so they cannot drift from it.
 FASTMCP_QNAMES: frozenset[str] = frozenset(old for old, new in SYMBOL_RENAMES.items() if new == "MCPServer")
 MCPERROR_QNAMES: frozenset[str] = frozenset(old for old, new in SYMBOL_RENAMES.items() if new == "MCPError")
 LOWLEVEL_SERVER_QNAMES: frozenset[str] = frozenset(
@@ -326,25 +279,57 @@ LOWLEVEL_SERVER_QNAMES: frozenset[str] = frozenset(
         "mcp.server.lowlevel.server.Server",
     }
 )
+CLIENT_SESSION_QNAMES: frozenset[str] = frozenset(
+    {
+        "mcp.ClientSession",
+        "mcp.client.ClientSession",
+        "mcp.client.session.ClientSession",
+    }
+)
+TIMEDELTA_QNAMES: frozenset[str] = frozenset({"datetime.timedelta"})
+PYDANTIC_URL_QNAMES: frozenset[str] = frozenset(
+    {
+        "pydantic.AnyUrl",
+        "pydantic.FileUrl",
+        "pydantic.networks.AnyUrl",
+        "pydantic.networks.FileUrl",
+    }
+)
+# `ClientSession` methods whose v1 `cursor=` keyword became `params=PaginatedRequestParams(...)`.
+SESSION_LIST_METHODS: frozenset[str] = frozenset(
+    {"list_tools", "list_prompts", "list_resources", "list_resource_templates"}
+)
+# `ClientSession` methods whose `uri` parameter is a plain `str` on v2 (was `AnyUrl`).
+SESSION_URI_METHODS: frozenset[str] = frozenset({"read_resource", "subscribe_resource", "unsubscribe_resource"})
+
+# v1 RootModel wrappers that are plain union aliases on v2: the import is fine, but
+# constructing them or calling pydantic model methods fails, so only those uses are marked.
+UNION_TYPE_ALIASES: dict[str, str] = {
+    "mcp.types.ClientNotification": "ClientNotification",
+    "mcp.types.ClientRequest": "ClientRequest",
+    "mcp.types.ClientResult": "ClientResult",
+    "mcp.types.JSONRPCMessage": "JSONRPCMessage",
+    "mcp.types.ServerNotification": "ServerNotification",
+    "mcp.types.ServerRequest": "ServerRequest",
+    "mcp.types.ServerResult": "ServerResult",
+}
+
 ERRORDATA_QNAMES: frozenset[str] = frozenset(
     {
         "mcp.ErrorData",
         "mcp.types.ErrorData",
     }
 )
-# The v1 qualified names of the streamable-HTTP client (derived, like the class
-# sets above), and the same set widened with the v2 spelling. A half-migrated
-# `streamable_http_client(...) as (read, write, _)` still deserves the 3-tuple
-# rewrite, but only a call through the v1 NAME proves the surrounding code is
-# unmigrated, so only that form is flagged for its changed yield shape.
+# The streamable-HTTP client's v1 qualified names, and the same set widened with the
+# v2 spelling: a half-migrated call under the v2 name still gets the 3-tuple rewrite,
+# but only a v1-NAME call proves unmigrated code, so only it is flagged for the yield shape.
 TRANSPORT_CLIENT_V1_QNAMES: frozenset[str] = frozenset(
     old for old, new in SYMBOL_RENAMES.items() if new == "streamable_http_client"
 )
 TRANSPORT_CLIENT_QNAMES: frozenset[str] = TRANSPORT_CLIENT_V1_QNAMES | {
     "mcp.client.streamable_http.streamable_http_client"
 }
-# Every keyword v1's `streamablehttp_client` accepted that v2's does not -- the
-# whole point of `http_client=`. `terminate_on_close` survived and is not here.
+# v1 `streamablehttp_client` keywords that v2 dropped; `terminate_on_close` survived.
 TRANSPORT_CLIENT_REMOVED_PARAMS: frozenset[str] = frozenset(
     {"auth", "headers", "httpx_client_factory", "sse_read_timeout", "timeout"}
 )

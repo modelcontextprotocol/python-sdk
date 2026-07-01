@@ -9,7 +9,6 @@ from mcp_codemod._runner import discover, run
 
 
 def test_discover_yields_every_python_file_under_a_directory_sorted(tmp_path: Path) -> None:
-    """`discover` over a directory yields every `.py` file beneath it, in sorted order, and nothing else."""
     (tmp_path / "b.py").write_text("")
     (tmp_path / "a.py").write_text("")
     (tmp_path / "nested").mkdir()
@@ -20,7 +19,6 @@ def test_discover_yields_every_python_file_under_a_directory_sorted(tmp_path: Pa
 
 
 def test_discover_prunes_vendored_directories(tmp_path: Path) -> None:
-    """`discover` never yields a file under a vendored directory such as `.venv` or `node_modules`."""
     (tmp_path / ".venv" / "sub").mkdir(parents=True)
     (tmp_path / ".venv" / "sub" / "vendored.py").write_text("")
     (tmp_path / "node_modules").mkdir()
@@ -39,7 +37,6 @@ def test_discover_honours_an_explicitly_named_file(tmp_path: Path) -> None:
 
 
 def test_run_writes_only_the_files_that_changed(tmp_path: Path) -> None:
-    """`run(write=True)` rewrites the file the transformer changed and leaves an already-v2 file byte-identical."""
     v1_source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -66,7 +63,6 @@ server = MCPServer("legacy")
 
 
 def test_a_dry_run_leaves_every_file_untouched(tmp_path: Path) -> None:
-    """`run(write=False)` reports a file as changed without writing the transformed code back to disk."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -82,9 +78,6 @@ def test_a_dry_run_leaves_every_file_untouched(tmp_path: Path) -> None:
 
 
 def test_a_file_that_fails_to_parse_is_left_untouched_and_reported(tmp_path: Path) -> None:
-    """A parse failure is recorded on that file's report with `error` set and no result,
-    leaves that file byte-identical on disk, and does not stop other files being rewritten.
-    """
     broken_source = "def (\n"
     broken_path = tmp_path / "broken.py"
     broken_path.write_text(broken_source)
@@ -113,9 +106,7 @@ mcp = MCPServer("demo")
 
 
 def test_the_report_aggregates_diagnostic_counts_by_severity(tmp_path: Path) -> None:
-    """`RunReport.diagnostics` sums every file's diagnostics into per-severity counts, so
-    flag-only (manual) and heuristic-rewrite (review) sites are both visible after a run.
-    """
+    """Flag-only sites count as `manual` and heuristic rewrites as `review` in the summed counts."""
     (tmp_path / "lowlevel.py").write_text(
         textwrap.dedent("""\
             from mcp.server.lowlevel import Server
@@ -123,6 +114,7 @@ def test_the_report_aggregates_diagnostic_counts_by_severity(tmp_path: Path) -> 
             server = Server("demo")
 
 
+            @traced
             @server.list_tools()
             async def handle_list_tools():
                 return []
@@ -145,9 +137,7 @@ def test_the_report_aggregates_diagnostic_counts_by_severity(tmp_path: Path) -> 
 
 
 def test_file_report_changed_is_false_for_an_untouched_file(tmp_path: Path) -> None:
-    """`FileReport.changed` is true only when the transform succeeded and produced different
-    code: an already-v2 file is unchanged, and a file that failed to parse has no result.
-    """
+    """`FileReport.changed` is true only when the transform succeeded and produced different code."""
     rewritten_path = tmp_path / "v1.py"
     rewritten_path.write_text("from mcp.types import Tool\n")
     untouched_source = "from mcp_types import Tool\n"
@@ -167,9 +157,7 @@ def test_file_report_changed_is_false_for_an_untouched_file(tmp_path: Path) -> N
 
 
 def test_a_file_that_cannot_be_decoded_is_left_untouched_and_reported(tmp_path: Path) -> None:
-    """A legal Python file in a non-UTF-8 encoding must not abort the run after other
-    files were already rewritten; it is recorded as failed and left exactly as found.
-    """
+    """A legal but non-UTF-8 file is recorded as failed and left as found, without aborting the run."""
     good = tmp_path / "aaa.py"
     good.write_text("from mcp.server.fastmcp import FastMCP\n")
     weird = tmp_path / "bbb.py"
@@ -185,9 +173,7 @@ def test_a_file_that_cannot_be_decoded_is_left_untouched_and_reported(tmp_path: 
 def test_a_file_whose_write_fails_is_reported_without_aborting_the_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failure while writing one file back is recorded as exactly that -- never as
-    a parse failure -- and the rest of the run still happens.
-    """
+    """A write failure is recorded as a write failure -- never a parse failure -- and the run continues."""
     first = tmp_path / "aaa.py"
     first.write_text("from mcp.server.fastmcp import FastMCP\n")
     second = tmp_path / "bbb.py"

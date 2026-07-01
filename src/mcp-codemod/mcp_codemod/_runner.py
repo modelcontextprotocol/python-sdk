@@ -1,12 +1,4 @@
-"""Apply the v1 -> v2 transformer to files on disk.
-
-`run()` walks the given paths, transforms each Python file, and returns a report.
-Files are read and written as UTF-8 (Python's own source default), independent of
-the host locale, and their original line endings are preserved byte for byte.
-A file is only ever written when its transformation succeeded end to end, so a
-read, decode, or parse failure leaves that file exactly as it was found; every
-failure is recorded in the report instead of aborting the run.
-"""
+"""Apply the v1 -> v2 transformer to files on disk."""
 
 import os
 from collections import Counter
@@ -20,7 +12,6 @@ from mcp_codemod._transformer import Result, transform
 
 __all__ = ["IGNORED_DIRECTORIES", "FileReport", "RunReport", "discover", "run"]
 
-# Directory names that never contain a user's own source, pruned during discovery.
 IGNORED_DIRECTORIES: frozenset[str] = frozenset(
     {
         ".eggs",
@@ -83,10 +74,7 @@ class RunReport:
 def discover(paths: Sequence[Path]) -> Iterator[Path]:
     """Yield every Python file under `paths`, pruning vendored and build directories.
 
-    A path that is itself a file is yielded as-is, even without a `.py` suffix, so
-    an explicitly named file is always honoured. Ignored directories are pruned
-    from the walk itself rather than filtered from its results, so a populated
-    `.venv` or `node_modules` is never even visited.
+    A path that is itself a file is yielded as-is, even without a `.py` suffix.
     """
     for path in paths:
         if path.is_dir():
@@ -100,19 +88,15 @@ def discover(paths: Sequence[Path]) -> Iterator[Path]:
 
 
 def run(paths: Iterable[Path], *, write: bool, add_markers: bool = True) -> RunReport:
-    """Transform every discovered file, writing the results back unless `write` is false.
+    """Transform every discovered file, writing the results back when `write` is true.
 
-    Each file is handled in isolation: one that cannot be read, decoded, or parsed is
-    recorded with its error and left exactly as it was found, one whose write fails is
-    recorded as such, and in either case the run continues to the next file.
+    Failures are recorded per file; the run continues to the next file.
     """
     reports: list[FileReport] = []
     for path in paths:
         source = ""
         try:
-            # Bytes plus an explicit UTF-8 codec, never `read_text()`: Python source
-            # is UTF-8 regardless of the host locale, and the round trip must not
-            # rewrite the file's own line endings.
+            # UTF-8 bytes rather than `read_text()`: locale-independent, and line endings round-trip unchanged.
             source = path.read_bytes().decode("utf-8")
             result = transform(source, add_markers=add_markers)
         except (OSError, UnicodeDecodeError, ParserSyntaxError) as exc:

@@ -1,10 +1,7 @@
 """Pin the codemod's mapping tables against the installed v2 package.
 
-The tables in `mcp_codemod._mappings` drive every rewrite the tool makes, so each
-one is held to two bars here: an exact literal so a silently-deleted row can never
-shrink the suite, and a check against the installed `mcp` / `mcp_types` packages
-so a rename target or a removal claim cannot drift as v2 evolves. A failure here
-means the table is wrong, not the transformer.
+Each table is pinned as an exact literal and checked against the installed
+packages; a failure here means the table is wrong, not the transformer.
 """
 
 import inspect
@@ -15,10 +12,10 @@ from importlib.util import find_spec
 import mcp_types
 import pytest
 from mcp_codemod import transform
+from mcp_codemod._adapters import LOWLEVEL_HANDLER_SPECS
 from mcp_codemod._mappings import (
     CAMEL_FIELDS,
     LOWLEVEL_CTOR_POSITIONAL_PARAMS,
-    LOWLEVEL_DECORATOR_METHODS,
     LOWLEVEL_REMOVED_ATTRS,
     MODULE_RENAMES,
     REHOMED_IMPORTS,
@@ -50,7 +47,6 @@ def _v2_resolves(qualified: str) -> bool:
 
 
 def test_the_module_rename_table_is_exact_and_every_target_imports() -> None:
-    """The module table is exactly the known set of moves, and every target exists on v2."""
     assert MODULE_RENAMES == {
         "mcp.server.fastmcp": "mcp.server.mcpserver",
         "mcp.server.fastmcp.server": "mcp.server.mcpserver.server",
@@ -78,7 +74,6 @@ def test_the_symbol_rename_table_is_exact() -> None:
 
 @pytest.mark.parametrize(("qualified", "new_name"), sorted(SYMBOL_RENAMES.items()))
 def test_rewriting_an_import_of_each_renamed_symbol_resolves_on_v2(qualified: str, new_name: str) -> None:
-    """Transforming a v1 import of a renamed symbol yields an import the installed v2 satisfies."""
     module_path, _, old_name = qualified.rpartition(".")
     rewritten = transform(f"from {module_path} import {old_name}\n").code
     namespace: dict[str, object] = {}
@@ -87,7 +82,6 @@ def test_rewriting_an_import_of_each_renamed_symbol_resolves_on_v2(qualified: st
 
 
 def test_every_removed_api_is_absent_from_the_installed_v2_package() -> None:
-    """Each flagged removal really is gone from v2; if one comes back, its flag becomes a lie."""
     assert set(REMOVED_APIS) == {
         "mcp.client.websocket.websocket_client",
         "mcp.os.win32.utilities.terminate_windows_process",
@@ -126,7 +120,6 @@ def test_every_removed_api_is_absent_from_the_installed_v2_package() -> None:
 
 
 def test_every_camelcase_rename_target_is_a_field_on_an_installed_v2_model() -> None:
-    """Each snake_case target really is a v2 field, so the rename never invents a name."""
     assert len(CAMEL_FIELDS) == 40
     v2_fields = {
         name
@@ -139,30 +132,22 @@ def test_every_camelcase_rename_target_is_a_field_on_an_installed_v2_model() -> 
 
 
 def test_progress_token_is_in_the_risky_tier() -> None:
-    """`progressToken` had two v1 homes with two v2 fates: `ProgressNotificationParams`
-    renamed it to `progress_token`, but `RequestParams.Meta` became a TypedDict keyed
-    by the camelCase wire spelling, so a rename there is wrong and needs human eyes.
-    """
+    """`ProgressNotificationParams` renamed it to `progress_token`, but `RequestParams.Meta`
+    kept the camelCase wire spelling -- so an unconditional rename is wrong and needs human eyes."""
     assert CAMEL_FIELDS["progressToken"].tier == "risky"
 
 
 def test_the_constructor_keyword_tables_match_the_v2_signatures() -> None:
-    """No flagged constructor keyword survives on the v2 `MCPServer.__init__`, and every
-    lowlevel decorator maps to a real `on_*` keyword on the v2 `Server`. A keyword v2
-    kept that the tables flag (`debug`, `log_level`, and `dependencies` all survived
-    one alpha or another) would tell the user a lie they cannot reconcile.
-
-    Where each moved keyword landed is not asserted here: `MCPServer.run` forwards
-    `**kwargs` to the app builders, so its signature cannot show them.
-    """
+    """Flagging a keyword v2 kept would be a lie (`debug`, `log_level`, and `dependencies`
+    each survived one alpha or another). Landing spots are not asserted: `MCPServer.run`
+    forwards `**kwargs` to the app builders, so its signature cannot show them."""
     constructor = set(inspect.signature(MCPServer.__init__).parameters)
     assert not (TRANSPORT_CTOR_PARAMS | set(REMOVED_CTOR_PARAMS)) & constructor
-    assert set(LOWLEVEL_DECORATOR_METHODS.values()) <= set(inspect.signature(Server.__init__).parameters)
+    # If v2 grew a v1 decorator name back as a live method, deleting the decorator would break code.
+    assert not set(LOWLEVEL_HANDLER_SPECS) & set(dir(Server))
 
 
-# Every name defined publicly at the top level of v1's `mcp/types.py`, extracted
-# from `origin/v1.x` and frozen here because v1 is closed history. See the test
-# below for why the codemod must account for every single one.
+# Every public top-level name of v1's `mcp/types.py`, frozen from `origin/v1.x`.
 _V1_TYPES_PUBLIC_NAMES = (
     "Annotations",
     "AnyFunction",
@@ -363,20 +348,14 @@ _V1_TYPES_PUBLIC_NAMES = (
 
 
 def test_every_public_name_of_a_renamed_v1_module_is_importable_or_accounted_for() -> None:
-    """A module rename promises that what a file imported from the old module can be
-    imported from the new one. For every public name v1 defined there, that has to
-    be literally true of the installed v2 package -- or the name must be in
-    `SYMBOL_RENAMES` (it gets rewritten) or `REMOVED_APIS` (it gets marked).
-    Anything else would let the codemod produce an import that cannot resolve, with
-    no diagnostic. The name lists are v1's, so they are frozen history; a new
-    `MODULE_RENAMES` row must bring its own list here.
-    """
+    """Every public name of a renamed v1 module must import from the rename target,
+    or be in `SYMBOL_RENAMES` or `REMOVED_APIS`; anything else lets the codemod
+    emit an import that cannot resolve, with no diagnostic."""
     renamed_v1_modules = {
         "mcp.types": _V1_TYPES_PUBLIC_NAMES,
         # v1's `mcp/server/fastmcp/__init__.py` declared this `__all__` explicitly.
         "mcp.server.fastmcp": ("FastMCP", "Context", "Image", "Audio", "Icon"),
-        # The names users import from the `server` module itself; its other
-        # module-level definitions are internals nobody imports.
+        # Only the names users import; the module's other definitions are internals.
         "mcp.server.fastmcp.server": ("FastMCP", "Context", "Settings"),
         "mcp.shared.version": ("LATEST_PROTOCOL_VERSION", "SUPPORTED_PROTOCOL_VERSIONS"),
     }
@@ -393,12 +372,12 @@ def test_every_public_name_of_a_renamed_v1_module_is_importable_or_accounted_for
 
 
 def test_no_removed_attribute_name_is_spelled_by_a_living_v2_api() -> None:
-    """The removed-attribute table matches by NAME alone, so a name only qualifies if
-    nothing public on v2 still spells it; otherwise the marker would flag working
-    code. `request_context` fails exactly this bar -- `Context.request_context` is the
-    documented v2 lifespan idiom -- which is why it is not in the table.
-    """
-    assert set(REMOVED_ATTRS) == {"get_context", "get_server_capabilities"}
+    """`REMOVED_ATTRS` matches by name alone, so a name qualifies only if nothing
+    public on v2 still spells it -- `request_context` fails exactly this bar."""
+    assert set(REMOVED_ATTRS) == {"get_context", "get_server_capabilities", "_mcp_server"}
+    # The private-name row: v2 really renamed the wrapped server, both spellings private.
+    assert not hasattr(MCPServer, "_mcp_server")
+    assert "_lowlevel_server" in vars(MCPServer("probe"))
     living = {
         name
         for module in (mcp, mcp.client.session, mcp.server.mcpserver, mcp_types)
@@ -412,11 +391,8 @@ def test_no_removed_attribute_name_is_spelled_by_a_living_v2_api() -> None:
 
 
 def test_the_removed_client_keyword_set_is_exactly_v1_minus_v2() -> None:
-    """The flagged client keywords are exactly the ones v1's `streamablehttp_client`
-    accepted and v2's client does not: one it kept must not be flagged (a lie), and
-    one it dropped must be (a silent `TypeError`). v1's signature is frozen history;
-    v2's is introspected.
-    """
+    """Flagging a keyword v2 kept would be a lie; missing one v2 dropped is a silent
+    `TypeError`. v1's signature is frozen history; v2's is introspected."""
     v1_parameters = frozenset(
         {"url", "headers", "timeout", "sse_read_timeout", "terminate_on_close", "httpx_client_factory", "auth"}
     )
@@ -424,8 +400,7 @@ def test_the_removed_client_keyword_set_is_exactly_v1_minus_v2() -> None:
     assert v1_parameters - v2_parameters == TRANSPORT_CLIENT_REMOVED_PARAMS
 
 
-# Every public module v1 shipped (no path segment starting with an underscore),
-# extracted from `origin/v1.x` and frozen here because v1 is closed history.
+# Every public module v1 shipped (no underscore path segment), frozen from `origin/v1.x`.
 _V1_PUBLIC_MODULES = (
     "mcp",
     "mcp.cli",
@@ -538,12 +513,8 @@ _V1_PUBLIC_MODULES = (
 
 
 def test_every_v1_module_resolves_on_v2_or_is_renamed_or_removed() -> None:
-    """The whole v1 module namespace is accounted for: every public module either
-    still imports on v2, is rewritten by `MODULE_RENAMES`, or is marked through a
-    `REMOVED_MODULES` root. An unaccounted module would mean an import the codemod
-    neither fixes nor flags. The removed roots must also really be gone from v2,
-    and each must cover at least one v1 module (no stale roots).
-    """
+    """An unaccounted module would mean an import the codemod neither fixes nor flags;
+    removed roots must really be gone from v2 and each must cover a v1 module."""
 
     def covered_by(table: dict[str, str], module: str) -> bool:
         return any(module == root or module.startswith(f"{root}.") for root in table)
@@ -562,42 +533,36 @@ def test_every_v1_module_resolves_on_v2_or_is_renamed_or_removed() -> None:
 
 
 def test_the_removed_extras_are_exactly_v1_minus_the_installed_v2() -> None:
-    """The flagged extras are exactly the ones v1's `mcp` distribution declared and
-    the installed v2 does not: flagging a surviving extra would be a lie, and
-    missing a removed one leaves a constraint that cannot resolve. v1's set is
-    frozen history; v2's comes from the installed metadata.
-    """
+    """Flagging an extra v2 kept would be a lie; missing one v2 dropped leaves a
+    constraint that cannot resolve. v1's set is frozen history."""
     v1_extras = {"cli", "rich", "ws"}
     v2_extras = set(metadata("mcp").get_all("Provides-Extra") or [])
     assert v1_extras - v2_extras == set(REMOVED_EXTRAS)
 
 
 def test_every_rehomed_import_points_at_a_declared_public_export() -> None:
-    """A rehome target must spell the name in its `__all__` -- the whole point is
-    moving the import to where v2 declares the name publicly -- and the source
-    module must still hold the name too, so the rehome is never load-bearing
-    for runtime behaviour.
-    """
+    """The target must declare the name in `__all__`, and the source must still hold
+    it, so the rehome is never load-bearing for runtime behaviour."""
     for (source_module, name), target in REHOMED_IMPORTS.items():
         assert name in getattr(import_module(target), "__all__", []), (source_module, name)
         assert hasattr(import_module(source_module), name), (source_module, name)
 
 
 def test_every_lowlevel_removed_attribute_is_really_gone_from_the_v2_server() -> None:
-    """The receiver-matched lowlevel removals must be absent from the v2 `Server`
-    (a marker on a live attribute would be a lie), while still being spelled by
-    some other living v2 API -- otherwise the plain name-matched `REMOVED_ATTRS`
-    table is their cheaper home.
-    """
-    assert set(LOWLEVEL_REMOVED_ATTRS) == {"request_context"}
+    """Each entry must be absent from the v2 `Server` yet spelled by some other
+    living API -- otherwise plain name-matched `REMOVED_ATTRS` is its cheaper home."""
+    assert set(LOWLEVEL_REMOVED_ATTRS) == {"request_context", "request_handlers", "notification_handlers"}
     for name in LOWLEVEL_REMOVED_ATTRS:
         assert not hasattr(Server, name), name
-        assert hasattr(Context, name), name
+    # `request_context` survives on `Context` (the reason the table is receiver-gated);
+    # the handler dicts' replacement API must exist for their guidance to hold.
+    assert hasattr(Context, "request_context")
+    assert hasattr(Server, "add_request_handler") and hasattr(Server, "get_request_handler")
+    assert hasattr(Server, "add_notification_handler")
 
 
 def test_the_lowlevel_positional_params_are_keyword_only_on_the_installed_server() -> None:
-    """Every v1 positional the codemod converts must exist, keyword-only, on the
-    installed v2 `Server.__init__` -- otherwise the conversion emits a `TypeError`."""
+    """The rewrite emits these as keywords, so each must exist under that name on v2."""
     parameters = inspect.signature(Server.__init__).parameters
     for name in LOWLEVEL_CTOR_POSITIONAL_PARAMS:
         assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY

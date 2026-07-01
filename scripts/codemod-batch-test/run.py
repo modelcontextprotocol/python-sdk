@@ -1,23 +1,14 @@
 """Run the v1 -> v2 codemod against real pinned repositories and audit the result.
 
-For each repository in `repos.json` this script clones the pinned commit, runs
-the codemod over a copy, and type-checks both sides with pyright: the pristine
-clone against an environment holding the latest v1 SDK, the migrated copy
-against this workspace's v2 environment. Errors that appear only on the
-migrated side are the migration surface; each one is then correlated with the
-`# mcp-codemod:` markers the codemod inserted.
+Each pinned repo is migrated and pyright-checked on both sides (pristine against the
+latest v1 SDK, migrated against this workspace's v2). Every new error must sit on or
+near a `# mcp-codemod:` marker; an uncovered error is a silent miss and exits 1.
 
-The codemod's headline contract is that the markers are the complete list of
-remaining manual work, so every new error should sit on or next to a marker. A
-new error with no nearby marker is a silent miss -- the exit code is 1 when any
-exists, and each is printed for triage.
-
-Usage, from the repository root:
-
-    uv run --frozen python scripts/codemod-batch-test/run.py [--repo SLUG] [--fresh]
+Usage: uv run --frozen python scripts/codemod-batch-test/run.py [--repo SLUG] [--fresh]
 """
 
 import argparse
+import ast
 import json
 import shutil
 import subprocess
@@ -32,28 +23,23 @@ from mcp_codemod._transformer import MARKER
 
 HARNESS_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = HARNESS_DIR.parents[1]
-WORK_DIR = HARNESS_DIR / "work"
+# Dot-directory: pytest's default norecursedirs keeps cloned repos' test suites out of `./scripts/test`.
+WORK_DIR = HARNESS_DIR / ".work"
 
-# The marker-to-error distance (in lines) still counted as "this error is
-# explained by that marker". Markers sit on the line above their site; a small
-# allowance covers multi-line statements.
+# Max line distance for an error to still count as explained by a marker.
 MARKER_RADIUS = 3
 
-# Uncovered errors default to actionable. Only these pyright rules, in a file
-# the codemod did not touch and with no mcp symbol in the message, are written
-# off as v2's own typing getting stricter about the repo's code (mocks no
-# longer satisfying defaulted generics, narrower `| None` returns). Notably
-# `reportAttributeAccessIssue` is NOT here: a removed attribute the codemod
-# failed to flag looks exactly like that.
+# Rules written off as v2 strictness drift, but only in a file the codemod did not touch and with
+# no mcp symbol in the message. `reportAttributeAccessIssue` is absent: a missed removal looks like it.
 DRIFT_RULES = frozenset({"reportArgumentType", "reportOptionalSubscript", "reportOptionalMemberAccess"})
 
-# Argument types that detonate at RUNTIME on v2 (`timedelta` where v2 takes float
-# seconds, `AnyUrl` where v2 takes `str`). A `reportArgumentType` error naming one
-# of these is a real break pyright happens to catch, never strictness drift.
+# A `reportArgumentType` error naming one of these is a real runtime break on v2, never strictness drift.
 DETONATOR_TYPES = ("timedelta", "AnyUrl")
 
-# The v1 environment lives OUTSIDE the SDK checkout: inside it, uv resolves the
-# SDK workspace itself no matter the cwd, and the env would silently hold v2.
+# Rules that carry a break's downstream type propagation rather than its source.
+CASCADE_RULES = frozenset({"reportArgumentType", "reportAssignmentType", "reportCallIssue", "reportReturnType"})
+
+# Outside the SDK checkout: inside it, uv resolves the SDK workspace itself and the env would hold v2.
 V1_ENV_DIR = Path.home() / ".cache" / "mcp-codemod-batch-test" / "v1env"
 
 V1_ENV_PYPROJECT = """\
@@ -115,9 +101,7 @@ def _load_repos(only: str | None) -> list[Repo]:
 def _ensure_v1_environment() -> Path:
     """Create (once) an environment holding the latest v1 SDK; return its python.
 
-    The returned interpreter is verified to really import a v1 `mcp.types` --
-    a baseline accidentally type-checked against v2 reports no migration delta
-    at all, so this fails loudly instead.
+    Fails loudly unless it really holds v1: a v2 baseline would report no migration delta.
     """
     env_dir = V1_ENV_DIR
     python = env_dir / ".venv" / "bin" / "python"
@@ -159,9 +143,9 @@ def _pyright_errors(repo: Repo, *, python: Path, side: Path) -> list[PyrightErro
     """Type-check one side against the env of `python`, or None when pyright dies.
 
     The config is written into the side's own root with relative includes, so
-    that root is the project root and nothing outside it is ever scanned. The
-    interpreter goes on the command line: `--pythonpath` beats the implicit
-    `VIRTUAL_ENV` that `uv run` exports, which a config `venvPath` does not.
+    nothing outside it is ever scanned.
+
+    `--pythonpath` beats the implicit `VIRTUAL_ENV` that `uv run` exports, which a config `venvPath` does not.
     """
     config = {
         "include": list(repo.include) or ["."],
@@ -181,8 +165,7 @@ def _pyright_errors(repo: Repo, *, python: Path, side: Path) -> list[PyrightErro
     summary = output.get("summary")
     assert isinstance(summary, dict)
     if not summary.get("filesAnalyzed"):
-        # A bad include path makes pyright "succeed" over nothing; a verdict
-        # based on that would be a lie, so the repo fails instead.
+        # A bad include path makes pyright "succeed" over nothing; fail the repo instead.
         print(f"  pyright analyzed zero files in {side} -- check the include paths", file=sys.stderr)
         return None
     diagnostics = output.get("generalDiagnostics")
@@ -206,21 +189,57 @@ def _pyright_errors(repo: Repo, *, python: Path, side: Path) -> list[PyrightErro
     return errors
 
 
-def _collect_markers(roots: list[Path], side: Path) -> dict[str, list[int]]:
-    """Every `# mcp-codemod:` line in the migrated tree, by file."""
-    markers: dict[str, list[int]] = {}
+def _statement_spans(source: str) -> list[tuple[int, int]]:
+    """The (lineno, end_lineno) of every statement in a parseable Python file.
+
+    A compound statement contributes only its HEADER lines (up to its first body
+    statement): a marker above a `with` covers the multi-line call in its header,
+    never the hundreds of lines inside a def or class body.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    spans: list[tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.stmt):
+            continue
+        end = node.end_lineno or node.lineno
+        body = getattr(node, "body", None)
+        if isinstance(body, list) and body and isinstance(body[0], ast.stmt):
+            end = min(end, body[0].lineno - 1)
+        spans.append((node.lineno, end))
+    return spans
+
+
+def _collect_markers(roots: list[Path], side: Path) -> dict[str, list[tuple[int, int]]]:
+    """Every `# mcp-codemod:` line in the migrated tree, by file, as covered spans.
+
+    A marker covers `MARKER_RADIUS` around itself plus any statement starting within that radius below it.
+    """
+    markers: dict[str, list[tuple[int, int]]] = {}
     needle = f"# {MARKER}:"
     for root in roots:
         candidates = [path for path in root.rglob("*") if path.suffix == ".py" or path.name == "pyproject.toml"]
         candidates += list(root.rglob("requirements*.txt"))
         for path in candidates:
             try:
-                lines = path.read_bytes().decode("utf-8").splitlines()
+                source = path.read_bytes().decode("utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
+            lines = source.splitlines()
             hits = [number for number, line in enumerate(lines, start=1) if needle in line]
-            if hits:
-                markers[str(path.relative_to(side))] = hits
+            if not hits:
+                continue
+            spans = _statement_spans(source) if path.suffix == ".py" else []
+            covered: list[tuple[int, int]] = []
+            for hit in hits:
+                end = hit + MARKER_RADIUS
+                for start, stop in spans:
+                    if hit < start <= hit + MARKER_RADIUS:
+                        end = max(end, stop)
+                covered.append((hit - MARKER_RADIUS, end))
+            markers[str(path.relative_to(side))] = covered
     return markers
 
 
@@ -256,13 +275,18 @@ def _audit_repo(repo: Repo, *, v1_python: Path, fresh: bool) -> tuple[dict[str, 
     markers = _collect_markers(roots, migrated)
     actionable: list[PyrightError] = []
     drift: list[PyrightError] = []
+    cascade: list[PyrightError] = []
     for error in new_errors:
-        nearby = markers.get(error.file, [])
-        if any(abs(line - error.line) <= MARKER_RADIUS for line in nearby):
+        spans = markers.get(error.file, [])
+        if any(start <= error.line <= end for start, end in spans):
             continue
-        # Uncovered errors are actionable unless everything says v2 strictness
-        # drift: an untouched file, no mcp symbol in the message, and a rule
-        # from the drift list. A silent codemod miss fails any one of these.
+        # A break's source always errors without "Unknown" in its message, so
+        # "Unknown" only appears in downstream propagation -- and in a marked file
+        # the roots are the marked ones. Detonators stay actionable regardless.
+        is_detonator = any(f'of type "{detonator}"' in error.message for detonator in DETONATOR_TYPES)
+        if "Unknown" in error.message and spans and not is_detonator and error.rule in CASCADE_RULES:
+            cascade.append(error)
+            continue
         if (
             error.file not in rewritten_files
             and "mcp" not in error.message.lower()
@@ -273,10 +297,11 @@ def _audit_repo(repo: Repo, *, v1_python: Path, fresh: bool) -> tuple[dict[str, 
         else:
             actionable.append(error)
 
-    covered = len(new_errors) - len(actionable) - len(drift)
+    covered = len(new_errors) - len(actionable) - len(drift) - len(cascade)
     print(
         f"  pyright: {len(baseline)} baseline errors, {len(new_errors)} new after migration "
-        f"({resolved} resolved): {covered} covered by markers, {len(drift)} v2 strictness drift"
+        f"({resolved} resolved): {covered} covered by markers, {len(cascade)} marked-break cascade, "
+        f"{len(drift)} v2 strictness drift"
     )
     for error in actionable:
         print(f"  UNCOVERED  {error.file}:{error.line}  [{error.rule}] {error.message.splitlines()[0]}")

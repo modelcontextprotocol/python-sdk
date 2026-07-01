@@ -40,6 +40,21 @@ manual fix-up.
   change.
 - The `streamable_http_client(...) as (read, write, _)` three-tuple to the v2
   two-tuple.
+- Lowlevel `@server.list_tools()` / `@server.call_tool()` / ... decorator
+  registrations, to `server.add_request_handler(...)` calls at the same source
+  position, each wired through a generated adapter that reproduces the v1
+  wrapper semantics your handler relied on: bare-list wrapping, the `call_tool`
+  isError contract with jsonschema input/output validation, `read_resource`
+  content conversion, and the completion None-mapping. Your handler bodies are
+  not touched. A shape the adapter cannot serve honestly (a stacked decorator,
+  a `self.`-attribute server, a non-v1 signature) is marked instead.
+- Positional arguments after the name on the lowlevel `Server(...)` constructor
+  to keywords (v2 is keyword-only there but kept v1's names and order).
+- An inline `timedelta(...)` passed as a `ClientSession` timeout to
+  `.total_seconds()` (v2 takes float seconds and would only fail on the first
+  request), `cursor=` on the session's `list_*` methods to the v2
+  `params=PaginatedRequestParams(...)` form, and a pydantic `AnyUrl(...)` /
+  `FileUrl(...)` wrapper around a resource URI to the plain string v2 expects.
 - The `mcp` requirement in `pyproject.toml` and `requirements*.txt`, to
   `>=2,<3`, wherever the current constraint cannot accept any v2 release. Only
   the version specifier changes; the name, extras, environment marker, and
@@ -69,9 +84,11 @@ The codemod never guesses at these; it leaves them exactly as written and adds a
   `stateless_http=`, ...), which moved to `run()` or one of the app methods. The
   right destination depends on how you start the server, so the kwarg is left in
   place -- v2 then fails loudly -- rather than silently dropped.
-- Lowlevel `@server.call_tool()` decorators, which became `on_call_tool=`
-  constructor arguments with a different handler signature. Rewriting the
-  registration also means rewriting the handler body, which is yours to do.
+- Lowlevel decorator registrations the generated adapters cannot serve
+  honestly: a second decorator stacked on the handler, a server reached through
+  an attribute (`self.server`), a handler signature away from the v1 form, or a
+  decorator argument the codemod cannot evaluate. The marker names the reason
+  and the `add_request_handler(...)` destination.
 - Renames the codemod applied but cannot prove are right: a camelCase rename
   whose receiver could plausibly not be an mcp type gets a `# mcp-codemod: review:`
   marker so you look at it instead of trusting it.

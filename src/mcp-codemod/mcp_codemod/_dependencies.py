@@ -1,13 +1,8 @@
 """Update a project's dependency declarations for the v2 SDK.
 
-`update_dependencies()` finds every `pyproject.toml` and `requirements*.txt`
-under the given paths and rewrites the `mcp` requirement to `>=2,<3` wherever
-its current specifier cannot accept any v2 release; a constraint that already
-admits v2 is left exactly as written. Only the specifier changes -- the
-requirement's name, extras, and environment marker keep their original
-spelling. Anything that cannot be rewritten safely (a removed extra, a Poetry
-dependency table) is marked with a `# mcp-codemod:` comment instead, the same
-contract the source transformer follows.
+Rewrites v1-era `mcp` requirements that exclude v2 to `>=2,<3` in every
+`pyproject.toml` and `requirements*.txt` under the given paths; what cannot be
+rewritten safely gets a `# mcp-codemod:` marker instead.
 """
 
 import os
@@ -30,30 +25,20 @@ __all__ = ["DependencyReport", "update_dependencies"]
 
 V2_SPECIFIER = ">=2,<3"
 
-# Probes used to classify a specifier. A constraint is only rewritten when it
-# provably belongs to the v1 era (it admits a v1 release, or every version it
-# spells has major < 2) AND provably admits no v2 release; anything else --
-# `==2.1.4`, `>=2.1,<2.2`, the published `==2.0.0a1` -- is the user's own v2
-# choice and is never touched.
+# Era probes for `_needs_v2`; the prerelease probe makes a `==2.0.0a1` pin count as a v2 choice.
 _V1_PROBES = ("1.0.0", "1.99.99")
 _V2_PROBES = ("2.0.0a1", "2.0.0", "2.99.99")
 
-# The name-plus-extras prefix of a requirement string this module already
-# validated with `Requirement`, used to splice a new specifier in behind it.
+# Name-plus-extras prefix of a requirement string already validated with `Requirement`.
 _REQUIREMENT_PREFIX = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(\[[^\]]*\])?")
 
-# A `mcp = ...` key in a Poetry dependency table, which uses its own constraint
-# syntax this module does not rewrite.
+# An `mcp = ...` key in a Poetry dependency table, whose constraint syntax is never rewritten.
 _POETRY_MCP_KEY = re.compile(r"^[ \t]*([\"']?)mcp\1[ \t]*=", re.MULTILINE)
 
-# A requirements.txt line that NAMES mcp but did not parse as a requirement
-# (pip-compile continuations, `--hash=` options, URL forms): it cannot be
-# rewritten, but passing it over silently would hide a v1 pin.
+# A requirements.txt line that names mcp but did not parse; skipping it silently would hide a v1 pin.
 _UNPARSEABLE_MCP_LINE = re.compile(r"^\s*mcp\b", re.IGNORECASE)
 
-# The pyproject tables whose arrays hold PEP 508 strings; replacements and
-# markers stay inside them so a lookalike string in a comment or some other
-# tool's table is never touched.
+# The pyproject tables holding PEP 508 strings; edits stay inside them so lookalike text elsewhere is untouched.
 _DEPENDENCY_TABLES = re.compile(r"^(project|project\.optional-dependencies|dependency-groups)$")
 
 
@@ -80,9 +65,7 @@ def _line_of(text: str, index: int) -> int:
 def _needs_v2(requirement: Requirement) -> bool:
     """Whether the constraint is a v1-era one that excludes every v2 release.
 
-    An empty specifier admits everything, and a constraint that is not provably
-    from the v1 era (an exact v2 pin, a narrow v2 range) is the user's own v2
-    choice, so both are left exactly as written.
+    Constraints not provably v1-era (e.g. a narrow v2 range) are the user's own v2 choice and stay.
     """
     specifier = requirement.specifier
     if not str(specifier):
@@ -100,11 +83,7 @@ def _needs_v2(requirement: Requirement) -> bool:
 
 
 def _rewrite_specifier(spelled: str) -> str:
-    """Replace the specifier in a validated requirement string, keeping the rest.
-
-    The name, extras, environment marker, and even the spacing around `;` are
-    the user's own spelling and survive; only the version constraint changes.
-    """
+    """Replace the version specifier with `V2_SPECIFIER`, keeping the user's spelling of everything else."""
     base, separator, env_marker = spelled.partition(";")
     prefix = _REQUIREMENT_PREFIX.match(base)
     assert prefix is not None  # `Requirement` accepted it, so the prefix parses
@@ -163,7 +142,6 @@ def _pyproject_dependency_strings(parsed: dict[str, object]) -> Iterator[str]:
 
 
 def _has_poetry_mcp(parsed: dict[str, object]) -> bool:
-    """Whether any Poetry dependency table (main, legacy dev, or group) names mcp."""
     tool = parsed.get("tool")
     poetry = tool.get("poetry") if _is_table(tool) else None
     if not _is_table(poetry):
@@ -176,11 +154,7 @@ def _has_poetry_mcp(parsed: dict[str, object]) -> bool:
 
 
 def _dependency_region_occurrences(text: str, quoted: str) -> list[int]:
-    """Offsets of `quoted` inside the standard dependency tables, comments excluded.
-
-    Scanning by table keeps a lookalike string in some other tool's table or in
-    a TOML comment out of reach of every rewrite and marker.
-    """
+    """Offsets of `quoted` inside the standard dependency tables, comments excluded."""
     occurrences: list[int] = []
     offset = 0
     table = ""
@@ -201,9 +175,7 @@ def _dependency_region_occurrences(text: str, quoted: str) -> list[int]:
 def _classify(requirement: Requirement) -> tuple[str, str] | None:
     """The action for one `mcp` requirement: (kind, message), or None to leave it.
 
-    `rewrite` carries no message; `flag` carries the marker text. Checked in
-    trust order -- a removed extra or a URL pin outranks the specifier, since
-    rewriting around either would lose something the user wrote deliberately.
+    A removed extra or URL pin outranks the specifier; rewriting would lose something the user wrote deliberately.
     """
     removed = sorted(extra for extra in requirement.extras if extra in REMOVED_EXTRAS)
     if removed:
@@ -224,8 +196,7 @@ def _update_pyproject(text: str, *, add_markers: bool) -> tuple[str, list[Diagno
         action = _classify(requirement) if requirement is not None else None
         if requirement is None or action is None:
             continue
-        # The TOML string is located by its quoted form; a requirement needing
-        # escapes inside a TOML string does not exist in practice.
+        # Locate by quoted form; a requirement needing TOML string escapes does not exist in practice.
         quoted = next(
             (q + spelled + q for q in ('"', "'") if _dependency_region_occurrences(text, q + spelled + q)), None
         )
@@ -248,8 +219,7 @@ def _update_pyproject(text: str, *, add_markers: bool) -> tuple[str, list[Diagno
 
     if _has_poetry_mcp(parsed):
         message = f"update this Poetry constraint for v2 (`{V2_SPECIFIER}`) by hand"
-        # The diagnostic never depends on locating the keys in the text (an inline
-        # table defeats the line match); only the marker placement does.
+        # Only marker placement needs the key's location; an inline table defeats the line match.
         keys = list(_POETRY_MCP_KEY.finditer(text))
         if not keys:
             diagnostics.append(Diagnostic(1, "dependency", "manual", message))
@@ -272,8 +242,6 @@ def _update_requirements(text: str, *, add_markers: bool) -> tuple[str, list[Dia
             continue
         requirement = _mcp_requirement(spelled)
         if requirement is None:
-            # A line that names mcp but did not parse (a pip-compile
-            # continuation, `--hash=` options) may still pin v1; say so.
             if _UNPARSEABLE_MCP_LINE.match(spelled) and _is_unparseable(spelled):
                 action = ("flag", f"could not parse this `mcp` line: update it for v2 (`{V2_SPECIFIER}`) by hand")
             else:
@@ -311,7 +279,6 @@ def _is_unparseable(spelled: str) -> bool:
 
 
 def _dependency_files(paths: Sequence[Path]) -> Iterator[Path]:
-    """Yield every dependency file under the given directories, pruned and sorted."""
     for path in paths:
         if not path.is_dir():
             continue
@@ -329,8 +296,7 @@ def _dependency_files(paths: Sequence[Path]) -> Iterator[Path]:
 def update_dependencies(paths: Sequence[Path], *, write: bool, add_markers: bool = True) -> list[DependencyReport]:
     """Update the `mcp` requirement in every dependency file under `paths`.
 
-    Files are read and written as UTF-8 bytes, like the source runner. A file
-    that cannot be read or parsed is reported with its error and left as found.
+    A file that cannot be read, decoded as UTF-8, or parsed is reported with its error and left as found.
     """
     reports: list[DependencyReport] = []
     for path in _dependency_files(paths):

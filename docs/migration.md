@@ -8,7 +8,7 @@ Version 2 of the MCP Python SDK introduces several breaking changes to improve t
 
 ## Automated migration
 
-The `mcp-codemod` tool (published from `src/mcp-codemod` in this repository) rewrites every change in this guide whose meaning is unambiguous from the file alone -- the import moves, the symbol renames, the `MCPError` reshape, the camelCase to snake_case field renames, and the `mcp` requirement in `pyproject.toml` / `requirements*.txt` -- and inserts a `# mcp-codemod:` comment above every site it recognized but would not guess at. Run it on a clean branch first, then work through what it marked:
+The `mcp-codemod` tool (published from `src/mcp-codemod` in this repository) rewrites every change in this guide whose meaning is unambiguous from the file alone -- the import moves, the symbol renames, the `MCPError` reshape, the camelCase to snake_case field renames, the lowlevel `@server.*()` decorator registrations (through generated adapters that keep your handler bodies untouched), and the `mcp` requirement in `pyproject.toml` / `requirements*.txt` -- and inserts a `# mcp-codemod:` comment above every site it recognized but would not guess at. Run it on a clean branch first, then work through what it marked:
 
 ```bash
 uvx mcp-codemod v1-to-v2 ./src
@@ -60,6 +60,13 @@ an `@mcp.tool()` handler now produces a top-level JSON-RPC error response with
 the raised `code`, `message`, and `data` intact. Previously the tool wrapper
 caught it like any other exception and returned `CallToolResult(isError=True)`,
 which discarded the error code and structured `data`.
+
+The same applies to `@mcp.prompt()` and resource-template functions: an
+`MCPError` raised there propagates verbatim as the JSON-RPC error. On v1
+those wrappers converted it into a generic rendering error (for prompts, a
+`ValueError("Error rendering prompt ...")`), so a client matching on the
+error code or message will see the raised values instead of the wrapped
+generic ones.
 
 `MCPError` carries `ErrorData` and is the SDK's protocol-error type — raise it
 when the request itself should be rejected (missing client capability,
@@ -550,8 +557,13 @@ from mcp.shared.exceptions import MCPError
 try:
     result = await session.call_tool("my_tool")
 except MCPError as e:
-    print(f"Error: {e.message}")
+    print(f"Error: {e.error.message}")
 ```
+
+Only the exception's name changes: `MCPError.error` still carries the full
+`ErrorData`, so an existing handler body keeps working as written. `e.code`,
+`e.message`, and `e.data` also exist as direct read-only properties if you
+prefer the shorter spelling.
 
 `MCPError` is also exported from the top-level `mcp` package:
 
@@ -961,6 +973,17 @@ async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestPar
     ...
 
 server = Server("my-server", on_call_tool=handle_call_tool)
+```
+
+Registration does not have to move to the constructor: `add_request_handler`
+(see [below](#lowlevel-server-add_request_handler-is-now-public-and-takes-params_type))
+registers the same handler into the same registry at any point before `run()`,
+which preserves your module's statement order — `mcp-codemod` migrates decorator
+registrations this way for exactly that reason:
+
+```python
+server = Server("my-server")
+server.add_request_handler("tools/call", CallToolRequestParams, handle_call_tool)
 ```
 
 ### `RequestContext` type parameters simplified

@@ -109,7 +109,7 @@ def _print_summary(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the codemod. Returns 0, or 1 if any file failed."""
+    """Run the codemod, returning 1 if any file failed and 0 otherwise."""
     args = _build_parser().parse_args(argv)
     report = run(discover(args.paths), write=not args.dry_run, add_markers=not args.no_markers)
     dependencies = update_dependencies(args.paths, write=not args.dry_run, add_markers=not args.no_markers)

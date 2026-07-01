@@ -1,8 +1,6 @@
 """Behaviour of `transform()`, the whole programmatic surface of the codemod.
 
-Every test feeds one module's source through the public API. A property that
-must NOT change is asserted as byte-identity against the input; a rewrite is
-asserted as the exact v2 output.
+Properties that must not change are asserted byte-identical to the input; rewrites as exact v2 output.
 """
 
 import textwrap
@@ -20,8 +18,7 @@ def test_from_import_of_a_renamed_module_is_rewritten() -> None:
 
 
 def test_from_import_of_a_renamed_submodule_is_rewritten() -> None:
-    """A submodule under a renamed package matches by longest prefix, so only the renamed prefix changes
-    and the rest of the dotted path is kept."""
+    """A submodule under a renamed package matches by longest prefix; the rest of the dotted path is kept."""
     source = "from mcp.server.fastmcp.prompts.base import UserMessage\n"
     assert transform(source).code == snapshot("from mcp.server.mcpserver.prompts.base import UserMessage\n")
 
@@ -33,8 +30,7 @@ def test_plain_import_of_a_renamed_module_is_rewritten() -> None:
 
 
 def test_dotted_usage_of_a_renamed_module_follows_its_import() -> None:
-    """A fully dotted reference such as `mcp.types.Tool` is rewritten together with the
-    `import mcp.types` statement that binds it, so the rewritten module still resolves."""
+    """A dotted reference like `mcp.types.Tool` is rewritten together with the import that binds it."""
     source = textwrap.dedent("""\
         import mcp.types
 
@@ -50,8 +46,7 @@ tool = mcp_types.Tool(name="x")
 
 
 def test_an_aliased_module_import_keeps_the_local_name() -> None:
-    """`import mcp.types as t` is rewritten to `import mcp_types as t`; references through the
-    alias `t` already name the right module and are left exactly as written."""
+    """`import mcp.types as t` becomes `import mcp_types as t`; references through the alias are untouched."""
     source = textwrap.dedent("""\
         import mcp.types as t
 
@@ -67,22 +62,19 @@ tool = t.Tool(name="x")
 
 
 def test_from_mcp_import_types_becomes_a_real_import() -> None:
-    """`from mcp import types` bound the deleted `mcp.types` submodule, so the codemod
-    replaces it with a real `import mcp_types as types` that produces the same local name."""
+    """`from mcp import types` becomes `import mcp_types as types`, keeping the same local name."""
     result = transform("from mcp import types\n")
     assert result.code == snapshot("import mcp_types as types\n")
 
 
 def test_from_mcp_import_types_with_an_alias_keeps_the_alias() -> None:
-    """`from mcp import types as t` is rewritten to `import mcp_types as t`, preserving
-    the local name the rest of the module refers to."""
+    """`from mcp import types as t` becomes `import mcp_types as t`."""
     result = transform("from mcp import types as t\n")
     assert result.code == snapshot("import mcp_types as t\n")
 
 
 def test_types_is_split_off_from_other_imported_names() -> None:
-    """When `types` is imported alongside other names from `mcp`, only it is split out into
-    a separate `import mcp_types as types`; the remaining names stay in the `from mcp import`."""
+    """Only `types` is split out of a mixed `from mcp import`; the other names stay put."""
     result = transform("from mcp import ClientSession, types\n")
     assert result.code == snapshot(
         """\
@@ -93,8 +85,7 @@ import mcp_types as types
 
 
 def test_a_from_mcp_import_without_types_is_untouched() -> None:
-    """A `from mcp import ...` that does not name `types` is not an import of the deleted
-    submodule, so the module is returned byte-for-byte identical."""
+    """A `from mcp import ...` that does not name `types` round-trips byte-identical."""
     source = textwrap.dedent("""\
         from mcp import ClientSession, StdioServerParameters
 
@@ -105,16 +96,13 @@ def test_a_from_mcp_import_without_types_is_untouched() -> None:
 
 
 def test_a_star_import_from_mcp_is_untouched() -> None:
-    """`from mcp import *` names no specific binding, so there is nothing for the codemod
-    to split out and the source is returned identical."""
+    """`from mcp import *` names no specific binding, so there is nothing to split out."""
     source = "from mcp import *\n"
     assert transform(source).code == source
 
 
 def test_a_relative_import_is_never_touched() -> None:
-    """A relative import refers to the user's own package, never the SDK, so
-    `from . import types` and `from .types import Tool` come back exactly as written.
-    """
+    """A relative import refers to the user's own package, never the SDK."""
     source = textwrap.dedent("""\
         from . import types
         from .types import Tool
@@ -127,9 +115,7 @@ def test_a_relative_import_is_never_touched() -> None:
 
 
 def test_an_already_migrated_import_is_a_noop() -> None:
-    """Running the codemod over code that is already on v2 is a no-op: the v2 import
-    paths match none of the rename tables, so nothing is rewritten or reported.
-    """
+    """Code already on v2 is a no-op: nothing is rewritten or reported."""
     source = textwrap.dedent("""\
         import mcp_types
         from mcp.server.mcpserver import MCPServer
@@ -147,9 +133,7 @@ def test_an_already_migrated_import_is_a_noop() -> None:
 
 
 def test_an_unrelated_third_party_import_is_untouched() -> None:
-    """Imports of and references to non-mcp packages are outside every rename table,
-    so a module built on pydantic and httpx is returned exactly as written.
-    """
+    """Non-mcp imports and references are outside every rename table."""
     source = textwrap.dedent("""\
         import httpx
         from pydantic import BaseModel
@@ -166,9 +150,7 @@ def test_an_unrelated_third_party_import_is_untouched() -> None:
 
 
 def test_a_file_with_no_mcp_usage_is_returned_byte_identical() -> None:
-    """A module that never mentions mcp is the do-no-harm contract: the source comes
-    back byte-identical with no diagnostics and no rewrites recorded.
-    """
+    """The do-no-harm contract: a module that never mentions mcp comes back byte-identical."""
     source = textwrap.dedent("""\
         # Shared logging setup for the example application.
 
@@ -186,9 +168,7 @@ def test_a_file_with_no_mcp_usage_is_returned_byte_identical() -> None:
 
 
 def test_an_unchanged_mcp_module_path_is_not_renamed() -> None:
-    """An mcp import path that did not move between v1 and v2 is not rewritten, so
-    `mcp.client.streamable_http` and `mcp.server.lowlevel` survive untouched.
-    """
+    """An mcp import path that did not move between v1 and v2 is not rewritten."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamable_http_client
         from mcp.server.lowlevel import Server
@@ -204,8 +184,7 @@ def test_an_unchanged_mcp_module_path_is_not_renamed() -> None:
 
 
 def test_a_renamed_class_import_and_every_use_are_rewritten() -> None:
-    """Importing `FastMCP` from `mcp.server.fastmcp` rewrites the module path, the imported
-    name, and every call site to the v2 `mcp.server.mcpserver.MCPServer` spelling."""
+    """A `FastMCP` import rewrites the module path, the imported name, and every call site."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -219,8 +198,7 @@ mcp = MCPServer("demo")
 
 
 def test_an_aliased_import_of_a_renamed_symbol_keeps_the_local_alias() -> None:
-    """`from mcp.server.fastmcp import FastMCP as F` renames only the imported name; the local
-    alias `F` and every use of it are left exactly as written."""
+    """Only the imported name is renamed; the local alias and its uses are untouched."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP as F
 
@@ -234,8 +212,7 @@ mcp = F("demo")
 
 
 def test_a_fully_dotted_reference_to_a_renamed_symbol_is_rewritten() -> None:
-    """A fully dotted use such as `mcp.shared.exceptions.McpError` has only its final segment
-    renamed to `MCPError`; the `import` statement and the module prefix are untouched."""
+    """A dotted use has only its final segment renamed; the import and module prefix are untouched."""
     source = textwrap.dedent("""\
         import mcp.shared.exceptions
 
@@ -249,8 +226,7 @@ raise mcp.shared.exceptions.MCPError(1, "x")
 
 
 def test_a_user_class_sharing_a_renamed_name_is_never_touched() -> None:
-    """A user-defined `FastMCP` class in a module with no mcp imports is left identical: the
-    rename is keyed on the qualified name resolved through imports, never the bare token."""
+    """The rename is keyed on the qualified name resolved through imports, never the bare token."""
     source = textwrap.dedent("""\
         class FastMCP:
             def __init__(self, name):
@@ -263,8 +239,7 @@ def test_a_user_class_sharing_a_renamed_name_is_never_touched() -> None:
 
 
 def test_non_reference_positions_of_a_renamed_name_are_never_rewritten() -> None:
-    """Only the import alias is renamed to `MCPServer`; an attribute access `obj.FastMCP` and a
-    keyword argument `FastMCP=` are name positions, not references, and keep the v1 spelling."""
+    """`obj.FastMCP` and `FastMCP=` are name positions, not references, and keep the v1 spelling."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -284,9 +259,7 @@ def use(obj, g):
 
 
 def test_a_removed_function_import_gets_a_marker_and_is_not_rewritten() -> None:
-    """`create_connected_server_and_client_session` has no v2 spelling, so the call site
-    keeps its v1 name and gains a `manual` diagnostic plus an inline marker comment.
-    """
+    """A removed function keeps its v1 name and gains a manual diagnostic plus an inline marker."""
     source = textwrap.dedent("""\
         from mcp.shared.memory import create_connected_server_and_client_session
 
@@ -302,10 +275,7 @@ def test_a_removed_function_import_gets_a_marker_and_is_not_rewritten() -> None:
 
 
 def test_the_websocket_client_import_is_flagged() -> None:
-    """The WebSocket transport was deleted from v2, so a `websocket_client` use is flagged
-    `manual` at the import and at the call, and the only change to the module is the
-    inserted marker comments.
-    """
+    """A `websocket_client` use is flagged manual at the import and the call; only markers are inserted."""
     source = textwrap.dedent("""\
         from mcp.client.websocket import websocket_client
 
@@ -329,9 +299,7 @@ async def main() -> None:
 
 
 def test_a_removed_attribute_is_flagged_regardless_of_receiver() -> None:
-    """`get_server_capabilities` is matched by attribute name alone -- the codemod cannot
-    see a receiver's type -- so the access is flagged `manual` and left exactly as written.
-    """
+    """A removed attribute is matched by name alone (receiver types are invisible), flagged, and kept."""
     source = textwrap.dedent("""\
         from mcp import ClientSession
 
@@ -345,10 +313,8 @@ def test_a_removed_attribute_is_flagged_regardless_of_receiver() -> None:
     assert "session.get_server_capabilities()" in result.code
 
 
-def test_a_lowlevel_server_decorator_is_flagged_with_its_constructor_kwarg() -> None:
-    """A lowlevel `@server.call_tool()` registration cannot be migrated mechanically, so it
-    is flagged `manual` with the `on_call_tool=` guidance and the handler is not touched.
-    """
+def test_a_call_tool_decorator_site_is_rewritten_with_full_v1_dispatch() -> None:
+    """The adapter carries v1's whole dispatch: tool cache, input validation, and the isError contract."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -360,17 +326,16 @@ def test_a_lowlevel_server_decorator_is_flagged_with_its_constructor_kwarg() -> 
             return []
         """)
     result = transform(source)
-    (diagnostic,) = result.diagnostics
-    assert diagnostic.severity == "manual"
-    assert "on_call_tool=" in diagnostic.message
-    assert "@server.call_tool()\nasync def handle(name: str, arguments: dict):\n    return []\n" in result.code
-    assert "# mcp-codemod:" in result.code
+    assert "async def handle(name: str, arguments: dict):\n    return []\n" in result.code
+    assert "_server_tool_cache" in result.code
+    assert "jsonschema.validate(instance=arguments" in result.code
+    assert 'server.add_request_handler("tools/call", mcp_types.CallToolRequestParams, _handle_handler)' in result.code
+    assert "import jsonschema" in result.code
+    assert "# mcp-codemod:" not in result.code
 
 
 def test_a_high_level_decorator_is_never_flagged() -> None:
-    """`@mcp.tool()` is syntactically identical to a lowlevel decorator and only the
-    receiver's binding tells them apart: the `MCPServer` form gets no diagnostic or marker.
-    """
+    """Only the receiver's binding separates `@mcp.tool()` from a lowlevel decorator; it gets no flag."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -387,10 +352,7 @@ def test_a_high_level_decorator_is_never_flagged() -> None:
 
 
 def test_a_safe_camelcase_attribute_read_is_renamed() -> None:
-    """A safe-tier camelCase field read as an attribute is rewritten to its snake_case spelling.
-
-    The rewrite is reported as a single info diagnostic and never earns an inline marker.
-    """
+    """A safe-tier camelCase read is renamed, reported as info, and never earns an inline marker."""
     source = textwrap.dedent("""\
         from mcp.types import CallToolResult
 
@@ -411,10 +373,7 @@ def show(result: CallToolResult) -> None:
 
 
 def test_a_risky_camelcase_attribute_read_is_renamed_with_a_review_marker() -> None:
-    """A risky-tier camelCase field is still renamed, but the rewrite rests on a heuristic.
-
-    It is reported as a single review diagnostic and an inline review marker is inserted above the site.
-    """
+    """A risky-tier camelCase rename is reported as review, with an inline marker above the site."""
     source = textwrap.dedent("""\
         from mcp import ClientSession
 
@@ -438,10 +397,7 @@ async def page(session: ClientSession) -> None:
 
 
 def test_camelcase_attributes_are_untouched_in_a_file_that_never_imports_mcp() -> None:
-    """A file that never imports mcp keeps every camelCase attribute exactly as written.
-
-    The whole camelCase rename is gated on the file importing the SDK at all.
-    """
+    """The camelCase rename is gated on the file importing the SDK at all."""
     source = textwrap.dedent("""\
         import json
 
@@ -453,10 +409,7 @@ def test_camelcase_attributes_are_untouched_in_a_file_that_never_imports_mcp() -
 
 
 def test_camelcase_names_outside_the_allowlist_are_never_renamed() -> None:
-    """camelCase attribute names that v1 `mcp.types` never declared are left exactly as written.
-
-    Only the allowlisted field names are ever considered, so stdlib and user camelCase APIs survive.
-    """
+    """Only allowlisted field names are ever considered, so stdlib and user camelCase APIs survive."""
     source = textwrap.dedent("""\
         import logging
 
@@ -471,9 +424,7 @@ def test_camelcase_names_outside_the_allowlist_are_never_renamed() -> None:
 
 
 def test_camelcase_strings_outside_a_getattr_call_are_never_renamed() -> None:
-    """An allowlisted camelCase name spelled as a string -- a dict key, a subscript index, a bare
-    literal -- is left exactly as written even though the file imports mcp: camelCase is the wire format.
-    """
+    """String spellings outside `getattr`/`hasattr` are left alone: camelCase is the wire format."""
     source = textwrap.dedent("""\
         from mcp import ClientSession
 
@@ -488,8 +439,7 @@ def test_camelcase_strings_outside_a_getattr_call_are_never_renamed() -> None:
 
 
 def test_camelcase_keywords_on_an_mcp_constructor_are_renamed() -> None:
-    """camelCase keyword arguments on a call that resolves into the SDK are rewritten to
-    their snake_case spellings, alongside the `mcp.types` -> `mcp_types` import rename."""
+    """camelCase keywords on a call that resolves into the SDK are renamed to snake_case."""
     source = textwrap.dedent("""\
         from mcp.types import Tool
 
@@ -503,8 +453,7 @@ tool = Tool(name="x", input_schema={}, output_schema={})
 
 
 def test_camelcase_keywords_on_a_call_outside_mcp_are_untouched() -> None:
-    """The keyword rename fires only when the callee resolves into the SDK, so an allowlisted
-    camelCase keyword passed to the user's own function is left exactly as written."""
+    """The keyword rename fires only when the callee resolves into the SDK."""
     source = textwrap.dedent("""\
         import mcp
 
@@ -519,8 +468,7 @@ def test_camelcase_keywords_on_a_call_outside_mcp_are_untouched() -> None:
 
 
 def test_a_camelcase_field_in_a_hasattr_string_is_renamed() -> None:
-    """An allowlisted camelCase field spelled as a string literal in a `hasattr` call is
-    renamed to its snake_case form and reported as an info diagnostic, with no inline marker."""
+    """A camelCase string in a `hasattr` call is renamed and reported as info, with no marker."""
     source = textwrap.dedent("""\
         from mcp import ClientSession
 
@@ -542,8 +490,7 @@ def has_structured(result: object) -> bool:
 
 
 def test_a_string_outside_the_allowlist_in_a_getattr_call_is_untouched() -> None:
-    """A `getattr` string naming an attribute outside the camelCase allowlist is never
-    rewritten, so ordinary attribute names survive byte for byte."""
+    """A `getattr` string outside the camelCase allowlist is never rewritten."""
     source = textwrap.dedent("""\
         import mcp
 
@@ -555,8 +502,7 @@ def test_a_string_outside_the_allowlist_in_a_getattr_call_is_untouched() -> None
 
 
 def test_a_dynamic_attribute_argument_to_getattr_is_untouched() -> None:
-    """A `getattr` whose attribute argument is a variable rather than a string literal is
-    left exactly as written: the codemod only rewrites names it can read from the source."""
+    """The codemod only rewrites names it can read from the source; a variable argument is untouched."""
     source = textwrap.dedent("""\
         import mcp
 
@@ -568,8 +514,7 @@ def test_a_dynamic_attribute_argument_to_getattr_is_untouched() -> None:
 
 
 def test_a_single_argument_mcperror_call_becomes_from_error_data() -> None:
-    """A v1 `McpError(...)` call took one `ErrorData`; v2's `MCPError.from_error_data(...)`
-    takes exactly that argument, so the call converts with the expression kept as written."""
+    """A one-argument `McpError(...)` call converts to `MCPError.from_error_data(...)` as written."""
     source = textwrap.dedent("""\
         from mcp.shared.exceptions import McpError
         from mcp.types import ErrorData
@@ -585,8 +530,7 @@ raise MCPError.from_error_data(ErrorData(code=1, message="x", data=None))
 
 
 def test_a_mcperror_call_with_a_non_inline_argument_is_rewritten_without_a_marker() -> None:
-    """`McpError(err)` needs no unpacking under `from_error_data`, so the once-marked
-    non-inline form is now just rewritten."""
+    """`McpError(err)` needs no unpacking under `from_error_data`, so it is rewritten without a marker."""
     source = textwrap.dedent("""\
         from mcp.shared.exceptions import McpError
 
@@ -599,8 +543,7 @@ def test_a_mcperror_call_with_a_non_inline_argument_is_rewritten_without_a_marke
 
 
 def test_a_dotted_mcperror_call_converts_on_its_full_spelling() -> None:
-    """The `from_error_data` conversion composes with the symbol rename when the
-    constructor is reached through its module path."""
+    """The `from_error_data` conversion composes with the symbol rename on a dotted spelling."""
     source = textwrap.dedent("""\
         import mcp.shared.exceptions
 
@@ -611,8 +554,7 @@ def test_a_dotted_mcperror_call_converts_on_its_full_spelling() -> None:
 
 
 def test_error_attribute_chains_on_a_caught_error_are_left_alone() -> None:
-    """`e.error.code` and friends still work on v2 (`MCPError.error` is a typed
-    `ErrorData`), so inside `except McpError as e:` only the exception name changes."""
+    """`e.error.code` and friends still work on v2, so only the exception name changes."""
     source = textwrap.dedent("""\
         from mcp.shared.exceptions import McpError
 
@@ -632,17 +574,13 @@ except MCPError as e:
 
 
 def test_a_syntax_error_raises_parser_syntax_error() -> None:
-    """Source that is not parseable as Python raises `libcst.ParserSyntaxError`, the one exception
-    `transform()` documents.
-    """
+    """Unparseable source raises `libcst.ParserSyntaxError`, the one exception `transform()` documents."""
     with pytest.raises(libcst.ParserSyntaxError):
         transform("def (")
 
 
 def test_the_three_tuple_unpack_is_narrowed_to_two() -> None:
-    """The v1 `streamable_http_client` context manager yielded a third `get_session_id` value that v2 no longer
-    returns, so a three-element `as` tuple is narrowed to the first two.
-    """
+    """v2 no longer yields the third `get_session_id` value, so a 3-tuple `as` target narrows to two."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamable_http_client
 
@@ -664,9 +602,7 @@ async def main(url: str) -> None:
 
 
 def test_a_named_third_element_gets_a_marker_when_dropped() -> None:
-    """When the dropped third element was bound to a real name rather than `_`, later uses of that name will break,
-    so the narrowing also raises a manual diagnostic naming the removed `get_session_id` value.
-    """
+    """Dropping a real name (not `_`) breaks later uses, so the narrowing also raises a manual diagnostic."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamable_http_client
 
@@ -683,9 +619,7 @@ def test_a_named_third_element_gets_a_marker_when_dropped() -> None:
 
 
 def test_removed_client_keywords_each_get_a_marker() -> None:
-    """v2's `streamable_http_client` no longer accepts `headers=`, `timeout=`, or `auth=`. Each one gets its own
-    manual diagnostic, and the keywords are left in place rather than silently deleted.
-    """
+    """Each removed client keyword gets its own manual diagnostic; none are silently deleted."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamable_http_client
 
@@ -704,9 +638,7 @@ def test_removed_client_keywords_each_get_a_marker() -> None:
 
 
 def test_the_deprecated_streamablehttp_client_alias_is_renamed() -> None:
-    """The old `streamablehttp_client` spelling becomes `streamable_http_client` at both the import and the call
-    site, and the same with-item's three-element `as` tuple is narrowed in the same pass.
-    """
+    """The alias renames at the import and the call, and the 3-tuple `as` target narrows in the same pass."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamablehttp_client
 
@@ -728,9 +660,7 @@ async def main(url: str) -> None:
 
 
 def test_a_two_tuple_unpack_is_already_correct() -> None:
-    """A two-element `as` tuple is already the v2 shape, so the module round-trips byte-for-byte: re-running the
-    codemod on already-migrated code is a no-op for this transform.
-    """
+    """A two-element `as` tuple is already the v2 shape, so the module round-trips byte-identical."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamable_http_client
 
@@ -743,10 +673,7 @@ def test_a_two_tuple_unpack_is_already_correct() -> None:
 
 
 def test_a_non_tuple_as_target_is_untouched() -> None:
-    """A transport client with-item bound to a single name rather than a tuple is left exactly as written.
-
-    Only the 3-tuple `as (read, write, get_session_id)` shape has a third element to drop.
-    """
+    """Only the 3-tuple `as` shape has a third element to drop; a single-name target is untouched."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamable_http_client
 
@@ -759,10 +686,7 @@ def test_a_non_tuple_as_target_is_untouched() -> None:
 
 
 def test_an_unrelated_context_manager_is_untouched() -> None:
-    """A with-statement whose item is not an mcp transport client is never rewritten.
-
-    `open()` resolves to a builtin and a bare lock is not even a call, so both round-trip unchanged.
-    """
+    """A with-item that is not an mcp transport client is never rewritten."""
     source = textwrap.dedent("""\
         import threading
 
@@ -781,10 +705,7 @@ def test_an_unrelated_context_manager_is_untouched() -> None:
 
 
 def test_an_unimported_transport_name_is_never_touched() -> None:
-    """A bare `streamable_http_client` that was never imported does not resolve to the mcp transport client.
-
-    The codemod refuses to act on a name it cannot resolve, so the 3-tuple with-item is left exactly as written.
-    """
+    """The codemod refuses to act on a name it cannot resolve through an import."""
     source = textwrap.dedent("""\
         from mcp import ClientSession
 
@@ -797,11 +718,7 @@ def test_an_unimported_transport_name_is_never_touched() -> None:
 
 
 def test_a_transport_keyword_on_the_constructor_gets_a_marker_and_stays() -> None:
-    """A transport keyword on the constructor is flagged as manual work but never deleted.
-
-    Where the kwarg belongs on v2 depends on how the server is started, so the codemod
-    leaves the configuration in place rather than silently dropping it.
-    """
+    """A transport keyword is flagged but never deleted: where it belongs on v2 depends on server startup."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -826,12 +743,8 @@ def test_a_removed_constructor_keyword_gets_a_marker() -> None:
 
 
 def test_surviving_constructor_keywords_are_not_flagged() -> None:
-    """A constructor keyword that still exists on the v2 `MCPServer` produces no diagnostic.
-
-    `dependencies`, `debug`, and `log_level` are here deliberately: a flag on a
-    keyword that still works tells the user a lie they cannot reconcile, so the
-    keywords v2 kept must never be in the moved or removed tables.
-    """
+    """A keyword that still exists on the v2 `MCPServer` produces no diagnostic: a flag on a working
+    keyword is a lie the user cannot reconcile."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -841,9 +754,7 @@ def test_surviving_constructor_keywords_are_not_flagged() -> None:
 
 
 def test_transforming_already_transformed_code_is_a_noop() -> None:
-    """Running the codemod over its own output changes nothing, even for a source that exercises
-    a module rename, a symbol rename, a camelCase attribute rename, and a flag-only diagnostic.
-    """
+    """Running the codemod over its own output changes nothing."""
     source = textwrap.dedent("""\
         from mcp import McpError
         from mcp.types import Tool
@@ -862,9 +773,7 @@ def test_transforming_already_transformed_code_is_a_noop() -> None:
 
 
 def test_a_marker_is_not_duplicated_on_a_second_run() -> None:
-    """A second run over already-marked output recognises the existing `# mcp-codemod:` comment
-    and does not insert it again.
-    """
+    """A second run recognises an existing `# mcp-codemod:` comment and does not insert it again."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -876,9 +785,7 @@ def test_a_marker_is_not_duplicated_on_a_second_run() -> None:
 
 
 def test_add_markers_false_reports_without_inserting_comments() -> None:
-    """With `add_markers=False` a flag-only finding still appears in `diagnostics`, but no
-    `# mcp-codemod` comment is written into the code.
-    """
+    """With `add_markers=False` findings still appear in `diagnostics` but no comment is written."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -890,9 +797,7 @@ def test_add_markers_false_reports_without_inserting_comments() -> None:
 
 
 def test_a_marker_on_a_decorated_function_lands_above_the_decorators() -> None:
-    """The marker for a flagged lowlevel `@server.call_tool()` registration is inserted above the
-    decorator line, not between the decorator and the `def`.
-    """
+    """The marker lands above the decorator line, not between the decorator and the `def`."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -900,7 +805,7 @@ def test_a_marker_on_a_decorated_function_lands_above_the_decorators() -> None:
 
 
         @server.call_tool()
-        async def handle_call_tool(name: str, arguments: dict[str, str]) -> list[str]:
+        def handle_call_tool(name: str, arguments: dict[str, str]) -> list[str]:
             return [name]
         """)
     lines = transform(source).code.splitlines()
@@ -909,9 +814,7 @@ def test_a_marker_on_a_decorated_function_lands_above_the_decorators() -> None:
 
 
 def test_info_diagnostics_never_produce_a_marker() -> None:
-    """A safe camelCase attribute rename is reported as an `info` diagnostic only; no
-    `# mcp-codemod` comment is added for it.
-    """
+    """An info diagnostic never earns a `# mcp-codemod` comment."""
     source = textwrap.dedent("""\
         from mcp.types import Tool
 
@@ -926,38 +829,26 @@ def test_info_diagnostics_never_produce_a_marker() -> None:
 
 
 def test_a_dotted_module_usage_is_counted_as_one_rewrite() -> None:
-    """`import mcp.types` plus one `mcp.types.X` reference is two logical rewrites, not
-    three: only the innermost node naming the module is replaced, so the visitor never
-    double-counts the attribute chain that encloses it.
-    """
+    """Only the innermost node naming the module is replaced, so the enclosing chain is not double-counted."""
     result = transform("import mcp.types\n\nx: mcp.types.Tool\n")
     assert result.code == "import mcp_types\n\nx: mcp_types.Tool\n"
     assert result.rewrites["module_rename"] == 2
 
 
 def test_a_local_variable_named_mcp_is_never_treated_as_the_package() -> None:
-    """`mcp = MCPServer(...)` is the most common variable name in real MCP code, so an
-    attribute chain on it that happens to spell a module path must never be rewritten.
-    Only a name that resolves through an import is.
-    """
+    """`mcp` is the most common variable name in real MCP code; only a name bound by an import is rewritten."""
     source = "mcp = build()\nprint(mcp.types)\n"
     assert transform(source).code == source
 
 
 def test_a_semicolon_joined_statement_line_is_left_as_written() -> None:
-    """A `from mcp import types` joined to another statement by a semicolon cannot be
-    split out into its own `import mcp_types as types` line, so the whole statement
-    is left exactly as written rather than half-rewritten.
-    """
+    """A semicolon-joined import cannot be split out, so the statement is left whole rather than half-rewritten."""
     source = "DEBUG = True; from mcp import types\n"
     assert transform(source).code == source
 
 
 def test_camelcase_keywords_on_a_local_variable_named_mcp_are_untouched() -> None:
-    """A local variable named `mcp` is the most common name in real MCP code; keyword
-    arguments on a method call through it must never be renamed when nothing in the
-    file actually imports the SDK.
-    """
+    """Keywords on a call through a local `mcp` variable are untouched when nothing imports the SDK."""
     source = 'mcp = Router()\nmcp.register(inputSchema={"a": 1}, isError=False)\n'
     result = transform(source)
     assert result.code == source
@@ -965,17 +856,13 @@ def test_camelcase_keywords_on_a_local_variable_named_mcp_are_untouched() -> Non
 
 
 def test_a_getattr_string_in_a_file_that_never_imports_mcp_is_untouched() -> None:
-    """The string form of the camelCase rename is gated on the file importing the SDK,
-    exactly like the attribute form, so an ORM lookup elsewhere is never rewritten.
-    """
+    """The string form of the camelCase rename is gated on an SDK import, like the attribute form."""
     source = 'value = getattr(row, "createdAt", None)\n'
     assert transform(source).code == source
 
 
 def test_a_risky_camelcase_getattr_string_gets_a_review_marker() -> None:
-    """A risky-tier name renamed inside a `getattr` string is marked for review, the
-    same way the equivalent attribute access is.
-    """
+    """A risky-tier rename inside a `getattr` string is marked for review, like the attribute form."""
     source = 'import mcp\n\ncursor = getattr(result, "nextCursor", None)\n'
     result = transform(source)
     assert '"next_cursor"' in result.code
@@ -983,9 +870,7 @@ def test_a_risky_camelcase_getattr_string_gets_a_review_marker() -> None:
 
 
 def test_removed_attribute_names_are_untouched_in_a_file_that_never_imports_mcp() -> None:
-    """`get_context` is a common method name well outside MCP; a file that never
-    imports the SDK must never have a removal marker written into it.
-    """
+    """A file that never imports the SDK must never gain a removal marker."""
     source = textwrap.dedent("""\
         class DetailView(View):
             def render(self):
@@ -997,10 +882,7 @@ def test_removed_attribute_names_are_untouched_in_a_file_that_never_imports_mcp(
 
 
 def test_renaming_a_plain_import_still_needed_for_other_names_gets_a_review_marker() -> None:
-    """`import mcp.types` also bound the name `mcp`. When another reference still
-    needs that binding (and no other import provides it), the rewrite to
-    `import mcp_types` is marked for review.
-    """
+    """`import mcp.types` also bound `mcp`; the rewrite is marked when another reference still needs that binding."""
     source = textwrap.dedent("""\
         import httpx
         import mcp.types
@@ -1016,9 +898,7 @@ def test_renaming_a_plain_import_still_needed_for_other_names_gets_a_review_mark
 
 
 def test_renaming_a_plain_import_whose_binding_nothing_else_needs_is_silent() -> None:
-    """When every reference through `import mcp.types` is itself being rewritten,
-    losing the `mcp` binding breaks nothing, so no review marker is added.
-    """
+    """When every reference through the import is itself rewritten, losing the `mcp` binding breaks nothing."""
     source = 'import mcp.types\n\ntool = mcp.types.Tool(name="x", input_schema={})\n'
     result = transform(source)
     assert result.code == 'import mcp_types\n\ntool = mcp_types.Tool(name="x", input_schema={})\n'
@@ -1026,9 +906,7 @@ def test_renaming_a_plain_import_whose_binding_nothing_else_needs_is_silent() ->
 
 
 def test_a_dotted_usage_through_a_bare_import_mcp_is_marked_not_rewritten() -> None:
-    """`import mcp` plus `mcp.types.X` is valid v1, but rewriting the usage would leave
-    nothing importing `mcp_types`, so the site is marked and left exactly as written.
-    """
+    """Rewriting the usage would leave nothing importing `mcp_types`, so the site is marked instead."""
     source = 'import mcp\n\ntool = mcp.types.Tool(name="x")\n'
     result = transform(source)
     assert "mcp.types.Tool" in result.code
@@ -1038,17 +916,12 @@ def test_a_dotted_usage_through_a_bare_import_mcp_is_marked_not_rewritten() -> N
 
 
 def test_a_renamed_module_imported_from_its_parent_package_is_split_out() -> None:
-    """`from mcp.server import fastmcp` bound the renamed module to a local name, the
-    same shape as `from mcp import types`, so it becomes a real import of the new
-    module under the same local name.
-    """
+    """`from mcp.server import fastmcp` becomes a real import of the new module under the same local name."""
     assert transform("from mcp.server import fastmcp\n").code == snapshot("import mcp.server.mcpserver as fastmcp\n")
 
 
 def test_constructor_flags_fire_for_every_import_path_of_the_renamed_class() -> None:
-    """`from mcp.server import FastMCP` is a real v1 spelling, so its constructor gets
-    the same moved- and removed-keyword markers as the `mcp.server.fastmcp` spelling.
-    """
+    """Every v1 import spelling of the renamed class gets the same constructor keyword markers."""
     source = textwrap.dedent("""\
         from mcp.server import FastMCP
 
@@ -1060,9 +933,7 @@ def test_constructor_flags_fire_for_every_import_path_of_the_renamed_class() -> 
 
 
 def test_a_renamed_symbol_reached_through_a_module_alias_is_rewritten() -> None:
-    """A renamed class accessed as an attribute of an aliased module import is still
-    resolved through the import, so both the import and the access are rewritten.
-    """
+    """A renamed class reached through a module alias rewrites at both the import and the access."""
     source = textwrap.dedent("""\
         import mcp.server.fastmcp as fm
 
@@ -1078,10 +949,7 @@ mcp = fm.MCPServer("demo")
 
 
 def test_an_import_of_a_types_name_with_no_v2_home_is_marked() -> None:
-    """`mcp_types` is not a name-superset of v1's `mcp.types`: a name with no v2
-    home (`Cursor`) is marked at the import and at every use, never silently
-    rewritten into an import that cannot resolve.
-    """
+    """A types name with no v2 home is marked, never silently rewritten into an import that cannot resolve."""
     source = textwrap.dedent("""\
         from mcp.types import Cursor, Tool
 
@@ -1094,9 +962,7 @@ def test_an_import_of_a_types_name_with_no_v2_home_is_marked() -> None:
 
 
 def test_a_removed_api_reached_through_its_module_is_marked() -> None:
-    """A removed API spelled `module.symbol` gets the same marker as the bare
-    imported name; `leave_Name` only ever sees the latter.
-    """
+    """A removed API spelled `module.symbol` gets the same marker as the bare imported name."""
     source = textwrap.dedent("""\
         from mcp.shared import memory
 
@@ -1109,9 +975,7 @@ def test_a_removed_api_reached_through_its_module_is_marked() -> None:
 
 
 def test_a_plain_import_of_a_deeper_renamed_module_is_not_double_flagged() -> None:
-    """`import mcp.server.fastmcp.server` also resolves its own `mcp.server.fastmcp`
-    prefix; only the full path is rewritten and the prefix must not be flagged.
-    """
+    """Only the full path is rewritten; its renamed prefix must not also be flagged."""
     source = "import mcp.server.fastmcp.server\n\nctx = mcp.server.fastmcp.server.Context()\n"
     result = transform(source)
     assert result.code == "import mcp.server.mcpserver.server\n\nctx = mcp.server.mcpserver.server.Context()\n"
@@ -1119,9 +983,7 @@ def test_a_plain_import_of_a_deeper_renamed_module_is_not_double_flagged() -> No
 
 
 def test_transport_client_kwargs_are_flagged_in_any_call_form() -> None:
-    """The removed client keywords and the narrower yield are marked even when the
-    call is not itself the `with` item; `enter_async_context` is the common form.
-    """
+    """Client keyword and yield-shape markers fire even when the call is not itself the `with` item."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamablehttp_client
 
@@ -1135,9 +997,7 @@ def test_transport_client_kwargs_are_flagged_in_any_call_form() -> None:
 
 
 def test_an_already_migrated_client_call_outside_a_with_is_never_flagged() -> None:
-    """A call through the v2 name proves nothing about its surroundings being v1,
-    so already-migrated code never gets the yield-shape marker.
-    """
+    """A call through the v2 name proves nothing about v1 surroundings, so no yield-shape marker."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamable_http_client
 
@@ -1151,9 +1011,7 @@ def test_an_already_migrated_client_call_outside_a_with_is_never_flagged() -> No
 
 
 def test_two_identical_findings_on_one_statement_produce_one_marker() -> None:
-    """Two findings with the same message on one statement collapse into a single
-    inline comment; each is still reported as its own diagnostic.
-    """
+    """Identical findings on one statement collapse into one comment but stay separate diagnostics."""
     source = "import mcp\n\nflag = a.isError or b.isError\n"
     result = transform(source)
     assert result.code.count("# mcp-codemod:") == 1
@@ -1161,9 +1019,7 @@ def test_two_identical_findings_on_one_statement_produce_one_marker() -> None:
 
 
 def test_a_v1_client_with_item_bound_to_a_single_name_is_flagged() -> None:
-    """`async with streamablehttp_client(...) as streams:` cannot have its unpacking
-    rewritten (it happens somewhere else), so the call gets the yield-shape marker.
-    """
+    """A single-name `as` target hides the unpacking, so the call gets the yield-shape marker."""
     source = textwrap.dedent("""\
         from mcp.client.streamable_http import streamablehttp_client
 
@@ -1178,9 +1034,7 @@ def test_a_v1_client_with_item_bound_to_a_single_name_is_flagged() -> None:
 
 
 def test_an_annotated_lowlevel_server_assignment_is_recognized() -> None:
-    """`server: Server = Server(...)` binds the server exactly like the un-annotated
-    form, so its decorators get the same lowlevel registration marker.
-    """
+    """An annotated assignment binds the server exactly like the un-annotated form."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -1192,14 +1046,12 @@ def test_an_annotated_lowlevel_server_assignment_is_recognized() -> None:
             return []
         """)
     result = transform(source)
-    assert [diagnostic.transform for diagnostic in result.diagnostics] == ["lowlevel_decorator"]
-    assert "on_call_tool=" in result.diagnostics[0].message
+    assert result.rewrites["lowlevel_registration"] == 1
+    assert "# mcp-codemod:" not in result.code
 
 
 def test_camelcase_attributes_are_renamed_in_a_file_importing_only_mcp_types() -> None:
-    """A half-migrated file whose only SDK import is already `mcp_types` still gets
-    the attribute renames; `import mcp_types` is as much the SDK as `import mcp`.
-    """
+    """`import mcp_types` is as much the SDK as `import mcp` for gating the attribute renames."""
     source = textwrap.dedent("""\
         import mcp_types
 
@@ -1211,10 +1063,7 @@ def test_camelcase_attributes_are_renamed_in_a_file_importing_only_mcp_types() -
 
 
 def test_the_v2_request_context_idiom_is_never_flagged() -> None:
-    """`ctx.request_context.lifespan_context` is a live, documented v2 idiom. The
-    lowlevel `Server.request_context` property was also removed, but a name-only
-    match cannot tell the two apart, so neither is flagged.
-    """
+    """A name-only match cannot tell the removed `Server.request_context` from the live idiom; neither is flagged."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import Context, FastMCP
 
@@ -1228,18 +1077,14 @@ def test_the_v2_request_context_idiom_is_never_flagged() -> None:
 
 
 def test_a_trailing_comment_on_a_split_import_is_kept() -> None:
-    """The whole-statement rewrite of `from mcp import types` keeps the original
-    line's trailing comment -- a `# noqa` there is load-bearing.
-    """
+    """The whole-statement rewrite keeps the trailing comment -- a `# noqa` there is load-bearing."""
     assert transform("from mcp import types  # noqa: F401\n").code == snapshot(
         "import mcp_types as types  # noqa: F401\n"
     )
 
 
 def test_a_marker_on_the_first_statement_is_not_duplicated_on_a_rerun() -> None:
-    """A comment above a module's FIRST statement parses into the module header, not
-    the statement, so the re-run dedup has to look there too.
-    """
+    """A comment above the first statement parses into the module header; the dedup must look there too."""
     source = "# Application entrypoint.\nfrom mcp.client.websocket import websocket_client\n"
     once = transform(source).code
     assert once.count("# mcp-codemod:") == 1
@@ -1254,10 +1099,7 @@ def test_an_empty_module_is_returned_unchanged() -> None:
 
 
 def test_positional_constructor_arguments_after_the_name_are_flagged() -> None:
-    """v1's second positional was `instructions`; v2's is `title`. Renaming the call
-    and leaving the argument would silently send the instructions as the title, so
-    every positional after the name is marked instead.
-    """
+    """v1's second positional was `instructions`, v2's is `title`; leaving it would silently swap meaning."""
     source = textwrap.dedent("""\
         from mcp.server.fastmcp import FastMCP
 
@@ -1270,10 +1112,7 @@ def test_positional_constructor_arguments_after_the_name_are_flagged() -> None:
 
 
 def test_an_attribute_also_declared_by_a_class_in_the_file_is_marked_not_renamed() -> None:
-    """A file can declare an allowlisted camelCase name on its own model (mirroring
-    the wire format). Renaming its uses would break that class, so nothing is
-    rewritten and each use is marked for the reader to split.
-    """
+    """Renaming uses of a camelCase field that a class in this file also declares would break that class."""
     source = textwrap.dedent("""\
         from pydantic import BaseModel
 
@@ -1295,10 +1134,7 @@ def test_an_attribute_also_declared_by_a_class_in_the_file_is_marked_not_renamed
 
 
 def test_a_super_init_call_in_an_mcperror_subclass_is_flattened() -> None:
-    """`super().__init__(ErrorData(...))` inside a `McpError` subclass is the same v1
-    constructor reached the one way a qualified name cannot see, so it gets the same
-    flatten as a direct `McpError(ErrorData(...))` call.
-    """
+    """A subclass `super().__init__(ErrorData(...))` gets the same flatten as a direct `McpError` call."""
     source = textwrap.dedent("""\
         from mcp import McpError
         from mcp.types import INVALID_PARAMS, ErrorData
@@ -1314,9 +1150,7 @@ def test_a_super_init_call_in_an_mcperror_subclass_is_flattened() -> None:
 
 
 def test_a_super_init_call_with_a_variable_argument_is_marked() -> None:
-    """`super().__init__(err)` in a `McpError` subclass cannot be unpacked, so it is
-    marked exactly like `McpError(err)` rather than left to fail when first raised.
-    """
+    """A variable argument cannot be unpacked, so the site is marked rather than left to fail at raise time."""
     source = textwrap.dedent("""\
         from mcp import McpError
 
@@ -1331,9 +1165,7 @@ def test_a_super_init_call_with_a_variable_argument_is_marked() -> None:
 
 
 def test_a_removed_nested_class_reached_through_its_parent_is_marked() -> None:
-    """`RequestParams.Meta` is a nested class with no v2 home; the qualified-name
-    check sees the whole dotted path even though the per-module name tests cannot.
-    """
+    """The qualified-name check sees the whole dotted path to a removed nested class."""
     source = textwrap.dedent("""\
         from mcp.types import RequestParams
 
@@ -1346,10 +1178,7 @@ def test_a_removed_nested_class_reached_through_its_parent_is_marked() -> None:
 
 
 def test_the_server_submodule_import_targets_the_v2_submodule() -> None:
-    """`mcp.server.fastmcp.server` maps to the literal v2 submodule, where its
-    module-level names (`Settings` is the giveaway -- the package does not export
-    it) still live; `Context` alone is rehomed to the package, its public v2 home.
-    """
+    """Module-level names stay on the v2 submodule; `Context` alone is rehomed to the package."""
     source = "from mcp.server.fastmcp.server import Context, Settings\n"
     assert transform(source).code == snapshot(
         """\
@@ -1360,9 +1189,7 @@ from mcp.server.mcpserver import Context
 
 
 def test_a_resolvable_non_mcp_receiver_is_never_flagged() -> None:
-    """A receiver the imports prove is another package (`multiprocessing.get_context`)
-    is never name-matched, however mcp-flavoured the attribute name looks.
-    """
+    """A receiver the imports prove is another package is never name-matched."""
     source = textwrap.dedent("""\
         import multiprocessing
 
@@ -1376,9 +1203,7 @@ def test_a_resolvable_non_mcp_receiver_is_never_flagged() -> None:
 
 
 def test_no_unbind_marker_when_another_import_keeps_the_root_bound() -> None:
-    """Renaming `import mcp.types` cannot unbind `mcp` while another plain import
-    of an `mcp.` module survives, so no review marker is added.
-    """
+    """Another surviving plain `mcp.` import keeps the root bound, so no review marker is added."""
     source = textwrap.dedent("""\
         import mcp.client.session
         import mcp.types
@@ -1393,9 +1218,7 @@ def test_no_unbind_marker_when_another_import_keeps_the_root_bound() -> None:
 
 
 def test_an_import_of_a_removed_module_is_marked_and_kept() -> None:
-    """`import mcp.shared.progress` names a module v2 deleted outright; the import is
-    kept exactly as written and marked with the replacement guidance.
-    """
+    """An import of a deleted module is kept as written and marked with the replacement guidance."""
     source = "import mcp.shared.progress\n"
     result = transform(source)
     assert "import mcp.shared.progress\n" in result.code
@@ -1404,9 +1227,7 @@ def test_an_import_of_a_removed_module_is_marked_and_kept() -> None:
 
 
 def test_a_from_import_out_of_a_removed_namespace_gets_one_marker() -> None:
-    """A `from` import out of a deleted namespace gets a single whole-statement
-    marker; per-name markers would only repeat it.
-    """
+    """One whole-statement marker; per-name markers would only repeat it."""
     source = "from mcp.shared.experimental.tasks import InMemoryTaskStore, task_execution\n"
     result = transform(source)
     assert result.code.count("# mcp-codemod:") == 1
@@ -1415,9 +1236,7 @@ def test_a_from_import_out_of_a_removed_namespace_gets_one_marker() -> None:
 
 
 def test_a_removed_module_imported_from_its_parent_package_is_marked() -> None:
-    """`from mcp.client import websocket` binds the deleted module through its parent,
-    so the per-name check resolves `mcp.client.websocket` against the removed roots.
-    """
+    """The per-name check resolves a module bound through its parent against the removed roots."""
     source = "from mcp.client import websocket\n"
     result = transform(source)
     assert result.code.count("# mcp-codemod:") == 1
@@ -1425,10 +1244,7 @@ def test_a_removed_module_imported_from_its_parent_package_is_marked() -> None:
 
 
 def test_context_imported_from_the_server_module_is_rehomed_to_the_package() -> None:
-    """`Context` moved out of `server.py` on v2; importing it from there would be a
-    private-usage to a type checker, so the import is split out to the package,
-    which declares it publicly.
-    """
+    """Importing `Context` from `server.py` would be private usage on v2, so it is split out to the package."""
     source = "from mcp.server.fastmcp.server import Context, FastMCP, Settings\n"
     assert transform(source).code == snapshot(
         """\
@@ -1445,11 +1261,7 @@ def test_a_rehomed_import_keeps_its_alias_and_takes_the_statement_over_when_alon
 
 
 def test_request_context_on_a_proven_lowlevel_server_is_flagged() -> None:
-    """`Server.request_context` is gone on v2, but `Context.request_context` lives;
-    only a receiver the pre-pass proved holds a lowlevel `Server` is flagged, so
-    the live idiom is never touched (which `test_the_v2_request_context_idiom_is_
-    never_flagged` pins).
-    """
+    """Only a receiver the pre-pass proved holds a lowlevel `Server` is flagged, sparing the live v2 idiom."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -1467,8 +1279,7 @@ def test_request_context_on_a_proven_lowlevel_server_is_flagged() -> None:
 
 
 def test_a_lowlevel_server_bound_to_an_attribute_is_recognized() -> None:
-    """`self.server = Server(...)` binds the server to an attribute; its decorators
-    and removed attributes get the same treatment as a plain name binding."""
+    """An attribute binding gets the same treatment as a plain name binding."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -1486,8 +1297,7 @@ def test_a_lowlevel_server_bound_to_an_attribute_is_recognized() -> None:
 
 
 def test_a_marker_survives_a_statement_split() -> None:
-    """A removed-module flag on an import that is also being split for a renamed
-    sibling lands above the split's first piece instead of being dropped."""
+    """A flag on an import that is also being split lands above the split's first piece."""
     result = transform("from mcp.server import websocket, fastmcp\n")
     assert result.code == snapshot(
         """\
@@ -1499,8 +1309,7 @@ import mcp.server.mcpserver as fastmcp
 
 
 def test_a_tuple_assignment_involving_a_server_call_is_passed_over() -> None:
-    """A tuple target has no single dotted spelling to track, so the pre-pass
-    records nothing and the module is returned unchanged."""
+    """A tuple target has no single dotted spelling to track, so the pre-pass records nothing."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -1512,8 +1321,7 @@ def test_a_tuple_assignment_involving_a_server_call_is_passed_over() -> None:
 
 
 def test_unpacking_a_call_result_is_passed_over() -> None:
-    """A tuple target has no single dotted spelling to track, so a call result that
-    is unpacked records nothing and the module is returned unchanged."""
+    """An unpacked call result has no single dotted spelling to track, so the pre-pass records nothing."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -1525,8 +1333,7 @@ def test_unpacking_a_call_result_is_passed_over() -> None:
 
 
 def test_lowlevel_server_positional_arguments_become_keywords() -> None:
-    """v2 makes everything after `name` keyword-only on the lowlevel `Server` but keeps
-    v1's parameter names and order, so positionals convert one for one."""
+    """v2 keeps v1's parameter names and order but makes them keyword-only, so positionals convert one for one."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -1538,8 +1345,7 @@ def test_lowlevel_server_positional_arguments_become_keywords() -> None:
 
 
 def test_a_lowlevel_server_call_with_a_splat_is_left_for_v2_to_reject() -> None:
-    """A `*`-splat hides how many positions it fills, so the call is left as written --
-    v2 raises a TypeError at construction, which is loud and immediate."""
+    """A `*`-splat hides how many positions it fills; v2's own TypeError at construction is loud enough."""
     source = textwrap.dedent("""\
         from mcp.server.lowlevel import Server
 
@@ -1556,3 +1362,623 @@ def test_lowlevel_keyword_arguments_are_never_touched() -> None:
         server = Server("srv", version="1.2.0")
         """)
     assert transform(source).code == source
+
+
+def test_a_module_level_decorator_site_is_rewritten_to_registration_at_site() -> None:
+    """The user's function survives byte-identical; the adapter and registration land at the decorator's position."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+        import mcp.types as types
+
+        app = Server("demo")
+
+        @app.list_prompts()
+        async def list_prompts() -> list[types.Prompt]:
+            return []
+
+        run(app)
+        """)
+    result = transform(source)
+    assert result.code == snapshot("""\
+from typing import cast
+from mcp.server import ServerRequestContext
+import mcp_types
+from mcp.server.lowlevel import Server
+import mcp_types as types
+
+app = Server("demo")
+
+async def list_prompts() -> list[types.Prompt]:
+    return []
+
+
+async def _list_prompts_handler(
+    ctx: ServerRequestContext, params: mcp_types.PaginatedRequestParams
+) -> mcp_types.ListPromptsResult:
+    result = cast("object", await list_prompts())
+    if isinstance(result, mcp_types.ListPromptsResult):
+        return result
+    return mcp_types.ListPromptsResult(prompts=cast("list[mcp_types.Prompt]", result))
+
+
+app.add_request_handler("prompts/list", mcp_types.PaginatedRequestParams, _list_prompts_handler)
+
+run(app)
+""")
+    assert result.rewrites["lowlevel_registration"] == 1
+    assert [d.severity for d in result.diagnostics] == ["info"]
+
+
+def test_a_decorator_nested_inside_a_function_is_rewritten_in_place() -> None:
+    """v1 servers built inside `main()` register at the same nesting depth."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        def main():
+            app = Server("demo")
+
+            @app.set_logging_level()
+            async def set_level(level) -> None:
+                configure(level)
+
+            return app
+        """)
+    result = transform(source)
+    assert (
+        '    app.add_request_handler("logging/setLevel", mcp_types.SetLevelRequestParams, _set_level_handler)'
+        in result.code
+    )
+    assert "    async def _set_level_handler(" in result.code
+    assert result.code.count("# mcp-codemod:") == 0
+
+
+def test_a_stacked_decorator_blocks_the_rewrite_with_a_marker() -> None:
+    """A second decorator changes what the module name binds, so the site is marked."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @observed
+        @app.list_tools()
+        async def list_tools():
+            return []
+        """)
+    result = transform(source)
+    assert "@observed" in result.code
+    assert "another decorator is stacked on it" in result.diagnostics[0].message
+    assert "add_request_handler" in result.diagnostics[0].message
+
+
+def test_an_attribute_receiver_blocks_the_rewrite_with_a_marker() -> None:
+    """The emitted module-level adapter cannot close over `self`, so the site is marked."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        class Wrapper:
+            def __init__(self):
+                self.server = Server("demo")
+
+                @self.server.list_tools()
+                async def list_tools():
+                    return []
+        """)
+    result = transform(source)
+    assert "@self.server.list_tools()" in result.code
+    assert "the server is reached through an attribute" in result.diagnostics[0].message
+
+
+def test_a_wrong_arity_handler_blocks_the_rewrite_with_a_marker() -> None:
+    """A handler signature that is not v1's old style is not guessed at."""
+    source = textwrap.dedent("""\
+        import mcp.types as types
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.list_tools()
+        async def list_tools(req: types.ListToolsRequest) -> types.ListToolsResult:
+            return types.ListToolsResult(tools=[])
+        """)
+    result = transform(source)
+    assert "the handler signature does not match the v1 form" in result.diagnostics[0].message
+
+
+def test_a_sync_handler_blocks_the_rewrite_with_a_marker() -> None:
+    """v1 lowlevel handlers were async; a sync def is not a shape the adapter can call."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.list_tools()
+        def list_tools():
+            return []
+        """)
+    result = transform(source)
+    assert "the handler is not `async def`" in result.diagnostics[0].message
+
+
+def test_a_non_literal_decorator_argument_blocks_the_rewrite() -> None:
+    """`@app.call_tool(validate_input=flag)` cannot be evaluated statically."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.call_tool(validate_input=flag)
+        async def call_tool(name, arguments):
+            return []
+        """)
+    result = transform(source)
+    assert "arguments the codemod cannot evaluate" in result.diagnostics[0].message
+
+
+def test_a_taken_generated_name_blocks_the_rewrite() -> None:
+    """The adapter's module-level name must not shadow existing user code."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+        _list_tools_handler = object()
+
+        @app.list_tools()
+        async def list_tools():
+            return []
+        """)
+    result = transform(source)
+    assert "a generated name is already bound in this file" in result.diagnostics[0].message
+
+
+def test_validate_input_false_omits_only_the_input_validation() -> None:
+    """Only the input-validation block is dropped; v1 validated output regardless of the flag."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.call_tool(validate_input=False)
+        async def call_tool(name, arguments):
+            return []
+        """)
+    result = transform(source)
+    assert "instance=arguments" not in result.code
+    assert "output_schema" in result.code
+    assert "_app_tool_cache" in result.code
+
+
+def test_adapter_imports_are_not_injected_when_already_bound() -> None:
+    """A file that already imports `json` and `mcp_types` gets neither again."""
+    source = textwrap.dedent("""\
+        import json
+        import mcp_types
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.call_tool()
+        async def call_tool(name, arguments):
+            return [json.dumps(arguments)]
+        """)
+    result = transform(source)
+    assert result.code.count("import json\n") == 1
+    assert result.code.count("import mcp_types") == 1
+
+
+def test_an_inline_timedelta_timeout_converts_to_seconds() -> None:
+    """An inline `timedelta` timeout converts to seconds; on v2 the `timedelta` form fails on first request."""
+    source = textwrap.dedent("""\
+        from datetime import timedelta
+        from mcp import ClientSession
+
+        session = ClientSession(read, write, read_timeout_seconds=timedelta(seconds=5))
+        """)
+    result = transform(source)
+    assert "read_timeout_seconds=timedelta(seconds=5).total_seconds()" in result.code
+    assert [d.severity for d in result.diagnostics] == ["info"]
+
+
+def test_a_positional_timeout_variable_is_marked_not_guessed() -> None:
+    """A variable in v1's `timedelta` position cannot be proven convertible, so it gets a marker."""
+    source = textwrap.dedent("""\
+        from mcp import ClientSession
+
+        session = ClientSession(read, write, timeout)
+        """)
+    result = transform(source)
+    assert "session = ClientSession(read, write, timeout)" in result.code
+    assert "pass this value's `.total_seconds()`" in result.diagnostics[0].message
+
+
+def test_a_none_timeout_is_left_alone() -> None:
+    """`None` is valid on both v1 and v2; nothing fires."""
+    source = textwrap.dedent("""\
+        from mcp import ClientSession
+
+        session = ClientSession(read, write, None)
+        """)
+    result = transform(source)
+    assert result.diagnostics == []
+
+
+def test_a_cursor_keyword_on_an_annotated_session_wraps_into_params() -> None:
+    """`cursor=` becomes the v2 `params=` form when the receiver is proven a `ClientSession`."""
+    source = textwrap.dedent("""\
+        from mcp import ClientSession
+
+        async def load(session: ClientSession):
+            return await session.list_tools(cursor=token)
+        """)
+    result = transform(source)
+    assert "session.list_tools(params=mcp_types.PaginatedRequestParams(cursor=token))" in result.code
+    assert "import mcp_types" in result.code
+
+
+def test_a_url_wrapper_into_a_proven_session_read_is_unwrapped() -> None:
+    """The `AnyUrl` wrapper is dropped when the receiver is a with-bound `ClientSession`."""
+    source = textwrap.dedent("""\
+        from pydantic import AnyUrl
+        from mcp import ClientSession
+
+        async def read(streams):
+            async with ClientSession(streams[0], streams[1]) as session:
+                return await session.read_resource(AnyUrl("demo://x"))
+        """)
+    result = transform(source)
+    assert 'session.read_resource("demo://x")' in result.code
+
+
+def test_a_url_wrapper_in_a_sdk_uri_keyword_is_unwrapped() -> None:
+    """The wrapper is dropped on a callee that provably resolves into the SDK."""
+    source = textwrap.dedent("""\
+        import mcp.types as types
+        from pydantic import AnyUrl
+
+        resource = types.Resource(uri=AnyUrl(f"file://{path}"), name="n")
+        """)
+    result = transform(source)
+    assert 'resource = types.Resource(uri=f"file://{path}", name="n")' in result.code
+
+
+def test_a_url_wrapper_in_an_unproven_uri_keyword_is_marked() -> None:
+    """On an unresolvable callee the value may still land in an mcp model, so mark rather than rewrite."""
+    source = textwrap.dedent("""\
+        import mcp
+        from pydantic import AnyUrl
+
+        notify(uri=AnyUrl("demo://x"), audience="all")
+        """)
+    result = transform(source)
+    assert 'notify(uri=AnyUrl("demo://x"), audience="all")' in result.code
+    assert "drop this URL wrapper" in result.diagnostics[0].message
+
+
+def test_the_private_mcp_server_attribute_is_marked() -> None:
+    """The marker names the v2 spelling of v1's widely-used private attribute."""
+    source = textwrap.dedent("""\
+        from mcp.server.mcpserver import MCPServer
+
+        mcp = MCPServer("demo")
+        server = mcp._mcp_server
+        """)
+    result = transform(source)
+    assert "_lowlevel_server" in result.diagnostics[0].message
+
+
+def test_the_handler_dicts_on_a_proven_lowlevel_server_are_marked() -> None:
+    """Handler-dict introspection has no mechanical rewrite; the marker names the v2 lookup API."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+        handler = app.request_handlers[CallToolRequest]
+        """)
+    result = transform(source)
+    assert "get_request_handler(method)" in result.diagnostics[0].message
+
+
+def test_a_class_body_handler_blocks_the_rewrite() -> None:
+    """A decorated method in a class body cannot take a module-level adapter."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        class Handlers:
+            @app.list_tools()
+            async def list_tools(self):
+                return []
+        """)
+    result = transform(source)
+    assert "the handler is defined in a class body" in result.diagnostics[0].message
+
+
+def test_a_decorator_argument_on_a_non_call_tool_kind_blocks_the_rewrite() -> None:
+    """Only `call_tool` ever took a decorator argument on v1; anything else is not a known shape."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.list_tools("extra")
+        async def list_tools():
+            return []
+        """)
+    result = transform(source)
+    assert "arguments the codemod cannot evaluate" in result.diagnostics[0].message
+
+
+def test_a_star_kwargs_handler_blocks_the_rewrite() -> None:
+    """`**kwargs` hides the real signature, so the site is marked."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.get_prompt()
+        async def get_prompt(name, arguments, **kwargs):
+            return None
+        """)
+    result = transform(source)
+    assert "the handler signature does not match the v1 form" in result.diagnostics[0].message
+
+
+def test_a_single_positional_argument_to_a_session_list_method_is_left_alone() -> None:
+    """Only the exact v1 `cursor=` keyword form is wrapped."""
+    source = textwrap.dedent("""\
+        from mcp import ClientSession
+
+        async def load(session: ClientSession):
+            return await session.list_tools(token)
+        """)
+    result = transform(source)
+    assert "session.list_tools(token)" in result.code
+    assert result.diagnostics == []
+
+
+def test_a_plain_string_uri_to_a_session_read_is_left_alone() -> None:
+    """`session.read_resource("demo://x")` is already the v2 shape."""
+    source = textwrap.dedent("""\
+        from mcp import ClientSession
+
+        async def read(session: ClientSession):
+            return await session.read_resource("demo://x")
+        """)
+    result = transform(source)
+    assert 'session.read_resource("demo://x")' in result.code
+    assert result.diagnostics == []
+
+
+def test_a_url_wrapper_in_a_file_without_sdk_imports_is_never_touched() -> None:
+    """Without an SDK import the value cannot land in an mcp type; no marker, no rewrite."""
+    source = textwrap.dedent("""\
+        from pydantic import AnyUrl
+
+        notify(uri=AnyUrl("demo://x"), audience="all")
+        """)
+    result = transform(source)
+    assert result.code == source
+    assert result.diagnostics == []
+
+
+def test_constructing_a_union_alias_is_marked() -> None:
+    """`JSONRPCMessage(...)` imports on v2 but is a plain union: calling it fails."""
+    source = textwrap.dedent("""\
+        from mcp.types import JSONRPCMessage
+
+        message = JSONRPCMessage(payload)
+        """)
+    result = transform(source)
+    assert "cannot be constructed" in result.diagnostics[0].message
+
+
+def test_a_pydantic_method_on_a_union_alias_is_marked() -> None:
+    """`JSONRPCMessage.model_validate_json(...)` has no pydantic methods on v2."""
+    source = textwrap.dedent("""\
+        import mcp.types as types
+
+        message = types.JSONRPCMessage.model_validate_json(raw)
+        """)
+    result = transform(source)
+    assert any("pydantic.TypeAdapter(JSONRPCMessage)" in d.message for d in result.diagnostics)
+
+
+def test_a_str_annotated_uri_handler_gets_the_wire_string() -> None:
+    """A handler declaring `uri: str` gets the wire string passed through, with no `AnyUrl` import."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.read_resource()
+        async def read_resource(uri: str) -> str:
+            return uri
+        """)
+    result = transform(source)
+    assert "await read_resource(params.uri)" in result.code
+    assert "AnyUrl" not in result.code
+
+
+def test_an_unannotated_uri_handler_keeps_v1_anyurl_parity() -> None:
+    """Without a `str` annotation the adapter passes `AnyUrl(params.uri)`, exactly what v1 passed."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.subscribe_resource()
+        async def subscribe(uri):
+            record(uri)
+        """)
+    result = transform(source)
+    assert "await subscribe(AnyUrl(params.uri))" in result.code
+    assert "from pydantic import AnyUrl" in result.code
+
+
+def test_a_model_method_on_a_non_alias_receiver_is_not_marked() -> None:
+    """`model_validate` on a concrete model (or anything else) is live v2 API."""
+    source = textwrap.dedent("""\
+        from mcp.types import Tool
+
+        tool = Tool.model_validate(payload)
+        own = config.model_dump()
+        """)
+    result = transform(source)
+    assert not any(d.transform == "union_alias" for d in result.diagnostics)
+
+
+def test_imports_inject_at_the_top_even_with_a_late_import() -> None:
+    """A mid-file import must not anchor injection below the registration code."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.list_tools()
+        async def list_tools():
+            return []
+
+        import late_helper
+        """)
+    result = transform(source)
+    lines = result.code.splitlines()
+    assert lines.index("import mcp_types") < lines.index('app = Server("demo")')
+
+
+def test_a_docstring_and_future_import_stay_first() -> None:
+    """Injected imports respect the docstring and `__future__` position rules."""
+    source = textwrap.dedent('''\
+        """Module docs."""
+
+        from __future__ import annotations
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.get_prompt()
+        async def get_prompt(name, arguments):
+            return None
+        ''')
+    result = transform(source)
+    lines = result.code.splitlines()
+    assert lines[0] == '"""Module docs."""'
+    assert lines.index("from __future__ import annotations") < lines.index("import mcp_types")
+
+
+def test_a_conditional_import_does_not_suppress_injection() -> None:
+    """A TYPE_CHECKING-gated import does not bind at runtime, so the adapter's
+    import is still injected at module level."""
+    source = textwrap.dedent("""\
+        from typing import TYPE_CHECKING
+        from mcp.server.lowlevel import Server
+
+        if TYPE_CHECKING:
+            from collections.abc import Iterable
+
+        app = Server("demo")
+
+        @app.call_tool()
+        async def call_tool(name, arguments):
+            return []
+        """)
+    result = transform(source)
+    top_level = [line for line in result.code.splitlines() if line.startswith("from collections.abc")]
+    assert top_level == ["from collections.abc import Iterable"]
+
+
+def test_a_module_binding_of_an_adapter_import_name_blocks_the_rewrite() -> None:
+    """`json = None` at module level would shadow the injected import inside the
+    adapter, so the site is marked instead of silently broken."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        json = None
+        app = Server("demo")
+
+        @app.call_tool()
+        async def call_tool(name, arguments):
+            return []
+        """)
+    result = transform(source)
+    assert "a name the generated adapter needs is already bound" in result.diagnostics[0].message
+
+
+def test_a_handler_named_like_a_template_local_blocks_the_rewrite() -> None:
+    """A handler called `completion` would be shadowed by the adapter's own local."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.completion()
+        async def completion(ref, argument, context):
+            return None
+        """)
+    result = transform(source)
+    assert "collides with a name the generated adapter uses" in result.diagnostics[0].message
+
+
+def test_a_blocked_progress_site_names_the_notification_api() -> None:
+    """Progress is a notification; the guidance must not send users to the
+    request-handler API where the handler would never fire."""
+    source = textwrap.dedent("""\
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.progress_notification()
+        def on_progress(token, progress, total, message):
+            pass
+        """)
+    result = transform(source)
+    assert "add_notification_handler" in result.diagnostics[0].message
+
+
+def test_a_list_handler_returning_the_full_result_passes_through() -> None:
+    """v1's wrapper isinstance-passed a returned result model through; the adapter
+    must not double-wrap it."""
+    source = textwrap.dedent("""\
+        import mcp.types as types
+        from mcp.server.lowlevel import Server
+
+        app = Server("demo")
+
+        @app.list_tools()
+        async def list_tools():
+            return types.ListToolsResult(tools=[])
+        """)
+    result = transform(source)
+    assert "if isinstance(result, mcp_types.ListToolsResult):" in result.code
+    assert "return result" in result.code
+
+
+def test_the_timeout_rewrite_is_idempotent_and_floats_are_untouched() -> None:
+    """A second run over `.total_seconds()` output and a plain float timeout both
+    produce nothing -- no rewrite, no marker."""
+    source = textwrap.dedent("""\
+        from datetime import timedelta
+        from mcp import ClientSession
+
+        a = ClientSession(read, write, read_timeout_seconds=timedelta(seconds=5))
+        b = ClientSession(read, write, 30.0)
+        """)
+    once = transform(source)
+    assert "timedelta(seconds=5).total_seconds()" in once.code
+    assert not any(d.severity == "manual" for d in once.diagnostics)
+    again = transform(once.code)
+    assert again.code == once.code
+    assert again.diagnostics == []
+
+
+def test_no_injection_happens_when_everything_needed_is_bound() -> None:
+    """A rewrite that needs only `mcp_types` injects nothing into a file that
+    already imports it."""
+    source = textwrap.dedent("""\
+        import mcp_types
+        from mcp import ClientSession
+
+        async def load(session: ClientSession):
+            return await session.list_tools(cursor=token)
+        """)
+    result = transform(source)
+    assert result.code.count("import mcp_types") == 1

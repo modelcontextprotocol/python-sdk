@@ -3,7 +3,11 @@
     "slug": "official-servers",
     "url": "https://github.com/modelcontextprotocol/servers",
     "sha": "7b1170d1da1e36bc9f553f51e76e64cbfd652b3e",
-    "include": ["src/fetch", "src/git", "src/time"],
+    "include": [
+      "src/fetch",
+      "src/git",
+      "src/time"
+    ],
     "note": "The official reference servers; lowlevel Server and FastMCP usage."
   },
   {
@@ -17,7 +21,9 @@
     "slug": "awslabs-aws-documentation",
     "url": "https://github.com/awslabs/mcp",
     "sha": "3a5294539de4de3a91d0ee72d5487bc8b8b1fcd7",
-    "include": ["src/aws-documentation-mcp-server"],
+    "include": [
+      "src/aws-documentation-mcp-server"
+    ],
     "note": "One server from the awslabs monorepo; production FastMCP usage."
   },
   {
@@ -26,5 +32,68 @@
     "sha": "451d255a7305e6efef8a1a2b7374a21c512bba45",
     "include": [],
     "note": "Small community FastMCP server."
+  },
+  {
+    "slug": "mysql-mcp-server",
+    "url": "https://github.com/designcomputer/mysql_mcp_server",
+    "sha": "e25be7fc4e9e79d7efc52eb69d776129429a837f",
+    "include": [
+      "src/mysql_mcp_server"
+    ],
+    "note": "Seven lowlevel decorators on a module-level Server in one file; stdio + SSE wiring."
+  },
+  {
+    "slug": "kaltura-mcp",
+    "url": "https://github.com/zoharbabin/kaltura-mcp",
+    "sha": "567f016e536692959e294c1ee94c9fc901576cd8",
+    "include": [
+      "src/kaltura_mcp"
+    ],
+    "note": "Full seven-decorator lowlevel server with an explicit mcp>=1,<2 pin; handlers dispatch into other modules."
+  },
+  {
+    "slug": "arxiv-mcp-server",
+    "url": "https://github.com/blazickjp/arxiv-mcp-server",
+    "sha": "d58901760d7ede4adb162eaba1725209a933f100",
+    "include": [
+      "src/arxiv_mcp_server"
+    ],
+    "note": "Decorator-registered lowlevel server whose handlers live across tools/, prompts/, resources/ subpackages."
+  },
+  {
+    "slug": "fastapi-mcp",
+    "url": "https://github.com/tadata-org/fastapi_mcp",
+    "sha": "e5cad13cabfc725bbcb047e526816d887d96da62",
+    "include": [
+      "fastapi_mcp"
+    ],
+    "note": "Decorators on a method-local Server closing over self, with request_context introspection: the marker path."
+  },
+  {
+    "slug": "langchain-mcp-adapters",
+    "url": "https://github.com/langchain-ai/langchain-mcp-adapters",
+    "sha": "6a10b83516e825b8ff73870e5595113acc1c8c6d",
+    "include": [
+      "langchain_mcp_adapters"
+    ],
+    "note": "Client library exercising every v1 transport, session kwargs pass-through, and cursor pagination."
+  },
+  {
+    "slug": "mcpadapt",
+    "url": "https://github.com/grll/mcpadapt",
+    "sha": "538cd85628b555ef4ad9392b7270b52274f444d4",
+    "include": [
+      "src/mcpadapt"
+    ],
+    "note": "Client library on the old streamablehttp_client spelling with a positional timedelta session timeout."
+  },
+  {
+    "slug": "chroma-mcp",
+    "url": "https://github.com/chroma-core/chroma-mcp",
+    "sha": "98ff67589bdcc31b730a5415ff9529433f949077",
+    "include": [
+      "src/chroma_mcp"
+    ],
+    "note": "Org-backed FastMCP server frozen on mcp[cli]==1.6.0: the exact-pin dependency rewrite."
   }
 ]

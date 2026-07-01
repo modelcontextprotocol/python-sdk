@@ -13,9 +13,7 @@ def _write(path: Path, content: str) -> Path:
 
 
 def test_a_v1_only_mcp_requirement_is_rewritten_to_the_v2_range(tmp_path: Path) -> None:
-    """A specifier that excludes every v2 release becomes `>=2,<3`; nothing else in
-    the file changes, not even formatting.
-    """
+    """Only the specifier changes; the rest of the file keeps its exact formatting."""
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -42,9 +40,6 @@ dependencies = [
 
 
 def test_a_requirement_that_already_admits_v2_is_untouched(tmp_path: Path) -> None:
-    """`mcp>=1.0` and an unconstrained `mcp` both admit v2 releases, so neither is
-    rewritten and no report is produced.
-    """
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -61,9 +56,6 @@ def test_a_requirement_that_already_admits_v2_is_untouched(tmp_path: Path) -> No
 
 
 def test_extras_and_environment_markers_keep_their_original_spelling(tmp_path: Path) -> None:
-    """Only the specifier is spliced out: the name, extras, and environment marker
-    survive exactly as the user wrote them.
-    """
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -81,9 +73,6 @@ dependencies = ["mcp[cli,rich]>=2,<3 ; python_version >= '3.10'"]
 
 
 def test_a_requirement_with_a_removed_extra_is_marked_not_rewritten(tmp_path: Path) -> None:
-    """The `ws` extra has no v2 home, so the requirement is left as written and a
-    marker explains both the extra and the constraint change.
-    """
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -107,8 +96,7 @@ dependencies = [
 
 
 def test_optional_dependencies_and_dependency_groups_are_updated(tmp_path: Path) -> None:
-    """The standard tables beyond `[project.dependencies]` get the same treatment,
-    and an `include-group` table entry is passed over."""
+    """An `include-group` table entry is passed over, not treated as a requirement."""
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -128,9 +116,7 @@ def test_optional_dependencies_and_dependency_groups_are_updated(tmp_path: Path)
 
 
 def test_a_poetry_constraint_is_marked_for_a_hand_update(tmp_path: Path) -> None:
-    """Poetry's dependency table uses its own constraint syntax, so the `mcp` entry
-    is marked rather than rewritten.
-    """
+    """Poetry's own constraint syntax cannot be rewritten safely, so the entry is marked."""
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -152,9 +138,6 @@ mcp = "^1.2"
 
 
 def test_requirements_txt_lines_are_rewritten_and_keep_their_comments(tmp_path: Path) -> None:
-    """A plain requirement line is rewritten in place; its trailing comment, the
-    surrounding lines, and pip options are untouched.
-    """
     requirements = _write(
         tmp_path / "requirements.txt",
         """\
@@ -176,8 +159,6 @@ not a requirement!!
 
 
 def test_a_requirements_line_with_a_removed_extra_is_marked(tmp_path: Path) -> None:
-    """The removed-extra rule applies to requirements files too, as a comment line
-    above the requirement."""
     requirements = _write(tmp_path / "requirements-dev.txt", "mcp[ws]==1.9.4\n")
     reports = update_dependencies([tmp_path], write=True)
     assert [diagnostic.severity for report in reports for diagnostic in report.diagnostics] == ["manual"]
@@ -190,7 +171,6 @@ mcp[ws]==1.9.4
 
 
 def test_a_second_run_over_updated_files_is_a_noop(tmp_path: Path) -> None:
-    """Re-running over already-updated and already-marked files changes nothing."""
     _write(tmp_path / "pyproject.toml", '[project]\ndependencies = ["mcp[ws]<2", "mcp==1.9"]\n')
     _write(tmp_path / "requirements.txt", "mcp[ws]==1.9.4\nmcp==1.2\n")
     update_dependencies([tmp_path], write=True)
@@ -202,7 +182,6 @@ def test_a_second_run_over_updated_files_is_a_noop(tmp_path: Path) -> None:
 
 
 def test_an_unparseable_pyproject_is_reported_and_left_untouched(tmp_path: Path) -> None:
-    """A broken TOML file is recorded with its error and never written to."""
     pyproject = _write(tmp_path / "pyproject.toml", "[project\ndependencies = [")
     original = pyproject.read_text()
     reports = update_dependencies([tmp_path], write=True)
@@ -212,8 +191,6 @@ def test_an_unparseable_pyproject_is_reported_and_left_untouched(tmp_path: Path)
 
 
 def test_nothing_is_written_when_write_is_false(tmp_path: Path) -> None:
-    """With `write=False` the report carries the would-be content but the file on
-    disk is untouched."""
     pyproject = _write(tmp_path / "pyproject.toml", '[project]\ndependencies = ["mcp<2"]\n')
     original = pyproject.read_text()
     reports = update_dependencies([tmp_path], write=False)
@@ -229,16 +206,14 @@ def test_dependency_files_inside_ignored_directories_are_skipped(tmp_path: Path)
 
 
 def test_a_file_path_argument_yields_no_dependency_updates(tmp_path: Path) -> None:
-    """Dependency files are discovered under directory arguments only; pointing the
-    codemod at a single source file updates that file alone."""
+    """Dependency files are discovered under directory arguments only."""
     target = tmp_path / "server.py"
     target.write_text("from mcp import ClientSession\n")
     assert update_dependencies([target], write=True) == []
 
 
 def test_a_poetry_inline_dependency_table_still_gets_a_diagnostic(tmp_path: Path) -> None:
-    """When the Poetry table is written inline, no marker can be placed on the `mcp`
-    key's own line, but the diagnostic is still reported."""
+    """An inline table leaves no line to place a marker on, but the diagnostic still fires."""
     pyproject = _write(tmp_path / "pyproject.toml", '[tool.poetry]\ndependencies = { mcp = "^1.2" }\n')
     original = pyproject.read_text()
     reports = update_dependencies([tmp_path], write=True)
@@ -247,9 +222,7 @@ def test_a_poetry_inline_dependency_table_still_gets_a_diagnostic(tmp_path: Path
 
 
 def test_a_requirement_hidden_behind_toml_escapes_is_left_alone(tmp_path: Path) -> None:
-    """A dependency string whose raw TOML spelling differs from its parsed value
-    (an escape sequence) cannot be located for a safe textual rewrite, so it is
-    passed over rather than guessed at."""
+    """A raw TOML spelling that differs from its parsed value cannot be safely rewritten."""
     pyproject = _write(tmp_path / "pyproject.toml", '[project]\ndependencies = ["mcp \\u003c 2"]\n')
     original = pyproject.read_text()
     assert update_dependencies([tmp_path], write=True) == []
@@ -257,8 +230,6 @@ def test_a_requirement_hidden_behind_toml_escapes_is_left_alone(tmp_path: Path) 
 
 
 def test_non_list_table_values_and_comment_lines_are_passed_over(tmp_path: Path) -> None:
-    """Malformed-but-parseable shapes (a string where a group list belongs) and
-    requirements lines with nothing actionable are skipped without complaint."""
     _write(
         tmp_path / "pyproject.toml",
         """\
@@ -274,8 +245,6 @@ def test_non_list_table_values_and_comment_lines_are_passed_over(tmp_path: Path)
 
 
 def test_add_markers_false_reports_without_writing_comments(tmp_path: Path) -> None:
-    """With `add_markers=False` a flag-only finding appears in the report but the
-    file is not modified at all."""
     pyproject = _write(tmp_path / "pyproject.toml", '[project]\ndependencies = ["mcp[ws]<2"]\n')
     original = pyproject.read_text()
     reports = update_dependencies([tmp_path], write=True, add_markers=False)
@@ -285,8 +254,6 @@ def test_add_markers_false_reports_without_writing_comments(tmp_path: Path) -> N
 
 
 def test_constraints_already_on_v2_are_never_touched(tmp_path: Path) -> None:
-    """An exact v2 pin, a published-alpha pin, and a narrow v2 range are the user's
-    own v2 choices; none of them is a v1-era constraint, so none is rewritten."""
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -304,8 +271,7 @@ def test_constraints_already_on_v2_are_never_touched(tmp_path: Path) -> None:
 
 
 def test_a_removed_extra_is_flagged_even_when_the_specifier_admits_v2(tmp_path: Path) -> None:
-    """`mcp[ws]>=1.0` resolves to a v2 where the extra does not exist and its
-    dependency silently vanishes, so the extra outranks the specifier check."""
+    """On v2 the extra silently vanishes, so the extra check outranks the specifier check."""
     pyproject = _write(tmp_path / "pyproject.toml", '[project]\ndependencies = ["mcp[ws]>=1.0"]\n')
     reports = update_dependencies([tmp_path], write=True)
     assert [diagnostic.severity for report in reports for diagnostic in report.diagnostics] == ["manual"]
@@ -314,8 +280,7 @@ def test_a_removed_extra_is_flagged_even_when_the_specifier_admits_v2(tmp_path: 
 
 
 def test_a_url_requirement_is_flagged_not_rewritten(tmp_path: Path) -> None:
-    """A VCS/URL reference has no specifier to rewrite but may pin v1 forever, so
-    it is marked for a hand update."""
+    """A VCS/URL reference has no specifier to rewrite but may pin v1 forever."""
     requirements = _write(tmp_path / "requirements.txt", "mcp @ git+https://github.com/o/r@v1.9.4\n")
     reports = update_dependencies([tmp_path], write=True)
     assert [diagnostic.severity for report in reports for diagnostic in report.diagnostics] == ["manual"]
@@ -323,8 +288,7 @@ def test_a_url_requirement_is_flagged_not_rewritten(tmp_path: Path) -> None:
 
 
 def test_an_unparseable_mcp_line_is_flagged(tmp_path: Path) -> None:
-    """A pip-compile style line (`--hash=` options) names mcp but cannot be parsed
-    or rewritten; passing it over silently would hide a v1 pin."""
+    """Passing over an unparseable `mcp` line silently would hide a v1 pin."""
     requirements = _write(
         tmp_path / "requirements.txt",
         "httpx==0.27.0\nmcp==1.9.4 --hash=sha256:abc123\n",
@@ -337,8 +301,6 @@ def test_an_unparseable_mcp_line_is_flagged(tmp_path: Path) -> None:
 
 
 def test_a_poetry_group_dependency_is_marked(tmp_path: Path) -> None:
-    """Poetry >=1.2 group tables and the legacy dev table count as Poetry homes for
-    the `mcp` constraint too."""
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -352,8 +314,6 @@ def test_a_poetry_group_dependency_is_marked(tmp_path: Path) -> None:
 
 
 def test_lookalike_strings_in_comments_and_other_tables_are_never_touched(tmp_path: Path) -> None:
-    """Rewrites and markers stay inside the standard dependency tables, so the same
-    requirement string in a TOML comment or another tool's table survives."""
     pyproject = _write(
         tmp_path / "pyproject.toml",
         """\
@@ -373,8 +333,7 @@ def test_lookalike_strings_in_comments_and_other_tables_are_never_touched(tmp_pa
 
 
 def test_an_arbitrary_equality_clause_is_left_alone(tmp_path: Path) -> None:
-    """`===` pins a string that may not even parse as a version; nothing about it is
-    provably v1-era, so it is never rewritten."""
+    """Nothing about an arbitrary-equality pin is provably v1-era."""
     pyproject = _write(tmp_path / "pyproject.toml", '[project]\ndependencies = ["mcp===legacy1"]\n')
     original = pyproject.read_text()
     assert update_dependencies([tmp_path], write=True) == []
@@ -382,7 +341,6 @@ def test_an_arbitrary_equality_clause_is_left_alone(tmp_path: Path) -> None:
 
 
 def test_two_poetry_tables_each_get_a_diagnostic(tmp_path: Path) -> None:
-    """`mcp` in both the main and a group table yields one diagnostic per entry."""
     _write(
         tmp_path / "pyproject.toml",
         """\
@@ -398,8 +356,7 @@ def test_two_poetry_tables_each_get_a_diagnostic(tmp_path: Path) -> None:
 
 
 def test_an_mcp_prefixed_other_package_is_untouched(tmp_path: Path) -> None:
-    """`mcp-extra` is a different distribution; neither the rewrite nor the
-    unparseable-line flag may fire on it."""
+    """Neither the rewrite nor the unparseable-line flag may fire on another distribution."""
     requirements = _write(tmp_path / "requirements.txt", "mcp-extra==1.0\n")
     assert update_dependencies([tmp_path], write=True) == []
     assert requirements.read_text() == "mcp-extra==1.0\n"
