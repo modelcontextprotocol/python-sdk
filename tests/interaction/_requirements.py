@@ -3799,13 +3799,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         divergence=Divergence(
             note=(
-                "The client never rejects an unrecognized resultType: ResultType is a "
-                "deliberately open Literal-or-str union (src/mcp-types/mcp_types/_types.py), "
-                "the 2026-07-28 wire surface types resultType as a bare str, and the client's "
-                "only result-kind dispatch is isinstance(result, InputRequiredResult) "
-                "(src/mcp/client/session.py), so an unrecognized value round-trips and is "
-                "surfaced on the returned result unchanged -- on both eras (the in-code TODO "
-                "in src/mcp/server/runner.py records the missing rejection)."
+                "The client accepts an unrecognized resultType whenever the body also parses "
+                "as a complete core result: ResultType is a deliberately open Literal-or-str "
+                "union (src/mcp-types/mcp_types/_types.py), and the client's discriminated "
+                "claim adapter (src/mcp/client/session.py) routes unknown tags to the core "
+                "arm, so such a value is surfaced on the returned result unchanged. A body "
+                "that does not parse as a core result fails result validation -- that reject "
+                "arm is pinned by extensions:client:claimed-result-undeclared-invalid. The "
+                "in-code TODO in src/mcp/server/runner.py records the missing rejection."
             ),
             issue="L117",
         ),
@@ -4917,9 +4918,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
         note=(
-            "Known leniency: the monolith result surface still accepts an unknown tag when the payload "
-            "also parses as a complete core result (open result_type, extras ignored). Rejecting tags "
-            "outside core plus active claims is a tracked follow-up ruling."
+            "The lenient accept arm -- an unknown tag whose body still parses as a complete core result "
+            "surfaces unchanged -- is a recorded divergence owned by "
+            "protocol:result-type:unrecognized-invalid; this entry pins only the reject arm."
         ),
     ),
     "extensions:client:capability-ad:gates-server-behaviour": Requirement(

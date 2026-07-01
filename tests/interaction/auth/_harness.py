@@ -16,9 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlsplit
 
+import anyio
 import httpx
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.client import Client
@@ -369,6 +370,55 @@ def step_up_shim(www_authenticate: str, *, on_nth_authenticated_post: int = 2, p
         return wrapped
 
     return factory
+
+
+def get_stream_step_up_shim(www_authenticate: str) -> tuple[list[int], anyio.Event, AppShim]:
+    """Build an `app_shim` that 403s the first authenticated GET to `/mcp` with the given challenge.
+
+    Returns:
+        The statuses of every authenticated GET response (live-updated), an event set when one
+        of those responses starts with status 200 (the reopened stream), and the shim factory.
+    """
+    statuses: list[int] = []
+    reopened = anyio.Event()
+    fired = False
+
+    def factory(app: ASGIApp) -> ASGIApp:
+        async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal fired
+            if not (
+                scope["type"] == "http"
+                and scope["path"] == "/mcp"
+                and scope["method"] == "GET"
+                and b"authorization" in dict(scope["headers"])
+            ):
+                await app(scope, receive, send)
+                return
+
+            async def recording_send(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    statuses.append(message["status"])
+                    if message["status"] == 200:
+                        reopened.set()
+                await send(message)
+
+            if not fired:
+                fired = True
+                await recording_send(
+                    {
+                        "type": "http.response.start",
+                        "status": 403,
+                        "headers": [(b"www-authenticate", www_authenticate.encode())],
+                    }
+                )
+                await recording_send({"type": "http.response.body", "body": b""})
+                return
+            # The reopened SSE stream stays open until the test's exit cancels it; nothing may follow this await.
+            await app(scope, receive, recording_send)
+
+        return wrapped
+
+    return statuses, reopened, factory
 
 
 def m2m_token_shim(provider: InMemoryAuthorizationServerProvider, *, scopes: list[str]) -> AppShim:

@@ -22,7 +22,6 @@ from mcp_types import (
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParams,
-    DiscoverResult,
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
@@ -50,7 +49,9 @@ from mcp import InputRequiredRoundsExceededError, MCPError
 from mcp.client import ClientRequestContext, ClientSession
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.server import Server, ServerRequestContext
+from mcp.server import MCPServer, Server, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult
+from mcp.server.extension import Extension
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
@@ -754,8 +755,10 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
     """Parallel MRTR calls keep requestState and inputResponses scoped to their originating request.
 
     A symmetric rendezvous in the elicitation callback forces both loops mid-flight before either
-    retry leaves; the exhaustive scan over every recorded tools/call frame proves no leak (spec MUST NOT).
+    retry leaves (spec MUST NOT). Handler capture suffices: every tools/call the client sends is
+    delivered to the handler, so the captured rounds are 1:1 with the sent frames.
     """
+    rounds: list[tuple[str, str | None, set[str] | None]] = []
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -772,12 +775,14 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
     ) -> CallToolResult | InputRequiredResult:
         assert params.name in ("alpha", "beta")
         name = params.name
+        rounds.append(
+            (name, params.request_state, None if params.input_responses is None else set(params.input_responses))
+        )
         if params.input_responses is None:
             return InputRequiredResult(
                 input_requests={f"q-{name}": _form_request(f"for {name}")},
                 request_state=f"state-{name}",
             )
-        assert params.request_state == f"state-{name}"
         return CallToolResult(content=[TextContent(text=name)])
 
     server = Server("parallel", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -799,12 +804,7 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
 
     with anyio.fail_after(5):
         async with (
-            mounted_app(server) as (http, _),
-            Client(
-                recording := RecordingTransport(streamable_http_client(f"{BASE_URL}/mcp", http_client=http)),
-                mode=LATEST_MODERN_VERSION,
-                elicitation_callback=answer,
-            ) as client,
+            Client(server, mode=LATEST_MODERN_VERSION, elicitation_callback=answer) as client,
             # Last item so it exits first: both calls complete while the client is still open.
             anyio.create_task_group() as task_group,
         ):
@@ -815,28 +815,10 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
             task_group.start_soon(call, "alpha")
             task_group.start_soon(call, "beta")
 
-    frames = [
-        message.message
-        for message in recording.sent
-        if isinstance(message.message, JSONRPCRequest) and message.message.method == "tools/call"
-    ]
-    by_name: dict[str, list[dict[str, Any]]] = {"alpha": [], "beta": []}
-    for frame in frames:
-        assert frame.params is not None
-        by_name[frame.params["name"]].append(frame.params)
-    for name, sent_params in by_name.items():
-        assert len(sent_params) == 2
-        initial, retry = sent_params
-        assert "requestState" not in initial
-        assert "inputResponses" not in initial
-        assert retry["requestState"] == f"state-{name}"
-        assert set(retry["inputResponses"]) == {f"q-{name}"}
-    # The exhaustive negative: no frame anywhere carries the other call's state or responses.
-    for params in (frame.params for frame in frames):
-        assert params is not None
-        other = "beta" if params["name"] == "alpha" else "alpha"
-        assert params.get("requestState") in (None, f"state-{params['name']}")
-        assert f"q-{other}" not in params.get("inputResponses", {})
+    # The rendezvous guarantees both initial rounds land before either retry; order within a phase is free.
+    assert sorted(rounds[:2]) == [("alpha", None, None), ("beta", None, None)]
+    # Each retry carries exactly its own call's state and response key -- nothing crossed over.
+    assert sorted(rounds[2:]) == [("alpha", "state-alpha", {"q-alpha"}), ("beta", "state-beta", {"q-beta"})]
     assert results == {
         "alpha": CallToolResult(content=[TextContent(text="alpha")]),
         "beta": CallToolResult(content=[TextContent(text="beta")]),
@@ -966,7 +948,7 @@ async def test_retry_with_malformed_input_responses_is_rejected_with_invalid_par
     assert error.error == snapshot(ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""))
 
 
-# --- scripted server peer: result bodies a real Server cannot emit ---
+# --- scripted server peer: byte-controlled absence of the resultType key ---
 
 
 @requirement("protocol:result-type:absent-is-complete")
@@ -1034,63 +1016,40 @@ async def test_result_body_without_result_type_parses_as_a_complete_result() -> 
         assert result == snapshot(CallToolResult(content=[TextContent(text="plain")]))
 
 
+# --- unrecognized resultType: a server extension puts an arbitrary tag on the wire ---
+
+
 @requirement("protocol:result-type:unrecognized-invalid")
-async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_of_treated_as_invalid() -> None:
+async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_of_treated_as_invalid(
+    connect: Connect,
+) -> None:
     """PINS A KNOWN GAP: an unrecognized resultType round-trips instead of being treated as invalid (spec MUST).
 
-    The client's open ResultType union accepts any string. Scripted peer over memory streams
-    because the typed Server cannot author an arbitrary resultType. When the client starts
-    rejecting unrecognized resultType values: re-pin to the typed rejection and delete the Divergence.
+    The leniency is narrow: the unknown tag survives only because the body also parses as a
+    complete core result. When the client starts rejecting unrecognized resultType values:
+    re-pin to the typed rejection and delete the Divergence.
     """
 
-    async def scripted_server(streams: MessageStream) -> None:
-        server_read, server_write = streams
+    class BogusIssuer(Extension):
+        identifier = "com.example/bogus"
 
-        def respond(request_id: types.RequestId, result: dict[str, object]) -> SessionMessage:
-            return SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result))
+        async def intercept_tool_call(
+            self, params: types.CallToolRequestParams, ctx: ServerRequestContext[Any, Any], call_next: CallNext
+        ) -> HandlerResult:
+            assert params.name == "probe"
+            # "bogus" is in no core or extension vocabulary -- exactly the value the MUST addresses.
+            return {"resultType": "bogus", "content": [{"type": "text", "text": "still here"}]}
 
-        call = await server_read.receive()
-        assert isinstance(call, SessionMessage)
-        assert isinstance(call.message, JSONRPCRequest)
-        assert call.message.method == "tools/call"
-        # "bogus" is in no core or extension vocabulary -- exactly the value the MUST addresses.
-        await server_write.send(
-            respond(call.message.id, {"resultType": "bogus", "content": [{"type": "text", "text": "still here"}]})
-        )
+    server = MCPServer("bogus-issuer", extensions=[BogusIssuer()])
 
-        # The client's output-schema cache refresh follows the call result; stopping here hangs the test.
-        refresh = await server_read.receive()
-        assert isinstance(refresh, SessionMessage)
-        assert isinstance(refresh.message, JSONRPCRequest)
-        assert refresh.message.method == "tools/list"
-        await server_write.send(
-            respond(
-                refresh.message.id,
-                {
-                    "tools": [{"name": "x", "inputSchema": {"type": "object"}}],
-                    "resultType": "complete",
-                    "ttlMs": 0,
-                    "cacheScope": "private",
-                },
-            )
-        )
+    @server.tool()
+    def probe() -> CallToolResult:
+        """Probe the unrecognized-tag path."""
+        raise NotImplementedError  # the server extension answers before the tool runs
 
-    async with (
-        create_client_server_memory_streams() as ((client_read, client_write), server_streams),
-        anyio.create_task_group() as task_group,
-        ClientSession(client_read, client_write, client_info=Implementation(name="cli", version="0")) as session,
-    ):
-        task_group.start_soon(scripted_server, server_streams)
-        session.adopt(
-            DiscoverResult(
-                supported_versions=[LATEST_MODERN_VERSION],
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="srv", version="0"),
-            )
-        )
-        with anyio.fail_after(5):
-            result = await session.call_tool("x", {})
+    async with connect(server) as client:
+        result = await client.call_tool("probe", {})
 
-        # The divergent observable: the unrecognized discriminator survives unchanged, never a rejection.
-        assert result.result_type == "bogus"
-        assert result == snapshot(CallToolResult(content=[TextContent(text="still here")], result_type="bogus"))
+    # The divergent observable: the unrecognized discriminator survives unchanged, never a rejection.
+    assert result.result_type == "bogus"
+    assert result == snapshot(CallToolResult(content=[TextContent(text="still here")], result_type="bogus"))
