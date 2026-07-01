@@ -548,6 +548,26 @@ def test_built_in_maps_are_immutable():
             _assign_item(built_in)
 
 
+def test_cacheable_methods_mirror_the_cacheable_method_literal():
+    """SEP-2549 weld: the hand-written Literal and the set derived from `MONOLITH_RESULTS` must agree."""
+    assert methods.CACHEABLE_METHODS == frozenset(get_args(methods.CacheableMethod))
+
+
+def test_input_required_methods_mirror_the_monolith_input_required_arms():
+    """MRTR weld: the spec's three multi-round-trip carriers are the only input_required methods."""
+    assert methods.INPUT_REQUIRED_METHODS == frozenset({"prompts/get", "resources/read", "tools/call"})
+
+
+def test_is_input_required_matches_typed_and_wire_shapes():
+    """SDK-defined predicate: True only for the typed model and the tagged wire mapping."""
+    assert methods.is_input_required(types.InputRequiredResult(request_state="s"))
+    assert methods.is_input_required({"resultType": "input_required", "inputRequests": {}})
+    assert not methods.is_input_required({"resultType": "complete", "content": []})
+    assert not methods.is_input_required({})
+    assert not methods.is_input_required(types.CallToolResult(content=[]))
+    assert not methods.is_input_required(None)
+
+
 def test_minimal_request_bodies_parse_through_every_request_row():
     for (method, version), surface_type in methods.CLIENT_REQUESTS.items():
         parsed = methods.parse_client_request(method, version, REQUEST_PARAMS_FIXTURES[surface_type])

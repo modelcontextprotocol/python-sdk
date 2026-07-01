@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+import hashlib
+import logging
+import uuid
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 
 import anyio
+import anyio.lowlevel
 import mcp_types as types
 from mcp_types import (
+    INVALID_PARAMS,
+    CacheableResult,
     CallToolResult,
     CompleteResult,
     EmptyResult,
@@ -30,6 +36,7 @@ from mcp_types import (
     ReadResourceResult,
     RequestParamsMeta,
     ResourceTemplateReference,
+    Result,
     ServerCapabilities,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
@@ -39,6 +46,8 @@ from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_in
 from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
+from mcp.client.caching import CacheConfig, CacheMode, ClientResponseCache, InMemoryResponseCacheStore
+from mcp.client.extension import ClaimContext, ClientExtension, NotificationBinding, ResultClaim
 from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
@@ -54,8 +63,12 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.runner import modern_on_request
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher, ProgressFnT
-from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
+from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.session import RequestResponder
+
+logger = logging.getLogger(__name__)
 
 ConnectMode = Literal["legacy", "auto"] | str
 """``mode=`` value: ``"legacy"`` (initialize handshake), ``"auto"`` (discover, fall back to
@@ -64,6 +77,7 @@ forward-compat; ``Client.__post_init__`` rejects anything outside that set at co
 
 _T = TypeVar("_T")
 _ResultT = TypeVar("_ResultT")
+_CacheableT = TypeVar("_CacheableT", bound=CacheableResult)
 
 _Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
 """Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
@@ -115,6 +129,46 @@ def _connected(value: _T | None) -> _T:
     return value
 
 
+def _strip_userinfo(url: str) -> str:
+    """Drop any userinfo from the URL's authority component; byte-exact otherwise.
+
+    Credentials must not enter cache-key material; any further normalization could merge distinct servers.
+    """
+    # Pure text, no urlsplit: it strips embedded tab/CR/LF before parsing, which would misalign slices.
+    sep = url.find("//")
+    if sep == -1:
+        return url
+    start = sep + 2
+    end = len(url)
+    for delimiter in "/?#":
+        if (found := url.find(delimiter, start)) != -1:
+            end = min(end, found)
+    authority = url[start:end]
+    if "@" not in authority:
+        return url
+    return url[:start] + authority.rpartition("@")[2] + url[end:]
+
+
+def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
+    """Wrap the session message handler with cache eviction on server notifications."""
+
+    async def handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, types.ServerNotification):
+            try:
+                await cache.evict_for_notification(message)
+            except Exception:  # boundary: eviction reaches user store code; a cache fault must not block delivery
+                logger.exception("Response cache eviction failed; the notification is still delivered")
+        if user_handler is not None:
+            await user_handler(message)
+        else:
+            # Mirrors ClientSession's default handler (session._default_message_handler).
+            await anyio.lowlevel.checkpoint()
+
+    return handler
+
+
 def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
     return types.DiscoverResult(
         supported_versions=[protocol_version],
@@ -135,6 +189,72 @@ async def _no_inbound_client_notifications(_dctx: Any, _method: str, _params: Ma
     messages) flow the other way via the per-request ``DispatchContext`` into the client's
     callbacks, and are not seen here.
     """
+
+
+@dataclass(frozen=True)
+class _FoldedExtensions:
+    """`Client.extensions` instances folded into the shapes `ClientSession` consumes."""
+
+    ad: dict[str, dict[str, Any]] | None
+    claims: dict[str, tuple[ResultClaim[Any], ...]] | None
+    bindings: tuple[NotificationBinding[Any], ...] | None
+    by_model: Mapping[type[Result], ResultClaim[Any]]
+
+
+def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExtensions:
+    """Fold extension contributions at construction, naming both owners on duplicate tags or methods."""
+    if isinstance(extensions, Mapping):
+        raise TypeError(
+            "extensions= takes a sequence of ClientExtension instances. The mapping form was "
+            "replaced: use advertise(identifier, settings) for advertise-only entries"
+        )
+    if not extensions:
+        return _FoldedExtensions(ad=None, claims=None, bindings=None, by_model={})
+    ad: dict[str, dict[str, Any]] = {}
+    claims: dict[str, tuple[ResultClaim[Any], ...]] = {}
+    bindings: list[NotificationBinding[Any]] = []
+    by_model: dict[type[Result], ResultClaim[Any]] = {}
+    claim_owners: dict[str, str] = {}
+    binding_owners: dict[str, str] = {}
+    for extension in extensions:
+        identifier = getattr(extension, "identifier", None)
+        if identifier is None:
+            raise ValueError(
+                f"{type(extension).__name__} has no `identifier`; a ClientExtension must set the "
+                "`identifier` class attribute (or assign one in `__init__`) before it can be used"
+            )
+        validate_extension_identifier(identifier, owner=type(extension).__name__)
+        if identifier in ad:
+            raise ValueError(f"extension identifier {identifier!r} is passed more than once")
+        ad[identifier] = extension.settings()
+        extension_claims = tuple(extension.claims())
+        for claim in extension_claims:
+            tag = claim.result_type
+            if tag in claim_owners:
+                owner = claim_owners[tag]
+                both = (
+                    f"extension {identifier!r} claims"
+                    if owner == identifier
+                    else (f"extensions {owner!r} and {identifier!r} both claim")
+                )
+                raise ValueError(f"{both} resultType {tag!r}; a wire tag can have only one resolver")
+            claim_owners[tag] = identifier
+            # Each model pins its result_type Literal to one tag, so this index cannot collide.
+            by_model[claim.model] = claim
+        if extension_claims:
+            claims[identifier] = extension_claims
+        for binding in extension.notifications():
+            if binding.method in binding_owners:
+                owner = binding_owners[binding.method]
+                both = (
+                    f"extension {identifier!r} binds"
+                    if owner == identifier
+                    else (f"extensions {owner!r} and {identifier!r} both bind")
+                )
+                raise ValueError(f"{both} notification method {binding.method!r}; a method can have only one observer")
+            binding_owners[binding.method] = identifier
+            bindings.append(binding)
+    return _FoldedExtensions(ad=ad, claims=claims or None, bindings=tuple(bindings) or None, by_model=by_model)
 
 
 @dataclass
@@ -217,14 +337,28 @@ class Client:
     `read_resource` give up. Use `client.session.<method>(..., allow_input_required=True)`
     to drive the loop manually instead."""
 
-    extensions: dict[str, dict[str, Any]] | None = None
-    """SEP-2133 extension support to advertise under `ClientCapabilities.extensions`
-    (identifier -> settings), e.g. `{"io.modelcontextprotocol/ui": {"mimeTypes": [...]}}`."""
+    extensions: Sequence[ClientExtension] | None = None
+    """Opt-in client extensions (SEP-2133).
+
+    Each instance contributes its capability ad, its result claims (resolved
+    transparently by `call_tool`), and its notification bindings. For an
+    ad-only entry use `mcp.client.advertise(identifier, settings)`."""
+
+    cache: CacheConfig | Literal[False] | None = None
+    """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
+
+    `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
+    in-memory store; pass a `CacheConfig` to customize, or `False` to disable. The
+    cacheable verbs take a per-call `cache_mode` (see `CacheMode`); calls carrying
+    `meta` always reach the server. A `CacheConfig` with a custom `store` requires
+    `target_id` when the server is not a URL (no identity can be derived)."""
 
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _connect: _Connector = field(init=False, repr=False, compare=False)
+    _response_cache: ClientResponseCache | None = field(init=False, default=None, repr=False, compare=False)
+    _folded_extensions: _FoldedExtensions = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.mode not in ("legacy", "auto") and self.mode not in MODERN_PROTOCOL_VERSIONS:
@@ -237,6 +371,8 @@ class Client:
                 f"mode must be 'legacy', 'auto', or one of {list(MODERN_PROTOCOL_VERSIONS)}; got {self.mode!r}{hint}"
             )
 
+        self._folded_extensions = _fold_extensions(self.extensions)
+
         srv = self.server
         if isinstance(srv, MCPServer):
             srv = srv._lowlevel_server  # pyright: ignore[reportPrivateUsage]
@@ -247,19 +383,49 @@ class Client:
         else:
             self._connect = _connect_transport(srv)
 
+        if self.cache is not False:
+            config = self.cache if self.cache is not None else CacheConfig()
+            # Only the hash below leaves this scope - the raw identity may carry credentials; never log or store it.
+            target_id = config.target_id
+            if target_id is None and isinstance(self.server, str):
+                target_id = _strip_userinfo(self.server)
+            if target_id is None:
+                if config.store is not None:
+                    raise ValueError(
+                        "a custom cache store requires CacheConfig.target_id when the server is not a URL: "
+                        "in-process servers and Transport instances get a random per-client identity, so "
+                        "their entries in a shared store could never be served to another client"
+                    )
+                target_id = uuid.uuid4().hex
+            self._response_cache = ClientResponseCache(
+                store=config.store if config.store is not None else InMemoryResponseCacheStore(),
+                partition=config.partition,
+                arm_id=hashlib.sha256(target_id.encode()).hexdigest(),
+                default_ttl_ms=config.default_ttl_ms,
+                clock=config.clock,
+                share_public=config.share_public,
+                # Lazy: the negotiated version is unknown until __aenter__'s handshake.
+                negotiated_version=lambda: self._session.protocol_version if self._session is not None else None,
+            )
+
     async def _build_session(self, exit_stack: AsyncExitStack) -> ClientSession:
         """Enter the resolved connector and return an un-entered ClientSession."""
         dispatcher = await self._connect(exit_stack, self.mode, self.raise_exceptions)
+        message_handler = self.message_handler
+        if self._response_cache is not None:
+            message_handler = _evicting_message_handler(self._response_cache, self.message_handler)
         return ClientSession(
             dispatcher=dispatcher,
             read_timeout_seconds=self.read_timeout_seconds,
             sampling_callback=self.sampling_callback,
             list_roots_callback=self.list_roots_callback,
             logging_callback=self.logging_callback,
-            message_handler=self.message_handler,
+            message_handler=message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
-            extensions=self.extensions,
+            extensions=self._folded_extensions.ad,
+            result_claims=self._folded_extensions.claims,
+            notification_bindings=self._folded_extensions.bindings,
         )
 
     async def __aenter__(self) -> Client:
@@ -361,23 +527,76 @@ class Client:
         """Set the logging level on the server."""
         return await self.session.set_logging_level(level=level, meta=meta)  # pyright: ignore[reportDeprecated]
 
+    async def _cached_fetch(
+        self,
+        method: str,
+        *,
+        cursor: str | None,
+        meta: RequestParamsMeta | None,
+        cache_mode: CacheMode,
+        send: Callable[[], Awaitable[_CacheableT]],
+        absorb: Callable[[_CacheableT], _CacheableT] | None = None,
+    ) -> _CacheableT:
+        """Serve one of the four list verbs through the response cache.
+
+        `absorb` (tools/list only) re-applies session-side derived state to a served cache hit.
+        """
+        cache = self._response_cache
+        if cache is None or cache_mode == "bypass":
+            return await send()
+        # A closed (or never-entered) client must raise, never serve cached entries.
+        _ = self.session
+        if meta is not None and cache_mode == "use":
+            # meta (a progress token, tracing fields) expects a wire request; fetch and replace the entry.
+            cache_mode = "refresh"
+        if cursor is not None:
+            # Continuation pages skip the cache, but an expired cursor means the listing changed (spec SHOULD evict).
+            try:
+                return await send()
+            except MCPError as e:
+                if e.code == INVALID_PARAMS:
+                    await cache.evict_method(method)
+                raise
+        if cache_mode == "use" and (hit := await cache.read(method, "")) is not None:
+            # The hit is a private deep copy, so absorption may mutate it freely.
+            served = cast(_CacheableT, hit)
+            return served if absorb is None else absorb(served)
+        gen = cache.capture(method, "")
+        result = await send()
+        await cache.write(method, "", result, gen, cache_mode)
+        return result
+
     async def list_resources(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListResourcesResult:
         """List available resources from the server."""
-        return await self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+        return await self._cached_fetch(
+            "resources/list",
+            cursor=cursor,
+            meta=meta,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+        )
 
     async def list_resource_templates(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListResourceTemplatesResult:
         """List available resource templates from the server."""
-        return await self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+        return await self._cached_fetch(
+            "resources/templates/list",
+            cursor=cursor,
+            meta=meta,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+        )
 
     async def read_resource(
         self,
@@ -386,6 +605,7 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ReadResourceResult:
         """Read a resource from the server.
 
@@ -400,6 +620,8 @@ class Client:
                 resuming from a persisted `InputRequiredResult`).
             request_state: Opaque state to seed the first call with.
             meta: Additional metadata for the request.
+            cache_mode: Cache behavior for this call (see `CacheMode`); seeded
+                calls (`input_responses` or `request_state` set) ignore it.
 
         Returns:
             The resource content.
@@ -407,6 +629,8 @@ class Client:
         Raises:
             InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
             MCPError: A callback returned `ErrorData` for an embedded input request.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
         """
 
         async def retry(r: InputResponses | None, s: str | None) -> ReadResourceResult | InputRequiredResult:
@@ -414,7 +638,29 @@ class Client:
                 uri, input_responses=r, request_state=s, meta=meta, allow_input_required=True
             )
 
-        return await self._drive_input_required(await retry(input_responses, request_state), retry)
+        # Seeded calls resume a specific exchange and must never be cached (spec MUST).
+        seeded = input_responses is not None or request_state is not None
+        cache = None if seeded else self._response_cache
+        if cache is None or cache_mode == "bypass":
+            return await self._drive_input_required(await retry(input_responses, request_state), retry)
+        # A closed (or never-entered) client must raise, never serve cached entries.
+        _ = self.session
+        if meta is not None and cache_mode == "use":
+            # Calls carrying meta always reach the server (mirrors `_cached_fetch`).
+            cache_mode = "refresh"
+        if cache_mode == "use" and (hit := await cache.read("resources/read", uri)) is not None:
+            # Only terminal first-round results are stored, so a hit legitimately skips the driver.
+            return cast(ReadResourceResult, hit)
+        gen = cache.capture("resources/read", uri)
+        first = await retry(None, None)
+        if not isinstance(first, InputRequiredResult):
+            await cache.write("resources/read", uri, first, gen, cache_mode)
+        elif cache_mode == "refresh":
+            # The refresh superseded whatever was cached, but an input_required resolution
+            # cannot be stored: purge the warm entry so it cannot be served again.
+            await cache.evict_key("resources/read", uri)
+        # Driver rounds carry inputResponses, so a terminal result reached through them is never cached (spec MUST).
+        return await self._drive_input_required(first, retry)
 
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Subscribe to resource updates."""
@@ -442,7 +688,14 @@ class Client:
         callbacks and the call is retried automatically (up to
         `input_required_max_rounds`). To drive the loop yourself — e.g. to
         persist `request_state` across process restarts — use
-        `client.session.call_tool(..., allow_input_required=True)`.
+        `client.session.call_tool(..., allow_input_required=True)`. Persisted
+        state is still subject to the server's TTL, request binding, and key
+        lifetime; a server on the default process-local key rejects it after a restart.
+
+        Result shapes claimed by this client's `extensions` are finished by the
+        owning claim's resolver, whose `CallToolResult` is returned; resolver
+        exceptions propagate as-is. To receive the claimed shape yourself, use
+        `client.session.call_tool(..., allow_claimed=True)`.
 
         Args:
             name: The name of the tool to call.
@@ -460,9 +713,11 @@ class Client:
         Raises:
             InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
             MCPError: A callback returned `ErrorData` for an embedded input request.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
         """
 
-        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult:
+        async def retry(r: InputResponses | None, s: str | None) -> CallToolResult | InputRequiredResult | Result:
             return await self.session.call_tool(
                 name,
                 arguments,
@@ -472,18 +727,39 @@ class Client:
                 request_state=s,
                 meta=meta,
                 allow_input_required=True,
+                # Input rounds resolve before a claimed result, so a claim may end any round.
+                allow_claimed=True,
             )
 
-        return await self._drive_input_required(await retry(input_responses, request_state), retry)
+        result = await self._drive_input_required(await retry(input_responses, request_state), retry)
+        if isinstance(result, CallToolResult):
+            return result
+        # Only claimed shapes reach this point, so the lookup is total.
+        claim = self._folded_extensions.by_model[type(result)]
+        final = await claim.resolve(
+            result,
+            ClaimContext(session=self.session, tool_name=name, read_timeout_seconds=read_timeout_seconds),
+        )
+        if not final.is_error:
+            # Match the direct path: revalidate the output schema, but never for isError results.
+            await self.session.validate_tool_result(name, final)
+        return final
 
     async def list_prompts(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListPromptsResult:
         """List available prompts from the server."""
-        return await self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+        return await self._cached_fetch(
+            "prompts/list",
+            cursor=cursor,
+            meta=meta,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+        )
 
     async def get_prompt(
         self,
@@ -515,6 +791,8 @@ class Client:
         Raises:
             InputRequiredRoundsExceededError: `input_required_max_rounds` exhausted.
             MCPError: A callback returned `ErrorData` for an embedded input request.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
         """
 
         async def retry(r: InputResponses | None, s: str | None) -> GetPromptResult | InputRequiredResult:
@@ -541,7 +819,7 @@ class Client:
 
         async def dispatch(key: str, req: InputRequest) -> InputResponse | ErrorData:
             ctx = ClientRequestContext(session=session, request_id=key, meta=req.params.meta if req.params else None)
-            return await session._dispatch_input_request(ctx, req)  # pyright: ignore[reportPrivateUsage]
+            return await session.dispatch_input_request(ctx, req)
 
         return await run_input_required_driver(
             first, dispatch=dispatch, retry=retry, max_rounds=self.input_required_max_rounds
@@ -565,9 +843,27 @@ class Client:
         """
         return await self.session.complete(ref=ref, argument=argument, context_arguments=context_arguments)
 
-    async def list_tools(self, *, cursor: str | None = None, meta: RequestParamsMeta | None = None) -> ListToolsResult:
+    async def list_tools(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
+    ) -> ListToolsResult:
         """List available tools from the server."""
-        return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
+        return await self._cached_fetch(
+            "tools/list",
+            cursor=cursor,
+            meta=meta,
+            cache_mode=cache_mode,
+            send=lambda: self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta)),
+            # A cache hit skips session.list_tools, so the session re-absorbs the served
+            # listing to rebuild its derived per-tool state. Hits are cursorless, but a
+            # cached page 1 can carry next_cursor - never prune on a partial listing.
+            absorb=lambda hit: self.session._absorb_tool_listing(  # pyright: ignore[reportPrivateUsage]
+                hit, complete=hit.next_cursor is None
+            ),
+        )
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:

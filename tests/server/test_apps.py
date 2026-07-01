@@ -14,6 +14,7 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import CallToolResult, ReadResourceResult, TextContent, TextResourceContents
 
+from mcp.client import advertise
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.apps import (
@@ -95,7 +96,7 @@ async def test_apps_tool_returns_rich_output_when_client_negotiated_apps() -> No
     branching on `client_supports_apps(ctx)`, drives both halves."""
     server = _clock_server()
 
-    async with Client(server, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as supports:
+    async with Client(server, extensions=[advertise(EXTENSION_ID, {"mimeTypes": [APP_MIME_TYPE]})]) as supports:
         rich = await supports.call_tool("get_time", {})
     async with Client(server) as plain:
         fallback = await plain.call_tool("get_time", {})
@@ -104,7 +105,7 @@ async def test_apps_tool_returns_rich_output_when_client_negotiated_apps() -> No
     assert fallback.content == snapshot([TextContent(text="The time is 2026-06-26T00:00:00Z.")])
 
 
-async def _observed_client_supports_apps(extensions: dict[str, dict[str, Any]] | None) -> bool:
+async def _observed_client_supports_apps(ui_settings: dict[str, Any] | None) -> bool:
     """Run one probe `tools/call` and report what `client_supports_apps` saw server-side.
 
     Exercises the lowlevel `ServerRequestContext` form, which reads the client's
@@ -123,29 +124,30 @@ async def _observed_client_supports_apps(extensions: dict[str, dict[str, Any]] |
         return CallToolResult(content=[TextContent(text="ok")])
 
     server = Server("probe", on_list_tools=list_tools, on_call_tool=call_tool)
+    extensions = None if ui_settings is None else [advertise(EXTENSION_ID, ui_settings)]
     async with Client(server, extensions=extensions) as client:
         await client.call_tool("probe", {})
     return observed[0]
 
 
 @pytest.mark.parametrize(
-    ("extensions", "expected"),
+    ("ui_settings", "expected"),
     [
-        pytest.param({EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}, True, id="html-mime-listed"),
-        pytest.param({EXTENSION_ID: {"mimeTypes": (APP_MIME_TYPE,)}}, True, id="in-process-tuple-mime-types"),
+        pytest.param({"mimeTypes": [APP_MIME_TYPE]}, True, id="html-mime-listed"),
+        pytest.param({"mimeTypes": (APP_MIME_TYPE,)}, True, id="in-process-tuple-mime-types"),
         pytest.param(None, False, id="extension-not-declared"),
-        pytest.param({EXTENSION_ID: {"mimeTypes": ["application/x-other"]}}, False, id="html-mime-not-offered"),
-        pytest.param({EXTENSION_ID: {}}, False, id="mime-types-key-missing"),
+        pytest.param({"mimeTypes": ["application/x-other"]}, False, id="html-mime-not-offered"),
+        pytest.param({}, False, id="mime-types-key-missing"),
     ],
 )
 async def test_client_supports_apps_from_lowlevel_request_context(
-    extensions: dict[str, dict[str, Any]] | None, expected: bool
+    ui_settings: dict[str, Any] | None, expected: bool
 ) -> None:
     """ext-apps: `client_supports_apps` is `True` only when the client declared the ui
     extension AND listed `text/html;profile=mcp-app` in its `mimeTypes` settings — a
     required field, so its absence means unsupported (the reference SDK's check is
     `uiCap?.mimeTypes?.includes(...)`)."""
-    assert await _observed_client_supports_apps(extensions) is expected
+    assert await _observed_client_supports_apps(ui_settings) is expected
 
 
 def test_apps_tool_rejects_non_ui_resource_uri() -> None:

@@ -2384,6 +2384,69 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
+    # Extensions (SEP-2133): client-side result claims and the capability ad
+    # ═══════════════════════════════════════════════════════════════════════════
+    "extensions:client:claimed-result-resolved": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
+        behavior=(
+            "A tools/call answered with an extension-claimed resultType is finished by the owning "
+            "ClientExtension's claim resolver, and Client.call_tool returns the resolver's ordinary "
+            "CallToolResult. The resolver may send follow-up requests through the session it is handed."
+        ),
+        added_in="2026-07-28",
+    ),
+    "extensions:client:claimed-result-undeclared-invalid": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
+        behavior=(
+            "A resultType unrecognized by the client is invalid: a claimed shape delivered to a client that "
+            "did not construct the owning extension fails result validation (the supported set is core plus "
+            "declared claims, never more)."
+        ),
+        added_in="2026-07-28",
+        note=(
+            "Known leniency: the monolith result surface still accepts an unknown tag when the payload "
+            "also parses as a complete core result (open result_type, extras ignored). Rejecting tags "
+            "outside core plus active claims is a tracked follow-up ruling."
+        ),
+    ),
+    "extensions:client:capability-ad:gates-server-behaviour": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
+        behavior=(
+            "The per-request _meta capability ad carries each declared extension's identifier and settings, "
+            "and is what entitles the server to substitute that extension's claimed shapes: a server "
+            "extension gating on the ad sees the declared settings, and refuses a non-declaring client with "
+            "-32021 (missing required client capability)."
+        ),
+        added_in="2026-07-28",
+    ),
+    "extensions:client:capability-ad:legacy-omits-claimed": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
+        behavior=(
+            "On a legacy connection no claim can activate, and the initialize capability ad omits "
+            "claim-bearing identifiers in the same breath (claim-less identifiers still advertise), so the "
+            "client never advertises an extension whose claimed shapes it would reject."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "The legacy-era half of the ad/claims coupling: only a handshake connection can exhibit it, so "
+            "the version window ends where the modern era begins."
+        ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
+    ),
+    "extensions:client:notification-binding-delivery": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic#resulttype",
+        behavior=(
+            "A vendor server notification bound by a ClientExtension's NotificationBinding is validated "
+            "against the binding's params type and delivered to its handler serially, in dispatch order."
+        ),
+        added_in="2026-07-28",
+        deferred=(
+            "Covered at session tier by tests/client/test_session_notification_bindings.py: no public "
+            "server-side surface emits vendor-method notifications (ServerNotification is a closed union), "
+            "and HTTP-modern arrival additionally needs the subscriptions/listen client runtime."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
     # Transports (in-suite coverage)
     # ═══════════════════════════════════════════════════════════════════════════
     "transport:streamable-http:stateful": Requirement(
@@ -3340,6 +3403,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: headers are derived from the cached tool schema at the seam.",
+    ),
+    "client-transport:http:vendor-name-param-header": Requirement(
+        source="sdk",
+        behavior=(
+            "A vendor request type declaring name_param mirrors that wire-params key into the Mcp-Name "
+            "header of its outgoing HTTP request, with no client-side registration of the method."
+        ),
+        added_in="2026-07-28",
+        transports=("streamable-http",),
+        note=(
+            "SDK mechanism honouring the per-extension Mcp-Name requirements (e.g. SEP-2663 mandates the "
+            "header for tasks/*); only observable over streamable HTTP, where headers exist."
+        ),
     ),
     "client-transport:http:stateless-ignores-session-id": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports#stateless-request-headers",

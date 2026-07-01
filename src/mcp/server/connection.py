@@ -100,6 +100,30 @@ class _NoChannelOutbound:
 _NO_CHANNEL = _NoChannelOutbound()
 
 
+class NotifyOnlyOutbound:
+    """Connection-scoped `Outbound` that forwards notifications and refuses requests.
+
+    Installed by `serve_dual_era_loop` for modern (2026-07-28+) connections
+    over duplex stream transports: the pipe is real, so server notifications
+    ride it, but the modern protocol forbids server-initiated JSON-RPC
+    requests, so `send_raw_request` refuses by construction.
+    """
+
+    def __init__(self, outbound: Outbound) -> None:
+        self._outbound = outbound
+
+    async def send_raw_request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
+    ) -> dict[str, Any]:
+        raise NoBackChannelError(method)
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        await self._outbound.notify(method, params, opts)
+
+
 class Connection:
     """Per-client connection state and standalone-stream `Outbound`.
 
@@ -167,7 +191,8 @@ class Connection:
         both supplied) are recorded as `client_params` so capability checks
         work. `outbound` defaults to the no-channel sentinel for the
         single-exchange HTTP path; duplex modern transports (e.g. stdio) pass
-        the dispatcher so server-initiated messages have a back-channel.
+        a notify-only wrapper around the dispatcher so server notifications
+        ride the pipe while server-initiated requests stay refused.
         """
         client_params = None
         if client_info is not None and client_capabilities is not None:

@@ -408,14 +408,53 @@ async def test_context_propagation():
 async def test_client_auto_mode_probes_discover_then_adopts(simple_server: Server) -> None:
     """`mode='auto'` over an in-process HTTP transport: the `server/discover` probe
     reaches the modern entry and the negotiated protocol version is adopted without
-    an `initialize` handshake. Runs over HTTP because the in-memory runner gates
-    `server/discover` behind the init handshake."""
+    an `initialize` handshake."""
     with anyio.fail_after(5):
         async with (
             mounted_app(simple_server) as (http, _),
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
             assert client.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+@asynccontextmanager
+async def _stream_loop_transport(server: Server) -> AsyncIterator[TransportStreams]:
+    """A Transport whose far end is `Server.run` over crossed memory streams - the stdio shape, in process."""
+    async with (
+        create_client_server_memory_streams() as ((client_read, client_write), (server_read, server_write)),
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(server.run, server_read, server_write, server.create_initialization_options())
+        yield client_read, client_write
+        tg.cancel_scope.cancel()
+
+
+async def test_client_auto_mode_negotiates_modern_over_a_stream_loop(simple_server: Server) -> None:
+    """`mode='auto'` against a real `Server.run` stream loop: the probe reaches the
+    dual-era driver, the connection locks modern, and feature requests are served
+    at 2026-07-28 with no `initialize` handshake."""
+    with anyio.fail_after(5):
+        async with Client(_stream_loop_transport(simple_server), mode="auto") as client:
+            assert client.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+async def test_client_pinned_modern_mode_works_over_a_stream_loop(simple_server: Server) -> None:
+    """A pinned-modern client sends no probe: its first envelope-bearing request
+    locks the stream-loop connection modern and is served."""
+    with anyio.fail_after(5):
+        async with Client(_stream_loop_transport(simple_server), mode="2026-07-28") as client:
+            assert client.protocol_version == "2026-07-28"
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+async def test_client_legacy_mode_still_handshakes_over_a_stream_loop(simple_server: Server) -> None:
+    """`mode='legacy'` against the dual-era stream loop is byte-identical legacy:
+    the handshake runs and the session lands at a handshake-era version."""
+    with anyio.fail_after(5):
+        async with Client(_stream_loop_transport(simple_server), mode="legacy") as client:
+            assert client.protocol_version == LATEST_HANDSHAKE_VERSION
             assert (await client.list_resources()).resources[0].name == "Test Resource"
 
 
@@ -504,6 +543,100 @@ async def test_modern_list_tools_drops_tools_with_invalid_x_mcp_header_but_legac
         async with Client(server, mode="legacy") as client:
             result = await client.list_tools()
         assert [t.name for t in result.tools] == ["ok", "dropme"]
+
+
+_RETIRED_TOOL = Tool(
+    name="retired",
+    input_schema={"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}},
+    output_schema={"type": "object"},
+)
+_SURVIVOR_TOOL = Tool(name="survivor", input_schema={"type": "object"})
+
+
+def _scripted_listing_server(listings: list[ListToolsResult]) -> Server:
+    """Serves the given listings in order, one per tools/list request."""
+
+    async def on_list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return listings.pop(0)
+
+    return Server("test", on_list_tools=on_list_tools)
+
+
+async def test_a_complete_listing_prunes_per_tool_state_for_tools_it_no_longer_contains() -> None:
+    """SDK-defined: a complete (uncursored, cursorless) listing is the full tool universe, so the
+    header map and output schema derived from an earlier listing of a now-absent tool are dropped."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL]),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_tools()
+            assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+
+            await client.session.list_tools()
+            assert set(client.session._x_mcp_header_maps) == {"survivor"}
+            assert set(client.session._tool_output_schemas) == {"survivor"}
+
+
+async def test_a_complete_listing_prunes_output_schemas_on_a_legacy_session_too() -> None:
+    """SDK-defined: the prune is era-independent -- legacy sessions cache output schemas the same
+    way (their header-map dict just stays empty, since the x-mcp-header filter is 2026-only)."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL]),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server, mode="legacy") as client:
+            await client.session.list_tools()
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+            assert client.session._x_mcp_header_maps == {}
+
+            await client.session.list_tools()
+            assert set(client.session._tool_output_schemas) == {"survivor"}
+
+
+async def test_a_listing_with_a_next_cursor_prunes_no_per_tool_state() -> None:
+    """SDK-defined: a first page carrying next_cursor is not the full universe -- state for tools
+    expected on later pages must survive it."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL], next_cursor="2"),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_tools()
+            await client.session.list_tools()
+            assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+
+
+async def test_a_cursor_page_fetch_prunes_no_per_tool_state() -> None:
+    """SDK-defined: a continuation page is partial even when it ends the pagination (no
+    next_cursor) -- only an uncursored single-page listing prunes."""
+    server = _scripted_listing_server(
+        [
+            ListToolsResult(tools=[_RETIRED_TOOL, _SURVIVOR_TOOL]),
+            ListToolsResult(tools=[_SURVIVOR_TOOL]),
+        ]
+    )
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_tools()
+            await client.session.list_tools(params=types.PaginatedRequestParams(cursor="2"))
+            assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
+            assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
 
 
 def test_client_rejects_handshake_era_mode_at_construction() -> None:

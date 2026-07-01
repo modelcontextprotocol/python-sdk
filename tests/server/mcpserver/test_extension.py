@@ -18,6 +18,7 @@ from mcp_types import (
     TextContent,
 )
 
+from mcp.client import advertise
 from mcp.client.client import Client
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import (
@@ -26,7 +27,6 @@ from mcp.server.extension import (
     ResourceBinding,
     ToolBinding,
     compose_tool_call_interceptor,
-    validate_extension_identifier,
 )
 from mcp.server.mcpserver import Context, MCPServer, require_client_extension
 from mcp.server.mcpserver.resources import TextResource
@@ -193,7 +193,7 @@ async def test_extension_method_reachable_via_session_send_request() -> None:
 
     async with Client(server) as client:
         request = _PingRequest(params=_PingParams())
-        result = await client.session.send_request(cast("types.ClientRequest", request), _PingResult)
+        result = await client.session.send_request(request, _PingResult)
 
     assert result == snapshot(_PingResult(pong=True))
 
@@ -343,7 +343,7 @@ async def test_version_pinned_method_is_served_at_an_allowed_version() -> None:
 
     async with Client(server, mode="2026-07-28") as client:
         request = _VersionPinnedRequest(params=_VersionPinnedParams())
-        result = await client.session.send_request(cast("types.ClientRequest", request), _VersionPinnedResult)
+        result = await client.session.send_request(request, _VersionPinnedResult)
 
     assert result == snapshot(_VersionPinnedResult(ok=True))
 
@@ -356,54 +356,10 @@ async def test_version_pinned_method_is_method_not_found_at_a_disallowed_version
     async with Client(server, mode="legacy") as client:
         request = _VersionPinnedRequest(params=_VersionPinnedParams())
         with pytest.raises(MCPError) as exc_info:
-            await client.session.send_request(cast("types.ClientRequest", request), _VersionPinnedResult)
+            await client.session.send_request(request, _VersionPinnedResult)
 
     assert exc_info.value.code == METHOD_NOT_FOUND
     assert exc_info.value.error.data == "com.example/pinned"
-
-
-@pytest.mark.parametrize(
-    "identifier",
-    [
-        "io.modelcontextprotocol/ui",
-        "com.example/my_ext",
-        "com.x-y.z2/n.a-b_c",
-        "example/x",
-        "a/b",
-        "com.example/9start",
-    ],
-)
-def test_grammar_conformant_extension_identifiers_are_accepted(identifier: str) -> None:
-    """Spec `_meta` key grammar: dot-separated labels (letter start, letter/digit end,
-    hyphens interior), a slash, then a name that starts and ends alphanumeric."""
-    validate_extension_identifier(identifier, owner="T")
-
-
-@pytest.mark.parametrize(
-    "identifier",
-    [
-        "noprefix",
-        "-foo/bar",
-        ".leading/x",
-        "a..b/x",
-        "foo-/x",
-        "9foo/x",
-        "foo/-bar",
-        "foo/bar-",
-        "foo/",
-        "/bar",
-        "foo/ba r",
-        "io.modelcontextprotocol/ui\n",
-        "",
-        None,
-        42,
-    ],
-)
-def test_malformed_extension_identifiers_are_rejected(identifier: Any) -> None:
-    """Spec `_meta` key grammar: malformed prefixes (bad label start/end, empty labels)
-    and malformed names are rejected, as are non-strings."""
-    with pytest.raises(TypeError):
-        validate_extension_identifier(identifier, owner="T")
 
 
 @pytest.mark.parametrize("method", ["tools/list", "completion/complete"])
@@ -466,7 +422,7 @@ async def test_require_client_extension_passes_when_client_declared_it() -> None
     """SDK-defined: `require_client_extension` is a no-op when the client advertised the id."""
     server = MCPServer("test", extensions=[_RequiresExt()])
 
-    async with Client(server, extensions={_NEEDS_EXT: {}}) as client:
+    async with Client(server, extensions=[advertise(_NEEDS_EXT)]) as client:
         result = await client.call_tool("guarded", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))

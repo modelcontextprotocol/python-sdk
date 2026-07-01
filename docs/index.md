@@ -2,6 +2,7 @@
 
 !!! info "You are viewing the in-development v2 documentation"
     For the current stable release, see the [v1.x documentation](https://py.sdk.modelcontextprotocol.io/).
+    Trying v2? [Tell us what you find](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) — it is the most useful thing you can do for the SDK right now.
 
 The **Model Context Protocol (MCP)** lets applications provide context to LLMs in a standardized way, separating the concern of *providing* context from the LLM interaction itself.
 
@@ -20,21 +21,21 @@ Python 3.10+.
 === "uv"
 
     ```bash
-    uv add "mcp[cli]==2.0.0a3"
+    uv add "mcp[cli]==2.0.0b1"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]==2.0.0a3"
+    pip install "mcp[cli]==2.0.0b1"
     ```
 
 The `[cli]` extra gives you the `mcp` command; you'll want it for development.
 
-!!! warning "Pin the version while v2 is in alpha"
+!!! warning "Pin the version while v2 is in beta"
     Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
     gives you the latest **v1.x** release, which this documentation does not describe. Check
-    [PyPI](https://pypi.org/project/mcp/#history) for the newest alpha before you copy the line
+    [PyPI](https://pypi.org/project/mcp/#history) for the newest beta before you copy the line
     above. See [Installation](installation.md) for the details.
 
 ## Example
@@ -91,3 +92,6 @@ You wrote two Python functions with type hints and a docstring. The SDK does the
 * The **[Tutorial](tutorial/index.md)** walks through everything a server can do, one small step at a time.
 * Migrating from v1? Start with the **[Migration Guide](migration.md)**.
 * Hunting for an exact signature? The **[API Reference](api/mcp/index.md)** is generated from the source.
+* Reading with an LLM? This documentation is also published in the [llms.txt](https://llmstxt.org/) format:
+  [llms.txt](https://py.sdk.modelcontextprotocol.io/v2/llms.txt) is an index of the pages, and
+  [llms-full.txt](https://py.sdk.modelcontextprotocol.io/v2/llms-full.txt) contains every page in a single file.

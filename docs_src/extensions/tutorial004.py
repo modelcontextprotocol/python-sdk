@@ -1,10 +1,11 @@
 from collections.abc import Sequence
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import mcp_types as types
 from pydantic import Field
 
 from mcp import Client
+from mcp.client import advertise
 from mcp.server.context import ServerRequestContext
 from mcp.server.extension import Extension, MethodBinding
 from mcp.server.mcpserver import MCPServer, require_client_extension
@@ -51,8 +52,8 @@ mcp = MCPServer("catalog", extensions=[Search()])
 
 
 async def main() -> None:
-    async with Client(mcp, extensions={EXTENSION_ID: {}}) as client:
+    async with Client(mcp, extensions=[advertise(EXTENSION_ID)]) as client:
         request = SearchRequest(params=SearchParams(query="mcp", limit=3))
-        result = await client.session.send_request(cast("types.ClientRequest", request), SearchResult)
+        result = await client.session.send_request(request, SearchResult)
         print(result.items)
         # ['mcp-0', 'mcp-1', 'mcp-2']

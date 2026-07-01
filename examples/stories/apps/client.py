@@ -2,7 +2,7 @@
 
 from mcp_types import TextContent, TextResourceContents
 
-from mcp.client import Client
+from mcp.client import Client, advertise
 from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID
 from stories._harness import Target, run_client
 
@@ -10,7 +10,9 @@ from stories._harness import Target, run_client
 async def main(target: Target, *, mode: str = "auto") -> None:
     # Advertise MCP Apps support so the server returns the UI-enabled result; a
     # client that omits this gets the text-only fallback (graceful degradation).
-    async with Client(target, mode=mode, extensions={EXTENSION_ID: {"mimeTypes": [APP_MIME_TYPE]}}) as client:
+    async with Client(
+        target, mode=mode, extensions=[advertise(EXTENSION_ID, {"mimeTypes": [APP_MIME_TYPE]})]
+    ) as client:
         # The extensions capability map rides `server/discover` (modern only). On a
         # legacy connection (today's stdio) it is absent, so assert it only when present.
         if client.server_capabilities.extensions is not None:

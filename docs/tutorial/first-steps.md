@@ -97,7 +97,7 @@ asyncio.run(main())
 ```
 
 ```text
-{'prompts': {'list_changed': False}, 'resources': {'subscribe': False, 'list_changed': False}, 'tools': {'list_changed': False}}
+{'prompts': {'list_changed': True}, 'resources': {'subscribe': True, 'list_changed': True}, 'tools': {'list_changed': True}}
 ```
 
 That dictionary is the server's half of the handshake:

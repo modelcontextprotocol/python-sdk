@@ -18,7 +18,7 @@
 >
 > **v1.x is the only stable release line and remains recommended for production.** It lives on the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x) and continues to receive critical bug fixes and security patches; see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md) for its documentation. `pip` and `uv` don't select a pre-release unless you explicitly request one, so existing installs are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable release lands.**
 >
-> v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/) for what's changed. Stable v2 is targeted for 2026-07-27, alongside the spec release. Try the pre-releases and tell us what breaks: [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
+> v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/) for what's changed. Stable v2 is targeted for 2026-07-27, alongside the spec release. Try the pre-releases and [tell us what breaks](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) — or discuss in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
 
 ## Documentation
 
@@ -41,10 +41,10 @@ Python 3.10+.
 ## Installation
 
 ```bash
-uv add "mcp[cli]==2.0.0a3"          # or: pip install "mcp[cli]==2.0.0a3"
+uv add "mcp[cli]==2.0.0b1"          # or: pip install "mcp[cli]==2.0.0b1"
 ```
 
-The pin matters while v2 is in pre-release: an unpinned install resolves to the latest stable v1.x, which this README does not describe. Check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release, and use `uv run --with "mcp==2.0.0a3"` for one-off commands.
+The pin matters while v2 is in pre-release: an unpinned install resolves to the latest stable v1.x, which this README does not describe. Check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release, and use `uv run --with "mcp==2.0.0b1"` for one-off commands.
 
 ## A server in 15 lines
 

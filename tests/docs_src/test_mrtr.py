@@ -18,9 +18,10 @@ from mcp_types import (
     TextContent,
 )
 
-from docs_src.mrtr import tutorial001, tutorial002, tutorial003, tutorial004
+from docs_src.mrtr import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005
 from mcp import Client, MCPError
 from mcp.client import ClientRequestContext
+from mcp.server.mcpserver import InvalidRequestState
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -161,3 +162,36 @@ async def test_the_prompt_auto_loop_returns_the_final_messages() -> None:
                 ],
             )
         )
+
+
+def test_a_custom_codec_round_trips_what_it_sealed() -> None:
+    """tutorial005: `unseal(seal(payload))` returns the payload; the token itself is opaque hex."""
+    codec = tutorial005.EnvelopeCodec(tutorial005.unwrap_data_key())
+    token = codec.seal(b"round-1")
+    assert token.startswith(tutorial005.PREFIX)
+    assert b"round-1" not in token.encode()
+    assert codec.unseal(token) == b"round-1"
+
+
+def test_a_custom_codec_raises_invalid_request_state_for_any_bad_token() -> None:
+    """tutorial005: any token the codec did not mint intact raises `InvalidRequestState`."""
+    codec = tutorial005.EnvelopeCodec(tutorial005.unwrap_data_key())
+    token = codec.seal(b"round-1")
+    with pytest.raises(InvalidRequestState):
+        codec.unseal(token + "00")
+    with pytest.raises(InvalidRequestState):
+        codec.unseal("not-a-token")
+
+
+def test_a_custom_codec_rejects_every_alias_of_a_minted_token() -> None:
+    """tutorial005: only the exact minted string verifies; rewritten spellings of it do not."""
+    codec = tutorial005.EnvelopeCodec(tutorial005.unwrap_data_key())
+    token = codec.seal(b"round-1")
+    body = token.removeprefix(tutorial005.PREFIX)
+    for alias in (
+        body,  # prefix stripped
+        tutorial005.PREFIX + body.upper(),  # non-canonical hex case
+        tutorial005.PREFIX + body[:8] + " " + body[8:],  # whitespace bytes.fromhex would skip
+    ):
+        with pytest.raises(InvalidRequestState):
+            codec.unseal(alias)

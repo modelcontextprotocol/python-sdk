@@ -103,6 +103,8 @@ def ask_restock(
 
 
 def build_server() -> MCPServer:
+    # Elicited answers ride between rounds in a requestState the SDK seals by default;
+    # see mrtr/ for the full security walk-through.
     mcp = MCPServer("refund-desk")
 
     @mcp.tool(description="Refund an order. The amount comes from the order record, not from the caller.")

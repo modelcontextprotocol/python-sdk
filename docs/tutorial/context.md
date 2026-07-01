@@ -104,6 +104,8 @@ What a server offers is not fixed at import time. Register a tool at runtime, th
 
 The siblings are `send_resource_list_changed()`, `send_prompt_list_changed()`, and `send_resource_updated(uri)` for a change to one specific resource.
 
+On a 2026-07-28 connection, clients receive change notifications only on a `subscriptions/listen` stream they opened — the `send_*` methods above do not reach those streams. The `Context` publish methods — `await ctx.notify_tools_changed()`, `await ctx.notify_prompts_changed()`, `await ctx.notify_resources_changed()`, and `await ctx.notify_resource_updated(uri)` — deliver to every subscribed stream at once. The whole story, including scaling out across replicas, is in **[Subscriptions](../advanced/subscriptions.md)**.
+
 !!! check
     Before anyone runs `enable_recommendations`, the tool you are promising does not exist. Call it
     anyway and the result is an error the model can read:

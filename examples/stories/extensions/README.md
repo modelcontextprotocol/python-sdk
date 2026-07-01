@@ -24,7 +24,7 @@ uv run python -m stories.extensions.client --http
   rejects clients that did not declare the extension with `-32021` (missing
   required client capability) and a machine-readable `requiredCapabilities`
   payload.
-- `client.py` `Client(target, extensions={EXTENSION_ID: {}})` — the client-side
+- `client.py` `Client(target, extensions=[advertise(EXTENSION_ID)])` — the client-side
   half of the negotiation; on 2026-07-28 it travels in the per-request `_meta`
   envelope.
 - `client.py` `client.session.send_request(...)` — vendor methods have no

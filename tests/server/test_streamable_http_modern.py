@@ -8,6 +8,7 @@ the closed back-channel on the dispatch context, and the request-validation ladd
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import anyio
@@ -23,6 +24,8 @@ from mcp_types import (
     METHOD_NOT_FOUND,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
+    CallToolRequestParams,
+    CallToolResult,
     ErrorData,
     JSONRPCError,
     JSONRPCResponse,
@@ -36,12 +39,13 @@ from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.types import Message, Receive, Scope, Send
 from trio.testing import MockClock
 
-from mcp.server import Server, ServerRequestContext, runner
+from mcp.server import Server, ServerRequestContext, _streamable_http_modern, runner
 from mcp.server._streamable_http_modern import (
     _SingleExchangeDispatchContext,
     _to_jsonrpc_response,
     handle_modern_request,
 )
+from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ServerEvent
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_NAME_HEADER, MCP_PROTOCOL_VERSION_HEADER
@@ -647,3 +651,434 @@ async def test_disconnect_cancels_handler_and_runs_exit_stack() -> None:
         await cleanup_ran.wait()
 
     assert handler_started.is_set()
+
+
+# --- Mcp-Param-* validation (SEP-2243 server half) -------------------------------
+
+
+_REGION_TOOL = Tool(
+    name="search",
+    input_schema={
+        "type": "object",
+        "properties": {"region": {"type": "string", "x-mcp-header": "Region"}},
+    },
+)
+
+
+def _tool_call_body(arguments: dict[str, Any] | None = None, *, name: str | None = "search") -> dict[str, Any]:
+    """A valid 2026-07-28 `tools/call` body; `name=None` omits the name entirely."""
+    body = _list_tools_body()
+    body["method"] = "tools/call"
+    if name is not None:
+        body["params"]["name"] = name
+    if arguments is not None:
+        body["params"]["arguments"] = arguments
+    return body
+
+
+_TOOL_CALL_HEADERS = {MCP_METHOD_HEADER: "tools/call", MCP_NAME_HEADER: "search"}
+
+
+async def _ok_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    return CallToolResult(content=[])
+
+
+def _x_mcp_server(tools: list[Tool] | None = None) -> Server[Any]:
+    """A lowlevel server whose `tools/list` handler advertises an `x-mcp-header` tool."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=tools if tools is not None else [_REGION_TOOL], ttl_ms=0, cache_scope="public")
+
+    return Server("test", on_list_tools=list_tools, on_call_tool=_ok_call_tool)
+
+
+async def test_modern_tools_call_accepts_matching_mcp_param_header() -> None:
+    """A `Mcp-Param-*` header that agrees with the body argument after sentinel decoding dispatches normally."""
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post(
+            "/mcp",
+            json=_tool_call_body({"region": "Tōkyō"}),
+            headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "=?base64?VMWNa3nFjQ==?="},
+        )
+    assert response.status_code == 200
+    assert response.json()["result"]["content"] == []
+
+
+@pytest.mark.parametrize("json_response", [True, False])
+async def test_modern_tools_call_rejects_mcp_param_mismatch_with_400_and_header_mismatch(
+    json_response: bool,
+) -> None:
+    """Spec MUST: a header/body mismatch is HTTP 400 + `HEADER_MISMATCH`, plain JSON even in SSE mode."""
+    async with _asgi_client(_x_mcp_server(), json_response=json_response) as http:
+        response = await http.post(
+            "/mcp",
+            json=_tool_call_body({"region": "us"}),
+            headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+        )
+    assert response.status_code == 400
+    assert response.headers["content-type"].split(";", 1)[0] == "application/json"
+    error = response.json()["error"]
+    assert error["code"] == HEADER_MISMATCH
+    assert "Mcp-Param-Region" in error["message"]
+
+
+async def test_modern_tools_call_rejects_missing_mcp_param_header_for_present_argument() -> None:
+    """Spec table: a missing header for a present annotated argument MUST be rejected."""
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", json=_tool_call_body({"region": "test-value"}), headers=_TOOL_CALL_HEADERS)
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HEADER_MISMATCH
+
+
+async def test_modern_tools_call_rejects_orphan_mcp_param_header() -> None:
+    """SDK posture: a header for an absent argument is the routing-spoof case the gate exists to stop."""
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post(
+            "/mcp", json=_tool_call_body({}), headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"}
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HEADER_MISMATCH
+
+
+async def test_modern_tools_call_skips_validation_without_a_tools_list_handler() -> None:
+    """Without a `tools/list` handler no annotations were ever advertised, so `Mcp-Param-*` headers are ignored."""
+    server: Server[Any] = Server("test")
+    server.add_request_handler("tools/call", CallToolRequestParams, _ok_call_tool)
+    async with _asgi_client(server) as http:
+        response = await http.post(
+            "/mcp",
+            json=_tool_call_body({"region": "us"}),
+            headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+        )
+    assert response.status_code == 200
+    assert response.json()["result"]["content"] == []
+
+
+async def test_modern_tools_call_skips_validation_when_tool_not_listed_to_this_caller() -> None:
+    """A tool absent from this caller's listing was never advertised to it, so its headers go unvalidated."""
+    other = Tool(name="other", input_schema={"type": "object"})
+    async with _asgi_client(_x_mcp_server(tools=[other])) as http:
+        response = await http.post(
+            "/mcp",
+            json=_tool_call_body({"region": "us"}),
+            headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+        )
+    assert response.status_code == 200
+
+
+async def test_modern_tools_call_skips_validation_when_list_handler_raises(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising `tools/list` handler fails open — validation is skipped and the skip logged at error level."""
+
+    async def broken_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise RuntimeError("catalog backend down")
+
+    server: Server[Any] = Server("test", on_list_tools=broken_list, on_call_tool=_ok_call_tool)
+    with caplog.at_level(logging.ERROR, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(server) as http:
+            response = await http.post(
+                "/mcp",
+                json=_tool_call_body({"region": "us"}),
+                headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+            )
+    assert response.status_code == 200
+    assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
+
+
+async def test_modern_tools_call_walks_pagination_to_find_the_tool() -> None:
+    """The schema lookup follows `nextCursor` pages; a tool on a later page is still validated."""
+    cursors_seen: list[str | None] = []
+
+    async def paged_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        cursor = params.cursor if params is not None else None
+        cursors_seen.append(cursor)
+        if cursor is None:
+            return ListToolsResult(tools=[], next_cursor="page-2", ttl_ms=0, cache_scope="public")
+        return ListToolsResult(tools=[_REGION_TOOL], ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=paged_list, on_call_tool=_ok_call_tool)
+    async with _asgi_client(server) as http:
+        response = await http.post(
+            "/mcp",
+            json=_tool_call_body({"region": "us"}),
+            headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HEADER_MISMATCH
+    assert cursors_seen == [None, "page-2"]
+
+
+async def test_modern_tools_call_skips_validation_on_a_cursor_cycle(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A repeated cursor stops the walk with a logged skip instead of hanging the request."""
+
+    async def cycling_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], next_cursor="loop", ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=cycling_list, on_call_tool=_ok_call_tool)
+    with caplog.at_level(logging.WARNING, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(server) as http:
+            response = await http.post(
+                "/mcp",
+                json=_tool_call_body({"region": "us"}),
+                headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+            )
+    assert response.status_code == 200
+    assert "cursor cycle" in caplog.text
+
+
+async def test_modern_tools_call_skips_validation_at_the_pagination_cap(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-terminating cursor chain stops at the page cap: logged skip, never a hang."""
+    monkeypatch.setattr(_streamable_http_modern, "_MCP_PARAM_LIST_PAGE_CAP", 3)
+    pages = iter(range(1_000_000))
+
+    async def endless_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], next_cursor=f"page-{next(pages)}", ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=endless_list, on_call_tool=_ok_call_tool)
+    with caplog.at_level(logging.WARNING, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(server) as http:
+            response = await http.post(
+                "/mcp",
+                json=_tool_call_body({"region": "us"}),
+                headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+            )
+    assert response.status_code == 200
+    assert "did not terminate within 3 pages" in caplog.text
+
+
+async def test_modern_tools_call_threads_the_callers_envelope_into_the_synthetic_listing() -> None:
+    """The synthetic `tools/list` runs as this caller, so a visibility-scoped handler produces its view."""
+    seen: list[Any] = []
+
+    async def recording_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        seen.append(ctx.session.client_params)
+        return ListToolsResult(tools=[_REGION_TOOL], ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=recording_list, on_call_tool=_ok_call_tool)
+    async with _asgi_client(server) as http:
+        response = await http.post(
+            "/mcp",
+            json=_tool_call_body({"region": "eu"}),
+            headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+        )
+    assert response.status_code == 200
+    assert len(seen) == 1
+    assert seen[0] is not None
+    assert seen[0].client_info.name == "raw"
+
+
+async def test_modern_tools_call_leaves_mis_shaped_name_and_arguments_to_dispatch() -> None:
+    """A missing `name` or non-mapping `arguments` is dispatch's INVALID_PARAMS, never a header mismatch."""
+    async with _asgi_client(_x_mcp_server()) as http:
+        nameless = await http.post("/mcp", json=_tool_call_body(name=None), headers={MCP_METHOD_HEADER: "tools/call"})
+        bad_arguments_body = _tool_call_body()
+        bad_arguments_body["params"]["arguments"] = ["not", "a", "mapping"]
+        bad_arguments = await http.post(
+            "/mcp",
+            json=bad_arguments_body,
+            headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+        )
+    assert nameless.json()["error"]["code"] == INVALID_PARAMS
+    assert bad_arguments.json()["error"]["code"] == INVALID_PARAMS
+
+
+async def test_modern_tools_call_rejects_a_duplicated_mcp_param_header() -> None:
+    """A duplicated recognized header is rejected even if one copy matches: readers may disagree on which wins."""
+    # An httpx header list with a repeated name reaches the ASGI scope as two raw header lines.
+    duplicated = httpx.Headers(
+        [*_TOOL_CALL_HEADERS.items(), ("mcp-param-region", "spoofed"), ("mcp-param-region", "eu")]
+    )
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", json=_tool_call_body({"region": "eu"}), headers=duplicated)
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == HEADER_MISMATCH
+    assert "more than once" in error["message"]
+
+
+async def test_modern_synthetic_listing_does_not_replay_caller_meta_extras() -> None:
+    """The rebuilt synthetic-listing envelope does not replay caller `_meta` extras like a progress token."""
+    seen_metas: list[Any] = []
+
+    async def recording_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        assert params is not None
+        seen_metas.append(params.meta)
+        return ListToolsResult(tools=[_REGION_TOOL], ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=recording_list, on_call_tool=_ok_call_tool)
+    body = _tool_call_body({"region": "eu"})
+    body["params"]["_meta"]["progressToken"] = "tok-1"
+    async with _asgi_client(server) as http:
+        response = await http.post("/mcp", json=body, headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"})
+    assert response.status_code == 200
+    assert len(seen_metas) == 1
+    assert seen_metas[0] is not None
+    assert "progressToken" not in seen_metas[0]
+
+
+async def test_modern_post_rejects_a_duplicated_routing_header() -> None:
+    """A duplicated routing header (`Mcp-Name`) is unverifiable and rejected before the validation ladder runs."""
+    duplicated = httpx.Headers(
+        [(MCP_METHOD_HEADER, "tools/call"), (MCP_NAME_HEADER, "search"), (MCP_NAME_HEADER, "admin-tool")]
+    )
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", json=_tool_call_body({"region": "eu"}), headers=duplicated)
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == HEADER_MISMATCH
+    assert "more than once" in error["message"]
+
+
+async def test_modern_tools_call_mis_shaped_envelope_skips_validation_without_an_error_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A mis-shaped envelope value is a debug-logged client fault; the wire reply is dispatch's INVALID_PARAMS."""
+    body = _tool_call_body({"region": "eu"})
+    body["params"]["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
+    with caplog.at_level(logging.DEBUG, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(_x_mcp_server()) as http:
+            response = await http.post("/mcp", json=body, headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == INVALID_PARAMS
+    module_records = [r for r in caplog.records if r.name == _streamable_http_modern.__name__]
+    assert all(r.levelno < logging.ERROR for r in module_records)
+    assert any("fails tools/list validation" in r.message for r in module_records)
+
+
+async def test_modern_tools_call_survives_a_middleware_short_circuit_with_a_mis_shaped_listing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A mis-shaped `tools/list` result from a middleware short-circuit fails open instead of crashing to a 500."""
+
+    async def short_circuit(ctx: Any, call_next: Any) -> Any:
+        if ctx.method == "tools/list":
+            return {"tools": None}
+        return await call_next(ctx)
+
+    server = _x_mcp_server()
+    server.middleware = [short_circuit]
+    with caplog.at_level(logging.ERROR, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(server) as http:
+            response = await http.post(
+                "/mcp",
+                json=_tool_call_body({"region": "us"}),
+                headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+            )
+    assert response.status_code == 200
+    assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
+
+
+async def test_modern_post_with_an_oversized_integer_literal_is_parse_error_not_a_crash() -> None:
+    """An integer past CPython's digit limit makes json.loads raise a bare ValueError — still 400 + PARSE_ERROR."""
+    body = b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"a":' + b"1" * 5000 + b"}}"
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == PARSE_ERROR
+
+
+async def test_modern_tools_call_logs_a_handler_raised_validation_error_loudly(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ValidationError from inside the tools/list handler is a server fault: the skip is
+    logged at error level, not mistaken for a client-fault envelope."""
+
+    async def broken_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool.model_validate({"bogus": 1})], ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=broken_list, on_call_tool=_ok_call_tool)
+    with caplog.at_level(logging.ERROR, logger=_streamable_http_modern.__name__):
+        async with _asgi_client(server) as http:
+            response = await http.post(
+                "/mcp",
+                json=_tool_call_body({"region": "us"}),
+                headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"},
+            )
+    assert response.status_code == 200
+    assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
+
+
+async def test_modern_post_with_deeply_nested_body_is_parse_error_not_a_crash() -> None:
+    """Deep nesting makes json.loads raise RecursionError; still an unparseable body: 400 + PARSE_ERROR."""
+    body = b"[" * 100_000 + b"]" * 100_000
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == PARSE_ERROR
+
+
+class _OpenSignalBus(InMemorySubscriptionBus):
+    """Sets an event when a listen stream subscribes, so tests can sequence close()."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.opened = anyio.Event()
+
+    def subscribe(self, listener: Callable[[ServerEvent], None]) -> Callable[[], None]:
+        unsubscribe = super().subscribe(listener)
+        self.opened.set()
+        return unsubscribe
+
+
+def _listen_body() -> dict[str, Any]:
+    """A minimal valid 2026-07-28 `subscriptions/listen` request body."""
+    return {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "subscriptions/listen",
+        "params": {
+            "notifications": {"toolsListChanged": True},
+            "_meta": {
+                PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION,
+                CLIENT_INFO_META_KEY: {"name": "raw", "version": "0.0.0"},
+                CLIENT_CAPABILITIES_META_KEY: {},
+            },
+        },
+    }
+
+
+async def test_subscriptions_listen_requires_the_sse_accept_even_in_json_mode() -> None:
+    """SDK-defined: a listen response is always SSE, so a request whose Accept
+    lacks `text/event-stream` is rejected with 406 rather than served a content
+    type it never accepted - JSON-response mode included."""
+    server = Server("test", on_subscriptions_listen=ListenHandler(InMemorySubscriptionBus()))
+    async with _asgi_client(server, json_response=True, accept="application/json") as http:
+        response = await http.post("/mcp", json=_listen_body(), headers={MCP_METHOD_HEADER: "subscriptions/listen"})
+    assert response.status_code == 406
+
+
+async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
+    """SDK-defined (TypeScript/Go parity): a listen response IS a notification
+    stream, so `json_response=True` does not apply to it - the request takes
+    the SSE path, acks first, and ends with the stamped result on close()."""
+    bus = _OpenSignalBus()
+    handler = ListenHandler(bus)
+    server = Server("test", on_subscriptions_listen=handler)
+    body = _listen_body()
+
+    responses: list[httpx.Response] = []
+    async with _asgi_client(server, json_response=True) as http:
+        async with anyio.create_task_group() as tg:
+
+            async def post() -> None:
+                responses.append(
+                    await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "subscriptions/listen"})
+                )
+
+            tg.start_soon(post)
+            with anyio.fail_after(5):
+                await bus.opened.wait()
+            handler.close()
+
+    response = responses[0]
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
+    events = _sse_payloads(response.text)
+    assert events[0]["method"] == "notifications/subscriptions/acknowledged"
+    assert events[1]["id"] == 9
+    assert events[1]["result"]["_meta"] == {"io.modelcontextprotocol/subscriptionId": 9}

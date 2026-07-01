@@ -6,6 +6,7 @@ import mcp_types as types
 
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
+from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from stories._hosting import run_server_from_args
 
 CONFIRM_SCHEMA: types.ElicitRequestedSchema = {
@@ -55,7 +56,11 @@ def build_server() -> Server[Any]:
             return types.CallToolResult(content=[types.TextContent(text=f"deployed to {env}")])
         return types.CallToolResult(content=[types.TextContent(text=f"deployment to {env} cancelled")])
 
-    return Server("mrtr-example", on_list_tools=list_tools, on_call_tool=call_tool)
+    server = Server("mrtr-example", on_list_tools=list_tools, on_call_tool=call_tool)
+    # Lowlevel opt-in: append the same boundary middleware MCPServer installs by
+    # default; the server name becomes the token audience.
+    server.middleware.append(RequestStateBoundary(RequestStateSecurity.ephemeral(), default_audience=server.name))
+    return server
 
 
 if __name__ == "__main__":

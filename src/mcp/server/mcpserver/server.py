@@ -83,10 +83,12 @@ from mcp.server.mcpserver.resources import (
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
+from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
@@ -133,6 +135,15 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     auth: AuthSettings | None
 
 
+_MISSING_AUDIENCE = (
+    "request_state_security is configured but this server has no name. Sealed\n"
+    "requestState carries the server name as an audience claim, so state minted by\n"
+    "another service that shares the same keys is rejected; unnamed servers would\n"
+    "all stamp the same placeholder and the check would mean nothing. Name the\n"
+    'server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).'
+)
+
+
 def lifespan_wrapper(
     app: MCPServer[LifespanResultT],
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
@@ -170,7 +181,9 @@ class MCPServer(Generic[LifespanResultT]):
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
         resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
+        request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        subscriptions: SubscriptionBus | None = None,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -190,6 +203,10 @@ class MCPServer(Generic[LifespanResultT]):
             resources=resources, warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
         )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+        # The subscriptions/listen fan-out seam (2026-07-28). The default bus is
+        # in-process; pass an `SubscriptionBus` implementation over an external pub/sub
+        # backend to fan events out across replicas.
+        self._subscriptions: SubscriptionBus = subscriptions if subscriptions is not None else InMemorySubscriptionBus()
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -206,10 +223,22 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
+            on_subscriptions_listen=ListenHandler(self._subscriptions),
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
+        # Ordering: inside OpenTelemetry (spans record the sealed wire form),
+        # outside extension interceptors (extensions see plaintext).
+        if request_state_security is None:
+            security = RequestStateSecurity.ephemeral()
+        else:
+            # A supplied policy usually means shared keys, where the audience claim is
+            # what separates services; an unnamed server would stamp the placeholder.
+            if not name and request_state_security.audience is None:
+                raise ValueError(_MISSING_AUDIENCE)
+            security = request_state_security
+        self._lowlevel_server.middleware.append(RequestStateBoundary(security, default_audience=self.name))
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -374,7 +403,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
     ) -> CallToolResult | InputRequiredResult:
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
@@ -390,7 +419,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult | InputRequiredResult:
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceNotFoundError as err:
@@ -434,7 +463,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult | InputRequiredResult:
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:
@@ -459,7 +488,7 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> CallToolResult | InputRequiredResult:
         """Call a tool by name with arguments."""
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
@@ -511,7 +540,7 @@ class MCPServer(Generic[LifespanResultT]):
             ResourceError: If template creation or resource reading fails.
         """
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         resource = await self._resource_manager.get_resource(uri, context)
         if isinstance(resource, InputRequiredResult):
             return resource
@@ -856,6 +885,17 @@ class MCPServer(Generic[LifespanResultT]):
             prompt: A Prompt instance to add
         """
         self._prompt_manager.add_prompt(prompt)
+
+    def remove_prompt(self, name: str) -> None:
+        """Remove a prompt from the server by name.
+
+        Args:
+            name: The name of the prompt to remove
+
+        Raises:
+            ValueError: If the prompt does not exist
+        """
+        self._prompt_manager.remove_prompt(name)
 
     def prompt(
         self,
@@ -1220,7 +1260,7 @@ class MCPServer(Generic[LifespanResultT]):
         carrying the echoed opaque state.
         """
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:

@@ -294,7 +294,6 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         ``message_handler``); only consulted inside ``run()`` so pre-enter assignment is safe."""
         self._drain_inbound_on_read_eof = drain_inbound_on_read_eof
 
-
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
