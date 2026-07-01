@@ -1,17 +1,15 @@
 """`docs/advanced/tasks.md`: every claim the page makes, proved against the real SDK."""
 
-from typing import cast
-
-import mcp_types as types
 import pytest
 from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND, MISSING_REQUIRED_CLIENT_CAPABILITY, TextContent
 
 from docs_src.tasks import tutorial001, tutorial002, tutorial003
 from mcp import Client, MCPError, TaskFailedError
 from mcp.client import TasksExtension
+from mcp.client.tasks import get_task
 from mcp.server.mcpserver import MCPServer
 from mcp.server.tasks import EXTENSION_ID, CreateTaskResult, Tasks
-from mcp.shared.tasks import GetTaskRequest, GetTaskRequestParams, GetTaskResult
+from mcp.shared.tasks import GetTaskResult
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -91,7 +89,7 @@ async def test_transparent_polling_resolves_the_augmented_transcode_call() -> No
 
 async def test_the_manual_driving_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
     """tutorial003: `main()` gets the typed `CreateTaskResult` and polls `tasks/get`
-    itself; both printed lines match the page's comments."""
+    itself; the three printed lines match the page's comments."""
     await tutorial003.main()
     out = capsys.readouterr().out
     assert "completed" in out
@@ -132,8 +130,7 @@ async def test_an_is_error_result_is_a_completed_task_not_a_failure() -> None:
 
 
 async def _get_task(client: Client, task_id: str) -> GetTaskResult:
-    request = GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))
-    return await client.session.send_request(cast("types.ClientRequest", request), GetTaskResult)
+    return await get_task(client.session, task_id)
 
 
 async def test_tasks_methods_reject_a_non_declaring_modern_client_with_32021() -> None:

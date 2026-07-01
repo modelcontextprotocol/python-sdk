@@ -59,11 +59,11 @@ from mcp_types import (
 from mcp_types import Role as SamplingRole
 
 from .client._input_required import InputRequiredRoundsExceededError
-from .client._tasks import TaskCancelledError, TaskFailedError, TaskInputRequiredError, TasksExtension
 from .client.client import Client
 from .client.session import ClientSession
 from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
+from .client.tasks import TaskCancelledError, TaskError, TaskFailedError, TaskInputRequiredError, TasksExtension
 from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
@@ -130,6 +130,7 @@ __all__ = [
     "StopReason",
     "SubscribeRequest",
     "TaskCancelledError",
+    "TaskError",
     "TaskFailedError",
     "TaskInputRequiredError",
     "TasksExtension",

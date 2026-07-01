@@ -1,12 +1,9 @@
-from typing import cast
-
-import mcp_types as types
-
 from mcp import Client
 from mcp.client import TasksExtension
+from mcp.client.tasks import get_task, wait_task
 from mcp.server.mcpserver import MCPServer
-from mcp.server.tasks import CreateTaskResult, Tasks
-from mcp.shared.tasks import GetTaskRequest, GetTaskRequestParams, GetTaskResult
+from mcp.server.tasks import Tasks
+from mcp.shared.tasks import CreateTaskResult
 
 mcp = MCPServer("bakery", extensions=[Tasks()])
 
@@ -24,8 +21,11 @@ async def main() -> None:
         print(created.status)
         # completed
 
-        request = GetTaskRequest(params=GetTaskRequestParams(task_id=created.task_id))
-        polled = await client.session.send_request(cast("types.ClientRequest", request), GetTaskResult)
+        polled = await get_task(client.session, created.task_id)
         assert polled.result is not None
         print(polled.result["content"])
         # [{'text': 'One mocha cake, ready.', 'type': 'text'}]
+
+        result = await wait_task(client.session, created)
+        print(result.content)
+        # [TextContent(text='One mocha cake, ready.')]

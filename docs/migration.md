@@ -484,11 +484,12 @@ Two reference extensions ship in their own modules:
   resultType on `tools/call`, so `Client.call_tool` admits the
   `CreateTaskResult`, polls `tasks/get` (honoring `pollIntervalMs`), and
   returns the final `CallToolResult` unchanged, while `failed`/`cancelled`
-  tasks surface as the typed `TaskFailedError`/`TaskCancelledError`. Manual
-  driving stays available —
+  tasks surface as the typed `TaskFailedError`/`TaskCancelledError` (all task
+  errors share the `TaskError` base). Manual driving stays available —
   `client.session.call_tool(..., allow_claimed=True)` returns the typed
-  `CreateTaskResult`, and the `mcp.shared.tasks` request wrappers drive
-  `tasks/get`/`tasks/update`/`tasks/cancel` over `session.send_request`, with
+  `CreateTaskResult`, and the typed `mcp.client.tasks` functions
+  (`get_task`/`wait_task`/`update_task`/`cancel_task`) drive
+  `tasks/get`/`tasks/update`/`tasks/cancel` over the session, with
   the `Mcp-Name` routing header stamped automatically over Streamable HTTP.
   This is the core SEP-2663 surface — see [Tasks](advanced/tasks.md);
   background execution (`working` tasks), the in-task `input_required` loop
