@@ -105,7 +105,7 @@ async def test_stateless_http_kills_the_legacy_back_channel_and_only_the_legacy_
         legacy_target = streamable_http_client(URL, http_client=http)
         async with Client(legacy_target, mode="legacy", elicitation_callback=tutorial001.answer) as legacy:
             assert legacy.protocol_version == "2025-11-25"
-            with pytest.raises(MCPError) as exc_info:
+            with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                 await legacy.call_tool("reserve", {"title": "Dune"})
     assert exc_info.value.error.code == INVALID_REQUEST
     assert exc_info.value.error.message == (

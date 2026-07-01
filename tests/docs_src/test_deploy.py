@@ -160,8 +160,12 @@ async def test_a_shared_key_is_not_enough_without_a_shared_name() -> None:
             token = await _first_round(on_one, 120)
             with pytest.raises(MCPError) as exc:
                 await _retry(on_two, 120, token)
+            # Same keys AND the same name: back on the instance that minted it, the retry completes.
+            second = await _retry(on_one, 120, token)
 
     _assert_frozen_rejection(exc)
+    assert isinstance(second, CallToolResult)
+    assert second.content == [TextContent(type="text", text="refunded $120")]
 
 
 # -- change notifications across replicas ----------------------------------------------

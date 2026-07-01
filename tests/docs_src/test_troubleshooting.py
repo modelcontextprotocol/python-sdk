@@ -98,9 +98,8 @@ async def test_the_tool_decorator_without_parentheses_raises_at_import_time() ->
     with pytest.raises(TypeError, match=r"Use @tool\(\) instead of @tool"):
 
         @undecorated
-        def forecast(city: str) -> str:
-            """Today's forecast for one city."""
-            return f"{city}: Rain."
+        def forecast(city: str) -> None:
+            """Today's forecast for one city. Never called: the decoration itself is what raises."""
 
 
 async def test_a_duplicate_tool_name_keeps_the_first_and_drops_the_second() -> None:
@@ -116,9 +115,8 @@ async def test_a_duplicate_registration_logs_tool_already_exists(caplog: pytest.
     with caplog.at_level(logging.WARNING, logger="mcp.server.mcpserver.tools.tool_manager"):
 
         @tutorial002.mcp.tool(name="forecast")
-        def forecast_weekly(city: str) -> str:
-            """The week ahead for one city."""
-            return f"{city}: Rain all week."
+        def forecast_weekly(city: str) -> None:
+            """The week ahead for one city. Never called: it is the duplicate that gets dropped."""
 
     assert "Tool already exists: forecast" in caplog.messages
 
@@ -140,9 +138,9 @@ async def test_the_default_streamable_http_app_answers_a_real_hostname_with_421(
         assert "Invalid Host header: mcp.example.com" in caplog.messages
         # What the python `Client` raises instead: the generic stand-in, wrapped by the task group.
         async with httpx.AsyncClient(transport=transport) as http_client:
-            with pytest.raises(Exception) as exc_info:
-                async with Client(streamable_http_client("http://mcp.example.com/mcp", http_client=http_client)):
-                    pass  # never reached: the handshake itself is what fails
+            client = Client(streamable_http_client("http://mcp.example.com/mcp", http_client=http_client))
+            with pytest.raises(Exception) as exc_info:  # pragma: no branch
+                await client.__aenter__()  # the connection attempt itself is what fails
     assert not isinstance(exc_info.value, MCPError)
     assert exc_info.group_contains(MCPError, match="^Server returned an error response$")
 
@@ -152,7 +150,8 @@ async def test_an_allowlisted_hostname_connects_and_calls_a_tool() -> None:
     transport = httpx.ASGITransport(app=tutorial004.app)
     async with tutorial004.mcp.session_manager.run():
         async with httpx.AsyncClient(transport=transport) as http_client:
-            async with Client(streamable_http_client("http://mcp.example.com/mcp", http_client=http_client)) as c:
+            allowed = streamable_http_client("http://mcp.example.com/mcp", http_client=http_client)
+            async with Client(allowed) as c:  # pragma: no branch
                 assert c.protocol_version == "2026-07-28"
                 result = await c.call_tool("forecast", {"city": "London"})
     assert result.structured_content == {"result": "London: Rain."}
@@ -247,8 +246,9 @@ async def test_ctx_elicit_over_stateless_http_has_no_back_channel() -> None:
     transport = httpx.ASGITransport(app=tutorial008.app)
     async with tutorial008.mcp.session_manager.run():
         async with httpx.AsyncClient(transport=transport) as http_client:
-            async with Client(streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http_client)) as c:
-                with pytest.raises(MCPError) as exc_info:
+            stateless = streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http_client)
+            async with Client(stateless) as c:  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await c.call_tool("book_table", {"date": "Friday"})
     assert exc_info.value.error == ErrorData(
         code=INVALID_REQUEST,
@@ -263,7 +263,7 @@ async def test_a_request_state_the_server_did_not_mint_is_rejected(caplog: pytes
     """The wire message is deliberately frozen; the real reason goes only to the server log."""
     async with Client(tutorial001.mcp) as client:
         with caplog.at_level(logging.WARNING, logger="mcp.server.request_state"):
-            with pytest.raises(MCPError) as exc_info:
+            with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                 await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
     assert exc_info.value.error == ErrorData(
         code=INVALID_PARAMS, message="Invalid or expired requestState", data={"reason": "invalid_request_state"}
