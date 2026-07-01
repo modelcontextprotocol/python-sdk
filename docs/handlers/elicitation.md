@@ -2,16 +2,47 @@
 
 A tool that is halfway through its job and missing one answer doesn't have to fail.
 
-**Elicitation** lets it ask. In the middle of a tool call the server sends the client a question, the client puts it to the user, and the answer comes back into the same function call.
+**Elicitation** lets it ask. In the middle of a tool call the user gets a question, and their answer comes back into the same function call.
 
 There are two modes:
 
 * **Form mode**: you need a value (a confirmation, a date, a quantity). You describe the fields, the client renders the form.
 * **URL mode**: you need the user to go somewhere else (an OAuth consent screen, a payment page). Nothing they do there passes through the protocol.
 
-## Ask with a form
+And there are two ways to ask. The one to reach for is a **resolver**: you hang the question on a parameter, and the SDK asks - on any connection, whatever protocol era the client speaks. The direct way, `await ctx.elicit(...)`, is a request from the *server* to the *client*, a channel that only exists for a client on a legacy connection (spec version 2025-11-25 or earlier). Both are on this page; start with the resolver.
 
-`ctx.elicit()` takes a message and a Pydantic model:
+## Ask with a resolver
+
+A question that gates the whole tool - *are you sure? which of the three matching accounts?* - can be lifted out of the tool body into a **resolver**, and the framework asks it for you.
+
+A parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn` before the tool body. The resolver returns the value directly when it already knows it, or returns `Elicit(...)` to have the framework ask:
+
+```python title="server.py" hl_lines="24-30 35-36"
+--8<-- "docs_src/elicitation/tutorial004.py"
+```
+
+* `confirm_delete` reads the tool's own `path` argument by name, lists the folder, and **only elicits when it must** - an empty folder resolves to `Confirm(ok=True)` with no round-trip to the client.
+* `delete_folder` annotates `ElicitationResult[Confirm]`, so the framework injects the whole outcome and the tool `match`es every case: accept-and-confirm, accept-but-keep (`ok=False`), decline, cancel.
+* The `confirm` parameter never appears in the tool's input schema - the client supplies `path`, the resolver supplies `confirm`.
+
+Annotate the unwrapped model (`Annotated[Confirm, Resolve(confirm_delete)]`) instead when the tool doesn't need to branch: it receives the model on accept and the call aborts with an error on decline or cancel.
+
+A resolver works on **every** connection. For a client on a legacy connection the SDK sends it the question directly; on a **2026-07-28** connection the SDK *returns* the question from the call, and the client's next attempt carries the answer. Your resolver never knows the difference; what happens underneath is **[Multi-round-trip requests](multi-round-trip.md)**.
+
+Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **[Dependencies](dependencies.md)** page.
+
+## Ask from inside the tool
+
+A tool can also stop in the middle of its own body and ask.
+
+!!! warning
+    `ctx.elicit()` and `ctx.elicit_url()` are requests from the *server* to the *client* - a
+    channel that only exists for a client on a legacy connection (spec version **2025-11-25**
+    or earlier). On a **2026-07-28** connection there are no server-initiated requests, so
+    these calls fail. A resolver works on both. **[Protocol versions](../protocol-versions.md)**
+    has the whole story.
+
+`await ctx.elicit()` takes a message and a Pydantic model:
 
 ```python title="server.py" hl_lines="9-11 20-23 25"
 --8<-- "docs_src/elicitation/tutorial001.py"
@@ -79,24 +110,6 @@ A refusal is not an error. The tool decides what declining means (here, no booki
     `"maybe"` for a `bool` doesn't corrupt your booking: the call fails with a
     schema-mismatch error, your `if` never runs.
 
-## Ask before the tool runs
-
-The booking tool above weaves the question into its own body. When the question is really a *precondition* - confirm before deleting, authenticate before acting - you can lift it out of the tool into a **resolver** and let the framework ask for you.
-
-A parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn` before the tool body. The resolver returns the value directly when it already knows it, or returns `Elicit(...)` to have the framework ask:
-
-```python title="server.py" hl_lines="24-30 35-36"
---8<-- "docs_src/elicitation/tutorial004.py"
-```
-
-* `confirm_delete` reads the tool's own `path` argument by name, lists the folder, and **only elicits when it must** - an empty folder resolves to `Confirm(ok=True)` with no round-trip to the client.
-* `delete_folder` annotates `ElicitationResult[Confirm]`, so the framework injects the whole outcome and the tool `match`es every case: accept-and-confirm, accept-but-keep (`ok=False`), decline, cancel.
-* The `confirm` parameter never appears in the tool's input schema - the client supplies `path`, the resolver supplies `confirm`.
-
-Annotate the unwrapped model (`Annotated[Confirm, Resolve(confirm_delete)]`) instead when the tool doesn't need to branch: it receives the model on accept and the call aborts with an error on decline or cancel.
-
-Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **[Dependencies](dependencies.md)** page.
-
 ## Send the user to a URL
 
 Some things must not go through the model or the client: credentials, card numbers, OAuth consent. For those you don't ask for data; you ask the user to go somewhere:
@@ -132,7 +145,7 @@ Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(
 
 ### Try it
 
-Start the form-mode `server.py` (the first one on this page) on Streamable HTTP (**[Running your server](../run/index.md)** has the one-liner), then run the client's `main()` and ask `book_table` for Christmas day.
+Start the `ctx.elicit` form-mode `server.py` (the `book_table` one) on Streamable HTTP (**[Running your server](../run/index.md)** has the one-liner), then run the client's `main()` and ask `book_table` for Christmas day.
 
 The callback prints the question it was sent:
 
@@ -162,10 +175,10 @@ Now swap in the URL-mode `server.py` and point the same `main()` at `pay_deposit
 
 ## Recap
 
-* `await ctx.elicit(message, schema=Model)` asks mid-call; your tool resumes with the answer.
+* A parameter annotated `Annotated[T, Resolve(fn)]` is filled by a resolver, which returns `Elicit(...)` when it has to ask. It works on every connection.
 * The schema is a flat Pydantic model: primitive fields only, validated on the way back.
 * `result.action` is `"accept"`, `"decline"` or `"cancel"`; `result.data` exists only on accept.
-* `await ctx.elicit_url(message, url, elicitation_id)` is for everything that must not pass through the model; `ctx.session.send_elicit_complete(elicitation_id)` says the out-of-band part is done.
+* `await ctx.elicit(message, schema=Model)` asks from inside the tool body, and `await ctx.elicit_url(message, url, elicitation_id)` is for everything that must not pass through the model (`ctx.session.send_elicit_complete(elicitation_id)` says the out-of-band part is done). Both are server-to-client requests: they need the client on a legacy connection.
 * The client answers with one `elicitation_callback`, branching on the params type; registering it is what declares the capability.
 * On a 2026-07-28 connection the server returns the question instead of pushing it; the same callback is fed by **[Multi-round-trip requests](multi-round-trip.md)**.
 
