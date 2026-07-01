@@ -25,7 +25,7 @@ from mcp_types import (
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
-from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
+from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnNotifyIntercept, OnRequest, Outbound
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
 
@@ -66,6 +66,7 @@ async def running_pair(
     server_on_notify: OnNotify | None = None,
     client_on_request: OnRequest | None = None,
     client_on_notify: OnNotify | None = None,
+    client_on_notify_intercept: OnNotifyIntercept | None = None,
     can_send_request: bool = True,
 ) -> AsyncIterator[tuple[Dispatcher[TransportContext], Dispatcher[TransportContext], Recorder, Recorder]]:
     """Yield `(client, server, client_recorder, server_recorder)` with both `run()` loops live."""
@@ -75,7 +76,9 @@ async def running_pair(
     s_req, s_notify = echo_handlers(server_rec)
     try:
         async with anyio.create_task_group() as tg:
-            await tg.start(client.run, client_on_request or c_req, client_on_notify or c_notify)
+            await tg.start(
+                client.run, client_on_request or c_req, client_on_notify or c_notify, client_on_notify_intercept
+            )
             await tg.start(server.run, server_on_request or s_req, server_on_notify or s_notify)
             try:
                 yield client, server, client_rec, server_rec
@@ -507,6 +510,71 @@ async def test_supplied_numeric_string_id_collides_with_its_int_twin(pair_factor
                 release.set()
             # Completion frees the id for either spelling.
             assert await client.send_raw_request("again", None, {"request_id": "7"}) == {}
+
+
+@pytest.mark.anyio
+async def test_notify_intercept_sees_every_notification_and_consumes_on_true(pair_factory: PairFactory):
+    """The intercept observes each inbound notification before `on_notify` is
+    scheduled; a frame it consumes never reaches `on_notify`, the rest do."""
+    intercepted: list[str] = []
+
+    def intercept(method: str, params: Mapping[str, Any] | None) -> bool:
+        intercepted.append(method)
+        return method == "notifications/consumed"
+
+    async with running_pair(pair_factory, client_on_notify_intercept=intercept) as (_client, server, crec, _srec):
+        with anyio.fail_after(5):
+            await server.notify("notifications/consumed", None)
+            await server.notify("notifications/passed", None)
+            await crec.notified.wait()
+    assert intercepted == ["notifications/consumed", "notifications/passed"]
+    assert [method for method, _ in crec.notifications] == ["notifications/passed"]
+
+
+@pytest.mark.anyio
+async def test_notify_intercept_completes_before_a_later_response_resolves(pair_factory: PairFactory):
+    """Notifications written before a response are intercepted before that
+    response resolves: correlation state fed through the intercept is ordered
+    against `send_raw_request`'s return, whatever the spawned handlers do."""
+    seen: list[str] = []
+
+    def intercept(method: str, params: Mapping[str, Any] | None) -> bool:
+        seen.append(method)
+        return False
+
+    async def notify_then_answer(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        await ctx.notify("notifications/first", None)
+        await ctx.notify("notifications/second", None)
+        return {}
+
+    async with running_pair(
+        pair_factory, server_on_request=notify_then_answer, client_on_notify_intercept=intercept
+    ) as (client, *_):
+        with anyio.fail_after(5):
+            await client.send_raw_request("burst", None)
+        assert seen == ["notifications/first", "notifications/second"]
+
+
+@pytest.mark.anyio
+async def test_a_raising_notify_intercept_is_contained_and_passes_the_frame_through(pair_factory: PairFactory):
+    """An intercept exception costs only that interception: the notification
+    still reaches `on_notify` and the receive loop survives."""
+
+    def broken_intercept(method: str, params: Mapping[str, Any] | None) -> bool:
+        raise RuntimeError("intercept exploded")
+
+    async with running_pair(pair_factory, client_on_notify_intercept=broken_intercept) as (
+        _client,
+        server,
+        crec,
+        _srec,
+    ):
+        with anyio.fail_after(5):
+            await server.notify("notifications/survives", None)
+            await crec.notified.wait()
+    assert [method for method, _ in crec.notifications] == ["notifications/survives"]
 
 
 if TYPE_CHECKING:

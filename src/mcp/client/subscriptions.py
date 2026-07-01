@@ -24,7 +24,7 @@ re-opens a subscription refetches what it depends on.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from itertools import count
 from typing import TYPE_CHECKING, Literal
@@ -41,6 +41,7 @@ from mcp.shared.subscriptions import (
     ResourceUpdated,
     ServerEvent,
     ToolsListChanged,
+    event_matches,
 )
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ListenNotSupportedError",
+    "OnEvent",
     "PromptsListChanged",
     "ResourceUpdated",
     "ResourcesListChanged",
@@ -60,6 +62,16 @@ __all__ = [
 
 _listen_ids = count(1)
 """Process-wide `listen-N` sequence: string ids can never collide with a dispatcher's minted ints."""
+
+_MAX_PENDING_EVENTS = 1024
+"""Backstop on one route's unconsumed backlog, mirroring the server's `max_buffered_events`.
+
+Kind events are bounded by dedupe alone, but `ResourceUpdated` admission is
+per-URI and the spec lets a server stamp sub-resources of a subscribed URI -
+so distinct pending URIs are unbounded in principle. A peer that floods past
+this cap costs the subscription (settled lost: re-listen and refetch), never
+unbounded client memory.
+"""
 
 _SubscriptionEnd = Literal["graceful", "lost", "local"]
 
@@ -89,15 +101,20 @@ class SubscriptionLost(RuntimeError):
 
 
 class ListenRoute:
-    """Demux state for one listen stream, owned by the session's notification path.
+    """Demux state for one listen stream, fed in wire order by the session.
 
     Package-internal (deliberately not in `__all__`): `ClientSession`
-    constructs and feeds it; `Subscription` consumes it.
+    constructs it and feeds it from its notification intercept on the
+    dispatcher's receive path, so acks, events, and stream-teardown signals
+    land here in receive order - ordered against the listen request's own
+    result, which resolves on that same path. `Subscription` is the one
+    consumer.
 
-    Everything here is synchronous on the event loop - the notification path
-    must never block on a slow consumer - and there is exactly one consumer
-    (the `Subscription`). Pending events deduplicate: every event kind is a
-    level trigger, so the backlog is bounded by the filter's width.
+    Everything here is synchronous on the event loop - the receive path must
+    never block on a slow consumer. Pending events deduplicate: every event
+    kind is a level trigger, so the backlog is bounded by the distinct
+    admissible events, with `_MAX_PENDING_EVENTS` as the backstop for the
+    URI class that admission deliberately leaves open.
     """
 
     def __init__(self) -> None:
@@ -105,6 +122,7 @@ class ListenRoute:
         self.acked = anyio.Event()
         self.error: MCPError | None = None
         self.end: _SubscriptionEnd | None = None
+        self._honored_uris: frozenset[str] = frozenset()
         self._pending: dict[ServerEvent, None] = {}
         self._wake = anyio.Event()
 
@@ -112,13 +130,42 @@ class ListenRoute:
         """Record the acknowledged filter; the first ack wins, later ones are no-ops."""
         if not self.acked.is_set():
             self.honored = honored
+            self._honored_uris = frozenset(honored.resource_subscriptions or ())
             self.acked.set()
 
     def deliver(self, event: ServerEvent) -> None:
-        """Queue `event` for the consumer; a duplicate of a pending event is dropped."""
-        if self.end is None and event not in self._pending:
-            self._pending[event] = None
-            self._wake.set()
+        """Queue `event` for the consumer; duplicates of pending events are dropped.
+
+        Only events within the honored filter are admitted, so a peer that
+        violates its own acknowledgment cannot reach the consumer. Kind events
+        match the honored flags exactly; a `ResourceUpdated` is admitted
+        whenever URI subscriptions were honored at all, because the spec lets
+        the stamped URI be a sub-resource of a subscribed one (schema:
+        ResourceUpdatedNotificationParams.uri). Before the ack there is no
+        honored filter and nothing is admissible (the spec makes the ack the
+        stream's first frame); after the stream has ended a frame can only be
+        post-close noise. `_MAX_PENDING_EVENTS` backstops the one backlog
+        admission cannot bound.
+        """
+        if self.end is not None or self.honored is None:
+            return
+        if isinstance(event, ResourceUpdated):
+            admitted = bool(self._honored_uris)
+        else:
+            admitted = event_matches(self.honored, self._honored_uris, event)
+        if not admitted or event in self._pending:
+            return
+        if len(self._pending) >= _MAX_PENDING_EVENTS:
+            self.settle(
+                "lost",
+                error=MCPError(
+                    types.INTERNAL_ERROR,
+                    f"subscription backlog exceeded {_MAX_PENDING_EVENTS} unconsumed events; re-listen and refetch",
+                ),
+            )
+            return
+        self._pending[event] = None
+        self._wake.set()
 
     def settle(self, end: _SubscriptionEnd, error: MCPError | None = None) -> None:
         """Record the stream's end; the first reason wins.
@@ -132,7 +179,12 @@ class ListenRoute:
             self._wake.set()
 
     async def next_event(self) -> ServerEvent | _SubscriptionEnd:
-        """Return the next pending event, or the stream's end once drained.
+        """Return (but do not remove) the next pending event, or the stream's end once drained.
+
+        The consumer removes the event with `consume()` only after its own
+        pre-return work (the `Subscription`'s `on_event` barrier) completed -
+        a cancellation landing mid-barrier leaves the event pending, so a
+        delivered event is never lost to the consumer's own timeout.
 
         A "local" end short-circuits the backlog: the consumer left the
         context, so buffered events must not read as live deliveries. The
@@ -146,13 +198,19 @@ class ListenRoute:
             if self.end == "local":
                 return self.end
             if self._pending:
-                event = next(iter(self._pending))
-                del self._pending[event]
-                return event
+                return next(iter(self._pending))
             if self.end is not None:
                 return self.end
             await wake.wait()
             self._wake = anyio.Event()
+
+    def consume(self, event: ServerEvent) -> None:
+        """Remove a peeked event from the backlog; the consumer commits after its barrier ran."""
+        self._pending.pop(event, None)
+
+
+OnEvent = Callable[[ServerEvent], Awaitable[None]]
+"""Per-event barrier awaited before a `Subscription` returns each event to its consumer."""
 
 
 class Subscription:
@@ -163,8 +221,15 @@ class Subscription:
     graceful close never swallows deliveries that preceded it.
     """
 
-    def __init__(self, route: ListenRoute, subscription_id: types.RequestId, honored: types.SubscriptionFilter):
+    def __init__(
+        self,
+        route: ListenRoute,
+        subscription_id: types.RequestId,
+        honored: types.SubscriptionFilter,
+        on_event: OnEvent | None = None,
+    ):
         self._route = route
+        self._on_event = on_event
         self.subscription_id = subscription_id
         """The listen request's JSON-RPC id - the value stamped into every frame's `_meta`."""
         self.honored = honored
@@ -189,6 +254,15 @@ class Subscription:
             # "graceful" (the server's deliberate close) and "local" (the
             # consumer already left the context) both end iteration cleanly.
             raise StopAsyncIteration
+        if self._on_event is not None:
+            # The barrier completes before the consumer can act on the event -
+            # `Client.listen` finishes response-cache eviction here, so an
+            # event-triggered refetch can never be served the pre-event entry.
+            # The event is still pending while the barrier runs: a cancellation
+            # (or a raising barrier) leaves it for the next `anext` instead of
+            # silently dropping a level trigger that would never re-fire.
+            await self._on_event(outcome)
+        self._route.consume(outcome)
         return outcome
 
 
@@ -200,15 +274,25 @@ async def listen(
     prompts_list_changed: bool = False,
     resources_list_changed: bool = False,
     resource_subscriptions: Sequence[str] = (),
+    on_event: OnEvent | None = None,
 ) -> AsyncIterator[Subscription]:
     """Open one `subscriptions/listen` stream on `session` (2026-07-28 only).
 
-    The keyword arguments mirror the wire `SubscriptionFilter` field for
-    field; `resource_subscriptions` names exact resource URIs to watch for
+    The filter keyword arguments mirror the wire `SubscriptionFilter` field
+    for field; `resource_subscriptions` names exact resource URIs to watch for
     `ResourceUpdated` events. Entering sends the request and returns once the
     server's acknowledgment arrives (bounded by the session's read timeout,
     when one is set). Exiting ends the subscription. Multiple subscriptions
     may be open concurrently; each demultiplexes by its own subscription id.
+
+    `on_event` is awaited before each event is returned from the iterator -
+    the seam for work that must complete before the consumer can react.
+    `Client.listen` finishes response-cache eviction here so an
+    event-triggered refetch cannot be served the pre-event entry; callers
+    opening a stream on a cached `Client`'s session directly should wire the
+    same barrier themselves (or use `Client.listen`). A raising barrier
+    surfaces from the iteration, with the event left pending for the next
+    `anext`.
 
     Raises:
         ListenNotSupportedError: The negotiated protocol version predates 2026-07-28.
@@ -254,6 +338,10 @@ async def listen(
             except ValueError as error:
                 # A caller-supplied raw request id collided with our minted
                 # listen id: fail this subscription, not the whole session.
+                # The id belongs to the raw caller, so release the demux
+                # registration in this same slice - a registered route would
+                # consume the raw caller's own ack while this open unwinds.
+                session._unregister_listen_route(request_id)  # pyright: ignore[reportPrivateUsage]
                 route.settle("lost", error=MCPError(types.INTERNAL_ERROR, str(error)))
                 return
             # The empty result is the spec's graceful close. Tolerant by design:
@@ -277,7 +365,7 @@ async def listen(
             if route.error is not None:
                 raise route.error
             raise SubscriptionLost(f"subscription {request_id!r} ended before it was acknowledged")
-        yield Subscription(route, request_id, route.honored)
+        yield Subscription(route, request_id, route.honored, on_event)
     finally:
         route.settle("local")
         driver_scope.cancel()

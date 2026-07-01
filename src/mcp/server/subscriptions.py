@@ -52,6 +52,7 @@ from mcp.shared.subscriptions import (
     ResourceUpdated,
     ServerEvent,
     ToolsListChanged,
+    event_matches,
     event_to_notification,
 )
 
@@ -155,21 +156,6 @@ def _honored_subset(requested: SubscriptionFilter) -> SubscriptionFilter:
     )
 
 
-def _event_matches(honored: SubscriptionFilter, uris: frozenset[str], event: ServerEvent) -> bool:
-    """Whether `event` is within the stream's honored filter.
-
-    `uris` is the honored `resource_subscriptions` as a set: matching runs on
-    every publish, and the wire filter may name many URIs.
-    """
-    if isinstance(event, ToolsListChanged):
-        return honored.tools_list_changed is True
-    if isinstance(event, PromptsListChanged):
-        return honored.prompts_list_changed is True
-    if isinstance(event, ResourcesListChanged):
-        return honored.resources_list_changed is True
-    return event.uri in uris
-
-
 class ListenHandler:
     """Serves `subscriptions/listen`: one call is one subscription stream.
 
@@ -218,7 +204,7 @@ class ListenHandler:
         send, recv = anyio.create_memory_object_stream[ServerEvent](self._max_buffered_events)
 
         def deliver(event: ServerEvent) -> None:
-            if _event_matches(honored, honored_uris, event):
+            if event_matches(honored, honored_uris, event):
                 try:
                     send.send_nowait(event)
                 except anyio.ClosedResourceError:

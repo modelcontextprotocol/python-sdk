@@ -29,10 +29,16 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.types import Receive, Scope, Send
 
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import (
+    MAX_RECONNECTION_ATTEMPTS,
+    RequestContext,
+    StreamableHTTPTransport,
+    streamable_http_client,
+)
 from mcp.server import Server
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ServerEvent
+from mcp.shared._context_streams import ContextSendStream, create_context_streams
 from mcp.shared.dispatcher import CallOptions, DispatchContext
 from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
@@ -625,3 +631,55 @@ async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> 
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.id == "listen-1"
     assert reply.message.error.code == CONNECTION_CLOSED
+
+
+def _abandoned_request_context(
+    http: httpx.AsyncClient, send: ContextSendStream[SessionMessage | Exception]
+) -> RequestContext:
+    return RequestContext(
+        client=http,
+        session_id=None,
+        session_message=SessionMessage(
+            JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={})
+        ),
+        metadata=None,
+        read_stream_writer=send,
+    )
+
+
+@pytest.mark.anyio
+async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error() -> None:
+    """The sibling of the non-resumable drop: an id-bearing stream whose
+    reconnection budget runs out also resolves the waiter - the no-silent-hang
+    guarantee is unconditional, not conditional on the server never stamping
+    event ids."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    async with httpx.AsyncClient() as http:
+        with anyio.fail_after(5):
+            await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
+                _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
+            )
+            reply = await receive.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED
+    send.close()
+    receive.close()
+
+
+@pytest.mark.anyio
+async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contained() -> None:
+    """Teardown race: the session can close the read stream's receive end while
+    a request's SSE stream is still dying; the resolution write is best-effort
+    (nobody is waiting) and must not crash the transport task group."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    receive.close()
+    async with httpx.AsyncClient() as http:
+        with anyio.fail_after(5):
+            await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
+                _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
+            )
+    send.close()
