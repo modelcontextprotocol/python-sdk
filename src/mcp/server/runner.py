@@ -59,7 +59,7 @@ from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
@@ -468,6 +468,23 @@ def _initialize_after_modern_data(params: Mapping[str, Any] | None) -> dict[str,
     return {"supported": list(MODERN_PROTOCOL_VERSIONS)}
 
 
+def modern_error_data(exc: Exception) -> ErrorData:
+    """Map a modern request's handler exception to its wire `ErrorData`.
+
+    The exception-to-wire fact shared by the modern entries (the
+    single-exchange HTTP path and the dual-era stream loop), so an identical
+    modern request fails identically on every transport: `MCPError` and
+    `ValidationError` map via the shared `handler_exception_to_error_data`
+    ladder; anything else is logged server-side and surfaced as a generic
+    INTERNAL_ERROR so handler internals never reach the wire.
+    """
+    error = handler_exception_to_error_data(exc)
+    if error is not None:
+        return error
+    logger.exception("modern request handler raised")
+    return ErrorData(code=INTERNAL_ERROR, message="Internal server error")
+
+
 @dataclass
 class _NoServerRequestsDispatchContext:
     """Delegating `DispatchContext` that refuses server-initiated requests.
@@ -562,7 +579,11 @@ async def serve_dual_era_loop(
     (`initialize`, `server/discover`) that completes before the next frame is
     read, so the canonical probe-then-go flow is race-free; a pinned-modern
     client that pipelines frames ahead of its first response should expect
-    envelope-less notifications sent in that window to be dropped.
+    envelope-less notifications sent in that window to be dropped. The lock
+    settles exactly once: a request from the other era that was already in
+    flight when the lock committed may still complete and its response
+    stands, but the era does not move; and a success the peer cancelled away
+    (it sees "Request cancelled", not the result) does not lock either.
     """
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
         read_stream,
@@ -578,6 +599,15 @@ async def serve_dual_era_loop(
     standalone_outbound = NotifyOnlyOutbound(dispatcher)
     era: Literal["unlocked", "legacy", "modern"] = "unlocked"
     modern_version = LATEST_MODERN_VERSION
+
+    def era_settles(dctx: DispatchContext[TransportContext]) -> bool:
+        # The one definition of "this request may lock the era": it settled as
+        # a client-visible success on a still-unlocked connection. The lock is
+        # monotone - the first success wins, so a straggling request from the
+        # other era can never overwrite a committed lock. A pending peer
+        # cancel means the dispatcher is about to replace this response with
+        # "Request cancelled": the client never sees the success, no lock.
+        return era == "unlocked" and not dctx.cancel_requested.is_set()
 
     async def serve_modern(
         dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
@@ -599,18 +629,25 @@ async def serve_dual_era_loop(
             route.client_capabilities,
             outbound=standalone_outbound,
         )
-        result = await serve_one(
-            server,
-            _NoServerRequestsDispatchContext(dctx),
-            method,
-            params,
-            connection=connection,
-            lifespan_state=lifespan_state,
-        )
-        if era != "modern":
-            # Lock only on success, mirroring the legacy side: a request that
-            # failed (malformed envelope content, unknown method) must not
-            # strand the client, whose initialize fallback stays available.
+        try:
+            result = await serve_one(
+                server,
+                _NoServerRequestsDispatchContext(dctx),
+                method,
+                params,
+                connection=connection,
+                lifespan_state=lifespan_state,
+            )
+        except (MCPError, ValidationError):
+            # The dispatcher's shared ladder maps these to the same wire error
+            # the modern HTTP entry produces.
+            raise
+        except Exception as exc:
+            if raise_exceptions:
+                raise
+            error = modern_error_data(exc)
+            raise MCPError(code=error.code, message=error.message, data=error.data) from exc
+        if era_settles(dctx):
             era, modern_version = "modern", route.protocol_version
         return result
 
@@ -643,7 +680,7 @@ async def serve_dual_era_loop(
         if method != "initialize" and (method == "server/discover" or _has_modern_envelope(params)):
             return await serve_modern(dctx, method, params)
         result = await loop_runner.on_request(dctx, method, params)
-        if method == "initialize":
+        if method == "initialize" and era_settles(dctx):
             # Lock only on success: a failed handshake leaves both eras open.
             era = "legacy"
         return result

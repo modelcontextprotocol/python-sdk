@@ -140,6 +140,41 @@ def test_envelope_rung_rejects_non_string_protocol_version(version: Any) -> None
     assert "string" in rejection.message
 
 
+def test_non_string_protocol_version_over_http_still_rejects_at_the_header_rung() -> None:
+    """SDK-defined: the non-string guard sits after the header rung, so over
+    HTTP a present version header (a string, which can never equal a
+    non-string body value) keeps producing HEADER_MISMATCH - the guard's wire
+    delta is confined to header-less transports."""
+    body = envelope()
+    headers = matching_headers(body)
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = 7
+    assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
+
+
+def test_non_string_protocol_version_with_absent_header_is_a_header_mismatch() -> None:
+    """SDK-defined: an absent version header is a header defect first - the
+    same HEADER_MISMATCH a string-bodied request gets - even when the body
+    version is also mis-shaped (a non-string value never equals the absent
+    header's None, so rung 2 owns this cell)."""
+    body = envelope()
+    headers = matching_headers(body)
+    del headers[MCP_PROTOCOL_VERSION_HEADER]
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = 7
+    assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
+
+
+def test_non_string_protocol_version_with_no_version_header_hits_the_guard() -> None:
+    """SDK-defined: a null body version with the version header absent slips
+    the header equality check (None == None), so the string guard is the
+    backstop that keeps the version rung's typed payload from raising."""
+    body = envelope()
+    headers = matching_headers(body)
+    del headers[MCP_PROTOCOL_VERSION_HEADER]
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = None
+    rejection = assert_rejected(classify_inbound_request(body, headers=headers), INVALID_PARAMS)
+    assert "string" in rejection.message
+
+
 # --- rung 2: protocol-version-supported ----------------------------------------
 
 

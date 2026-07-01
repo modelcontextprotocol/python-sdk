@@ -42,7 +42,7 @@ from mcp_types import (
 )
 from mcp_types import methods as _methods
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing_extensions import deprecated
 
 from mcp.shared.dispatcher import CallOptions, Outbound
@@ -66,6 +66,23 @@ _RESULT_FOR: dict[type[Request[Any, Any]], type[BaseModel]] = {
     ListRootsRequest: ListRootsResult,
     PingRequest: EmptyResult,
 }
+
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
+    """Validate a raw envelope value into a typed model.
+
+    A missing, null or mis-shaped value falls through to `ValidationError`
+    and is treated as not supplied so the request still routes. Spec methods
+    are separately re-validated by the kernel's per-version params surface,
+    which types the reserved `_meta` keys strictly.
+    """
+    try:
+        return model.model_validate(raw, by_name=False)
+    except ValidationError:
+        return None
 
 
 def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> dict[str, Any] | None:
@@ -172,26 +189,34 @@ class Connection:
     def from_envelope(
         cls,
         protocol_version: str,
-        client_info: Implementation | None,
-        client_capabilities: ClientCapabilities | None,
+        client_info: Any,
+        client_capabilities: Any,
         *,
         outbound: Outbound = _NO_CHANNEL,
     ) -> Connection:
         """A born-ready connection populated from a request's `_meta` envelope.
 
-        `initialized` is set and the envelope's client info/capabilities (when
-        both supplied) are recorded as `client_params` so capability checks
-        work. `outbound` defaults to the no-channel sentinel for the
-        single-exchange HTTP path; duplex modern transports (e.g. stdio) pass
-        a notify-only wrapper around the dispatcher so server notifications
-        ride the pipe while server-initiated requests stay refused.
+        `protocol_version` must be an already-validated version string - the
+        inbound classification ladder owns rejecting non-string or unsupported
+        values. `client_info` and `client_capabilities` are the raw envelope
+        values: this constructor owns turning them into connection identity,
+        identically on every modern entry, so a mis-shaped value degrades to
+        not-supplied rather than failing the request. `initialized`
+        is set and the info/capabilities (when both supplied and well-formed)
+        are recorded as `client_params` so capability checks work. `outbound`
+        defaults to the no-channel sentinel for the single-exchange HTTP path;
+        duplex modern transports (e.g. stdio) pass a notify-only wrapper
+        around the dispatcher so server notifications ride the pipe while
+        server-initiated requests stay refused.
         """
+        info = _typed(Implementation, client_info)
+        capabilities = _typed(ClientCapabilities, client_capabilities)
         client_params = None
-        if client_info is not None and client_capabilities is not None:
+        if info is not None and capabilities is not None:
             client_params = InitializeRequestParams(
                 protocol_version=protocol_version,
-                capabilities=client_capabilities,
-                client_info=client_info,
+                capabilities=capabilities,
+                client_info=info,
             )
         connection = cls(outbound, protocol_version=protocol_version, client_params=client_params)
         connection.initialized.set()
