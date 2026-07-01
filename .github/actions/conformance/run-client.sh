@@ -43,7 +43,9 @@ for scenario in "${scenarios[@]}"; do
 done
 
 # A stale baseline entry is a configuration error a solo rerun cannot excuse.
-if printf '%s\n' "$plain" | grep -q '^Stale baseline entries'; then
+# Here-string, not a pipe: grep -q quitting early would SIGPIPE printf and,
+# under pipefail, skip this guard exactly when the pattern is present.
+if grep -q '^Stale baseline entries' <<<"$plain"; then
     echo "Suite also reported stale baseline entries; not retrying." >&2
     exit "$rc"
 fi
