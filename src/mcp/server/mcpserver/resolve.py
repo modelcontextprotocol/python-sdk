@@ -4,19 +4,13 @@ A tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running the
 resolver `fn` before the tool body, instead of from the LLM-supplied arguments.
 Resolvers form a DAG: a resolver may declare its own `Resolve(...)` dependencies,
 take tool arguments by name, and take the `Context`. A resolver may return a
-request marker - `Elicit[T]` to ask the user, `Sample` to run an LLM call on the
-client, or `ListRoots` to fetch the client's roots - and the framework runs the
-request and injects the response. These are the three request kinds the
-multi-round-trip flow allows.
+request marker (`Elicit[T]` to ask the user, `Sample` to sample the client's
+LLM, `ListRoots` to fetch its roots); the framework injects the response.
 
-The framework picks the transport from the negotiated protocol. At >= 2026-07-28
-it returns an `InputRequiredResult` carrying the batched requests and resumes
-when the client retries with `input_responses`/`request_state` (independent
-resolvers are asked in one round; a resolver depending on another's answer is
-asked in a later round). At <= 2025-11-25 it issues the standalone server-to-client
-request (`elicitation/create`, `sampling/createMessage`, `roots/list`) mid-call.
-Only *asked* outcomes are carried in `request_state` across rounds (so the user
-is asked - and the client's LLM is sampled - once per question). Resolver
+The transport follows the negotiated protocol: >= 2026-07-28 batches the requests
+into an `InputRequiredResult` and resumes when the client retries with
+`input_responses`/`request_state`; <= 2025-11-25 sends each standalone server-to-client
+request mid-call. Only *asked* outcomes ride `request_state`, so each question is asked once. Resolver
 bodies may re-run on every round; a recorded outcome is consulted only when the
 body asks its question again, so a resolver's own computation always wins over
 anything the client echoes back in `request_state`.
@@ -28,9 +22,7 @@ Whether the consumer receives the unwrapped model or the full
 - `Annotated[ElicitationResult[T], Resolve(fn)]` (or a specific member) -> the
   full outcome; the consumer branches on accept/decline/cancel.
 
-`Sample` and `ListRoots` have no decline arm (a client refuses by erroring), so
-their consumers annotate the result directly: `CreateMessageResult` (or
-`CreateMessageResultWithTools` when tools are given) and `ListRootsResult`.
+`Sample` and `ListRoots` have no decline arm; their consumers annotate the result type directly.
 """
 
 from __future__ import annotations
@@ -127,22 +119,12 @@ class Elicit(Generic[T]):
 
 
 class Sample:
-    """A resolver's request to sample the client's LLM.
+    """A resolver's request to sample the client's LLM via `sampling/createMessage`.
 
-    Returned from a resolver to have the client run an LLM call; the framework
-    injects the `CreateMessageResult` (a `CreateMessageResultWithTools` when
-    `tools` are given). Requires the client to declare the `sampling` capability
-    (plus `sampling.tools` when tools are given). Mirrors the parameters of
-    `sampling/createMessage`.
-
-    On >= 2026-07-28 the rendered request must be identical across retry rounds
-    (the recorded result is pinned to it) - derive it only from tool arguments
-    and stable data, never timestamps or random values. The sampled result rides
-    the `request_state` envelope on every remaining round, so very large
-    completions inflate the rest of the exchange.
-
-    Note: `include_context` values other than "none" are deprecated in the draft
-    specification and should be avoided.
+    The framework injects a `CreateMessageResult` (`CreateMessageResultWithTools` when `tools` are
+    given); requires the `sampling` capability (`sampling.tools` when tools are given). On
+    >= 2026-07-28 the request must render identically across retry rounds, and the sampled result
+    rides `request_state` on every later round. `include_context` other than "none" is deprecated in the draft spec.
     """
 
     def __init__(
@@ -175,16 +157,11 @@ class Sample:
 
 
 class ListRoots:
-    """A resolver's request for the client's current roots.
-
-    Returned from a resolver to fetch the client's roots list; the framework
-    injects the `ListRootsResult`. Requires the client to declare the `roots`
-    capability.
-    """
+    """A resolver's request for the client's roots via `roots/list`; the framework injects the `ListRootsResult`."""
 
 
 _Marker = Elicit[Any] | Sample | ListRoots
-"""The request kinds a resolver may return - the closed set the multi-round-trip flow allows."""
+"""The request markers a resolver may return."""
 
 
 class _ParamPlan:
@@ -308,18 +285,14 @@ def _check_elicit_return(return_annotation: Any, name: str) -> None:
     """Validate the request-marker arms of a resolver's return annotation.
 
     Raises:
-        InvalidSignature: If the annotation has more than one marker arm
-            (`Elicit[...]`, `Sample`, `ListRoots`); a resolver asks one
-            question - a second arm means it should be split.
+        InvalidSignature: If the annotation has more than one marker arm.
     """
-    # A bare marker type is itself a candidate; a union contributes its members.
     candidates = get_args(return_annotation) if _is_union(return_annotation) else (return_annotation,)
     # Typing dedupes equal union members, so two arms here are genuinely distinct.
     arms: list[Any] = [
         c
         for c in candidates
-        # The `get_origin(c) is None` guard keeps 3.10 safe: there `dict[str, Any]`
-        # passes `isinstance(c, type)` and would crash `issubclass`.
+        # Origin guard for 3.10: `dict[str, Any]` passes `isinstance(c, type)` there and would crash `issubclass`.
         if get_origin(c) is Elicit
         or (get_origin(c) is None and isinstance(c, type) and issubclass(c, Elicit | Sample | ListRoots))
     ]
@@ -597,10 +570,8 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
 async def _fulfil(marker: _Marker, key: str, res: _Resolution) -> ElicitationResult[Any]:
     """Turn a resolver's request marker into an outcome via the negotiated transport."""
     if not res.input_required:
-        # Gate only when the handshake's declaration is visible. A session with no
-        # client info (e.g. stateless HTTP) has no back-channel either, and the send
-        # path reports that truthfully; on >= 2026-07-28 absence means not declared,
-        # because capabilities arrive per-request there.
+        # Gate only when the handshake's declaration is visible: a session with no
+        # client info (e.g. stateless HTTP) has no back-channel, and the send path reports that.
         if res.context.client_capabilities is not None:
             _require_capability(res.context, marker, key)
         if isinstance(marker, Elicit):
@@ -633,9 +604,7 @@ async def _fulfil(marker: _Marker, key: str, res: _Resolution) -> ElicitationRes
         res.pending[key] = request
         raise _Pending
     if not isinstance(marker, Elicit):
-        # The response union cannot always discriminate the two sampling result shapes
-        # (a no-tool-use answer to a tools request parses as the plain one), so validate
-        # the wire data against the marker's expected model instead of the union member.
+        # A no-tool-use answer to a tools request parses as the plain result; validate against the marker's model.
         wire = answer.model_dump(mode="json", by_alias=True, exclude_none=True)
         try:
             result = _result_type(marker).model_validate(wire)
@@ -672,7 +641,6 @@ def _unwrap(outcome: ElicitationResult[Any], name: str) -> Any:
 
 
 def _is_marker(value: Any) -> TypeGuard[_Marker]:
-    """Runtime narrow of a resolver's return value to a request marker."""
     return isinstance(value, Elicit | Sample | ListRoots)
 
 
@@ -695,12 +663,9 @@ def _uses_input_required(protocol_version: str | None) -> bool:
 
 
 def _require_capability(context: Context[Any, Any], marker: _Marker, key: str) -> None:
-    """Assert the client declared the capability `marker`'s request needs before sending it.
+    """Assert the client declared the capability `marker`'s request needs.
 
-    The spec forbids sending a client a request it has not declared a capability
-    for; the same predicate gates both transports. A bare `elicitation: {}`
-    declaration (the only shape before modes existed) counts as form support; an
-    explicit url-only declaration does not.
+    A bare `elicitation: {}` (the only shape before modes existed) counts as form support; url-only does not.
 
     Raises:
         MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` and a
@@ -817,9 +782,7 @@ def _outcome_from_state(entry: _StateEntry, marker: _Marker) -> ElicitationResul
     """Rebuild an outcome from a decoded `request_state` entry.
 
     Raises:
-        ValidationError: If the entry does not fit the live marker - accepted
-            data failing the expected shape, or a decline/cancel recorded for a
-            kind that has no such outcome (its `data` is `None`).
+        ValidationError: If the entry does not fit the live marker.
     """
     if isinstance(marker, Elicit):
         if entry.action == "decline":

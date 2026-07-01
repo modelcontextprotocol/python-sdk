@@ -2407,8 +2407,7 @@ def _sample_capital(ctx: Context) -> Sample:
 @pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")
 @pytest.mark.parametrize("mode", ["legacy", "auto"])
 async def test_sample_resolver_injects_result(mode: Literal["legacy", "auto"]):
-    # Marker-routed sampling must not fire the SEP-2577 deprecation warning on
-    # either transport: the embedded/marker form is the 2026-blessed carrier.
+    # The marker form is the 2026-blessed carrier: no SEP-2577 deprecation warning on either mode.
     mcp = MCPServer(name="Sampler", request_state_security=RequestStateSecurity.ephemeral())
     prompts: list[str] = []
 
@@ -2473,7 +2472,6 @@ async def test_mixed_kinds_batch_into_one_round():
         first = await client.session.call_tool("combo", {}, allow_input_required=True)
         assert isinstance(first, InputRequiredResult)
         assert first.input_requests is not None
-        # All three kinds are asked together in a single round.
         kinds = sorted(type(req).__name__ for req in first.input_requests.values())
         assert kinds == ["CreateMessageRequest", "ElicitRequest", "ListRootsRequest"]
         responses: InputResponses = {}
@@ -2531,9 +2529,7 @@ async def test_roots_tool_without_client_capability_is_a_protocol_error():
 
 @pytest.mark.anyio
 async def test_legacy_eliciting_tool_without_capability_is_a_protocol_error():
-    # The 2025 back-channel leg enforces the same egress gate as `input_requests`:
-    # a client that never declared elicitation gets -32021 instead of a request it
-    # cannot handle, and the session keeps working afterwards.
+    # Same egress gate as the input_requests leg; the session stays usable after the refusal.
     mcp = MCPServer(name="LegacyGate", request_state_security=RequestStateSecurity.ephemeral())
 
     async def ask(ctx: Context) -> Elicit[Login]:
@@ -2573,8 +2569,6 @@ def _ask_with_tool_choice(ctx: Context) -> Sample:
 @pytest.mark.anyio
 @pytest.mark.parametrize("ask", [_ask_with_tools, _ask_with_tool_choice])
 async def test_sample_tools_require_the_tools_subcapability(ask: Callable[[Context], Sample]):
-    # Either `tools` or `tool_choice` on the marker demands `sampling.tools`, and the
-    # refusal names the full requirement so the client can remediate in one step.
     mcp = MCPServer(name="NoToolsSubcapability", request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.tool()
@@ -2615,9 +2609,7 @@ async def test_sample_with_tools_round_trips_with_declared_subcapability():
 
 @pytest.mark.anyio
 async def test_no_tool_use_answer_to_a_tools_request_is_accepted():
-    # A model may legally answer a tools request without using a tool; the wire
-    # payload then parses out of the response union as the plain result shape.
-    # The answer must still validate and inject as `CreateMessageResultWithTools`.
+    # The answer parses off the wire as plain CreateMessageResult but must inject as CreateMessageResultWithTools.
     mcp = MCPServer(name="NoToolUse", request_state_security=RequestStateSecurity.ephemeral())
 
     @mcp.tool()
@@ -2652,8 +2644,7 @@ async def test_no_tool_use_answer_to_a_tools_request_is_accepted():
 
 @pytest.mark.anyio
 async def test_sample_outcome_persists_across_rounds():
-    # A dependent chain forces three rounds; the client's LLM is sampled exactly
-    # once and later rounds restore the recorded result from `request_state`.
+    # The confirm arm depends on the sample, forcing extra rounds that restore the result instead of re-sampling.
     mcp = MCPServer(name="Chain", request_state_security=RequestStateSecurity.ephemeral())
     samples = 0
 
@@ -2718,8 +2709,7 @@ def test_mixed_marker_arms_raise_at_registration():
 
 
 def test_marker_union_with_generic_alias_member_registers():
-    # `dict[str, Any]` passes `isinstance(c, type)` on Python 3.10; the arm filter
-    # must not feed it to `issubclass`.
+    # dict[str, Any] passes isinstance(c, type) on Python 3.10; the arm filter must not feed it to issubclass.
     async def maybe_ask(ctx: Context) -> Sample | dict[str, Any]:
         raise NotImplementedError  # pragma: no cover
 
@@ -2730,7 +2720,6 @@ def test_marker_union_with_generic_alias_member_registers():
 
 
 def test_decline_entry_for_a_sample_marker_is_invalid():
-    # Only elicitations have decline/cancel outcomes; a decline entry consulted by a
-    # Sample marker fails validation (data is None) and is dropped for a re-ask.
+    # Decline outcomes exist only for elicitations; for a Sample the entry's None data fails validation.
     with pytest.raises(ValidationError):
         _outcome_from_state(_StateEntry(action="decline"), _sample_capital(cast(Context, None)))

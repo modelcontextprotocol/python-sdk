@@ -304,10 +304,7 @@ class Client:
     """Callback for handling sampling requests."""
 
     sampling_capabilities: types.SamplingCapability | None = None
-    """Sampling sub-capabilities to declare alongside `sampling_callback` (e.g. tools support).
-
-    Only declared when `sampling_callback` is set; on its own it has no effect.
-    """
+    """Sampling sub-capabilities (e.g. tools) declared alongside `sampling_callback`; no effect without it."""
 
     list_roots_callback: ListRootsFnT | None = None
     """Callback for handling list roots requests."""
