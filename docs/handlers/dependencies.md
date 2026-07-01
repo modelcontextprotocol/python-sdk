@@ -142,4 +142,4 @@ That's the right default for a precondition: no answer, no order. When declining
 * Bad graphs fail at registration with `InvalidSignature`, not mid-call.
 * Return `Elicit(message, Model)` to ask the user, only when you have to. Unwrapped annotations abort on decline; `ElicitationResult[T]` lets the tool branch.
 
-Next: state your server builds once at startup, and how a handler reaches it, in the **[Lifespan](lifespan.md)**.
+State your server builds once at startup, and how a handler reaches it, is the **[Lifespan](lifespan.md)**.

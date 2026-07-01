@@ -122,4 +122,4 @@ Drop `context_arguments=` and the same call returns `[]`. The handler can't know
 * `context.arguments` holds the already-resolved values; the client supplies them as `context_arguments=`.
 * The `completions` capability appears the moment you register the handler. Without it, the request is `Method not found`.
 
-Suggestions help while the user is still *filling in* a prompt or template; to ask them a question in the *middle* of a tool call, you want **[Elicitation](../handlers/elicitation.md)**. Next: everything a tool can return besides text, in **[Images, audio & icons](media.md)**.
+Suggestions help while the user is still *filling in* a prompt or template; to ask them a question in the *middle* of a tool call, you want **[Elicitation](../handlers/elicitation.md)**. Everything a tool can return besides text is **[Images, audio & icons](media.md)**.

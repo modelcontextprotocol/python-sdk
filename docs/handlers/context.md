@@ -126,4 +126,4 @@ On a 2026-07-28 connection, clients receive change notifications only on a `subs
 * `ctx.session` is the channel back to the client: `send_tool_list_changed()` and its siblings tell it to re-fetch a list you changed.
 * Progress reporting and elicitation also start at `Context`; each has its own page.
 
-Next: parameters the model never sees, filled by your own functions, in **[Dependencies](dependencies.md)**.
+Parameters the model never sees, filled by your own functions, are **[Dependencies](dependencies.md)**.

@@ -144,4 +144,4 @@ Two more. Neither declares anything.
 * `sampling_callback` and `list_roots_callback` work the same way but serve deprecated features; modern servers use multi-round-trip requests instead.
 * `logging_callback` and `message_handler` receive notifications. They declare nothing.
 
-Next: the first argument you've been passing to `Client(...)` all along, **[Client transports](transports.md)**.
+The first argument to `Client(...)` is a transport object — **[Client transports](transports.md)** covers every kind.

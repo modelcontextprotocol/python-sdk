@@ -209,4 +209,4 @@ There is one constructor flag built for that: `Client(mcp, raise_exceptions=True
 * `list_resources` / `list_resource_templates` / `read_resource`, `list_prompts` / `get_prompt`, and `complete` round out the verbs.
 * Every `list_*` takes `cursor=`; loop until `next_cursor` is `None`.
 
-Next: the things a server can ask the *client* for, and how you answer, in **[Client callbacks](callbacks.md)**.
+The things a server can ask the *client* for, and how you answer them, are **[Client callbacks](callbacks.md)**.

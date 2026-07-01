@@ -75,4 +75,4 @@ went to standard error: the terminal, not the wire.
 * Standard error is yours; stdout belongs to the protocol. Never `print()` in a stdio server.
 * `MCPServer(..., log_level="DEBUG")` sets the level, and a logging configuration you made first is left alone.
 
-Next: telling connected clients that something on your server changed — the tool list, a resource — with **[Subscriptions](subscriptions.md)**.
+Telling connected clients that something on your server changed — the tool list, a resource — is **[Subscriptions](subscriptions.md)**.

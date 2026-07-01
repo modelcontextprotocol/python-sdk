@@ -114,4 +114,4 @@ The callback receives `total=None`. A client can still show *activity* ("3 impor
 * No callback on the call means `report_progress` does nothing. Report unconditionally.
 * Omit `total` when you don't know it; the callback gets `None`.
 
-Progress is what a running tool shows the *user*. The lines it logs for *you*, the person operating the server, are a different channel: **[Logging](logging.md)** is next.
+Progress is what a running tool shows the *user*. The lines it logs for *you*, the person operating the server, are a different channel: **[Logging](logging.md)**.

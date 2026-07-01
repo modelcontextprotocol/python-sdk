@@ -169,4 +169,4 @@ A well-behaved client uses them to decide things like *"do I need to ask the use
 * Bad arguments are rejected for you, with an error the model can read and recover from.
 * `async def` for I/O, plain `def` for everything else.
 
-Next up, **[Structured Output](structured-output.md)**: what happens to the value you `return`.
+**[Structured Output](structured-output.md)** is what happens to the value you `return`.
