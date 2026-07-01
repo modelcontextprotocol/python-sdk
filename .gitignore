@@ -173,3 +173,6 @@ cython_debug/
 
 # claude code
 results/
+
+# conformance CI local runs
+conformance-results/

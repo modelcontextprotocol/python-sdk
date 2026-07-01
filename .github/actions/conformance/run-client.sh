@@ -6,7 +6,9 @@
 set -uo pipefail
 
 : "${CONFORMANCE_PKG:?set CONFORMANCE_PKG (pinned in .github/workflows/conformance.yml)}"
-SOLO_ATTEMPTS="${CONFORMANCE_SOLO_ATTEMPTS:-2}"
+# One attempt: a solo failure on the quiet runner disproves the contention
+# hypothesis; a second try would be the blind retry this script avoids.
+SOLO_ATTEMPTS="${CONFORMANCE_SOLO_ATTEMPTS:-1}"
 
 # Relative args resolve from the repo root; same contract as run-server.sh.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
