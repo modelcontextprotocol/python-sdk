@@ -140,7 +140,7 @@ rather than adding new standalone sections.
 When a change affects public API or user-visible behaviour, update the relevant
 page(s) under `docs/` in the same PR. Docs are organised by the `nav:` sections
 in `mkdocs.yml` (Get started, Servers, Inside your handler, Running your server,
-Clients, Advanced), not by the on-disk directory names — find the page covering
+Clients, Advanced), not by the on-disk directory names. Find the page covering
 the feature you touched in `mkdocs.yml` rather than adding a new one.
 
 ## Formatting & Type Checking

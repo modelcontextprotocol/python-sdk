@@ -44,9 +44,9 @@ You'll use this yourself in [Testing](testing.md); it's how you test your own se
 ## Where to go next
 
 Once you have a server running, the rest of these docs are a reference, not a course.
-Every page stands on its own — jump straight to what you need:
+Every page stands on its own, so jump straight to what you need:
 
-* What a server exposes — tools, resources, prompts — is **[Servers](../servers/index.md)**.
+* What a server exposes (tools, resources, prompts) is **[Servers](../servers/index.md)**.
 * What's available inside the functions you register is **[Inside your handler](../handlers/index.md)**.
-* Getting it in front of clients — stdio, HTTP, your existing FastAPI app — is **[Running your server](../run/index.md)**.
+* Getting it in front of clients (stdio, HTTP, your existing FastAPI app) is **[Running your server](../run/index.md)**.
 * Building the other side, an application that *uses* MCP servers, is **[Clients](../client/index.md)**.

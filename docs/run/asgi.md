@@ -41,7 +41,7 @@ Out of the box the app answers **only** requests addressed to localhost. `stream
 cannot know which hostname it will be served behind, so it arms DNS-rebinding protection with the
 safest possible allowlist; on your machine that is exactly right. Deployed behind a real hostname,
 it means **every request is rejected with `421 Misdirected Request`** until you pass
-`transport_security=` an allowlist of what you actually serve — and nothing you built is even
+`transport_security=` an allowlist of what you actually serve. Nothing you built is even
 consulted first. That allowlist, and everything else between a working app and a real hostname,
 is **[Deploy & scale](deploy.md)**.
 
@@ -57,7 +57,7 @@ The moment the MCP server is *part* of a bigger application, you put the app ins
 * The `lifespan` function enters `mcp.session_manager.run()` for the lifetime of the **host** app. This is the line everyone forgets.
 * `mcp.session_manager` only exists *after* `streamable_http_app()` has been called. That is why the routes are built at module level and the manager is only touched inside the lifespan.
 
-Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change, and neither does the transport-security one. A `Host("mcp.example.com", ...)` route only ever receives requests addressed to that hostname, but the transport's own Host allowlist (**[Deploy & scale](deploy.md)**) still runs first — without `"mcp.example.com"` in it, that route answers every one of them with a `421`.
+Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change, and neither does the transport-security one. A `Host("mcp.example.com", ...)` route only ever receives requests addressed to that hostname, but the transport's own Host allowlist (**[Deploy & scale](deploy.md)**) still runs first. Without `"mcp.example.com"` in it, that route answers every one of them with a `421`.
 
 !!! warning "The host app owns the lifespan"
     `streamable_http_app()` wires `session_manager.run()` into the lifespan of the Starlette it

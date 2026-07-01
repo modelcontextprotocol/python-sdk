@@ -256,11 +256,11 @@ The fix is to reconnect: leave the `async with Client(...)` block and enter a ne
 
 If it happens *without* a restart, you are running more than one worker without sticky sessions: each worker holds its own session table, so a request routed to the wrong one lands here. **[Deploy & scale](run/deploy.md)** and **[Serving legacy clients](run/legacy-clients.md)** own that story and its two fixes (sticky routing, or `stateless_http=True`).
 
-For the server operator, the matching log line is `Rejected request with unknown or expired session ID: <id>` — logged at `INFO`, so it is invisible at the usual `WARNING` threshold. Seeing it in bursts right after a deploy is normal; every connected client is reconnecting.
+For the server operator, the matching log line is `Rejected request with unknown or expired session ID: <id>`. It is logged at `INFO`, so it is invisible at the usual `WARNING` threshold. Seeing it in bursts right after a deploy is normal; every connected client is reconnecting.
 
 ## `MCPError: Method not found`
 
-One side sent a JSON-RPC request the other has no handler for, and `e.error.data` names the method. The usual cause is an **era mismatch**: a method that exists in one protocol revision and not in the other, sent to a peer on the wrong one — a `2025`-era `resources/subscribe` arriving at a `2026-07-28` connection, a `2026`-only `subscriptions/listen` sent by a client pinned to `mode="legacy"`. **[Protocol versions](protocol-versions.md)** is the map of which side speaks what, and the other honest cause — an optional capability you never registered a handler for — is on **[Completions](servers/completions.md)**.
+One side sent a JSON-RPC request the other has no handler for, and `e.error.data` names the method. The usual cause is an **era mismatch**: a method that exists in one protocol revision and not in the other, sent to a peer on the wrong one, such as a `2025`-era `resources/subscribe` arriving at a `2026-07-28` connection, or a `2026`-only `subscriptions/listen` sent by a client pinned to `mode="legacy"`. **[Protocol versions](protocol-versions.md)** is the map of which side speaks what, and the other honest cause (an optional capability you never registered a handler for) is on **[Completions](servers/completions.md)**.
 
 One thing does **not** produce this error, despite being a request the modern protocol removed: a tool calling `ctx.elicit()` on a `2026-07-28` connection. The server refuses to *send* that request at all, so what you get instead is `Cannot send 'elicitation/create': ...`, further down this page.
 
@@ -301,13 +301,13 @@ async def main() -> None:
 
 The same gap as `Client did not declare the form elicitation capability ...`, spelled by the paths that don't check up front: the server needed an elicitation answered, and the connected client registered no `elicitation_callback`.
 
-You see this one from `ctx.elicit()` on a legacy connection, and — on any connection — from a returned multi-round-trip question (**[Multi-round-trip requests](handlers/multi-round-trip.md)**) that reaches a client with no callback to answer it. The fix is identical: pass `elicitation_callback=` to `Client(...)`. There is no version of "the user wasn't asked" that your tool receives as a `decline`; a client that cannot be asked is a failed call, so design your tools for it.
+You see this one from `ctx.elicit()` on a legacy connection, and on any connection at all from a returned multi-round-trip question (**[Multi-round-trip requests](handlers/multi-round-trip.md)**) that reaches a client with no callback to answer it. The fix is identical: pass `elicitation_callback=` to `Client(...)`. There is no version of "the user wasn't asked" that your tool receives as a `decline`; a client that cannot be asked is a failed call, so design your tools for it.
 
 ## `MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.`
 
 Your handler tried to reach the client mid-request, on a connection where nothing can carry a request from the server. There are exactly two ways to be on one.
 
-**A `2026-07-28` connection — any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this — on the very first in-memory test, since `Client(server)` negotiates `2026-07-28` without being asked — and passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
+**A `2026-07-28` connection: any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this (on the very first in-memory test, since `Client(server)` negotiates `2026-07-28` without being asked), and passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
@@ -370,12 +370,12 @@ WARNING mcp.server.request_state: requestState rejected on tools/call: malformed
 The reasons you will actually see:
 
 * **`unknown key`** is the one that matters. The default sealing key is generated at process start, so a retry that lands on a **different worker**, a different instance behind a load balancer, or the same server **after a restart** was sealed under a key this process never had. That is not an attacker; it is the default meeting more than one process.
-* **`audience`**: the token was sealed by an instance with a *different server name*. The name is the seal's default audience claim, so a fleet must share the name — or set an explicit `RequestStateSecurity(audience=...)` — as well as the keys.
+* **`audience`**: the token was sealed by an instance with a *different server name*. The name is the seal's default audience claim, so a fleet must share the name (or set an explicit `RequestStateSecurity(audience=...)`) as well as the keys.
 * **`expired`**: the round took longer than the seal's `ttl`, which is 600 seconds and per round, not per call.
 * **`malformed`** / **`codec error`**: the token was altered in transit, or was never a sealed token at all.
 * **`request binding`**: the token came back with a different tool, different arguments, or a different method.
 
-The multi-process fix is one argument — the *same* `keys` on every instance — plus one thing that is not an argument at all: the same server *name* (or an explicit shared `audience=`).
+The multi-process fix is one argument (the *same* `keys` on every instance) plus one thing that is not an argument at all: the same server *name* (or an explicit shared `audience=`).
 
 ```python
 mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key]))

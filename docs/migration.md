@@ -1512,7 +1512,7 @@ Behavior changes:
 
 Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions.
 
-The 2026-07-28 revision reintroduces Tasks as an official extension — [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), `io.modelcontextprotocol/tasks`, redesigned around polling (`tasks/get`) instead of a blocking `tasks/result`. This SDK does not implement the extension yet.
+The 2026-07-28 revision reintroduces Tasks as an official extension: [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), `io.modelcontextprotocol/tasks`, redesigned around polling (`tasks/get`) instead of a blocking `tasks/result`. This SDK does not implement the extension yet.
 
 ## Deprecations
 
@@ -1665,7 +1665,7 @@ The implementation is responsible for validating the assertion per RFC 7523 §3 
 
 ### 2025-11-25 and 2026-07-28 protocol fields modeled
 
-`mcp_types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `0`/`"private"` (immediately stale, not shared-cacheable); `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions. Servers set per-method values with `cache_hints={method: CacheHint(...)}` on the `Server`/`MCPServer` constructor — see [Caching hints](client/caching.md).
+`mcp_types` models the 2025-11-25 and 2026-07-28 protocol fields (e.g. `resultType`, `ttlMs`/`cacheScope` on cacheable results, `inputResponses`/`requestState` on retried requests), so inbound payloads carrying these keys parse into typed fields and round-trip. `ttlMs`/`cacheScope` default to `0`/`"private"` (immediately stale, not shared-cacheable); `resultType` defaults to `"complete"` on concrete results (`None` on `EmptyResult`); the server strips all of them from the wire at pre-2026 versions. Servers set per-method values with `cache_hints={method: CacheHint(...)}` on the `Server`/`MCPServer` constructor. See [Caching hints](client/caching.md) for details.
 
 ### `streamable_http_app()` available on lowlevel Server
 

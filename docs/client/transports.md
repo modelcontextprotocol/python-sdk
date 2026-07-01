@@ -72,7 +72,7 @@ Two things to notice:
 
 ## stdio
 
-A **stdio** server is a subprocess. The client launches it, writes JSON-RPC to its stdin and reads JSON-RPC from its stdout. It is how a desktop host runs a server on your machine — a host *is* this code plus a UI, and **[Connect to a real host](../get-started/real-host.md)** is the same relationship seen from the host's side, as a config file.
+A **stdio** server is a subprocess. The client launches it, writes JSON-RPC to its stdin and reads JSON-RPC from its stdout. It is how a desktop host runs a server on your machine: a host *is* this code plus a UI, and **[Connect to a real host](../get-started/real-host.md)** is the same relationship seen from the host's side, as a config file.
 
 Describe the process with `StdioServerParameters`, turn it into a transport with `stdio_client`, and hand *that* to `Client`:
 

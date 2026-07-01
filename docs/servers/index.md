@@ -15,16 +15,16 @@ decides to use them:
 
 Around the three primitives, the rest of what a server declares:
 
-* **[Completions](completions.md)** — server-side autocomplete for prompt
+* **[Completions](completions.md)** is server-side autocomplete for prompt
   and resource-template arguments.
-* **[Images, audio & icons](media.md)** — everything a tool can
+* **[Images, audio & icons](media.md)** covers everything a tool can
   return besides text, and the icons a client shows next to your server.
-* **[Handling errors](handling-errors.md)** — the difference between an
+* **[Handling errors](handling-errors.md)** explains the difference between an
   error the model can recover from and one it must never see.
 
 Every page here stands on its own; jump straight to the one you need. If you haven't
 built a server yet, start with **[First steps](../get-started/first-steps.md)** instead.
 
-What happens *inside* the functions you register — the `Context`, dependency injection,
-asking the user for more input mid-call — is the next section,
+What happens *inside* the functions you register (the `Context`, dependency injection,
+asking the user for more input mid-call) is the next section,
 **[Inside your handler](../handlers/index.md)**.
