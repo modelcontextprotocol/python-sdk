@@ -147,4 +147,4 @@ The `prompts/list` entry now carries everything a client needs to draw a good fo
 * `title=` and `Field(description=...)` are what a client puts in its UI.
 * A missing required argument fails the whole request. There is no per-prompt error result.
 
-Next up: the one extra parameter a tool, resource or prompt can ask the SDK for, **[The Context](context.md)**.
+Next up: server-side autocomplete for a prompt's (or a resource template's) arguments, in **[Completions](completions.md)**.

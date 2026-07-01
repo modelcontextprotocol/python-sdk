@@ -138,4 +138,4 @@ A client can also **subscribe** to a resource and be notified when it changes; t
 * `str` becomes text, `bytes` becomes a base64 blob, anything else becomes JSON text. `mime_type=` is how you label it.
 * Tools are for the model to act. Resources are for the application to read.
 
-Next: the third primitive, the one a person picks from a menu, **[Prompts](prompts.md)**.
+The third primitive, the one a person picks from a menu, is **[Prompts](prompts.md)**.

@@ -169,4 +169,4 @@ Now swap in the URL-mode `server.py` and point the same `main()` at `pay_deposit
 * The client answers with one `elicitation_callback`, branching on the params type; registering it is what declares the capability.
 * On a 2026-07-28 connection the server returns the question instead of pushing it; the same callback is fed by **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
 
-A tool that can ask is good. A tool that says how far along it is (**[Progress](progress.md)**) is next.
+Everything underneath that return — the retry loop, protecting `requestState`, driving it yourself — is **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.

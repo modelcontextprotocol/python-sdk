@@ -129,4 +129,4 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 * Bad arguments are rejected against the schema before your function runs; you don't `raise` for those.
 * `from mcp import MCPError`; the error-code constants come from `mcp_types`.
 
-Errors handled. Next: the things your server sets up once, before the first call ever arrives, the **[Lifespan](lifespan.md)**.
+Errors handled. That is everything a server *exposes*. What every handler can read, and do back to the client while it runs, is the next section: **[Inside your handler](../handlers/index.md)**.

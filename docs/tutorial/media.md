@@ -105,4 +105,4 @@ A tool's icons are on the `Tool` object from `tools/list`, a resource's on the `
 * An `Icon` is a pointer: a `src` URI plus optional `mime_type`, `sizes`, and `theme`.
 * `icons=[...]` works on the server, on tools, on resources, and on prompts, and clients find them on the matching objects.
 
-That is everything a tool can put *into* a result. Helping the user fill in a prompt's or a resource template's arguments *before* anything runs is **[Completions](completions.md)**.
+That is everything a tool can put *into* a result. What happens when a tool *fails* — and who should find out — is **[Handling errors](handling-errors.md)**.

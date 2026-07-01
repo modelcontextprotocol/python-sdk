@@ -104,4 +104,4 @@ mcp._lowlevel_server.middleware[:] = [
   with no change to your server.
 * Client-to-server trace context propagates automatically when both sides run the SDK.
 
-Next, the thing that decides whether a request runs at all: **[Authorization](authorization.md)**.
+The thing that decides whether a request runs at all is **[Authorization](authorization.md)**.

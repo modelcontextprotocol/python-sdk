@@ -98,9 +98,9 @@ Leave it on in tests. It has no meaning in production code.
     there: a legacy connection never sanitises in the first place, and the flag re-raises the
     failure inside the server task instead of in your test.
 
-That one line is also why the rest of this tutorial can promise you that its examples work: every
+That one line is also why these docs can promise you that their examples work: every
 example file is exercised by the SDK's own test suite through exactly this client. You're using the
 same tool the SDK uses on itself.
 
-The tutorial ends here. Putting your tested server in front of a real client, over a real
+You have a working, tested server. Putting it in front of a real client, over a real
 transport, is **[Running your server](../run/index.md)**.

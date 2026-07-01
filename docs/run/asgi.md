@@ -1,4 +1,4 @@
-# ASGI
+# Add to an existing app
 
 `mcp.run("streamable-http")` starts a web server for you. Sometimes you don't want that: your MCP server is one piece of a larger web application, or you already have an ASGI deployment.
 

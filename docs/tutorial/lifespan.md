@@ -99,4 +99,4 @@ Strip the server down to the lifecycle: give `Database` a `connected` flag, flip
 * `ctx: Context[AppContext]` makes that access fully typed in tools. Resources and prompts take the bare `Context`.
 * No `lifespan=` means an empty `dict`, never `None`.
 
-Next: tools that return more than text, **[Media](media.md)**.
+Next: a handler that stops mid-call to ask the user for something only they know, in **[Elicitation](elicitation.md)**.

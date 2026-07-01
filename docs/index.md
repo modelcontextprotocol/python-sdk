@@ -89,7 +89,7 @@ You wrote two Python functions with type hints and a docstring. The SDK does the
 
 ## Where to go next
 
-* The **[Tutorial](tutorial/index.md)** walks through everything a server can do, one small step at a time.
+* **[Get started](tutorial/index.md)** takes you from install to a working, tested server.
 * Migrating from v1? Start with the **[Migration Guide](migration.md)**.
 * Hunting for an exact signature? The **[API Reference](api/mcp/index.md)** is generated from the source.
 * Reading with an LLM? This documentation is also published in the [llms.txt](https://llmstxt.org/) format:
