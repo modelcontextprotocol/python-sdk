@@ -136,4 +136,4 @@ That ratio is the whole point of the SDK.
 * The server's **capabilities** are declared for you, and a client only asks for what a server declares.
 * `Client(mcp)` connects to the server object in memory: your test harness from day one.
 
-Next: **[Testing](testing.md)** — one page, one in-memory client, and you're never guessing whether it works. Then each primitive gets its own page, starting with the one the model drives: **[Tools](../servers/tools.md)**.
+Next: **[Connect to a real host](real-host.md)** — this server inside Claude Desktop or an IDE, for real. Then **[Testing](testing.md)**: one page, one in-memory client, and you're never guessing whether it works. After that, each primitive gets its own page, starting with the one the model drives: **[Tools](../servers/tools.md)**.

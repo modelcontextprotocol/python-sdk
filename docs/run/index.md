@@ -67,7 +67,7 @@ Each transport has its own keyword arguments, all on `run()`:
 * `streamable_http_path`: where the MCP endpoint lives. Default `/mcp`.
 * `json_response=True`: answer with plain JSON instead of an SSE stream.
 * `stateless_http=True`: a fresh transport per request, no session tracking.
-* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[Add to an existing app](asgi.md)** covers `transport_security`.
+* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[Deploy & scale](deploy.md)** covers `transport_security`.
 
 !!! warning
     Transport options go to `run()`, **not** to `MCPServer(...)`. The constructor describes what
@@ -127,6 +127,8 @@ uv run mcp install server.py -v API_KEY=abc123 -f .env
 
 `-v KEY=VALUE` and `-f .env` record environment variables in that entry. Claude Desktop starts your server in its own process. Your shell's environment is not there.
 
+Claude Desktop is the only host `mcp install` knows. Every other host — Claude Code, Cursor, VS Code — takes the same launch command in its own config file, and **[Connect to a real host](../get-started/real-host.md)** has each one.
+
 `mcp version` prints the installed SDK version.
 
 !!! tip
@@ -143,4 +145,4 @@ uv run mcp install server.py -v API_KEY=abc123 -f .env
 * `mcp dev` for the Inspector, `mcp run` to execute a file, `mcp install` for Claude Desktop, `mcp version` for the version.
 * The transport never changes what your server *is*: all three files on this page expose the identical tool.
 
-When `run()` itself is the limit (your server inside an app that already exists), the next step is **[Add to an existing app](asgi.md)**.
+When `run()` itself is the limit — your server inside an app that already exists — it is **[Add to an existing app](asgi.md)**. A real hostname and more than one worker is **[Deploy & scale](deploy.md)**. And if some of your clients are still on spec version 2025-11-25 or earlier, **[Serving legacy clients](legacy-clients.md)** is the good news.

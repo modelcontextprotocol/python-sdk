@@ -16,6 +16,7 @@ nav:
       - get-started/index.md
       - Installation: get-started/installation.md
       - First steps: get-started/first-steps.md
+      - Connect to a real host: get-started/real-host.md
       - Testing: get-started/testing.md
   - Servers:
       - servers/index.md
@@ -40,8 +41,10 @@ nav:
   - Running your server:
       - run/index.md
       - Add to an existing app: run/asgi.md
+      - Deploy & scale: run/deploy.md
       - Authorization: run/authorization.md
       - OpenTelemetry: run/opentelemetry.md
+      - Serving legacy clients: run/legacy-clients.md
   - Clients:
       - client/index.md
       - Callbacks: client/callbacks.md
@@ -59,6 +62,7 @@ nav:
       - Middleware: advanced/middleware.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
+  - Troubleshooting: troubleshooting.md
   - Migration Guide: migration.md
   - API Reference: api/
 

@@ -92,6 +92,7 @@ You wrote two Python functions with type hints and a docstring. The SDK does the
 * **[Get started](get-started/index.md)** takes you from install to a working, tested server.
 * Building an application that *uses* MCP servers? Start with **[Clients](client/index.md)**.
 * Already have a FastAPI or Starlette app? **[Add to an existing app](run/asgi.md)** mounts an MCP server inside it.
+* Hunting an exact error message? **[Troubleshooting](troubleshooting.md)** is keyed by the verbatim text.
 * Migrating from v1? Start with the **[Migration Guide](migration.md)**.
 * Hunting for an exact signature? The **[API Reference](api/mcp/index.md)** is generated from the source.
 * Reading with an LLM? This documentation is also published in the [llms.txt](https://llmstxt.org/) format:

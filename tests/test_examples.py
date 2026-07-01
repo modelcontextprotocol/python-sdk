@@ -104,6 +104,7 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             "docs/index.md",
             "docs/protocol-versions.md",
             "docs/deprecated.md",
+            "docs/troubleshooting.md",
             "docs/get-started",
             "docs/servers",
             "docs/handlers",

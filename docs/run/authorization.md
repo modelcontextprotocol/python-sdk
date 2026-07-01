@@ -122,4 +122,4 @@ An authorization server can also accept an enterprise identity provider's signed
 * `get_access_token()` in any handler is who's calling.
 * Authorization is an HTTP concern. `stdio` and the in-memory client never see it.
 
-The other side of the handshake, a client that discovers your authorization server and fetches the token for you, is **[OAuth clients](../client/oauth-clients.md)**.
+The client half — discovering your authorization server and fetching the token for you — is **[OAuth clients](../client/oauth-clients.md)**. And a client that *asserts* an identity instead of asking a user for one is **[Identity assertion](../client/identity-assertion.md)**.
