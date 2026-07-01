@@ -131,4 +131,4 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 
 Errors handled. That is everything a server *exposes*. What every handler can read, and do back to the client while it runs, is the next section: **[Inside your handler](../handlers/index.md)**.
 
-The exact text of every error the SDK produces, what it means, and the one-move fix for each is **[Troubleshooting](../troubleshooting.md)**.
+The exact text of the SDK errors you are most likely to meet, what each means, and the one-move fix for each is **[Troubleshooting](../troubleshooting.md)**.

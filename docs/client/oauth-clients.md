@@ -87,7 +87,7 @@ You wrote none of it. Three keyword arguments remain (`timeout`, `client_metadat
 
 ### Try it
 
-Every other example in these docs you can check with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
+Most examples in these docs you can check with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
 
 The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this page's client grown into a small CLI. Its README has the two commands: start the servers, run the client against them, and you watch the four steps go by.
 

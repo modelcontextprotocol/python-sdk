@@ -99,8 +99,8 @@ Leave it on in tests. It has no meaning in production code.
     failure inside the server task instead of in your test.
 
 That one line is also why these docs can promise you that their examples work: every
-example file is exercised by the SDK's own test suite through exactly this client. You're using the
-same tool the SDK uses on itself.
+example file is exercised by the SDK's own test suite, almost all of them through exactly this
+client. You're using the same tool the SDK uses on itself.
 
 You have a working, tested server. Putting it inside a real application (Claude Desktop, an
 IDE) is **[Connect to a real host](real-host.md)**; every other way to serve it is

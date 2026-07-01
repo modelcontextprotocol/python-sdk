@@ -30,7 +30,7 @@ Two things to notice:
 
 !!! info
     `ImageContent` and `AudioContent` live in `mcp_types`, right next to the `TextContent`
-    a plain `str` result becomes (**[Tools](tools.md)**). A tool result is a list of content blocks; `Image` and `Audio` are
+    that a plain `str` result becomes (**[Tools](tools.md)**). A tool result is a list of content blocks; `Image` and `Audio` are
     the shortest way to produce the two binary kinds.
 
 ### Try it

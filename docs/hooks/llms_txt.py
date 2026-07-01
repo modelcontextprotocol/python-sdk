@@ -5,7 +5,7 @@ The hook publishes three artifacts into the built site:
 - `llms.txt`: a markdown index of the documentation, one link per page,
   grouped by nav section.
 - a `.md` rendition of every prose page next to its HTML (e.g.
-  `tutorial/tools/index.md`), which is what the llms.txt links point at.
+  `servers/tools/index.md`), which is what the llms.txt links point at.
 - `llms-full.txt`: every prose page concatenated for single-fetch consumption.
 
 Page markdown is the source markdown with `--8<--` snippet includes resolved

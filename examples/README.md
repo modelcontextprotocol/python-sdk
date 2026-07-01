@@ -16,7 +16,7 @@
 - [`clients/`](clients/) and the remaining [`servers/`](servers/) directories
   (`simple-*`, `sse-polling-demo`, `structured-output-lowlevel`) — standalone
   v1-era projects retained pending consolidation into `stories/` (the
-  `simple-auth` pair is still linked from `docs/advanced/`).
+  `simple-auth` pair is still linked from `docs/run/authorization.md` and `docs/client/oauth-clients.md`).
 
 For real-world servers see the
 [servers repository](https://github.com/modelcontextprotocol/servers).
