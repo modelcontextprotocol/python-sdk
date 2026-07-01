@@ -49,7 +49,7 @@ result.structured_content  # {'result': "Found 3 books matching 'dune' (showing 
 
 `content` is the text the **model** reads. `structured_content` is typed data for the **client application**. It's there because you declared the return type as `-> str`.
 
-Don't worry about `structured_content` yet. Return real Python objects from your tools and the right thing happens; the **[Structured Output](structured-output.md)** chapter is all about it.
+Don't worry about `structured_content` yet. Return real Python objects from your tools and the right thing happens; the **[Structured Output](structured-output.md)** page is all about it.
 
 ### Try it
 

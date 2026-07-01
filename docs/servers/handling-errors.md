@@ -4,7 +4,7 @@ A tool can fail in two ways, and the SDK treats them very differently.
 
 Raise an ordinary exception and the **model** sees it. Raise `MCPError` and the **protocol** sees it.
 
-This chapter is about choosing.
+This page is about choosing.
 
 ## An error the model can fix
 
@@ -110,7 +110,7 @@ Notice there is no `is_error=True` half-result here. A resource read either retu
 
 A bad argument never reaches your function.
 
-Send `get_author` a `title` that isn't a string and the SDK rejects it against the input schema **before** calling you, as the same kind of `is_error=True` tool error the model can read and correct. You saw this in **[Tools](tools.md)** with `Field(le=50)`.
+Send `get_author` a `title` that isn't a string and the SDK rejects it against the input schema **before** calling you, as the same kind of `is_error=True` tool error the model can read and correct. **[Tools](tools.md)** shows the same rejection with a `Field(le=50)` constraint.
 
 It means a whole class of `raise` statements you don't write: don't re-validate your own type hints.
 

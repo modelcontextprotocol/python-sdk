@@ -12,7 +12,7 @@ It is one object with one lifecycle: construct it, enter `async with`, call meth
 
 The server at the top is only there so you have something to connect to. The client is the five highlighted lines.
 
-* `Client(mcp)` is given the **server object itself**. That is the in-memory transport: no subprocess, no port, no HTTP. It is how every example in this chapter, and every test you write, connects.
+* `Client(mcp)` is given the **server object itself**. That is the in-memory transport: no subprocess, no port, no HTTP. It is how every example on this page, and every test you write, connects.
 * `async with` is the **lifecycle**. Entering it connects and negotiates; leaving it disconnects. There is no `connect()` / `close()` pair, and a `Client` cannot be reused after the block ends.
 * Inside the block the connection facts are already there as plain properties.
 
@@ -24,7 +24,7 @@ The server at the top is only there so you have something to connect to. The cli
 * A URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, the production path.
 * A **transport**: anything you can `async with ... as (read, write)`, such as `stdio_client(...)` wrapping a subprocess.
 
-Everything else on this page is identical across all three. Headers, subprocesses, timeouts, and the `Transport` protocol get their own chapter: **[Client transports](transports.md)**.
+Everything else on this page is identical across all three. Headers, subprocesses, timeouts, and the `Transport` protocol get their own page: **[Client transports](transports.md)**.
 
 ### What's on a connected client
 
@@ -104,7 +104,7 @@ That is why `main` narrows with `isinstance(block, TextContent)` before touching
 
 `structured_content` is the tool's return value as JSON, matching the tool's declared `output_schema`. No string parsing, no guessing.
 
-When both are present they say the same thing twice on purpose: `content` is for a model, `structured_content` is for code. Where the structured half comes from, and how to control it, is the **[Structured Output](../servers/structured-output.md)** chapter.
+When both are present they say the same thing twice on purpose: `content` is for a model, `structured_content` is for code. Where the structured half comes from, and how to control it, is the **[Structured Output](../servers/structured-output.md)** page.
 
 ### `is_error`: whether the tool failed
 
@@ -181,7 +181,7 @@ A server with a completion handler can autocomplete prompt and resource-template
 * `ref` says *which* prompt or template you're filling in: a `PromptReference` or a `ResourceTemplateReference`.
 * `argument` is `{"name": ..., "value": ...}`: the argument and what the user has typed so far.
 
-The answer is in `result.completion.values`. Type `"p"` and the server comes back with `['poetry']`. The server side, and how a handler uses the *other* already-filled arguments to narrow its suggestions, is the **[Completions](../servers/completions.md)** chapter.
+The answer is in `result.completion.values`. Type `"p"` and the server comes back with `['poetry']`. The server side, and how a handler uses the *other* already-filled arguments to narrow its suggestions, is the **[Completions](../servers/completions.md)** page.
 
 ## Pagination
 
@@ -197,7 +197,7 @@ This loop is correct against every server. `MCPServer` returns everything in one
 
 `Client(mcp)` with no process and no port is already a test harness for your server.
 
-There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-memory connections, and **[Testing](../get-started/testing.md)** is the chapter that explains it and builds the whole pattern around it.
+There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-memory connections, and **[Testing](../get-started/testing.md)** is the page that explains it and builds the whole pattern around it.
 
 ## Recap
 

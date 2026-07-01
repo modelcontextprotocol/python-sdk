@@ -12,7 +12,7 @@ For everything else, stay on `MCPServer`.
 
 ## The same tool, by hand
 
-This is `search_books` from **[Tools](../servers/tools.md)** (the nine-line `@mcp.tool()` file) with the sugar removed:
+This is the `search_books` tool that **[Tools](../servers/tools.md)** writes in nine lines of `@mcp.tool()`, with the sugar removed:
 
 ```python title="server.py" hl_lines="23 27 33"
 --8<-- "docs_src/lowlevel/tutorial001.py"
@@ -56,12 +56,12 @@ asyncio.run(main())
 
 The same text the `@mcp.tool()` version produced. Two honest differences:
 
-* `result.structured_content` is `None`. The high-level server wrapped your `-> str` into `{"result": ...}`; here nobody builds what you didn't build.
+* `result.structured_content` is `None`. The high-level server wraps a `-> str` into `{"result": ...}` for you; here nobody builds what you didn't build.
 * `list_tools` returns the schema **you** typed, character for character. The high-level version had `"title": "Query"` on every property and a `"title": "search_booksArguments"` at the root: Pydantic artifacts. Down here, if it's on the wire, you put it there.
 
 ## Nothing is checked for you
 
-In **[Tools](../servers/tools.md)** you saw a bad argument get rejected before your function ran. That was `MCPServer` validating the call against the schema it generated.
+`MCPServer` rejects a bad argument before your function ever runs, validating the call against the schema it generated (**[Tools](../servers/tools.md)**).
 
 `Server` does not do that. Your `input_schema` is *advertised* to the client; it is never *applied* to `params.arguments`.
 
@@ -179,7 +179,7 @@ The handshake belongs to the runner. `server/discover`, `ping`, and every other 
 
 ## The other handlers
 
-Each of these is one idea you now have the vocabulary for; each has its own chapter.
+Each of these is one idea you now have the vocabulary for; each has its own page.
 
 * `on_call_tool`, `on_get_prompt`, and `on_read_resource` may return an `InputRequiredResult` instead of their normal result to pause the call and ask the client for input; see **[Multi-round-trip requests](../handlers/multi-round-trip.md)**. True to this tier, nothing is installed for you: where `MCPServer` seals `requestState` by default, here the `request_state` you set crosses the wire exactly as written until you opt in with `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: one line (both names import from `mcp.server.request_state`) for the identical sealing and verification `MCPServer` performs (**[Protecting `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` are the same `(ctx, params) -> result` shape for the other primitives.

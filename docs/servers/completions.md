@@ -39,7 +39,7 @@ Add **one** function decorated with `@mcp.completion()`:
 
 ### Try it
 
-Drive it with the in-memory `Client`, the same one you use in **[Testing](../get-started/testing.md)**. Call
+Drive it with the in-memory `Client` from **[Testing](../get-started/testing.md)**. Call
 `client.complete()` with `ref=PromptReference(name="review_code")` and
 `argument={"name": "language", "value": "py"}`:
 

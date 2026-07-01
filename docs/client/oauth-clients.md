@@ -4,7 +4,7 @@ Some MCP servers are protected. Send them a request without a token and they ans
 
 **`OAuthClientProvider`** is how you get the token. It is not an MCP object at all. It is an `httpx.Auth`, the standard httpx hook for "do something to every request". You attach it to an `httpx.AsyncClient`, hand that client to the Streamable HTTP transport, and stop thinking about it.
 
-This chapter is the client side. Making your own server demand a token is **[Authorization](../run/authorization.md)**.
+This page is the client side. Making your own server demand a token is **[Authorization](../run/authorization.md)**.
 
 ## The provider
 
@@ -87,9 +87,9 @@ You wrote none of it. Three keyword arguments remain (`timeout`, `client_metadat
 
 ### Try it
 
-Everything else in these docs you have checked with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
+Every other example in these docs you can check with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
 
-The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this chapter's client grown into a small CLI. Its README has the two commands: start the servers, run the client against them, and you watch the four steps go by.
+The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this page's client grown into a small CLI. Its README has the two commands: start the servers, run the client against them, and you watch the four steps go by.
 
 ## Machine to machine
 
@@ -119,7 +119,7 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
     the same pattern: construct one, put it on `auth=`. The same module ships
     `SignedJWTParameters` and `static_assertion_provider`, two helpers that build its assertion.
 
-There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own chapter, **[Identity assertion](identity-assertion.md)**.
+There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own page, **[Identity assertion](identity-assertion.md)**.
 
 ## When it fails
 

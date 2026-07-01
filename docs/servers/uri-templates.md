@@ -17,7 +17,7 @@ details (message formats, lifecycle, pagination) see the
 
 ## The full operator set
 
-**[Resources](resources.md)** showed one placeholder, `{user_id}`. There are four more
+The plain placeholder, `{user_id}`, is the one **[Resources](resources.md)** introduces. There are four more
 operator forms; here they are on one server so you can see them next to
 each other:
 
@@ -30,7 +30,7 @@ The sections below walk them top to bottom.
 
 ### Simple expansion: `{name}`
 
-`books://{isbn}` is the form you already know. The placeholder maps to
+`books://{isbn}` is the plain, everyday form. The placeholder maps to
 the `isbn` parameter, so a client reading `books://978-0441172719` calls
 `get_book("978-0441172719")`.
 

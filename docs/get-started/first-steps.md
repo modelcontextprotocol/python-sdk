@@ -1,8 +1,8 @@
 # First steps
 
-On the landing page you wrote a server, ran it, and called a tool.
+The **[landing page](../index.md)** moves fast: write a server, run it, call a tool.
 
-Now do it again, slowly, with all three things a server can expose, and the names for everything you just saw.
+This page takes it slowly, with all three things a server can expose, and a name for everything along the way.
 
 ## Host, client, and server
 
@@ -12,7 +12,7 @@ Three words you'll see on every page from here on:
 * A **client** lives inside the host and speaks MCP. The host runs one client per server it's connected to.
 * A **server** is what you build with this SDK. It exposes things to clients. It never talks to the model directly.
 
-You write the server. Hosts are someone else's product. The SDK also gives you a `Client`. You'll use it to test your servers, and it shows up later in this chapter.
+You write the server. Hosts are someone else's product. The SDK also gives you a `Client`. You'll use it to test your servers, and it shows up later on this page.
 
 ## The three primitives
 
@@ -70,7 +70,7 @@ Hello, World!
 
 **Prompts.** One entry: `summarize`, with a single required `text` argument. Get it with some text and you receive one message with `role: user` and your rendered string as the content. That's all a prompt is: a function that builds messages.
 
-The Inspector ran your server over **stdio**, one of the transports an MCP server can speak. You don't pick one yet; **[Running your server](../run/index.md)** is the chapter for that.
+The Inspector ran your server over **stdio**, one of the transports an MCP server can speak. You don't pick one yet; **[Running your server](../run/index.md)** is the page for that.
 
 ## Capabilities
 

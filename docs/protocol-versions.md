@@ -4,7 +4,7 @@ MCP has two eras.
 
 Servers released before 2026-07-28 open every connection with the **`initialize` handshake**: the client proposes a version, the server counters, the client acknowledges, all before the first useful request. Servers at **2026-07-28** drop the handshake. The client sends one **`server/discover`** probe and the server answers it with everything in a single result.
 
-You haven't had to care, because `Client` negotiates for you. This chapter is about the one constructor argument that controls it, `mode=`, and the three times you change it.
+You almost never have to care, because `Client` negotiates for you. This page is about the one constructor argument that controls it, `mode=`, and the three times you change it.
 
 ## `mode="auto"`
 

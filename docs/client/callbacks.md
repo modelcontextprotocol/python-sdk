@@ -1,6 +1,6 @@
 # Client callbacks
 
-So far every request has gone one way: client to server.
+Nearly every request in MCP goes one way: client to server.
 
 A server can also ask the **client** for things: to put a question to the user, to sample the user's model, to list the user's workspace folders. You answer those requests by passing **callbacks** to `Client(...)`.
 
@@ -15,7 +15,7 @@ Here is a server whose tool can't finish on its own:
 * `ctx.elicit(...)` sends an `elicitation/create` request **to the client** and waits.
 * The tool doesn't return until somebody (a person in a form, or your code) supplies a `name`.
 
-That is the server half, and the **[Elicitation](../handlers/elicitation.md)** chapter owns it. This chapter is the other end of the wire.
+That is the server half, and the **[Elicitation](../handlers/elicitation.md)** page owns it. This page is the other end of the wire.
 
 ## The elicitation callback
 

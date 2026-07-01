@@ -18,7 +18,7 @@ No subprocess, no port, no bytes on a wire. The client and the server are two ob
 
 That makes it two things at once:
 
-* **A test harness.** Every example in this documentation is exercised this way, and the **[Testing](../get-started/testing.md)** chapter builds the whole pattern around it.
+* **A test harness.** Every example in this documentation is exercised this way, and the **[Testing](../get-started/testing.md)** page builds the whole pattern around it.
 * **An embedding API.** An application that constructs the server doesn't need a network hop to call its tools.
 
 ## Streamable HTTP

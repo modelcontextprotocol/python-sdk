@@ -66,7 +66,7 @@ The injected object is small. Besides `request_id`:
 * `ctx.headers`: the request headers the transport carried, or `None` on stdio. Read a custom header with `(ctx.headers or {}).get("x-...")`. Headers are client-supplied input - fine for a locale or a feature flag, never an identity.
 * `ctx.request_context`: the raw per-request record. The field you'll reach for is `lifespan_context`, the object your startup code yielded (see **[Lifespan](lifespan.md)**).
 
-Logging is deliberately not on that list. A server logs with Python's `logging` module, like any other Python program. **[Logging](logging.md)** is the short chapter on why.
+Logging is deliberately not on that list. A server logs with Python's `logging` module, like any other Python program. **[Logging](logging.md)** is the short page on why.
 
 !!! tip
     Injection only happens for the function you registered. A helper that your tool calls doesn't get
@@ -124,6 +124,6 @@ On a 2026-07-28 connection, clients receive change notifications only on a `subs
 * `ctx.request_id` identifies the request; `ctx.request_context.lifespan_context` is what your startup yielded.
 * `await ctx.read_resource(uri)` lets a tool read the server's own resources.
 * `ctx.session` is the channel back to the client: `send_tool_list_changed()` and its siblings tell it to re-fetch a list you changed.
-* Progress reporting and elicitation also start at `Context`; each has its own chapter.
+* Progress reporting and elicitation also start at `Context`; each has its own page.
 
 Next: parameters the model never sees, filled by your own functions, in **[Dependencies](dependencies.md)**.

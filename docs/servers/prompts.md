@@ -12,7 +12,7 @@ You declare one by putting `@mcp.prompt()` on a function that returns the text.
 --8<-- "docs_src/prompts/tutorial001.py"
 ```
 
-The SDK reads the same three things it read from your tools:
+The SDK reads the same three things it reads from a tool:
 
 * The **name** is the function name: `review_code`.
 * The **description** the client shows is the docstring: `Review a piece of code.`
@@ -116,7 +116,7 @@ Notice the last one. Pre-filling an `assistant` turn is how you steer the model'
 ```
 
 * `title="Code review"` is the human-readable name, exactly like a tool's `title`.
-* `Annotated[str, Field(description=...)]` is the same pattern you used in **[Tools](tools.md)**. Here the description lands on the argument instead of in a schema.
+* `Annotated[str, Field(description=...)]` is the same pattern **[Tools](tools.md)** uses to describe a tool's parameters. Here the description lands on the argument instead of in a schema.
 * `language` has a default, so it stops being required.
 
 The `prompts/list` entry now carries everything a client needs to draw a good form:

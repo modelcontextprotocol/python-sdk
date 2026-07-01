@@ -1,14 +1,14 @@
 # Identity assertion
 
-Every provider in **[OAuth clients](oauth-clients.md)** starts by asking the MCP server a question: *which authorization server do you trust?* It follows the answer wherever it points, and then either a person signs in or a pre-shared secret stands in for one.
+An ordinary OAuth provider (**[OAuth clients](oauth-clients.md)**) starts by asking the MCP server a question: *which authorization server do you trust?* It follows the answer wherever it points, and then either a person signs in or a pre-shared secret stands in for one.
 
 An enterprise wants neither decided per server. It already runs an identity provider (Okta, Microsoft Entra ID, your own); the user already signed in to it this morning; and it is the one place the security team wants to decide who may reach what. [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990), the **Enterprise-Managed Authorization** extension, moves the decision there. The IdP signs a short-lived JWT, an **Identity Assertion JWT Authorization Grant**, the **ID-JAG**: a statement that *this user*, through *this client*, may reach *this MCP server*. The client trades it for an ordinary access token. No browser, no consent screen, no dynamic registration.
 
-This chapter is both ends of that trade. The MCP server itself never changes: it is still the resource server from **[Authorization](../run/authorization.md)**, checking whatever token shows up.
+This page is both ends of that trade. The MCP server itself never changes: it is still the resource server from **[Authorization](../run/authorization.md)**, checking whatever token shows up.
 
 ## Two token requests
 
-Two different authorities are in play, and naming them apart is most of understanding this page. The **enterprise IdP** is your organization's identity provider: it knows who the employee is, it is where policy lives, and it issues the ID-JAG. The SDK never talks to it. The **MCP authorization server** is the same party it was in **[Authorization](../run/authorization.md)**: the issuer named in the MCP server's metadata, the thing that mints the tokens that MCP server accepts. In the flows you already know, those two roles are usually one box. Here they are two, and the whole grant is the second agreeing to trust the first.
+Two different authorities are in play, and naming them apart is most of understanding this page. The **enterprise IdP** is your organization's identity provider: it knows who the employee is, it is where policy lives, and it issues the ID-JAG. The SDK never talks to it. The **MCP authorization server** is the same party it was in **[Authorization](../run/authorization.md)**: the issuer named in the MCP server's metadata, the thing that mints the tokens that MCP server accepts. In an ordinary OAuth flow, those two roles are usually one box. Here they are two, and the whole grant is the second agreeing to trust the first.
 
 The client makes one token request to each.
 
@@ -27,7 +27,7 @@ Everything below is the second request: the client that sends it and the authori
 
 Read it from the bottom.
 
-* `main()` is the `main()` from **[OAuth clients](oauth-clients.md)**, line for line. That is the point: once the provider exists, nothing downstream knows which grant produced the token.
+* `main()` is the standard OAuth-client `main()` (**[OAuth clients](oauth-clients.md)**), unchanged line for line. That is the point: once the provider exists, nothing downstream knows which grant produced the token.
 * The provider takes what the other providers cannot discover: a `client_id` and `client_secret` somebody **pre-registered** with the authorization server, that authorization server's `issuer`, and `assertion_provider`, an async callback that returns a fresh ID-JAG on demand.
 * `storage` is the same `TokenStorage` protocol. Only the two token methods are ever called; there is no dynamic registration here, so there is no `client_info` to remember.
 

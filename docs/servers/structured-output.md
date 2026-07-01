@@ -1,8 +1,8 @@
 # Structured Output
 
-In **[Tools](tools.md)** you returned a `str` and the result came back twice: as text in `content`, and as `{"result": "..."}` in `structured_content`.
+A tool that returns a plain `str` produces the result twice: as text in `content`, and as `{"result": "..."}` in `structured_content`.
 
-This chapter is about that second channel: where it comes from, every shape it can take, and how the SDK keeps it honest.
+This page is about that second channel: where it comes from, every shape it can take, and how the SDK keeps it honest.
 
 The short version: **the return type annotation is the output schema**. You already wrote it.
 
@@ -14,7 +14,7 @@ The short version: **the return type annotation is the output schema**. You alre
 
 The line that matters is the signature: `-> int`.
 
-Because of it, the tool the SDK sends during `tools/list` carries an `output_schema` next to the input schema you met in **[Tools](tools.md)**:
+Because of it, the tool the SDK sends during `tools/list` carries an `output_schema` next to the input schema it builds from your parameters (**[Tools](tools.md)** covers that one):
 
 ```json
 {

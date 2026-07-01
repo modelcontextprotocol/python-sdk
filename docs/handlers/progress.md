@@ -18,7 +18,7 @@ Three arguments, and you decide what they mean:
 * `total`: how much there is in total, if you know. Optional.
 * `message`: one human-readable line about *this* step. Optional.
 
-`ctx` is injected because of its type hint and the model never sees it: `import_catalog`'s input schema has a single property, `urls`. **[The Context](context.md)** chapter is all about that object; progress is one of the things it gives you.
+`ctx` is injected because of its type hint and the model never sees it: `import_catalog`'s input schema has a single property, `urls`. **[The Context](context.md)** page is all about that object; progress is one of the things it gives you.
 
 ## Listen for it from the client
 
@@ -52,7 +52,7 @@ The callback is an `async` function taking exactly what the server reported: `pr
 
 !!! info
     `Client(mcp)` connects straight to the server object, in memory, the same client the **[Testing](../get-started/testing.md)**
-    chapter is built on. `progress_callback` is the same parameter whatever transport the `Client`
+    page is built on. `progress_callback` is the same parameter whatever transport the `Client`
     uses; the *timing* you are about to see is the in-memory connection's. It runs your callback
     inline, so every report lands before `call_tool` returns. Over a real transport the
     notifications race the result, and a slow callback can still be running after `call_tool` has

@@ -78,7 +78,7 @@ Two different things can go wrong, and this flag only touches one of them.
 
 An exception inside one of **your tools** is not a protocol failure. It becomes a normal result with
 `is_error=True`, and the model reads the message. `raise_exceptions` doesn't change that: with or
-without it, `call_tool` returns the same `is_error=True` result. There's a whole chapter on it:
+without it, `call_tool` returns the same `is_error=True` result. There's a whole page on it:
 **[Handling errors](../servers/handling-errors.md)**.
 
 A failure **outside** a tool body is different. On the connection `Client(mcp)` gives you, the

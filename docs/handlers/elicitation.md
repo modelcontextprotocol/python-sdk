@@ -17,7 +17,7 @@ There are two modes:
 --8<-- "docs_src/elicitation/tutorial001.py"
 ```
 
-* The **`Context`** parameter is what gives you `ctx.elicit`; any tool can take one. That object has its own chapter: **[The Context](context.md)**.
+* The **`Context`** parameter is what gives you `ctx.elicit`; any tool can take one. That object has its own page: **[The Context](context.md)**.
 * `AlternativeDate` is the **schema** of the answer you want.
 * The tool is `async def`. It has to be: it stops in the middle and waits for a person.
 * On any other date the tool returns straight away. It only asks when it has to.
@@ -48,7 +48,7 @@ The client gets your message and, next to it, a JSON Schema generated from the m
 }
 ```
 
-That schema is the form. `Field(description=...)` is the label; a default pre-fills the input and makes the field optional. It's the same Pydantic-to-JSON-Schema machinery you already used for a tool's arguments in **[Tools](../servers/tools.md)**.
+That schema is the form. `Field(description=...)` is the label; a default pre-fills the input and makes the field optional. It's the same Pydantic-to-JSON-Schema machinery **[Tools](../servers/tools.md)** describes for a tool's arguments.
 
 !!! warning
     An elicitation schema is not as expressive as a tool's input schema. Flat, primitive fields
@@ -95,7 +95,7 @@ A parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn` befo
 
 Annotate the unwrapped model (`Annotated[Confirm, Resolve(confirm_delete)]`) instead when the tool doesn't need to branch: it receives the model on accept and the call aborts with an error on decline or cancel.
 
-Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **[Dependencies](dependencies.md)** chapter.
+Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **[Dependencies](dependencies.md)** page.
 
 ## Send the user to a URL
 
