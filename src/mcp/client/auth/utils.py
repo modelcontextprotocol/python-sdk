@@ -26,13 +26,19 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
-    # Match a complete auth-param name at the header start or after a separator.
-    pattern = rf'(?:^|[\s,]){re.escape(field_name)}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
+    # Strip the auth scheme (e.g. "Bearer") so parsing only sees auth-params.
+    _, separator, auth_params = www_auth_header.partition(" ")
+    if not separator:
+        auth_params = www_auth_header
 
-    if match:
-        # Return quoted value if present, otherwise unquoted value
-        return match.group(1) or match.group(2)
+    # Match comma-delimited auth-params while respecting quoted values.
+    pattern = re.compile(
+        r'(?:^|,\s*)(?P<name>[A-Za-z][A-Za-z0-9_-]*)=(?:"(?P<quoted>[^"]+)"|(?P<unquoted>[^,\s]+))'
+    )
+    for match in pattern.finditer(auth_params):
+        if match.group("name") == field_name:
+            # Return quoted value if present, otherwise unquoted value
+            return match.group("quoted") or match.group("unquoted")
 
     return None
 

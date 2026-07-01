@@ -2017,6 +2017,11 @@ class TestWWWAuthenticate:
                 "https://api.example.com/auth/metadata?version=1",
             ),
             ('Bearer error_scope="decoy", scope="read write"', "scope", "read write"),
+            (
+                'Bearer error_description="missing scope=write permission", scope="read write"',
+                "scope",
+                "read write",
+            ),
         ],
     )
     def test_extract_field_from_www_auth_valid_cases(
