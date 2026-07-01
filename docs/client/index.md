@@ -35,7 +35,7 @@ Four read-only properties, populated the moment you enter the block:
 * `client.protocol_version`: the protocol version the two sides agreed on. Here it is `"2026-07-28"`.
 * `client.instructions`: the server's `instructions=` string, or `None` if it didn't set one.
 
-You never picked a protocol version. By default the `Client` probes the server and falls back to the classic handshake on older ones, so one client works against any era of server. When you need to control that, **[Protocol versions](protocol-versions.md)** has the whole story.
+You never picked a protocol version. By default the `Client` probes the server and falls back to the classic handshake on older ones, so one client works against any era of server. When you need to control that, **[Protocol versions](../protocol-versions.md)** has the whole story.
 
 !!! tip
     `client.session` is the underlying `ClientSession`, the low-level escape hatch.
@@ -104,7 +104,7 @@ That is why `main` narrows with `isinstance(block, TextContent)` before touching
 
 `structured_content` is the tool's return value as JSON, matching the tool's declared `output_schema`. No string parsing, no guessing.
 
-When both are present they say the same thing twice on purpose: `content` is for a model, `structured_content` is for code. Where the structured half comes from, and how to control it, is the **[Structured Output](../tutorial/structured-output.md)** chapter.
+When both are present they say the same thing twice on purpose: `content` is for a model, `structured_content` is for code. Where the structured half comes from, and how to control it, is the **[Structured Output](../servers/structured-output.md)** chapter.
 
 ### `is_error`: whether the tool failed
 
@@ -129,7 +129,7 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
     (`call_tool("does_not_exist", {})`) and nothing raises. You get the same shape back,
     `is_error=True` with `Unknown tool: does_not_exist` in `content`. A `Client` method raises
     `MCPError` only when the server answers with a JSON-RPC **error** instead of a result, and
-    **[Handling errors](../tutorial/handling-errors.md)** covers when a server produces which.
+    **[Handling errors](../servers/handling-errors.md)** covers when a server produces which.
 
 ## Resources
 
@@ -145,7 +145,7 @@ The resource verbs come in pairs: two ways to list, one way to read.
 
 `read_resource` returns `contents`, a list of `TextResourceContents` or `BlobResourceContents`. Same idea as tool content: narrow with `isinstance`, then read `.text` (or `.blob`).
 
-A client can also be told when a resource changes. On 2025-era connections that is `subscribe_resource(uri)` / `unsubscribe_resource(uri)` - a method pair `MCPServer` doesn't implement, so on the 2026-07-28 wire (where those verbs no longer exist) the request answers `-32601`, *Method not found*. The 2026 replacement is a `subscriptions/listen` stream, which `MCPServer` *does* serve - `server_capabilities.resources.subscribe` is `True` there, and the server side of the story is **[Subscriptions](../advanced/subscriptions.md)**.
+A client can also be told when a resource changes. On 2025-era connections that is `subscribe_resource(uri)` / `unsubscribe_resource(uri)` - a method pair `MCPServer` doesn't implement, so on the 2026-07-28 wire (where those verbs no longer exist) the request answers `-32601`, *Method not found*. The 2026 replacement is a `subscriptions/listen` stream, which `MCPServer` *does* serve - `server_capabilities.resources.subscribe` is `True` there, and the server side of the story is **[Subscriptions](../handlers/subscriptions.md)**.
 
 ## Prompts
 
@@ -181,7 +181,7 @@ A server with a completion handler can autocomplete prompt and resource-template
 * `ref` says *which* prompt or template you're filling in: a `PromptReference` or a `ResourceTemplateReference`.
 * `argument` is `{"name": ..., "value": ...}`: the argument and what the user has typed so far.
 
-The answer is in `result.completion.values`. Type `"p"` and the server comes back with `['poetry']`. The server side, and how a handler uses the *other* already-filled arguments to narrow its suggestions, is the **[Completions](../tutorial/completions.md)** chapter.
+The answer is in `result.completion.values`. Type `"p"` and the server comes back with `['poetry']`. The server side, and how a handler uses the *other* already-filled arguments to narrow its suggestions, is the **[Completions](../servers/completions.md)** chapter.
 
 ## Pagination
 
@@ -197,7 +197,7 @@ This loop is correct against every server. `MCPServer` returns everything in one
 
 `Client(mcp)` with no process and no port is already a test harness for your server.
 
-There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-memory connections, and **[Testing](../tutorial/testing.md)** is the chapter that explains it and builds the whole pattern around it.
+There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-memory connections, and **[Testing](../get-started/testing.md)** is the chapter that explains it and builds the whole pattern around it.
 
 ## Recap
 

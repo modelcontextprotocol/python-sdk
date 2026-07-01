@@ -4,7 +4,7 @@ Some MCP servers are protected. Send them a request without a token and they ans
 
 **`OAuthClientProvider`** is how you get the token. It is not an MCP object at all. It is an `httpx.Auth`, the standard httpx hook for "do something to every request". You attach it to an `httpx.AsyncClient`, hand that client to the Streamable HTTP transport, and stop thinking about it.
 
-This chapter is the client side. Making your own server demand a token is **[Authorization](authorization.md)**.
+This chapter is the client side. Making your own server demand a token is **[Authorization](../run/authorization.md)**.
 
 ## The provider
 
@@ -70,7 +70,7 @@ A real client runs a small local HTTP server on the redirect URI instead of call
 
 Look at `main()`. The provider goes on the **httpx client**, the httpx client goes into `streamable_http_client(url, http_client=...)`, and that transport goes into `Client`.
 
-`streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx.AsyncClient` you bring. That layering is **[Client transports](../client/transports.md)**.
+`streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx.AsyncClient` you bring. That layering is **[Client transports](transports.md)**.
 
 ## What the provider does for you
 
@@ -136,4 +136,4 @@ Not everything is a flow error. The network can still fail; those are ordinary `
 * `ClientCredentialsOAuthProvider` is the no-human version: `client_id` + `client_secret`, no handlers, no browser.
 * Every OAuth failure is an `OAuthFlowError`; `OAuthRegistrationError` and `OAuthTokenError` are its subclasses.
 
-The other half of this handshake, making your *server* demand the token, is **[Authorization](authorization.md)**.
+The other half of this handshake, making your *server* demand the token, is **[Authorization](../run/authorization.md)**.

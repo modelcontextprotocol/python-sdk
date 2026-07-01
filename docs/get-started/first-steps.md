@@ -110,7 +110,7 @@ That dictionary is the server's half of the handshake:
 
 `MCPServer` serves all three primitives, so all three are always declared.
 
-Notice what isn't there. `completions` (argument autocomplete for resource templates and prompts) needs a handler you write, this server doesn't have one, so the capability is absent and a well-behaved client won't ask. That's the rule for everything optional: register the thing and the capability appears; **[Completions](completions.md)** proves it.
+Notice what isn't there. `completions` (argument autocomplete for resource templates and prompts) needs a handler you write, this server doesn't have one, so the capability is absent and a well-behaved client won't ask. That's the rule for everything optional: register the thing and the capability appears; **[Completions](../servers/completions.md)** proves it.
 
 !!! info
     `Client(mcp)` is the same in-memory client every example in these docs is tested with, and
@@ -136,4 +136,4 @@ That ratio is the whole point of the SDK.
 * The server's **capabilities** are declared for you, and a client only asks for what a server declares.
 * `Client(mcp)` connects to the server object in memory: your test harness from day one.
 
-Next: **[Testing](testing.md)** — one page, one in-memory client, and you're never guessing whether it works. Then each primitive gets its own page, starting with the one the model drives: **[Tools](tools.md)**.
+Next: **[Testing](testing.md)** — one page, one in-memory client, and you're never guessing whether it works. Then each primitive gets its own page, starting with the one the model drives: **[Tools](../servers/tools.md)**.

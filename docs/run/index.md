@@ -39,7 +39,7 @@ python server.py
 
 Nothing prints, and it doesn't return. It is waiting on stdin for a host to speak first.
 
-That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../tutorial/logging.md)**.
+That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../handlers/logging.md)**.
 
 ### Try it
 

@@ -19,7 +19,7 @@ That's the whole protocol. Every leg is an ordinary request from the client to t
 
 ## The server side
 
-On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks the user and the SDK returns the `InputRequiredResult` for you - that form is the **[Dependencies](../tutorial/dependencies.md)** page. The two forms don't mix: a call has one `input_responses`/`request_state` channel, so a tool that uses `Resolve(...)` parameters cannot also return `InputRequiredResult` from its body. A declared `InputRequiredResult` return is rejected at registration (`InvalidSignature`), and an undeclared one fails the call at runtime. The manual form is the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
+On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks the user and the SDK returns the `InputRequiredResult` for you - that form is the **[Dependencies](dependencies.md)** page. The two forms don't mix: a call has one `input_responses`/`request_state` channel, so a tool that uses `Resolve(...)` parameters cannot also return `InputRequiredResult` from its body. A declared `InputRequiredResult` return is rejected at registration (`InvalidSignature`), and an undeclared one fails the call at runtime. The manual form is the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
 
 ```python title="server.py" hl_lines="44-47"
 --8<-- "docs_src/mrtr/tutorial001.py"
@@ -29,7 +29,7 @@ On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks t
 * On the first call `params.input_responses` is `None`, so the guard fires and the handler asks instead of answering.
 * On the retry, the `ElicitResult` the client sent is sitting under the **same key** (`"region"`) that the server used in `input_requests`.
 
-Everything else in that file (the explicit `input_schema`, the hand-built `CallToolResult`) is the ordinary low-level `Server`, covered in **[The low-level Server](low-level-server.md)**. This page only adds the second return type.
+Everything else in that file (the explicit `input_schema`, the hand-built `CallToolResult`) is the ordinary low-level `Server`, covered in **[The low-level Server](../advanced/low-level-server.md)**. This page only adds the second return type.
 
 ## Beyond tools
 
@@ -155,7 +155,7 @@ A `request_state` you set yourself (returning `InputRequiredResult` from a tool,
 
 The one thing the SDK cannot pin for you, even when configured, is question identity: it doesn't know which of *your* questions an answer in your state belongs to. If you store answers keyed by question, include your own question identifier in the state and check it on the retry.
 
-The low-level `Server` is the no-batteries tier: unlike `MCPServer`, nothing is sealed until you append the boundary yourself, and your `request_state` crosses the wire exactly as written until you do. The one-line opt-in is shown in **[The low-level Server](low-level-server.md#the-other-handlers)**.
+The low-level `Server` is the no-batteries tier: unlike `MCPServer`, nothing is sealed until you append the boundary yourself, and your `request_state` crosses the wire exactly as written until you do. The one-line opt-in is shown in **[The low-level Server](../advanced/low-level-server.md#the-other-handlers)**.
 
 ## A 2026-07-28 result
 
@@ -171,7 +171,7 @@ The low-level `Server` is the no-batteries tier: unlike `MCPServer`, nothing is 
     **URL-mode elicitation** rides this exact mechanism on a 2026 connection. The entry in
     `input_requests` is an `ElicitRequest` whose params are `ElicitRequestURLParams`; the user
     finishes the out-of-band flow and your client retries the call. Same loop, no new API. The
-    high-level server half is in **[Elicitation](../tutorial/elicitation.md)**.
+    high-level server half is in **[Elicitation](elicitation.md)**.
 
 ## Recap
 
@@ -179,8 +179,8 @@ The low-level `Server` is the no-batteries tier: unlike `MCPServer`, nothing is 
 * `input_requests` is what it needs. `request_state` is an opaque resume token only the server reads.
 * `Client` runs the retry loop for you: register `elicitation_callback` / `sampling_callback` / `list_roots_callback` and `call_tool` returns a plain `CallToolResult`. `input_required_max_rounds` (default 10) bounds it.
 * To inspect or persist rounds, use `client.session.call_tool(..., allow_input_required=True)` and own the `while isinstance(result, InputRequiredResult)` loop yourself.
-* On `@mcp.tool()`, a dependency that asks the user produces this result for you (**[Dependencies](../tutorial/dependencies.md)**); the **low-level** `Server` is the manual form.
+* On `@mcp.tool()`, a dependency that asks the user produces this result for you (**[Dependencies](dependencies.md)**); the **low-level** `Server` is the manual form.
 * Prompts and resources participate too: an `@mcp.prompt()` or template `@mcp.resource()` function returns the `InputRequiredResult` itself and reads `ctx.input_responses` on the retry.
 * `requestState` comes back as client-supplied input, so `MCPServer` seals it by default — resolver state and hand-built state alike — under a process-local key; multi-instance deployments pass `RequestStateSecurity(keys=[...])` (or a custom codec) so every instance can verify what a sibling minted. The seal binds every token to a time window, the originating request, and the authenticated principal when the request carries auth the SDK validated or `bind_principal=` supplies your own identity signal (**[Protecting `requestState`](#protecting-requeststate)**).
 
-This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **[Deprecated features](deprecated.md)**.
+This is the mechanism that replaces server-initiated sampling and the rest of the push-style back-channel; see **[Deprecated features](../deprecated.md)**.

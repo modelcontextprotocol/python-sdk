@@ -1,4 +1,4 @@
-"""`docs/advanced/oauth-clients.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/client/oauth-clients.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 

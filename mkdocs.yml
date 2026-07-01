@@ -13,45 +13,45 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 nav:
   - MCP Python SDK: index.md
   - Get started:
-      - tutorial/index.md
-      - Installation: installation.md
-      - First steps: tutorial/first-steps.md
-      - Testing: tutorial/testing.md
+      - get-started/index.md
+      - Installation: get-started/installation.md
+      - First steps: get-started/first-steps.md
+      - Testing: get-started/testing.md
   - Servers:
       - servers/index.md
-      - Tools: tutorial/tools.md
-      - Structured Output: tutorial/structured-output.md
-      - Resources: tutorial/resources.md
-      - URI templates: advanced/uri-templates.md
-      - Prompts: tutorial/prompts.md
-      - Completions: tutorial/completions.md
-      - "Images, audio & icons": tutorial/media.md
-      - Handling errors: tutorial/handling-errors.md
+      - Tools: servers/tools.md
+      - Structured Output: servers/structured-output.md
+      - Resources: servers/resources.md
+      - URI templates: servers/uri-templates.md
+      - Prompts: servers/prompts.md
+      - Completions: servers/completions.md
+      - "Images, audio & icons": servers/media.md
+      - Handling errors: servers/handling-errors.md
   - Inside your handler:
       - handlers/index.md
-      - The Context: tutorial/context.md
-      - Dependencies: tutorial/dependencies.md
-      - Lifespan: tutorial/lifespan.md
-      - Elicitation: tutorial/elicitation.md
-      - Multi-round-trip requests: advanced/multi-round-trip.md
-      - Progress: tutorial/progress.md
-      - Logging: tutorial/logging.md
-      - Subscriptions: advanced/subscriptions.md
+      - The Context: handlers/context.md
+      - Dependencies: handlers/dependencies.md
+      - Lifespan: handlers/lifespan.md
+      - Elicitation: handlers/elicitation.md
+      - Multi-round-trip requests: handlers/multi-round-trip.md
+      - Progress: handlers/progress.md
+      - Logging: handlers/logging.md
+      - Subscriptions: handlers/subscriptions.md
   - Running your server:
       - run/index.md
       - Add to an existing app: run/asgi.md
-      - Authorization: advanced/authorization.md
-      - OpenTelemetry: advanced/opentelemetry.md
+      - Authorization: run/authorization.md
+      - OpenTelemetry: run/opentelemetry.md
   - Clients:
       - client/index.md
       - Callbacks: client/callbacks.md
       - Transports: client/transports.md
-      - OAuth: advanced/oauth-clients.md
-      - Identity assertion: advanced/identity-assertion.md
-      - Multiple servers: advanced/session-groups.md
-      - Caching: advanced/caching.md
-  - Protocol versions: client/protocol-versions.md
-  - Deprecated features: advanced/deprecated.md
+      - OAuth: client/oauth-clients.md
+      - Identity assertion: client/identity-assertion.md
+      - Multiple servers: client/session-groups.md
+      - Caching: client/caching.md
+  - Protocol versions: protocol-versions.md
+  - Deprecated features: deprecated.md
   - Advanced:
       - advanced/index.md
       - The low-level Server: advanced/low-level-server.md
@@ -167,6 +167,36 @@ plugins:
         - docs/hooks/gen_ref_pages.py
   - literate-nav:
       nav_file: SUMMARY.md
+  - redirects:
+      redirect_maps:
+        advanced/authorization.md: run/authorization.md
+        advanced/caching.md: client/caching.md
+        advanced/deprecated.md: deprecated.md
+        advanced/identity-assertion.md: client/identity-assertion.md
+        advanced/multi-round-trip.md: handlers/multi-round-trip.md
+        advanced/oauth-clients.md: client/oauth-clients.md
+        advanced/opentelemetry.md: run/opentelemetry.md
+        advanced/session-groups.md: client/session-groups.md
+        advanced/subscriptions.md: handlers/subscriptions.md
+        advanced/uri-templates.md: servers/uri-templates.md
+        client/protocol-versions.md: protocol-versions.md
+        installation.md: get-started/installation.md
+        tutorial/completions.md: servers/completions.md
+        tutorial/context.md: handlers/context.md
+        tutorial/dependencies.md: handlers/dependencies.md
+        tutorial/elicitation.md: handlers/elicitation.md
+        tutorial/first-steps.md: get-started/first-steps.md
+        tutorial/handling-errors.md: servers/handling-errors.md
+        tutorial/index.md: get-started/index.md
+        tutorial/lifespan.md: handlers/lifespan.md
+        tutorial/logging.md: handlers/logging.md
+        tutorial/media.md: servers/media.md
+        tutorial/progress.md: handlers/progress.md
+        tutorial/prompts.md: servers/prompts.md
+        tutorial/resources.md: servers/resources.md
+        tutorial/structured-output.md: servers/structured-output.md
+        tutorial/testing.md: get-started/testing.md
+        tutorial/tools.md: servers/tools.md
   - mkdocstrings:
       handlers:
         python:

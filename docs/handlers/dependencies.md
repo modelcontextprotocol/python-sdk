@@ -84,7 +84,7 @@ A resolver's parameters resolve exactly like a tool's: another `Resolve(...)`, t
 !!! warning
     On HTTP transports the `Context` includes `ctx.headers`. Headers are **client-supplied input**,
     like any tool argument: fine for a locale or a feature flag, never an identity. Who the caller
-    is comes from your authorization layer (**[Authorization](../advanced/authorization.md)**), not from a header anyone can set.
+    is comes from your authorization layer (**[Authorization](../run/authorization.md)**), not from a header anyone can set.
 
 !!! tip
     *Once per call* means exactly that: the next `tools/call` runs `check_stock` again. A resource
@@ -120,7 +120,7 @@ That's the right default for a precondition: no answer, no order. When declining
     The framework picks the question's transport from the negotiated protocol version; the code
     above is identical on both. On **2026-07-28** and later the question rides inside a
     multi-round-trip `tools/call` - the server returns it, the client's `elicitation_callback`
-    answers it, and the `Client` retries the call for you (**[Multi-round-trip requests](../advanced/multi-round-trip.md)**). On
+    answers it, and the `Client` retries the call for you (**[Multi-round-trip requests](multi-round-trip.md)**). On
     **2025-11-25** and earlier it is a synchronous elicitation request mid-call. Each question is
     asked exactly once per call - a guarantee about the question, not the resolver. In the
     multi-round-trip form any resolver may run again whenever the call resumes after a question,

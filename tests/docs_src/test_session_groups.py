@@ -1,4 +1,4 @@
-"""`docs/advanced/session-groups.md`: every claim the page makes, proved against the real SDK.
+"""`docs/client/session-groups.md`: every claim the page makes, proved against the real SDK.
 
 `connect_to_server` opens a real transport (a subprocess or a socket), so these tests drive the
 exact same aggregation path through `connect_with_session` with in-memory sessions instead.

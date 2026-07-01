@@ -48,9 +48,9 @@ You want this for the **push-style** features.
 
 A server-initiated request is the server calling *you*: `ctx.elicit(...)` putting a form in front of your user, sampling asking your model for a completion mid-tool-call. That channel only exists on a handshake-era session.
 
-At 2026-07-28 it is gone. The server *returns* its questions and you retry the call with the answers (**[Multi-round-trip requests](../advanced/multi-round-trip.md)**).
+At 2026-07-28 it is gone. The server *returns* its questions and you retry the call with the answers (**[Multi-round-trip requests](handlers/multi-round-trip.md)**).
 
-`mode="auto"` only gives you a handshake when the server is too old for anything else. `mode="legacy"` guarantees one. Reach for it whenever you hand `Client(...)` a `sampling_callback`, an `elicitation_callback` you want driven as a request, or a `message_handler`. **[Client callbacks](callbacks.md)** goes through each.
+`mode="auto"` only gives you a handshake when the server is too old for anything else. `mode="legacy"` guarantees one. Reach for it whenever you hand `Client(...)` a `sampling_callback`, an `elicitation_callback` you want driven as a request, or a `message_handler`. **[Client callbacks](client/callbacks.md)** goes through each.
 
 ## Pinning a version
 
@@ -124,4 +124,4 @@ The second connection made **zero** negotiation round trips and still knows exac
 * A version pin (`mode="2026-07-28"`) sends no negotiation traffic at all, at the cost of a blank `server_info`.
 * `prior_discover=` pays that cost back: save `client.session.discover_result`, reconnect with it, get both.
 
-A modern connection has no push channel, so how does a 2026 server ask you a question mid-call? It returns it: **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
+A modern connection has no push channel, so how does a 2026 server ask you a question mid-call? It returns it: **[Multi-round-trip requests](handlers/multi-round-trip.md)**.

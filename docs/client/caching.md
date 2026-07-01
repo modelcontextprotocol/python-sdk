@@ -85,7 +85,7 @@ Cache keys also carry the **server's identity**: the URL string you dialed, with
 ### What the cache never does
 
 * **Session-tier calls bypass it.** `client.session.list_tools()` and friends always make the round trip; the cache lives on the `Client` verbs.
-* **`server/discover` stays out of it.** The discover result is delivered once, at connect, and never enters the response cache, even when it carries a `ttlMs`. If you persist one yourself to skip the reconnect probe ([`prior_discover`](../client/protocol-versions.md#reconnecting-with-prior_discover)), its freshness is your bookkeeping: `DiscoverResult` carries `ttl_ms` and `cache_scope`, already parsed, for exactly that purpose.
+* **`server/discover` stays out of it.** The discover result is delivered once, at connect, and never enters the response cache, even when it carries a `ttlMs`. If you persist one yourself to skip the reconnect probe ([`prior_discover`](../protocol-versions.md#reconnecting-with-prior_discover)), its freshness is your bookkeeping: `DiscoverResult` carries `ttl_ms` and `cache_scope`, already parsed, for exactly that purpose.
 * **Continuation pages are never cached.** Only cursor-less calls participate. A continuation page rejected for an expired cursor does *evict* the cached listing, because the listing changed under it.
 * **Multi-round-trip reads are never cached.** A `read_resource` seeded with `input_responses`/`request_state`, or one that resolves through input rounds, never enters the cache (a spec MUST).
 * **Notification eviction needs notifications.** Eviction is only as good as the transport's delivery, and the modern in-process path (`Client(server)` with the default `mode="auto"`) does not deliver standalone notifications today.

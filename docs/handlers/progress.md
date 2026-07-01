@@ -51,7 +51,7 @@ anyio.run(main)
 The callback is an `async` function taking exactly what the server reported: `progress`, `total`, `message`.
 
 !!! info
-    `Client(mcp)` connects straight to the server object, in memory, the same client the **[Testing](testing.md)**
+    `Client(mcp)` connects straight to the server object, in memory, the same client the **[Testing](../get-started/testing.md)**
     chapter is built on. `progress_callback` is the same parameter whatever transport the `Client`
     uses; the *timing* you are about to see is the in-memory connection's. It runs your callback
     inline, so every report lands before `call_tool` returns. Over a real transport the

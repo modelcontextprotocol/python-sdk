@@ -118,7 +118,7 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
     Everything on this page is what a **client** sees, and the in-memory `Client` you'll write
     tests with sees exactly the same thing. Even `raise_exceptions=True` doesn't turn a tool error
     back into a traceback: by the time that flag could act, your exception is already the
-    `is_error=True` result. Assert on the result. **[Testing](testing.md)** covers the pattern.
+    `is_error=True` result. Assert on the result. **[Testing](../get-started/testing.md)** covers the pattern.
 
 ## Recap
 

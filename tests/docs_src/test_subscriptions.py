@@ -1,4 +1,4 @@
-"""`docs/advanced/subscriptions.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/handlers/subscriptions.md`: every claim the page makes, proved against the real SDK."""
 
 from typing import Any
 

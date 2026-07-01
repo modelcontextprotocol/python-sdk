@@ -90,7 +90,7 @@ mcp._lowlevel_server.middleware[:] = [
 
 !!! warning
     That import has a leading underscore, and that is on purpose. The class is provisional, the
-    same way [`Server.middleware`](middleware.md) is provisional, so the import path is something
+    same way [`Server.middleware`](../advanced/middleware.md) is provisional, so the import path is something
     you should expect to change. You almost never need this: with no exporter installed the spans
     are free, so the usual answer is to leave them on and not install an exporter.
 

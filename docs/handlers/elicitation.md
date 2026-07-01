@@ -48,7 +48,7 @@ The client gets your message and, next to it, a JSON Schema generated from the m
 }
 ```
 
-That schema is the form. `Field(description=...)` is the label; a default pre-fills the input and makes the field optional. It's the same Pydantic-to-JSON-Schema machinery you already used for a tool's arguments in **[Tools](tools.md)**.
+That schema is the form. `Field(description=...)` is the label; a default pre-fills the input and makes the field optional. It's the same Pydantic-to-JSON-Schema machinery you already used for a tool's arguments in **[Tools](../servers/tools.md)**.
 
 !!! warning
     An elicitation schema is not as expressive as a tool's input schema. Flat, primitive fields
@@ -128,7 +128,7 @@ Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(
     Elicitation is a request from the *server* to the *client*, and those only exist on a
     classic-handshake session, which is why this client passes `mode="legacy"`.
     On a **2026-07-28** connection a tool asks by *returning* the question from the call
-    instead; that flow is **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
+    instead; that flow is **[Multi-round-trip requests](multi-round-trip.md)**.
 
 ### Try it
 
@@ -167,6 +167,6 @@ Now swap in the URL-mode `server.py` and point the same `main()` at `pay_deposit
 * `result.action` is `"accept"`, `"decline"` or `"cancel"`; `result.data` exists only on accept.
 * `await ctx.elicit_url(message, url, elicitation_id)` is for everything that must not pass through the model; `ctx.session.send_elicit_complete(elicitation_id)` says the out-of-band part is done.
 * The client answers with one `elicitation_callback`, branching on the params type; registering it is what declares the capability.
-* On a 2026-07-28 connection the server returns the question instead of pushing it; the same callback is fed by **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
+* On a 2026-07-28 connection the server returns the question instead of pushing it; the same callback is fed by **[Multi-round-trip requests](multi-round-trip.md)**.
 
-Everything underneath that return — the retry loop, protecting `requestState`, driving it yourself — is **[Multi-round-trip requests](../advanced/multi-round-trip.md)**.
+Everything underneath that return — the retry loop, protecting `requestState`, driving it yourself — is **[Multi-round-trip requests](multi-round-trip.md)**.

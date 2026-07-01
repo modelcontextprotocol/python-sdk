@@ -36,7 +36,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 
 ## What you get over HTTP
 
-Authorization lives in HTTP headers, so it exists only on the HTTP transports. Run it on the one you deploy: `mcp.run(transport="streamable-http")` puts it on `http://127.0.0.1:8000/mcp`, and **[Running your server](../run/index.md)** has the rest. The app now has two routes:
+Authorization lives in HTTP headers, so it exists only on the HTTP transports. Run it on the one you deploy: `mcp.run(transport="streamable-http")` puts it on `http://127.0.0.1:8000/mcp`, and **[Running your server](index.md)** has the rest. The app now has two routes:
 
 ```text
 /mcp
@@ -109,7 +109,7 @@ To watch all three parties move, run `examples/servers/simple-auth/` from the SD
     server inside your MCP server. It predates the AS/RS separation that the MCP authorization spec
     is built around. New servers should not reach for it.
 
-An authorization server can also accept an enterprise identity provider's signed assertion in place of a user clicking through a consent screen, and the SDK supports both sides of that exchange. The grant, and the client that presents it, is **[Identity assertion](identity-assertion.md)**.
+An authorization server can also accept an enterprise identity provider's signed assertion in place of a user clicking through a consent screen, and the SDK supports both sides of that exchange. The grant, and the client that presents it, is **[Identity assertion](../client/identity-assertion.md)**.
 
 ## Recap
 
@@ -120,4 +120,4 @@ An authorization server can also accept an enterprise identity provider's signed
 * `get_access_token()` in any handler is who's calling.
 * Authorization is an HTTP concern. `stdio` and the in-memory client never see it.
 
-The other side of the handshake, a client that discovers your authorization server and fetches the token for you, is **[OAuth clients](oauth-clients.md)**.
+The other side of the handshake, a client that discovers your authorization server and fetches the token for you, is **[OAuth clients](../client/oauth-clients.md)**.

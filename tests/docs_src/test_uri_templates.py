@@ -1,4 +1,4 @@
-"""`docs/advanced/uri-templates.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/servers/uri-templates.md`: every claim the page makes, proved against the real SDK."""
 
 from pathlib import Path
 

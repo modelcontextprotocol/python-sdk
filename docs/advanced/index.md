@@ -22,7 +22,7 @@ instead:
 * **Multi-round-trip requests** and **Subscriptions** are under
   **[Inside your handler](../handlers/index.md)** — both are things a handler *does*.
 * **URI templates** is under **[Servers](../servers/index.md)**, next to Resources.
-* **[Protocol versions](../client/protocol-versions.md)** and
-  **[Deprecated features](deprecated.md)** each have their own top-level page.
+* **[Protocol versions](../protocol-versions.md)** and
+  **[Deprecated features](../deprecated.md)** each have their own top-level page.
 
 If you're not sure whether you need this section, you don't.

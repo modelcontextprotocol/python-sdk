@@ -12,7 +12,7 @@ For everything else, stay on `MCPServer`.
 
 ## The same tool, by hand
 
-This is `search_books` from **[Tools](../tutorial/tools.md)** (the nine-line `@mcp.tool()` file) with the sugar removed:
+This is `search_books` from **[Tools](../servers/tools.md)** (the nine-line `@mcp.tool()` file) with the sugar removed:
 
 ```python title="server.py" hl_lines="23 27 33"
 --8<-- "docs_src/lowlevel/tutorial001.py"
@@ -61,7 +61,7 @@ The same text the `@mcp.tool()` version produced. Two honest differences:
 
 ## Nothing is checked for you
 
-In **[Tools](../tutorial/tools.md)** you saw a bad argument get rejected before your function ran. That was `MCPServer` validating the call against the schema it generated.
+In **[Tools](../servers/tools.md)** you saw a bad argument get rejected before your function ran. That was `MCPServer` validating the call against the schema it generated.
 
 `Server` does not do that. Your `input_schema` is *advertised* to the client; it is never *applied* to `params.arguments`.
 
@@ -72,9 +72,9 @@ In **[Tools](../tutorial/tools.md)** you saw a bad argument get rejected before 
     MCPError: Internal server error
     ```
 
-    A JSON-RPC error, code `-32603`, with a deliberately generic message: the SDK won't leak your traceback to a remote caller. The model never finds out what it did wrong, so it can't retry. (In a test, `raise_exceptions=True` surfaces the real exception instead; see **[Testing](../tutorial/testing.md)**.)
+    A JSON-RPC error, code `-32603`, with a deliberately generic message: the SDK won't leak your traceback to a remote caller. The model never finds out what it did wrong, so it can't retry. (In a test, `raise_exceptions=True` surfaces the real exception instead; see **[Testing](../get-started/testing.md)**.)
 
-That generalises. An exception raised from a low-level handler is **always** a protocol error, never an `is_error=True` tool result. If you want the model to read the failure and recover, validate `params.arguments` yourself and return `CallToolResult(content=[TextContent(...)], is_error=True)`. The two kinds of failure are the subject of **[Handling errors](../tutorial/handling-errors.md)**.
+That generalises. An exception raised from a low-level handler is **always** a protocol error, never an `is_error=True` tool result. If you want the model to read the failure and recover, validate `params.arguments` yourself and return `CallToolResult(content=[TextContent(...)], is_error=True)`. The two kinds of failure are the subject of **[Handling errors](../servers/handling-errors.md)**.
 
 ## Two tools, one handler
 
@@ -106,7 +106,7 @@ Call it and the result carries both representations:
 }
 ```
 
-The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../tutorial/structured-output.md)**.
+The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
 
 ## `_meta`: for the application, not the model
 
@@ -147,7 +147,7 @@ No `resources`, no `prompts`: there is nothing to back them. Pass `on_list_promp
 
 * The lifespan is a `Callable[[Server[Catalog]], AbstractAsyncContextManager[Catalog]]`; `@asynccontextmanager` on an `async` generator gives you exactly that.
 * Whatever it `yield`s becomes `ctx.lifespan_context`, and because the handlers are annotated `ServerRequestContext[Catalog]`, `.search(...)` autocompletes and type-checks.
-* It is entered once when the server starts and exited once when it stops. Startup, teardown, and `MCPServer`'s version of the same idea are in **[Lifespan](../tutorial/lifespan.md)**.
+* It is entered once when the server starts and exited once when it stops. Startup, teardown, and `MCPServer`'s version of the same idea are in **[Lifespan](../handlers/lifespan.md)**.
 
 Without a `lifespan=`, `ctx.lifespan_context` is an empty `dict`.
 
@@ -181,9 +181,9 @@ The handshake belongs to the runner. `server/discover`, `ping`, and every other 
 
 Each of these is one idea you now have the vocabulary for; each has its own chapter.
 
-* `on_call_tool`, `on_get_prompt`, and `on_read_resource` may return an `InputRequiredResult` instead of their normal result to pause the call and ask the client for input; see **[Multi-round-trip requests](multi-round-trip.md)**. True to this tier, nothing is installed for you: where `MCPServer` seals `requestState` by default, here the `request_state` you set crosses the wire exactly as written until you opt in with `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: one line (both names import from `mcp.server.request_state`) for the identical sealing and verification `MCPServer` performs (**[Protecting `requestState`](multi-round-trip.md#protecting-requeststate)**).
+* `on_call_tool`, `on_get_prompt`, and `on_read_resource` may return an `InputRequiredResult` instead of their normal result to pause the call and ask the client for input; see **[Multi-round-trip requests](../handlers/multi-round-trip.md)**. True to this tier, nothing is installed for you: where `MCPServer` seals `requestState` by default, here the `request_state` you set crosses the wire exactly as written until you opt in with `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: one line (both names import from `mcp.server.request_state`) for the identical sealing and verification `MCPServer` performs (**[Protecting `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` are the same `(ctx, params) -> result` shape for the other primitives.
-* `on_subscriptions_listen` serves the 2026-07-28 `subscriptions/listen` stream. Pass a `ListenHandler` built over a `SubscriptionBus` and publish events to the bus from your other handlers; see **[Subscriptions](subscriptions.md)** for the full composition.
+* `on_subscriptions_listen` serves the 2026-07-28 `subscriptions/listen` stream. Pass a `ListenHandler` built over a `SubscriptionBus` and publish events to the bus from your other handlers; see **[Subscriptions](../handlers/subscriptions.md)** for the full composition.
 * `server.streamable_http_app()` returns the same Starlette app `MCPServer`'s does; deploy it the way **[Running your server](../run/index.md)** deploys any other ASGI app. There is no `server.run(transport=...)` down here: `server.run(read_stream, write_stream, server.create_initialization_options())` drives one connection over a pair of streams, and that one line is the whole story.
 
 ## Recap

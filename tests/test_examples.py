@@ -102,8 +102,9 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         find_examples(
             "README.md",
             "docs/index.md",
-            "docs/installation.md",
-            "docs/tutorial",
+            "docs/protocol-versions.md",
+            "docs/deprecated.md",
+            "docs/get-started",
             "docs/servers",
             "docs/handlers",
             "docs/run",

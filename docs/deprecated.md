@@ -8,16 +8,16 @@ The table below names each deprecated feature, why it is going away, and the rep
 
 | Deprecated | Why | What you do instead |
 |---|---|---|
-| **Roots**: `ctx.session.list_roots()`, `client.send_roots_list_changed()`, the `list_roots_callback=` you pass to `Client(...)` | [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) retires the capability. | Take the paths as ordinary tool arguments or resource URIs, or embed a `ListRootsRequest` in an `InputRequiredResult` (see **[Multi-round-trip requests](multi-round-trip.md)**). |
-| **Server-initiated sampling**: `ctx.session.create_message()`, the `sampling_callback=` you pass to `Client(...)` | SEP-2577 retires the capability. | Return `InputRequiredResult` and let the client retry the call (see **[Multi-round-trip requests](multi-round-trip.md)**). |
-| **Protocol logging**: `ctx.log()`, `ctx.debug()`, `ctx.info()`, `ctx.warning()`, `ctx.error()`, `ctx.session.send_log_message()`, `client.set_logging_level()` | SEP-2577 retires the capability. Nothing in-protocol replaces it. | Ordinary `import logging` to stderr (see **[Logging](../tutorial/logging.md)**). |
+| **Roots**: `ctx.session.list_roots()`, `client.send_roots_list_changed()`, the `list_roots_callback=` you pass to `Client(...)` | [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) retires the capability. | Take the paths as ordinary tool arguments or resource URIs, or embed a `ListRootsRequest` in an `InputRequiredResult` (see **[Multi-round-trip requests](handlers/multi-round-trip.md)**). |
+| **Server-initiated sampling**: `ctx.session.create_message()`, the `sampling_callback=` you pass to `Client(...)` | SEP-2577 retires the capability. | Return `InputRequiredResult` and let the client retry the call (see **[Multi-round-trip requests](handlers/multi-round-trip.md)**). |
+| **Protocol logging**: `ctx.log()`, `ctx.debug()`, `ctx.info()`, `ctx.warning()`, `ctx.error()`, `ctx.session.send_log_message()`, `client.set_logging_level()` | SEP-2577 retires the capability. Nothing in-protocol replaces it. | Ordinary `import logging` to stderr (see **[Logging](handlers/logging.md)**). |
 | **`ping`**: `client.send_ping()` | **Removed** from the protocol, not merely deprecated. There is no `ping` method in 2026-07-28. | Nothing. It only works against a `mode="legacy"` connection. |
-| **Client->server progress**: `client.send_progress_notification()` | 2026-07-28 makes progress server->client only. | Nothing to send. Your *server* reports progress with `ctx.report_progress()` (see **[Progress](../tutorial/progress.md)**). |
+| **Client->server progress**: `client.send_progress_notification()` | 2026-07-28 makes progress server->client only. | Nothing to send. Your *server* reports progress with `ctx.report_progress()` (see **[Progress](handlers/progress.md)**). |
 
 Three things fall out of that table:
 
 * Roots, sampling, and logging go together. One proposal, **SEP-2577**, deprecates all three capabilities at once.
-* Sampling and roots share a deeper problem: they are places a **server** sends a **request** to the **client**. That whole direction is what 2026-07-28 replaces with **[Multi-round-trip requests](multi-round-trip.md)**. It is the standalone RPC methods (`sampling/createMessage`, `roots/list`, and push-style `elicitation/create`) that are gone; the `CreateMessageRequest` / `ListRootsRequest` / `ElicitRequest` payload types survive, embedded in `InputRequiredResult.input_requests`, and on the client they hit the same callbacks.
+* Sampling and roots share a deeper problem: they are places a **server** sends a **request** to the **client**. That whole direction is what 2026-07-28 replaces with **[Multi-round-trip requests](handlers/multi-round-trip.md)**. It is the standalone RPC methods (`sampling/createMessage`, `roots/list`, and push-style `elicitation/create`) that are gone; the `CreateMessageRequest` / `ListRootsRequest` / `ElicitRequest` payload types survive, embedded in `InputRequiredResult.input_requests`, and on the client they hit the same callbacks.
 * `ping` is the odd one out. The protocol does not deprecate it, it removes it. The SDK method still warns (its message says *removed*, not *deprecated*) and calling it on a modern connection answers with *"Method not found"*.
 
 ## Deprecated is advisory
@@ -82,7 +82,7 @@ That is the whole API. There is no per-method switch, and you don't want one: th
 ## Recap
 
 * The 2026-07-28 spec deprecates **roots**, server-initiated **sampling**, and protocol **logging** (all [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577)), restricts **progress** to server-to-client, and removes **`ping`**.
-* The replacement column points you onward: **[Multi-round-trip requests](multi-round-trip.md)** for sampling and roots, **[Logging](../tutorial/logging.md)** for logging, **[Progress](../tutorial/progress.md)** for progress. `ping` needs nothing at all.
+* The replacement column points you onward: **[Multi-round-trip requests](handlers/multi-round-trip.md)** for sampling and roots, **[Logging](handlers/logging.md)** for logging, **[Progress](handlers/progress.md)** for progress. `ping` needs nothing at all.
 * Deprecated is advisory: no wire changes, everything keeps working against pre-2026 sessions, and you get a visible `MCPDeprecationWarning` (a `UserWarning`, so it is on by default).
 * Sampling and roots additionally need a back-channel that a 2026-07-28 session does not have. On a modern connection they warn and then they raise.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` silences the whole category; `"error::mcp.MCPDeprecationWarning"` in pytest turns it into a test failure.

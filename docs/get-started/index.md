@@ -1,7 +1,7 @@
 # Get started
 
 New to MCP, or new to this SDK? Start here. These pages take you from nothing to a
-working, tested server: [install the SDK](../installation.md), build your
+working, tested server: [install the SDK](installation.md), build your
 [first server](first-steps.md), and [test it](testing.md) with an in-memory client.
 
 ## Run the code

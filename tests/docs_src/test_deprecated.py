@@ -1,4 +1,4 @@
-"""`docs/advanced/deprecated.md`: the page's behavioural claims, executed against the live SDK.
+"""`docs/deprecated.md`: the page's behavioural claims, executed against the live SDK.
 
 This chapter has no `docs_src/` example by design: it is the one page allowed to name
 the deprecated methods, and a runnable example would teach exactly what the page tells

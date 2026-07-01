@@ -92,9 +92,9 @@ Notice the `uri` in the result. It is the **concrete** URI the client asked for,
 
     A mismatch can only ever be a bug, so the SDK makes it impossible to start the server with one.
 
-The placeholder syntax is [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570): `{+path}` for multi-segment values, `{?q,lang}` for optional query parameters, and more. The SDK also applies path-safety checks to extracted values by default. See **[URI templates and path safety](../advanced/uri-templates.md)** for the full reference.
+The placeholder syntax is [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570): `{+path}` for multi-segment values, `{?q,lang}` for optional query parameters, and more. The SDK also applies path-safety checks to extracted values by default. See **[URI templates and path safety](uri-templates.md)** for the full reference.
 
-`get_user_profile` can also take a parameter annotated `Context`. The SDK injects it without ever treating it as a URI parameter, and **[The Context](context.md)** chapter covers what it gives you.
+`get_user_profile` can also take a parameter annotated `Context`. The SDK injects it without ever treating it as a URI parameter, and **[The Context](../handlers/context.md)** chapter covers what it gives you.
 
 ## What you return
 
