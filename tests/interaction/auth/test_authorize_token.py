@@ -509,12 +509,7 @@ async def test_an_iss_differing_only_by_a_trailing_slash_is_rejected_without_nor
 
     with anyio.fail_after(5):
         with pytest.RaisesGroup(pytest.RaisesExc(OAuthFlowError, match=f"^{mismatch}$"), flatten_subgroups=True):
-            await connect_with_oauth(
-                server,
-                provider=provider,
-                app_shim=lambda app: shimmed_app(app, serve=canned_asm(iss_advertised=None)),
-                on_request=on_request,
-            ).__aenter__()
+            await connect_with_oauth(server, provider=provider, on_request=on_request).__aenter__()
 
     # The recorded unauthenticated trigger POST guards the negative below against an unwired hook.
     assert find(recorded, "POST", "/mcp") != []
