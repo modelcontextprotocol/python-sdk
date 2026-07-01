@@ -367,7 +367,16 @@ async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> No
             assert [event async for event in ok.aiter_sse()]
 
     assert (bad_origin.status_code, bad_origin.text) == snapshot((403, "Invalid Origin header"))
-    assert (bad_host.status_code, bad_host.text) == snapshot((421, "Invalid Host header"))
+    assert (bad_host.status_code, bad_host.json()) == snapshot(
+        (
+            421,
+            {
+                "error": "host_not_allowed",
+                "received_host": "evil.example",
+                "configure": "TransportSecuritySettings.allowed_hosts",
+            },
+        )
+    )
 
     async with mounted_app(
         Server("unguarded"), transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
