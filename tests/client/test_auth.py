@@ -335,6 +335,7 @@ class TestOAuthFallback:
         # Should only try the root URL (legacy behavior)
         assert discovery_urls == [
             "https://mcp.linear.app/.well-known/oauth-authorization-server",
+            "https://mcp.linear.app/.well-known/openid-configuration",
         ]
 
     @pytest.mark.anyio
@@ -1050,6 +1051,87 @@ class TestCreateClientRegistrationRequest:
 
         assert str(request.url) == "https://auth.example.com/register"
         assert request.method == "POST"
+
+
+@pytest.mark.anyio
+async def test_oauth_flow_discovers_oidc_metadata_when_prm_is_absent(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+):
+    """Test OIDC metadata discovery after PRM and OAuth metadata are absent."""
+    captured_auth_url: str | None = None
+    captured_state: str | None = None
+
+    async def redirect_handler(url: str) -> None:
+        nonlocal captured_auth_url, captured_state
+        captured_auth_url = url
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        captured_state = params.get("state", [None])[0]
+
+    async def callback_handler() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="test_auth_code", state=captured_state)
+
+    provider = OAuthClientProvider(
+        server_url="https://auth.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        redirect_handler=redirect_handler,
+        callback_handler=callback_handler,
+    )
+    provider.context.current_tokens = None
+    provider.context.token_expiry_time = None
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    provider._initialized = True
+
+    test_request = httpx.Request("GET", "https://auth.example.com/v1/mcp")
+    auth_flow = provider.async_auth_flow(test_request)
+
+    await auth_flow.__anext__()
+    response = httpx.Response(401, headers={}, request=test_request)
+
+    prm_request_1 = await auth_flow.asend(response)
+    assert str(prm_request_1.url) == "https://auth.example.com/.well-known/oauth-protected-resource/v1/mcp"
+
+    prm_request_2 = await auth_flow.asend(httpx.Response(404, request=prm_request_1))
+    assert str(prm_request_2.url) == "https://auth.example.com/.well-known/oauth-protected-resource"
+
+    oauth_metadata_request = await auth_flow.asend(httpx.Response(404, request=prm_request_2))
+    assert str(oauth_metadata_request.url) == "https://auth.example.com/.well-known/oauth-authorization-server"
+
+    oidc_metadata_request = await auth_flow.asend(httpx.Response(404, request=oauth_metadata_request))
+    assert str(oidc_metadata_request.url) == "https://auth.example.com/.well-known/openid-configuration"
+
+    oidc_metadata_response = httpx.Response(
+        200,
+        content=(
+            b'{"issuer": "https://auth.example.com",'
+            b' "authorization_endpoint": "https://auth.example.com/authorize",'
+            b' "token_endpoint": "https://auth.example.com/token"}'
+        ),
+        request=oidc_metadata_request,
+    )
+
+    token_request = await auth_flow.asend(oidc_metadata_response)
+    assert captured_auth_url is not None
+    assert captured_auth_url.startswith("https://auth.example.com/authorize?")
+    assert str(token_request.url) == "https://auth.example.com/token"
+
+    token_response = httpx.Response(
+        200,
+        content=b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600}',
+        request=token_request,
+    )
+    final_request = await auth_flow.asend(token_response)
+    assert final_request.headers["Authorization"] == "Bearer new_access_token"
+
+    final_response = httpx.Response(200, request=final_request)
+    try:
+        await auth_flow.asend(final_response)
+    except StopAsyncIteration:
+        pass
 
 
 def test_registration_request_sends_application_type():
