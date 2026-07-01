@@ -1,0 +1,60 @@
+[project]
+name = "mcp-codemod"
+dynamic = ["version"]
+description = "Automated rewrites for migrating code between major versions of the MCP Python SDK"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
+maintainers = [
+    { name = "David Soria Parra", email = "davidsp@anthropic.com" },
+    { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
+    { name = "Max Isbey", email = "maxisbey@anthropic.com" },
+    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
+]
+keywords = ["mcp", "llm", "automation", "codemod", "migration"]
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    # 1.8.6 is the first release verified to parse and run on Python 3.14, which
+    # the SDK supports; older floors trade an untested resolution for nothing.
+    "libcst>=1.8.6",
+    # Parses the PEP 508 requirement strings the dependency updater rewrites.
+    "packaging>=24.0",
+]
+
+[project.scripts]
+mcp-codemod = "mcp_codemod.cli:main"
+
+[project.urls]
+Homepage = "https://modelcontextprotocol.io"
+Documentation = "https://py.sdk.modelcontextprotocol.io/v2/"
+Repository = "https://github.com/modelcontextprotocol/python-sdk"
+Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.hatch.build.targets.sdist.force-include]
+"../../LICENSE" = "LICENSE"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_codemod"]
