@@ -134,6 +134,18 @@ That's the right default for a precondition: no answer, no order. When declining
     to bind to. A question built from such volatile data makes every recorded answer look stale,
     so the server re-asks it on every round until the client's round limit ends the call.
 
+## Ask the client, not the user
+
+Elicitation is one of three questions a resolver can ask - the closed set the multi-round-trip flow allows. The other two go to the **client** rather than the user: return `Sample(...)` to run an LLM call through the client (a `sampling/createMessage` request), or `ListRoots()` to fetch the client's current roots. Neither has an accept/decline outcome - the consumer annotates the result type directly, `CreateMessageResult` (`CreateMessageResultWithTools` when the request carries tools) or `ListRootsResult`:
+
+```python title="server.py" hl_lines="11-16 22"
+--8<-- "docs_src/dependencies/tutorial004.py"
+```
+
+* The framework routes these exactly like `Elicit`: inside the multi-round-trip `tools/call` on **2026-07-28**, over the standalone server->client request on **2025-11-25** - and on either transport it refuses with a `-32021` protocol error when the client never declared the matching capability (`sampling`, `roots`, `elicitation`; `sampling.tools` when the request carries tools).
+* Everything the info box above says about questions applies unchanged: a `Sample` request is matched to its recorded result by its exact rendering, so build it deterministically from the tool's arguments and earlier answers - the client then pays for the LLM call once per tool call, not once per round. The recorded result rides `request_state` for the rest of the call, so a very large completion makes every remaining round-trip heavier.
+* The standalone sampling and roots *features* are deprecated at 2026-07-28 (SEP-2577) - new servers that need the client's model ask through this carrier instead, and servers that don't should integrate with an LLM provider directly. `include_context` values other than `"none"` are themselves deprecated; avoid them.
+
 ## Recap
 
 * `Annotated[T, Resolve(fn)]` on a tool parameter: the SDK runs `fn` and injects its return value.
@@ -141,5 +153,6 @@ That's the right default for a precondition: no answer, no order. When declining
 * A resolver's parameters are resolved the same way: the `Context`, another `Resolve(...)`, or a tool argument by name. The graph runs each resolver at most once per round, however many consumers it has; each question is asked exactly once, and any resolver may run again when a call resumes after a question.
 * Bad graphs fail at registration with `InvalidSignature`, not mid-call.
 * Return `Elicit(message, Model)` to ask the user, only when you have to. Unwrapped annotations abort on decline; `ElicitationResult[T]` lets the tool branch.
+* Return `Sample(...)` or `ListRoots()` to ask the client - an LLM completion or the roots list, injected as the plain result.
 
 The state your server builds once at startup, and how a handler reaches it, is the **[Lifespan](lifespan.md)** page.
