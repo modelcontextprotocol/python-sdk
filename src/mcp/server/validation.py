@@ -81,7 +81,7 @@ def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
         if not has_previous_tool_use:
             raise ValueError("tool_result blocks do not match any tool_use in the previous message")
 
-    if has_previous_tool_use and previous_content:
+    if has_tool_results and has_previous_tool_use and previous_content:
         tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
         tool_result_ids = {c.tool_use_id for c in last_content if c.type == "tool_result"}
         if tool_use_ids != tool_result_ids:
