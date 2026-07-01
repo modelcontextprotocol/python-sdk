@@ -388,8 +388,13 @@ class Connection:
                 return False
             if capability.sampling.tools is not None and have.sampling.tools is None:
                 return False
-        if capability.elicitation is not None and have.elicitation is None:
-            return False
+        if capability.elicitation is not None:
+            if have.elicitation is None:
+                return False
+            if capability.elicitation.form is not None and have.elicitation.form is None:
+                return False
+            if capability.elicitation.url is not None and have.elicitation.url is None:
+                return False
         if capability.experimental is not None:
             if have.experimental is None:
                 return False
