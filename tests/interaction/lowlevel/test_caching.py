@@ -27,7 +27,6 @@ from mcp_types import (
     Tool,
 )
 from mcp_types.version import LATEST_MODERN_VERSION
-from pydantic import ValidationError
 
 from mcp.client import ClientRequestContext
 from mcp.client.client import Client
@@ -257,10 +256,10 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
 
 
 @requirement("caching:ttl:negative-treated-as-zero")
-async def test_a_negative_ttl_from_a_nonconformant_server_is_rejected_not_coerced_to_zero() -> None:
-    """An inbound ttlMs of -1 raises ValidationError instead of being treated as 0 (pinned Divergence).
+async def test_a_negative_ttl_from_a_nonconformant_server_is_clamped_to_zero() -> None:
+    """An inbound ttlMs of -1 surfaces as ttl_ms 0 instead of failing validation. Spec-mandated (SHOULD).
 
-    When coerce-to-zero leniency lands: re-pin to ttl_ms == 0 and delete the Divergence.
+    Scripted peer: the typed Server cannot author a negative ttlMs (emission keeps ge=0).
     """
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
@@ -295,12 +294,9 @@ async def test_a_negative_ttl_from_a_nonconformant_server_is_rejected_not_coerce
                     server_info=Implementation(name="srv", version="0"),
                 )
             )
-            with pytest.raises(ValidationError) as excinfo:
-                with anyio.fail_after(5):
-                    await session.list_tools()
+            with anyio.fail_after(5):
+                result = await session.list_tools()
 
-            errors = excinfo.value.errors()
-            assert len(errors) == 1
-            assert errors[0]["loc"] == ("ttlMs",)
-            # Stable pydantic-core identifier; the message text is third-party and deliberately unpinned.
-            assert errors[0]["type"] == "greater_than_equal"
+            assert result.ttl_ms == 0
+            assert result.cache_scope == "public"
+            assert result.tools == []
