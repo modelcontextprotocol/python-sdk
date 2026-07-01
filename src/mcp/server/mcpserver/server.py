@@ -387,13 +387,16 @@ class MCPServer(Generic[LifespanResultT]):
         if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
 
-        match transport:
-            case "stdio":
-                anyio.run(self.run_stdio_async)
-            case "sse":  # pragma: no cover
-                anyio.run(lambda: self.run_sse_async(**kwargs))
-            case "streamable-http":  # pragma: no cover
-                anyio.run(lambda: self.run_streamable_http_async(**kwargs))
+        try:
+            match transport:
+                case "stdio":
+                    anyio.run(self.run_stdio_async)
+                case "sse":  # pragma: no cover
+                    anyio.run(lambda: self.run_sse_async(**kwargs))
+                case "streamable-http":  # pragma: no cover
+                    anyio.run(lambda: self.run_streamable_http_async(**kwargs))
+        except KeyboardInterrupt:
+            return
 
     async def _handle_list_tools(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
