@@ -373,6 +373,82 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
     assert received == snapshot(["before close", "after close"])
 
 
+@requirement("hosting:resume:close-stream")
+@requirement("transport:streamable-http:resumability")
+@requirement("client-transport:http:reconnect-post-priming")
+@requirement("client-transport:http:reconnect-retry-value")
+async def test_a_call_whose_stream_closes_and_cannot_be_resumed_fails_instead_of_hanging() -> None:
+    """If a resumable response stream disconnects and the server session is gone, the client fails
+    the request instead of hanging forever.
+
+    The server closes the call's SSE stream after emitting one related notification. The test then
+    deletes the active server-side session to force the client's reconnect GET to return 404.
+    Without a terminal response/error on the read stream, ClientSession.send_request waits forever
+    (read timeout defaults to None). The transport must surface a request-scoped error when it
+    gives up reconnecting.
+    """
+    reconnect_attempted = anyio.Event()
+    allow_exit = anyio.Event()
+    done = anyio.Event()
+    raised: list[BaseException] = []
+    manager_ref = None
+    deleted_session = False
+
+    mcp = MCPServer("resumable")
+
+    @mcp.tool()
+    async def interrupt(ctx: Context) -> str:
+        await ctx.info("before close")  # pyright: ignore[reportDeprecated]
+        await ctx.close_sse_stream()
+        await allow_exit.wait()
+        return "unreachable"
+
+    async def record_request(request: httpx.Request) -> None:
+        nonlocal deleted_session
+        if request.method != "GET":
+            return
+        if request.headers.get("last-event-id") is None:
+            return
+        reconnect_attempted.set()
+        if deleted_session or manager_ref is None:
+            return
+        session_ids = list(manager_ref._server_instances.keys())
+        if session_ids:  # pragma: no branch
+            del manager_ref._server_instances[session_ids[0]]
+            deleted_session = True
+
+    async with mounted_app(mcp, event_store=SequencedEventStore(), retry_interval=0, on_request=record_request) as (
+        http,
+        manager,
+    ):
+        manager_ref = manager
+        with anyio.fail_after(5):  # pragma: no branch
+            async with (  # pragma: no branch
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http, terminate_on_close=False) as (r, w),
+                ClientSession(r, w) as session,
+                anyio.create_task_group() as tg,
+            ):
+                await session.initialize()
+
+                async def call() -> None:
+                    try:
+                        await session.call_tool("interrupt", {})
+                    except BaseException as exc:
+                        raised.append(exc)
+                    finally:
+                        done.set()
+
+                tg.start_soon(call)
+                await reconnect_attempted.wait()
+                await done.wait()
+                allow_exit.set()
+                tg.cancel_scope.cancel()
+
+    assert len(raised) == 1
+    assert isinstance(raised[0], Exception)
+    assert "disconnected" in str(raised[0]).lower()
+
+
 @requirement("client-transport:http:resume-stream-api")
 async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_connection() -> None:
     """A resumption token captured via on_resumption_token_update on one connection lets a fresh
