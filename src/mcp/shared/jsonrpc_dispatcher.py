@@ -39,7 +39,15 @@ from typing_extensions import TypeVar
 from mcp.shared._compat import resync_tracer
 from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest, ProgressFnT
+from mcp.shared.dispatcher import (
+    CallOptions,
+    DispatchContext,
+    Dispatcher,
+    OnNotify,
+    OnRequest,
+    ProgressFnT,
+    coerce_request_id,
+)
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import (
     ClientMessageMetadata,
@@ -49,7 +57,12 @@ from mcp.shared.message import (
 )
 from mcp.shared.transport_context import TransportContext
 
-__all__ = ["JSONRPCDispatcher", "handler_exception_to_error_data", "progress_token_from_params"]
+__all__ = [
+    "JSONRPCDispatcher",
+    "cancelled_request_id_from_params",
+    "handler_exception_to_error_data",
+    "progress_token_from_params",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -93,14 +106,13 @@ def progress_token_from_params(params: Mapping[str, Any] | None) -> ProgressToke
             return None
 
 
-def _coerce_id(request_id: RequestId) -> RequestId:
-    """Coerce a stringified int request ID back to int so a peer-echoed ID still correlates (matches the TS SDK)."""
-    if isinstance(request_id, str):
-        try:
-            return int(request_id)
-        except ValueError:
-            pass
-    return request_id
+def cancelled_request_id_from_params(params: Mapping[str, Any] | None) -> RequestId | None:
+    """Read `params.requestId` from a `notifications/cancelled`; reject bool (True would alias request id 1)."""
+    match params:
+        case {"requestId": str() | int() as request_id} if not isinstance(request_id, bool):
+            return request_id
+        case _:
+            return None
 
 
 @dataclass(slots=True)
@@ -314,7 +326,22 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         if not self._running:
             raise RuntimeError("JSONRPCDispatcher.send_raw_request called before run()")
         opts = opts or {}
-        request_id = self._allocate_id()
+        supplied_id = opts.get("request_id")
+        if supplied_id is not None:
+            request_id: RequestId = supplied_id
+            # The pending key gets the same coercion `_resolve_pending` applies
+            # to inbound response ids, so a supplied "7" still correlates
+            # whether the peer echoes "7" or 7. The wire id stays verbatim.
+            pending_key = coerce_request_id(request_id)
+            if pending_key in self._pending:
+                raise ValueError(f"request id {request_id!r} is already in flight")
+        else:
+            # Mint past any key a supplied id occupies: the collision error is
+            # reserved for the caller who actually chose the id.
+            request_id = self._allocate_id()
+            while request_id in self._pending:
+                request_id = self._allocate_id()
+            pending_key = request_id
         out_params = dict(params) if params is not None else {}
         out_meta = dict(out_params.get("_meta") or {})
         on_progress = opts.get("on_progress")
@@ -327,7 +354,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         # a WouldBlock later just means the waiter already has its one outcome.
         send, receive = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
         pending = _Pending(send=send, receive=receive, on_progress=on_progress)
-        self._pending[request_id] = pending
+        self._pending[pending_key] = pending
 
         plan = _plan_outbound(_related_request_id, opts)
         # Spec MUST: only previously-issued requests may be cancelled. A write
@@ -398,7 +425,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             raise
         finally:
             # Remove the waiter on every path so a late response is dropped, not leaked.
-            self._pending.pop(request_id, None)
+            self._pending.pop(pending_key, None)
             send.close()
             receive.close()
 
@@ -548,7 +575,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         # TODO(maxisbey): duplicate ids blind-overwrite (v1/TS parity); revisit
         # rejecting with INVALID_REQUEST. Key coerced so a stringified
         # `notifications/cancelled` id still correlates.
-        self._in_flight[_coerce_id(req.id)] = _InFlight(scope=scope, dctx=dctx)
+        self._in_flight[coerce_request_id(req.id)] = _InFlight(scope=scope, dctx=dctx)
         if req.method in self._inline_methods:
             # Spawn so `sender_ctx` applies, but park the read loop until the
             # handler returns - that's the inline ordering guarantee.
@@ -579,22 +606,17 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         layer owns) and still teed to `on_notify` afterwards.
         """
         if msg.method == "notifications/cancelled":
-            match msg.params:
-                # bool subclasses int: the guards keep True from aliasing request id 1.
-                case {"requestId": str() | int() as rid} if (
-                    not isinstance(rid, bool) and (in_flight := self._in_flight.get(_coerce_id(rid))) is not None
-                ):
-                    in_flight.dctx.cancel_requested.set()
-                    if self._peer_cancel_mode == "interrupt":
-                        in_flight.scope.cancel()
-                case _:
-                    pass
+            rid = cancelled_request_id_from_params(msg.params)
+            if rid is not None and (in_flight := self._in_flight.get(coerce_request_id(rid))) is not None:
+                in_flight.dctx.cancel_requested.set()
+                if self._peer_cancel_mode == "interrupt":
+                    in_flight.scope.cancel()
         elif msg.method == "notifications/progress":
             match msg.params:
                 case {"progressToken": str() | int() as token, "progress": int() | float() as progress} if (
                     not isinstance(token, bool)
                     and not isinstance(progress, bool)
-                    and (pending := self._pending.get(_coerce_id(token))) is not None
+                    and (pending := self._pending.get(coerce_request_id(token))) is not None
                     and pending.on_progress is not None
                 ):
                     total = msg.params.get("total")
@@ -620,7 +642,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._spawn(_contained_notify(on_notify), dctx, msg.method, msg.params, sender_ctx=sender_ctx)
 
     def _resolve_pending(self, request_id: RequestId | None, outcome: dict[str, Any] | ErrorData) -> None:
-        pending = self._pending.get(_coerce_id(request_id)) if request_id is not None else None
+        pending = self._pending.get(coerce_request_id(request_id)) if request_id is not None else None
         if pending is None:
             logger.debug("dropping response for unknown/late request id %r", request_id)
             return
@@ -680,7 +702,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     # since handler return, so a peer cancel can't interleave.
                     # Identity guard: don't evict a duplicate id's newer entry.
                     dctx.close()
-                    key = _coerce_id(req.id)
+                    key = coerce_request_id(req.id)
                     if (entry := self._in_flight.get(key)) is not None and entry.dctx is dctx:
                         del self._in_flight[key]
                 # A write interrupted by cancellation may still have delivered
