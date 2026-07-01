@@ -30,6 +30,7 @@ from mcp_types import (
     ErrorData,
     Implementation,
     InitializeRequestParams,
+    JSONRPCRequest,
     ListToolsResult,
     NotificationParams,
     PaginatedRequestParams,
@@ -1331,8 +1332,9 @@ async def test_dual_era_loop_initialize_after_modern_lock_without_a_parseable_ve
 @pytest.mark.anyio
 async def test_dual_era_loop_initialize_locks_legacy_and_rejects_modern_traffic(server: SrvT):
     """After a successful handshake the connection is legacy for its lifetime:
-    `server/discover` and envelope-bearing requests are rejected with
-    INVALID_REQUEST while plain legacy requests keep working."""
+    envelope-bearing requests (including a triple-stamped `server/discover`)
+    are rejected with INVALID_REQUEST while plain legacy requests keep
+    working."""
     async with dual_era_client(server) as (client, _):
         init = await client.send_raw_request("initialize", _initialize_params())
         assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
@@ -1345,6 +1347,21 @@ async def test_dual_era_loop_initialize_locks_legacy_and_rejects_modern_traffic(
     assert discover_exc.value.error.code == INVALID_REQUEST
     assert envelope_exc.value.error.code == INVALID_REQUEST
     assert "locked to the legacy handshake era" in discover_exc.value.error.message
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_bare_discover_after_legacy_lock_is_byte_identical(server: SrvT):
+    """A bare `server/discover` on a legacy-locked connection falls through to
+    the loop runner's per-version surface validation - the same
+    METHOD_NOT_FOUND shape a handshake-only server produced, byte for byte
+    (released probing clients key on it)."""
+    async with dual_era_client(server) as (client, _):
+        await client.send_raw_request("initialize", _initialize_params())
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("server/discover", None)
+    assert exc_info.value.error.code == METHOD_NOT_FOUND
+    assert exc_info.value.error.message == "Method not found"
+    assert exc_info.value.error.data == "server/discover"
 
 
 @pytest.mark.anyio
@@ -1402,13 +1419,58 @@ async def test_dual_era_loop_modern_request_without_envelope_rejects(server: Srv
 @pytest.mark.anyio
 async def test_dual_era_loop_rejects_subscriptions_listen_on_modern(server: SrvT):
     """`subscriptions/listen` is rejected before dispatch on the stream-pair
-    modern path: the registered handler assumes the HTTP entry's stream
-    semantics."""
+    modern path (the registered handler assumes the HTTP entry's stream
+    semantics) - and like every failed request it does not lock the era, so
+    the legacy handshake stays available."""
     async with dual_era_client(server) as (client, _):
         with pytest.raises(MCPError) as exc_info:
             await client.send_raw_request("subscriptions/listen", _modern_params())
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
     assert exc_info.value.error.code == METHOD_NOT_FOUND
     assert "not served over this transport" in exc_info.value.error.message
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_malformed_envelope_content_never_locks(server: SrvT):
+    """The envelope triple with mis-shaped values fails the request but never
+    locks the era: the lock commits only when a modern request SUCCEEDS, so a
+    buggy client's initialize fallback still works (it must never see -32022
+    for a request that failed)."""
+    params: dict[str, Any] = {"_meta": {**_modern_envelope(), CLIENT_INFO_META_KEY: 42}}
+    async with dual_era_client(server) as (client, _):
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("tools/list", params)
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert exc_info.value.error.code != UNSUPPORTED_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_failed_modern_request_never_locks(server: SrvT):
+    """A well-formed modern request for an unknown method fails without
+    locking; the next modern request locks on its own success."""
+    async with dual_era_client(server) as (client, _):
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("nope/missing", _modern_params())
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+    assert exc_info.value.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_initialize_with_envelope_takes_the_handshake_path(server: SrvT):
+    """`initialize` is legacy-distinctive by definition - it does not exist at
+    modern versions - so stamping the envelope triple on it still runs the
+    handshake and locks legacy."""
+    init_params = {**_initialize_params(), **_modern_params()}
+    async with dual_era_client(server) as (client, _):
+        init = await client.send_raw_request("initialize", init_params)
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("tools/list", _modern_params())
+    assert exc_info.value.error.code == INVALID_REQUEST
 
 
 @pytest.mark.anyio
@@ -1480,6 +1542,156 @@ async def test_dual_era_loop_modern_refuses_server_initiated_requests(server: Sr
     assert "no back-channel" in exc_info.value.error.message
 
 
+@pytest.mark.anyio
+async def test_dual_era_loop_late_modern_success_does_not_overwrite_a_committed_legacy_lock():
+    """The era settles exactly once, on the FIRST client-visible success: a
+    modern request that was already in flight when a legacy handshake
+    committed may still complete - its response stands - but the connection
+    stays legacy, so the handshaked client is never stranded."""
+    entered = anyio.Event()
+    release = anyio.Event()
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        entered.set()
+        await release.wait()
+        return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
+
+    parked = Server(name="parked-server", version="0.0.1", on_list_tools=list_tools)
+    async with dual_era_client(parked) as (client, _):
+        modern_result: dict[str, Any] = {}
+
+        async def modern_call() -> None:
+            modern_result.update(await client.send_raw_request("tools/list", _modern_params()))
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(modern_call)
+            # The modern dispatch is parked in its handler before the
+            # handshake frame is even written, so the initialize commits first.
+            await entered.wait()
+            init = await client.send_raw_request("initialize", _initialize_params())
+            assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+            release.set()
+        assert modern_result["tools"][0]["name"] == "t"
+        # The straggler's success did not move the era: plain legacy requests
+        # still serve (a modern overwrite would demand the envelope triple).
+        result = await client.send_raw_request("tools/list", None)
+        assert result["tools"][0]["name"] == "t"
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_modern_success_cancelled_away_at_the_response_write_never_locks():
+    """A peer cancel that lands while the handler is finishing means the
+    dispatcher replaces the computed result with "Request cancelled" - the
+    client never sees the success, so the era must not lock and the legacy
+    handshake must stay available."""
+    entered = anyio.Event()
+    release = anyio.Event()
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        entered.set()
+        # Survive the interrupt-mode scope cancel so the handler completes
+        # with the cancel pending - the cancellation is then delivered at the
+        # dispatcher's response-write checkpoint, after the era commit ran.
+        with anyio.CancelScope(shield=True):
+            await release.wait()
+        return ListToolsResult(tools=[])
+
+    parked = Server(name="parked-server", version="0.0.1", on_list_tools=list_tools)
+    async with dual_era_client(parked) as (client, _):
+        failures: list[MCPError] = []
+
+        async def modern_call() -> None:
+            with pytest.raises(MCPError) as exc_info:
+                await client.send_raw_request("tools/list", _modern_params())
+            failures.append(exc_info.value)
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(modern_call)
+            await entered.wait()
+            # First request on a fresh dispatcher pair, so its id is 1.
+            await client.notify("notifications/cancelled", {"requestId": 1})
+            # The read loop handles frames in order: this marker's response
+            # proves the cancel was processed before the handler resumes.
+            with pytest.raises(MCPError):
+                await client.send_raw_request("probe/marker", None)
+            release.set()
+        assert failures[0].error.message == "Request cancelled"
+        # The cancelled-away success never locked the era.
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_maps_unmapped_handler_exceptions_like_the_modern_http_entry():
+    """An unmapped handler exception on a modern request surfaces as the
+    generic INTERNAL_ERROR - the same boundary as the modern HTTP entry - so
+    handler internals never reach the wire. (The dispatcher's code-0
+    catch-all is a handshake-era compat pin and stays legacy-only.) The
+    failed request never locks, so the handshake stays available."""
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise RuntimeError("handler internals")
+
+    exploding = Server(name="exploding-server", version="0.0.1", on_list_tools=list_tools)
+    async with dual_era_client(exploding) as (client, _):
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("tools/list", _modern_params())
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+    assert exc_info.value.error.code == INTERNAL_ERROR
+    assert exc_info.value.error.message == "Internal server error"
+    assert "handler internals" not in str(exc_info.value.error)
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_raise_exceptions_reraises_unmapped_modern_handler_exceptions():
+    """Debug mode keeps its contract on the modern path: an unmapped handler
+    exception still propagates out of the loop instead of being swallowed
+    into the generic INTERNAL_ERROR mapping."""
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise RuntimeError("boom")
+
+    exploding = Server(name="exploding-server", version="0.0.1", on_list_tools=list_tools)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](8)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](8)
+    frame = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params=_modern_params())
+    with pytest.RaisesGroup(RuntimeError, flatten_subgroups=True, allow_unwrapped=True):
+        async with anyio.create_task_group() as tg, c2s_send, c2s_recv, s2c_send, s2c_recv:
+            tg.start_soon(
+                partial(
+                    serve_dual_era_loop, exploding, c2s_recv, s2c_send, lifespan_state=_LIFESPAN, raise_exceptions=True
+                )
+            )
+            with anyio.fail_after(5):  # pragma: no branch - group exit misreports the with arcs
+                await c2s_send.send(SessionMessage(message=frame))
+                # The dispatcher answers on the wire before re-raising; waiting
+                # for the answer keeps the streams open until the handler ran.
+                await s2c_recv.receive()
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_custom_method_with_mis_shaped_envelope_values_still_routes():
+    """A mis-shaped clientInfo envelope value degrades to not-supplied - the
+    `Connection.from_envelope` coercion the modern HTTP entry uses - so a
+    custom method (no kernel params surface to re-reject it) serves
+    identically on both transports, with `client_params is None`."""
+    seen: list[object] = []
+
+    async def greet(ctx: Ctx, params: RequestParams | None) -> dict[str, Any]:
+        seen.append(ctx.session.client_params)
+        return {"ok": True}
+
+    greeter = Server(name="greeter-server", version="0.0.1")
+    greeter.add_request_handler("custom/greet", RequestParams, greet)
+    params = _modern_params()
+    params["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
+    async with dual_era_client(greeter) as (client, _):
+        result = await client.send_raw_request("custom/greet", params)
+    assert result == {"ok": True}
+    assert seen == [None]
+
+
 def test_has_modern_envelope_requires_the_full_key_triple():
     assert not _has_modern_envelope(None)
     assert not _has_modern_envelope({})
@@ -1526,7 +1738,8 @@ async def test_no_server_requests_dispatch_context_denies_requests_and_delegates
     inner = _RecordingInnerDctx()
     wrapper = _NoServerRequestsDispatchContext(inner)
     assert wrapper.can_send_request is False
-    assert wrapper.transport is inner.transport
+    # The transport metadata is masked to agree with the wrapper's denial.
+    assert wrapper.transport == TransportContext(kind="jsonrpc", can_send_request=False)
     assert wrapper.request_id == 7
     assert wrapper.message_metadata is None
     assert wrapper.cancel_requested is inner.cancel_requested
@@ -1536,6 +1749,12 @@ async def test_no_server_requests_dispatch_context_denies_requests_and_delegates
     await wrapper.progress(0.5)
     assert inner.notifies == ["notifications/progress"]
     assert inner.progresses == [0.5]
+
+
+def test_no_server_requests_dispatch_context_passes_an_already_denying_transport_through():
+    inner = _RecordingInnerDctx()
+    inner.transport = TransportContext(kind="jsonrpc", can_send_request=False)
+    assert _NoServerRequestsDispatchContext(inner).transport is inner.transport
 
 
 @pytest.mark.anyio

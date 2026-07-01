@@ -22,7 +22,7 @@ import json
 import logging
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
@@ -30,13 +30,10 @@ from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     HEADER_MISMATCH,
-    INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
-    ClientCapabilities,
     ErrorData,
-    Implementation,
     JSONRPCError,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -45,13 +42,13 @@ from mcp_types import (
     RequestId,
 )
 from mcp_types import methods as _methods
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.connection import Connection
-from mcp.server.runner import serve_one
+from mcp.server.runner import modern_error_data, serve_one
 from mcp.server.streamable_http import check_accept_headers
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.dispatcher import CallOptions
@@ -65,7 +62,7 @@ from mcp.shared.inbound import (
     find_duplicated_routing_header,
     validate_mcp_param_headers,
 )
-from mcp.shared.jsonrpc_dispatcher import handler_exception_to_error_data, progress_token_from_params
+from mcp.shared.jsonrpc_dispatcher import progress_token_from_params
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 
@@ -74,7 +71,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 _OK_STATUS = 200
 
@@ -125,37 +121,20 @@ class _SingleExchangeDispatchContext:
         await self.notify("notifications/progress", params)
 
 
-def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
-    """Validate the classifier's raw envelope value into a typed model.
-
-    Rung 1 guarantees the envelope key was present; a ``null`` or mis-shaped
-    value falls through to ``ValidationError`` and is treated as not supplied
-    so the request still routes.
-    """
-    try:
-        return model.model_validate(raw, by_name=False)
-    except ValidationError:
-        return None
-
-
 async def _to_jsonrpc_response(
     request_id: RequestId, coro: Awaitable[dict[str, Any]]
 ) -> JSONRPCResponse | JSONRPCError:
     """Await ``coro`` and wrap its outcome as the JSON-RPC reply for ``request_id``.
 
     The exception-to-wire boundary for the modern HTTP entry, composed around
-    `serve_one`. `MCPError` and `ValidationError` map via the shared
-    `handler_exception_to_error_data` ladder; any other exception is logged and
-    surfaced as `INTERNAL_ERROR` so handler internals never reach the wire.
+    `serve_one`: `modern_error_data` maps the shared ladder and surfaces
+    anything else as a generic `INTERNAL_ERROR` so handler internals never
+    reach the wire.
     """
     try:
         result = await coro
     except Exception as exc:
-        error = handler_exception_to_error_data(exc)
-        if error is None:
-            logger.exception("request handler raised")
-            error = ErrorData(code=INTERNAL_ERROR, message="Internal server error")
-        return JSONRPCError(jsonrpc="2.0", id=request_id, error=error)
+        return JSONRPCError(jsonrpc="2.0", id=request_id, error=modern_error_data(exc))
     return JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result)
 
 
@@ -251,8 +230,6 @@ async def _tool_input_schema(
         logger.debug("Mcp-Param header validation skipped: the request envelope fails tools/list validation")
         return None
     seen_cursors: set[str] = set()
-    client_info = _typed(Implementation, verdict.client_info)
-    client_capabilities = _typed(ClientCapabilities, verdict.client_capabilities)
     dctx = _SingleExchangeDispatchContext(
         transport=TransportContext(kind="streamable-http", can_send_request=False, headers=request.headers),
         request_id=request_id,
@@ -260,7 +237,9 @@ async def _tool_input_schema(
     )
     for _ in range(_MCP_PARAM_LIST_PAGE_CAP):
         # Fresh Connection per page: serve_one tears down the connection's exit stack on the way out.
-        connection = Connection.from_envelope(verdict.protocol_version, client_info, client_capabilities)
+        connection = Connection.from_envelope(
+            verdict.protocol_version, verdict.client_info, verdict.client_capabilities
+        )
         try:
             result = await serve_one(
                 app, dctx, "tools/list", list_params, connection=connection, lifespan_state=lifespan_state
@@ -409,8 +388,8 @@ async def handle_modern_request(
 
     connection = Connection.from_envelope(
         verdict.protocol_version,
-        _typed(Implementation, verdict.client_info),
-        _typed(ClientCapabilities, verdict.client_capabilities),
+        verdict.client_info,
+        verdict.client_capabilities,
     )
     dctx = _SingleExchangeDispatchContext(
         transport=TransportContext(kind="streamable-http", can_send_request=False, headers=request.headers),

@@ -128,6 +128,42 @@ def test_envelope_rung_rejects_non_mapping_shapes(body: dict[str, Any]) -> None:
     assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
 
 
+@pytest.mark.parametrize("version", [7, None, ["2026-07-28"]], ids=["int", "null", "list"])
+def test_envelope_rung_rejects_non_string_protocol_version(version: Any) -> None:
+    """A present-but-non-string protocol version is a shape defect, rejected
+    INVALID_PARAMS: it must never become -32022 (the one code auto-negotiating
+    clients do not fall back from), and must not escape as a ValidationError
+    from the version rung's own typed payload (`requested` is a `str` field)."""
+    body = envelope()
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = version
+    rejection = assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
+    assert "string" in rejection.message
+
+
+def test_non_string_protocol_version_over_http_still_rejects_at_the_header_rung() -> None:
+    """SDK-defined: the non-string guard sits after the header rung, so over
+    HTTP a present version header (a string, which can never equal a
+    non-string body value) keeps producing HEADER_MISMATCH - the guard's wire
+    delta is confined to header-less transports."""
+    body = envelope()
+    headers = matching_headers(body)
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = 7
+    assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
+
+
+@pytest.mark.parametrize("version", [7, None], ids=["int", "null"])
+def test_absent_version_header_rejects_before_the_string_guard(version: Any) -> None:
+    """SDK-defined: the version header must be PRESENT, not merely equal - a
+    null body version would otherwise slip the equality check (None == None)
+    - so an absent header is HEADER_MISMATCH for every body value and the
+    string guard stays reachable only on header-less transports."""
+    body = envelope()
+    headers = matching_headers(body)
+    del headers[MCP_PROTOCOL_VERSION_HEADER]
+    body["params"]["_meta"][PROTOCOL_VERSION_META_KEY] = version
+    assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
+
+
 # --- rung 2: protocol-version-supported ----------------------------------------
 
 

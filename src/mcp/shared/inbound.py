@@ -385,8 +385,11 @@ def classify_inbound_request(
        body param → else :data:`~mcp_types.jsonrpc.HEADER_MISMATCH`. Runs
        before the supported-version rung so a client that disagrees with itself
        is told so, rather than told the body's version is unsupported.
-    3. The envelope's protocol version is in `supported_modern_versions` →
-       else :data:`~mcp_types.jsonrpc.UNSUPPORTED_PROTOCOL_VERSION` with
+    3. The envelope's protocol version is a string in
+       `supported_modern_versions` → non-string values are
+       :data:`~mcp_types.jsonrpc.INVALID_PARAMS` (a shape defect, not a
+       negotiation outcome), else
+       :data:`~mcp_types.jsonrpc.UNSUPPORTED_PROTOCOL_VERSION` with
        `data = {"supported": [...], "requested": <value>}`.
 
     Method existence is *not* a rung: kernel dispatch owns that decision so
@@ -411,9 +414,11 @@ def classify_inbound_request(
             message="params._meta must carry the reserved protocol-version, client-info and "
             "client-capabilities envelope keys",
         )
-
     if headers is not None:
-        if headers.get(MCP_PROTOCOL_VERSION_HEADER) != protocol_version:
+        version_header = headers.get(MCP_PROTOCOL_VERSION_HEADER)
+        # Presence is checked explicitly: a null body version would otherwise
+        # slip the equality check (None == None) and mask the absent header.
+        if version_header is None or version_header != protocol_version:
             return InboundLadderRejection(
                 code=HEADER_MISMATCH,
                 message=f"{MCP_PROTOCOL_VERSION_HEADER} header does not match the request envelope's protocol version",
@@ -433,6 +438,20 @@ def classify_inbound_request(
                     code=HEADER_MISMATCH,
                     message=f"{MCP_NAME_HEADER} header does not match the request body's {name_key!r} parameter",
                 )
+
+    if not isinstance(protocol_version, str):
+        # Rung 3's precondition: a shape defect, not a version-negotiation
+        # outcome - -32022 is the one code auto-negotiating clients do NOT
+        # fall back from, and the typed rung-3 payload itself requires a
+        # string `requested`. Sits after the header rung, which fires first
+        # for every header-bearing entry (an absent version header is a
+        # mismatch, and a present one is a string that can never equal a
+        # non-string body value) - so this rejection is reachable only on
+        # header-less transports.
+        return InboundLadderRejection(
+            code=INVALID_PARAMS,
+            message="the protocol-version envelope value must be a string",
+        )
 
     if protocol_version not in supported_modern_versions:
         return InboundLadderRejection(
