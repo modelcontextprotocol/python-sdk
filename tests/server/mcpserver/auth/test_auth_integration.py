@@ -1376,6 +1376,63 @@ class TestAuthEndpoints:
         token_response = response.json()
         assert "access_token" in token_response
 
+    @pytest.mark.anyio
+    async def test_none_auth_method_fails_for_confidential_client(
+        self,
+        test_client: httpx.AsyncClient,
+        mock_oauth_provider: MockOAuthProvider,
+        pkce_challenge: dict[str, str],
+    ):
+        """Test that 'none' authentication method fails for confidential clients."""
+        # Create a confidential client (has a secret) but try to register with 'none'
+        # Actually, if we register with 'none', it won't have a secret.
+        # So we register with 'client_secret_post' first.
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Confidential Client",
+            "token_endpoint_auth_method": "client_secret_post",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["client_secret"] is not None
+
+        # Manually change the client's auth method to 'none' in the provider
+        # to simulate a configuration conflict or a client trying to downgrade.
+        client_obj = await mock_oauth_provider.get_client(client_info["client_id"])
+        assert client_obj is not None
+        client_obj.token_endpoint_auth_method = "none"
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Token request using 'none' method (no secret provided)
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+
+        assert response.status_code == 401
+        error_response = response.json()
+        assert error_response["error"] == "invalid_client"
+        assert "Require valid auth method, with client secret" in error_response["error_description"]
+
 
 class TestAuthorizeEndpointErrors:
     """Test error handling in the OAuth authorization endpoint."""
