@@ -16,7 +16,6 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import INTERNAL_ERROR, ErrorData, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
@@ -26,11 +25,11 @@ from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
     REDIRECT_URI,
-    AppShim,
     InMemoryTokenStorage,
     RecordedRequest,
     auth_settings,
     connect_with_oauth,
+    get_stream_step_up_shim,
     m2m_token_shim,
     metadata_body,
     record_requests,
@@ -738,61 +737,12 @@ async def test_a_second_insufficient_scope_403_after_a_step_up_surfaces_without_
     assert counts[("POST", "/token")] == 2
 
 
-def get_stream_step_up_shim(www_authenticate: str) -> tuple[list[int], anyio.Event, AppShim]:
-    """Build an `app_shim` that 403s the first authenticated GET to `/mcp` with the given challenge.
-
-    Returns:
-        The statuses of every authenticated GET response (live-updated), an event set when one
-        of those responses starts with status 200 (the reopened stream), and the shim factory.
-    """
-    statuses: list[int] = []
-    reopened = anyio.Event()
-    fired = False
-
-    def factory(app: ASGIApp) -> ASGIApp:
-        async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
-            nonlocal fired
-            if not (
-                scope["type"] == "http"
-                and scope["path"] == "/mcp"
-                and scope["method"] == "GET"
-                and b"authorization" in dict(scope["headers"])
-            ):
-                await app(scope, receive, send)
-                return
-
-            async def recording_send(message: Message) -> None:
-                if message["type"] == "http.response.start":
-                    statuses.append(message["status"])
-                    if message["status"] == 200:
-                        reopened.set()
-                await send(message)
-
-            if not fired:
-                fired = True
-                await recording_send(
-                    {
-                        "type": "http.response.start",
-                        "status": 403,
-                        "headers": [(b"www-authenticate", www_authenticate.encode())],
-                    }
-                )
-                await recording_send({"type": "http.response.body", "body": b""})
-                return
-            # The reopened SSE stream stays open until the test's exit cancels it; nothing may follow this await.
-            await app(scope, receive, recording_send)
-
-        return wrapped
-
-    return statuses, reopened, factory
-
-
 @requirement("client-auth:stepup:get-stream-403")
 async def test_a_403_on_the_get_stream_open_steps_up_and_reopens_the_stream_with_the_upgraded_token() -> None:
     """A 403 `insufficient_scope` on the standalone GET stream open steps up and reopens the stream.
 
     The standalone GET (a 2025-11-25 mechanism, removed at 2026-07-28) is opened by the SDK in the
-    background and is invisible to `Client`, so the file-local shim records each authenticated
+    background and is invisible to `Client`, so the harness shim records each authenticated
     GET's response status and the test waits on the reopened stream's 200 before acting. The
     failure arm stays unpinned: the transport swallows GET failures into a timed reconnect loop
     this suite cannot observe without sleeps.
