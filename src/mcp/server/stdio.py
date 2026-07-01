@@ -44,6 +44,10 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    # Redirected stdin reaches EOF immediately after the final JSON-RPC line.
+    # Stdio must keep stdout alive long enough for already-accepted request
+    # responses to flush; other transports keep immediate EOF cancellation.
+    read_stream.drain_inbound_on_read_eof = True
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
     async def stdin_reader():

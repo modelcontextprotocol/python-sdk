@@ -257,6 +257,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
         on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
+        drain_inbound_on_read_eof: bool = False,
     ) -> None:
         """Wire a dispatcher over a transport's `SessionMessage` stream pair.
 
@@ -271,6 +272,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             on_stream_exception: Observer for `Exception` items on the read
                 stream; without it they are debug-logged and dropped. Awaited
                 inline in the read loop, so a slow observer stalls dispatch.
+            drain_inbound_on_read_eof: Let already-accepted inbound request
+                response writes finish after read EOF before cancelling the run
+                task group. Intended for stdio EOF after redirected input;
+                default transport-close semantics remain immediate cancellation.
         """
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -287,6 +292,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """Observer for ``Exception`` items on the read stream. Mutable so a session can
         bind it after the dispatcher is built (e.g. ``ClientSession`` routing into
         ``message_handler``); only consulted inside ``run()`` so pre-enter assignment is safe."""
+        self._drain_inbound_on_read_eof = drain_inbound_on_read_eof
+
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
@@ -478,7 +485,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                         self._running = False
                         self._closed = True
                         self._fan_out_closed()
-                        await self._drain_active_inbound_requests()
+                        if self._drain_inbound_on_read_eof:
+                            await self._drain_active_inbound_requests()
                     finally:
                         # Cancel in-flight handlers; otherwise the task-group join
                         # waits on handlers whose callers are already gone.
@@ -533,17 +541,24 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         sender_ctx: contextvars.Context | None,
     ) -> None:
         progress_token = progress_token_from_params(req.params)
+        self._active_inbound_requests += 1
         try:
             transport_ctx = self._transport_builder(metadata)
         except Exception:
             # A raising builder must cost only this message, not the connection.
+            # Track its spawned error response so stdio EOF drain waits for this
+            # already-accepted request outcome too.
             logger.exception("transport_builder raised; rejecting request %r", req.id)
-            self._spawn(
-                self._write_error,
-                req.id,
-                ErrorData(code=INTERNAL_ERROR, message="transport context unavailable"),
-                sender_ctx=sender_ctx,
-            )
+
+            async def _reject_builder_failure() -> None:
+                try:
+                    await self._write_error(
+                        req.id, ErrorData(code=INTERNAL_ERROR, message="transport context unavailable")
+                    )
+                finally:
+                    self._active_inbound_requests = max(0, self._active_inbound_requests - 1)
+
+            self._spawn(_reject_builder_failure, sender_ctx=sender_ctx)
             return
         dctx = _JSONRPCDispatchContext(
             transport=transport_ctx,
@@ -553,7 +568,6 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             _progress_token=progress_token,
         )
         scope = anyio.CancelScope()
-        self._active_inbound_requests += 1
         # TODO(maxisbey): duplicate ids blind-overwrite (v1/TS parity); revisit
         # rejecting with INVALID_REQUEST. Key coerced so a stringified
         # `notifications/cancelled` id still correlates.

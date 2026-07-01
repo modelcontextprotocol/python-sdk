@@ -28,7 +28,6 @@ from mcp_types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
-    CacheableResult,
     ErrorData,
     Implementation,
     InitializeRequestParams,
@@ -41,7 +40,6 @@ from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERS
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
-from mcp.server.caching import apply_cache_hint
 from mcp.server.connection import Connection
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
@@ -198,12 +196,6 @@ class ServerRunner(Generic[LifespanT]):
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
-            # Fill cache hints on the typed result, before the serialize sieve
-            # decides whether the negotiated version carries the fields at all.
-            # `input_required` interim results are not `CacheableResult` models,
-            # so the MRTR carve-out (no hints on them) holds by shape.
-            if isinstance(result, CacheableResult) and (hint := self.server.cache_hints.get(method)) is not None:
-                result = apply_cache_hint(result, hint)
             # Dump and serialize inside the chain so the OpenTelemetry span (the
             # outermost middleware) records a failing handler return shape too.
             return self._serialize(method, version, result)
@@ -417,6 +409,7 @@ async def serve_loop(
         # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized
         # state instead of failing the init-gate.
         inline_methods=frozenset({"initialize"}),
+        drain_inbound_on_read_eof=getattr(read_stream, "drain_inbound_on_read_eof", False),
     )
     connection = Connection.for_loop(dispatcher, session_id=session_id)
     await serve_connection(
