@@ -351,6 +351,7 @@ class ClientSession:
         self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
+        self._entered = False
         if dispatcher is not None:
             if read_stream is not None or write_stream is not None:
                 raise ValueError("pass read_stream/write_stream or dispatcher, not both")
@@ -372,6 +373,8 @@ class ClientSession:
             )
 
     async def __aenter__(self) -> Self:
+        if self._entered:
+            raise RuntimeError("Session is already running")
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
         try:
@@ -398,6 +401,7 @@ class ClientSession:
             finally:
                 self._close_binding_queues()
             raise
+        self._entered = True
         return self
 
     async def __aexit__(
@@ -411,10 +415,11 @@ class ClientSession:
         self._task_group.cancel_scope.cancel()
         try:
             result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+            await resync_tracer()
+            return result
         finally:
+            self._entered = False
             self._close_binding_queues()
-        await resync_tracer()
-        return result
 
     def _close_binding_queues(self) -> None:
         # Unclosed memory object streams warn at garbage collection; close is idempotent.
@@ -455,6 +460,11 @@ class ClientSession:
             pydantic.ValidationError: The server returned a result that does not
                 conform to the negotiated protocol version.
         """
+        if self._task_group is None:
+            raise RuntimeError(
+                "Session is not running. Use it as an async context manager "
+                "(e.g. `async with ClientSession(...) as session:`)."
+            )
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
