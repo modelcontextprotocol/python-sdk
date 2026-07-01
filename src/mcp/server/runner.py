@@ -735,8 +735,11 @@ def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> O
     Wire this into the server side of a `DirectDispatcher` peer-pair to drive an
     in-process server on the modern per-request-envelope path (each request
     carries protocol version, client info, and capabilities in `params._meta`;
-    no `initialize` handshake). Like `serve_one`, this raises whatever the
-    handler chain raises - the dispatcher owns the exception-to-error mapping.
+    no `initialize` handshake). The dispatch context is wrapped in the
+    server-requests denial, so the modern prohibition on server-initiated
+    JSON-RPC requests holds on this entry like on the others. Like `serve_one`,
+    this raises whatever the handler chain raises - the dispatcher owns the
+    exception-to-error mapping.
     """
 
     async def handle(
@@ -748,6 +751,13 @@ def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> O
             meta.get(CLIENT_INFO_META_KEY),
             meta.get(CLIENT_CAPABILITIES_META_KEY),
         )
-        return await serve_one(server, dctx, method, params, connection=connection, lifespan_state=lifespan_state)
+        return await serve_one(
+            server,
+            _NoServerRequestsDispatchContext(dctx),
+            method,
+            params,
+            connection=connection,
+            lifespan_state=lifespan_state,
+        )
 
     return handle

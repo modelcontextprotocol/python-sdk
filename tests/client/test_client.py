@@ -243,6 +243,26 @@ async def test_raise_exceptions_false_sanitizes_handler_error_on_modern_inproc_p
     assert exc_info.value.__cause__ is None
 
 
+async def test_modern_inproc_path_refuses_server_initiated_requests():
+    """The in-process modern entry enforces the same prohibition as the other
+    modern entries: a handler's request-scoped server-initiated request is
+    refused server-side with the no-back-channel contract, instead of the
+    protocol-forbidden frame being delivered to the client."""
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        schema = types.ElicitRequestedSchema(type="object", properties={"x": {"type": "string"}})
+        await ctx.session.elicit_form("question", schema, related_request_id=ctx.request_id)
+        raise AssertionError("unreachable: elicit_form must refuse")  # pragma: no cover
+
+    server = Server("test", on_call_tool=handle_call_tool)
+    async with Client(server, mode="2026-07-28") as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("asker", {})
+    assert exc_info.value.error.code == types.INVALID_REQUEST
+    assert "no back-channel" in exc_info.value.error.message
+    assert "elicitation/create" in exc_info.value.error.message
+
+
 async def test_get_prompt(app: MCPServer):
     """Test getting a prompt."""
     async with Client(app) as client:
@@ -455,6 +475,48 @@ async def test_client_legacy_mode_still_handshakes_over_a_stream_loop(simple_ser
     with anyio.fail_after(5):
         async with Client(_stream_loop_transport(simple_server), mode="legacy") as client:
             assert client.protocol_version == LATEST_HANDSHAKE_VERSION
+            assert (await client.list_resources()).resources[0].name == "Test Resource"
+
+
+async def test_client_auto_mode_recovers_from_a_timed_out_probe_over_a_stream_loop(
+    simple_server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe that outlives the client's discover timeout still succeeds on the
+    (slow-starting) server and locks the connection modern; the fallback
+    handshake's -32022 is modern evidence, so one corrective re-probe completes
+    the connect instead of stranding `mode='auto'`."""
+    monkeypatch.setattr("mcp.client.session.DISCOVER_TIMEOUT_SECONDS", 0.05)
+    c2relay_send, c2relay_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    relay2s_send, relay2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+
+    async def relay() -> None:
+        # Hold the client's first frame (the probe) until its second frame (the
+        # post-timeout initialize) arrives - the deterministic stand-in for a
+        # server too slow to answer before the client's discover timeout.
+        held: SessionMessage | Exception | None = None
+        first = True
+        async for item in c2relay_recv:
+            if first:
+                held, first = item, False
+                continue
+            if held is not None:
+                await relay2s_send.send(held)
+                held = None
+            await relay2s_send.send(item)
+
+    @asynccontextmanager
+    async def transport() -> AsyncIterator[TransportStreams]:
+        async with c2relay_send, c2relay_recv, relay2s_send, relay2s_recv, s2c_send, s2c_recv:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(simple_server.run, relay2s_recv, s2c_send, simple_server.create_initialization_options())
+                tg.start_soon(relay)
+                yield s2c_recv, c2relay_send
+                tg.cancel_scope.cancel()
+
+    with anyio.fail_after(10):
+        async with Client(transport(), mode="auto") as client:
+            assert client.protocol_version == "2026-07-28"
             assert (await client.list_resources()).resources[0].name == "Test Resource"
 
 
