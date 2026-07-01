@@ -13,7 +13,7 @@ Out of the box every result says `ttlMs: 0, cacheScope: "private"`: immediately 
 * The map is keyed by **method name**, and the six cacheable methods are the only legal keys. The parameter is typed `Mapping[CacheableMethod, CacheHint]`, so your editor autocompletes the keys and flags a typo before you run; anything that slips past the type checker raises at construction.
 * A method you don't mention keeps the defaults. The map is a set of overrides, not a manifest.
 * `CacheHint(ttl_ms=5_000)` left `scope` unset, so it stays `"private"`: five seconds of freshness, per caller. Scope and TTL are independent decisions.
-* `"server/discover"` is a legal key too, since the handshake result is cacheable like any list.
+* `"server/discover"` is a legal key too, since the discovery result is cacheable like any list.
 
 !!! warning
     `cacheScope: "public"` means *anyone* may be served your cached response. A shared

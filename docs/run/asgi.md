@@ -150,7 +150,7 @@ A browser-based client needs two permissions from you: to **send** its MCP reque
 
 * The handler is plain Starlette: an `async` function from `Request` to `Response`.
 * `streamable_http_app()` picks up every custom route. `app.routes` is now `/mcp` and `/health`.
-* `GET /health` answers `{"status": "ok"}` with no MCP in sight: no session, no handshake.
+* `GET /health` answers `{"status": "ok"}` with no MCP in sight.
 
 !!! warning
     Custom routes are **never authenticated**, even when the rest of the server is. That is

@@ -83,13 +83,21 @@ The first time `Client` sends a request, the server answers `401`. The provider 
 
 After that it is quiet. Tokens come out of storage, an expired access token is refreshed with the refresh token, and only when none of that works does it run the flow again.
 
-You wrote none of it. Three keyword arguments remain (`timeout`, `client_metadata_url` and `validate_resource_url`), and this file needs none of them.
+You wrote none of it. Three keyword arguments remain (`timeout`, `client_metadata_url` and `validate_resource_url`), and this file needs none of them. `client_metadata_url` is the one worth knowing about; it gets its own section below.
 
 ### Try it
 
 Every other example in these docs you can check with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
 
 The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this page's client grown into a small CLI. Its README has the two commands: start the servers, run the client against them, and you watch the four steps go by.
+
+## Client ID Metadata Documents
+
+The 2026-07-28 revision of the spec deprecates dynamic client registration in favor of **Client ID Metadata Documents** (CIMD). Instead of POSTing a fresh registration to every authorization server it meets, your client publishes one JSON document about itself at a stable HTTPS URL, and that URL *is* its `client_id`. The authorization server fetches the document; the provider never touches it.
+
+The SDK already speaks it: pass the URL as `client_metadata_url=` when you construct the provider. When the authorization server's metadata advertises `client_id_metadata_document_supported: true`, the provider skips the `/register` request entirely — the URL goes into the flow as the `client_id`, and there is no `client_secret`. When the server doesn't advertise it (most don't yet), or you never pass a URL, the provider falls back to dynamic registration **silently**, and everything above works exactly as described. Stored `client_info` still wins over both.
+
+The URL must be HTTPS with a non-root path; anything else is a `ValueError` at construction, before any network happens. The shipped `examples/clients/simple-auth-client/` takes it as the `MCP_CLIENT_METADATA_URL` environment variable.
 
 ## Machine to machine
 
@@ -132,7 +140,7 @@ Not everything is a flow error. The network can still fail; those are ordinary `
 * `OAuthClientProvider` is an `httpx.Auth`. Put it on an `httpx.AsyncClient`, pass that to `streamable_http_client(url, http_client=...)`, and `Client` never knows OAuth happened.
 * You supply four things: the server URL, an `OAuthClientMetadata`, a `TokenStorage`, and the redirect/callback handler pair.
 * `TokenStorage` is a `Protocol`: four async methods, no base class. Persist `client_info` as well as the tokens.
-* Discovery, dynamic registration, PKCE, the `state` and `iss` checks, and token refresh are the provider's job, not yours.
+* Discovery, registration (dynamic, or via a **Client ID Metadata Document**), PKCE, the `state` and `iss` checks, and token refresh are the provider's job, not yours.
 * `ClientCredentialsOAuthProvider` is the no-human version: `client_id` + `client_secret`, no handlers, no browser.
 * Every OAuth failure is an `OAuthFlowError`; `OAuthRegistrationError` and `OAuthTokenError` are its subclasses.
 

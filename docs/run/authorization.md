@@ -4,6 +4,8 @@ Over Streamable HTTP your MCP server is an ordinary web service, and you protect
 
 In OAuth terms, your server is a **resource server**. It never signs anyone in and it never issues a token. It does one thing: look at the `Authorization` header on each request and decide whether the token in it is good.
 
+This page is the server side. A client that discovers your authorization server and fetches the token is **[OAuth clients](../client/oauth-clients.md)**.
+
 ## The three parties
 
 * The **authorization server** signs people in and issues access tokens. You don't write this. It's your identity provider (Auth0, Keycloak, Entra, your own).

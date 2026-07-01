@@ -100,7 +100,7 @@ asyncio.run(main())
 {'prompts': {'list_changed': True}, 'resources': {'subscribe': True, 'list_changed': True}, 'tools': {'list_changed': True}}
 ```
 
-That dictionary is the server's half of the handshake:
+That dictionary is your server's declared **capabilities** — the first thing every connecting client learns:
 
 | Capability  | The client may now call                                    |
 |-------------|------------------------------------------------------------|
@@ -123,7 +123,7 @@ Look back over this page. You wrote three small Python functions. You did **not*
 * A JSON Schema. `a: int, b: int` *is* the schema for `add`.
 * A request handler. `tools/list`, `resources/read`, `prompts/get`: all served for you.
 * A capability declaration. `MCPServer` made it for you.
-* A line of protocol. The handshake, the version negotiation, the JSON-RPC framing: all of it happened inside `mcp dev` and `Client(mcp)`, and you never saw it.
+* A line of protocol. The version negotiation, the JSON-RPC framing, the capability exchange: all of it happened inside `mcp dev` and `Client(mcp)`, and you never saw it.
 
 That ratio is the whole point of the SDK.
 

@@ -72,7 +72,7 @@ Registering the handler is the declaration. Connect a client and look:
 client.server_capabilities.completions  # CompletionsCapability()
 ```
 
-You didn't list `completions` anywhere. The SDK saw the handler and advertised it during the handshake. Every *optional* capability works this way: the handler is the declaration. (The three primitives are not optional: `MCPServer` always declares those, handlers or not.)
+You didn't list `completions` anywhere. The SDK saw the handler and declared the capability for you. Every *optional* capability works this way: the handler is the declaration. (The three primitives are not optional: `MCPServer` always declares those, handlers or not.)
 
 !!! check
     Go back to the first `server.py` (the one with no handler) and ask it anyway. The call fails
