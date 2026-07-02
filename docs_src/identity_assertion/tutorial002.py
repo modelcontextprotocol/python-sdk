@@ -18,7 +18,7 @@ from mcp.server.auth.provider import (
 from mcp.server.auth.routes import create_auth_routes
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthToken
 
-ISSUER = "https://auth.example.com/"
+ISSUER = "https://auth.example.com"
 MCP_SERVER = "http://localhost:8001/mcp"
 IDP_ISSUER = "https://idp.example.com"
 IDP_SIGNING_KEY = "the-enterprise-idp-signing-key"

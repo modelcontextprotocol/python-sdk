@@ -137,7 +137,7 @@ async def test_the_metadata_advertises_the_grant_type_and_the_id_jag_profile() -
         response = await http_client.get("/.well-known/oauth-authorization-server")
     assert response.status_code == 200
     metadata = response.json()
-    assert metadata["issuer"] == "https://auth.example.com/"
+    assert metadata["issuer"] == "https://auth.example.com"
     assert "urn:ietf:params:oauth:grant-type:jwt-bearer" in metadata["grant_types_supported"]
     assert metadata["authorization_grant_profiles_supported"] == ["urn:ietf:params:oauth:grant-profile:id-jag"]
 

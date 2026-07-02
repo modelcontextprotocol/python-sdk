@@ -70,3 +70,14 @@ def test_build_metadata_serves_issuer_without_trailing_slash():
     assert served["issuer"] == "https://as.example.com"
     assert served["authorization_endpoint"] == "https://as.example.com/authorize"
     assert served["token_endpoint"] == "https://as.example.com/token"
+
+
+def test_build_metadata_strips_trailing_slash_from_anyhttpurl_issuer():
+    """AnyHttpUrl adds a trailing slash to bare hostnames; served metadata must not."""
+    issuer_url = AnyHttpUrl("http://localhost:8000")
+    assert str(issuer_url).endswith("/")
+
+    metadata = build_metadata(issuer_url, None, ClientRegistrationOptions(), RevocationOptions())
+
+    served = metadata.model_dump(mode="json", exclude_none=True)
+    assert served["issuer"] == "http://localhost:8000"
