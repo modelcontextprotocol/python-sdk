@@ -19,6 +19,7 @@ from mcp_types import (
     INVALID_REQUEST,
     REQUEST_TIMEOUT,
     ErrorData,
+    RequestId,
     Tool,
 )
 
@@ -394,6 +395,118 @@ async def test_direct_close_makes_run_return():
             tg.start_soon(client.run, on_request, on_notify)
             client.close()
             server.close()
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_honors_caller_supplied_request_id_verbatim_typed(pair_factory: PairFactory):
+    """A caller-supplied `CallOptions["request_id"]` reaches the peer's context verbatim —
+    "7" stays a string, never the integer 7 — and the next call without one still mints
+    a dispatcher id as before."""
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("first", None, {"request_id": "7"})
+            await client.send_raw_request("second", None)
+    supplied, minted = (ctx.request_id for ctx in srec.contexts)
+    assert supplied == "7"
+    assert type(supplied) is str
+    assert type(minted) is int
+
+
+@pytest.mark.anyio
+async def test_send_raw_request_with_in_flight_request_id_raises_and_frees_id_on_completion(
+    pair_factory: PairFactory,
+):
+    """Reusing an id while it is in flight is a loud `ValueError` — silent reuse would
+    corrupt response correlation. Once the first request completes, the id is free
+    again: the reservation is in-flight-scoped, not permanent."""
+    entered = anyio.Event()
+    release = anyio.Event()
+
+    async def parked(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        entered.set()
+        await release.wait()
+        return {"served": method}
+
+    async with running_pair(pair_factory, server_on_request=parked) as (client, *_):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def first() -> None:
+                    await client.send_raw_request("slow", None, {"request_id": "listen-1"})
+
+                tg.start_soon(first)
+                await entered.wait()
+                with pytest.raises(ValueError, match="already in flight"):
+                    await client.send_raw_request("duplicate", None, {"request_id": "listen-1"})
+                release.set()
+            result = await client.send_raw_request("again", None, {"request_id": "listen-1"})
+    assert result == {"served": "again"}
+
+
+@pytest.mark.anyio
+async def test_minted_ids_skip_a_caller_supplied_id_still_in_flight(pair_factory: PairFactory):
+    """The dispatcher mints PAST a key a supplied id occupies — the collision error
+    is reserved for the caller who chose the id, never an innocent minted request."""
+    entered = anyio.Event()
+    release = anyio.Event()
+    seen_ids: list[RequestId | None] = []
+
+    async def maybe_park(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        seen_ids.append(ctx.request_id)
+        if method == "park":
+            entered.set()
+            await release.wait()
+        return {}
+
+    async with running_pair(pair_factory, server_on_request=maybe_park) as (client, *_):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def parked() -> None:
+                    await client.send_raw_request("park", None, {"request_id": "3"})
+
+                tg.start_soon(parked)
+                await entered.wait()
+                # The counter mints 1 and 2, then skips the occupied 3 to 4.
+                for _ in range(3):
+                    await client.send_raw_request("plain", None)
+                release.set()
+            assert [request_id for request_id in seen_ids if request_id != "3"] == [1, 2, 4]
+
+
+@pytest.mark.anyio
+async def test_supplied_numeric_string_id_collides_with_its_int_twin(pair_factory: PairFactory):
+    """ "7" and 7 are one id in the collision domain on BOTH dispatchers, so the
+    in-memory pair raises exactly where the wire dispatcher (whose pending keys
+    are coerced for response correlation) would."""
+    entered = anyio.Event()
+    release = anyio.Event()
+
+    async def parked(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        entered.set()
+        await release.wait()
+        return {}
+
+    async with running_pair(pair_factory, server_on_request=parked) as (client, *_):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+
+                async def first() -> None:
+                    await client.send_raw_request("slow", None, {"request_id": 7})
+
+                tg.start_soon(first)
+                await entered.wait()
+                with pytest.raises(ValueError, match="already in flight"):
+                    await client.send_raw_request("duplicate", None, {"request_id": "7"})
+                release.set()
+            # Completion frees the id for either spelling.
+            assert await client.send_raw_request("again", None, {"request_id": "7"}) == {}
 
 
 if TYPE_CHECKING:
