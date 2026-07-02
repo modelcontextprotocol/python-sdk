@@ -14,7 +14,7 @@ from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
 from mcp.server.connection import Connection
-from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
+from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages, wants_sampling_tools
 from mcp.shared.dispatcher import CallOptions, DispatchContext, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import ServerMessageMetadata
@@ -146,10 +146,10 @@ class ServerSession:
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
         tools: None = None,
-        tool_choice: types.ToolChoice | None = None,
+        tool_choice: None = None,
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResult:
-        """Overload: Without tools, returns single content."""
+        """Overload: Without tools or tool_choice, returns single content."""
         ...
 
     @overload
@@ -165,11 +165,11 @@ class ServerSession:
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
-        tools: list[types.Tool],
+        tools: list[types.Tool] | None = None,
         tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResultWithTools:
-        """Overload: With tools, returns array-capable content."""
+        """Overload: With tools or tool_choice, returns array-capable content."""
         ...
 
     @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
@@ -236,7 +236,7 @@ class ServerSession:
         )
         metadata_obj = ServerMessageMetadata(related_request_id=related_request_id)
 
-        if tools is not None:
+        if wants_sampling_tools(tools, tool_choice):
             return await self.send_request(
                 request=request,
                 result_type=types.CreateMessageResultWithTools,

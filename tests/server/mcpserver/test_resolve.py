@@ -2757,7 +2757,8 @@ async def test_bare_initialized_session_is_still_gated():
 
 
 @pytest.mark.anyio
-async def test_tool_choice_only_sample_validates_as_tools_mode():
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_tool_choice_only_sample_validates_as_tools_mode(mode: Literal["legacy", "auto"]):
     # Gate and answer model share one predicate: tool_choice alone is tools-mode,
     # so a single-content answer still validates (WithTools accepts both shapes).
     mcp = MCPServer(name="ToolChoiceOnly", request_state_security=RequestStateSecurity.ephemeral())
@@ -2769,12 +2770,12 @@ async def test_tool_choice_only_sample_validates_as_tools_mode():
     @mcp.tool()
     async def calc(answer: Annotated[CreateMessageResultWithTools, Resolve(_ask_with_tool_choice)]) -> str:
         assert isinstance(answer, CreateMessageResultWithTools)
-        content = answer.content[0] if isinstance(answer.content, list) else answer.content
-        assert isinstance(content, TextContent)
-        return content.text
+        assert isinstance(answer.content, TextContent)
+        return answer.content.text
 
     async with Client(
         mcp,
+        mode=mode,
         sampling_callback=sampler,
         sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability()),
     ) as client:

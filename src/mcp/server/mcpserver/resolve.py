@@ -80,7 +80,7 @@ from mcp.server.elicitation import (
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.request_state import compact_json
-from mcp.server.validation import validate_tool_use_result_messages
+from mcp.server.validation import validate_tool_use_result_messages, wants_sampling_tools
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata
@@ -680,7 +680,7 @@ def _require_capability(context: Context[Any, Any], marker: _Marker, key: str) -
         name = "form elicitation"
     elif isinstance(marker, Sample):
         sampling = capabilities.sampling if capabilities is not None else None
-        wants_tools = _wants_tools(marker.params)
+        wants_tools = wants_sampling_tools(marker.params.tools, marker.params.tool_choice)
         if sampling is not None and (not wants_tools or sampling.tools is not None):
             return
         required = ClientCapabilities(
@@ -710,18 +710,17 @@ def _render_request(marker: _Marker) -> InputRequest:
     return ListRootsRequest()
 
 
-def _wants_tools(params: CreateMessageRequestParams) -> bool:
-    """Whether a sampling request is tools-mode: `sampling.tools` gated, array-capable answer."""
-    return params.tools is not None or params.tool_choice is not None
-
-
 def _result_type(
     marker: Sample | ListRoots,
 ) -> type[CreateMessageResult] | type[CreateMessageResultWithTools] | type[ListRootsResult]:
     """The result model a `Sample`/`ListRoots` response must validate against."""
     if isinstance(marker, ListRoots):
         return ListRootsResult
-    return CreateMessageResultWithTools if _wants_tools(marker.params) else CreateMessageResult
+    return (
+        CreateMessageResultWithTools
+        if wants_sampling_tools(marker.params.tools, marker.params.tool_choice)
+        else CreateMessageResult
+    )
 
 
 class _StateEntry(BaseModel):
