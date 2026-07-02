@@ -1,0 +1,74 @@
+/* Sidebar hierarchy + density for MkDocs Material 9.7.x.
+   All rules scoped to the desktop sidebar breakpoint (>= 76.25em), matching
+   Material's own scoping for navigation.sections, so the mobile drill-down
+   drawer keeps stock styling. Colors use Material tokens, so the light and
+   slate schemes both work without extra palette handling. */
+
+@media screen and (min-width: 76.25em) {
+  /* Section labels: smaller, uppercase, letter-spaced, muted. Covers both the
+     clickable index-page headers and the bare API Reference label. */
+  .md-sidebar--primary .md-nav__item--section > .md-nav__link {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--md-default-fg-color--light);
+  }
+
+  /* Indent section children and hang a guide line. Material outdents section
+     children with [dir=ltr] ... margin-left: -0.6rem, which is why they sit
+     flush under the header; restoring the margin re-exposes the stock 0.6rem
+     list padding. The logical property ties Material's physical one at
+     (0,3,0) specificity and wins on source order (extra_css loads last),
+     while staying direction-agnostic. */
+  .md-sidebar--primary .md-nav__item--section > .md-nav {
+    margin-inline-start: 0.1rem;
+    border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
+  }
+
+  /* Same guide line for collapsible groups inside the API Reference subtree
+     (section items also carry --nested, so exclude them). */
+  .md-sidebar--primary .md-nav__item--nested:not(.md-nav__item--section) > .md-nav {
+    border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
+  }
+
+  /* Tighten vertical rhythm (stock: 0.625em link margins, 1.25em sections).
+     The child combinator keeps this off anchors inside md-nav__container,
+     which carry their own margin-top: 0 stock rule. */
+  .md-sidebar--primary .md-nav__item > .md-nav__link {
+    margin-top: 0.45em;
+  }
+  .md-sidebar--primary .md-nav__item--section {
+    margin: 1em 0;
+  }
+  .md-sidebar--primary .md-nav__item--section > .md-nav__link {
+    margin-top: 0;
+  }
+
+  /* The current page stands out from its siblings. 700 because Material only
+     loads Inter at 300/400/700; a 600 would silently substitute the 700 face
+     anyway, but render lighter on the system-font fallback stack. */
+  .md-sidebar--primary .md-nav__link--active {
+    font-weight: 700;
+  }
+
+  /* The sidebar repeats the site name right above the homepage nav entry;
+     drop the title row on desktop (the mobile drawer still needs it for its
+     drill-down back-navigation, hence the media-query scope). */
+  .md-sidebar--primary .md-nav--primary > .md-nav__title {
+    display: none;
+  }
+}
+
+/* Headings: Material's 300-weight light-gray defaults read washed out; use
+   the full foreground color and a solid weight instead. 700, not 600: the
+   Google Fonts request only carries Inter 300/400/700 (see the nav__link
+   note above). */
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 700;
+  color: var(--md-default-fg-color);
+}
+.md-typeset h3 {
+  font-weight: 700;
+}
