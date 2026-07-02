@@ -703,8 +703,8 @@ A v1 server could call `ctx.elicit()`, `create_message()`, or `list_roots()`
 against any client; nothing checked what the client had declared. In v2 the
 `Resolve(...)` markers (`Elicit`, `Sample`, `ListRoots`) enforce the spec's
 egress rule on both transports: if the client never declared the matching
-capability (`elicitation`, `sampling` — plus `sampling.tools` when the request
-carries tools — or `roots`), the call fails with a `-32021`
+capability (`elicitation`, `sampling`, or `roots`, plus `sampling.tools` when
+the request carries tools), the call fails with a `-32021`
 `MISSING_REQUIRED_CLIENT_CAPABILITY` JSON-RPC error instead of sending a
 request the client cannot handle. This applies on 2025-11-25 sessions too, so a
 client that answered elicitations without declaring the capability now sees the

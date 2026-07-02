@@ -78,7 +78,7 @@ When a client connects it declares its `capabilities`, the mirror image of the s
 | `list_roots_callback=` | `"roots": {"listChanged": true}` |
 | none of them | `{}` |
 
-Sampling sub-capabilities are the one refinement: pass `sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability())` alongside `sampling_callback` when your sampler handles the `tools` / `tool_choice` parameters - servers must see `sampling.tools` declared before sending them.
+Sampling sub-capabilities are the one refinement: pass `sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability())` alongside `sampling_callback` when your sampler handles the `tools` / `tool_choice` parameters. Servers must see `sampling.tools` declared before they can send them.
 
 `logging_callback` and `message_handler` are not in the table. They handle notifications, and notifications need no capability.
 
