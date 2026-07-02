@@ -702,7 +702,7 @@ The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `Reso
 A v1 server could send elicitation, sampling, and roots requests to clients
 that never declared the matching capability; only tools-bearing sampling was
 checked. In v2 the `Resolve(...)` markers (`Elicit`, `Sample`, `ListRoots`)
-enforce the spec's egress rule: an undeclared capability (form `elicitation`,
+enforce the spec's egress rule: an undeclared capability (form-mode `elicitation`,
 `sampling`, or `roots`, plus `sampling.tools` when the request carries `tools`
 or `tool_choice`) fails the call with a `-32021`
 `MISSING_REQUIRED_CLIENT_CAPABILITY` JSON-RPC error instead of sending a

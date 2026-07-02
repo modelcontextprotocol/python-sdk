@@ -121,10 +121,11 @@ class Elicit(Generic[T]):
 class Sample:
     """A resolver's request to sample the client's LLM via `sampling/createMessage`.
 
-    The framework injects a `CreateMessageResult` (`CreateMessageResultWithTools` when `tools` are
-    given); requires the `sampling` capability (`sampling.tools` when `tools` or `tool_choice` are given). On
-    >= 2026-07-28 the request must render identically across retry rounds, and the sampled result
-    rides `request_state` on every later round. `include_context` other than "none" is deprecated in the draft spec.
+    The framework injects a `CreateMessageResult` (`CreateMessageResultWithTools` when `tools` or
+    `tool_choice` are given, which also requires the client's `sampling.tools`); requires the
+    `sampling` capability. On >= 2026-07-28 the request must render identically across retry
+    rounds, and the sampled result rides `request_state` on every later round. `include_context`
+    other than "none" is deprecated in the draft spec.
     """
 
     def __init__(
@@ -679,7 +680,7 @@ def _require_capability(context: Context[Any, Any], marker: _Marker, key: str) -
         name = "form elicitation"
     elif isinstance(marker, Sample):
         sampling = capabilities.sampling if capabilities is not None else None
-        wants_tools = marker.params.tools is not None or marker.params.tool_choice is not None
+        wants_tools = _wants_tools(marker.params)
         if sampling is not None and (not wants_tools or sampling.tools is not None):
             return
         required = ClientCapabilities(
@@ -709,13 +710,18 @@ def _render_request(marker: _Marker) -> InputRequest:
     return ListRootsRequest()
 
 
+def _wants_tools(params: CreateMessageRequestParams) -> bool:
+    """Whether a sampling request is tools-mode: `sampling.tools` gated, array-capable answer."""
+    return params.tools is not None or params.tool_choice is not None
+
+
 def _result_type(
     marker: Sample | ListRoots,
 ) -> type[CreateMessageResult] | type[CreateMessageResultWithTools] | type[ListRootsResult]:
     """The result model a `Sample`/`ListRoots` response must validate against."""
     if isinstance(marker, ListRoots):
         return ListRootsResult
-    return CreateMessageResult if marker.params.tools is None else CreateMessageResultWithTools
+    return CreateMessageResultWithTools if _wants_tools(marker.params) else CreateMessageResult
 
 
 class _StateEntry(BaseModel):

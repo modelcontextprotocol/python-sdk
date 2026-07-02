@@ -136,13 +136,13 @@ That's the right default for a precondition: no answer, no order. When declining
 
 ## Ask the client, not the user
 
-Elicitation is one of the three questions a resolver can ask, and the multi-round-trip flow allows no others. The other two go to the **client** rather than the user: return `Sample(...)` to run an LLM call through the client (a `sampling/createMessage` request), or `ListRoots()` to fetch the client's current roots. Neither has an accept/decline outcome; the consumer annotates the result type directly, `CreateMessageResult` (`CreateMessageResultWithTools` when the request carries tools) or `ListRootsResult`:
+Elicitation is one of the three questions a resolver can ask, and the multi-round-trip flow allows no others. The other two go to the **client** rather than the user: return `Sample(...)` to run an LLM call through the client (a `sampling/createMessage` request), or `ListRoots()` to fetch the client's current roots. Neither has an accept/decline outcome; the consumer annotates the result type directly, `CreateMessageResult` (`CreateMessageResultWithTools` when the request carries `tools` or `tool_choice`) or `ListRootsResult`:
 
 ```python title="server.py" hl_lines="11-16 22"
 --8<-- "docs_src/dependencies/tutorial004.py"
 ```
 
-* The framework routes these exactly like `Elicit`: inside the multi-round-trip `tools/call` on **2026-07-28**, over the standalone server->client request on **2025-11-25**. An undeclared capability refuses the call with a `-32021` protocol error (`sampling`, `roots`, form `elicitation`; `sampling.tools` when the request carries `tools` or `tool_choice`).
+* The framework routes these exactly like `Elicit`: inside the multi-round-trip `tools/call` on **2026-07-28**, over the standalone server->client request on **2025-11-25**. An undeclared capability refuses the call with a `-32021` protocol error (`sampling`, `roots`, form-mode `elicitation`; `sampling.tools` when the request carries `tools` or `tool_choice`).
 * Everything the info box above says about questions applies unchanged: a `Sample` request is matched to its recorded result by its exact rendering, so build it deterministically from the tool's arguments and earlier answers; the client then pays for the LLM call once per tool call, not once per round. The recorded result rides `request_state` for the rest of the call, so a very large completion makes every remaining round-trip heavier.
 * The standalone sampling and roots *features* are deprecated at 2026-07-28 (SEP-2577). New servers that need the client's model ask through this carrier; servers that don't should integrate with an LLM provider directly. `include_context` values other than `"none"` are themselves deprecated; avoid them.
 

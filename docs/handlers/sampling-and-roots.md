@@ -15,7 +15,7 @@ A resolver returns `Sample(...)` and the tool receives the completion, through t
 --8<-- "docs_src/sampling_and_roots/tutorial001.py"
 ```
 
-* `Sample(messages, max_tokens=...)` mirrors the `sampling/createMessage` parameters. The injected value is the client's `CreateMessageResult`; pass `tools=[...]` and it becomes a `CreateMessageResultWithTools` instead.
+* `Sample(messages, max_tokens=...)` mirrors the `sampling/createMessage` parameters. The injected value is the client's `CreateMessageResult`; pass `tools` or `tool_choice` and it becomes a `CreateMessageResultWithTools` instead.
 * The client must have declared the `sampling` capability (`sampling.tools` if you pass `tools` or `tool_choice`). If it didn't, the call fails with a `-32021` protocol error instead of sending a request the client cannot handle. A pre-2026 session with no back-channel fails with its usual no-back-channel error, since there is nothing to send on.
 * At `2026-07-28` the request is delivered inside the multi-round-trip flow (**[Multi-round-trip requests](multi-round-trip.md)**); on `2025-11-25` it is a standalone request to the client. The code is the same either way, but mind the multi-round-trip rule: the request must render identically across retry rounds, so build it only from the tool's arguments and other stable data.
 * Leave `include_context` alone: values other than `"none"` are themselves deprecated (SEP-2596) and need a capability almost no client declares.

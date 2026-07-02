@@ -2754,3 +2754,28 @@ async def test_bare_initialized_session_is_still_gated():
     assert isinstance(message, SessionMessage)
     assert isinstance(message.message, JSONRPCError)
     assert message.message.error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+
+
+@pytest.mark.anyio
+async def test_tool_choice_only_sample_validates_as_tools_mode():
+    # Gate and answer model share one predicate: tool_choice alone is tools-mode,
+    # so a single-content answer still validates (WithTools accepts both shapes).
+    mcp = MCPServer(name="ToolChoiceOnly", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def sampler(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
+        assert params.tool_choice is not None and params.tools is None
+        return CreateMessageResult(role="assistant", content=TextContent(type="text", text="4"), model="m")
+
+    @mcp.tool()
+    async def calc(answer: Annotated[CreateMessageResultWithTools, Resolve(_ask_with_tool_choice)]) -> str:
+        assert isinstance(answer, CreateMessageResultWithTools)
+        content = answer.content[0] if isinstance(answer.content, list) else answer.content
+        assert isinstance(content, TextContent)
+        return content.text
+
+    async with Client(
+        mcp,
+        sampling_callback=sampler,
+        sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability()),
+    ) as client:
+        assert await _text(client, "calc", {}) == "4"
