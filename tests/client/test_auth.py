@@ -2022,6 +2022,11 @@ class TestWWWAuthenticate:
                 "scope",
                 "read write",
             ),
+            (
+                'Basic realm="legacy", Bearer scope="read write", error="insufficient_scope"',
+                "scope",
+                "read write",
+            ),
         ],
     )
     def test_extract_field_from_www_auth_valid_cases(

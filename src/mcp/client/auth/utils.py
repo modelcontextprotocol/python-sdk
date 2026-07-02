@@ -16,6 +16,52 @@ from mcp.shared.auth import (
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
+def _split_www_authenticate_segments(header_value: str) -> list[str]:
+    """Split a WWW-Authenticate header on top-level commas."""
+    segments: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+
+    for char in header_value:
+        if char == '"':
+            in_quotes = not in_quotes
+        if char == "," and not in_quotes:
+            segment = "".join(current).strip()
+            if segment:
+                segments.append(segment)
+            current = []
+            continue
+        current.append(char)
+
+    tail = "".join(current).strip()
+    if tail:
+        segments.append(tail)
+    return segments
+
+
+def _extract_bearer_auth_params(www_auth_header: str) -> str | None:
+    """Return the auth-param portion of the first Bearer challenge."""
+    segments = _split_www_authenticate_segments(www_auth_header)
+    collecting = False
+    auth_params: list[str] = []
+
+    for segment in segments:
+        scheme, separator, remainder = segment.partition(" ")
+        if scheme.lower() == "bearer" and separator:
+            collecting = True
+            auth_params = [remainder.strip()]
+            continue
+
+        if collecting:
+            if separator and "=" not in scheme:
+                break
+            auth_params.append(segment)
+
+    if not auth_params:
+        return None
+    return ", ".join(part for part in auth_params if part)
+
+
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
     """Extract field from WWW-Authenticate header.
 
@@ -26,15 +72,12 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
-    # Strip the auth scheme (e.g. "Bearer") so parsing only sees auth-params.
-    _, separator, auth_params = www_auth_header.partition(" ")
-    if not separator:
-        auth_params = www_auth_header
+    auth_params = _extract_bearer_auth_params(www_auth_header)
+    if auth_params is None:
+        return None
 
     # Match comma-delimited auth-params while respecting quoted values.
-    pattern = re.compile(
-        r'(?:^|,\s*)(?P<name>[A-Za-z][A-Za-z0-9_-]*)=(?:"(?P<quoted>[^"]+)"|(?P<unquoted>[^,\s]+))'
-    )
+    pattern = re.compile(r'(?:^|,\s*)(?P<name>[A-Za-z][A-Za-z0-9_-]*)=(?:"(?P<quoted>[^"]+)"|(?P<unquoted>[^,\s]+))')
     for match in pattern.finditer(auth_params):
         if match.group("name") == field_name:
             # Return quoted value if present, otherwise unquoted value
