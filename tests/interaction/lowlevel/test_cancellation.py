@@ -1,9 +1,10 @@
 """Cancellation interactions against the low-level Server, driven through the public Client API.
 
-There is no client-side cancellation API: cancelling means sending a CancelledNotification
-carrying the request id, which only the server-side handler can observe (`ctx.request_id`), so
-these tests capture the id from inside the blocked handler before cancelling. The handler blocks
-on an Event rather than a sleep, and every wait is bounded by `anyio.fail_after`.
+Client-side, cancelling means abandoning: cancelling the task that awaits a call makes the SDK
+carry the signal in the transport's own spelling (a cancelled frame on stream wires, closing the
+request's own response stream at 2026-07-28 streamable HTTP). The receiving-side tests instead
+script a CancelledNotification by hand, capturing the request id from inside the blocked handler.
+Handlers block on an Event rather than a sleep, and every wait is bounded by `anyio.fail_after`.
 """
 
 import anyio
@@ -20,9 +21,11 @@ from mcp_types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ListToolsResult,
     PingRequest,
     ServerCapabilities,
     TextContent,
+    Tool,
 )
 
 from mcp import MCPError
@@ -344,3 +347,121 @@ async def test_timed_out_initialize_sends_no_cancellation() -> None:
         assert pong == snapshot(EmptyResult())
         # The stream is ordered, so a courtesy cancel would have arrived ahead of the ping.
         assert received_methods == snapshot(["initialize", "ping"])
+
+
+@requirement("protocol:cancel:abort-signal")
+async def test_abandoning_a_call_stops_the_server_handler(connect: Connect) -> None:
+    """Cancelling the task that awaits a call cancels the request itself, not just the local wait:
+    the server-side handler is interrupted, and the session serves later requests normally.
+
+    Spec-mandated (cancellation flow): the sender cancels requests it abandons; the wire spelling
+    is per-transport (frame on stream wires, response-stream close at 2026 streamable HTTP).
+    """
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        if params.name == "block":
+            handler_started.set()
+            try:
+                await anyio.Event().wait()  # parked until the client's abandonment cancels it
+            except anyio.get_cancelled_exc_class():
+                handler_cancelled.set()
+                raise
+        assert params.name == "echo"
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("block", "echo")])
+
+    server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        abandon = anyio.CancelScope()
+
+        async def call_and_abandon() -> None:
+            with abandon:
+                await client.call_tool("block", {})
+                raise NotImplementedError  # unreachable: the call never resolves
+            assert abandon.cancelled_caught
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(call_and_abandon)
+            with anyio.fail_after(5):
+                await handler_started.wait()
+            abandon.cancel()
+            with anyio.fail_after(5):
+                await handler_cancelled.wait()
+
+        # Let the abandoned call's late error response (sent on the legacy arms) arrive and be
+        # dropped while the client is still open, so teardown never races its delivery.
+        await anyio.wait_all_tasks_blocked()
+        result = await client.call_tool("echo", {})
+        assert result.content == [TextContent(text="ok")]
+
+
+@requirement("protocol:cancel:abort-scoped")
+async def test_abandoning_one_call_leaves_a_concurrent_call_running(connect: Connect) -> None:
+    """Cancellation is scoped to the request it names: with two calls genuinely in flight,
+    abandoning the first interrupts only its handler and the second returns its result.
+
+    Steps:
+        1. `doomed` and `survivor` are both mid-flight (each handler has started).
+        2. The client abandons `doomed`; its handler observes cancellation.
+        3. `survivor` is released and completes normally.
+    """
+    doomed_started = anyio.Event()
+    doomed_cancelled = anyio.Event()
+    survivor_started = anyio.Event()
+    release_survivor = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        if params.name == "doomed":
+            doomed_started.set()
+            try:
+                await anyio.Event().wait()  # parked until the client's abandonment cancels it
+            except anyio.get_cancelled_exc_class():
+                doomed_cancelled.set()
+                raise
+        assert params.name == "survivor"
+        survivor_started.set()
+        with anyio.fail_after(5):
+            await release_survivor.wait()
+        return CallToolResult(content=[TextContent(text="survived")])
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("doomed", "survivor")]
+        )
+
+    server = Server("pair", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        abandon = anyio.CancelScope()
+        results: list[CallToolResult] = []
+
+        async def doomed_call() -> None:
+            with abandon:
+                await client.call_tool("doomed", {})
+                raise NotImplementedError  # unreachable: the call never resolves
+
+        async def survivor_call() -> None:
+            results.append(await client.call_tool("survivor", {}))
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(doomed_call)
+            with anyio.fail_after(5):
+                await doomed_started.wait()
+            tg.start_soon(survivor_call)
+            with anyio.fail_after(5):
+                await survivor_started.wait()
+            abandon.cancel()
+            with anyio.fail_after(5):
+                await doomed_cancelled.wait()
+            release_survivor.set()
+
+        # Let the abandoned call's late error response (sent on the legacy arms) arrive and be
+        # dropped while the client is still open, so teardown never races its delivery.
+        await anyio.wait_all_tasks_blocked()
+
+    assert results == snapshot([CallToolResult(content=[TextContent(text="survived")])])
