@@ -706,6 +706,26 @@ async def my_tool(x: int, ctx: Context) -> str:
     return str(x)
 ```
 
+### Sync handler functions now run on a worker thread
+
+In v1, a synchronous (`def`) tool, resource, or prompt function was called inline on the event
+loop, so a body that blocked (an HTTP call with a sync client, `time.sleep()`, heavy
+computation) stalled every other in-flight request on the server. In v2 the SDK runs
+synchronous handler functions in a worker thread via `anyio.to_thread.run_sync()`;
+`async def` handlers are unchanged. Resolver functions (`Resolve(...)`) follow the same rule.
+
+Most servers simply gain concurrency. Port with care if a synchronous handler relied on
+running on the event-loop thread:
+
+- Thread-affine state (thread locals shared with startup code, non-thread-safe objects that
+  were only ever touched from the event loop's thread) is now touched from a worker thread.
+- `asyncio.get_running_loop()` inside a synchronous handler body raises `RuntimeError`; there
+  is no running loop in a worker thread.
+- Synchronous handlers can run concurrently with each other, up to anyio's default
+  worker-thread limit.
+
+Declare the handler `async def` to keep it on the event loop.
+
 ### `MCPServer.call_tool()`, `read_resource()`, `get_prompt()` now accept a `context` parameter
 
 `MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling. If you call these methods directly and omit `context`, a Context with no active request is constructed for you — tools that don't use `ctx` work normally, but any attempt to use `ctx.session`, `ctx.request_id`, etc. will raise.
@@ -1606,6 +1626,16 @@ params = CallToolRequestParams(
 ```
 
 If you relied on extra fields round-tripping through MCP types, move that data into `_meta`.
+
+### `mcp dev` and `mcp install` pin the spawned environment to your SDK version
+
+Both commands run your server through a fresh `uv run --with ...` environment. In v1 the
+`mcp` requirement in that command was unpinned, so the spawned environment resolved to the
+newest stable release rather than the version you had installed; with a v2 pre-release
+installed, `mcp dev server.py` built a v1 environment that could not import a v2 server.
+Both commands now pin the requirement to the version you are running
+(`mcp==<installed version>`). Source builds and other unpublished versions, which have
+nothing on PyPI to pin to, keep the unpinned form.
 
 ## New Features
 

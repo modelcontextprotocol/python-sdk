@@ -12,6 +12,7 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 
 nav:
   - MCP Python SDK: index.md
+  - "What's new in v2": whats-new.md
   - Get started:
       - get-started/index.md
       - Installation: get-started/installation.md
