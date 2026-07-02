@@ -53,6 +53,13 @@
   — it defines the bar for naming, abstraction level, assertions, and determinism.
 - Framework: `uv run --frozen pytest`
 - Async testing: use anyio, not asyncio
+- Async tests share one event loop per module (the `_module_runner_lease`
+  fixture in `tests/conftest.py`; it avoids Windows socketpair churn). A module
+  that parametrizes `anyio_backend` or calls `trio.run` directly must shadow
+  that fixture with a sync no-op — see `tests/shared/test_jsonrpc_dispatcher.py`.
+  A forgotten shadow fails loudly with a ScopeMismatch error at setup in the
+  parametrize case, but only as a Windows-specific flake in the direct-trio
+  case, so don't rely on CI to catch the latter.
 - Do not use `Test` prefixed classes — write plain top-level `test_*` functions.
   Legacy files still contain `Test*` classes; do NOT follow that pattern for new
   tests even when adding to such a file.
