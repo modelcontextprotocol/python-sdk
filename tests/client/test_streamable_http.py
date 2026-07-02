@@ -9,8 +9,8 @@ the public client never exposes.
 import base64
 import json
 from collections.abc import AsyncIterator, Callable, Mapping
-from typing import Any
 from types import SimpleNamespace
+from typing import Any
 
 import anyio
 import httpx
