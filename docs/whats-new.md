@@ -26,6 +26,16 @@ mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 
 It is also, for a decorator-built server, most of the port. `@mcp.tool()`, `@mcp.resource()`, and `@mcp.prompt()` accept what they accepted in v1 (`@mcp.resource()` adds one optional `security=` keyword), and the input schema still comes from your type hints. Around the edges: everything under `mcp.server.fastmcp.*` now lives under `mcp.server.mcpserver.*`, `ctx.fastmcp` is `ctx.mcp_server`, `get_context()` is gone (declare a `ctx: Context` parameter instead), and the exception base `FastMCPError` is `MCPServerError`. The **[Migration Guide](migration.md#fastmcp-renamed-to-mcpserver)** has the import table.
 
+### `Resolve`: the new way to ask the user for input
+
+Not everything a tool needs should come from the model. New in v2, a tool parameter annotated with `Resolve(fn)` is filled by a function you write instead, invisibly to the model, and that function can return `Elicit(...)` to put a question in front of the user. This is the preferred way to get anything from the client mid-call: the SDK carries the question over whichever mechanism the connection supports (a live elicitation request for a legacy client, a multi-round-trip on 2026-07-28), so one tool body serves both eras. **[Dependencies](handlers/dependencies.md)** is the page.
+
+!!! note
+    The other two forms remain when you need them: `ctx.elicit()` still works for clients on
+    legacy connections (**[Elicitation](handlers/elicitation.md)**), and a handler can return an
+    `InputRequiredResult` itself and drive the rounds by hand, which is also how sampling and
+    roots requests travel at 2026-07-28 (**[Multi-round-trip requests](handlers/multi-round-trip.md)**).
+
 ### A first-class `Client`
 
 v1 handed you three nested layers: a transport context manager yielding raw streams, a `ClientSession` wrapped around them, and a hand-called `await session.initialize()`. v2 has one object:
