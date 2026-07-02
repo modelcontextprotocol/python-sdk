@@ -204,6 +204,35 @@ def test_str_vs_list_str():
     assert result["str_or_list"] == ["hello", "world"]
 
 
+def test_optional_str_is_never_json_pre_parsed():
+    """`str | None` must never be JSON-decoded, even if the value looks like a
+    JSON object/array (e.g. a JSON-serialized payload passed as a plain string).
+
+    Regression test: `field_info.annotation is not str` used to be True for
+    `str | None`, so a value like a JSON-serialized template body would get
+    silently turned into a dict and fail pydantic validation downstream.
+    """
+
+    def func_with_optional_str(body: str | None = None):  # pragma: no cover
+        return body
+
+    meta = func_metadata(func_with_optional_str)
+
+    json_payload = '{"blocks": [{"type": "text", "value": "hi"}]}'
+    result = meta.pre_parse_json({"body": json_payload})
+    assert result["body"] == json_payload
+
+    json_list_payload = '["hello", "world"]'
+    result = meta.pre_parse_json({"body": json_list_payload})
+    assert result["body"] == json_list_payload
+
+    # Plain strings and None are unaffected.
+    result = meta.pre_parse_json({"body": "hello"})
+    assert result["body"] == "hello"
+    result = meta.pre_parse_json({"body": None})
+    assert result["body"] is None
+
+
 def test_skip_names():
     """Test that skipped parameters are not included in the model"""
 
