@@ -397,7 +397,7 @@ async def test_abandoning_a_call_stops_the_server_handler(connect: Connect) -> N
         # dropped while the client is still open, so teardown never races its delivery.
         await anyio.wait_all_tasks_blocked()
         result = await client.call_tool("echo", {})
-        assert result.content == [TextContent(text="ok")]
+        assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
 
 
 @requirement("protocol:cancel:abort-scoped")

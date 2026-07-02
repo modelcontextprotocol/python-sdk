@@ -475,10 +475,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     "protocol:request-id:caller-supplied": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#receiving-notifications",
+        source="sdk",
         behavior=(
             "A caller can supply the id of a request it sends, so the id is known before any response "
             "arrives; subscriptions/listen streams are demultiplexed by exactly that id."
+        ),
+        note=(
+            f"The demux-by-listen-request-id obligation is the spec's "
+            f"({SPEC_2026_BASE_URL}/basic/patterns/subscriptions#receiving-notifications); supplying the "
+            "id up front is the SDK surface that makes it satisfiable."
         ),
         added_in="2026-07-28",
         deferred=(
@@ -500,8 +505,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "Abandoning an in-flight request client-side (cancelling the task awaiting it) cancels the "
             "request itself: the server-side handler stops and the session serves later requests "
-            "normally. Each transport carries the signal in its own spelling - a cancelled frame on "
-            "stream wires, closing the request's own response stream at 2026-07-28 streamable HTTP."
+            "normally."
+        ),
+        note=(
+            "The per-transport wire spelling (frame vs response-stream close) is pinned separately by "
+            "protocol:cancel:stream-frame and the client-transport:http:cancel-* pair."
         ),
         arm_exclusions=(
             ArmExclusion(
@@ -580,7 +588,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     "protocol:cancel:stream-frame": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/utilities/cancellation#transport-specific-cancellation",
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#transport-specific-cancellation",
         behavior=(
             "On stream (stdio-shaped) wires at 2026-07-28, abandoning an in-flight request sends exactly "
             "one notifications/cancelled naming its request id - streams keep the frame spelling of "

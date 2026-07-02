@@ -307,8 +307,8 @@ async def test_at_2026_abandoning_a_call_closes_its_stream_and_posts_nothing() -
             result = await client.call_tool("echo", {})
             assert result.content == [TextContent(text="ok")]
 
-    methods = [json.loads(body)["method"] for method, body in requests if method == "POST"]
-    assert methods == snapshot(["tools/list", "tools/call", "tools/call"])
+    wire = [(method, json.loads(body)["method"] if body else None) for method, body in requests]
+    assert wire == snapshot([("POST", "tools/list"), ("POST", "tools/call"), ("POST", "tools/call")])
 
 
 @requirement("client-transport:http:cancel-posts-frame")
