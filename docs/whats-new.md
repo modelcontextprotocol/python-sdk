@@ -40,7 +40,62 @@ v1 handed you three nested layers: a transport context manager yielding raw stre
 
 ### The low-level `Server` was rebuilt, not renamed
 
-If you work at the JSON-RPC layer, this is the "everything is different" part of v2. Handlers are **constructor arguments**, not decorators: every one has the same shape, `async (ctx, params) -> result`, with typed params in and a full result type out. Nothing is wrapped, converted, or inferred for you any more, the old jsonschema check of tool arguments against your `input_schema` is gone, and an exception is a protocol error, never an `is_error=True` tool result. The ambient `server.request_context` ContextVar is gone; the context is the `ctx` argument. Custom, vendor-namespaced methods are first class through `add_request_handler(method, params_type, handler)`, which validates inbound params against your model before your handler runs. And a `middleware` list (deliberately marked provisional) wraps every inbound message, replacing the private `_handle_*` methods people used to override.
+If you work at the JSON-RPC layer, this is the "everything is different" part of v2. Here is the same one-tool server both ways; click the markers for what moved.
+
+<!-- The v1 fence cannot be a tested docs_src file (nothing in CI can import the
+1.x SDK). Its ground truth: this exact code was run verbatim against a real
+mcp==1.28.1 install. If you edit it, re-validate it against 1.x. -->
+
+```python title="v1"
+from typing import Any
+
+import mcp.types as types
+from mcp.server.lowlevel import Server
+
+server = Server("Bookshop")
+
+
+@server.list_tools()  # (1)!
+async def list_tools() -> list[types.Tool]:
+    return [  # (2)!
+        types.Tool(
+            name="search_books",
+            description="Search the catalog by title or author.",
+            inputSchema={  # (3)!
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        )
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:  # (4)!
+    ctx = server.request_context  # (5)!
+    return [types.TextContent(type="text", text=f"Found 3 books matching {arguments['query']!r}.")]  # (6)!
+```
+
+1. Handlers are registered with decorators (called, with parentheses), any time after the server exists.
+2. You return a bare `list[Tool]` and the SDK wraps it into a `ListToolsResult`.
+3. Fields are camelCase in Python, and the schema is **enforced**: the SDK jsonschema-validates `call_tool` arguments against it before your function runs, which is why `arguments["query"]` below is safe.
+4. The handler receives the tool name and the already-validated arguments, unpacked and never `None`.
+5. The context comes from an ambient ContextVar, reached through the server object mid-request.
+6. Bare content blocks are wrapped into a `CallToolResult` for you, and an exception raised anywhere in the handler is caught and returned as `CallToolResult(isError=True)` with `str(e)` as its text: the calling model reads your exception messages.
+
+```python title="v2"
+--8<-- "docs_src/whats_new/tutorial001.py"
+```
+
+1. Fields are snake_case now, and the schema is **advertised but never applied**: nothing checks the arguments before your handler runs.
+2. Every handler has the same shape: `async (ctx, params) -> result`. The context is the first argument (`ctx.session`, `ctx.request_id`, `ctx.protocol_version` live on it); this is where `server.request_context` went.
+3. You build the full `ListToolsResult` yourself. Returning a bare list is a server-side `TypeError` now, not something the SDK wraps.
+4. Typed params in (`params.name`, `params.arguments`), a full result out. Nothing is unpacked, wrapped, or converted for you.
+5. `params.arguments` can be `None`; v1 defaulted it to `{}` before your code ever saw it. With no validation in front of the handler, this line is load-bearing.
+6. An exception raised here becomes a sanitized protocol error (`-32603`, `"Internal server error"`): the model never sees the message. For a failure the model should read and react to, return `CallToolResult(is_error=True, ...)`; for a specific wire error, raise `MCPError(code, message)`.
+7. Handlers are constructor arguments, so the server's surface is complete the moment it exists; `add_request_handler()` is the post-construction escape hatch, and the door to custom methods.
+
+The example is the pattern. More generally: every handler has the same shape, with typed params in and a full result type out; the old jsonschema check of tool arguments is gone; an exception is a protocol error, never an `is_error=True` tool result; and the ambient `server.request_context` ContextVar is gone. Custom, vendor-namespaced methods are first class through `add_request_handler(method, params_type, handler)`, which validates inbound params against your model before your handler runs. And a `middleware` list (deliberately marked provisional) wraps every inbound message, replacing the private `_handle_*` methods people used to override.
 
 Underneath, the v1 `BaseSession` receive loop was replaced by a dispatcher engine that the client and the server now share, and it is what makes several things on this page true at once: one `Server` object serves both protocol eras, `Client(server)` dispatches in process with no JSON-RPC framing, and a timed-out client request now actually cancels the server-side handler.
 
