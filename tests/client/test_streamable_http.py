@@ -15,6 +15,7 @@ from typing import Any
 import anyio
 import httpx
 import pytest
+from httpx_sse import ServerSentEvent
 from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -181,6 +182,20 @@ async def test_sse_response_disconnect_ignores_closed_read_stream() -> None:
         async with read_stream_writer, read_stream:
             await read_stream.aclose()
             await transport._handle_sse_response(response, ctx)
+
+
+@pytest.mark.anyio
+async def test_sse_message_ignores_closed_read_stream() -> None:
+    transport = StreamableHTTPTransport("http://example.com/mcp")
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](1)
+    response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+    sse = ServerSentEvent(event="message", data=response.model_dump_json(by_alias=True))
+
+    async with read_stream_writer, read_stream:
+        await read_stream.aclose()
+        complete = await transport._handle_sse_event(sse, read_stream_writer, original_request_id=1)
+
+    assert complete is True
 
 
 @pytest.mark.anyio
