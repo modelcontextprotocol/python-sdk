@@ -46,6 +46,11 @@ class ServerSession:
         return self._connection.client_params
 
     @property
+    def can_send_request(self) -> bool:
+        """Whether this request's channel can currently deliver a server-initiated request."""
+        return self._request_outbound.can_send_request
+
+    @property
     def protocol_version(self) -> str:
         """The protocol version this connection speaks.
 

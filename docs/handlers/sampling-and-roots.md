@@ -16,7 +16,7 @@ A resolver returns `Sample(...)` and the tool receives the completion, through t
 ```
 
 * `Sample(messages, max_tokens=...)` mirrors the `sampling/createMessage` parameters. The injected value is the client's `CreateMessageResult`; pass `tools=[...]` and it becomes a `CreateMessageResultWithTools` instead.
-* The client must have declared the `sampling` capability (`sampling.tools` if you pass tools). If it didn't, the call fails with a `-32021` protocol error before anything is sent.
+* The client must have declared the `sampling` capability (`sampling.tools` if you pass `tools` or `tool_choice`). If it didn't, the call fails with a `-32021` protocol error instead of sending a request the client cannot handle. A pre-2026 session with no back-channel fails with its usual no-back-channel error, since there is nothing to send on.
 * At `2026-07-28` the request is delivered inside the multi-round-trip flow (**[Multi-round-trip requests](multi-round-trip.md)**); on `2025-11-25` it is a standalone request to the client. The code is the same either way, but mind the multi-round-trip rule: the request must render identically across retry rounds, so build it only from the tool's arguments and other stable data.
 * Leave `include_context` alone: values other than `"none"` are themselves deprecated (SEP-2596) and need a capability almost no client declares.
 
@@ -29,7 +29,7 @@ Roots are the folders the client says the server may operate on. They are inform
 ```
 
 * The injected `ListRootsResult` carries a list of `Root`s: a `file://` URI and an optional display name.
-* The gate is the same as for sampling: without a declared `roots` capability the call fails with `-32021` before a request is sent.
+* The gate is the same as for sampling: without a declared `roots` capability the call fails with `-32021` instead of sending the request.
 
 On the other side of the wire, the client answers both requests with the callbacks it already has: `sampling_callback` and `list_roots_callback`, covered in **[Client callbacks](../client/callbacks.md)**.
 
@@ -40,7 +40,7 @@ On the other side of the wire, the client answers both requests with the callbac
 ## Recap
 
 * Return `Sample(...)` or `ListRoots()` from a resolver; the tool receives the `CreateMessageResult` or `ListRootsResult` like any other dependency.
-* The client must declare the matching capability, or the call fails with `-32021` before a request is sent.
+* The client must declare the matching capability, or the call fails with `-32021` instead of a request being sent.
 * Both features are deprecated at `2026-07-28`: fully functional for now, wrong for new designs. Prefer provider APIs over sampling and explicit parameters over roots.
 
 Reporting how far along a slow tool is: **[Progress](progress.md)**.

@@ -20,6 +20,9 @@ from mcp_types import (
     ElicitResult,
     InputRequiredResult,
     InputResponses,
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
     ListRootsResult,
     Root,
     SamplingCapability,
@@ -36,6 +39,7 @@ from typing_extensions import TypeAliasType
 
 from mcp import Client, InputRequiredRoundsExceededError
 from mcp.client import ClientRequestContext
+from mcp.client._memory import InMemoryTransport
 from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import (
     AcceptedElicitation,
@@ -69,6 +73,7 @@ from mcp.server.mcpserver.resolve import (
 )
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 
 
 def _question_digest(elicit: Elicit[Any]) -> str:
@@ -2723,3 +2728,29 @@ def test_decline_entry_for_a_sample_marker_is_invalid():
     # Decline outcomes exist only for elicitations; for a Sample the entry's None data fails validation.
     with pytest.raises(ValidationError):
         _outcome_from_state(_StateEntry(action="decline"), _sample_capital(cast(Context, None)))
+
+
+@pytest.mark.anyio
+async def test_bare_initialized_session_is_still_gated():
+    # notifications/initialized alone commits the handshake: a live back-channel, no declared capabilities.
+    mcp = MCPServer(name="BareInit", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("user?", Login)
+
+    @mcp.tool()
+    async def tool(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username  # pragma: no cover
+
+    async with InMemoryTransport(mcp) as (read, write):
+        await write.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")))
+        await write.send(
+            SessionMessage(
+                JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": "tool", "arguments": {}})
+            )
+        )
+        with anyio.fail_after(5):
+            message = await read.receive()
+    assert isinstance(message, SessionMessage)
+    assert isinstance(message.message, JSONRPCError)
+    assert message.message.error.code == MISSING_REQUIRED_CLIENT_CAPABILITY

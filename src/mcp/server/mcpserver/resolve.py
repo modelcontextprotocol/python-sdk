@@ -122,7 +122,7 @@ class Sample:
     """A resolver's request to sample the client's LLM via `sampling/createMessage`.
 
     The framework injects a `CreateMessageResult` (`CreateMessageResultWithTools` when `tools` are
-    given); requires the `sampling` capability (`sampling.tools` when tools are given). On
+    given); requires the `sampling` capability (`sampling.tools` when `tools` or `tool_choice` are given). On
     >= 2026-07-28 the request must render identically across retry rounds, and the sampled result
     rides `request_state` on every later round. `include_context` other than "none" is deprecated in the draft spec.
     """
@@ -449,10 +449,9 @@ class _Resolution:
         self.asked = decoded.asked
         # In-call dedup keyed by resolver identity (distinguishes two instances of
         # the same bound method); `persist` holds the wire-shaped record of each
-        # elicited outcome, keyed by its wire key - exactly what the next round's
-        # `request_state` carries. Entries are the client's own (validated) wire
-        # data, never re-derived from a model, so encode-restore is the identity.
-        # Pure resolvers are cheap to re-run each round and are not persisted.
+        # asked outcome, keyed by its wire key - exactly what the next round's `request_state`
+        # carries: the client's own validated content (elicitation) or the validated result's
+        # dump (sample/roots). Pure resolvers are cheap to re-run each round and are not persisted.
         self.cache: dict[Hashable, ElicitationResult[Any]] = {}
         self.persist: dict[str, _StateEntry] = {}
         self.pending: InputRequests = {}
@@ -570,9 +569,9 @@ async def _resolve(fn: Callable[..., Any], res: _Resolution) -> ElicitationResul
 async def _fulfil(marker: _Marker, key: str, res: _Resolution) -> ElicitationResult[Any]:
     """Turn a resolver's request marker into an outcome via the negotiated transport."""
     if not res.input_required:
-        # Gate only when the handshake's declaration is visible: a session with no
-        # client info (e.g. stateless HTTP) has no back-channel, and the send path reports that.
-        if res.context.client_capabilities is not None:
+        # Gate wherever the request could actually be sent; otherwise the send path
+        # itself reports the failure.
+        if res.context.session.can_send_request:
             _require_capability(res.context, marker, key)
         if isinstance(marker, Elicit):
             return await res.context.elicit(marker.message, marker.schema)
@@ -770,9 +769,7 @@ def _decode_state(request_state: str | None) -> _State:
 def _encode_state(outcomes: Mapping[str, _StateEntry], asked: Mapping[str, str]) -> str:
     """Encode recorded outcomes and asked-question digests for the next round.
 
-    Outcome entries already hold the client's wire-shaped data exactly as it was
-    sent (and validated), so encoding is pure wrapping: encode-restore is the
-    identity.
+    Outcome entries are already wire-shaped, so encoding is pure wrapping.
     """
     state = _State(v=_STATE_VERSION, outcomes=dict(outcomes), asked=dict(asked))
     return compact_json(state.model_dump(mode="json"))
@@ -796,9 +793,9 @@ def _outcome_from_state(entry: _StateEntry, marker: _Marker) -> ElicitationResul
 def _restore_outcome(res: _Resolution, key: str, marker: _Marker, q: str) -> ElicitationResult[Any] | None:
     """Restore `key`'s recorded outcome from a prior round, or `None` when absent.
 
-    An entry pinned to a question digest other than `q`, or whose accepted
-    data fails validation against the live `schema`, is dropped as if no
-    progress was recorded, so the question is asked again.
+    An entry pinned to a question digest other than `q`, or that fails
+    validation against the live marker, is dropped as if no progress was
+    recorded, so the question is asked again.
 
     Carries the original decoded entry forward unchanged in `res.persist`: if a
     later resolver is still pending, the next round's `request_state` is built from
