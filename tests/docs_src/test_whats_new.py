@@ -5,7 +5,7 @@ validated by running it verbatim against a real `mcp==1.28.1` install.
 """
 
 import pytest
-from mcp_types import INTERNAL_ERROR, TextContent
+from mcp_types import INTERNAL_ERROR, INVALID_PARAMS, TextContent
 
 from docs_src.whats_new import tutorial001
 from mcp import Client, MCPError
@@ -35,7 +35,7 @@ async def test_a_valid_call_answers() -> None:
 
 
 async def test_arguments_are_not_validated_and_a_handler_exception_is_sanitized() -> None:
-    """Annotations 1, 5, and 6, in one flow.
+    """Annotations 1, 6, and 7, in one flow.
 
     A call missing the required `query` REACHES the handler (nothing validates
     arguments against `input_schema`; v1 rejected this call before the handler
@@ -53,3 +53,13 @@ async def test_arguments_are_not_validated_and_a_handler_exception_is_sanitized(
             await client.call_tool("search_books")
         assert excinfo.value.code == INTERNAL_ERROR
         assert excinfo.value.message == "Internal server error"
+
+
+async def test_an_unknown_tool_is_a_deliberate_wire_error() -> None:
+    """Annotation 5: a raised `MCPError` passes through with its code and message
+    intact (the spec's answer for an unknown tool), unlike the sanitized path."""
+    async with Client(tutorial001.server) as client:
+        with pytest.raises(MCPError) as excinfo:
+            await client.call_tool("shelve_book", {"query": "dune"})
+        assert excinfo.value.code == INVALID_PARAMS
+        assert excinfo.value.message == "Unknown tool: shelve_book"
