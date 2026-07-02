@@ -115,8 +115,26 @@ class ClientPeer:
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: ModelPreferences | None = None,
-        tools: list[Tool] | None = None,
+        tools: list[Tool],
         tool_choice: ToolChoice | None = None,
+        meta: Meta | None = None,
+        opts: CallOptions | None = None,
+    ) -> CreateMessageResultWithTools: ...
+    @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    async def sample(
+        self,
+        messages: list[SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: ModelPreferences | None = None,
+        tools: list[Tool] | None = None,
+        tool_choice: ToolChoice,
         meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResultWithTools: ...

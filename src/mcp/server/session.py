@@ -165,11 +165,31 @@ class ServerSession:
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
-        tools: list[types.Tool] | None = None,
+        tools: list[types.Tool],
         tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResultWithTools:
-        """Overload: With tools or tool_choice, returns array-capable content."""
+        """Overload: With tools, returns array-capable content."""
+        ...
+
+    @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    async def create_message(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool] | None = None,
+        tool_choice: types.ToolChoice,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.CreateMessageResultWithTools:
+        """Overload: With tool_choice, returns array-capable content."""
         ...
 
     @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
