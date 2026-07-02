@@ -190,7 +190,14 @@ async def test_watcher_re_listens_after_both_endings() -> None:
     """tutorial004: watch() refetches on entry and per event, and re-listens after
     a graceful server close and after `SubscriptionLost`.
 
-    Runs on trio's autojumping MockClock so the loop's backoff sleep takes no wall-clock time."""
+    Runs on trio's autojumping MockClock so the loop's backoff sleep takes no wall-clock time.
+
+    Steps:
+        1. Stream 1: the entry refetch proves the ack arrived; a publish drives an event refetch.
+        2. handler.close() ends stream 1 gracefully; the watcher backs off, re-listens (stream 2,
+           a new subscription id), and refetches.
+        3. The drop tool cancels stream 2 abruptly; the watcher swallows SubscriptionLost,
+           re-listens (stream 3), and refetches on the next publish."""
     DROP_SCHEMA: dict[str, Any] = {
         "type": "object",
         "properties": {"subscription_id": {"type": "string"}},
