@@ -193,3 +193,38 @@ async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(con
             messages=[PromptMessage(role="user", content=TextContent(text="first"))],
         )
     )
+
+
+@requirement("prompts:list:connection-invariant")
+async def test_prompt_list_is_identical_across_connections_and_unchanged_by_other_requests(
+    connect: Connect,
+) -> None:
+    """Spec-mandated: concurrent connections see the same prompt list, unchanged by a prompts/get on one."""
+    mcp = MCPServer("prompter")
+
+    @mcp.prompt()
+    def greet() -> str:
+        """A fixed greeting."""
+        return "Say hello."
+
+    @mcp.prompt()
+    def farewell() -> str:
+        """Listed on both connections; never rendered."""
+        raise NotImplementedError
+
+    async with connect(mcp) as first_client, connect(mcp) as second_client:
+        first_list = await first_client.list_prompts()
+        second_list = await second_client.list_prompts()
+        assert second_list == first_list
+        # The snapshot at the end proves this request ran; the list asserts prove it changed nothing.
+        result = await first_client.get_prompt("greet")
+        assert await first_client.list_prompts() == first_list
+        assert await second_client.list_prompts() == first_list
+
+    assert result == snapshot(
+        GetPromptResult(
+            description="A fixed greeting.",
+            messages=[PromptMessage(role="user", content=TextContent(text="Say hello."))],
+        )
+    )
+    assert [prompt.name for prompt in first_list.prompts] == snapshot(["greet", "farewell"])

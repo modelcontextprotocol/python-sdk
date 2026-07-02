@@ -6,20 +6,27 @@ from inline_snapshot import snapshot
 from mcp_types import (
     INVALID_PARAMS,
     AudioContent,
+    ElicitRequest,
+    ElicitRequestFormParams,
+    ElicitResult,
     EmbeddedResource,
     ErrorData,
     GetPromptResult,
     Icon,
     ImageContent,
+    InputRequiredResult,
+    InputResponses,
     ListPromptsResult,
     Prompt,
     PromptArgument,
     PromptMessage,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
 
 from mcp import MCPError
+from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
@@ -191,6 +198,48 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
     )
 
 
+@requirement("prompts:get:content:resource-link")
+async def test_get_prompt_resource_link_content_round_trips(connect: Connect) -> None:
+    """A resource_link prompt message reaches the client with URI and descriptive fields intact. Spec-mandated."""
+
+    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
+        assert params.name == "entry_point"
+        return GetPromptResult(
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=ResourceLink(
+                        uri="file:///project/src/main.rs",
+                        name="main.rs",
+                        description="Primary application entry point",
+                        mime_type="text/x-rust",
+                    ),
+                )
+            ]
+        )
+
+    server = Server("prompter", on_get_prompt=get_prompt)
+
+    async with connect(server) as client:
+        result = await client.get_prompt("entry_point")
+
+    assert result == snapshot(
+        GetPromptResult(
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=ResourceLink(
+                        name="main.rs",
+                        uri="file:///project/src/main.rs",
+                        description="Primary application entry point",
+                        mime_type="text/x-rust",
+                    ),
+                )
+            ]
+        )
+    )
+
+
 @requirement("prompts:get:unknown-name")
 async def test_get_prompt_unknown_name_is_protocol_error(connect: Connect) -> None:
     """A handler that rejects an unrecognised prompt name with MCPError produces a JSON-RPC error.
@@ -208,3 +257,49 @@ async def test_get_prompt_unknown_name_is_protocol_error(connect: Connect) -> No
             await client.get_prompt("nope")
 
     assert exc_info.value.error == snapshot(ErrorData(code=INVALID_PARAMS, message="Unknown prompt: nope"))
+
+
+@requirement("prompts:mrtr:get:basic")
+async def test_get_prompt_input_required_is_fulfilled_and_the_retry_returns_the_messages(connect: Connect) -> None:
+    """A prompts/get answered with input_required is fulfilled by the elicitation callback and retried.
+
+    Spec-mandated: prompts/get is an MRTR-supported request (basic/patterns/mrtr, Supported Requests).
+    """
+    sent = ElicitRequestFormParams(
+        message="Who is reading?",
+        requested_schema={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+    )
+    answer = ElicitResult(action="accept", content={"name": "alice"})
+    state = "state-1"
+    rounds: list[tuple[InputResponses | None, str | None]] = []
+    callback_received: list[ElicitRequestFormParams] = []
+
+    async def get_prompt(
+        ctx: ServerRequestContext, params: types.GetPromptRequestParams
+    ) -> GetPromptResult | InputRequiredResult:
+        assert params.name == "greet"
+        rounds.append((params.input_responses, params.request_state))
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"who": ElicitRequest(params=sent)}, request_state=state)
+        response = params.input_responses["who"]
+        assert isinstance(response, ElicitResult)
+        assert response.content is not None
+        return GetPromptResult(
+            messages=[PromptMessage(role="user", content=TextContent(text=f"Hello, {response.content['name']}!"))]
+        )
+
+    server = Server("prompter", on_get_prompt=get_prompt)
+
+    async def elicit(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
+        assert isinstance(params, ElicitRequestFormParams)
+        callback_received.append(params)
+        return answer
+
+    async with connect(server, elicitation_callback=elicit) as client:
+        result = await client.get_prompt("greet")
+
+    assert result == snapshot(
+        GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="Hello, alice!"))])
+    )
+    assert callback_received == [sent]
+    assert rounds == [(None, None), ({"who": answer}, state)]

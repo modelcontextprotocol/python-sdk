@@ -150,7 +150,7 @@ async def test_when_every_prm_probe_fails_the_client_discovers_as_metadata_at_th
     assert result.tools[0].name == "probe"
 
 
-@requirement("client-auth:dcr:registration-error-surfaces")
+@requirement("client-auth:dcr:registration-rejected-error")
 async def test_a_400_from_the_registration_endpoint_surfaces_as_a_registration_error() -> None:
     """A 400 from `/register` surfaces as `OAuthRegistrationError` carrying the server's body.
 

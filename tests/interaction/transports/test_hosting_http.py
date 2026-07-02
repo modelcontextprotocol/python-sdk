@@ -188,6 +188,7 @@ async def test_protocol_version_header_is_validated() -> None:
 
 
 @requirement("hosting:http:protocol-version-rejection-literal")
+@requirement("lifecycle:version:unsupported-32022")
 async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_literal() -> None:
     """The 400 body for an unsupported MCP-Protocol-Version contains the substring peer SDKs sniff.
 
@@ -195,6 +196,7 @@ async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_
     version`` in the response body, so the literal must survive any rewording of the surrounding
     message. The unsupported value must appear in both the header and the envelope so the
     classifier reaches its version-supported rung rather than reporting a header mismatch first.
+    Also pins the -32022 negotiation error: a spec MUST, produced server-side here without the client retry path.
     """
     bad = "1991-01-01"
     meta = {
@@ -345,7 +347,6 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
 
 
 @requirement("hosting:http:dns-rebinding")
-@requirement("transport:streamable-http:origin-validation")
 async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> None:
     """A disallowed Origin returns 403 (and Host 421) with protection enabled; disabled lets both through.
 

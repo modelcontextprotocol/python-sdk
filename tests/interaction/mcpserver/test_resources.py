@@ -41,6 +41,7 @@ async def test_read_static_resource(connect: Connect) -> None:
 
 
 @requirement("mcpserver:resource:static")
+@requirement("mcpserver:resource:template")
 async def test_list_static_and_templated_resources(connect: Connect) -> None:
     """Statically-registered resources appear in resources/list; templated ones only in templates/list.
 
@@ -110,7 +111,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
     )
 
 
-@requirement("mcpserver:resource:unknown-uri")
+@requirement("resources:read:unknown-uri")
 async def test_read_unknown_uri_is_error(connect: Connect) -> None:
     """Reading a URI that matches no registered resource fails with -32602 and the URI in data (SEP-2164)."""
     mcp = MCPServer("library")
@@ -181,3 +182,79 @@ async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(co
     assert result == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="first")])
     )
+
+
+@requirement("resources:list:connection-invariant")
+async def test_resource_list_is_identical_across_connections_and_unchanged_by_other_requests(
+    connect: Connect,
+) -> None:
+    """Concurrent connections see the same resource list before and after one reads (spec-mandated, 2026-07-28)."""
+    mcp = MCPServer("library")
+
+    @mcp.resource("config://app")
+    def app_config() -> str:
+        """The application configuration."""
+        return "theme = dark"
+
+    @mcp.resource("memo://notes")
+    def notes() -> str:
+        """Listed on both connections; never read."""
+        raise NotImplementedError
+
+    async with connect(mcp) as first_client, connect(mcp) as second_client:
+        first_list = await first_client.list_resources()
+        second_list = await second_client.list_resources()
+        assert second_list == first_list
+        # The read must succeed and leave both lists unchanged.
+        result = await first_client.read_resource("config://app")
+        assert await first_client.list_resources() == first_list
+        assert await second_client.list_resources() == first_list
+
+    assert result == snapshot(
+        ReadResourceResult(
+            contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="theme = dark")]
+        )
+    )
+    assert [resource.name for resource in first_list.resources] == snapshot(["app_config", "notes"])
+
+
+@requirement("resources:read:path-traversal-rejected")
+async def test_read_with_a_traversal_path_is_rejected_without_invoking_the_resource_function(
+    connect: Connect,
+) -> None:
+    """A traversal in the extracted path parameter is rejected before the resource function runs.
+
+    Spec-mandated security MUST (2026-07-28). {+path} admits /-bearing values, so the URI matches the
+    template and the -32602 (deliberately identical to a non-match) comes from the security policy.
+    """
+    mcp = MCPServer("files")
+    invoked: list[str] = []
+
+    @mcp.resource("file:///files/{+path}")
+    def serve_file(path: str) -> str:
+        invoked.append(path)
+        return f"contents of {path}"
+
+    async with connect(mcp) as client:
+        # Control: prove the template serves safe paths.
+        control = await client.read_resource("file:///files/notes.txt")
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("file:///files/../../etc/passwd")
+
+    assert control == snapshot(
+        ReadResourceResult(
+            contents=[
+                TextResourceContents(
+                    uri="file:///files/notes.txt", mime_type="text/plain", text="contents of notes.txt"
+                )
+            ]
+        )
+    )
+    assert exc_info.value.error == snapshot(
+        ErrorData(
+            code=-32602,
+            message="Unknown resource: file:///files/../../etc/passwd",
+            data={"uri": "file:///files/../../etc/passwd"},
+        )
+    )
+    assert invoked == ["notes.txt"]
