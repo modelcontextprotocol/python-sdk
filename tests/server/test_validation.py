@@ -146,6 +146,23 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_ids_dont_matc
         validate_tool_use_result_messages(messages)
 
 
+def test_validate_tool_use_result_messages_raises_when_tool_use_has_no_following_tool_result() -> None:
+    """Raises a specific error when the previous assistant tool_use has no following tool_result."""
+    messages = [
+        SamplingMessage(
+            role="assistant",
+            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),
+        ),
+        SamplingMessage(
+            role="user",
+            content=TextContent(type="text", text="No tool result is provided"),
+        ),
+    ]
+    with pytest.raises(ValueError) as exc_info:
+        validate_tool_use_result_messages(messages)
+    assert str(exc_info.value) == "tool_use blocks must be followed by matching tool_result blocks"
+
+
 def test_validate_tool_use_result_messages_no_error_when_tool_result_matches_tool_use() -> None:
     """No error when tool_result IDs match tool_use IDs."""
     messages = [
