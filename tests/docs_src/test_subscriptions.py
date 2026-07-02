@@ -5,10 +5,19 @@ from typing import Any
 import anyio
 import mcp_types as types
 import pytest
+from trio.testing import MockClock
 
-from docs_src.subscriptions import tutorial001, tutorial002, tutorial003
+from docs_src.subscriptions import tutorial001, tutorial002, tutorial003, tutorial004
 from mcp import Client
-from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, ToolsListChanged
+from mcp.server.context import ServerRequestContext
+from mcp.server.lowlevel import Server
+from mcp.server.subscriptions import (
+    SUBSCRIPTION_ID_META_KEY,
+    InMemorySubscriptionBus,
+    ListenHandler,
+    ResourceUpdated,
+    ToolsListChanged,
+)
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -153,3 +162,107 @@ async def test_client_listen_delivers_one_typed_event_then_closes() -> None:
             async with Client(tutorial001.mcp) as editor:  # pragma: no branch
                 await editor.call_tool("edit_note", {"name": "todo", "text": "water plants"})
     assert results == ["changed: note://todo"]
+
+
+class _Reads:
+    """Counts server-side resource reads and lets tests await a count."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self._bump = anyio.Event()
+
+    def hit(self) -> None:
+        self.count += 1
+        self._bump.set()
+        self._bump = anyio.Event()
+
+    async def wait_for(self, count: int) -> None:
+        with anyio.fail_after(5):
+            while self.count < count:
+                await self._bump.wait()
+
+
+@pytest.mark.parametrize(
+    "anyio_backend",
+    [pytest.param(("trio", {"clock": MockClock(autojump_threshold=0)}), id="trio-mockclock")],
+)
+async def test_watcher_re_listens_after_both_endings() -> None:
+    """tutorial004: watch() refetches on entry and per event, and re-listens after
+    a graceful server close and after `SubscriptionLost`.
+
+    Runs on trio's autojumping MockClock so the loop's backoff sleep takes no wall-clock time."""
+    DROP_SCHEMA: dict[str, Any] = {
+        "type": "object",
+        "properties": {"subscription_id": {"type": "string"}},
+        "required": ["subscription_id"],
+    }
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus)
+    reads = _Reads()
+    stream = _Stream()
+
+    async def read_resource(
+        ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult:
+        reads.hit()
+        return types.ReadResourceResult(contents=[types.TextResourceContents(uri=params.uri, text="fresh")])
+
+    async def list_tools(
+        ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="drop", description="End a subscription abruptly.", input_schema=DROP_SCHEMA)]
+        )
+
+    async def drop_stream(ctx: ServerRequestContext[Any], params: types.CallToolRequestParams) -> types.CallToolResult:
+        # The abrupt ending: the server cancels the named subscription without a
+        # graceful close. Sent request-scoped: the 2026 wire has no standalone stream.
+        subscription_id = (params.arguments or {})["subscription_id"]
+        await ctx.session.send_notification(
+            types.CancelledNotification(params=types.CancelledNotificationParams(request_id=subscription_id)),
+            related_request_id=ctx.request_id,
+        )
+        return types.CallToolResult(content=[])
+
+    server = Server(
+        "watched",
+        on_read_resource=read_resource,
+        on_list_tools=list_tools,
+        on_call_tool=drop_stream,
+        on_subscriptions_listen=handler,
+    )
+
+    def teed_subscription_id(index: int) -> Any:
+        updated = stream.received[index]
+        assert isinstance(updated, types.ResourceUpdatedNotification)
+        assert updated.params.meta is not None
+        return updated.params.meta[SUBSCRIPTION_ID_META_KEY]
+
+    async with Client(server, mode="2026-07-28", message_handler=stream.handler) as client:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(tutorial004.watch, client, "note://todo")
+
+            # Stream 1: the entry refetch proves the ack arrived; an event drives one more refetch.
+            await reads.wait_for(1)
+            await bus.publish(ResourceUpdated(uri="note://todo"))
+            await reads.wait_for(2)
+            await stream.wait_for(1)
+
+            # Graceful close: the watcher backs off, re-listens, and refetches.
+            handler.close()
+            await reads.wait_for(3)
+            await bus.publish(ResourceUpdated(uri="note://todo"))
+            await reads.wait_for(4)
+            await stream.wait_for(2)
+            second_id = teed_subscription_id(1)
+            assert second_id != teed_subscription_id(0)
+
+            # Abrupt ending: the watcher swallows SubscriptionLost and re-listens again.
+            await client.call_tool("drop", {"subscription_id": second_id})
+            await reads.wait_for(5)
+            await bus.publish(ResourceUpdated(uri="note://todo"))
+            await reads.wait_for(6)
+            await stream.wait_for(3)
+            assert teed_subscription_id(2) != second_id
+
+            tg.cancel_scope.cancel()
