@@ -190,9 +190,9 @@ That file is the pitch in one place: one server, one `Resolve`-backed tool, and 
 
 ### Change notifications become one stream
 
-At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), and multi-replica deployments plug in a shared `SubscriptionBus`. Two honest caveats as of `2.0.0b1`: the Python `Client` cannot open the listen stream yet (the driver ships in a later pre-release), and over stdio the server does not serve it. The net for a Python *client* on that release is that nothing delivers change notifications on a 2026-07-28 connection; a host that relies on `resources/updated` should connect with `mode="legacy"` until the driver lands.
+At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), and multi-replica deployments plug in a shared `SubscriptionBus`. On the client (since `2.0.0b2`), `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver. One honest caveat: over stdio the server does not serve the stream yet.
 
-**[Subscriptions](handlers/subscriptions.md)** on the server, and **[Deploy & scale](run/deploy.md)** for the bus.
+**[Subscriptions](handlers/subscriptions.md)** covers both sides, and **[Deploy & scale](run/deploy.md)** the bus.
 
 ### The rest, quickly
 
