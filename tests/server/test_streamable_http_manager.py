@@ -385,18 +385,18 @@ async def test_idle_session_is_reaped():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("method", "expected_status", "expected_message_substring"),
+    ("method", "expected_status", "expected_message_substring", "expected_allow_header"),
     [
-        ("GET", 400, "Missing session ID"),
-        ("DELETE", 400, "Missing session ID"),
-        ("PUT", 405, "Method Not Allowed"),
-        ("PATCH", 405, "Method Not Allowed"),
-        ("OPTIONS", 405, "Method Not Allowed"),
-        ("HEAD", 405, "Method Not Allowed"),
+        ("GET", 400, "Missing session ID", None),
+        ("DELETE", 400, "Missing session ID", None),
+        ("PUT", 405, "Method Not Allowed", "GET, POST, DELETE"),
+        ("PATCH", 405, "Method Not Allowed", "GET, POST, DELETE"),
+        ("OPTIONS", 405, "Method Not Allowed", "GET, POST, DELETE"),
+        ("HEAD", 405, "Method Not Allowed", "GET, POST, DELETE"),
     ],
 )
 async def test_non_post_without_session_id_does_not_allocate_session(
-    method: str, expected_status: int, expected_message_substring: str
+    method: str, expected_status: int, expected_message_substring: str, expected_allow_header: str | None
 ):
     """Regression test: no non-POST method without a session-id may allocate a
     session or spawn a background task.
@@ -473,14 +473,13 @@ async def test_non_post_without_session_id_does_not_allocate_session(
         # ``Allow`` header. The manager's 405 mirrors the transport's shape
         # (``Allow: GET, POST, DELETE``) exactly so downstream clients get
         # identical metadata whether the rejection happens here or one layer
-        # deeper.
-        if expected_status == 405:
-            response_headers = {
-                name.decode().lower(): value.decode() for name, value in response_start.get("headers", [])
-            }
-            assert response_headers.get("allow") == "GET, POST, DELETE", (
-                f"405 response must include RFC 7231 Allow header — got headers={response_headers}"
-            )
+        # deeper. 400 responses do not carry the header (they are not about
+        # method mismatch), which is what ``expected_allow_header=None`` asserts.
+        response_headers = {name.decode().lower(): value.decode() for name, value in response_start.get("headers", [])}
+        assert response_headers.get("allow") == expected_allow_header, (
+            f"Unexpected Allow header for {method}/{expected_status}: got {response_headers.get('allow')!r}, "
+            f"expected {expected_allow_header!r}"
+        )
 
 
 @pytest.mark.anyio
