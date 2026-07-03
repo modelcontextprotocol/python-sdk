@@ -298,6 +298,12 @@ class StreamableHTTPSessionManager:
                 # so the correct response for a missing session is 400 — matching
                 # the transport's existing "Missing session ID" wording. Anything
                 # else is a genuinely unsupported method, so 405 is more accurate.
+                # Both branches mirror the shape produced by
+                # ``StreamableHTTPServerTransport._create_error_response`` /
+                # ``_handle_unsupported_request`` so clients see the same
+                # JSON-RPC body and headers (including the RFC 7231 ``Allow``
+                # advertisement for 405) whether the rejection happens here or
+                # in the transport layer.
                 if request.method in ("GET", "DELETE"):
                     error_body = JSONRPCError(
                         jsonrpc="2.0",
@@ -313,12 +319,15 @@ class StreamableHTTPSessionManager:
                     error_body = JSONRPCError(
                         jsonrpc="2.0",
                         id="server-error",
-                        error=ErrorData(code=INVALID_REQUEST, message=f"Method Not Allowed ({request.method})"),
+                        error=ErrorData(code=INVALID_REQUEST, message="Method Not Allowed"),
                     )
                     response = Response(
                         content=error_body.model_dump_json(by_alias=True, exclude_none=True),
                         status_code=405,
-                        media_type="application/json",
+                        headers={
+                            "Content-Type": "application/json",
+                            "Allow": "GET, POST, DELETE",
+                        },
                     )
                 await response(scope, receive, send)
                 return

@@ -469,6 +469,19 @@ async def test_non_post_without_session_id_does_not_allocate_session(
         assert error_data["error"]["code"] == INVALID_REQUEST
         assert expected_message_substring in error_data["error"]["message"]
 
+        # RFC 7231: a 405 response must advertise the allowed methods via the
+        # ``Allow`` header. The manager's 405 mirrors the transport's shape
+        # (``Allow: GET, POST, DELETE``) exactly so downstream clients get
+        # identical metadata whether the rejection happens here or one layer
+        # deeper.
+        if expected_status == 405:
+            response_headers = {
+                name.decode().lower(): value.decode() for name, value in response_start.get("headers", [])
+            }
+            assert response_headers.get("allow") == "GET, POST, DELETE", (
+                f"405 response must include RFC 7231 Allow header — got headers={response_headers}"
+            )
+
 
 @pytest.mark.anyio
 async def test_bad_host_header_rejected_before_session_allocation():
