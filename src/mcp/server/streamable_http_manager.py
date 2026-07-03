@@ -21,7 +21,7 @@ from mcp.server.streamable_http import (
     EventStore,
     StreamableHTTPServerTransport,
 )
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,15 @@ class StreamableHTTPSessionManager:
         self.security_settings = security_settings
         self.retry_interval = retry_interval
         self.session_idle_timeout = session_idle_timeout
+
+        # Pre-check middleware: the manager runs security validation *before*
+        # deciding whether to allocate a session. Without this, a request that
+        # fails security (DNS rebinding, bad Host) would either be rejected too
+        # late (after a session has already been created and would leak) or with
+        # the wrong status code (400 "Missing session ID" instead of 421
+        # "Invalid Host header"). Using the same middleware the transport uses
+        # keeps the two validation paths consistent.
+        self._security = TransportSecurityMiddleware(security_settings)
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -229,6 +238,16 @@ class StreamableHTTPSessionManager:
             send: ASGI send function
         """
         request = Request(scope, receive)
+
+        # Run security validation FIRST so DNS-rebinding / bad-Host requests
+        # are rejected with 421 (or the transport-level Content-Type 400)
+        # regardless of whether a session existed or not — and so bad-Host
+        # requests can never trigger a session allocation.
+        security_error = await self._security.validate_request(request, is_post=(request.method == "POST"))
+        if security_error is not None:
+            await security_error(scope, receive, send)
+            return
+
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
         user = scope.get("user")
@@ -262,6 +281,36 @@ class StreamableHTTPSessionManager:
             return
 
         if request_mcp_session_id is None:
+            # Only POST may initialize a new session (per MCP spec: a session is
+            # opened by the response to the ``initialize`` JSON-RPC request,
+            # which is always a POST). GET and DELETE without a session-id are
+            # protocol errors and must be rejected here — the transport-layer
+            # rejection happens too late to matter: by the time
+            # `StreamableHTTPServerTransport.handle_request()` sees the request,
+            # the session has already been allocated in `_server_instances`
+            # AND a background `run_server` task has been spawned, waiting on a
+            # stream that will never receive anything. Both leak forever unless
+            # `session_idle_timeout` is set (which is opt-in and off by default).
+            # Other unsupported methods (PUT/PATCH/OPTIONS/...) are intentionally
+            # let through to the existing ``_handle_unsupported_request`` path,
+            # which returns 405 — preserved for API stability.
+            if request.method in ("GET", "DELETE"):
+                error_response = JSONRPCError(
+                    jsonrpc="2.0",
+                    id="server-error",
+                    error=ErrorData(
+                        code=INVALID_REQUEST,
+                        message="Bad Request: Missing session ID",
+                    ),
+                )
+                response = Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                    status_code=400,
+                    media_type="application/json",
+                )
+                await response(scope, receive, send)
+                return
+
             # New session case
             logger.debug("Creating new transport")
             async with self._session_creation_lock:

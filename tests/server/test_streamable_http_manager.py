@@ -382,6 +382,77 @@ async def test_idle_session_is_reaped():
         assert response_start["status"] == 404
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["GET", "DELETE"])
+async def test_non_post_without_session_id_does_not_allocate_session(method: str):
+    """Regression test: GET/DELETE without a session-id must return 400 without
+    allocating a session or spawning a background task.
+
+    Before this fix, any request without a session id — including GET/DELETE —
+    entered the "new session" branch of the manager, created a transport,
+    registered it in ``_server_instances``, and launched a ``run_server`` task
+    that would wait forever for messages that never come. The transport-level
+    validation then rejected the request (with 400 or 406), but the allocated
+    session + task were leaked. Under a Docker healthcheck polling /mcp every
+    30 seconds this accumulated ~2 sessions/min indefinitely (~1 GiB/week).
+    """
+    app = Server("test-non-post-no-session")
+    manager = StreamableHTTPSessionManager(app=app)
+
+    async with manager.run():
+        sent_messages: list[Message] = []
+        response_body = b""
+
+        async def mock_send(message: Message):
+            nonlocal response_body
+            sent_messages.append(message)
+            if message["type"] == "http.response.body":
+                response_body += message.get("body", b"")
+
+        scope: Scope = {
+            "type": "http",
+            "method": method,
+            "path": "/mcp",
+            "headers": [
+                (b"accept", b"application/json, text/event-stream"),
+            ],
+        }
+
+        async def mock_receive():  # pragma: no cover
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        # Snapshot before
+        assert len(manager._server_instances) == 0
+
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        # Give any accidentally-spawned background task a chance to register
+        await anyio.sleep(0.05)
+
+        # No session, no task
+        assert len(manager._server_instances) == 0, (
+            f"{method} without session-id must not allocate a session — leaked {len(manager._server_instances)}"
+        )
+        assert manager._task_group is not None
+        # anyio TaskGroup internals: no live tasks belonging to run_server
+        assert len(manager._task_group._tasks) == 0, (
+            f"{method} without session-id must not spawn a background task — leaked {len(manager._task_group._tasks)}"
+        )
+
+        # Response should be a well-formed JSON-RPC error at status 400
+        response_start = next(
+            (msg for msg in sent_messages if msg["type"] == "http.response.start"),
+            None,
+        )
+        assert response_start is not None, "Should have sent a response"
+        assert response_start["status"] == 400
+
+        error_data = json.loads(response_body)
+        assert error_data["jsonrpc"] == "2.0"
+        assert error_data["error"]["code"] == INVALID_REQUEST
+        assert "Missing session ID" in error_data["error"]["message"]
+
+
 def test_session_idle_timeout_rejects_non_positive():
     with pytest.raises(ValueError, match="positive number"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=-1)
