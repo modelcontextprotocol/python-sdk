@@ -384,18 +384,35 @@ async def test_idle_session_is_reaped():
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("method", ["GET", "DELETE"])
-async def test_non_post_without_session_id_does_not_allocate_session(method: str):
-    """Regression test: GET/DELETE without a session-id must return 400 without
-    allocating a session or spawning a background task.
+@pytest.mark.parametrize(
+    ("method", "expected_status", "expected_message_substring"),
+    [
+        ("GET", 400, "Missing session ID"),
+        ("DELETE", 400, "Missing session ID"),
+        ("PUT", 405, "Method Not Allowed"),
+        ("PATCH", 405, "Method Not Allowed"),
+        ("OPTIONS", 405, "Method Not Allowed"),
+        ("HEAD", 405, "Method Not Allowed"),
+    ],
+)
+async def test_non_post_without_session_id_does_not_allocate_session(
+    method: str, expected_status: int, expected_message_substring: str
+):
+    """Regression test: no non-POST method without a session-id may allocate a
+    session or spawn a background task.
 
-    Before this fix, any request without a session id — including GET/DELETE —
-    entered the "new session" branch of the manager, created a transport,
-    registered it in ``_server_instances``, and launched a ``run_server`` task
-    that would wait forever for messages that never come. The transport-level
-    validation then rejected the request (with 400 or 406), but the allocated
-    session + task were leaked. Under a Docker healthcheck polling /mcp every
-    30 seconds this accumulated ~2 sessions/min indefinitely (~1 GiB/week).
+    Before this fix, any request without a session id — including GET/DELETE
+    (per this bug report) but also PUT/PATCH/OPTIONS/HEAD — entered the
+    "new session" branch of the manager, created a transport, registered it
+    in ``_server_instances``, and launched a ``run_server`` task that would
+    wait forever for messages that never come. The transport-level validation
+    then returned 400/406/405, but the allocated session + task were leaked.
+    Under a Docker healthcheck polling /mcp every 30 seconds this accumulated
+    ~2 sessions/min indefinitely (~1 GiB/week).
+
+    GET/DELETE are protocol-valid methods when a session exists, so they get
+    ``400 "Missing session ID"``. Other methods are genuinely unsupported on
+    the MCP endpoint, so they get ``405 "Method Not Allowed"``.
     """
     app = Server("test-non-post-no-session")
     manager = StreamableHTTPSessionManager(app=app)
@@ -445,12 +462,12 @@ async def test_non_post_without_session_id_does_not_allocate_session(method: str
             None,
         )
         assert response_start is not None, "Should have sent a response"
-        assert response_start["status"] == 400
+        assert response_start["status"] == expected_status
 
         error_data = json.loads(response_body)
         assert error_data["jsonrpc"] == "2.0"
         assert error_data["error"]["code"] == INVALID_REQUEST
-        assert "Missing session ID" in error_data["error"]["message"]
+        assert expected_message_substring in error_data["error"]["message"]
 
 
 @pytest.mark.anyio
@@ -466,9 +483,7 @@ async def test_bad_host_header_rejected_before_session_allocation():
     app = Server("test-bad-host")
     manager = StreamableHTTPSessionManager(
         app=app,
-        security_settings=TransportSecuritySettings(
-            enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1"]
-        ),
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1"]),
     )
 
     async with manager.run():

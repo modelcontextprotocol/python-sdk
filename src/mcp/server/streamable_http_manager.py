@@ -283,31 +283,43 @@ class StreamableHTTPSessionManager:
         if request_mcp_session_id is None:
             # Only POST may initialize a new session (per MCP spec: a session is
             # opened by the response to the ``initialize`` JSON-RPC request,
-            # which is always a POST). GET and DELETE without a session-id are
-            # protocol errors and must be rejected here — the transport-layer
-            # rejection happens too late to matter: by the time
-            # `StreamableHTTPServerTransport.handle_request()` sees the request,
-            # the session has already been allocated in `_server_instances`
-            # AND a background `run_server` task has been spawned, waiting on a
+            # which is always a POST). Any non-POST request without a session-id
+            # is a protocol error and must be rejected here — the transport-layer
+            # rejection happens too late: by the time
+            # ``StreamableHTTPServerTransport.handle_request()`` sees the request,
+            # a session has already been allocated in ``_server_instances`` and
+            # a background ``run_server`` task has been spawned waiting on a
             # stream that will never receive anything. Both leak forever unless
-            # `session_idle_timeout` is set (which is opt-in and off by default).
-            # Other unsupported methods (PUT/PATCH/OPTIONS/...) are intentionally
-            # let through to the existing ``_handle_unsupported_request`` path,
-            # which returns 405 — preserved for API stability.
-            if request.method in ("GET", "DELETE"):
-                error_response = JSONRPCError(
-                    jsonrpc="2.0",
-                    id="server-error",
-                    error=ErrorData(
-                        code=INVALID_REQUEST,
-                        message="Bad Request: Missing session ID",
-                    ),
-                )
-                response = Response(
-                    content=error_response.model_dump_json(by_alias=True, exclude_none=True),
-                    status_code=400,
-                    media_type="application/json",
-                )
+            # ``session_idle_timeout`` is set (opt-in, off by default). Rejecting
+            # here also holds for PUT/PATCH/OPTIONS/HEAD — the transport would
+            # answer 405 to those, but only after the leaky allocation.
+            if request.method != "POST":
+                # GET/DELETE are protocol-valid methods when a session exists,
+                # so the correct response for a missing session is 400 — matching
+                # the transport's existing "Missing session ID" wording. Anything
+                # else is a genuinely unsupported method, so 405 is more accurate.
+                if request.method in ("GET", "DELETE"):
+                    error_body = JSONRPCError(
+                        jsonrpc="2.0",
+                        id="server-error",
+                        error=ErrorData(code=INVALID_REQUEST, message="Bad Request: Missing session ID"),
+                    )
+                    response = Response(
+                        content=error_body.model_dump_json(by_alias=True, exclude_none=True),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                else:
+                    error_body = JSONRPCError(
+                        jsonrpc="2.0",
+                        id="server-error",
+                        error=ErrorData(code=INVALID_REQUEST, message=f"Method Not Allowed ({request.method})"),
+                    )
+                    response = Response(
+                        content=error_body.model_dump_json(by_alias=True, exclude_none=True),
+                        status_code=405,
+                        media_type="application/json",
+                    )
                 await response(scope, receive, send)
                 return
 
