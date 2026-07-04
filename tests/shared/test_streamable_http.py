@@ -813,6 +813,98 @@ async def test_request_id_reuse_after_completion_allowed(basic_app: Starlette) -
 
 
 @pytest.mark.anyio
+async def test_duplicate_in_flight_request_id_rejected_during_priming() -> None:
+    """The duplicate-id guard holds while the event store persists the priming event.
+
+    With an event store configured, the SSE branch awaits ``EventStore.store_event``
+    to mint the priming event. The routing slot is reserved before that await, so a
+    concurrent POST reusing the id during persistence is still rejected rather than
+    slipping past the guard and overwriting the slot (see #3060).
+    """
+
+    class GatedEventStore(SimpleEventStore):
+        """Blocks the priming write for the gated stream until released."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.entered = anyio.Event()
+            self.release = anyio.Event()
+
+        async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:
+            if stream_id == "gated-1" and message is None:
+                self.entered.set()
+                await self.release.wait()
+            return await super().store_event(stream_id, message)
+
+    def first_message_sse_data(response: httpx.Response) -> dict[str, Any]:
+        """First non-empty SSE data payload; skips the empty-data priming event."""
+        for line in response.text.splitlines():
+            if line.startswith("data: ") and line.removeprefix("data: ").strip():
+                return json.loads(line.removeprefix("data: "))
+        raise ValueError("No message data event in SSE response")
+
+    store = GatedEventStore()
+    async with running_app(event_store=store) as app:
+        async with make_client(app) as client:
+            # Priming events are only minted for protocol >= 2025-11-25, so
+            # negotiate the latest version rather than INIT_REQUEST's pinned one.
+            init_request = {
+                **INIT_REQUEST,
+                "params": {**INIT_REQUEST["params"], "protocolVersion": types.LATEST_PROTOCOL_VERSION},
+            }
+            response = await client.post(
+                "/mcp",
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                },
+                json=init_request,
+            )
+            assert response.status_code == 200
+            headers = {
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                MCP_SESSION_ID_HEADER: response.headers[MCP_SESSION_ID_HEADER],
+                MCP_PROTOCOL_VERSION_HEADER: first_message_sse_data(response)["result"]["protocolVersion"],
+            }
+            call = {
+                "jsonrpc": "2.0",
+                "id": "gated-1",
+                "method": "tools/call",
+                "params": {"name": "test_tool", "arguments": {}},
+            }
+            results: dict[str, httpx.Response] = {}
+
+            async def post_first() -> None:
+                results["first"] = await client.post("/mcp", headers=headers, json=call)
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(post_first)
+                # The first request is now suspended inside the event store's
+                # priming write: past the duplicate-id guard, response not started.
+                with anyio.fail_after(5):
+                    await store.entered.wait()
+
+                # Bounded so a regression fails fast: without the early slot
+                # reservation, this POST would also suspend in the gated event
+                # store and the test would hang instead of failing.
+                with anyio.fail_after(5):
+                    duplicate = await client.post("/mcp", headers=headers, json=call)
+                assert duplicate.status_code == 400
+                error = duplicate.json()["error"]
+                assert error["code"] == INVALID_REQUEST
+                assert "already in flight" in error["message"]
+
+                store.release.set()
+
+            # The first request is unaffected and completes with its own result.
+            assert results["first"].status_code == 200
+            body = first_message_sse_data(results["first"])
+            assert body["id"] == "gated-1"
+            assert body["result"]["content"][0]["text"] == "Called test_tool"
+
+
+@pytest.mark.anyio
 async def test_json_response(json_app: Starlette) -> None:
     """With JSON response mode enabled, requests are answered with application/json bodies."""
     async with make_client(json_app) as client:

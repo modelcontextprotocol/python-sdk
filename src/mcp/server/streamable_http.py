@@ -611,18 +611,27 @@ class StreamableHTTPServerTransport:
                 finally:
                     await self._clean_up_memory_streams(request_id)
             else:
-                # Mint the priming event before any per-request state exists:
-                # `EventStore.store_event` is user code and may raise, in which
-                # case the outer handler returns a 500 with nothing to clean up.
-                # Still strictly precedes dispatch, so storage order == wire order.
-                priming_event = await self._mint_priming_event(request_id, protocol_version)
-
-                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
-                self._sse_stream_writers[request_id] = sse_stream_writer
+                # Reserve the routing slot before any await so nothing separates
+                # the duplicate-id guard above from registration; a concurrent
+                # POST reusing this id while the event store persists the priming
+                # event could otherwise pass the guard and overwrite the slot.
                 self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
                     REQUEST_STREAM_BUFFER_SIZE
                 )
                 request_stream_reader = self._request_streams[request_id][1]
+
+                # Mint the priming event before dispatch so storage order matches
+                # wire order. `EventStore.store_event` is user code and may raise,
+                # in which case the outer handler returns a 500; release the slot
+                # reservation on the way out so the id does not stay in flight.
+                try:
+                    priming_event = await self._mint_priming_event(request_id, protocol_version)
+                except BaseException:
+                    await self._clean_up_memory_streams(request_id)
+                    raise
+
+                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
+                self._sse_stream_writers[request_id] = sse_stream_writer
 
                 headers = {
                     "Cache-Control": "no-cache, no-transform",
