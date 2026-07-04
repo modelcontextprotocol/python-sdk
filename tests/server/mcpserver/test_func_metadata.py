@@ -204,6 +204,48 @@ def test_str_vs_list_str():
     assert result["str_or_list"] == ["hello", "world"]
 
 
+def test_optional_str_not_parsed_as_json():
+    """A `str | None` parameter must keep JSON-looking string values as strings.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/3055:
+    the annotation is not literally `str`, but a plain string is already fully
+    valid for it, so pre-parsing could only corrupt the value.
+    """
+
+    def func_with_optional_str(body: str | None = None):  # pragma: no cover
+        return body
+
+    meta = func_metadata(func_with_optional_str)
+
+    json_object_str = '{"blocks": ["a", "b"]}'
+    result = meta.pre_parse_json({"body": json_object_str})
+    assert result["body"] == json_object_str
+    validated = meta.arg_model.model_validate(result)
+    assert getattr(validated, "body") == json_object_str
+
+    json_array_str = '["a", "b"]'
+    result = meta.pre_parse_json({"body": json_array_str})
+    assert result["body"] == json_array_str
+
+    # Annotated str members are unwrapped before the check
+    def func_with_annotated_str(
+        body: Annotated[str, Field(description="a body")] | None = None,
+    ):  # pragma: no cover
+        return body
+
+    meta = func_metadata(func_with_annotated_str)
+    result = meta.pre_parse_json({"body": json_object_str})
+    assert result["body"] == json_object_str
+
+    # A union with a non-str member still opts in to pre-parsing
+    def func_with_str_list_none(value: str | list[str] | None = None):  # pragma: no cover
+        return value
+
+    meta = func_metadata(func_with_str_list_none)
+    result = meta.pre_parse_json({"value": '["a", "b"]'})
+    assert result["value"] == ["a", "b"]
+
+
 def test_skip_names():
     """Test that skipped parameters are not included in the model"""
 

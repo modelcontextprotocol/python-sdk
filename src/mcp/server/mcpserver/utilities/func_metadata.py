@@ -33,6 +33,25 @@ def _is_input_required_type(obj: Any) -> bool:
     return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
 
 
+def _accepts_only_str_or_none(annotation: Any) -> bool:
+    """Whether every member of the annotation is `str` or `None`.
+
+    For such annotations a string value is already fully valid, so JSON
+    pre-parsing could only corrupt it (e.g. `body: str | None` receiving a
+    JSON-serialized string). Unions with non-str members (e.g. `str | list[str]`)
+    still opt in to pre-parsing, since the string may be a stringified value
+    for one of those members.
+    """
+    if annotation is str or annotation is type(None):
+        return True
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _accepts_only_str_or_none(get_args(annotation)[0])
+    if is_union_origin(origin):
+        return all(_accepts_only_str_or_none(arg) for arg in get_args(annotation))
+    return False
+
+
 class StrictJsonSchema(GenerateJsonSchema):
     """A JSON schema generator that raises exceptions instead of emitting warnings.
 
@@ -169,7 +188,7 @@ class FuncMetadata(BaseModel):
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data_value, str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and not _accepts_only_str_or_none(field_info.annotation):
                 try:
                     pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
