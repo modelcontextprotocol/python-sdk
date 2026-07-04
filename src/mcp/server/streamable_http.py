@@ -549,6 +549,20 @@ class StreamableHTTPServerTransport:
 
             request_id = str(message.id)
 
+            # Reject duplicate in-flight request ids: `_request_streams` is keyed by
+            # request id, so a second concurrent request with the same id would
+            # silently overwrite the first one's routing slot and cross-wire their
+            # responses (one request receives the other's payload, the other hangs).
+            # The spec requires ids to be unique within a session; ids may still be
+            # reused once the earlier request has completed. See #3060.
+            if request_id in self._request_streams:
+                response = self._create_error_response(
+                    f"Bad Request: Request id {request_id} is already in flight for this session",
+                    HTTPStatus.BAD_REQUEST,
+                )
+                await response(scope, receive, send)
+                return
+
             if self.is_json_response_enabled:
                 self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
                     REQUEST_STREAM_BUFFER_SIZE
