@@ -33,8 +33,18 @@ def _is_input_required_type(obj: Any) -> bool:
     return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
 
 
+def _unwrap_annotated(annotation: Any) -> Any:
+    """Strip `Annotated[...]` down to its underlying type, e.g. for
+    `Annotated[str, Field(description=...)]` (idiomatic for described params).
+    """
+    if get_origin(annotation) is Annotated:
+        return get_args(annotation)[0]
+    return annotation
+
+
 def _is_optional_str(annotation: Any) -> bool:
-    """Whether `annotation` is `str | None` (`Optional[str]`), modulo `None`.
+    """Whether `annotation` is `str | None` (`Optional[str]`), modulo `None`
+    and `Annotated` wrapping.
 
     Used by `pre_parse_json` to skip JSON pre-parsing for such annotations:
     unlike e.g. `str | list[str]`, no member of this union other than `str`
@@ -46,7 +56,7 @@ def _is_optional_str(annotation: Any) -> bool:
     origin = get_origin(annotation)
     if not is_union_origin(origin):
         return False
-    non_none_args = [arg for arg in get_args(annotation) if arg is not type(None)]
+    non_none_args = [_unwrap_annotated(arg) for arg in get_args(annotation) if arg is not type(None)]
     return non_none_args == [str]
 
 
