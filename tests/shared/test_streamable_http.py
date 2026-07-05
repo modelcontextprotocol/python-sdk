@@ -11,7 +11,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 from urllib.parse import urlparse
 
@@ -49,7 +49,6 @@ from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     GET_STREAM_KEY,
-    MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
     EventCallback,
@@ -63,6 +62,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from tests.interaction.transports import StreamingASGITransport
@@ -841,17 +841,18 @@ async def test_duplicate_in_flight_request_id_rejected_during_priming() -> None:
         for line in response.text.splitlines():
             if line.startswith("data: ") and line.removeprefix("data: ").strip():
                 return json.loads(line.removeprefix("data: "))
-        raise ValueError("No message data event in SSE response")
+        raise ValueError("No message data event in SSE response")  # pragma: no cover
 
     store = GatedEventStore()
     async with running_app(event_store=store) as app:
         async with make_client(app) as client:
             # Priming events are only minted for protocol >= 2025-11-25, so
             # negotiate the latest version rather than INIT_REQUEST's pinned one.
-            init_request = {
-                **INIT_REQUEST,
-                "params": {**INIT_REQUEST["params"], "protocolVersion": types.LATEST_PROTOCOL_VERSION},
+            init_params: dict[str, Any] = {
+                **cast(dict[str, Any], INIT_REQUEST["params"]),
+                "protocolVersion": types.LATEST_PROTOCOL_VERSION,
             }
+            init_request: dict[str, Any] = {**INIT_REQUEST, "params": init_params}
             response = await client.post(
                 "/mcp",
                 headers={
@@ -867,7 +868,7 @@ async def test_duplicate_in_flight_request_id_rejected_during_priming() -> None:
                 MCP_SESSION_ID_HEADER: response.headers[MCP_SESSION_ID_HEADER],
                 MCP_PROTOCOL_VERSION_HEADER: first_message_sse_data(response)["result"]["protocolVersion"],
             }
-            call = {
+            call: dict[str, Any] = {
                 "jsonrpc": "2.0",
                 "id": "gated-1",
                 "method": "tools/call",
