@@ -60,7 +60,7 @@ class ArgModelBase(BaseModel):
             kwargs[output_name] = value
         return kwargs
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 class FuncMetadata(BaseModel):
