@@ -697,6 +697,24 @@ and raises `RuntimeError` if the resource requests input.
 
 The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
 
+### Resolver-routed requests require the client capability on every protocol version
+
+A v1 server could send elicitation, sampling, and roots requests to clients
+that never declared the matching capability; only tools-bearing sampling was
+checked. In v2 the `Resolve(...)` markers (`Elicit`, `Sample`, `ListRoots`)
+enforce the spec's egress rule: an undeclared capability (form-mode `elicitation`,
+`sampling`, or `roots`, plus `sampling.tools` when the request carries `tools`
+or `tool_choice`) fails the call with a `-32021`
+`MISSING_REQUIRED_CLIENT_CAPABILITY` JSON-RPC error instead of sending a
+request the client cannot handle. This applies on 2025-11-25 sessions with a
+live back-channel too; a session with no back-channel keeps failing with its
+no-back-channel error. To migrate, declare the capability: the SDK client
+declares `elicitation`, `sampling`, and `roots` when the matching callback is
+set, and `sampling.tools` needs an explicit
+`Client(sampling_capabilities=SamplingCapability(tools=...))`. Direct
+`ctx.elicit()` and `ctx.session.*` calls outside resolvers keep their previous
+behavior, including the pre-existing tools check on `create_message`.
+
 ### `MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error
 
 Raising `MCPError` (or any subclass) inside an `@mcp.tool()` handler now

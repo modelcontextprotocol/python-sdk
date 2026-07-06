@@ -36,6 +36,7 @@ nav:
       - Lifespan: handlers/lifespan.md
       - Elicitation: handlers/elicitation.md
       - Multi-round-trip requests: handlers/multi-round-trip.md
+      - Sampling and roots: handlers/sampling-and-roots.md
       - Progress: handlers/progress.md
       - Logging: handlers/logging.md
       - Subscriptions: handlers/subscriptions.md

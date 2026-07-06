@@ -303,6 +303,9 @@ class Client:
     sampling_callback: SamplingFnT | None = None
     """Callback for handling sampling requests."""
 
+    sampling_capabilities: types.SamplingCapability | None = None
+    """Sampling sub-capabilities (e.g. tools) declared alongside `sampling_callback`; no effect without it."""
+
     list_roots_callback: ListRootsFnT | None = None
     """Callback for handling list roots requests."""
 
@@ -418,6 +421,7 @@ class Client:
             dispatcher=dispatcher,
             read_timeout_seconds=self.read_timeout_seconds,
             sampling_callback=self.sampling_callback,
+            sampling_capabilities=self.sampling_capabilities,
             list_roots_callback=self.list_roots_callback,
             logging_callback=self.logging_callback,
             message_handler=message_handler,
