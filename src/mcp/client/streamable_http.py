@@ -13,6 +13,7 @@ import httpx
 from anyio.abc import TaskGroup
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from mcp_types import (
+    CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
@@ -441,6 +442,17 @@ class StreamableHTTPTransport:
         if last_event_id is not None:  # pragma: no branch
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:
+            await self._send_connection_closed(ctx, original_request_id)
+
+    async def _send_connection_closed(self, ctx: RequestContext, request_id: RequestId) -> None:
+        """Resolve a pending POST SSE request when the stream closes before a reply."""
+        error_data = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+        error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data))
+        try:
+            await ctx.read_stream_writer.send(error_msg)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("dropped connection-closed error for %r: read stream closed", request_id)
 
     async def _handle_reconnection(
         self,
@@ -453,6 +465,8 @@ class StreamableHTTPTransport:
         # Bail if max retries exceeded
         if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+            if isinstance(ctx.session_message.message, JSONRPCRequest):
+                await self._send_connection_closed(ctx, ctx.session_message.message.id)
             return
 
         # Always wait - use server value or default

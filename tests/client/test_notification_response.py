@@ -6,13 +6,14 @@ that don't follow SDK conventions.
 
 import json
 
+import anyio
 import httpx
 import mcp_types as types
 import pytest
 from mcp_types import RootsListChangedNotification
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from mcp import ClientSession, MCPError
@@ -72,6 +73,24 @@ def _create_unexpected_content_type_app() -> Starlette:
     return Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
 
 
+def _create_empty_sse_response_app() -> Starlette:
+    """Create a server that closes a POST SSE response without a JSON-RPC reply."""
+
+    async def handle_mcp_request(request: Request) -> Response:
+        body = await request.body()
+        data = json.loads(body)
+
+        if data.get("method") == "initialize":
+            return _init_json_response(data)
+
+        if "id" not in data:
+            return Response(status_code=202)
+
+        return StreamingResponse(iter(()), media_type="text/event-stream")
+
+    return Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
+
+
 async def test_non_compliant_notification_response() -> None:
     """Verify the client ignores unexpected responses to notifications.
 
@@ -115,6 +134,20 @@ async def test_unexpected_content_type_sends_jsonrpc_error() -> None:
 
                 with pytest.raises(MCPError, match="Unexpected content type: text/plain"):  # pragma: no branch
                     await session.list_tools()
+
+
+async def test_empty_post_sse_response_unblocks_pending_tool_call() -> None:
+    """An SSE response that closes before a JSON-RPC reply raises instead of hanging."""
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_empty_sse_response_app())) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+
+                with pytest.raises(MCPError) as exc_info:
+                    with anyio.fail_after(1):
+                        await session.call_tool("greet", {})
+
+                assert exc_info.value.error.code == types.CONNECTION_CLOSED
 
 
 def _create_http_error_app(error_status: int, *, error_on_notifications: bool = False) -> Starlette:
