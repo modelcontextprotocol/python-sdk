@@ -760,6 +760,7 @@ class StreamableHTTPServerTransport:
             self._active_get_response_scope = None
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
+
     async def _handle_delete_request(self, request: Request, send: Send) -> None:  # pragma: no cover
         """Handle DELETE requests for explicit session termination."""
         # Validate session ID
