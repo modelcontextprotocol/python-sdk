@@ -188,6 +188,9 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[SSEEvent]] = {}
         self._terminated = False
+        # CancelScope for the active GET SSE response, so terminate() can
+        # force-cancel a hung EventSourceResponse on Windows (python-sdk#2653).
+        self._active_get_response_scope: anyio.CancelScope | None = None
         # Idle timeout cancel scope; managed by the session manager.
         self.idle_scope: anyio.CancelScope | None = None
 
@@ -743,14 +746,20 @@ class StreamableHTTPServerTransport:
         )
 
         try:
-            # This will send headers immediately and establish the SSE connection
-            await response(request.scope, request.receive, send)
-        except Exception:
+            # Guard the SSE response with a cancel scope so terminate()
+            # can force-cancel a hung EventSourceResponse on Windows
+            # where sse-starlette's TaskGroup children may not respond
+            # to cancellation promptly (python-sdk#2653).
+            self._active_get_response_scope = anyio.CancelScope()
+            with self._active_get_response_scope:
+                await response(request.scope, request.receive, send)
+        except Exception:  # pragma: lax no cover
             logger.exception("Error in standalone SSE response")
+            await self._clean_up_memory_streams(GET_STREAM_KEY)
+        finally:
+            self._active_get_response_scope = None
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
-            await self._clean_up_memory_streams(GET_STREAM_KEY)
-
     async def _handle_delete_request(self, request: Request, send: Send) -> None:  # pragma: no cover
         """Handle DELETE requests for explicit session termination."""
         # Validate session ID
@@ -786,6 +795,11 @@ class StreamableHTTPServerTransport:
 
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
+
+        # Cancel any in-flight GET SSE response to prevent
+        # sse-starlette TaskGroup deadlock on Windows (python-sdk#2653).
+        if self._active_get_response_scope is not None:
+            self._active_get_response_scope.cancel()
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())
