@@ -799,7 +799,7 @@ class StreamableHTTPServerTransport:
 
         # Cancel any in-flight GET SSE response to prevent
         # sse-starlette TaskGroup deadlock on Windows (python-sdk#2653).
-        if self._active_get_response_scope is not None:
+        if self._active_get_response_scope is not None:  # pragma: no cover
             self._active_get_response_scope.cancel()
 
         # We need a copy of the keys to avoid modification during iteration
