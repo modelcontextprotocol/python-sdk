@@ -7,26 +7,34 @@ model, elicitation-confirmed `clear_done` and `brainstorm_tasks`, and logging/pr
 it works. State is in-memory and per-process; the point is the wiring, not the persistence.
 The transport entry point that serves this over stdio / Streamable HTTP is server.py.
 
-The server speaks both protocol revisions from the same handlers: on 2026-07-28 connections
-the interactive tools return `InputRequiredResult` rounds; on pre-2026 connections the same
-rounds are fulfilled as push-style elicitation/sampling requests (see `run_interactive`).
+The server speaks both protocol revisions from the same handlers: the interactive tools ask
+through resolver dependencies (`Resolve`/`Elicit`/`Sample`), and the framework carries the
+questions as `InputRequiredResult` rounds on 2026-07-28 connections or as push-style
+elicitation/sampling requests on pre-2026 ones.
 """
 
 import itertools
-import json
 import math
 import os
 import re
 import warnings
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 import anyio
 from mcp import MCPDeprecationWarning
 from mcp.server import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
-from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
+from mcp.server.mcpserver import (
+    AcceptedElicitation,
+    Context,
+    Elicit,
+    ElicitationResult,
+    MCPServer,
+    RequestStateSecurity,
+    Resolve,
+    Sample,
+)
 from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, UserMessage
 from mcp.server.stdio import stdio_server
 from mcp_types import (
@@ -35,17 +43,8 @@ from mcp_types import (
     Completion,
     CompletionArgument,
     CompletionContext,
-    CreateMessageRequest,
-    CreateMessageRequestParams,
     CreateMessageResult,
-    ElicitRequest,
-    ElicitRequestedSchema,
-    ElicitRequestFormParams,
-    ElicitResult,
     EmptyResult,
-    InputRequiredResult,
-    InputResponse,
-    InputResponses,
     ListResourcesResult,
     PaginatedRequestParams,
     PromptReference,
@@ -131,11 +130,11 @@ def render_board() -> str:
     return "\n".join(lines)
 
 
-# The requestState carried through brainstorm_tasks' multi-round flow is written and read as
-# plaintext JSON here; MCPServer seals it (encrypt + verify, with TTL and request binding)
-# before it crosses the wire, so a client cannot forge or mutate the carried step/theme/count.
-# The key comes from the environment for real deployments and falls back to a per-process one
-# for the zero-setup demo (which is fine because one process serves every round).
+# The requestState that carries brainstorm_tasks' multi-round progress between rounds is
+# minted by the resolver framework and sealed by the server (encrypt + verify, with TTL and
+# request binding), so a client cannot forge or mutate the recorded answers. The key comes
+# from the environment for real deployments and falls back to a per-process one for the
+# zero-setup demo (which is fine because one process serves every round).
 _request_state_secret = os.environ.get("REQUEST_STATE_SECRET")
 
 mcp = MCPServer(
@@ -225,125 +224,59 @@ async def announce_board_change(ctx: Context) -> None:
 
 # --- Interactive flows -----------------------------------------------------------------------
 #
-# The three interactive tools (clear_done, prioritize, brainstorm_tasks) are written ONCE, as
-# state machines over input_required rounds: `flow(responses, state)` either finishes with a
-# CallToolResult or returns an InputRequiredResult naming what it still needs. On a 2026-07-28
-# connection the round trips ride the wire (the client answers and retries the call, the SDK
-# seals/verifies the carried state). On a pre-2026 connection there is no input_required result
-# to return, so `run_interactive` runs the same flow locally, fulfilling each round as a real
-# push-style elicitation/sampling request — the same job the TypeScript SDK's legacy fulfilment
-# shim performs, so no handler branches on the served era.
-
-InteractiveFlow = Callable[[InputResponses | None, str | None], Awaitable[CallToolResult | InputRequiredResult]]
-
-ElicitContent = dict[str, str | int | float | bool | list[str] | None]
+# The three interactive tools (clear_done, prioritize, brainstorm_tasks) ask through resolver
+# dependencies: a tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn`
+# before the tool body, and a resolver that returns `Elicit(...)` or `Sample(...)` has the
+# framework put the question to the client — carried inside `InputRequiredResult` rounds on
+# 2026-07-28 connections, sent as push-style requests on pre-2026 ones, with the multi-round
+# state sealed by the server. Every answer is pinned to the exact question render it accepted,
+# so a resolver whose question embeds board state (the done count, the open-task titles) never
+# consumes a stale answer: if the board changes between rounds, the framework re-asks instead.
 
 
-async def run_interactive(ctx: Context, flow: InteractiveFlow) -> CallToolResult | InputRequiredResult:
-    """Serve one interactive tool call on either protocol era."""
-    if is_modern(ctx):
-        return await flow(ctx.input_responses, ctx.request_state)
-    responses: InputResponses | None = None
-    state: str | None = None
-    for _ in range(10):
-        result = await flow(responses, state)
-        if isinstance(result, CallToolResult):
-            return result
-        responses = {}
-        for key, request in (result.input_requests or {}).items():
-            if isinstance(request, ElicitRequest) and isinstance(request.params, ElicitRequestFormParams):
-                responses[key] = await ctx.session.elicit_form(
-                    request.params.message, request.params.requested_schema, related_request_id=ctx.request_id
-                )
-            elif isinstance(request, CreateMessageRequest):
-                # Push-style sampling is deprecated at 2026-07-28, but it is exactly what a
-                # pre-2026 session speaks — the deprecation warning is expected, so silence it.
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", MCPDeprecationWarning)
-                    responses[key] = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
-                        request.params.messages,
-                        max_tokens=request.params.max_tokens,
-                        system_prompt=request.params.system_prompt,
-                        include_context=request.params.include_context,
-                        temperature=request.params.temperature,
-                        stop_sequences=request.params.stop_sequences,
-                        metadata=request.params.metadata,
-                        model_preferences=request.params.model_preferences,
-                        related_request_id=ctx.request_id,
-                    )
-            else:
-                raise RuntimeError(f"unsupported input request for {key!r} on a pre-2026 session")
-        state = result.request_state
-    raise RuntimeError("interactive flow did not settle within 10 rounds")
+class ClearConfirmation(BaseModel):
+    confirm: Annotated[bool, Field(title="Delete all completed tasks?", description="This cannot be undone.")]
+
+
+class BrainstormCountForm(BaseModel):
+    # The schema advertises the default so hosts pre-fill the field, but validation must keep an
+    # omitted answer distinguishable (None): the theme fallback chain is form answer, then the
+    # tool's own theme argument, then the default.
+    theme: Annotated[
+        str | None, Field(title="Theme for the invented tasks", json_schema_extra={"default": DEFAULT_THEME})
+    ] = None
+    count: Annotated[Literal["5", "10", "20", "50", "custom"], Field(title="How many tasks should I invent?")]
+
+
+class BrainstormCustomCountForm(BaseModel):
+    # camelCase so the form's wire schema matches the TypeScript reference server's.
+    customCount: Annotated[int, Field(title="Custom amount", ge=1, le=100)]
 
 
 def text_result(text: str, *, is_error: bool = False) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=text)], is_error=is_error)
 
 
-def elicit_response_action(response: InputResponse | None) -> str:
-    """Read the action from a raw elicitation `input_responses` entry (decline/cancel detection)."""
-    if isinstance(response, ElicitResult) and response.action in ("accept", "decline"):
-        return response.action
-    return "cancel"
-
-
-def accepted_content(responses: InputResponses | None, key: str) -> ElicitContent | None:
-    """The form content of an accepted elicitation response, or None for decline/cancel."""
-    response = (responses or {}).get(key)
-    if isinstance(response, ElicitResult) and response.action == "accept" and response.content is not None:
-        return response.content
-    return None
-
-
-def sampled_text(response: InputResponse | None) -> str:
-    """Read the text content from a raw sampling (createMessage) `input_responses` entry."""
-    if isinstance(response, CreateMessageResult) and isinstance(response.content, TextContent):
-        return response.content.text
+def sampled_text(result: CreateMessageResult | None) -> str:
+    """Read the text content from a sampling (createMessage) result."""
+    if result is not None and isinstance(result.content, TextContent):
+        return result.content.text
     return ""
 
 
-CLEAR_CONFIRM_SCHEMA: ElicitRequestedSchema = {
-    "type": "object",
-    "properties": {
-        "confirm": {"type": "boolean", "title": "Delete all completed tasks?", "description": "This cannot be undone."}
-    },
-    "required": ["confirm"],
-}
-
-BRAINSTORM_COUNT_SCHEMA: ElicitRequestedSchema = {
-    "type": "object",
-    "properties": {
-        "theme": {"type": "string", "title": "Theme for the invented tasks", "default": DEFAULT_THEME},
-        "count": {
-            "type": "string",
-            "title": "How many tasks should I invent?",
-            "enum": ["5", "10", "20", "50", "custom"],
-        },
-    },
-    "required": ["count"],
-}
-
-BRAINSTORM_CUSTOM_COUNT_SCHEMA: ElicitRequestedSchema = {
-    "type": "object",
-    "properties": {"customCount": {"type": "integer", "title": "Custom amount", "minimum": 1, "maximum": 100}},
-    "required": ["customCount"],
-}
-
-
-def build_brainstorm_sampling(topic: str, wanted: int) -> CreateMessageRequestParams:
-    return CreateMessageRequestParams(
-        system_prompt=(
-            "You invent short, funny todo items for a given theme. For engineering-flavored themes, lean into "
-            'in-jokes like "Migrate the galactron database to omegastar" or "Ensure the tiddlywinks service speaks '
-            'gRPC". Reply with one task per line, no numbering, no commentary.'
-        ),
-        messages=[
+def build_brainstorm_sampling(topic: str, wanted: int) -> Sample:
+    return Sample(
+        [
             SamplingMessage(
                 role="user",
                 content=TextContent(type="text", text=f'Invent {wanted} todo tasks for the theme "{topic}".'),
             )
         ],
+        system_prompt=(
+            "You invent short, funny todo items for a given theme. For engineering-flavored themes, lean into "
+            'in-jokes like "Migrate the galactron database to omegastar" or "Ensure the tiddlywinks service speaks '
+            'gRPC". Reply with one task per line, no numbering, no commentary.'
+        ),
         max_tokens=min(200 + wanted * 40, 1500),
     )
 
@@ -359,16 +292,6 @@ WORK_QUIPS = [
     "adding a TODO to remove the TODO",
     "rolling back the rollback",
 ]
-
-
-def parse_brainstorm_count(raw: object) -> int | None:
-    """Parse an elicited count value (a preset like "10" or a custom number) into a usable number."""
-    # Leading-integer parsing, like the TypeScript reference's Number.parseInt.
-    match = re.match(r"\s*[+-]?\d+", str(raw))
-    if match is None:
-        return None
-    count = int(match.group())
-    return count if 1 <= count <= 100 else None
 
 
 def apply_ranking(ranking_text: str, candidates: list[Task]) -> list[Task]:
@@ -523,6 +446,53 @@ async def add_tasks(
     return f"Added {len(added)} task(s):\n" + "\n".join(describe_task(task) for task in added)
 
 
+def ask_count() -> Elicit[BrainstormCountForm]:
+    return Elicit("Let me invent some tasks for the board.", BrainstormCountForm)
+
+
+def ask_custom_count(
+    count_form: Annotated[ElicitationResult[BrainstormCountForm], Resolve(ask_count)],
+) -> Elicit[BrainstormCustomCountForm] | None:
+    if isinstance(count_form, AcceptedElicitation) and count_form.data.count == "custom":
+        return Elicit("How many exactly?", BrainstormCustomCountForm)
+    return None
+
+
+BrainstormOrder = tuple[int, str]
+"""(wanted, topic) once the forms settle; the bow-out action string ("decline"/"cancel") otherwise."""
+
+
+def resolve_brainstorm_order(
+    theme: str | None,
+    count_form: Annotated[ElicitationResult[BrainstormCountForm], Resolve(ask_count)],
+    custom_form: Annotated[ElicitationResult[BrainstormCustomCountForm], Resolve(ask_custom_count)],
+) -> BrainstormOrder | str:
+    """Reduce the form answers to (wanted, topic), or to the answer's action when the user bowed out.
+
+    The theme can come from the model (tool argument) or from the user (the form's theme field,
+    pre-filled with a default); the user's answer wins.
+    """
+    if not isinstance(count_form, AcceptedElicitation):
+        return count_form.action
+    answered_theme = (count_form.data.theme or "").strip()
+    topic = answered_theme or (theme if theme is not None else DEFAULT_THEME)
+    if count_form.data.count == "custom":
+        if not isinstance(custom_form, AcceptedElicitation):
+            return custom_form.action
+        return custom_form.data.customCount, topic
+    # The framework validated the answer against the form, so a preset is always a number.
+    return int(count_form.data.count), topic
+
+
+def sample_ideas(
+    order: Annotated[BrainstormOrder | str, Resolve(resolve_brainstorm_order)],
+) -> Sample | None:
+    if isinstance(order, str):
+        return None
+    wanted, topic = order
+    return build_brainstorm_sampling(topic, wanted)
+
+
 @mcp.tool(
     description=(
         "Invent short, funny example tasks for a theme and add them to the board — asks the user how many "
@@ -534,87 +504,21 @@ async def brainstorm_tasks(
         str | None, Field(description='Theme for the invented tasks (default: "an engineer\'s week in hell")')
     ] = None,
     *,
+    order: Annotated[BrainstormOrder | str, Resolve(resolve_brainstorm_order)],
+    ideas: Annotated[CreateMessageResult | None, Resolve(sample_ideas)],
     ctx: Context,
-) -> CallToolResult | InputRequiredResult:
-    # The theme can come from the model (tool argument) or from the user (the elicitation form's
-    # theme field, pre-filled with a default); the user's answer wins.
-    fallback_topic = theme if theme is not None else DEFAULT_THEME
-
-    def resolve_topic(raw: object) -> str:
-        return raw.strip() if isinstance(raw, str) and raw.strip() else fallback_topic
-
-    def declined(action: str) -> CallToolResult:
-        return text_result(f"Nothing added (user answered: {action}).")
-
-    async def finish(ideas_text: str, wanted: int, topic: str) -> CallToolResult:
-        stripped = (re.sub(r"^[-*\d.\s]+", "", line).strip() for line in ideas_text.split("\n"))
-        titles = [line for line in stripped if line][:wanted]
-        if not titles:
-            return text_result("The model did not return any task ideas.", is_error=True)
-        added = [add_task_record(title=title, project=topic) for title in titles]
-        await announce_board_change(ctx)
-        await log_info(ctx, f'brainstormed {len(added)} task(s) for "{topic}"')
-        return text_result(
-            f"Added {len(added)} brainstormed task(s):\n" + "\n".join(describe_task(task) for task in added)
-        )
-
-    def ask_for_ideas(count: int, topic: str) -> InputRequiredResult:
-        return InputRequiredResult(
-            input_requests={"ideas": CreateMessageRequest(params=build_brainstorm_sampling(topic, count))},
-            request_state=json.dumps({"step": "awaiting-ideas", "topic": topic, "count": count}),
-        )
-
-    # The whole conversation as a multi-round flow — written ONCE. The flow is a state machine:
-    # it dispatches on the carried step (not on which input_responses key happens to be present),
-    # so each round knows exactly which answer to read and which data is in scope. The state is
-    # sealed by the server before it crosses the wire and verified on the echo.
-    async def flow(responses: InputResponses | None, state_token: str | None) -> CallToolResult | InputRequiredResult:
-        state: dict[str, Any] = json.loads(state_token) if state_token else {}
-        step = state.get("step")
-        if step is None:
-            # First round: ask for the theme and count.
-            return InputRequiredResult(
-                input_requests={
-                    "count": ElicitRequest(
-                        params=ElicitRequestFormParams(
-                            message="Let me invent some tasks for the board.",
-                            requested_schema=BRAINSTORM_COUNT_SCHEMA,
-                        )
-                    )
-                },
-                request_state=json.dumps({"step": "awaiting-count"}),
-            )
-        if step == "awaiting-count":
-            response = (responses or {}).get("count")
-            accepted = accepted_content(responses, "count")
-            if accepted is None:
-                return declined(elicit_response_action(response))
-            topic = resolve_topic(accepted.get("theme"))
-            if accepted.get("count") == "custom":
-                return InputRequiredResult(
-                    input_requests={
-                        "customCount": ElicitRequest(
-                            params=ElicitRequestFormParams(
-                                message="How many exactly?", requested_schema=BRAINSTORM_CUSTOM_COUNT_SCHEMA
-                            )
-                        )
-                    },
-                    request_state=json.dumps({"step": "awaiting-custom-count", "topic": topic}),
-                )
-            wanted = parse_brainstorm_count(accepted.get("count"))
-            if wanted is None:
-                return declined("cancel")
-            return ask_for_ideas(wanted, topic)
-        if step == "awaiting-custom-count":
-            response = (responses or {}).get("customCount")
-            accepted = accepted_content(responses, "customCount")
-            wanted = parse_brainstorm_count(accepted.get("customCount") if accepted else None)
-            if wanted is None:
-                return declined(elicit_response_action(response))
-            return ask_for_ideas(wanted, str(state["topic"]))
-        return await finish(sampled_text((responses or {}).get("ideas")), int(state["count"]), str(state["topic"]))
-
-    return await run_interactive(ctx, flow)
+) -> CallToolResult:
+    if isinstance(order, str):
+        return text_result(f"Nothing added (user answered: {order}).")
+    wanted, topic = order
+    stripped = (re.sub(r"^[-*\d.\s]+", "", line).strip() for line in sampled_text(ideas).split("\n"))
+    titles = [line for line in stripped if line][:wanted]
+    if not titles:
+        return text_result("The model did not return any task ideas.", is_error=True)
+    added = [add_task_record(title=title, project=topic) for title in titles]
+    await announce_board_change(ctx)
+    await log_info(ctx, f'brainstormed {len(added)} task(s) for "{topic}"')
+    return text_result(f"Added {len(added)} brainstormed task(s):\n" + "\n".join(describe_task(task) for task in added))
 
 
 @mcp.tool(description="List tasks on the board", structured_output=False)
@@ -685,52 +589,43 @@ async def work_through_tasks(
     return f"Worked through {len(queue)} task(s):\n" + "\n".join(f"- {task.title} ✔" for task in queue)
 
 
-@mcp.tool(description="Delete every completed task (asks the user to confirm first)")
-async def clear_done(ctx: Context) -> CallToolResult | InputRequiredResult:
+def confirm_clear() -> Elicit[ClearConfirmation] | ClearConfirmation:
+    """Ask only when there is something to delete.
+
+    An empty board resolves to a non-confirmation with no round-trip, so even if tasks complete
+    concurrently before the tool body runs, nothing is deleted without the user being asked.
+    """
+    done = sum(1 for task in tasks.values() if task.status == "done")
+    if done == 0:
+        return ClearConfirmation(confirm=False)
+    return Elicit(f"Delete {done} completed task(s) from the board?", ClearConfirmation)
+
+
+@mcp.tool(description="Delete every completed task (asks the user to confirm first)", structured_output=False)
+async def clear_done(
+    confirmation: Annotated[ElicitationResult[ClearConfirmation], Resolve(confirm_clear)],
+    ctx: Context,
+) -> str:
     done = [task for task in tasks.values() if task.status == "done"]
     if not done:
-        return text_result("No completed tasks to clear.")
-    message = f"Delete {len(done)} completed task(s) from the board?"
-
-    # A single round, written once for both eras — the first call has no responses and returns
-    # the question; the re-call carries the answer. (For multi-round flows, dispatch on a carried
-    # state instead — see brainstorm_tasks.)
-    async def flow(responses: InputResponses | None, state_token: str | None) -> CallToolResult | InputRequiredResult:
-        response = (responses or {}).get("confirmation")
-        if response is None:
-            return InputRequiredResult(
-                input_requests={
-                    "confirmation": ElicitRequest(
-                        params=ElicitRequestFormParams(message=message, requested_schema=CLEAR_CONFIRM_SCHEMA)
-                    )
-                }
-            )
-        action = elicit_response_action(response)
-        confirmation = accepted_content(responses, "confirmation")
-        if confirmation is None or confirmation.get("confirm") is not True:
-            # Decline and cancel are answers — report them and stop, never ask again.
-            return text_result(f"Nothing deleted (user answered: {action}).")
-        for task in done:
-            tasks.pop(task.id, None)
-        await announce_board_change(ctx)
-        await log_info(ctx, f"cleared {len(done)} completed task(s)")
-        return text_result(f"Deleted {len(done)} completed task(s).")
-
-    return await run_interactive(ctx, flow)
+        return "No completed tasks to clear."
+    if not (isinstance(confirmation, AcceptedElicitation) and confirmation.data.confirm):
+        # Decline and cancel are answers — report them and stop, never ask again.
+        return f"Nothing deleted (user answered: {confirmation.action})."
+    for task in done:
+        tasks.pop(task.id, None)
+    await announce_board_change(ctx)
+    await log_info(ctx, f"cleared {len(done)} completed task(s)")
+    return f"Deleted {len(done)} completed task(s)."
 
 
-@mcp.tool(
-    description="Rank the open tasks by importance using the LLM connected to the host, and update their priorities"
-)
-async def prioritize(ctx: Context) -> CallToolResult | InputRequiredResult:
+def rank_open_tasks() -> Sample | None:
+    """Ask the host's model to rank the open tasks; there is nothing to ask on an empty board."""
     candidates = open_tasks()
     if not candidates:
-        return text_result("No open tasks to prioritize.")
-    sampling_params = CreateMessageRequestParams(
-        system_prompt=(
-            "You prioritize todo lists. Reply with one task title per line, most important first. No commentary."
-        ),
-        messages=[
+        return None
+    return Sample(
+        [
             SamplingMessage(
                 role="user",
                 content=TextContent(
@@ -738,27 +633,35 @@ async def prioritize(ctx: Context) -> CallToolResult | InputRequiredResult:
                 ),
             )
         ],
+        system_prompt=(
+            "You prioritize todo lists. Reply with one task title per line, most important first. No commentary."
+        ),
         max_tokens=400,
     )
 
-    # A single round, written once for both eras (the ranking arrives on the retried call), so no
-    # carried state is needed. For multi-round flows, dispatch on a state instead — see brainstorm_tasks.
-    async def flow(responses: InputResponses | None, state_token: str | None) -> CallToolResult | InputRequiredResult:
-        response = (responses or {}).get("ranking")
-        if response is None:
-            return InputRequiredResult(input_requests={"ranking": CreateMessageRequest(params=sampling_params)})
-        ranked = apply_ranking(sampled_text(response), candidates)
-        for index, task in enumerate(ranked):
-            task.priority = priority_for_rank(index, len(ranked))
-        # Priorities are board-visible state — watchers and list caches must hear about it.
-        await announce_board_change(ctx)
-        await log_info(ctx, f"prioritize: ranked {len(ranked)} open task(s) via the host LLM")
-        return text_result(
-            f"Re-prioritized {len(ranked)} task(s):\n"
-            + "\n".join(f"- {task.title} → {task.priority}" for task in ranked)
-        )
 
-    return await run_interactive(ctx, flow)
+@mcp.tool(
+    description="Rank the open tasks by importance using the LLM connected to the host, and update their priorities",
+    structured_output=False,
+)
+async def prioritize(
+    ranking: Annotated[CreateMessageResult | None, Resolve(rank_open_tasks)],
+    ctx: Context,
+) -> str:
+    # Key off the resolver's decision, not a recount: if it saw an empty board and sampled
+    # nothing, don't invent priorities for tasks that appeared concurrently since.
+    if ranking is None:
+        return "No open tasks to prioritize."
+    candidates = open_tasks()
+    ranked = apply_ranking(sampled_text(ranking), candidates)
+    for index, task in enumerate(ranked):
+        task.priority = priority_for_rank(index, len(ranked))
+    # Priorities are board-visible state — watchers and list caches must hear about it.
+    await announce_board_change(ctx)
+    await log_info(ctx, f"prioritize: ranked {len(ranked)} open task(s) via the host LLM")
+    return f"Re-prioritized {len(ranked)} task(s):\n" + "\n".join(
+        f"- {task.title} → {task.priority}" for task in ranked
+    )
 
 
 # --- Wire plumbing the high-level server does not (yet) cover -----------------------------------
