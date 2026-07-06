@@ -199,42 +199,6 @@ def _wire_key(fn: Callable[..., Any]) -> str:
 
 
 @pytest.mark.anyio
-async def test_resolver_returns_value_directly_without_eliciting():
-    mcp = MCPServer(name="Direct", request_state_security=RequestStateSecurity.ephemeral())
-
-    async def login(ctx: Context) -> Login | Elicit[Login]:
-        username = (ctx.headers or {}).get("x-github-user")
-        if username:  # pragma: no cover - no headers on in-memory transport
-            return Login(username=username)
-        return Login(username="from-resolver")
-
-    @mcp.tool()
-    async def whoami(login: Annotated[Login, Resolve(login)]) -> str:
-        return login.username
-
-    async def never(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:  # pragma: no cover
-        raise AssertionError("should not elicit")
-
-    async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
-        assert await _text(client, "whoami", {}) == "from-resolver"
-
-
-@pytest.mark.anyio
-async def test_resolver_elicits_and_injects_unwrapped_model_on_accept():
-    mcp = MCPServer(name="Accept", request_state_security=RequestStateSecurity.ephemeral())
-
-    async def login(ctx: Context) -> Login | Elicit[Login]:
-        return Elicit("GitHub username?", Login)
-
-    @mcp.tool()
-    async def whoami(login: Annotated[Login, Resolve(login)]) -> str:
-        return login.username
-
-    async with Client(mcp, mode="legacy", elicitation_callback=_accept({"username": "octocat"})) as client:
-        assert await _text(client, "whoami", {}) == "octocat"
-
-
-@pytest.mark.anyio
 async def test_consumer_receives_result_union_and_branches():
     mcp = MCPServer(name="Union", request_state_security=RequestStateSecurity.ephemeral())
 
@@ -251,43 +215,6 @@ async def test_consumer_receives_result_union_and_branches():
 
     async with Client(mcp, mode="legacy", elicitation_callback=_accept({"username": "octocat"})) as client:
         assert await _text(client, "whoami", {}) == "hi octocat"
-
-
-@pytest.mark.anyio
-async def test_decline_reaches_union_consumer_without_aborting():
-    mcp = MCPServer(name="UnionDecline", request_state_security=RequestStateSecurity.ephemeral())
-
-    async def login(ctx: Context) -> Login | Elicit[Login]:
-        return Elicit("GitHub username?", Login)
-
-    @mcp.tool()
-    async def whoami(
-        login: Annotated[AcceptedElicitation[Login] | DeclinedElicitation | CancelledElicitation, Resolve(login)],
-    ) -> str:
-        if isinstance(login, DeclinedElicitation):
-            return "declined gracefully"
-        raise NotImplementedError
-
-    async with Client(mcp, mode="legacy", elicitation_callback=_decline) as client:
-        assert await _text(client, "whoami", {}) == "declined gracefully"
-
-
-@pytest.mark.anyio
-async def test_decline_aborts_when_consumer_wants_unwrapped():
-    mcp = MCPServer(name="UnwrappedDecline", request_state_security=RequestStateSecurity.ephemeral())
-
-    async def login(ctx: Context) -> Login | Elicit[Login]:
-        return Elicit("GitHub username?", Login)
-
-    @mcp.tool()
-    async def whoami(login: Annotated[Login, Resolve(login)]) -> str:
-        raise NotImplementedError  # pragma: no cover - never reached
-
-    async with Client(mcp, mode="legacy", elicitation_callback=_decline) as client:
-        result = await client.call_tool("whoami", {})
-        assert result.is_error
-        assert isinstance(result.content[0], TextContent)
-        assert "decline" in result.content[0].text
 
 
 @pytest.mark.anyio
@@ -367,22 +294,6 @@ async def test_sync_resolver():
 
     async with Client(mcp, mode="legacy", elicitation_callback=never) as client:
         assert await _text(client, "whoami", {}) == "sync-user"
-
-
-def test_resolved_params_absent_from_input_schema():
-    async def login(ctx: Context) -> Login:
-        return Login(username="x")  # pragma: no cover - only the schema is inspected
-
-    async def tool(
-        repo: Annotated[str, Field(description="repo name")],
-        login: Annotated[Login, Resolve(login)],
-    ) -> str:
-        return repo  # pragma: no cover - only the schema is inspected
-
-    built = Tool.from_function(tool)
-    properties = built.parameters["properties"]
-    assert "repo" in properties
-    assert "login" not in properties
 
 
 def test_cycle_detection_raises_at_registration():
@@ -1138,28 +1049,6 @@ async def test_accept_with_no_content_is_an_error_not_a_cancel(mode: Literal["le
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
         assert "no content" in result.content[0].text
-
-
-@pytest.mark.anyio
-async def test_eliciting_tool_without_client_capability_is_a_protocol_error():
-    # The server must not send an `input_requests` entry the client has not declared
-    # capability for: with no `elicitation` declared (no callback), the call fails as
-    # a -32021 protocol error, not a CallToolResult execution failure.
-    mcp = MCPServer(name="NoElicitationCapability", request_state_security=RequestStateSecurity.ephemeral())
-
-    async def ask(ctx: Context) -> Elicit[Login]:
-        return Elicit("user?", Login)
-
-    @mcp.tool()
-    async def tool(login: Annotated[Login, Resolve(ask)]) -> str:
-        return login.username  # pragma: no cover
-
-    async with Client(mcp) as client:
-        with pytest.raises(MCPError) as exc_info:
-            await client.session.call_tool("tool", {}, allow_input_required=True)
-    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
-    assert exc_info.value.error.data is not None
-    assert "elicitation" in exc_info.value.error.data["requiredCapabilities"]
 
 
 @pytest.mark.anyio
@@ -2802,6 +2691,7 @@ async def test_a_resolver_fills_its_parameter_without_any_client_interaction():
     async with Client(mcp) as client:
         result = await client.call_tool("quote", {"title": "Dune"})
 
+    assert not result.is_error
     assert result.content == [TextContent(type="text", text="Dune: 42")]
 
 
@@ -2824,6 +2714,7 @@ async def test_a_resolver_may_depend_on_another_resolvers_value():
     async with Client(mcp) as client:
         result = await client.call_tool("quote", {"title": "Dune"})
 
+    assert not result.is_error
     assert result.content == [TextContent(type="text", text="Dune costs 20")]
 
 
@@ -2843,6 +2734,7 @@ async def test_a_client_supplied_value_for_a_resolved_parameter_is_discarded():
     async with Client(mcp) as client:
         result = await client.call_tool("quote", {"title": "Dune", "price": 999})
 
+    assert not result.is_error
     assert result.content == [TextContent(type="text", text="Dune: 42")]
 
 
@@ -2853,11 +2745,11 @@ async def test_resolved_parameters_are_absent_from_the_advertised_tool_schema():
     mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
 
     def price_of(title: str) -> int:
-        return 42  # pragma: no cover - only the schema is inspected
+        raise NotImplementedError  # pragma: no cover - only the schema is inspected
 
     @mcp.tool()
     async def quote(title: str, price: Annotated[int, Resolve(price_of)]) -> str:
-        return f"{title}: {price}"  # pragma: no cover - only the schema is inspected
+        raise NotImplementedError  # pragma: no cover - only the schema is inspected
 
     async with Client(mcp) as client:
         (advertised,) = (await client.list_tools()).tools
@@ -2879,11 +2771,6 @@ async def test_an_elicit_marker_asks_the_client_and_injects_the_accepted_answer(
     callback and the tool receives the validated model, identically over the 2025
     back-channel and the 2026 multi-round-trip flow. SDK-defined injection contract."""
     mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
-    asked: list[str] = []
-
-    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
-        asked.append(params.message)
-        return ElicitResult(action="accept", content={"username": "octocat"})
 
     def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("GitHub username?", Login)
@@ -2892,9 +2779,18 @@ async def test_an_elicit_marker_asks_the_client_and_injects_the_accepted_answer(
     async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
         return login.username
 
+    asked: list[str] = []
+
+    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        asked.append(params.message)
+        return ElicitResult(action="accept", content={"username": "octocat"})
+
     async with Client(mcp, mode=mode, elicitation_callback=on_elicit) as client:
+        # The parametrize is only a real era matrix while the arms negotiate different revisions.
+        assert client.protocol_version == ("2025-11-25" if mode == "legacy" else "2026-07-28")
         result = await client.call_tool("whoami", {})
 
+    assert not result.is_error
     assert result.content == [TextContent(type="text", text="octocat")]
     assert asked == ["GitHub username?"]
 
@@ -2907,28 +2803,21 @@ async def test_a_declined_elicitation_fails_the_call_for_a_plain_model_consumer(
     the SDK's contract for plain-model consumers."""
     mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
 
-    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
-        return ElicitResult(action="decline")
-
     def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("GitHub username?", Login)
 
     @mcp.tool()
     async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
-        return login.username  # pragma: no cover - the decline aborts before the body
+        raise NotImplementedError  # pragma: no cover - the decline aborts before the body
 
-    async with Client(mcp, mode=mode, elicitation_callback=on_elicit) as client:
+    async with Client(mcp, mode=mode, elicitation_callback=_decline) as client:
         result = await client.call_tool("whoami", {})
 
     assert result.is_error
-    assert result.content == [
-        TextContent(
-            type="text",
-            text=(
-                "Error executing tool whoami: Resolver for parameter 'login' could not resolve: elicitation was decline"
-            ),
-        )
-    ]
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == snapshot(
+        "Error executing tool whoami: Resolver for parameter 'login' could not resolve: elicitation was decline"
+    )
 
 
 @pytest.mark.anyio
@@ -2940,9 +2829,6 @@ async def test_a_declined_elicitation_reaches_a_consumer_that_asked_for_the_outc
     of aborting the call. SDK-defined consumer-annotation contract."""
     mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
 
-    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
-        return ElicitResult(action="decline")
-
     def ask(ctx: Context) -> Elicit[Login]:
         return Elicit("GitHub username?", Login)
 
@@ -2952,7 +2838,7 @@ async def test_a_declined_elicitation_reaches_a_consumer_that_asked_for_the_outc
             return login.data.username  # pragma: no cover - declined in this test
         return "anonymous"
 
-    async with Client(mcp, mode=mode, elicitation_callback=on_elicit) as client:
+    async with Client(mcp, mode=mode, elicitation_callback=_decline) as client:
         result = await client.call_tool("whoami", {})
 
     assert not result.is_error
@@ -2972,7 +2858,7 @@ async def test_an_undeclared_capability_refuses_the_call_instead_of_asking(mode:
 
     @mcp.tool()
     async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
-        return login.username  # pragma: no cover - the gate refuses before the body
+        raise NotImplementedError  # pragma: no cover - the gate refuses before the body
 
     async with Client(mcp, mode=mode) as client:
         with pytest.raises(MCPError) as exc_info:
