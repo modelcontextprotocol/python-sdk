@@ -89,3 +89,54 @@ async def test_the_subscription_id_is_the_listen_request_id_the_server_saw(conne
                 stock.close()
                 async for _event in sub:
                     raise NotImplementedError  # unreachable: nothing was published
+
+
+@requirement("subscriptions:listen:client:concurrent-demux")
+@requirement("protocol:request-id:caller-supplied")
+async def test_concurrent_listen_streams_each_receive_their_own_ack(connect: Connect) -> None:
+    """Two subscriptions opened concurrently each surface the honored filter of their own request:
+    ack frames route by subscription id, not broadcast to every open route.
+
+    The server gates both acks until both listen requests have arrived, so both client routes are
+    live and unacknowledged when the first ack lands - a client that broadcast subscription frames
+    would cross-pollute that ack into both handles.
+    """
+    bus = InMemorySubscriptionBus()
+    stock = ListenHandler(bus)
+    arrived: list[types.RequestId] = []
+    both_arrived = anyio.Event()
+
+    async def gated_listen(
+        ctx: ServerRequestContext[Any, Any], params: types.SubscriptionsListenRequestParams
+    ) -> types.SubscriptionsListenResult:
+        assert ctx.request_id is not None
+        arrived.append(ctx.request_id)
+        if len(arrived) == 2:
+            both_arrived.set()
+        with anyio.fail_after(10):
+            await both_arrived.wait()
+        return await stock(ctx, params)
+
+    server = Server("subs", on_subscriptions_listen=gated_listen)
+    honored: dict[str, types.SubscriptionFilter] = {}
+
+    async with connect(server) as client:
+
+        async def open_tools() -> None:
+            async with client.listen(tools_list_changed=True) as sub:
+                honored["tools"] = sub.honored
+
+        async def open_prompts() -> None:
+            async with client.listen(prompts_list_changed=True) as sub:
+                honored["prompts"] = sub.honored
+
+        with anyio.fail_after(10):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(open_tools)
+                tg.start_soon(open_prompts)
+
+    assert honored == {
+        "tools": types.SubscriptionFilter(tools_list_changed=True),
+        "prompts": types.SubscriptionFilter(prompts_list_changed=True),
+    }
+    assert len(set(arrived)) == 2

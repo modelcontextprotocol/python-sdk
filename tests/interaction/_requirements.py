@@ -1231,6 +1231,15 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         added_in="2026-07-28",
     ),
+    "subscriptions:listen:client:concurrent-demux": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#multiple-concurrent-subscriptions",
+        behavior=(
+            "Concurrently open subscriptions each surface their own acknowledgment: with both listen "
+            "requests in flight before either ack arrives, each handle's honored filter is the subset "
+            "for its own request, routed by subscription id rather than broadcast to every open route."
+        ),
+        added_in="2026-07-28",
+    ),
     "subscriptions:listen:client:iteration": Requirement(
         source="sdk",
         behavior=(
