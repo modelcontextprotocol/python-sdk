@@ -48,12 +48,14 @@ def _extract_bearer_auth_params(www_auth_header: str) -> str | None:
     for segment in segments:
         scheme, separator, remainder = segment.partition(" ")
         if scheme.lower() == "bearer" and separator:
+            if collecting:
+                break
             collecting = True
             auth_params = [remainder.strip()]
             continue
 
         if collecting:
-            if separator and "=" not in scheme:
+            if separator and "=" not in scheme and not remainder.lstrip().startswith("="):
                 break
             auth_params.append(segment)
 
@@ -77,7 +79,9 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
         return None
 
     # Match comma-delimited auth-params while respecting quoted values.
-    pattern = re.compile(r'(?:^|,\s*)(?P<name>[A-Za-z][A-Za-z0-9_-]*)=(?:"(?P<quoted>[^"]+)"|(?P<unquoted>[^,\s]+))')
+    pattern = re.compile(
+        r'(?:^|,\s*)(?P<name>[A-Za-z][A-Za-z0-9_-]*)\s*=\s*(?:"(?P<quoted>[^"]*)"|(?P<unquoted>[^,\s]+))'
+    )
     for match in pattern.finditer(auth_params):
         if match.group("name") == field_name:
             # Return quoted value if present, otherwise unquoted value

@@ -181,6 +181,39 @@ class TestPKCEParameters:
         assert pkce1.code_challenge != pkce2.code_challenge
 
 
+class TestExtractFieldFromWwwAuth:
+    def test_uses_first_bearer_challenge_when_multiple_are_present(self):
+        response = httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": (
+                    'Basic realm="legacy", Bearer scope="read", error="insufficient_scope", Bearer scope="write"'
+                )
+            },
+            request=httpx.Request("GET", "https://example.com"),
+        )
+
+        assert extract_scope_from_www_auth(response) == "read"
+
+    def test_supports_optional_whitespace_around_equals(self):
+        response = httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": (
+                    'Bearer error="insufficient_scope", scope = "read write", '
+                    'resource_metadata = "https://example.com/.well-known/oauth-protected-resource"'
+                )
+            },
+            request=httpx.Request("GET", "https://example.com"),
+        )
+
+        assert extract_scope_from_www_auth(response) == "read write"
+        assert (
+            extract_resource_metadata_from_www_auth(response)
+            == "https://example.com/.well-known/oauth-protected-resource"
+        )
+
+
 class TestOAuthContext:
     """Test OAuth context functionality."""
 
