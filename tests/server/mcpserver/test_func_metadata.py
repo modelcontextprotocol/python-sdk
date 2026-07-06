@@ -1302,8 +1302,7 @@ def test_call_tool_result_in_union_with_input_required_result_is_still_rejected(
 def test_unknown_argument_raises_validation_error():
     """SDK-defined: a tools/call argument name not on the tool schema fails validation."""
 
-    def read_doc(topic: str = "") -> str:
-        return topic
+    def read_doc(topic: str = "") -> str: ...  # pragma: no branch
 
     meta = func_metadata(read_doc)
     with pytest.raises(ValidationError):
