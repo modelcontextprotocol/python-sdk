@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal, TypeVar, cast
 
 import anyio
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     CallToolResult,
@@ -2780,3 +2781,202 @@ async def test_tool_choice_only_sample_validates_as_tools_mode(mode: Literal["le
         sampling_capabilities=SamplingCapability(tools=SamplingToolsCapability()),
     ) as client:
         assert await _text(client, "calc", {}) == "4"
+
+
+# --- Feature walk: interaction-level tests (public API only, one behaviour per test) ---
+
+
+@pytest.mark.anyio
+async def test_a_resolver_fills_its_parameter_without_any_client_interaction():
+    """A resolver that computes its value server-side injects it with no client
+    callbacks involved. SDK-defined resolver contract."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+
+    def price_of(title: str) -> int:
+        return 42 if title == "Dune" else 0
+
+    @mcp.tool()
+    async def quote(title: str, price: Annotated[int, Resolve(price_of)]) -> str:
+        return f"{title}: {price}"
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("quote", {"title": "Dune"})
+
+    assert result.content == [TextContent(type="text", text="Dune: 42")]
+
+
+@pytest.mark.anyio
+async def test_a_resolver_may_depend_on_another_resolvers_value():
+    """A resolver declares its own Resolve dependency and receives that resolver's
+    value before the tool body runs. SDK-defined resolver contract."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+
+    def base_price(title: str) -> int:
+        return 10 if title == "Dune" else 1
+
+    def with_tax(price: Annotated[int, Resolve(base_price)]) -> int:
+        return price * 2
+
+    @mcp.tool()
+    async def quote(title: str, total: Annotated[int, Resolve(with_tax)]) -> str:
+        return f"{title} costs {total}"
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("quote", {"title": "Dune"})
+
+    assert result.content == [TextContent(type="text", text="Dune costs 20")]
+
+
+@pytest.mark.anyio
+async def test_a_client_supplied_value_for_a_resolved_parameter_is_discarded():
+    """A value the client sends under a resolved parameter's name never reaches the
+    tool; the resolver's value wins. SDK-defined: resolved parameters are server-side only."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+
+    def price_of(title: str) -> int:
+        return 42
+
+    @mcp.tool()
+    async def quote(title: str, price: Annotated[int, Resolve(price_of)]) -> str:
+        return f"{title}: {price}"
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("quote", {"title": "Dune", "price": 999})
+
+    assert result.content == [TextContent(type="text", text="Dune: 42")]
+
+
+@pytest.mark.anyio
+async def test_resolved_parameters_are_absent_from_the_advertised_tool_schema():
+    """tools/list advertises only the model-facing parameters; resolved ones are
+    invisible to the client. SDK-defined: resolvers are server-side dependency injection."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+
+    def price_of(title: str) -> int:
+        return 42  # pragma: no cover - only the schema is inspected
+
+    @mcp.tool()
+    async def quote(title: str, price: Annotated[int, Resolve(price_of)]) -> str:
+        return f"{title}: {price}"  # pragma: no cover - only the schema is inspected
+
+    async with Client(mcp) as client:
+        (advertised,) = (await client.list_tools()).tools
+
+    assert advertised.input_schema == snapshot(
+        {
+            "type": "object",
+            "properties": {"title": {"title": "Title", "type": "string"}},
+            "required": ["title"],
+            "title": "quoteArguments",
+        }
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_an_elicit_marker_asks_the_client_and_injects_the_accepted_answer(mode: Literal["legacy", "auto"]):
+    """A resolver returning Elicit puts its question to the client's elicitation
+    callback and the tool receives the validated model, identically over the 2025
+    back-channel and the 2026 multi-round-trip flow. SDK-defined injection contract."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+    asked: list[str] = []
+
+    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        asked.append(params.message)
+        return ElicitResult(action="accept", content={"username": "octocat"})
+
+    def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("GitHub username?", Login)
+
+    @mcp.tool()
+    async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username
+
+    async with Client(mcp, mode=mode, elicitation_callback=on_elicit) as client:
+        result = await client.call_tool("whoami", {})
+
+    assert result.content == [TextContent(type="text", text="octocat")]
+    assert asked == ["GitHub username?"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_a_declined_elicitation_fails_the_call_for_a_plain_model_consumer(mode: Literal["legacy", "auto"]):
+    """Declining the question aborts a tool whose consumer asked for the unwrapped
+    model, on either protocol era. Decline semantics are spec-defined; the abort is
+    the SDK's contract for plain-model consumers."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        return ElicitResult(action="decline")
+
+    def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("GitHub username?", Login)
+
+    @mcp.tool()
+    async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username  # pragma: no cover - the decline aborts before the body
+
+    async with Client(mcp, mode=mode, elicitation_callback=on_elicit) as client:
+        result = await client.call_tool("whoami", {})
+
+    assert result.is_error
+    assert result.content == [
+        TextContent(
+            type="text",
+            text=(
+                "Error executing tool whoami: Resolver for parameter 'login' could not resolve: elicitation was decline"
+            ),
+        )
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_a_declined_elicitation_reaches_a_consumer_that_asked_for_the_outcome_union(
+    mode: Literal["legacy", "auto"],
+):
+    """Annotating the outcome union hands the tool the decline to branch on instead
+    of aborting the call. SDK-defined consumer-annotation contract."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def on_elicit(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        return ElicitResult(action="decline")
+
+    def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("GitHub username?", Login)
+
+    @mcp.tool()
+    async def whoami(login: Annotated[ElicitationResult[Login], Resolve(ask)]) -> str:
+        if isinstance(login, AcceptedElicitation):
+            return login.data.username  # pragma: no cover - declined in this test
+        return "anonymous"
+
+    async with Client(mcp, mode=mode, elicitation_callback=on_elicit) as client:
+        result = await client.call_tool("whoami", {})
+
+    assert not result.is_error
+    assert result.content == [TextContent(type="text", text="anonymous")]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_an_undeclared_capability_refuses_the_call_instead_of_asking(mode: Literal["legacy", "auto"]):
+    """A client that never declared the elicitation capability is refused with the
+    missing-capability protocol error rather than sent a question it cannot handle.
+    The egress rule is spec-mandated; the SDK applies it on both eras."""
+    mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
+
+    def ask(ctx: Context) -> Elicit[Login]:
+        return Elicit("GitHub username?", Login)
+
+    @mcp.tool()
+    async def whoami(login: Annotated[Login, Resolve(ask)]) -> str:
+        return login.username  # pragma: no cover - the gate refuses before the body
+
+    async with Client(mcp, mode=mode) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("whoami", {})
+
+    assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
+    assert exc_info.value.error.data == {"requiredCapabilities": {"elicitation": {"form": {}}}}
