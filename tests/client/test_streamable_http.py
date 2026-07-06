@@ -18,6 +18,7 @@ from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     JSONRPCError,
@@ -122,6 +123,32 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_bare_401_request_maps_to_unauthorized_jsonrpc_error() -> None:
+    """A bare HTTP 401 should reach the caller as a correlated JSON-RPC error.
+
+    Authorization failures can be operation-specific. The client transport must
+    leave room for the agent/session layer to handle the denial instead of
+    collapsing it into an indistinguishable transport failure.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == 1
+    assert reply.message.error.code == INTERNAL_ERROR
+    assert reply.message.error.message == "Unauthorized"
 
 
 @pytest.mark.anyio
