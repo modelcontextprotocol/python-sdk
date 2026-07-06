@@ -864,6 +864,26 @@ async def test_validate_resource_rejects_mismatched_resource(
 
 
 @pytest.mark.anyio
+async def test_validate_resource_rejects_mismatched_query_component(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client rejects PRM resources with a different query-routed resource identifier."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp?tenant=a",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp?tenant=b"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    with pytest.raises(OAuthFlowError, match="does not match expected"):
+        await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
 async def test_validate_resource_accepts_matching_resource(
     client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
 ) -> None:
@@ -1826,6 +1846,23 @@ class TestSEP985Discovery:
         assert len(discovery_urls) == 2
         assert discovery_urls[0] == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
         assert discovery_urls[1] == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    def test_prm_discovery_preserves_server_url_query_component(self):
+        """Fallback PRM discovery preserves RFC 9728 query components."""
+        init_response = httpx.Response(
+            status_code=401, headers={}, request=httpx.Request("GET", "https://api.example.com/v1/mcp?tenant=a")
+        )
+
+        discovery_urls = build_protected_resource_metadata_discovery_urls(
+            extract_resource_metadata_from_www_auth(init_response), "https://api.example.com/v1/mcp?tenant=a"
+        )
+
+        assert discovery_urls == snapshot(
+            [
+                "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp?tenant=a",
+                "https://api.example.com/.well-known/oauth-protected-resource",
+            ]
+        )
 
     @pytest.mark.anyio
     async def test_root_based_fallback_after_path_based_404(

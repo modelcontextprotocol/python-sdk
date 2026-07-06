@@ -1,5 +1,5 @@
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from httpx import Request, Response
 from mcp_types import LATEST_PROTOCOL_VERSION
@@ -63,7 +63,7 @@ def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, s
 
     Per SEP-985, the client MUST:
     1. Try resource_metadata from WWW-Authenticate header (if present)
-    2. Fall back to path-based well-known URI: /.well-known/oauth-protected-resource/{path}
+    2. Fall back to path/query-based well-known URI: /.well-known/oauth-protected-resource/{path}?{query}
     3. Fall back to root-based well-known URI: /.well-known/oauth-protected-resource
 
     Args:
@@ -83,9 +83,11 @@ def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, s
     parsed = urlparse(server_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Priority 2: Path-based well-known URI (if server has a path component)
-    if parsed.path and parsed.path != "/":
-        path_based_url = urljoin(base_url, f"/.well-known/oauth-protected-resource{parsed.path}")
+    # Priority 2: Path/query-based well-known URI (if server has a path or query component)
+    if (parsed.path and parsed.path != "/") or parsed.query:
+        resource_path = parsed.path if parsed.path != "/" else ""
+        metadata_path = f"/.well-known/oauth-protected-resource{resource_path}"
+        path_based_url = urlunparse((parsed.scheme, parsed.netloc, metadata_path, parsed.params, parsed.query, ""))
         urls.append(path_based_url)
 
     # Priority 3: Root-based well-known URI
