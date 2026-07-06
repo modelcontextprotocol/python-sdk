@@ -337,4 +337,3 @@ async def test_negotiate_auto_validation_error_with_custom_protocol_version() ->
     await _negotiate(session, protocol_version="2024-11-05")
     assert session.initialized
     assert session.initialize_version == "2024-11-05"
-
