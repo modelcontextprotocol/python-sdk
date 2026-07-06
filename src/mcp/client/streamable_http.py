@@ -26,6 +26,7 @@ from mcp_types import (
     RequestId,
     jsonrpc_message_adapter,
 )
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
@@ -33,6 +34,7 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,19 @@ class RequestContext:
     read_stream_writer: StreamWriter
 
 
+@dataclass(slots=True)
+class _InFlightPost:
+    """A request POST in flight: its abort scope and the era it was sent under.
+
+    `modern` is the negotiated-version cache as of this request's dequeue, so a
+    later cancel frame is interpreted under the era the request actually ran
+    with, not whatever the cache says by then.
+    """
+
+    scope: anyio.CancelScope
+    modern: bool
+
+
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
@@ -81,11 +96,18 @@ class StreamableHTTPTransport:
         """
         self.url = url
         self.session_id: str | None = None
-        # Captured from each stamped POST's metadata. Reused on outbound HTTP that carries
-        # no per-message header (transport-internal GET/DELETE, and dispatcher-written
-        # response/error/cancel POSTs that bypass the session's stamp). Cleared when an
-        # `initialize` POST goes out so a probe-stamped value cannot leak onto the handshake.
+        # Captured from each stamped message's metadata, synchronously in the
+        # post_writer loop so the cache always reflects wire order (a POST task's
+        # scheduling is arbitrary). Reused on outbound HTTP that carries no
+        # per-message header (transport-internal GET/DELETE, and dispatcher-written
+        # response/error POSTs that bypass the session's stamp), and consulted by
+        # `_consume_modern_cancellation`. Cleared when an `initialize` message is
+        # dequeued so a probe-stamped value cannot leak onto the handshake.
         self._protocol_version_header: str | None = None
+        # Every request's POST runs inside one of these so an outbound
+        # `notifications/cancelled` at 2026 can abort it; see
+        # `_consume_modern_cancellation`. Keys are verbatim-typed ("1" is not 1).
+        self._in_flight_posts: dict[RequestId, _InFlightPost] = {}
 
     def _prepare_headers(self) -> dict[str, str]:
         """Build MCP-specific request headers for any outbound HTTP request.
@@ -93,9 +115,9 @@ class StreamableHTTPTransport:
         These are merged with the ``httpx.AsyncClient`` defaults (these take
         precedence). The cached ``MCP-Protocol-Version`` is included whenever
         present so messages that don't pass through the session's stamp —
-        response/error/cancel POSTs, transport-internal GET/DELETE — still
-        carry the negotiated version. Per-message headers are layered on top
-        by the caller.
+        response/error POSTs, legacy cancel frames, transport-internal
+        GET/DELETE — still carry the negotiated version. Per-message headers
+        are layered on top by the caller.
         """
         headers: dict[str, str] = {
             "accept": "application/json, text/event-stream",
@@ -245,19 +267,57 @@ class StreamableHTTPTransport:
                     await event_source.response.aclose()
                     break
 
+    def _consume_modern_cancellation(self, session_message: SessionMessage) -> bool:
+        """Translate an outbound `notifications/cancelled` at 2026; True means "do not POST".
+
+        The 2026 wire defines no client-to-server notifications over streamable
+        HTTP: closing a request's response stream IS its cancellation signal.
+        The dispatcher still emits the courtesy frame as its abandon signal
+        (every outbound cancel names one of our own request ids - the spec
+        forbids cancelling a request the sender did not issue), so this
+        transport translates it: when the named request's POST is in flight,
+        that POST's own recorded era decides - abort-and-swallow at 2026, POST
+        the frame below it (where the frame is the signal and a disconnect
+        explicitly is not). With no POST to consult, the cached negotiated
+        version decides; at 2026 the frame is swallowed even unmatched, so a
+        late cancel racing the response cannot leak onto the wire.
+        """
+        message = session_message.message
+        if not (isinstance(message, JSONRPCNotification) and message.method == "notifications/cancelled"):
+            return False
+        request_id = cancelled_request_id_from_params(message.params)
+        post = self._in_flight_posts.get(request_id) if request_id is not None else None
+        if post is not None:
+            if not post.modern:
+                return False
+            logger.debug("aborting in-flight POST for cancelled request %r", request_id)
+            post.scope.cancel()
+            return True
+        return self._protocol_version_header in MODERN_PROTOCOL_VERSIONS
+
+    async def _run_request_post(
+        self,
+        post_fn: Callable[[], Awaitable[None]],
+        post: _InFlightPost,
+        request_id: RequestId,
+    ) -> None:
+        """Run one request's POST inside its abort scope (see `_consume_modern_cancellation`)."""
+        try:
+            with post.scope:
+                await post_fn()
+        finally:
+            # Identity-guarded: a reused id may already have a successor
+            # registered while this task unwinds - popping by key alone would
+            # evict the live entry and leave the new POST unabortable.
+            if self._in_flight_posts.get(request_id) is post:
+                del self._in_flight_posts[request_id]
+
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         message = ctx.session_message.message
-        is_initialization = self._is_initialization_request(message)
-        if is_initialization:
-            # `initialize` is the negotiation, not a "subsequent request" — discard any
-            # probe-stamped value so the discover→fallback path can't leak it onto the handshake.
-            self._protocol_version_header = None
         headers = self._prepare_headers()
         if ctx.metadata is not None and ctx.metadata.headers is not None:
             headers.update(ctx.metadata.headers)
-            if MCP_PROTOCOL_VERSION_HEADER in ctx.metadata.headers:
-                self._protocol_version_header = ctx.metadata.headers[MCP_PROTOCOL_VERSION_HEADER]
 
         async with ctx.client.stream(
             "POST",
@@ -302,7 +362,7 @@ class StreamableHTTPTransport:
                     await ctx.read_stream_writer.send(session_message)
                 return
 
-            if is_initialization:
+            if self._is_initialization_request(message):
                 self._maybe_extract_session_id_from_response(response)
 
             # Per https://modelcontextprotocol.io/specification/2025-06-18/basic#notifications:
@@ -455,6 +515,8 @@ class StreamableHTTPTransport:
 
                 async def _handle_message(session_message: SessionMessage) -> None:
                     message = session_message.message
+                    if self._consume_modern_cancellation(session_message):
+                        return
                     metadata = (
                         session_message.metadata
                         if isinstance(session_message.metadata, ClientMessageMetadata)
@@ -469,6 +531,15 @@ class StreamableHTTPTransport:
                     # Handle initialized notification
                     if self._is_initialized_notification(message):
                         start_get_stream()
+
+                    if self._is_initialization_request(message):
+                        # `initialize` is the negotiation, not a "subsequent request" — discard any
+                        # probe-stamped value so the discover→fallback path can't leak it onto the handshake.
+                        self._protocol_version_header = None
+                    elif metadata is not None and metadata.headers is not None:
+                        stamped_version = metadata.headers.get(MCP_PROTOCOL_VERSION_HEADER)
+                        if stamped_version is not None:
+                            self._protocol_version_header = stamped_version
 
                     ctx = RequestContext(
                         client=client,
@@ -486,7 +557,15 @@ class StreamableHTTPTransport:
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
-                        tg.start_soon(handle_request_async)
+                        # Register the abort scope before the spawn: the next
+                        # message through this loop can already be the abandon
+                        # signal for this id, ahead of the task ever running.
+                        post = _InFlightPost(
+                            scope=anyio.CancelScope(),
+                            modern=self._protocol_version_header in MODERN_PROTOCOL_VERSIONS,
+                        )
+                        self._in_flight_posts[message.id] = post
+                        tg.start_soon(self._run_request_post, handle_request_async, post, message.id)
                     else:
                         await handle_request_async()
 

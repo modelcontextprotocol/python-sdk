@@ -34,9 +34,24 @@ __all__ = [
     "OnRequest",
     "Outbound",
     "ProgressFnT",
+    "coerce_request_id",
 ]
 
 TransportT_co = TypeVar("TransportT_co", bound=TransportContext, covariant=True)
+
+
+def coerce_request_id(request_id: RequestId) -> RequestId:
+    """Coerce a stringified int request id back to int so a peer-echoed id still correlates (matches the TS SDK).
+
+    This is the collision/correlation domain dispatchers share: "7" and 7 are one
+    id for correlation purposes, even where the wire carries the verbatim value.
+    """
+    if isinstance(request_id, str):
+        try:
+            return int(request_id)
+        except ValueError:
+            pass
+    return request_id
 
 
 class ProgressFnT(Protocol):
@@ -49,6 +64,18 @@ class CallOptions(TypedDict, total=False):
     """Per-call options for `Outbound.send_raw_request`.
 
     All keys are optional. Dispatchers ignore keys they do not understand.
+    """
+
+    request_id: RequestId
+    """Send the request under this caller-supplied id instead of a dispatcher-minted one.
+
+    The peer sees the value verbatim ("7" stays a string). A value that collides
+    with one of the sender's own in-flight request ids raises `ValueError`.
+    Callers that need to know a request's id before its result arrives (a
+    `subscriptions/listen` stream is demultiplexed by it) mint their own ids
+    here; string ids that don't parse as integers can never collide with the
+    dispatcher's minted sequence. Per the class contract, dispatchers that
+    predate this key ignore it and mint as usual.
     """
 
     timeout: float

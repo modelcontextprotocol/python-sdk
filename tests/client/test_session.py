@@ -1330,43 +1330,43 @@ def test_adopt_raises_when_no_mutual_modern_version_is_supported() -> None:
     assert session.protocol_version is None
 
 
+class _OptsRecordingDispatcher:
+    """Records `send_raw_request` opts and answers from a per-method script (default `{}`)."""
+
+    def __init__(self, answers: dict[str, dict[str, Any]] | None = None) -> None:
+        self.calls: list[tuple[str, CallOptions]] = []
+        self._answers = answers or {}
+
+    async def run(
+        self,
+        on_request: OnRequest,
+        on_notify: OnNotify,
+        *,
+        task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
+        task_status.started()
+        await anyio.sleep_forever()
+
+    async def send_raw_request(
+        self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+    ) -> dict[str, Any]:
+        self.calls.append((method, opts or {}))
+        return self._answers.get(method, {})
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        pass
+
+
 @pytest.mark.anyio
 async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_leave_it_unset():
     """`send_request` passes `cancel_on_abandon=False` for `initialize` — the spec forbids
     cancelling it — and leaves the option unset for every other method."""
-
-    class RecordingDispatcher:
-        """Records `send_raw_request` opts and answers with canned results."""
-
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, CallOptions]] = []
-
-        async def run(
-            self,
-            on_request: OnRequest,
-            on_notify: OnNotify,
-            *,
-            task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
-        ) -> None:
-            task_status.started()
-            await anyio.sleep_forever()
-
-        async def send_raw_request(
-            self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
-        ) -> dict[str, Any]:
-            self.calls.append((method, opts or {}))
-            if method == "initialize":
-                return InitializeResult(
-                    protocol_version=LATEST_HANDSHAKE_VERSION,
-                    capabilities=ServerCapabilities(),
-                    server_info=Implementation(name="mock-server", version="0.1.0"),
-                ).model_dump(by_alias=True, mode="json", exclude_none=True)
-            return {}
-
-        async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
-            pass
-
-    dispatcher = RecordingDispatcher()
+    init_answer = InitializeResult(
+        protocol_version=LATEST_HANDSHAKE_VERSION,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _OptsRecordingDispatcher({"initialize": init_answer})
     with anyio.fail_after(5):
         async with ClientSession(dispatcher=dispatcher) as session:
             await session.initialize()
@@ -1374,6 +1374,27 @@ async def test_initialize_opts_out_of_cancel_on_abandon_while_other_requests_lea
     opts_by_method = dict(dispatcher.calls)
     assert opts_by_method["initialize"].get("cancel_on_abandon") is False
     assert "cancel_on_abandon" not in opts_by_method["ping"]
+
+
+@pytest.mark.anyio
+async def test_modern_stamp_leaves_cancel_on_abandon_at_the_dispatcher_default():
+    """Post-adopt modern requests leave `cancel_on_abandon` unset (the dispatcher default,
+    True): the courtesy frame is the abandon signal — the 2026 cancellation spelling on
+    stream transports, and the streamable-HTTP transport's cue to abort the request's own
+    POST. The negotiation methods still opt out on every path: `send_discover`'s explicit
+    opts, and the stamp's own carve-out for a `server/discover` sent through the generic
+    `send_request`."""
+    dispatcher = _OptsRecordingDispatcher({"server/discover": _discover_result_dict()})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+            await session.send_ping()
+            await session.send_request(types.DiscoverRequest(params=types.RequestParams()), types.DiscoverResult)
+    assert [method for method, _ in dispatcher.calls] == ["server/discover", "ping", "server/discover"]
+    negotiation_opts, ping_opts, stamped_negotiation_opts = (opts for _, opts in dispatcher.calls)
+    assert negotiation_opts.get("cancel_on_abandon") is False
+    assert "cancel_on_abandon" not in ping_opts
+    assert stamped_negotiation_opts.get("cancel_on_abandon") is False
 
 
 def test_constructor_rejects_streams_and_dispatcher_together():

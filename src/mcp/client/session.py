@@ -93,7 +93,16 @@ def _make_modern_stamp(
         meta[PROTOCOL_VERSION_META_KEY] = protocol_version
         meta[CLIENT_INFO_META_KEY] = client_info
         meta[CLIENT_CAPABILITIES_META_KEY] = capabilities
-        opts["cancel_on_abandon"] = False
+        # `cancel_on_abandon` stays at the dispatcher default (True): the
+        # courtesy `notifications/cancelled` is the abandon signal. On the
+        # stream transports it is the 2026 wire's cancellation spelling; the
+        # streamable-HTTP transport translates it into aborting the request's
+        # own POST instead of writing it (the 2026 HTTP wire has no
+        # client-to-server notifications - closing the stream is the signal).
+        # The negotiation methods still opt out, mirroring `_preconnect_stamp`:
+        # the spec forbids cancelling them.
+        if data["method"] in ("initialize", "server/discover"):
+            opts["cancel_on_abandon"] = False
         headers = opts.setdefault("headers", {})
         headers[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
         headers[MCP_METHOD_HEADER] = data["method"]

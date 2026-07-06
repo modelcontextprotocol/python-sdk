@@ -308,3 +308,58 @@ async def test_set_level_with_an_unrecognized_value_is_answered_with_invalid_par
 
     assert len(errors) == 1
     assert errors[0].code == INVALID_PARAMS
+
+
+@requirement("protocol:cancel:stream-frame")
+async def test_abandoning_a_call_on_a_modern_stream_wire_sends_one_cancelled_frame() -> None:
+    """At 2026-07-28 over a stream (stdio-shaped) wire, abandoning an in-flight call puts exactly
+    one notifications/cancelled naming that request on the wire, and the frame interrupts the
+    server-side handler - stream wires keep the frame spelling that 2026 streamable HTTP dropped.
+    """
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        raise NotImplementedError  # registered so tools/call is served; the stream wire never lists
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "block"
+        handler_started.set()
+        try:
+            await anyio.Event().wait()  # parked until the client's abandonment cancels it
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable
+
+    server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
+    recording = RecordingTransport(InMemoryTransport(server))
+
+    async with Client(recording, mode="2026-07-28") as client:
+        abandon = anyio.CancelScope()
+
+        async def call_and_abandon() -> None:
+            with abandon:
+                await client.call_tool("block", {})
+                raise NotImplementedError  # unreachable: the call never resolves
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(call_and_abandon)
+            with anyio.fail_after(5):
+                await handler_started.wait()
+            abandon.cancel()
+            with anyio.fail_after(5):
+                await handler_cancelled.wait()
+
+        # Let the cancelled call's late error response arrive and be dropped while the client
+        # is still open, so teardown never races its delivery.
+        await anyio.wait_all_tasks_blocked()
+
+    call, cancel = [message.message for message in recording.sent]
+    assert isinstance(call, JSONRPCRequest)
+    assert call.method == "tools/call"
+    assert isinstance(cancel, JSONRPCNotification)
+    assert cancel.method == "notifications/cancelled"
+    assert cancel.params == {"requestId": call.id, "reason": "caller cancelled"}

@@ -12,6 +12,7 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 
 nav:
   - MCP Python SDK: index.md
+  - "What's new in v2": whats-new.md
   - Get started:
       - get-started/index.md
       - Installation: get-started/installation.md
@@ -68,6 +69,13 @@ nav:
 
 theme:
   name: "material"
+  custom_dir: docs/.overrides
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    logo: mcp
+  favicon: favicon.svg
   palette:
     - media: "(prefers-color-scheme)"
       scheme: default
@@ -85,7 +93,7 @@ theme:
         name: "Switch to dark mode"
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: white
+      primary: black
       accent: white
       toggle:
         icon: material/lightbulb-auto-outline
@@ -97,14 +105,20 @@ theme:
     - content.code.annotate
     - content.code.copy
     - content.code.select
-    - navigation.path
+    - navigation.footer
     - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - navigation.path
+    - navigation.prune
     - navigation.sections
+    - navigation.top
     - navigation.tracking
     - toc.follow
-  # logo: "img/logo-white.svg"
-  # TODO(Marcelo): Add a favicon.
-  # favicon: "favicon.ico"
+
+extra_css:
+  - extra.css
 
 # https://www.mkdocs.org/user-guide/configuration/#validation
 validation:
