@@ -486,12 +486,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "id up front is the SDK surface that makes it satisfiable."
         ),
         added_in="2026-07-28",
-        deferred=(
-            "No public API surface yet: the capability exists at the dispatcher seam "
-            "(CallOptions['request_id'], unit-tested there), but ClientSession.send_request does not "
-            "expose it. The public consumer arrives with the client-side listen driver (Client.listen), "
-            "whose interaction tests will exercise it end to end."
-        ),
     ),
     "protocol:notifications:no-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic#notifications",

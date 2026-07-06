@@ -60,3 +60,32 @@ async def test_a_stream_dropped_after_the_ack_raises_subscription_lost(connect: 
                 proceed.set()
                 with pytest.raises(SubscriptionLost):  # pragma: no branch
                     await anext(sub)
+
+
+@requirement("protocol:request-id:caller-supplied")
+async def test_the_subscription_id_is_the_listen_request_id_the_server_saw(connect: Connect) -> None:
+    """The handle's `subscription_id` is the listen request's own JSON-RPC id, known to the caller
+    while the request is still in flight - the key the server stamps every frame with for demux.
+
+    The assertion runs inside the open stream: the ack has arrived but the listen request's
+    response has not, so the id cannot have come from a response.
+    """
+    bus = InMemorySubscriptionBus()
+    stock = ListenHandler(bus)
+    seen: list[types.RequestId] = []
+
+    async def recording_listen(
+        ctx: ServerRequestContext[Any, Any], params: types.SubscriptionsListenRequestParams
+    ) -> types.SubscriptionsListenResult:
+        assert ctx.request_id is not None
+        seen.append(ctx.request_id)
+        return await stock(ctx, params)
+
+    server = Server("subs", on_subscriptions_listen=recording_listen)
+    async with connect(server) as client:
+        with anyio.fail_after(10):
+            async with client.listen(tools_list_changed=True) as sub:  # pragma: no branch
+                assert seen == [sub.subscription_id]
+                stock.close()
+                async for _event in sub:
+                    raise NotImplementedError  # unreachable: nothing was published
