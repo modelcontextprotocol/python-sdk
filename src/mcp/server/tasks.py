@@ -251,7 +251,9 @@ class Tasks(Extension):
         except MCPError as exc:
             # SEP-2663: a JSON-RPC error during execution is a `failed` task,
             # with the error inlined on `tasks/get`. The declaring client gets
-            # the failed `CreateTaskResult`, not the JSON-RPC error.
+            # the failed `CreateTaskResult`, not the JSON-RPC error. Only
+            # MCPError, deliberately: cancellation must propagate so an
+            # abandoned call leaves no task record.
             error = exc.error.model_dump(by_alias=True, mode="json", exclude_none=True)
             return await self._create_task(status="failed", error=error, status_message=exc.error.message)
         payload = _wire_payload(result)
