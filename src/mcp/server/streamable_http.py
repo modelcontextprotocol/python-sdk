@@ -468,7 +468,9 @@ class StreamableHTTPServerTransport:
             return False
         return True
 
-    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
+    async def _handle_post_request(  # noqa: C901, PLR0915
+        self, scope: Scope, request: Request, receive: Receive, send: Send
+    ) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
@@ -555,7 +557,21 @@ class StreamableHTTPServerTransport:
                 else request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
             )
 
+            # Extract the request ID outside the branches for proper scope.
             request_id = str(message.root.id)
+            # The MCP base protocol requires that "the request ID MUST NOT have been previously
+            # used by the requestor within the same session". If a client violates this, the
+            # prior stream would be silently overwritten and the in-flight request would hang,
+            # so reject the duplicate and leave the existing request untouched. This guard
+            # precedes both the JSON-response and SSE branches (and the priming-event mint),
+            # so no per-request state is created for a duplicate id.
+            if request_id in self._request_streams:
+                response = self._create_error_response(
+                    f"Conflict: request id {request_id!r} is already in flight on this session",
+                    HTTPStatus.CONFLICT,
+                )
+                await response(scope, receive, send)
+                return
 
             if self.is_json_response_enabled:  # pragma: no cover
                 self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
