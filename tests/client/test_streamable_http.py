@@ -36,6 +36,7 @@ from mcp.client.streamable_http import (
     MAX_RECONNECTION_ATTEMPTS,
     RequestContext,
     StreamableHTTPTransport,
+    _send_or_ignore_closed,
     streamable_http_client,
 )
 from mcp.server import Server
@@ -196,6 +197,18 @@ async def test_sse_message_ignores_closed_read_stream() -> None:
         complete = await transport._handle_sse_event(sse, read_stream_writer, original_request_id=1)
 
     assert complete is True
+
+
+@pytest.mark.anyio
+async def test_send_or_ignore_closed_reports_delivery_status() -> None:
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](1)
+    message = SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={}))
+
+    async with read_stream_writer, read_stream:
+        assert await _send_or_ignore_closed(read_stream_writer, message) is True  # pyright: ignore[reportPrivateUsage]
+        assert await read_stream.receive() == message
+        await read_stream.aclose()
+        assert await _send_or_ignore_closed(read_stream_writer, message) is False  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.anyio
