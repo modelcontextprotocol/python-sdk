@@ -757,7 +757,7 @@ class StreamableHTTPServerTransport:
             self._active_get_response_scopes.add(scope)
             with scope:
                 await response(request.scope, request.receive, send)
-        except Exception:  # pragma: lax no cover
+        except Exception:  # pragma: no cover
             logger.exception("Error in standalone SSE response")
             await self._clean_up_memory_streams(GET_STREAM_KEY)
         finally:
@@ -804,7 +804,7 @@ class StreamableHTTPServerTransport:
 
         # Cancel all in-flight GET SSE responses to prevent
         # sse-starlette TaskGroup deadlock on Windows (python-sdk#2653).
-        for scope in self._active_get_response_scopes:
+        for scope in self._active_get_response_scopes:  # pragma: no cover
             scope.cancel()
         self._active_get_response_scopes.clear()
 
