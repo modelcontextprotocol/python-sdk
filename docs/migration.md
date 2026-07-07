@@ -2065,8 +2065,8 @@ One behavioral caveat when moving progress-reporting handlers onto `Client(serve
 They keep working against 2025-era servers; a 2026-07-28 server answers them with `-32601` (method not found). Migrate to the listen driver:
 
 ```python
-async with client.listen(resource_subscriptions=["note://todo"]) as sub:
-    async for event in sub:  # ResourceUpdated(uri="note://todo")
+async with client.listen(resource_subscriptions=["board://sprint"]) as sub:
+    async for event in sub:  # ResourceUpdated(uri="board://sprint")
         ...
 ```
 

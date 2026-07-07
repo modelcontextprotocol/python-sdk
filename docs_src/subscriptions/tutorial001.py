@@ -1,28 +1,33 @@
 from mcp.server.mcpserver import Context, MCPServer
 
-mcp = MCPServer("Notebook")
+mcp = MCPServer("Sprint Board")
 
-NOTES = {"todo": "buy milk", "journal": "day one"}
-
-
-@mcp.resource("note://{name}")
-def note(name: str) -> str:
-    return NOTES[name]
+BOARDS = {
+    "sprint": {"design": False, "build": False, "ship": False},
+    "backlog": {"tidy docs": False},
+}
 
 
-@mcp.tool()
-async def edit_note(name: str, text: str, ctx: Context) -> str:
-    NOTES[name] = text
-    await ctx.notify_resource_updated(f"note://{name}")
-    return "saved"
-
-
-def search(query: str) -> list[str]:
-    return [name for name, text in NOTES.items() if query in text]
+@mcp.resource("board://{name}")
+def board(name: str) -> str:
+    tasks = BOARDS[name]
+    return "\n".join(f"[{'x' if done else ' '}] {task}" for task, done in tasks.items())
 
 
 @mcp.tool()
-async def enable_search(ctx: Context) -> str:
-    mcp.add_tool(search)
+async def complete_task(board: str, task: str, ctx: Context) -> str:
+    BOARDS[board][task] = True
+    await ctx.notify_resource_updated(f"board://{board}")
+    return f"{task}: done"
+
+
+def sprint_report() -> str:
+    done = sum(done for tasks in BOARDS.values() for done in tasks.values())
+    return f"{done} task(s) done"
+
+
+@mcp.tool()
+async def enable_reports(ctx: Context) -> str:
+    mcp.add_tool(sprint_report)
     await ctx.notify_tools_changed()
-    return "search is live"
+    return "reporting is live"
