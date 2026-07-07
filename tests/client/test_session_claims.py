@@ -28,7 +28,7 @@ from typing_extensions import assert_type
 
 from mcp.client.extension import ClaimContext, ResultClaim, UnexpectedClaimedResult
 from mcp.client.session import ClientSession, _CallToolResultAdapter
-from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest
+from mcp.shared.dispatcher import CallOptions, OnNotify, OnNotifyIntercept, OnRequest
 
 _TASKS_EXT = "com.example/tasks"
 _AD_ONLY_EXT = "com.example/flags"
@@ -75,6 +75,7 @@ class _RecordingDispatcher:
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:

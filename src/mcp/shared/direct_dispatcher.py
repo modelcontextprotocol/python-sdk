@@ -28,7 +28,15 @@ from mcp_types import CONNECTION_CLOSED, INTERNAL_ERROR, INVALID_PARAMS, REQUEST
 from pydantic import ValidationError
 
 from mcp.shared._compat import resync_tracer
-from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT, coerce_request_id
+from mcp.shared.dispatcher import (
+    CallOptions,
+    OnNotify,
+    OnNotifyIntercept,
+    OnRequest,
+    ProgressFnT,
+    coerce_request_id,
+    run_notify_intercept,
+)
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
@@ -106,6 +114,7 @@ class DirectDispatcher:
         self._peer: DirectDispatcher | None = None
         self._on_request: OnRequest | None = None
         self._on_notify: OnNotify | None = None
+        self._on_notify_intercept: OnNotifyIntercept | None = None
         self._next_id = 0
         self._in_flight_ids: set[RequestId] = set()
         self._ready = anyio.Event()
@@ -158,6 +167,7 @@ class DirectDispatcher:
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -169,6 +179,7 @@ class DirectDispatcher:
         try:
             self._on_request = on_request
             self._on_notify = on_notify
+            self._on_notify_intercept = on_notify_intercept
             self._running = True
             self._ready.set()
             task_status.started()
@@ -285,6 +296,8 @@ class DirectDispatcher:
             # Notifications are fire-and-forget: a notify to a closed peer is
             # dropped, not raised back into the sender's call.
             logger.debug("dropped notification %r to closed DirectDispatcher", method)
+            return
+        if run_notify_intercept(self._on_notify_intercept, method, params):
             return
         assert self._on_notify is not None
         dctx = self._make_context()

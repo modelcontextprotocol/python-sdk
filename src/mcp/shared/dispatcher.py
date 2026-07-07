@@ -16,6 +16,7 @@ See `JSONRPCDispatcher` for the production implementation and
 embedding a server in-process.
 """
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 
@@ -26,18 +27,30 @@ from mcp_types import RequestId
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "CallOptions",
     "DispatchContext",
     "Dispatcher",
     "OnNotify",
+    "OnNotifyIntercept",
     "OnRequest",
     "Outbound",
     "ProgressFnT",
+    "as_request_id",
     "coerce_request_id",
+    "run_notify_intercept",
 ]
 
 TransportT_co = TypeVar("TransportT_co", bound=TransportContext, covariant=True)
+
+
+def as_request_id(value: object) -> RequestId | None:
+    """Narrow an untyped wire value to a `RequestId`, or None; rejects bool (True would alias request id 1)."""
+    if isinstance(value, str | int) and not isinstance(value, bool):
+        return value
+    return None
 
 
 def coerce_request_id(request_id: RequestId) -> RequestId:
@@ -211,6 +224,25 @@ OnRequest = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] 
 OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[None]]
 """Handler for inbound notifications: `(ctx, method, params)`."""
 
+OnNotifyIntercept = Callable[[str, Mapping[str, Any] | None], bool]
+"""Synchronous receive-order intercept for inbound notifications: `(method, params) -> consumed`.
+
+Runs before `on_notify` is scheduled so correlation state advances in wire order
+relative to response resolution (the client's listen demux depends on this).
+Returning True consumes the notification. Must not block the receive path.
+"""
+
+
+def run_notify_intercept(intercept: OnNotifyIntercept | None, method: str, params: Mapping[str, Any] | None) -> bool:
+    """Invoke `intercept`, containing a raise to that one notification (never the receive loop)."""
+    if intercept is None:
+        return False
+    try:
+        return intercept(method, params)
+    except Exception:
+        logger.exception("notification intercept raised; passing %r through", method)
+        return False
+
 
 class Dispatcher(Outbound, Protocol[TransportT_co]):
     """A duplex request/notification channel with call-return semantics.
@@ -225,6 +257,7 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -232,7 +265,9 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
 
         Each inbound request is dispatched to `on_request` in its own task;
         the returned dict (or raised `MCPError`) is sent back as the response.
-        Inbound notifications go to `on_notify`.
+        Implementations MUST offer every inbound notification to
+        `on_notify_intercept` synchronously in receive order (via
+        `run_notify_intercept`), handing only unconsumed ones to `on_notify`.
 
         `task_status.started()` is called once the dispatcher is ready to
         accept `send_request`/`notify` calls, so callers can use

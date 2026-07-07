@@ -203,6 +203,7 @@ async def test_list_resource_templates_returns_registered_templates(connect: Con
     )
 
 
+@pytest.mark.filterwarnings("ignore::mcp.MCPDeprecationWarning")
 @requirement("resources:subscribe")
 async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
     """Subscribing to a resource delivers the URI to the server's subscribe handler and returns an empty result."""
@@ -214,11 +215,12 @@ async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> N
     server = Server("library", on_subscribe_resource=subscribe_resource)
 
     async with connect(server) as client:
-        result = await client.subscribe_resource("file:///watched.txt")
+        result = await client.subscribe_resource("file:///watched.txt")  # pyright: ignore[reportDeprecated]
 
     assert result == snapshot(EmptyResult())
 
 
+@pytest.mark.filterwarnings("ignore::mcp.MCPDeprecationWarning")
 @requirement("resources:subscribe:capability-required")
 async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect: Connect) -> None:
     """Subscribing to a server that registered no subscribe handler is rejected with METHOD_NOT_FOUND.
@@ -237,13 +239,14 @@ async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect
 
     async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
-            await client.subscribe_resource("file:///watched.txt")
+            await client.subscribe_resource("file:///watched.txt")  # pyright: ignore[reportDeprecated]
 
     assert exc_info.value.error == snapshot(
         ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/subscribe")
     )
 
 
+@pytest.mark.filterwarnings("ignore::mcp.MCPDeprecationWarning")
 @requirement("resources:unsubscribe")
 async def test_unsubscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
     """Unsubscribing from a resource delivers the URI to the server's unsubscribe handler."""
@@ -255,7 +258,7 @@ async def test_unsubscribe_resource_delivers_uri_to_handler(connect: Connect) ->
     server = Server("library", on_unsubscribe_resource=unsubscribe_resource)
 
     async with connect(server) as client:
-        result = await client.unsubscribe_resource("file:///watched.txt")
+        result = await client.unsubscribe_resource("file:///watched.txt")  # pyright: ignore[reportDeprecated]
 
     assert result == snapshot(EmptyResult())
 

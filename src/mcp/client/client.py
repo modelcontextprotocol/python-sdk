@@ -6,7 +6,7 @@ import hashlib
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import AsyncExitStack
+from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any, Literal, TypeVar, cast
 
@@ -58,6 +58,8 @@ from mcp.client.session import (
     SamplingFnT,
 )
 from mcp.client.streamable_http import streamable_http_client
+from mcp.client.subscriptions import ServerEvent, Subscription
+from mcp.client.subscriptions import listen as _listen
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.server.runner import modern_on_request
@@ -67,6 +69,7 @@ from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.session import RequestResponder
+from mcp.shared.subscriptions import event_to_notification
 
 logger = logging.getLogger(__name__)
 
@@ -666,13 +669,68 @@ class Client:
         # Driver rounds carry inputResponses, so a terminal result reached through them is never cached (spec MUST).
         return await self._drive_input_required(first, retry)
 
-    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
-        """Subscribe to resource updates."""
-        return await self.session.subscribe_resource(uri, meta=meta)
+    def listen(
+        self,
+        *,
+        tools_list_changed: bool = False,
+        prompts_list_changed: bool = False,
+        resources_list_changed: bool = False,
+        resource_subscriptions: Sequence[str] = (),
+    ) -> AbstractAsyncContextManager[Subscription]:
+        """Open a `subscriptions/listen` stream of typed change events (2026-07-28 only).
 
+        Keyword args mirror the wire `SubscriptionFilter`; entering waits for the ack (honored subset: `sub.honored`):
+
+            async with client.listen(tools_list_changed=True) as sub:
+                async for event in sub:
+                    tools = await client.list_tools()  # refetch on change
+
+        A graceful close ends the loop; an abrupt drop raises `SubscriptionLost`. No replay: re-listen and refetch.
+
+        Raises:
+            ListenNotSupportedError: The negotiated protocol version predates 2026-07-28.
+            MCPError: The server rejected the request or the connection failed first.
+            SubscriptionLost: The stream ended before it was acknowledged.
+            TimeoutError: The read timeout elapsed before the acknowledgment.
+        """
+        return _listen(
+            self.session,
+            tools_list_changed=tools_list_changed,
+            prompts_list_changed=prompts_list_changed,
+            resources_list_changed=resources_list_changed,
+            resource_subscriptions=resource_subscriptions,
+            on_event=self._evict_for_listen_event if self._response_cache is not None else None,
+        )
+
+    async def _evict_for_listen_event(self, event: ServerEvent) -> None:
+        """Finish response-cache eviction before a listen consumer can refetch.
+
+        Without it the iterator wakes first and refetches a still-warm entry, with no
+        corrective wake (events are deduplicated level triggers). The tee path repeats
+        the eviction; deliberate: idempotent, and it covers non-iterating consumers.
+        """
+        cache = self._response_cache
+        assert cache is not None  # installed as the event barrier only when a cache exists
+        try:
+            await cache.evict_for_notification(event_to_notification(event, {}))
+        except Exception:  # boundary: eviction reaches user store code; a cache fault must not block delivery
+            logger.exception("Response cache eviction failed; the event is still delivered")
+
+    @deprecated(
+        "resources/subscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
+        """Subscribe to resource updates (2025-era servers only)."""
+        return await self.session.subscribe_resource(uri, meta=meta)  # pyright: ignore[reportDeprecated]
+
+    @deprecated(
+        "resources/unsubscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
     async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
-        """Unsubscribe from resource updates."""
-        return await self.session.unsubscribe_resource(uri, meta=meta)
+        """Unsubscribe from resource updates (2025-era servers only)."""
+        return await self.session.unsubscribe_resource(uri, meta=meta)  # pyright: ignore[reportDeprecated]
 
     async def call_tool(
         self,

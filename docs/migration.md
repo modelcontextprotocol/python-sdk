@@ -2055,6 +2055,23 @@ One behavioral caveat when moving progress-reporting handlers onto `Client(serve
 
 ## Deprecations
 
+### Client resource-subscription methods deprecated (SEP-2575)
+
+[SEP-2575](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2575) removes `resources/subscribe` and `resources/unsubscribe` from the 2026-07-28 wire; per-URI subscriptions travel in the `subscriptions/listen` filter instead. The client verbs now carry `typing_extensions.deprecated`:
+
+- `Client.subscribe_resource()` / `Client.unsubscribe_resource()`
+- `ClientSession.subscribe_resource()` / `ClientSession.unsubscribe_resource()`
+
+They keep working against 2025-era servers; a 2026-07-28 server answers them with `-32601` (method not found). Migrate to the listen driver:
+
+```python
+async with client.listen(resource_subscriptions=["board://sprint"]) as sub:
+    async for event in sub:  # ResourceUpdated(uri="board://sprint")
+        ...
+```
+
+See the [Subscriptions](client/subscriptions.md#watching-the-stream) page under Clients for the full client-side contract (typed events, the honored filter, clean end vs `SubscriptionLost`).
+
 ### Roots, Sampling, and Logging methods deprecated (SEP-2577)
 
 [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) deprecates the Roots, Sampling, and Logging features as of the 2026-07-28 spec. The deprecation is advisory only: there are no wire-level changes, capability negotiation is unchanged, and every method keeps working for sessions negotiating 2025-11-25 and earlier.
