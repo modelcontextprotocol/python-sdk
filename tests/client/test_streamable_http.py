@@ -19,6 +19,7 @@ from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     CONNECTION_CLOSED,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     JSONRPCError,
@@ -631,23 +632,6 @@ async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> 
     assert reply.message.error.code == CONNECTION_CLOSED
 
 
-class _DoomedSSEStream(httpx.AsyncByteStream):
-    """Parks after opening, then breaks on command without ever carrying an event id."""
-
-    def __init__(self) -> None:
-        self.opened = anyio.Event()
-        self.die = anyio.Event()
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        self.opened.set()
-        yield b": stalling\n\n"
-        await self.die.wait()
-        raise httpx.ReadError("connection reset")
-
-    async def aclose(self) -> None:
-        pass
-
-
 class _DeliverOnCommandSSEStream(httpx.AsyncByteStream):
     """Parks after opening, then delivers one JSON-RPC response when told."""
 
@@ -666,13 +650,13 @@ class _DeliverOnCommandSSEStream(httpx.AsyncByteStream):
 
 
 @pytest.mark.anyio
-async def test_a_stale_streams_death_does_not_resolve_a_reused_ids_successor() -> None:
-    """Once a same-id successor is registered, an abandoned earlier stream ending
-    responselessly must not synthesize an error for the id: the pending waiter
-    belongs to the successor, whose real response must still arrive."""
-    doomed = _DoomedSSEStream()
-    succeeding = _DeliverOnCommandSSEStream({"jsonrpc": "2.0", "id": "dup-1", "result": {}})
-    streams: list[httpx.AsyncByteStream] = [doomed, succeeding]
+async def test_a_superseded_posts_late_real_response_cannot_answer_the_successor() -> None:
+    """SDK-defined: re-issuing an id severs the superseded POST, so nothing from its
+    stream (a late real response, or a synthesized error for its death) can resolve
+    the reused id's waiter; only the successor's own response arrives."""
+    stale = _DeliverOnCommandSSEStream({"jsonrpc": "2.0", "id": "dup-1", "result": {"origin": "stale"}})
+    succeeding = _DeliverOnCommandSSEStream({"jsonrpc": "2.0", "id": "dup-1", "result": {"origin": "fresh"}})
+    streams: list[httpx.AsyncByteStream] = [stale, succeeding]
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=streams.pop(0))
@@ -683,24 +667,23 @@ async def test_a_stale_streams_death_does_not_resolve_a_reused_ids_successor() -
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="dup-1", method="tools/call", params={})))
-            await doomed.opened.wait()
-            # The caller abandoned the first attempt and re-issued the id while
-            # the first stream lingers server-side.
+            await stale.opened.wait()
             await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="dup-1", method="tools/call", params={})))
             await succeeding.opened.wait()
-            doomed.die.set()
+            stale.deliver.set()
             await anyio.wait_all_tasks_blocked()
             succeeding.deliver.set()
             reply = await read.receive()
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCResponse), reply.message
-    assert reply.message.id == "dup-1"
+    assert reply.message.result == {"origin": "fresh"}
 
 
 @pytest.mark.anyio
 async def test_a_202_to_a_request_resolves_the_waiter_with_an_error() -> None:
-    """A server that answers a request with 202 Accepted has declared no response
-    will follow; the transport resolves the waiter instead of parking the caller forever."""
+    """SDK-defined: a server that answers a request with 202 Accepted has declared no
+    response will follow (the spec requires SSE or JSON for requests); the transport
+    resolves the waiter with INVALID_REQUEST instead of parking the caller forever."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(202)
@@ -717,7 +700,7 @@ async def test_a_202_to_a_request_resolves_the_waiter_with_an_error() -> None:
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.id == "listen-1"
-    assert reply.message.error.code == CONNECTION_CLOSED
+    assert reply.message.error.code == INVALID_REQUEST
 
 
 def _abandoned_request_context(
