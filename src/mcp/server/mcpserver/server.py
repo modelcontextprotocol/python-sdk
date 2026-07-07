@@ -82,7 +82,8 @@ from mcp.server.mcpserver.resources import (
 )
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
+from mcp.server.mcpserver.utilities.logging import configure_logging as _configure_logging
+from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
@@ -174,6 +175,7 @@ class MCPServer(Generic[LifespanResultT]):
         extensions: Sequence[Extension] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
+        configure_logging: bool = True,
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
@@ -256,8 +258,10 @@ class MCPServer(Generic[LifespanResultT]):
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
 
-        # Configure logging
-        configure_logging(self.settings.log_level)
+        # Configure logging (opt-out via configure_logging=False for applications
+        # that embed MCPServer and manage their own logging setup; see #1656)
+        if configure_logging:
+            _configure_logging(self.settings.log_level)
 
         self._extensions: list[Extension] = []
         for extension in extensions or ():
