@@ -69,7 +69,9 @@ dev = [
     "coverage[toml]==7.10.7",
 ]
 docs = [
-    "mkdocs>=1.6.1",
+    # MkDocs 2.0 is a ground-up rewrite (no plugin system) that is incompatible
+    # with mkdocs-material and every plugin below; stay on the 1.x line.
+    "mkdocs>=1.6.1,<2",
     "mkdocs-glightbox>=0.4.0",
     "mkdocs-material[imaging]>=9.6.19",
     "mkdocstrings-python>=1.12.2",

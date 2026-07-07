@@ -865,7 +865,7 @@ dev = [
     { name = "trio", specifier = ">=0.26.2" },
 ]
 docs = [
-    { name = "mkdocs", specifier = ">=1.6.1" },
+    { name = "mkdocs", specifier = ">=1.6.1,<2" },
     { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
     { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.6.19" },
     { name = "mkdocstrings-python", specifier = ">=1.12.2" },
