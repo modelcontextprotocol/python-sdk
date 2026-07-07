@@ -51,6 +51,11 @@ from .test_dispatcher import Recorder, echo_handlers, running_pair
 DCtx = DispatchContext[TransportContext]
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
+
+
 class RecordingWriteStream:
     """Records sends without a checkpoint, so a pending cancellation cannot interrupt the write or mask it."""
 
