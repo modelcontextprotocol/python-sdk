@@ -2070,7 +2070,7 @@ async with client.listen(resource_subscriptions=["board://sprint"]) as sub:
         ...
 ```
 
-See the [Subscriptions](handlers/subscriptions.md#the-client-side) page for the full client-side contract (typed events, the honored filter, clean end vs `SubscriptionLost`).
+See the [Subscriptions](handlers/subscriptions.md#watching-the-stream) page for the full client-side contract (typed events, the honored filter, clean end vs `SubscriptionLost`).
 
 ### Roots, Sampling, and Logging methods deprecated (SEP-2577)
 
