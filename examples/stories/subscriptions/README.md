@@ -57,5 +57,6 @@ uv run python -m stories.subscriptions.client --http --server server_lowlevel
 ## See also
 
 `streaming/` (request-scoped notifications), `events/` (the events extension
-on top of this channel, deferred), and `docs/handlers/subscriptions.md` (the
-narrative version).
+on top of this channel, deferred), and the narrative versions:
+`docs/handlers/subscriptions.md` (server) and `docs/client/subscriptions.md`
+(client).

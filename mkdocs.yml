@@ -54,6 +54,7 @@ nav:
       - OAuth: client/oauth-clients.md
       - Identity assertion: client/identity-assertion.md
       - Multiple servers: client/session-groups.md
+      - Subscriptions: client/subscriptions.md
       - Caching: client/caching.md
   - Protocol versions: protocol-versions.md
   - Deprecated features: deprecated.md

@@ -30,13 +30,13 @@ Your side of it is one line: publish the change.
      "params": {"uri": "board://sprint", "_meta": {"io.modelcontextprotocol/subscriptionId": "listen-1"}}}
     ```
 
-    Note what the update does *not* carry: the board. Every frame carries the listen request's JSON-RPC id under `_meta`, and that id is the subscription id. This client mints string ids like `"listen-1"`, which is what `sub.subscription_id` returns; other clients may use integers.
+    Note what the update does *not* carry: the board. Every frame carries the listen request's JSON-RPC id under `_meta`, and that id is the subscription id. The client mints it: the Python `Client` uses strings like `"listen-1"`; other clients may use integers.
 
 ## Only what was asked for
 
 The filter is a contract. A stream that requested tool-list changes and one resource URI receives those two kinds and nothing else. Publish a prompt change and that stream stays silent.
 
-`MCPServer` matches resource URIs as exact strings, so a stream that named `board://sprint` hears nothing about `board://sprint/tasks/1`. The spec lets other servers report a change on a sub-resource of a URI you subscribed to, and the client passes those through.
+`MCPServer` matches resource URIs as exact strings, so a stream that named `board://sprint` hears nothing about `board://sprint/tasks/1`. The spec lets a server report a change on a sub-resource of a subscribed URI; `MCPServer` never does, but clients are built to expect it.
 
 Two things the stream is *not*:
 
@@ -49,7 +49,8 @@ Two things the stream is *not*:
     is narrow but real: a subscriber learns that a URI it can guess changed, and when. It never
     learns content, and it cannot probe what exists, because an unknown URI is honored too and
     simply never fires. To narrow the filter per client today, serve the method with your own
-    handler on the low-level `Server` and acknowledge a smaller filter than the client asked for.
+    handler on the low-level `Server` and acknowledge a smaller filter than the client asked
+    for; the acknowledgment is how the client learns what it actually got.
 
 !!! warning "Streamable HTTP only, for now"
     `subscriptions/listen` needs a transport that can stream a request's response, which today
@@ -58,72 +59,15 @@ Two things the stream is *not*:
     there. Serving it over stdio is planned; the open-stream semantics for that transport are
     not built yet.
 
-## Watching the stream
+## The client end
 
-On the client, a subscription is one context manager. Entering it sends the request and waits for the server's acknowledgment, so the stream is live by the time the block starts.
+Here is a client on the other side of that stream, following the board:
 
-```python title="client.py" hl_lines="16 19 29"
+```python title="client.py" hl_lines="16"
 --8<-- "docs_src/subscriptions/tutorial003.py"
 ```
 
-Iteration yields four typed events: `ToolsListChanged`, `PromptsListChanged`, `ResourcesListChanged`, and `ResourceUpdated(uri=...)`.
-
-An event says *what* changed, never *how*. That is why `follow_board` calls `read_resource` and `list_tools`: the event is a cue to refetch. Read `event.uri` rather than assuming which resource moved, because once you subscribe to any URI the client delivers every `ResourceUpdated` on the stream.
-
-Duplicate events waiting to be consumed collapse into one, and refetching still gets you the current state. Only identical events collapse: two `ResourceUpdated` for different URIs are two events.
-
-Two more properties of the handle:
-
-* `sub.honored` is the filter the server acknowledged: a `SubscriptionFilter` with the fields you passed, read as attributes (`sub.honored.prompts_list_changed`). `MCPServer` honors every kind you ask for, so it echoes your request back. A server that narrows the filter (see the warning above) acknowledges less, and an honored kind may still never fire.
-* `sub.subscription_id` is the listen request's id, the one stamped on every frame of this stream. Several subscriptions can be open at once, each demultiplexed by its own id.
-
-## Watching without blocking
-
-`follow_board` runs until the server closes the stream, which may be never, so on its own it owns your program. Real clients want the watcher *beside* the main flow: an agent calls tools while a watcher keeps a cache or a UI current.
-
-Open the subscription first, then start the watcher and get on with your work.
-
-`app.py` imports `BOARD` and `read_board` from the previous example, which this repo stores as `tutorial003.py`. If you save the rendered files side by side as `client.py` and `app.py`, write `from client import BOARD, read_board` instead. The `watch.py` example further down imports `read_board` the same way.
-
-=== "asyncio"
-
-    ```python title="app.py" hl_lines="18 20"
-    --8<-- "docs_src/subscriptions/tutorial004_asyncio.py"
-    ```
-
-=== "trio"
-
-    ```python title="app.py" hl_lines="18 21"
-    --8<-- "docs_src/subscriptions/tutorial004_trio.py"
-    ```
-
-=== "anyio"
-
-    ```python title="app.py" hl_lines="18 21"
-    --8<-- "docs_src/subscriptions/tutorial004_anyio.py"
-    ```
-
-The order is the point. Nothing is replayed, so an event published before your stream existed is missed. Entering `client.listen(...)` waits for the acknowledgment, so every change from that moment on reaches your watcher, and the snapshot you take inside the block cannot miss one.
-
-Requests run freely beside an open stream, from the watcher task or any other, on the same client. Because *duplicate* unconsumed events coalesce, a busy main flow may produce one refetch rather than three. Events that differ do not coalesce: a filter naming many URIs queues one pending event per URI.
-
-To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK cancels the listen request the way the transport expects: over streamable HTTP, by closing that request's stream. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
-
-## Streams end
-
-Both endings are ordinary control flow. A graceful server close ends the `async for`. An abrupt drop raises `SubscriptionLost`.
-
-The difference is diagnostic, not a difference in what to do next: the stream is gone, nothing was replayed, and a watcher that still cares re-listens and refetches.
-
-```python title="watch.py" hl_lines="16 20"
---8<-- "docs_src/subscriptions/tutorial005.py"
-```
-
-Servers close streams gracefully for their own reasons, including shedding a subscriber whose backlog grew too large, so a clean end is not a signal to stop watching. Back off before re-listening.
-
-`SubscriptionLost` has one local cause too. The client holds at most 1024 unconsumed events, and a consumer that falls that far behind loses the subscription rather than grow without bound. Keep the body of the `async for` short and do slow work elsewhere.
-
-`keep_following` catches only `SubscriptionLost`. Entering `listen()` can also raise `MCPError` (the connection failed, or the server does not serve the method) and `TimeoutError` (no acknowledgment arrived). Decide which of those your watcher should retry: a `ListenNotSupportedError`, raised on a pre-2026 connection, never heals.
+Entering `client.listen(...)` sends the request and waits for your acknowledgment, so the stream is live when the block starts, and each typed event is a cue to refetch, never a payload. That is the whole contract in one screen. Everything else about the client end lives on its own page: watching beside a main flow, stream endings, and re-listening. See **[Subscriptions](../client/subscriptions.md)** under *Clients*.
 
 ## Scaling past one process
 
@@ -182,7 +126,7 @@ async def tools_reloaded() -> None:
 
 Down on the low-level `Server` there is no pre-wired anything, and the same parts assemble in three lines:
 
-```python title="server.py" hl_lines="10 48"
+```python title="server.py" hl_lines="9-10 48"
 --8<-- "docs_src/subscriptions/tutorial002.py"
 ```
 
@@ -195,8 +139,8 @@ Down on the low-level `Server` there is no pre-wired anything, and the same part
 * A client opts in with one `subscriptions/listen` request, and the response is the stream. Serving it is built in.
 * You publish with `ctx.notify_*`, and the SDK does the stamping, filtering, and lifecycle work.
 * Events are cues, not payloads. Both ends refetch.
-* Consume with `async with client.listen(...)` and `async for event in sub`. A clean end stops the loop; a drop raises `SubscriptionLost`.
-* Open the subscription, then run the watcher as a task, and tool calls keep flowing beside it.
+* The client end is `async with client.listen(...)`: **[Subscriptions](../client/subscriptions.md)** under *Clients* is that story.
+* On the low-level `Server` you assemble the same parts yourself: a bus, `ListenHandler(bus)`, the `on_subscriptions_listen` slot.
 * Scaling out means implementing `SubscriptionBus`, two methods, and passing it as `MCPServer(subscriptions=...)`.
 
 Running the server that serves all this, behind one replica or twenty, is **[Deploy & scale](../run/deploy.md)**.

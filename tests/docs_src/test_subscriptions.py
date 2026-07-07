@@ -1,4 +1,4 @@
-"""`docs/handlers/subscriptions.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/{handlers,client}/subscriptions.md`: every claim the two pages make, proved against the real SDK."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
