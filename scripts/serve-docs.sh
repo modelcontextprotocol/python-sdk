@@ -7,7 +7,7 @@
 # nav; edits to prose pages under `docs/` are picked up by live reload.
 #
 # Usage:
-#   scripts/serve-docs.sh [-- <extra zensical serve args>]
+#   scripts/serve-docs.sh [<extra zensical serve args>...]
 #
 set -euo pipefail
 
