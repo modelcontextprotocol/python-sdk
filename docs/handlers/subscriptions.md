@@ -83,7 +83,7 @@ Two more properties of the handle:
 
 Open the subscription first, then start the watcher and get on with your work.
 
-`app.py` imports `BOARD` and `read_board` from the previous example, which this repo stores as `tutorial003.py`. If you save the rendered files side by side as `client.py` and `app.py`, write `from client import BOARD, read_board` instead.
+`app.py` imports `BOARD` and `read_board` from the previous example, which this repo stores as `tutorial003.py`. If you save the rendered files side by side as `client.py` and `app.py`, write `from client import BOARD, read_board` instead. The `watch.py` example further down imports `read_board` the same way.
 
 === "asyncio"
 

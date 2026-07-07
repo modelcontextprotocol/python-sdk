@@ -71,6 +71,8 @@ class RequestContext:
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
     read_stream_writer: StreamWriter
+    in_flight_post: _InFlightPost | None = None
+    """This request's `_in_flight_posts` registration; None for notifications."""
 
 
 @dataclass(slots=True)
@@ -328,6 +330,12 @@ class StreamableHTTPTransport:
         ) as response:
             if response.status_code == 202:
                 logger.debug("Received 202 Accepted")
+                if isinstance(message, JSONRPCRequest):
+                    # A request's response arrives on this POST's body; 202 says
+                    # none will follow. Resolve rather than park the caller forever.
+                    await self._resolve_abandoned_request(
+                        ctx, message.id, "server answered a request with 202 Accepted"
+                    )
                 return
 
             if response.status_code >= 400:
@@ -445,21 +453,24 @@ class StreamableHTTPTransport:
         else:
             # Not resumable: resolve the waiter, else a listen stream's consumer
             # would hang forever instead of learning the subscription is lost.
-            await self._resolve_abandoned_request(
-                ctx.read_stream_writer, original_request_id, "SSE stream ended without a response"
-            )
+            await self._resolve_abandoned_request(ctx, original_request_id, "SSE stream ended without a response")
 
-    async def _resolve_abandoned_request(
-        self, read_stream_writer: StreamWriter, request_id: RequestId, message: str
-    ) -> None:
+    async def _resolve_abandoned_request(self, ctx: RequestContext, request_id: RequestId, message: str) -> None:
         """Resolve a request whose response can never arrive with a synthesized error.
 
-        Best-effort: a closed read stream means the session is tearing down.
+        Skipped when a same-id successor has taken over the `_in_flight_posts`
+        registration: ids are reusable once their waiter is popped, so the
+        pending waiter now belongs to the successor and a stale stream's death
+        must not fail it. Best-effort: a closed read stream means the session
+        is tearing down.
         """
+        if ctx.in_flight_post is not None and self._in_flight_posts.get(request_id) is not ctx.in_flight_post:
+            logger.debug("request %r was re-issued; leaving its waiter to the successor", request_id)
+            return
         error_data = ErrorData(code=CONNECTION_CLOSED, message=message)
         error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data))
         try:
-            await read_stream_writer.send(error_msg)
+            await ctx.read_stream_writer.send(error_msg)
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("read stream closed before request %r could be resolved", request_id)
 
@@ -480,9 +491,7 @@ class StreamableHTTPTransport:
             # stream) would otherwise hang its caller forever.
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
             await self._resolve_abandoned_request(
-                ctx.read_stream_writer,
-                original_request_id,
-                "SSE stream ended and reconnection attempts were exhausted",
+                ctx, original_request_id, "SSE stream ended and reconnection attempts were exhausted"
             )
             return
 
@@ -591,6 +600,7 @@ class StreamableHTTPTransport:
                             modern=self._protocol_version_header in MODERN_PROTOCOL_VERSIONS,
                         )
                         self._in_flight_posts[message.id] = post
+                        ctx.in_flight_post = post
                         tg.start_soon(self._run_request_post, handle_request_async, post, message.id)
                     else:
                         await handle_request_async()
