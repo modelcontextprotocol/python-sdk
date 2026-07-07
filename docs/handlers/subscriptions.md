@@ -83,7 +83,7 @@ Two more properties of the handle:
 
 Open the subscription first, then start the watcher and get on with your work.
 
-`app.py` imports `BOARD` and `read_board` from `client.py` above. If you save the files side by side rather than as a package, drop the leading dot from that import.
+`app.py` imports `BOARD` and `read_board` from the previous example, which this repo stores as `tutorial003.py`. If you save the rendered files side by side as `client.py` and `app.py`, write `from client import BOARD, read_board` instead.
 
 === "asyncio"
 
@@ -107,7 +107,7 @@ The order is the point. Nothing is replayed, so an event published before your s
 
 Requests run freely beside an open stream, from the watcher task or any other, on the same client. Because *duplicate* unconsumed events coalesce, a busy main flow may produce one refetch rather than three. Events that differ do not coalesce: a filter naming many URIs queues one pending event per URI.
 
-To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK sends `notifications/cancelled` for the listen request. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
+To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK cancels the listen request the way the transport expects: over streamable HTTP, by closing that request's stream. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
 
 ## Streams end
 
