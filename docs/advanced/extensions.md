@@ -177,6 +177,9 @@ from mcp.client import advertise
 client = Client(mcp, extensions=[advertise("com.example/search")])
 ```
 
+For an extension with client-side behaviour, construct its object instead; the
+built-in example is `mcp.client.TasksExtension` ([Tasks](tasks.md)).
+
 ## Writing a client extension
 
 Subclass `ClientExtension` and override only what you need. Three contribution
