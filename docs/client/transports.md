@@ -29,7 +29,7 @@ Pass a URL string and you get **Streamable HTTP**, the transport you deploy behi
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx.AsyncClient` configured the way MCP needs: `follow_redirects=True`, a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open.
+That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx.AsyncClient` configured the way MCP needs: same-origin redirect handling, a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open.
 
 !!! check
     A `Client` you have constructed is **not** connected. Construction only picks the transport;

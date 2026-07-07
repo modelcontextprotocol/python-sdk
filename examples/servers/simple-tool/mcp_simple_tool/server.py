@@ -1,15 +1,18 @@
 import anyio
 import click
+import httpx
 import mcp_types as types
 from mcp.server import Server, ServerRequestContext
-from mcp.shared._httpx_utils import create_mcp_http_client
 
 
 async def fetch_website(
     url: str,
 ) -> list[types.ContentBlock]:
     headers = {"User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"}
-    async with create_mcp_http_client(headers=headers) as client:
+    # A general-purpose web fetch wants ordinary browser-like redirect
+    # behavior; create_mcp_http_client is for talking to a configured MCP
+    # endpoint and only follows same-origin redirects.
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=30.0) as client:
         response = await client.get(url)
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]

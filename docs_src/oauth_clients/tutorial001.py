@@ -1,9 +1,8 @@
 from urllib.parse import parse_qs, urlparse
 
-import httpx
 from pydantic import AnyUrl
 
-from mcp import Client
+from mcp import Client, create_mcp_http_client
 from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -55,7 +54,7 @@ oauth = OAuthClientProvider(
 
 
 async def main() -> None:
-    async with httpx.AsyncClient(auth=oauth, follow_redirects=True) as http_client:
+    async with create_mcp_http_client(auth=oauth) as http_client:
         transport = streamable_http_client("http://localhost:8001/mcp", http_client=http_client)
         async with Client(transport) as client:
             result = await client.list_tools()

@@ -6,6 +6,7 @@ from mcp_types import LATEST_PROTOCOL_VERSION
 from pydantic import AnyUrl, ValidationError
 
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.shared._httpx_utils import redirect_error
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -206,6 +207,10 @@ async def handle_protected_resource_response(
     Returns:
         ProtectedResourceMetadata if successfully discovered, None if we should try next URL
     """
+    if response.has_redirect_location:
+        # A redirect here would silently move discovery to another URL;
+        # fail loudly instead of treating it as a miss.
+        raise redirect_error(response, context="OAuth protected resource metadata request")
     if response.status_code == 200:
         try:
             content = await response.aread()
@@ -221,6 +226,10 @@ async def handle_protected_resource_response(
 
 
 async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuthMetadata | None]:
+    if response.has_redirect_location:
+        # A redirect here would silently abandon discovery (any non-4xx stops
+        # the fallback chain); fail loudly instead.
+        raise redirect_error(response, context="OAuth authorization server metadata request")
     if response.status_code == 200:
         try:
             content = await response.aread()
@@ -293,6 +302,8 @@ def create_client_registration_request(
 
 async def handle_registration_response(response: Response) -> OAuthClientInformationFull:
     """Handle registration response."""
+    if response.has_redirect_location:
+        raise redirect_error(response, context="OAuth client registration request")
     if response.status_code not in (200, 201):
         await response.aread()
         raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")

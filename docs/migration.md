@@ -1595,14 +1595,15 @@ async with streamablehttp_client(
 
 ```python
 import httpx
+from mcp import create_mcp_http_client
 from mcp.client.streamable_http import streamable_http_client
 
-# Configure headers, timeout, and auth on the httpx.AsyncClient
-http_client = httpx.AsyncClient(
+# Configure headers, timeout, and auth on the client. create_mcp_http_client
+# applies the SDK defaults (timeouts, same-origin redirect handling).
+http_client = create_mcp_http_client(
     headers={"Authorization": "Bearer token"},
     timeout=httpx.Timeout(30, read=300),
     auth=my_auth,
-    follow_redirects=True,
 )
 
 async with http_client:
@@ -1613,7 +1614,26 @@ async with http_client:
         ...
 ```
 
-v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx.AsyncClient` to preserve that behavior.
+Prefer `create_mcp_http_client` when supplying your own client: a plain `httpx.AsyncClient` does not follow redirects at all, and configuring `follow_redirects=True` yourself sends everything on the client (headers, auth, bodies) to whichever server a redirect names.
+
+### HTTP clients only follow same-origin redirects
+
+Clients created by the SDK (including `Client("http://...")`, `sse_client`, and the
+default client inside `streamable_http_client`) now vet redirect targets before
+following. Redirects that stay on the same origin (scheme, host, and port) and
+http-to-https upgrades of the same host still work; any other redirect raises
+`mcp.RedirectError` naming the target instead of being followed. Everything
+configured on a client - headers, auth, request bodies - is sent to whichever
+server it talks to, so requests now stay with the server you configured, and a
+misconfigured URL fails with a clear error instead of silently bouncing.
+
+To migrate: connect to the final URL the error names. If your deployment
+genuinely requires following a redirect to a different origin, supply your own
+`httpx.AsyncClient(follow_redirects=True)` - after verifying you trust every
+destination in the chain.
+
+`create_mcp_http_client` (the SDK's client factory) and `RedirectError` are now
+exported from the top-level `mcp` package.
 
 ### `get_session_id` callback removed from `streamable_http_client`
 
@@ -1638,6 +1658,7 @@ async with streamable_http_client(url) as (read_stream, write_stream, get_sessio
 
 ```python
 import httpx
+from mcp import create_mcp_http_client
 from mcp.client.streamable_http import streamable_http_client
 
 # Option 1: Simply ignore if you don't need the session ID
@@ -1653,10 +1674,8 @@ async def capture_session_id(response: httpx.Response) -> None:
     if session_id:
         captured_session_ids.append(session_id)
 
-http_client = httpx.AsyncClient(
-    event_hooks={"response": [capture_session_id]},
-    follow_redirects=True,
-)
+http_client = create_mcp_http_client()
+http_client.event_hooks["response"].append(capture_session_id)
 
 async with http_client:
     async with streamable_http_client(url, http_client=http_client) as (read_stream, write_stream):

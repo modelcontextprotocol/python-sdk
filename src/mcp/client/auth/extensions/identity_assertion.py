@@ -39,6 +39,7 @@ from mcp.client.auth.utils import (
     union_scopes,
     validate_metadata_issuer,
 )
+from mcp.shared._httpx_utils import redirect_error
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthToken
 from mcp.shared.auth_utils import calculate_token_expiry, resource_url_from_server_url
 
@@ -199,6 +200,8 @@ class IdentityAssertionOAuthProvider(httpx.Auth):
 
             assertion = await self._assertion_provider(self._issuer, self._resource)
             token_response = yield self._build_token_request(scope_to_request, assertion)
+            if token_response.has_redirect_location:
+                raise redirect_error(token_response, context="OAuth token exchange request")
             if token_response.status_code != 200:
                 body = (await token_response.aread()).decode(errors="replace")
                 raise OAuthTokenError(f"Token exchange failed ({token_response.status_code}): {body}")

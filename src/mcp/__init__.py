@@ -65,6 +65,7 @@ from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
+from .shared._httpx_utils import RedirectError, create_mcp_http_client
 from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
 from .shared.uri_template import InvalidUriTemplate, UriTemplate
 
@@ -108,6 +109,7 @@ __all__ = [
     "PromptsCapability",
     "ReadResourceRequest",
     "ReadResourceResult",
+    "RedirectError",
     "Resource",
     "ResourcesCapability",
     "ResourceUpdatedNotification",
@@ -137,6 +139,7 @@ __all__ = [
     "UriTemplate",
     "UrlElicitationRequiredError",
     "InvalidUriTemplate",
+    "create_mcp_http_client",
     "stdio_client",
     "stdio_server",
 ]

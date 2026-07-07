@@ -9,10 +9,9 @@ cd to the `examples/snippets` directory and run:
 import asyncio
 from urllib.parse import parse_qs, urlparse
 
-import httpx
 from pydantic import AnyUrl
 
-from mcp import ClientSession
+from mcp import ClientSession, create_mcp_http_client
 from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -72,7 +71,7 @@ async def main():
         callback_handler=handle_callback,
     )
 
-    async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
+    async with create_mcp_http_client(auth=oauth_auth) as custom_client:
         async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
