@@ -446,7 +446,7 @@ async def test_a_call_whose_stream_closes_and_cannot_be_resumed_fails_instead_of
 
     assert len(raised) == 1
     assert isinstance(raised[0], Exception)
-    assert "disconnected" in str(raised[0]).lower()
+    assert "reconnection attempts were exhausted" in str(raised[0]).lower()
 
 
 @requirement("client-transport:http:resume-stream-api")
