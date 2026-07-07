@@ -85,7 +85,9 @@ docs = [
     # docs/extra.css overrides Material-internal nav selectors; revisit it on a
     # major bump before raising this cap.
     "mkdocs-material[imaging]>=9.7.0,<10",
+    "mkdocstrings>=1.0",
     "mkdocstrings-python>=2.0.1",
+    "zensical>=0.0.47",
 ]
 codegen = ["datamodel-code-generator==0.57.0"]
 
