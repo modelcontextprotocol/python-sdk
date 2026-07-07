@@ -141,9 +141,13 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
+# documentation
 /site
 /.worktrees/
+# Generated at build time by docs/hooks/ (the API reference tree and the
+# concrete Zensical config spliced from mkdocs.yml).
+/docs/api/
+/mkdocs.gen.yml
 
 # mypy
 .mypy_cache/
