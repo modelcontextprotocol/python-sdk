@@ -1,6 +1,5 @@
 site_name: MCP Python SDK
 site_description: The official Python SDK for the Model Context Protocol
-strict: true
 
 repo_name: modelcontextprotocol/python-sdk
 repo_url: https://github.com/modelcontextprotocol/python-sdk
@@ -10,6 +9,9 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 # TODO(Marcelo): Add Anthropic copyright?
 # copyright: © Model Context Protocol 2025 to present
 
+# The "API Reference" entry is a placeholder: `scripts/docs/gen_ref_pages.py`
+# generates the `docs/api/` tree and `scripts/docs/build_config.py` splices the
+# real nested nav in before the build. See `scripts/build-docs.sh`.
 nav:
   - MCP Python SDK: index.md
   - "What's new in v2": whats-new.md
@@ -122,13 +124,6 @@ theme:
 extra_css:
   - extra.css
 
-# https://www.mkdocs.org/user-guide/configuration/#validation
-validation:
-  omitted_files: warn
-  absolute_links: warn
-  unrecognized_links: warn
-  anchors: warn
-
 markdown_extensions:
   - tables
   - admonition
@@ -138,29 +133,28 @@ markdown_extensions:
   - pymdownx.caret
   - pymdownx.critic
   - pymdownx.mark
-  - pymdownx.superfences
   # Code examples live as complete, importable, tested files under `docs_src/`
   # and are included into pages with `--8<-- "docs_src/<chapter>/tutorialNNN.py"`
-  # (resolved against the repo root regardless of the build's working
-  # directory; the extension's default base_path is the CWD).
-  # `check_paths: true` + `strict: true` turn a renamed/deleted example into a
-  # build failure instead of a silently empty code block.
+  # (resolved against the repo root, which is the build's working directory).
+  # `check_paths: true` turns a renamed/deleted example into a build failure
+  # instead of a silently empty code block.
   - pymdownx.snippets:
-      base_path: !relative $config_dir
+      base_path: [.]
       check_paths: true
   - pymdownx.tilde
   - pymdownx.inlinehilite
   - pymdownx.highlight:
       pygments_lang_class: true
-  - pymdownx.extra:
-      pymdownx.superfences:
-        custom_fences:
-          - name: mermaid
-            class: mermaid
-            format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: pymdownx.superfences.fence_code_format
+  # Zensical re-implements the emoji extension; the generator/index functions
+  # live under `zensical.extensions.emoji`, not `material.extensions.emoji`.
   - pymdownx.emoji:
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: zensical.extensions.emoji.twemoji
+      emoji_generator: zensical.extensions.emoji.to_svg
       options:
         custom_icons:
           - docs/.overrides/.icons
@@ -170,23 +164,13 @@ markdown_extensions:
       custom_checkbox: true
   - sane_lists # this means you can start a list from any number
 
-watch:
-  - src
-  - docs_src
-
-hooks:
-  - docs/hooks/llms_txt.py
-
+# Zensical natively re-implements `search`, `glightbox` and `mkdocstrings`; it
+# does not run arbitrary MkDocs plugins or hooks, so the former `gen-files`,
+# `literate-nav`, `social` and `llms_txt` hook are handled by the standalone
+# scripts under `scripts/docs/` invoked around the build (see build-docs.sh).
 plugins:
   - search
-  - social:
-      enabled: !ENV [ENABLE_SOCIAL_CARDS, false]
   - glightbox
-  - gen-files:
-      scripts:
-        - docs/hooks/gen_ref_pages.py
-  - literate-nav:
-      nav_file: SUMMARY.md
   - mkdocstrings:
       handlers:
         python:

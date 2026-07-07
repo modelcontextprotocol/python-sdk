@@ -1,13 +1,13 @@
 name: Docs Preview
 
-# Builds the mkdocs site for a PR and deploys it to Cloudflare Pages.
+# Builds the Zensical site for a PR and deploys it to Cloudflare Pages.
 #
-# Security: mkdocs executes Python from the PR (mkdocstrings imports src/mcp,
-# `!!python/name:` directives). The build is gated by `authorize` (admin sender
-# for auto-preview, admin/maintainer commenter for /preview-docs) and isolated
-# from Cloudflare secrets — `build` runs PR code with no secrets and hands the
-# static site to `deploy` via an artifact, so PR code never shares a runner
-# with the Cloudflare token.
+# Security: the build executes Python from the PR (mkdocstrings imports src/mcp,
+# the scripts/docs/ generators run). The build is gated by `authorize` (admin
+# sender for auto-preview, admin/maintainer commenter for /preview-docs) and
+# isolated from Cloudflare secrets — `build` runs PR code with no secrets and
+# hands the static site to `deploy` via an artifact, so PR code never shares a
+# runner with the Cloudflare token.
 #
 # Required configuration:
 #   - secrets.CLOUDFLARE_API_TOKEN   (scope: Account → Cloudflare Pages → Edit)
@@ -21,6 +21,7 @@ on:
       - docs/**
       - docs_src/**
       - mkdocs.yml
+      - scripts/docs/**
       - pyproject.toml
   issue_comment:
     types: [created]
@@ -129,10 +130,16 @@ jobs:
           version: 0.9.5
 
       - run: uv sync --frozen --group docs
-      - run: uv run --frozen --no-sync mkdocs build
-        env:
-          # Silence mkdocs-material's MkDocs 2.0 warning banner in CI logs.
-          NO_MKDOCS_2_WARNING: "1"
+      # pull_request_target runs this workflow file from the base branch, so the
+      # build recipe must come from the checkout itself: heads that ship
+      # scripts/docs/build.sh (main since the Zensical migration) build with it;
+      # older heads and v1.x-targeted PRs still build with MkDocs.
+      - run: |
+          if [ -f scripts/docs/build.sh ]; then
+            bash scripts/docs/build.sh
+          else
+            NO_MKDOCS_2_WARNING=1 uv run --frozen --no-sync mkdocs build
+          fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
