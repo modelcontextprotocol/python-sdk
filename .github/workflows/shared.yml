@@ -125,3 +125,6 @@ jobs:
 
       - name: Build the docs in strict mode
         run: uv run --frozen --no-sync mkdocs build --strict
+        env:
+          # Silence mkdocs-material's MkDocs 2.0 warning banner in CI logs.
+          NO_MKDOCS_2_WARNING: "1"

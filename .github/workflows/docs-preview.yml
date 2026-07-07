@@ -130,6 +130,9 @@ jobs:
 
       - run: uv sync --frozen --group docs
       - run: uv run --frozen --no-sync mkdocs build
+        env:
+          # Silence mkdocs-material's MkDocs 2.0 warning banner in CI logs.
+          NO_MKDOCS_2_WARNING: "1"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
