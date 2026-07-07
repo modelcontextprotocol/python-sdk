@@ -45,10 +45,11 @@ Two things the stream is *not*:
 
 !!! warning
     Don't publish sensitive per-user URIs through `notify_resource_updated` on a multi-tenant
-    server. Any client may name any URI in its filter, including one it cannot read, and
-    `MCPServer` honors it. Those notifications reveal that a resource changed and when, never
-    its content. To narrow that, serve the method with your own handler on the low-level
-    `Server` and acknowledge a smaller filter than the client asked for.
+    server. Any client may name any URI in its filter, and `MCPServer` honors it. The exposure
+    is narrow but real: a subscriber learns that a URI it can guess changed, and when. It never
+    learns content, and it cannot probe what exists, because an unknown URI is honored too and
+    simply never fires. To narrow the filter per client today, serve the method with your own
+    handler on the low-level `Server` and acknowledge a smaller filter than the client asked for.
 
 !!! warning "Streamable HTTP only, for now"
     `subscriptions/listen` needs a transport that can stream a request's response, which today
