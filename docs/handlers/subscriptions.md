@@ -50,27 +50,19 @@ Two things the stream is *not*:
     its content. To narrow that, serve the method with your own handler on the low-level
     `Server` and acknowledge a smaller filter than the client asked for.
 
-!!! warning "Not every transport serves the stream"
-    `subscriptions/listen` needs a transport that can stream a request's response: streamable
-    HTTP, or the in-process `Client(server)` the examples below use. Over stdio (and other
-    stream-pair transports) a 2026-07-28 connection rejects it with METHOD_NOT_FOUND, even
-    though `server/discover` still advertises the subscription capabilities there. The
-    open-stream semantics haven't been built for that transport yet.
+!!! warning "Streamable HTTP only, for now"
+    `subscriptions/listen` needs a transport that can stream a request's response, which today
+    means streamable HTTP. Over stdio a 2026-07-28 connection rejects the method with
+    METHOD_NOT_FOUND, even though `server/discover` advertises the subscription capabilities
+    there. Serving it over stdio is planned; the open-stream semantics for that transport are
+    not built yet.
 
 ## Watching the stream
 
 On the client, a subscription is one context manager. Entering it sends the request and waits for the server's acknowledgment, so the stream is live by the time the block starts.
 
-```python title="client.py" hl_lines="16 20 22"
+```python title="client.py" hl_lines="16 19 29"
 --8<-- "docs_src/subscriptions/tutorial003.py"
-```
-
-The examples connect in-process with `Client(mcp)`. Against a running server, pass its URL:
-
-```python
-async def main() -> None:
-    async with Client("http://localhost:8000/mcp") as client:
-        await follow_board(client)
 ```
 
 Iteration yields four typed events: `ToolsListChanged`, `PromptsListChanged`, `ResourcesListChanged`, and `ResourceUpdated(uri=...)`.
@@ -90,23 +82,23 @@ Two more properties of the handle:
 
 Open the subscription first, then start the watcher and get on with your work.
 
-`app.py` imports `mcp` and `read_board` from the two files above, which live on disk as `tutorial001.py` and `tutorial003.py`. If you save the three side by side instead, drop the leading dot from those imports.
+`app.py` imports `BOARD` and `read_board` from `client.py` above. If you save the files side by side rather than as a package, drop the leading dot from that import.
 
 === "asyncio"
 
-    ```python title="app.py" hl_lines="20 22"
+    ```python title="app.py" hl_lines="18 20"
     --8<-- "docs_src/subscriptions/tutorial004_asyncio.py"
     ```
 
 === "trio"
 
-    ```python title="app.py" hl_lines="20 23"
+    ```python title="app.py" hl_lines="18 21"
     --8<-- "docs_src/subscriptions/tutorial004_trio.py"
     ```
 
 === "anyio"
 
-    ```python title="app.py" hl_lines="20 23"
+    ```python title="app.py" hl_lines="18 21"
     --8<-- "docs_src/subscriptions/tutorial004_anyio.py"
     ```
 

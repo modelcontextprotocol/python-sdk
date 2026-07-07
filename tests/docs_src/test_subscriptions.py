@@ -234,22 +234,27 @@ def _assert_snapshot_then_current_board(printed: str) -> None:
 
 
 async def test_the_asyncio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial004 (asyncio tab): main() opens the subscription, snapshots the board, then a watcher
-    task reprints it while main() keeps calling tools."""
-    await tutorial004_asyncio.main()
+    """tutorial004 (asyncio tab): run_sprint opens the subscription, snapshots the board, then a watcher
+    task reprints it while the main flow keeps calling tools.
+
+    The example connects over HTTP; the in-memory client here is the maintainer-side stand-in."""
+    async with Client(tutorial001.mcp) as client:
+        await tutorial004_asyncio.run_sprint(client)
     _assert_snapshot_then_current_board(capsys.readouterr().out)
 
 
 @pytest.mark.parametrize("anyio_backend", [pytest.param("trio", id="trio")])
 async def test_the_trio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
     """tutorial004 (trio tab): the same shape as the asyncio tab, with a nursery owning the watcher."""
-    await tutorial004_trio.main()
+    async with Client(tutorial001.mcp) as client:
+        await tutorial004_trio.run_sprint(client)
     _assert_snapshot_then_current_board(capsys.readouterr().out)
 
 
 async def test_the_anyio_watcher_runs_beside_the_main_flow(capsys: pytest.CaptureFixture[str]) -> None:
     """tutorial004 (anyio tab): the same shape again, with a task group owning the watcher."""
-    await tutorial004_anyio.main()
+    async with Client(tutorial001.mcp) as client:
+        await tutorial004_anyio.run_sprint(client)
     _assert_snapshot_then_current_board(capsys.readouterr().out)
 
 

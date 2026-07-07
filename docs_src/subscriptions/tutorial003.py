@@ -23,3 +23,8 @@ async def follow_board(client: Client) -> None:
                     print("tools:", [tool.name for tool in tools.tools])
                 case _:
                     pass  # kinds the filter did not ask for never arrive
+
+
+async def main() -> None:
+    async with Client("http://localhost:8000/mcp") as client:
+        await follow_board(client)
