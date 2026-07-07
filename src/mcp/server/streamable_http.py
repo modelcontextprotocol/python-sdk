@@ -188,9 +188,11 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[SSEEvent]] = {}
         self._terminated = False
-        # CancelScope for the active GET SSE response, so terminate() can
-        # force-cancel a hung EventSourceResponse on Windows (python-sdk#2653).
-        self._active_get_response_scope: anyio.CancelScope | None = None
+        # CancelScopes for active GET SSE responses, so terminate() can
+        # force-cancel all hung EventSourceResponses on Windows (python-sdk#2653).
+        # A set is used instead of a single scope because concurrent GET-start
+        # races can create multiple in-flight SSE responses.
+        self._active_get_response_scopes: set[anyio.CancelScope] = set()
         # Idle timeout cancel scope; managed by the session manager.
         self.idle_scope: anyio.CancelScope | None = None
 
@@ -745,19 +747,22 @@ class StreamableHTTPServerTransport:
             headers=headers,
         )
 
+        scope: anyio.CancelScope | None = None
         try:
             # Guard the SSE response with a cancel scope so terminate()
             # can force-cancel a hung EventSourceResponse on Windows
             # where sse-starlette's TaskGroup children may not respond
             # to cancellation promptly (python-sdk#2653).
-            self._active_get_response_scope = anyio.CancelScope()
-            with self._active_get_response_scope:
+            scope = anyio.CancelScope()
+            self._active_get_response_scopes.add(scope)
+            with scope:
                 await response(request.scope, request.receive, send)
         except Exception:  # pragma: lax no cover
             logger.exception("Error in standalone SSE response")
             await self._clean_up_memory_streams(GET_STREAM_KEY)
         finally:
-            self._active_get_response_scope = None
+            if scope is not None:
+                self._active_get_response_scopes.discard(scope)
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
 
@@ -797,10 +802,11 @@ class StreamableHTTPServerTransport:
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
 
-        # Cancel any in-flight GET SSE response to prevent
+        # Cancel all in-flight GET SSE responses to prevent
         # sse-starlette TaskGroup deadlock on Windows (python-sdk#2653).
-        if self._active_get_response_scope is not None:  # pragma: no cover
-            self._active_get_response_scope.cancel()
+        for scope in self._active_get_response_scopes:
+            scope.cancel()
+        self._active_get_response_scopes.clear()
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())
