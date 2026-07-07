@@ -30,6 +30,11 @@ _ReadResource = Callable[
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
+
+
 class _Stream:
     """Collects listen-stream notifications and lets tests await arrival counts."""
 
