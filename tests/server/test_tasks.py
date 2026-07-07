@@ -638,6 +638,60 @@ async def test_mcp_error_still_propagates_for_non_declaring_client() -> None:
     assert recording.puts == []
 
 
+async def test_abandoned_augmented_call_leaves_no_task_record() -> None:
+    """SDK-defined: a client abandoning an augmented `tools/call` cancels the tool body
+    through the Tasks interceptor, which lets cancellation propagate -- no task record
+    is written (nothing unfetchable sits in the store until TTL), and the same
+    connection's later augmented calls still complete normally."""
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    recording = _RecordingStore()
+    tasks = Tasks(clock=lambda: _FIXED_NOW, store=recording)
+    mcp = MCPServer("demo", extensions=[tasks])
+
+    @mcp.tool(structured_output=False)
+    async def block() -> str:
+        handler_started.set()
+        try:
+            await anyio.Event().wait()  # parked until the client's abandonment cancels it
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable: the wait only ends by cancellation
+
+    @mcp.tool(structured_output=False)
+    def echo(text: str) -> str:
+        return text
+
+    async with Client(mcp, extensions=[TasksExtension()]) as client:
+        abandon = anyio.CancelScope()
+
+        async def call_and_abandon() -> None:
+            with abandon:
+                await _send_raw(
+                    client, types.CallToolRequest(params=types.CallToolRequestParams(name="block", arguments={}))
+                )
+                raise NotImplementedError  # unreachable: the abandoned call never resolves
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(call_and_abandon)
+            with anyio.fail_after(5):
+                await handler_started.wait()
+            abandon.cancel()
+            with anyio.fail_after(5):
+                await handler_cancelled.wait()
+
+        # Let the interceptor's unwind finish before inspecting the store.
+        await anyio.wait_all_tasks_blocked()
+        assert recording.puts == []
+        after = await _augmented_call(client)
+
+    assert after["resultType"] == "task"
+    assert after["status"] == "completed"
+    assert len(recording.puts) == 1
+    assert recording.puts[0].task.status == "completed"
+
+
 async def test_get_task_result_parses_completed_and_failed_wire_shapes() -> None:
     """SDK-defined: `GetTaskResult` is the lenient client-side parse model for
     `tasks/get` -- it parses the real wire dict of both terminal shapes, carrying
