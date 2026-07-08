@@ -94,6 +94,7 @@ class ServerSession(
         stateless: bool = False,
     ) -> None:
         super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
+        self._stateless = stateless
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )
@@ -172,30 +173,44 @@ class ServerSession(
         async with self._incoming_message_stream_writer:
             await super()._receive_loop()
 
+    def _initialize_result(self, requested_version: str | int) -> types.InitializeResult:
+        return types.InitializeResult(
+            protocolVersion=requested_version
+            if requested_version in SUPPORTED_PROTOCOL_VERSIONS
+            else types.LATEST_PROTOCOL_VERSION,
+            capabilities=self._init_options.capabilities,
+            serverInfo=types.Implementation(
+                name=self._init_options.server_name,
+                version=self._init_options.server_version,
+                websiteUrl=self._init_options.website_url,
+                icons=self._init_options.icons,
+            ),
+            instructions=self._init_options.instructions,
+        )
+
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request.root:
             case types.InitializeRequest(params=params):
+                if not self._stateless and self._initialization_state == InitializationState.Initialized:
+                    if params == self._client_params:
+                        with responder:
+                            await responder.respond(types.ServerResult(self._initialize_result(params.protocolVersion)))
+                        return
+
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_REQUEST,
+                                message="Server is already initialized",
+                            )
+                        )
+                    return
+
                 requested_version = params.protocolVersion
                 self._initialization_state = InitializationState.Initializing
                 self._client_params = params
                 with responder:
-                    await responder.respond(
-                        types.ServerResult(
-                            types.InitializeResult(
-                                protocolVersion=requested_version
-                                if requested_version in SUPPORTED_PROTOCOL_VERSIONS
-                                else types.LATEST_PROTOCOL_VERSION,
-                                capabilities=self._init_options.capabilities,
-                                serverInfo=types.Implementation(
-                                    name=self._init_options.server_name,
-                                    version=self._init_options.server_version,
-                                    websiteUrl=self._init_options.website_url,
-                                    icons=self._init_options.icons,
-                                ),
-                                instructions=self._init_options.instructions,
-                            )
-                        )
-                    )
+                    await responder.respond(types.ServerResult(self._initialize_result(requested_version)))
                 self._initialization_state = InitializationState.Initialized
             case types.PingRequest():
                 # Ping requests are allowed at any time
