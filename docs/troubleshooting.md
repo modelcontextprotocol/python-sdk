@@ -156,13 +156,20 @@ same pipe.
 If you do not intend to send input to the child, redirect its stdin:
 
 ```python
-process = await asyncio.create_subprocess_exec(
-    sys.executable,
-    "script.py",
-    stdin=subprocess.DEVNULL,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-)
+import asyncio
+import subprocess
+import sys
+
+
+async def run_script() -> tuple[bytes, bytes]:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "script.py",
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return await process.communicate()
 ```
 
 Use the same idea with `subprocess.Popen(..., stdin=subprocess.DEVNULL)`. Also
