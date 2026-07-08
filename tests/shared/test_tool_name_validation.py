@@ -80,6 +80,22 @@ def test_validate_tool_name_rejects_invalid_characters(tool_name: str, expected_
     assert any("invalid characters" in w and expected_char in w for w in result.warnings)
 
 
+@pytest.mark.parametrize(
+    "tool_name",
+    ["valid_name\n", "a" * 127 + "\n"],
+    ids=["trailing_newline", "max_length_plus_newline"],
+)
+def test_validate_tool_name_rejects_trailing_newline(tool_name: str) -> None:
+    """A trailing newline is not an allowed character and must be rejected.
+
+    Regression test: Python's ``$`` (unlike ``\\Z``) also matches just before a
+    single trailing newline, so a name like ``"valid_name\\n"`` slipped through.
+    """
+    result = validate_tool_name(tool_name)
+    assert result.is_valid is False
+    assert any("invalid characters" in w for w in result.warnings)
+
+
 def test_validate_tool_name_rejects_multiple_invalid_chars() -> None:
     """Names with multiple invalid chars should list all of them."""
     result = validate_tool_name("user name@domain,com")

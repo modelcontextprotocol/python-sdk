@@ -17,8 +17,10 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# Regular expression for valid tool names according to SEP-986 specification
-TOOL_NAME_REGEX = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+# Regular expression for valid tool names according to SEP-986 specification.
+# End-anchored with \Z rather than $: in Python's default mode $ also matches
+# just before a single trailing newline, which would let "name\n" validate.
+TOOL_NAME_REGEX = re.compile(r"^[A-Za-z0-9._-]{1,128}\Z")
 
 # SEP reference URL for warning messages
 SEP_986_URL = "https://modelcontextprotocol.io/specification/2025-11-25/server/tools#tool-names"
