@@ -18,6 +18,8 @@ from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CONNECTION_CLOSED,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     JSONRPCError,
@@ -28,10 +30,16 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.types import Receive, Scope, Send
 
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import (
+    MAX_RECONNECTION_ATTEMPTS,
+    RequestContext,
+    StreamableHTTPTransport,
+    streamable_http_client,
+)
 from mcp.server import Server
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ServerEvent
+from mcp.shared._context_streams import ContextSendStream, create_context_streams
 from mcp.shared.dispatcher import CallOptions, DispatchContext
 from mcp.shared.inbound import MCP_METHOD_HEADER, MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
@@ -583,3 +591,160 @@ async def test_a_finished_post_task_does_not_evict_a_reused_ids_new_registration
             )
             await parked.closed.wait()
     assert [body["method"] for body in posted] == ["tools/call", "subscriptions/listen"]
+
+
+class _DyingSSEStream(httpx.AsyncByteStream):
+    """Emits one id-less comment then breaks - a non-resumable stream dropping."""
+
+    def __init__(self) -> None:
+        self.opened = anyio.Event()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        self.opened.set()
+        yield b": hello\n\n"
+        raise httpx.ReadError("connection reset")
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.anyio
+async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> None:
+    """A per-request SSE stream that dies having carried no event ids can never deliver its
+    response; the transport resolves the waiter with CONNECTION_CLOSED instead of hanging forever."""
+    dying = _DyingSSEStream()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=dying)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={}))
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED
+
+
+class _DeliverOnCommandSSEStream(httpx.AsyncByteStream):
+    """Parks after opening, then delivers one JSON-RPC response when told."""
+
+    def __init__(self, response_body: dict[str, Any]) -> None:
+        self._event = f"data: {json.dumps(response_body)}\n\n".encode()
+        self.opened = anyio.Event()
+        self.deliver = anyio.Event()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        self.opened.set()
+        await self.deliver.wait()
+        yield self._event
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.anyio
+async def test_a_superseded_posts_late_real_response_cannot_answer_the_successor() -> None:
+    """SDK-defined: re-issuing an id severs the superseded POST, so nothing from its
+    stream (a late real response, or a synthesized error for its death) can resolve
+    the reused id's waiter; only the successor's own response arrives."""
+    stale = _DeliverOnCommandSSEStream({"jsonrpc": "2.0", "id": "dup-1", "result": {"origin": "stale"}})
+    succeeding = _DeliverOnCommandSSEStream({"jsonrpc": "2.0", "id": "dup-1", "result": {"origin": "fresh"}})
+    streams: list[httpx.AsyncByteStream] = [stale, succeeding]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=streams.pop(0))
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="dup-1", method="tools/call", params={})))
+            await stale.opened.wait()
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="dup-1", method="tools/call", params={})))
+            await succeeding.opened.wait()
+            stale.deliver.set()
+            await anyio.wait_all_tasks_blocked()
+            succeeding.deliver.set()
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCResponse), reply.message
+    assert reply.message.result == {"origin": "fresh"}
+
+
+@pytest.mark.anyio
+async def test_a_202_to_a_request_resolves_the_waiter_with_an_error() -> None:
+    """SDK-defined: a server that answers a request with 202 Accepted has declared no
+    response will follow (the spec requires SSE or JSON for requests); the transport
+    resolves the waiter with INVALID_REQUEST instead of parking the caller forever."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(202)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={}))
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == INVALID_REQUEST
+
+
+def _abandoned_request_context(
+    http: httpx.AsyncClient, send: ContextSendStream[SessionMessage | Exception]
+) -> RequestContext:
+    return RequestContext(
+        client=http,
+        session_id=None,
+        session_message=SessionMessage(
+            JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={})
+        ),
+        metadata=None,
+        read_stream_writer=send,
+    )
+
+
+@pytest.mark.anyio
+async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error() -> None:
+    """An id-bearing stream that exhausts its reconnection budget also resolves the waiter with CONNECTION_CLOSED."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    async with httpx.AsyncClient() as http:
+        with anyio.fail_after(5):
+            await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
+                _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
+            )
+            reply = await receive.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED
+    send.close()
+    receive.close()
+
+
+@pytest.mark.anyio
+async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contained() -> None:
+    """Teardown race: a stream dying after the reader closed resolves best-effort and must not crash."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    receive.close()
+    async with httpx.AsyncClient() as http:
+        with anyio.fail_after(5):
+            await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
+                _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
+            )
+    send.close()

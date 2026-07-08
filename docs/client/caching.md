@@ -53,7 +53,7 @@ One rule sits above `"use"`: **calls carrying `meta` always reach the server.** 
 
 To turn caching off entirely, construct with `Client(server, cache=False)`: every call is a round trip again, and `cache_mode`, while still accepted, does nothing.
 
-Scope is honored automatically too: `"private"` entries are keyed to the cache's *partition* (below), while `"public"` ones may opt into wider sharing. And **notifications beat TTL** for the exact entries they name: a `list_changed` notification evicts the matching cached listing, and `resources/updated` evicts the cached read stored under exactly its URI, however fresh they were.
+Scope is honored automatically too: `"private"` entries are keyed to the cache's *partition* (below), while `"public"` ones may opt into wider sharing. And **notifications beat TTL** for the exact entries they name: a `list_changed` notification evicts the matching cached listing, and `resources/updated` evicts the cached read stored under exactly its URI, however fresh they were. On a 2026-07-28 connection those notifications arrive on a `subscriptions/listen` stream you open with `client.listen(...)`, and eviction completes before your watcher sees the event; **[Subscriptions](subscriptions.md)** is that page.
 
 One caveat on `resources/updated`: eviction is exact-URI only. The store contract has no enumerate or scan operation (same as the reference TypeScript implementation), so a notification carrying a *sub*-resource URI does not evict a cached read of its parent. If your server signals sub-resources this way, refetch the parent with `cache_mode="refresh"`.
 

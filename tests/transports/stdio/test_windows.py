@@ -37,6 +37,11 @@ pytestmark = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
+
+
 async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_closes(  # pragma: no cover
     tmp_path: Path,
     spawned_processes: list[anyio.abc.Process | FallbackProcess],

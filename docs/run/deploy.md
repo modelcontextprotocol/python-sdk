@@ -149,7 +149,7 @@ The seam between the two is the `SubscriptionBus`. Whatever bus you give a serve
 
 Nothing about the fan-out cares which server object a stream is attached to. Two servers holding one `InMemorySubscriptionBus` already behave this way: open a listen stream on one, `edit_note` on the other, and the stream hears about it. That in-memory bus only spans server objects inside one process, which makes it the model, not the deployment:
 
-* Across real processes, **the SDK ships no bus that can help you.** `SubscriptionBus` is a two-method `Protocol` (`publish` and `subscribe`) that you implement over your own pub/sub backend (Redis, NATS, whatever you already run) and pass as `MCPServer(subscriptions=...)`. **[Subscriptions](../handlers/subscriptions.md#one-process-is-the-default-more-takes-a-bus)** has the sketch and the contract.
+* Across real processes, **the SDK ships no bus that can help you.** `SubscriptionBus` is a two-method `Protocol` (`publish` and `subscribe`) that you implement over your own pub/sub backend (Redis, NATS, whatever you already run) and pass as `MCPServer(subscriptions=...)`. **[Subscriptions](../handlers/subscriptions.md#scaling-past-one-process)** has the sketch and the contract.
 * The bus carries four small typed events, never JSON-RPC. Acknowledgment, filtering, and stream lifecycle stay in the SDK, so your bus cannot break the protocol; it can only move events between processes.
 * Streams are **not** resumable and events are **not** replayed. Losing a replica drops its streams; the clients re-listen and re-fetch. There is no event store to share and nothing else to configure. This is the one place where scaling out is genuinely just more of the same.
 

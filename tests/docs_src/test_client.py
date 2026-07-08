@@ -5,7 +5,7 @@ from inline_snapshot import snapshot
 from mcp_types import Prompt, PromptArgument, PromptReference, TextContent, TextResourceContents, Tool
 
 from docs_src.client import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005, tutorial006, tutorial007
-from mcp import Client, MCPError
+from mcp import Client, MCPDeprecationWarning, MCPError
 from mcp.shared.metadata_utils import get_display_name
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -128,7 +128,9 @@ async def test_resource_subscriptions_are_listen_based_on_the_modern_wire() -> N
         assert client.server_capabilities.resources is not None
         assert client.server_capabilities.resources.subscribe is True
         with pytest.raises(MCPError) as exc_info:
-            await client.subscribe_resource("catalog://genres")
+            # The verb is itself deprecated; the modern wire also rejects it.
+            with pytest.warns(MCPDeprecationWarning, match="use Client.listen"):
+                await client.subscribe_resource("catalog://genres")  # pyright: ignore[reportDeprecated]
         assert exc_info.value.error.code == -32601
         assert exc_info.value.error.message == "Method not found"
 
