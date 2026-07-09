@@ -79,6 +79,21 @@
   }
 }
 
+/* Inline code inside admonitions: the chip token is an absolute dark
+   surface designed for the page canvas, so on a tinted admonition panel it
+   sits as an opaque slab (Zensical's own docs share this bug). Re-tint it
+   tone-on-tone instead — translucent foreground, composited over whatever
+   the panel color is — the same pattern Starlight and Docusaurus ship for
+   code inside callouts. Prose chips keep the block-matching dark surface;
+   block code inside admonitions keeps its own surface too. The first
+   declaration is the fallback where color-mix is unsupported. */
+.md-typeset .admonition :not(pre) > code,
+.md-typeset details :not(pre) > code {
+  background-color: var(--md-default-fg-color--lightest);
+  background-color: color-mix(in srgb, currentcolor 11%, transparent);
+  color: inherit;
+}
+
 /* Headings: the 300-weight light-gray defaults read washed out; use the
    full foreground color and a solid weight instead. 700, not 600: only
    Inter 300/400/700 are loaded (see the nav__link note above). */
