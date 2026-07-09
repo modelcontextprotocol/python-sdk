@@ -50,9 +50,6 @@ jobs:
 
       - name: Build combined docs (v1.x at /, main at /v2/)
         run: bash scripts/build-docs.sh site
-        env:
-          # Silence mkdocs-material's MkDocs 2.0 warning banner in CI logs.
-          NO_MKDOCS_2_WARNING: "1"
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

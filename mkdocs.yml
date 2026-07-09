@@ -164,6 +164,13 @@ markdown_extensions:
       custom_checkbox: true
   - sane_lists # this means you can start a list from any number
 
+# Zensical natively watches these beyond docs/: page content is assembled
+# from src/ (mkdocstrings) and docs_src/ (snippet includes), so serve
+# live-reload must react to both.
+watch:
+  - src
+  - docs_src
+
 # Zensical natively re-implements `search`, `glightbox` and `mkdocstrings`; it
 # does not run arbitrary MkDocs plugins or hooks. The former `gen-files`,
 # `literate-nav` and `llms_txt` hook are handled by the standalone scripts
