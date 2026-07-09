@@ -11,18 +11,23 @@
      .md-nav__link child of its item with the same 10px horizontal padding,
      so all text shares one column, and hover/active pills always paint
      10px of breathing room inside the scroll container (never clipped).
-     Inner anchors inside .md-nav__container wrappers are zeroed; the row
-     box owns the geometry. Vertical rhythm has a single knob: the nav
-     list's flex gap (stock 0.2rem reads airy; 2px matches the density the
-     site shipped with on Material, ~30px row pitch). */
+     The padding lives on the elements Zensical paints hover/active pills
+     on (.md-nav__link[href] anchors and [for] labels — leaf links, bare
+     section labels, and the inner anchor of an .md-nav__container
+     wrapper); wrappers stay geometry-neutral, as stock. The 10px inset
+     also stays >= the 0.4rem pill radius, so the corner curve never
+     crowds the text. Vertical rhythm has a single knob: the nav list's
+     flex gap (stock 0.2rem reads airy; 2px matches the density the site
+     shipped with on Material, ~30px row pitch). */
   .md-sidebar--primary .md-nav__list {
     gap: 2px;
   }
-  .md-sidebar--primary .md-nav__item > .md-nav__link {
+  .md-sidebar--primary .md-nav__item > .md-nav__link:not(.md-nav__container),
+  .md-sidebar--primary .md-nav__container > .md-nav__link {
     padding: 3px 10px;
     margin: 0;
   }
-  .md-sidebar--primary .md-nav__container > .md-nav__link {
+  .md-sidebar--primary .md-nav__item > .md-nav__container {
     padding: 0;
     margin: 0;
   }
