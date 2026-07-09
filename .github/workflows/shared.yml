@@ -173,7 +173,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --python 3.10
 
-      # Zensical runs no MkDocs plugins/hooks: generate the API reference and
-      # the concrete config, build strictly, then generate llms.txt.
       - name: Build the docs in strict mode
         run: bash scripts/docs/build.sh
