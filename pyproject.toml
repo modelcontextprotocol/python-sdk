@@ -92,6 +92,7 @@ docs = [
     "mkdocstrings-python>=2.0.5",
     # scripts/docs/build_config.py and llms_txt.py read mkdocs.yml directly.
     "pyyaml>=6.0.2",
+    "griffelib>=2.1.0",
 ]
 codegen = ["datamodel-code-generator==0.57.0"]
 
