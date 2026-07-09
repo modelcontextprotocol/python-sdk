@@ -18,8 +18,7 @@ from pathlib import Path
 # A MkDocs/Zensical nav is a list of entries, each either ``{title: url}`` for a
 # page or ``{title: [children]}`` for a section (a bare ``url`` string attaches
 # a section index page, courtesy of the ``navigation.indexes`` feature).
-NavItem = "str | dict[str, NavList]"
-NavList = "list[NavItem]"
+NavItem = "str | dict[str, str | list[NavItem]]"
 
 ROOT = Path(__file__).parent.parent.parent
 API_DIR = ROOT / "docs" / "api"
@@ -39,7 +38,7 @@ class _Node:
         if not self.children:
             assert self.url is not None
             return {title: self.url}
-        items: NavList = []
+        items: list[NavItem] = []
         if self.url is not None:
             items.append(self.url)
         for name in sorted(self.children):
@@ -47,7 +46,7 @@ class _Node:
         return {title: items}
 
 
-def generate() -> NavList:
+def generate() -> list[NavItem]:
     """Write ``docs/api/**.md`` stubs and return the API-section navigation."""
     if API_DIR.exists():
         shutil.rmtree(API_DIR)

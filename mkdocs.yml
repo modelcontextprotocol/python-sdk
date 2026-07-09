@@ -11,7 +11,7 @@ site_url: https://py.sdk.modelcontextprotocol.io/v2/
 
 # The "API Reference" entry is a placeholder: `scripts/docs/gen_ref_pages.py`
 # generates the `docs/api/` tree and `scripts/docs/build_config.py` splices the
-# real nested nav in before the build. See `scripts/build-docs.sh`.
+# real nested nav in before the build. See `scripts/docs/build.sh`.
 nav:
   - MCP Python SDK: index.md
   - "What's new in v2": whats-new.md
@@ -165,9 +165,11 @@ markdown_extensions:
   - sane_lists # this means you can start a list from any number
 
 # Zensical natively re-implements `search`, `glightbox` and `mkdocstrings`; it
-# does not run arbitrary MkDocs plugins or hooks, so the former `gen-files`,
-# `literate-nav`, `social` and `llms_txt` hook are handled by the standalone
-# scripts under `scripts/docs/` invoked around the build (see build-docs.sh).
+# does not run arbitrary MkDocs plugins or hooks. The former `gen-files`,
+# `literate-nav` and `llms_txt` hook are handled by the standalone scripts
+# under `scripts/docs/` (see scripts/docs/build.sh). The `social` plugin was
+# dropped: Zensical has no social-card support, and the cards were gated on
+# ENABLE_SOCIAL_CARDS, which no workflow ever set.
 plugins:
   - search
   - glightbox
