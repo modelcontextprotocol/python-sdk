@@ -23,4 +23,15 @@ cd "$SCRIPT_DIR/../.."
 uv sync --frozen --group docs
 uv run --frozen --no-sync python scripts/docs/build_config.py
 uv run --frozen --no-sync zensical build -f mkdocs.gen.yml --strict
+
+# Zensical renders an unresolvable [`name`][identifier] cross-reference as
+# literal bracket text and stays green even under --strict (mkdocs-autorefs
+# used to warn, and strict mode failed). The generated API index relies on
+# such references, so catch the failure mode here.
+if grep -rn --include='*.html' -F '[<code>' site/ > /dev/null; then
+    echo "error: unresolved cross-references rendered as literal text:" >&2
+    grep -rn --include='*.html' -Fo -m 1 '[<code>' site/ | head -20 >&2
+    exit 1
+fi
+
 uv run --frozen --no-sync python scripts/docs/llms_txt.py --site-dir site

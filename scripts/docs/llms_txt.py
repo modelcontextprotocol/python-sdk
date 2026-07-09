@@ -1,18 +1,18 @@
 """Generate llms.txt, llms-full.txt, and per-page markdown (https://llmstxt.org/).
 
 Zensical has no equivalent of MkDocs' build hooks, so this runs as a standalone
-post-build step over the source tree (``mkdocs.yml`` + ``docs/``) and writes
-three kinds of artifact into the built ``site/``:
+post-build step over the source tree (`mkdocs.yml` + `docs/`) and writes
+three kinds of artifact into the built `site/`:
 
-- ``llms.txt``: a markdown index of the documentation, one link per page,
+- `llms.txt`: a markdown index of the documentation, one link per page,
   grouped by nav section.
-- a ``.md`` rendition of every prose page next to its HTML (e.g.
-  ``servers/tools/index.md``), which is what the llms.txt links point at.
-- ``llms-full.txt``: every prose page concatenated for single-fetch consumption.
+- a `.md` rendition of every prose page next to its HTML (e.g.
+  `servers/tools/index.md`), which is what the llms.txt links point at.
+- `llms-full.txt`: every prose page concatenated for single-fetch consumption.
 
-Page markdown is the source markdown with ``--8<--`` snippet includes resolved
-(so the ``docs_src/`` code examples appear inline) and relative links rewritten
-to absolute URLs. The API reference pages under ``api/`` are mkdocstrings stubs
+Page markdown is the source markdown with `--8<--` snippet includes resolved
+(so the `docs_src/` code examples appear inline) and relative links rewritten
+to absolute URLs. The API reference pages under `api/` are mkdocstrings stubs
 with no prose source, so they are linked as rendered HTML from an Optional
 section instead of being embedded.
 
@@ -44,6 +44,10 @@ _OPTIONAL_PAGES = [
 
 _SNIPPET_LINE = re.compile(r'^(?P<indent>[ \t]*)--8<-- "(?P<path>[^"\n]+)"$', flags=re.MULTILINE)
 _MD_LINK = re.compile(r'(\]\()([^)\s]+\.md)(#[^)\s]*)?( +"[^"]*")?(\))')
+# Relative link/image targets with a non-markdown file extension. Zensical's
+# link validation only covers .md targets (a missing image builds green even
+# under --strict; MkDocs failed the build), so these are validated here.
+_ASSET_LINK = re.compile(r'\]\(([^)\s#]+\.(?!md[)#\s])[a-zA-Z0-9]{1,4})(?:#[^)\s]*)?( +"[^"]*")?\)')
 
 
 class _BuildError(Exception):
@@ -51,48 +55,53 @@ class _BuildError(Exception):
 
 
 def _dest_md_uri(src_uri: str) -> str:
-    """Map a source page (``servers/tools.md``) to its built rendition (``servers/tools/index.md``)."""
+    """Map a source page (`servers/tools.md`) to its built rendition (`servers/tools/index.md`)."""
     path = PurePosixPath(src_uri)
     directory = path.parent if path.stem == "index" else path.parent / path.stem
     return "index.md" if directory == PurePosixPath(".") else f"{directory}/index.md"
 
 
 def _page_url(src_uri: str) -> str:
-    """The directory URL of a page relative to the site root (``servers/tools/``, ``""`` for the home page)."""
+    """The directory URL of a page relative to the site root (`servers/tools/`, `""` for the home page)."""
     return _dest_md_uri(src_uri).removesuffix("index.md")
+
+
+def _collect_pages(items: list, prose: dict[str, str | None]) -> list[str]:
+    """Collect the prose pages under a nav subtree, in nav order.
+
+    Records each page in `prose` (src_uri -> nav title, or `None` to fall
+    back to the page's H1). This is the single owner of the prose-page rule:
+    a page entry counts when it ends in .md and is not part of the generated
+    API reference.
+    """
+    pages: list[str] = []
+    for entry in items:
+        title, value = next(iter(entry.items())) if isinstance(entry, dict) else (None, entry)
+        if isinstance(value, list):
+            pages.extend(_collect_pages(value, prose))
+        elif value.endswith(".md") and not value.startswith("api/"):
+            prose[value] = title
+            pages.append(value)
+    return pages
 
 
 def _walk_nav(nav: list, prose: dict[str, str | None], sections: list[tuple[str, list[str]]]) -> list[str]:
     """Split the nav into a flat list of top-level pages and titled sections.
 
-    Populates ``prose`` (src_uri -> nav title, or ``None`` to fall back to the
-    page's H1) and ``sections`` ((title, [src_uri]) in nav order), and returns
-    the top-level page src_uris. API and section-index bare entries are skipped.
+    Populates `sections` ((title, [src_uri]) in nav order) and returns the
+    top-level page src_uris; page collection itself is `_collect_pages`.
     """
     top_level: list[str] = []
     for entry in nav:
         title, value = next(iter(entry.items())) if isinstance(entry, dict) else (None, entry)
         if isinstance(value, list):
-            pages = _section_pages(value, prose)
+            pages = _collect_pages(value, prose)
             if pages:
                 assert title is not None
                 sections.append((title, pages))
-        elif value.endswith(".md") and not value.startswith("api/"):
-            prose[value] = title
-            top_level.append(value)
+        else:
+            top_level.extend(_collect_pages([entry], prose))
     return top_level
-
-
-def _section_pages(items: list, prose: dict[str, str | None]) -> list[str]:
-    pages: list[str] = []
-    for entry in items:
-        title, value = next(iter(entry.items())) if isinstance(entry, dict) else (None, entry)
-        if isinstance(value, list):
-            pages.extend(_section_pages(value, prose))
-        elif value.endswith(".md") and not value.startswith("api/"):
-            prose[value] = title
-            pages.append(value)
-    return pages
 
 
 def _resolve_snippets(markdown: str, src_uri: str) -> str:
@@ -121,6 +130,13 @@ def _resolve_snippets(markdown: str, src_uri: str) -> str:
 
 def _rewrite_links(markdown: str, src_uri: str, site_url: str, prose: dict[str, str | None]) -> str:
     src_dir = posixpath.dirname(src_uri)
+
+    for match in _ASSET_LINK.finditer(markdown):
+        target = match.group(1)
+        if "://" in target:
+            continue
+        if not (DOCS / posixpath.normpath(posixpath.join(src_dir, target))).exists():
+            raise _BuildError(f"llms_txt: cannot resolve asset link target {target!r} in {src_uri}")
 
     def rewrite(match: re.Match[str]) -> str:
         opening, target, anchor, title, closing = match.groups()
@@ -180,6 +196,12 @@ def generate(site_dir: Path) -> None:
         index.append("")
 
     index += ["## Optional", ""]
+    # Every generated package index must be listed: a package added to
+    # gen_ref_pages.PACKAGES without an entry here would be published on the
+    # site but silently missing from llms.txt.
+    generated = {f"api/{path.name}/index.md" for path in (DOCS / "api").iterdir() if path.is_dir()}
+    if unlisted := generated - {src_uri for src_uri, _, _ in _OPTIONAL_PAGES}:
+        raise _BuildError(f"llms_txt: generated package indexes missing from _OPTIONAL_PAGES: {sorted(unlisted)}")
     for src_uri, title, description in _OPTIONAL_PAGES:
         if not (DOCS / src_uri).exists():
             raise _BuildError(f"llms_txt: optional page {src_uri} not found (run gen_ref_pages first)")
