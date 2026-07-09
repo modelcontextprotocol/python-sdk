@@ -153,7 +153,10 @@ def generate() -> list[NavItem]:
 
             ident = ".".join(parts)
             documented.add(ident)
-            stubs[API_DIR / doc_path] = f"::: {ident}\n"
+            # Explicit titles: the stubs have no H1 of their own, and a
+            # title-less page falls back to "Index"/the filename — which is
+            # what pruned nav rows, browser tabs, and search results show.
+            stubs[API_DIR / doc_path] = f"---\ntitle: {parts[-1]}\n---\n\n::: {ident}\n"
             if len(parts) == 1:
                 package_index[ident] = API_DIR / doc_path
 
@@ -170,7 +173,7 @@ def generate() -> list[NavItem]:
         module = modules[ident]
         assert isinstance(module, griffe.Module)
         if body := _compact_index(module, documented):
-            stubs[doc_path] = body
+            stubs[doc_path] = f"---\ntitle: {ident}\n---\n\n{body}"
 
     for full_doc_path, stub in stubs.items():
         full_doc_path.parent.mkdir(parents=True, exist_ok=True)
