@@ -1,26 +1,30 @@
-/* Sidebar hierarchy + density for MkDocs Material 9.7.x.
-   All rules scoped to the desktop sidebar breakpoint (>= 76.25em), matching
-   Material's own scoping for navigation.sections, so the mobile drill-down
-   drawer keeps stock styling. Colors use Material tokens, so the light and
-   slate schemes both work without extra palette handling. */
+/* Sidebar hierarchy + density for Zensical's UI (Material-compatible md-*
+   DOM, but different stock spacing: nav links are 8px-radius pills with
+   7px 16px padding). All rules scoped to the desktop sidebar breakpoint
+   (>= 76.25em) so the mobile drill-down drawer keeps stock styling. Colors
+   use the md-* tokens, so the light and slate schemes both work without
+   extra palette handling. */
 
 @media screen and (min-width: 76.25em) {
-  /* Section labels: smaller, uppercase, letter-spaced, muted. Covers both the
-     clickable index-page headers and the bare API Reference label. */
+  /* Section labels: smaller, uppercase, letter-spaced, muted, and flush
+     with the guide line below them. The label is a container whose inner
+     anchor carries the stock pill padding; zero both so the label text
+     starts at the section's left edge. */
   .md-sidebar--primary .md-nav__item--section > .md-nav__link {
+    margin-top: 0;
+    margin-left: 0;
+    padding-left: 0;
     font-size: 0.62rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--md-default-fg-color--light);
   }
+  .md-sidebar--primary .md-nav__item--section > .md-nav__link > a {
+    padding: 2px 0;
+  }
 
-  /* Indent section children and hang a guide line. Material outdents section
-     children with [dir=ltr] ... margin-left: -0.6rem, which is why they sit
-     flush under the header; restoring the margin re-exposes the stock 0.6rem
-     list padding. The logical property ties Material's physical one at
-     (0,3,0) specificity and wins on source order (extra_css loads last),
-     while staying direction-agnostic. */
+  /* Indent section children slightly and hang a guide line. */
   .md-sidebar--primary .md-nav__item--section > .md-nav {
     margin-inline-start: 0.1rem;
     border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
@@ -32,22 +36,19 @@
     border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
   }
 
-  /* Tighten vertical rhythm (stock: 0.625em link margins, 1.25em sections).
-     The child combinator keeps this off anchors inside md-nav__container,
-     which carry their own margin-top: 0 stock rule. */
+  /* Tighten vertical rhythm: the stock pill rows (7px 16px padding plus
+     6.3px top margins) read too airy for a deep nav; keep the pill shape
+     and active highlight, just denser. */
   .md-sidebar--primary .md-nav__item > .md-nav__link {
-    margin-top: 0.45em;
+    padding: 4px 10px;
+    margin-top: 2px;
   }
   .md-sidebar--primary .md-nav__item--section {
     margin: 1em 0;
   }
-  .md-sidebar--primary .md-nav__item--section > .md-nav__link {
-    margin-top: 0;
-  }
 
-  /* The current page stands out from its siblings. 700 because Material only
-     loads Inter at 300/400/700; a 600 would silently substitute the 700 face
-     anyway, but render lighter on the system-font fallback stack. */
+  /* The current page stands out from its siblings (on top of the stock
+     pill highlight). 700 because only Inter 300/400/700 are loaded. */
   .md-sidebar--primary .md-nav__link--active {
     font-weight: 700;
   }
@@ -60,10 +61,16 @@
   }
 }
 
-/* Headings: Material's 300-weight light-gray defaults read washed out; use
-   the full foreground color and a solid weight instead. 700, not 600: the
-   Google Fonts request only carries Inter 300/400/700 (see the nav__link
-   note above). */
+/* Dark scheme: Zensical's slate canvas is near-black (hsla(225,15%,5%)),
+   harsher than the Material slate this site shipped with; restore that
+   blue-grey. Code blocks and other surfaces keep Zensical's own tokens. */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #1e2129;
+}
+
+/* Headings: the 300-weight light-gray defaults read washed out; use the
+   full foreground color and a solid weight instead. 700, not 600: only
+   Inter 300/400/700 are loaded (see the nav__link note above). */
 .md-typeset h1,
 .md-typeset h2 {
   font-weight: 700;
