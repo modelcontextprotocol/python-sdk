@@ -106,7 +106,15 @@ def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
             entry += f" — {summary}"
         sections.setdefault(_KIND_SECTIONS[target.kind], []).append(entry)
 
+    # Rendering the stub resolves the cross-package aliases again, in
+    # mkdocstrings' own collection. On a warm incremental rebuild the target
+    # package's pages can all be cache hits, so nothing else loads it and the
+    # resolution crashes (AliasResolutionError); preloading pins it.
+    preload = sorted(
+        {member.target_path.split(".")[0] for member in exports.values() if member.is_alias} - {package.path}
+    )
     body = [f"::: {package.path}", "    options:"]
+    body += ["      preload_modules:", *(f"        - {module}" for module in preload)]
     if inline:
         body += ["      members:", *(f"        - {name}" for name in inline)]
     else:
