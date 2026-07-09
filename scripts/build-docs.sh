@@ -36,18 +36,17 @@ trap cleanup EXIT
 
 # Build the checked-out worktree into its local `site/`, picking the toolchain
 # from the branch's own files rather than hard-coding it here: a branch that
-# ships the Zensical generators (scripts/docs/build_config.py) builds with
-# Zensical, otherwise it falls back to MkDocs. This keeps the combined build
-# correct regardless of which branch triggered it. Zensical requires site_dir to
-# live within the project root, so both paths build to the local `site/` and let
+# ships the Zensical build recipe (scripts/docs/build.sh) builds with it,
+# otherwise it falls back to MkDocs. This keeps the combined build correct
+# regardless of which branch triggered it. Zensical requires site_dir to live
+# within the project root, so both paths build to the local `site/` and let
 # the caller copy it to its destination.
 build_site() {
-    if [[ -f scripts/docs/build_config.py ]]; then
-        uv run --frozen --no-sync python scripts/docs/build_config.py
-        uv run --frozen --no-sync zensical build -f mkdocs.gen.yml --strict
-        uv run --frozen --no-sync python scripts/docs/llms_txt.py --site-dir site
+    if [[ -f scripts/docs/build.sh ]]; then
+        bash scripts/docs/build.sh
     else
-        uv run --frozen --no-sync mkdocs build --site-dir site
+        uv sync --frozen --group docs
+        NO_MKDOCS_2_WARNING=1 uv run --frozen --no-sync mkdocs build --site-dir site
     fi
 }
 
@@ -62,7 +61,6 @@ build_branch() {
 
     (
         cd "$worktree"
-        uv sync --frozen --group docs
         rm -rf site
         build_site
         mkdir -p "$dest"
