@@ -11,13 +11,14 @@
      and active highlight, just denser. Group rows that link to an index
      page wrap their anchor in an .md-nav__container div whose stock
      padding is 0 — densify the inner anchor, not the wrapper. The
-     section-label rules below must come AFTER these: they win the
-     specificity tie on source order. */
-  .md-sidebar--primary .md-nav__item > .md-nav__link:not(.md-nav__container) {
+     section items are excluded outright: their label is styled by the
+     section rules below, and the :not() classes here would otherwise
+     out-rank those on specificity. */
+  .md-sidebar--primary .md-nav__item:not(.md-nav__item--section) > .md-nav__link:not(.md-nav__container) {
     padding: 4px 10px;
     margin-top: 2px;
   }
-  .md-sidebar--primary .md-nav__item > .md-nav__container {
+  .md-sidebar--primary .md-nav__item:not(.md-nav__item--section) > .md-nav__container {
     margin-top: 2px;
   }
   .md-sidebar--primary .md-nav__container > .md-nav__link {
@@ -34,7 +35,7 @@
   .md-sidebar--primary .md-nav__item--section > .md-nav__link {
     margin-top: 0;
     margin-left: 0;
-    padding-left: 0;
+    padding: 2px 0;
     font-size: 0.62rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -61,6 +62,14 @@
      pill highlight). 700 because only Inter 300/400/700 are loaded. */
   .md-sidebar--primary .md-nav__link--active {
     font-weight: 700;
+  }
+
+  /* Top-level pages outside any section (the homepage entry, Protocol
+     versions, Troubleshooting, ...) share the left edge with the section
+     labels: pull the link box left by its own pill padding, so the text
+     is flush and the hover/active pill overhangs into the gutter. */
+  .md-sidebar--primary .md-nav--primary > .md-nav__list > .md-nav__item:not(.md-nav__item--section) > .md-nav__link:not(.md-nav__container) {
+    margin-inline-start: -10px;
   }
 
   /* The sidebar repeats the site name right above the homepage nav entry;
