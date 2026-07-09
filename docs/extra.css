@@ -6,55 +6,48 @@
    extra palette handling. */
 
 @media screen and (min-width: 76.25em) {
-  /* Tighten vertical rhythm: the stock pill rows (7px 16px padding plus
-     6.3px top margins) read too airy for a deep nav; keep the pill shape
-     and active highlight, just denser. Group rows that link to an index
-     page wrap their anchor in an .md-nav__container div whose stock
-     padding is 0 — densify the inner anchor, not the wrapper. The
-     section items are excluded outright: their label is styled by the
-     section rules below, and the :not() classes here would otherwise
-     out-rank those on specificity. */
-  .md-sidebar--primary .md-nav__item:not(.md-nav__item--section) > .md-nav__link:not(.md-nav__container) {
-    padding: 4px 10px;
-    margin-top: 2px;
+  /* The sidebar is one coordinate system derived from the pill inset:
+     every row — page links, group rows, section labels — is a direct
+     .md-nav__link child of its item with the same 10px horizontal padding,
+     so all text shares one column, and hover/active pills always paint
+     10px of breathing room inside the scroll container (never clipped).
+     Inner anchors inside .md-nav__container wrappers are zeroed; the row
+     box owns the geometry. Vertical rhythm has a single knob: the nav
+     list's flex gap (stock 0.2rem reads airy; 2px matches the density the
+     site shipped with on Material, ~30px row pitch). */
+  .md-sidebar--primary .md-nav__list {
+    gap: 2px;
   }
-  .md-sidebar--primary .md-nav__item:not(.md-nav__item--section) > .md-nav__container {
-    margin-top: 2px;
+  .md-sidebar--primary .md-nav__item > .md-nav__link {
+    padding: 3px 10px;
+    margin: 0;
   }
   .md-sidebar--primary .md-nav__container > .md-nav__link {
-    padding: 4px 10px;
-  }
-  .md-sidebar--primary .md-nav__item--section {
-    margin: 1em 0;
+    padding: 0;
+    margin: 0;
   }
 
-  /* Section labels: smaller, uppercase, letter-spaced, muted, and flush
-     with the guide line below them. The label is a container whose inner
-     anchor carries the stock pill padding; zero both so the label text
-     starts at the section's left edge. */
+  /* Section labels: typography only — geometry comes from the row rule
+     above, so no specificity coordination is needed. */
+  .md-sidebar--primary .md-nav__item--section {
+    margin: 0.8em 0;
+  }
   .md-sidebar--primary .md-nav__item--section > .md-nav__link {
-    margin-top: 0;
-    margin-left: 0;
-    padding: 2px 0;
     font-size: 0.62rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--md-default-fg-color--light);
   }
-  .md-sidebar--primary .md-nav__item--section > .md-nav__link > a {
-    padding: 2px 0;
-  }
 
-  /* Indent section children slightly and hang a guide line. */
+  /* Guide lines: 12px from the item box = 2px right of the label text
+     (which sits at box + 10px pill inset); children indent past them. */
   .md-sidebar--primary .md-nav__item--section > .md-nav {
-    margin-inline-start: 0.1rem;
+    margin-inline-start: 12px;
     border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
   }
-
-  /* Same guide line for collapsible groups inside the API Reference subtree
-     (section items also carry --nested, so exclude them). */
   .md-sidebar--primary .md-nav__item--nested:not(.md-nav__item--section) > .md-nav {
+    margin-inline-start: 12px;
     border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
   }
 
@@ -62,14 +55,6 @@
      pill highlight). 700 because only Inter 300/400/700 are loaded. */
   .md-sidebar--primary .md-nav__link--active {
     font-weight: 700;
-  }
-
-  /* Top-level pages outside any section (the homepage entry, Protocol
-     versions, Troubleshooting, ...) share the left edge with the section
-     labels: pull the link box left by its own pill padding, so the text
-     is flush and the hover/active pill overhangs into the gutter. */
-  .md-sidebar--primary .md-nav--primary > .md-nav__list > .md-nav__item:not(.md-nav__item--section) > .md-nav__link:not(.md-nav__container) {
-    margin-inline-start: -10px;
   }
 
   /* The sidebar repeats the site name right above the homepage nav entry;
