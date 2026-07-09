@@ -6,6 +6,27 @@
    extra palette handling. */
 
 @media screen and (min-width: 76.25em) {
+  /* Tighten vertical rhythm: the stock pill rows (7px 16px padding plus
+     6.3px top margins) read too airy for a deep nav; keep the pill shape
+     and active highlight, just denser. Group rows that link to an index
+     page wrap their anchor in an .md-nav__container div whose stock
+     padding is 0 — densify the inner anchor, not the wrapper. The
+     section-label rules below must come AFTER these: they win the
+     specificity tie on source order. */
+  .md-sidebar--primary .md-nav__item > .md-nav__link:not(.md-nav__container) {
+    padding: 4px 10px;
+    margin-top: 2px;
+  }
+  .md-sidebar--primary .md-nav__item > .md-nav__container {
+    margin-top: 2px;
+  }
+  .md-sidebar--primary .md-nav__container > .md-nav__link {
+    padding: 4px 10px;
+  }
+  .md-sidebar--primary .md-nav__item--section {
+    margin: 1em 0;
+  }
+
   /* Section labels: smaller, uppercase, letter-spaced, muted, and flush
      with the guide line below them. The label is a container whose inner
      anchor carries the stock pill padding; zero both so the label text
@@ -36,17 +57,6 @@
     border-inline-start: 0.05rem solid var(--md-default-fg-color--lightest);
   }
 
-  /* Tighten vertical rhythm: the stock pill rows (7px 16px padding plus
-     6.3px top margins) read too airy for a deep nav; keep the pill shape
-     and active highlight, just denser. */
-  .md-sidebar--primary .md-nav__item > .md-nav__link {
-    padding: 4px 10px;
-    margin-top: 2px;
-  }
-  .md-sidebar--primary .md-nav__item--section {
-    margin: 1em 0;
-  }
-
   /* The current page stands out from its siblings (on top of the stock
      pill highlight). 700 because only Inter 300/400/700 are loaded. */
   .md-sidebar--primary .md-nav__link--active {
@@ -64,8 +74,10 @@
 /* Dark scheme: Zensical's slate canvas is near-black (hsla(225,15%,5%)),
    harsher than the Material slate this site shipped with; restore that
    blue-grey. Code blocks and other surfaces keep Zensical's own tokens. */
-[data-md-color-scheme="slate"] {
-  --md-default-bg-color: #1e2129;
+@media screen {
+  [data-md-color-scheme="slate"] {
+    --md-default-bg-color: #1e2129;
+  }
 }
 
 /* Headings: the 300-weight light-gray defaults read washed out; use the
