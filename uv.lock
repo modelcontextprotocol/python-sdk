@@ -892,6 +892,7 @@ dev = [
     { name = "trio" },
 ]
 docs = [
+    { name = "griffelib" },
     { name = "mkdocstrings" },
     { name = "mkdocstrings-python" },
     { name = "pyyaml" },
@@ -947,6 +948,7 @@ dev = [
     { name = "trio", specifier = ">=0.26.2" },
 ]
 docs = [
+    { name = "griffelib", specifier = ">=2.1.0" },
     { name = "mkdocstrings", specifier = ">=1.0.4" },
     { name = "mkdocstrings-python", specifier = ">=2.0.5" },
     { name = "pyyaml", specifier = ">=6.0.2" },
