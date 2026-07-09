@@ -13,6 +13,8 @@ the stream. This module provides the two pieces a server needs:
   `MCPServer` registers one automatically; lowlevel `Server` users pass an
   instance as `on_subscriptions_listen=`.
 
+The event vocabulary lives in `mcp.shared.subscriptions`, shared with the client driver, and is re-exported here.
+
 Per the spec, the handler acknowledges first (the ack is the first frame on
 the stream), tags every frame with the listen request's JSON-RPC id under
 `_meta["io.modelcontextprotocol/subscriptionId"]`, and never delivers an
@@ -24,7 +26,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any, Protocol
 
 import anyio
@@ -33,56 +34,39 @@ import anyio.streams.memory
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_REQUEST,
-    NotificationParams,
-    PromptListChangedNotification,
-    ResourceListChangedNotification,
-    ResourceUpdatedNotification,
-    ResourceUpdatedNotificationParams,
-    ServerNotification,
     SubscriptionFilter,
     SubscriptionsAcknowledgedNotification,
     SubscriptionsAcknowledgedNotificationParams,
     SubscriptionsListenRequestParams,
     SubscriptionsListenResult,
-    ToolListChangedNotification,
 )
 
 from mcp.server.context import ServerRequestContext
 from mcp.shared.exceptions import MCPError
+from mcp.shared.subscriptions import (
+    SUBSCRIPTION_ID_META_KEY,
+    PromptsListChanged,
+    ResourcesListChanged,
+    ResourceUpdated,
+    ServerEvent,
+    ToolsListChanged,
+    event_matches,
+    event_to_notification,
+)
+
+__all__ = [
+    "SUBSCRIPTION_ID_META_KEY",
+    "InMemorySubscriptionBus",
+    "ListenHandler",
+    "PromptsListChanged",
+    "ResourceUpdated",
+    "ResourcesListChanged",
+    "ServerEvent",
+    "SubscriptionBus",
+    "ToolsListChanged",
+]
 
 logger = logging.getLogger(__name__)
-
-SUBSCRIPTION_ID_META_KEY = "io.modelcontextprotocol/subscriptionId"
-"""The `_meta` key carrying the subscription id on every listen-stream frame.
-
-The value is the `subscriptions/listen` request's JSON-RPC id, verbatim.
-"""
-
-
-@dataclass(frozen=True)
-class ToolsListChanged:
-    """The server's tool list changed."""
-
-
-@dataclass(frozen=True)
-class PromptsListChanged:
-    """The server's prompt list changed."""
-
-
-@dataclass(frozen=True)
-class ResourcesListChanged:
-    """The server's resource list changed."""
-
-
-@dataclass(frozen=True)
-class ResourceUpdated:
-    """The resource at `uri` changed and may need to be read again."""
-
-    uri: str
-
-
-ServerEvent = ToolsListChanged | PromptsListChanged | ResourcesListChanged | ResourceUpdated
-"""An event a server publishes for delivery to listen subscribers."""
 
 
 class SubscriptionBus(Protocol):
@@ -170,32 +154,6 @@ def _honored_subset(requested: SubscriptionFilter) -> SubscriptionFilter:
     )
 
 
-def _event_matches(honored: SubscriptionFilter, uris: frozenset[str], event: ServerEvent) -> bool:
-    """Whether `event` is within the stream's honored filter.
-
-    `uris` is the honored `resource_subscriptions` as a set: matching runs on
-    every publish, and the wire filter may name many URIs.
-    """
-    if isinstance(event, ToolsListChanged):
-        return honored.tools_list_changed is True
-    if isinstance(event, PromptsListChanged):
-        return honored.prompts_list_changed is True
-    if isinstance(event, ResourcesListChanged):
-        return honored.resources_list_changed is True
-    return event.uri in uris
-
-
-def _event_to_notification(event: ServerEvent, meta: dict[str, Any]) -> ServerNotification:
-    """Build the stamped wire notification for `event`."""
-    if isinstance(event, ToolsListChanged):
-        return ToolListChangedNotification(params=NotificationParams(_meta=meta))
-    if isinstance(event, PromptsListChanged):
-        return PromptListChangedNotification(params=NotificationParams(_meta=meta))
-    if isinstance(event, ResourcesListChanged):
-        return ResourceListChangedNotification(params=NotificationParams(_meta=meta))
-    return ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri=event.uri, _meta=meta))
-
-
 class ListenHandler:
     """Serves `subscriptions/listen`: one call is one subscription stream.
 
@@ -244,7 +202,7 @@ class ListenHandler:
         send, recv = anyio.create_memory_object_stream[ServerEvent](self._max_buffered_events)
 
         def deliver(event: ServerEvent) -> None:
-            if _event_matches(honored, honored_uris, event):
+            if event_matches(honored, honored_uris, event):
                 try:
                     send.send_nowait(event)
                 except anyio.ClosedResourceError:
@@ -273,7 +231,7 @@ class ListenHandler:
             )
             async for event in recv:
                 await ctx.session.send_notification(
-                    _event_to_notification(event, meta), related_request_id=subscription_id
+                    event_to_notification(event, meta), related_request_id=subscription_id
                 )
         finally:
             _safe_unsubscribe(unsubscribe)

@@ -1,4 +1,4 @@
-"""`docs/tutorial/testing.md`: the page's own test, run for real.
+"""`docs/get-started/testing.md`: the page's own test, run for real.
 
 The page shows this test against a `server.py` next to it; here the import path
 is the only difference.

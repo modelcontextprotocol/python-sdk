@@ -981,7 +981,7 @@ async def test_a_resource_updated_notification_evicts_that_uris_read_entry() -> 
 async def test_the_modern_in_process_path_drops_the_eviction_notification() -> None:
     """Pins the documented gap: the default in-process path (DirectDispatcher) drops
     standalone notifications, so the warm entry survives. If this starts failing the
-    path gained delivery: flip the `docs/advanced/caching.md` caveat and the legacy-mode tests."""
+    path gained delivery: flip the `docs/client/caching.md` caveat and the legacy-mode tests."""
     fetches: list[str | None] = []
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:

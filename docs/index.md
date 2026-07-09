@@ -2,6 +2,7 @@
 
 !!! info "You are viewing the in-development v2 documentation"
     For the current stable release, see the [v1.x documentation](https://py.sdk.modelcontextprotocol.io/).
+    New to v2, or coming from v1? **[What's new in v2](whats-new.md)** is the five-minute tour of what changed.
     Trying v2? [Tell us what you find](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) — it is the most useful thing you can do for the SDK right now.
 
 The **Model Context Protocol (MCP)** lets applications provide context to LLMs in a standardized way, separating the concern of *providing* context from the LLM interaction itself.
@@ -36,7 +37,7 @@ The `[cli]` extra gives you the `mcp` command; you'll want it for development.
     Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
     gives you the latest **v1.x** release, which this documentation does not describe. Check
     [PyPI](https://pypi.org/project/mcp/#history) for the newest beta before you copy the line
-    above. See [Installation](installation.md) for the details.
+    above. See [Installation](get-started/installation.md) for the details.
 
 ## Example
 
@@ -89,7 +90,11 @@ You wrote two Python functions with type hints and a docstring. The SDK does the
 
 ## Where to go next
 
-* The **[Tutorial](tutorial/index.md)** walks through everything a server can do, one small step at a time.
+* **[Get started](get-started/index.md)** takes you from install to a working, tested server.
+* Building an application that *uses* MCP servers? Start with **[Clients](client/index.md)**.
+* Already have a FastAPI or Starlette app? **[Add to an existing app](run/asgi.md)** mounts an MCP server inside it.
+* Hunting an exact error message? **[Troubleshooting](troubleshooting.md)** is keyed by the verbatim text.
+* Wondering what changed in v2? **[What's new in v2](whats-new.md)** is the five-minute tour.
 * Migrating from v1? Start with the **[Migration Guide](migration.md)**.
 * Hunting for an exact signature? The **[API Reference](api/mcp/index.md)** is generated from the source.
 * Reading with an LLM? This documentation is also published in the [llms.txt](https://llmstxt.org/) format:

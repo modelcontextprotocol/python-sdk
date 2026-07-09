@@ -474,6 +474,19 @@ REQUIREMENTS: dict[str, Requirement] = {
             "never reused within the session."
         ),
     ),
+    "protocol:request-id:caller-supplied": Requirement(
+        source="sdk",
+        behavior=(
+            "A caller can supply the id of a request it sends, so the id is known before any response "
+            "arrives; subscriptions/listen streams are demultiplexed by exactly that id."
+        ),
+        note=(
+            f"The demux-by-listen-request-id obligation is the spec's "
+            f"({SPEC_2026_BASE_URL}/basic/patterns/subscriptions#receiving-notifications); supplying the "
+            "id up front is the SDK surface that makes it satisfiable."
+        ),
+        added_in="2026-07-28",
+    ),
     "protocol:notifications:no-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic#notifications",
         behavior=(
@@ -484,14 +497,32 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:cancel:abort-signal": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#cancellation-flow",
         behavior=(
-            "Cancelling an in-flight request through the client API sends notifications/cancelled with "
-            "the request id and fails the local call."
+            "Abandoning an in-flight request client-side (cancelling the task awaiting it) cancels the "
+            "request itself: the server-side handler stops and the session serves later requests "
+            "normally."
         ),
-        deferred=(
-            "Not implemented in the SDK: there is no public client-side API to cancel an in-flight "
-            "request; cancellation requires hand-constructing the notification (which is how "
-            "protocol:cancel:in-flight exercises the receiving side)."
+        note=(
+            "The per-transport wire spelling (frame vs response-stream close) is pinned separately by "
+            "protocol:cancel:stream-frame and the client-transport:http:cancel-* pair."
         ),
+        arm_exclusions=(
+            ArmExclusion(
+                reason="requires-session",
+                transport="streamable-http-stateless",
+                note=(
+                    "The 2025-era cancel frame POSTs on a fresh per-request transport that shares no "
+                    "in-flight state with the blocked request, so the handler is never interrupted."
+                ),
+            ),
+        ),
+    ),
+    "protocol:cancel:abort-scoped": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "Abandoning one in-flight request cancels only that request: a concurrent request on the "
+            "same connection keeps running and returns its result."
+        ),
+        arm_exclusions=(ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),),
     ),
     "protocol:cancel:handler-abort-propagates": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
@@ -549,6 +580,16 @@ REQUIREMENTS: dict[str, Requirement] = {
             ArmExclusion(reason="server-initiated-request", transport="streamable-http-stateless"),
             ArmExclusion(reason="server-initiated-request", spec_version="2026-07-28"),
         ),
+    ),
+    "protocol:cancel:stream-frame": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#transport-specific-cancellation",
+        behavior=(
+            "On stream (stdio-shaped) wires at 2026-07-28, abandoning an in-flight request sends exactly "
+            "one notifications/cancelled naming its request id - streams keep the frame spelling of "
+            "cancellation that streamable HTTP dropped."
+        ),
+        added_in="2026-07-28",
+        note="Exercised over the in-memory stream pair, the same dual-era wire stdio serves.",
     ),
     "protocol:cancel:unknown-id-ignored": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#error-handling",
@@ -1181,6 +1222,59 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2575); resources/unsubscribe replaced by subscriptions/listen.",
+    ),
+    "subscriptions:listen:client:honored-surfacing": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#acknowledgment",
+        behavior=(
+            "Entering Client.listen() waits for the server's acknowledgment and surfaces the honored "
+            "filter subset on the handle, so the client can check it against what it requested (spec SHOULD)."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:concurrent-demux": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#multiple-concurrent-subscriptions",
+        behavior=(
+            "Concurrently open subscriptions each surface their own acknowledgment: with both listen "
+            "requests in flight before either ack arrives, each handle's honored filter is the subset "
+            "for its own request, routed by subscription id rather than broadcast to every open route."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:iteration": Requirement(
+        source="sdk",
+        behavior=(
+            "An open subscription is an async iterator of typed change events; delivered notifications "
+            "still tee to message_handler so caching and observers keep working."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:graceful-close": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#cancellation",
+        behavior=(
+            "The server's empty subscriptions/listen result (its deliberate close) ends iteration cleanly "
+            "after buffered events drain; no exception is raised."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:lost": Requirement(
+        source="sdk",
+        behavior=(
+            "A listen stream that ends without the graceful result raises SubscriptionLost from iteration; "
+            "there is no automatic re-listen."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:era-guard": Requirement(
+        source="sdk",
+        behavior=(
+            "Client.listen() on a pre-2026 connection raises ListenNotSupportedError steering to "
+            "subscribe_resource/message_handler instead of leaking a wire -32601."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "removed_in scopes the matrix to the 2025 cells deliberately: the behavior under test is the "
+            "guard on connections where the method does not exist."
+        ),
     ),
     "resources:updated-notification": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
@@ -3255,6 +3349,30 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note="Only observable over HTTP: Accept is an HTTP request header.",
+    ),
+    "client-transport:http:cancel-closes-stream": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#cancellation",
+        behavior=(
+            "At 2026-07-28, abandoning an in-flight request closes that request's own POST stream and "
+            "posts nothing further: no notifications/cancelled reaches the server (the revision defines "
+            "no client-to-server notifications), and the server treats the disconnect as cancellation "
+            "of exactly that request."
+        ),
+        transports=("streamable-http",),
+        added_in="2026-07-28",
+        supersedes=("client-transport:http:cancel-posts-frame",),
+        note="HTTP-only by nature: the response stream that closing constitutes the signal is an HTTP exchange.",
+    ),
+    "client-transport:http:cancel-posts-frame": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#cancellation-flow",
+        behavior=(
+            "At 2025-era revisions, abandoning an in-flight request POSTs exactly one "
+            "notifications/cancelled naming its request id."
+        ),
+        transports=("streamable-http",),
+        removed_in="2026-07-28",
+        superseded_by="client-transport:http:cancel-closes-stream",
+        note="HTTP-only by nature: pins that the frame travels as its own POST on the legacy HTTP wire.",
     ),
     "client-transport:http:concurrent-streams": Requirement(
         source="sdk",

@@ -1,4 +1,4 @@
-"""`docs/client/protocol-versions.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/protocol-versions.md`: every claim the page makes, proved against the real SDK."""
 
 import re
 

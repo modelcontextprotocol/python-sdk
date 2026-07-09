@@ -1,4 +1,4 @@
-"""`docs/tutorial/structured-output.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/servers/structured-output.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot

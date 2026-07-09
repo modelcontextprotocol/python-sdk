@@ -1,4 +1,4 @@
-"""`docs/advanced/caching.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/client/caching.md`: every claim the page makes, proved against the real SDK."""
 
 from collections.abc import Mapping
 from typing import Any, cast

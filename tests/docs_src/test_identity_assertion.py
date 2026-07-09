@@ -1,4 +1,4 @@
-"""`docs/advanced/identity-assertion.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/client/identity-assertion.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 from urllib.parse import parse_qsl

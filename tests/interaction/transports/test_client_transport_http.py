@@ -6,6 +6,7 @@ methods, ordering) rather than what the protocol layer on top of it returns. The
 wire-level instrument; the SDK client never exposes these details.
 """
 
+import json
 from collections.abc import AsyncIterator
 
 import anyio
@@ -246,3 +247,106 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
                     await client.list_tools()
 
     assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Session terminated"))
+
+
+def _blocking_server(started: anyio.Event, cancelled: anyio.Event) -> Server:
+    """A server whose `block` tool parks until cancelled; `echo` answers normally."""
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name=name, input_schema={"type": "object"}) for name in ("block", "echo")])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        if params.name == "block":
+            started.set()
+            try:
+                await anyio.Event().wait()  # parked until the client's abandonment cancels it
+            except anyio.get_cancelled_exc_class():
+                cancelled.set()
+                raise
+        assert params.name == "echo"
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    return Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
+
+
+@requirement("client-transport:http:cancel-closes-stream")
+async def test_at_2026_abandoning_a_call_closes_its_stream_and_posts_nothing() -> None:
+    """At 2026-07-28, abandoning an in-flight call aborts that call's own POST - the server sees
+    the disconnect and cancels exactly that handler - and no notifications/cancelled is POSTed.
+
+    The follow-up echo call bounds the negative: POSTs leave the client's writer serially, so a
+    cancel frame would have to appear before the echo's POST.
+    """
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    requests: list[tuple[str, bytes]] = []
+
+    async def record(request: httpx.Request) -> None:
+        requests.append((request.method, request.content))
+
+    server = _blocking_server(handler_started, handler_cancelled)
+    async with mounted_app(server, on_request=record) as (http, _):
+        transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http)
+        async with Client(transport, mode="2026-07-28") as client:
+            await client.list_tools()  # settles the schema cache so the calls below add no refresh POST
+            abandon = anyio.CancelScope()
+
+            async def call_and_abandon() -> None:
+                with abandon:
+                    await client.call_tool("block", {})
+                    raise NotImplementedError  # unreachable: the call never resolves
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(call_and_abandon)
+                with anyio.fail_after(5):
+                    await handler_started.wait()
+                abandon.cancel()
+                with anyio.fail_after(5):
+                    await handler_cancelled.wait()
+
+            result = await client.call_tool("echo", {})
+            assert result.content == [TextContent(text="ok")]
+
+    wire = [(method, json.loads(body)["method"] if body else None) for method, body in requests]
+    assert wire == snapshot([("POST", "tools/list"), ("POST", "tools/call"), ("POST", "tools/call")])
+
+
+@requirement("client-transport:http:cancel-posts-frame")
+async def test_at_2025_abandoning_a_call_posts_exactly_one_cancelled_frame() -> None:
+    """At 2025-era revisions, abandoning an in-flight call POSTs one notifications/cancelled
+    naming the abandoned request's id - the frame is the legacy HTTP spelling of cancellation,
+    and it interrupts the server-side handler.
+    """
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    requests: list[tuple[str, bytes]] = []
+
+    async def record(request: httpx.Request) -> None:
+        requests.append((request.method, request.content))
+
+    server = _blocking_server(handler_started, handler_cancelled)
+    async with mounted_app(server, on_request=record) as (http, _):
+        async with client_via_http(http) as client:
+            abandon = anyio.CancelScope()
+
+            async def call_and_abandon() -> None:
+                with abandon:
+                    await client.call_tool("block", {})
+                    raise NotImplementedError  # unreachable: the call never resolves
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(call_and_abandon)
+                with anyio.fail_after(5):
+                    await handler_started.wait()
+                abandon.cancel()
+                with anyio.fail_after(5):
+                    await handler_cancelled.wait()
+            # Let the abandoned call's late error response arrive and be dropped while the
+            # client is still open, so teardown never races its delivery.
+            await anyio.wait_all_tasks_blocked()
+
+    posts = [json.loads(body) for method, body in requests if method == "POST" and body]
+    block_calls = [p for p in posts if p.get("method") == "tools/call" and p["params"]["name"] == "block"]
+    cancels = [p for p in posts if p.get("method") == "notifications/cancelled"]
+    assert len(block_calls) == 1
+    assert [c["params"]["requestId"] for c in cancels] == [block_calls[0]["id"]]

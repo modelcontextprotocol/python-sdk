@@ -1,4 +1,4 @@
-"""`docs/tutorial/prompts.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/servers/prompts.md`: every claim the page makes, proved against the real SDK."""
 
 import traceback
 

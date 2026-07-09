@@ -16,6 +16,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CONNECTION_CLOSED,
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
@@ -35,8 +36,9 @@ from typing_extensions import Self, TypeVar, deprecated
 
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.extension import NotificationBinding, ResultClaim, UnexpectedClaimedResult
+from mcp.client.subscriptions import ListenRoute
 from mcp.shared._compat import resync_tracer
-from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, ProgressFnT, as_request_id
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.inbound import (
     MCP_METHOD_HEADER,
@@ -48,9 +50,10 @@ from mcp.shared.inbound import (
     mcp_param_headers,
     x_mcp_header_map,
 )
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY, event_from_wire
 from mcp.shared.transport_context import TransportContext
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -93,7 +96,16 @@ def _make_modern_stamp(
         meta[PROTOCOL_VERSION_META_KEY] = protocol_version
         meta[CLIENT_INFO_META_KEY] = client_info
         meta[CLIENT_CAPABILITIES_META_KEY] = capabilities
-        opts["cancel_on_abandon"] = False
+        # `cancel_on_abandon` stays at the dispatcher default (True): the
+        # courtesy `notifications/cancelled` is the abandon signal. On the
+        # stream transports it is the 2026 wire's cancellation spelling; the
+        # streamable-HTTP transport translates it into aborting the request's
+        # own POST instead of writing it (the 2026 HTTP wire has no
+        # client-to-server notifications - closing the stream is the signal).
+        # The negotiation methods still opt out, mirroring `_preconnect_stamp`:
+        # the spec forbids cancelling them.
+        if data["method"] in ("initialize", "server/discover"):
+            opts["cancel_on_abandon"] = False
         headers = opts.setdefault("headers", {})
         headers[MCP_PROTOCOL_VERSION_HEADER] = protocol_version
         headers[MCP_METHOD_HEADER] = data["method"]
@@ -351,6 +363,8 @@ class ClientSession:
         self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
+        # subscriptions/listen demux routes; membership decides ack consumption (raw listens are never registered)
+        self._listen_routes: dict[RequestId, ListenRoute] = {}
         if dispatcher is not None:
             if read_stream is not None or write_stream is not None:
                 raise ValueError("pass read_stream/write_stream or dispatcher, not both")
@@ -379,7 +393,9 @@ class ClientSession:
             for binding in self._notification_bindings.values():
                 send, receive = anyio.create_memory_object_stream[BaseModel](_NOTIFICATION_QUEUE_SIZE)
                 self._binding_queues[binding.method] = (send, receive)
-            await self._task_group.start(self._dispatcher.run, self._on_request, self._on_notify)
+            await self._task_group.start(
+                self._dispatcher.run, self._on_request, self._on_notify, self._intercept_notification
+            )
             for binding in self._notification_bindings.values():
                 _, receive = self._binding_queues[binding.method]
                 self._task_group.start_soon(self._deliver_bound_notifications, binding, receive)
@@ -413,6 +429,7 @@ class ClientSession:
             result = await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
         finally:
             self._close_binding_queues()
+            self._settle_listen_routes_closed()
         await resync_tracer()
         return result
 
@@ -850,15 +867,23 @@ class ClientSession:
             raise _input_required_unexpected("read_resource")
         return result
 
+    @deprecated(
+        "resources/subscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
-        """Send a resources/subscribe request."""
+        """Send a resources/subscribe request (2025-era servers only)."""
         return await self.send_request(
             types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
 
+    @deprecated(
+        "resources/unsubscribe is removed as of 2026-07-28; use Client.listen() instead.",
+        category=MCPDeprecationWarning,
+    )
     async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
-        """Send a resources/unsubscribe request."""
+        """Send a resources/unsubscribe request (2025-era servers only)."""
         return await self.send_request(
             types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
@@ -1216,6 +1241,62 @@ class ClientSession:
             case types.ListRootsRequest():  # pragma: no branch
                 return await self._list_roots_callback(ctx)
 
+    def _register_listen_route(self, request_id: RequestId) -> ListenRoute:
+        """Create the demux route for a listen request id; the caller registers BEFORE sending."""
+        route = ListenRoute()
+        self._listen_routes[request_id] = route
+        return route
+
+    def _unregister_listen_route(self, request_id: RequestId) -> None:
+        """Drop a listen route; the handle owns membership, so a missing key is a no-op."""
+        self._listen_routes.pop(request_id, None)
+
+    def _settle_listen_routes_closed(self) -> None:
+        """Settle all open listen routes as lost on session exit; cancelled driver tasks cannot."""
+        closed = MCPError(code=CONNECTION_CLOSED, message="Connection closed")
+        for route in self._listen_routes.values():
+            route.settle("lost", error=closed)
+        self._listen_routes.clear()
+
+    def _intercept_notification(self, method: str, params: Mapping[str, Any] | None) -> bool:
+        """Wire-order listen demux, run synchronously on the dispatcher's receive path.
+
+        Bookkeeping must advance in receive order with the listen result (resolved on
+        this same path); the spawned `_on_notify` path would race it and drop events.
+        Returns True to consume the frame: a live route's ack is driver state, never surfaced.
+        """
+        if not self._listen_routes:
+            return False
+        if method == "notifications/cancelled":
+            request_id = cancelled_request_id_from_params(params)
+            if request_id is not None and (listen_route := self._listen_routes.get(request_id)) is not None:
+                # a server-sent cancel naming a listen request is that stream's teardown signal
+                listen_route.settle("lost")
+            return False  # _on_notify swallows every cancelled either way (v1 parity)
+        if params is None:
+            return False
+        meta = params.get("_meta")
+        if not isinstance(meta, Mapping):
+            return False
+        # as_request_id is not a tripwire: raw wire _meta can carry a non-id (even unhashable) value
+        subscription_id = as_request_id(cast("Mapping[str, Any]", meta).get(SUBSCRIPTION_ID_META_KEY))
+        if subscription_id is None or (listen_route := self._listen_routes.get(subscription_id)) is None:
+            return False
+        if method == "notifications/subscriptions/acknowledged":
+            raw_filter = params.get("notifications")
+            if raw_filter is None:
+                # malformed, not an empty filter: leave it to the spawned path's validation warning
+                return False
+            try:
+                honored = types.SubscriptionFilter.model_validate(raw_filter)
+            except ValidationError:
+                return False
+            listen_route.set_acked(honored)
+            return True
+        if (event := event_from_wire(method, params)) is not None:
+            listen_route.deliver(event)
+        return False  # events (and any other stamped frame) still tee as usual
+
     async def _on_notify(
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> None:
@@ -1250,7 +1331,7 @@ class ClientSession:
             logger.warning("Failed to validate notification: %s", method, exc_info=True)
             return
         if isinstance(notification, types.CancelledNotification):
-            # The dispatcher already applied the cancellation; not surfaced to message_handler.
+            # Never surfaced (v1 parity): the dispatcher already applied it; listen cancels settled by the intercept.
             return
         try:
             if isinstance(notification, types.LoggingMessageNotification):

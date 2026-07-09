@@ -18,13 +18,13 @@
 >
 > **v1.x is the only stable release line and remains recommended for production.** It lives on the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x) and continues to receive critical bug fixes and security patches; see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md) for its documentation. `pip` and `uv` don't select a pre-release unless you explicitly request one, so existing installs are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable release lands.**
 >
-> v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/) for what's changed. Stable v2 is targeted for 2026-07-27, alongside the spec release. Try the pre-releases and [tell us what breaks](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) — or discuss in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
+> v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See [What's new in v2](https://py.sdk.modelcontextprotocol.io/v2/whats-new/) for the tour of what changed, and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/) for every breaking change. Stable v2 is targeted for 2026-07-27, alongside the spec release. Try the pre-releases and [tell us what breaks](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml), or discuss in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
 
 ## Documentation
 
 **The documentation lives at <https://py.sdk.modelcontextprotocol.io/v2/>.**
 
-It has the full [tutorial](https://py.sdk.modelcontextprotocol.io/v2/tutorial/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
+It has a [Get started guide](https://py.sdk.modelcontextprotocol.io/v2/get-started/), [What's new in v2](https://py.sdk.modelcontextprotocol.io/v2/whats-new/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
 
 ## What is MCP?
 
@@ -82,7 +82,7 @@ Call `add` with `a=1`, `b=2` and you get `3` back.
 
 Notice what you did **not** write: no JSON Schema (`a: int, b: int` _is_ the schema), no request parsing, no validation code, no protocol handling. Two type-hinted Python functions and a docstring.
 
-[The tutorial](https://py.sdk.modelcontextprotocol.io/v2/tutorial/) takes it from here.
+[Get started](https://py.sdk.modelcontextprotocol.io/v2/get-started/) takes it from here.
 
 ## A client in 10 lines
 

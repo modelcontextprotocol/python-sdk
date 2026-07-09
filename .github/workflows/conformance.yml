@@ -64,17 +64,20 @@ jobs:
           ./.github/actions/conformance/run-server.sh
           --suite active
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/server-active
       - name: Run server conformance (draft suite)
         run: >-
           ./.github/actions/conformance/run-server.sh
           --suite draft
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/server-draft
       - name: Run server conformance (2026-07-28 wire, all suite)
         run: >-
           ./.github/actions/conformance/run-server.sh
           --suite all
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
+          --output-dir conformance-results/server-2026-07-28
       - name: Run server conformance (all suite, extension scenarios)
         # A bare `--suite all` (no --spec-version) selects every scenario
         # shipped with the pinned harness — including the extension-tagged
@@ -91,6 +94,15 @@ jobs:
           ./.github/actions/conformance/run-server.sh
           --suite all
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/server-all
+      - name: Upload conformance results
+        # The log has only summary counts; per-check data is in checks.json.
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-conformance-results
+          path: conformance-results/
+          if-no-files-found: ignore
 
   client-conformance:
     runs-on: ubuntu-latest
@@ -118,22 +130,39 @@ jobs:
               echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
               ;;
           esac
-      - run: uv sync --frozen --all-extras --package mcp
+      # --compile-bytecode: without it, ~40 concurrently spawned interpreters
+      # race to byte-compile site-packages during the timing-sensitive window.
+      - run: uv sync --frozen --all-extras --package mcp --compile-bytecode
+      - name: Pre-compile bytecode (editable sources)
+        run: uv run --frozen python -m compileall -q src .github/actions/conformance
       - name: Run client conformance (all suite)
         # The harness runs all scenarios via unbounded Promise.all; with 40
         # scenarios on a 2-core runner the slowest one (sse-retry, which has a
         # real-time SSE reconnect wait) needs more than the 30s default budget.
+        # `.venv/bin/python` (not `uv run`) avoids lockfile re-checks in ~40
+        # concurrent spawns; run-client.sh re-runs unexpected failures solo.
         run: >-
-          npx --yes "$CONFORMANCE_PKG" client
-          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          ./.github/actions/conformance/run-client.sh
+          --command '.venv/bin/python .github/actions/conformance/client.py'
           --suite all
           --timeout 60000
           --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/client-all
       - name: Run client conformance (2026-07-28 wire, all suite)
         run: >-
-          npx --yes "$CONFORMANCE_PKG" client
-          --command 'uv run --frozen python .github/actions/conformance/client.py'
+          ./.github/actions/conformance/run-client.sh
+          --command '.venv/bin/python .github/actions/conformance/client.py'
           --suite all
           --timeout 60000
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
+          --output-dir conformance-results/client-2026-07-28
+      - name: Upload conformance results
+        # The log has only summary counts; per-check data is in checks.json.
+        # Also on FLAKE_RESCUED: rescued-flake evidence is otherwise discarded.
+        if: failure() || hashFiles('conformance-results/**/FLAKE_RESCUED') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: client-conformance-results
+          path: conformance-results/
+          if-no-files-found: ignore

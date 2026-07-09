@@ -691,8 +691,8 @@ class Server(Generic[LifespanResultT]):
 
         Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
         then drives the loop, serving the legacy handshake era and the modern
-        per-request-envelope era (the first era-distinctive message locks the
-        connection). Transports with their own lifespan owner (the
+        per-request-envelope era (the first era-distinctive message to succeed
+        locks the connection). Transports with their own lifespan owner (the
         streamable-HTTP manager) call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:

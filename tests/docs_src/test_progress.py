@@ -1,4 +1,4 @@
-"""`docs/tutorial/progress.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/handlers/progress.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 

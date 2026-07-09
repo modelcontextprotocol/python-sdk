@@ -19,7 +19,9 @@ from .resolve import (
     DeclinedElicitation,
     Elicit,
     ElicitationResult,
+    ListRoots,
     Resolve,
+    Sample,
 )
 from .resources import DEFAULT_RESOURCE_SECURITY, ResourceSecurity
 from .server import MCPServer, require_client_extension
@@ -33,6 +35,8 @@ __all__ = [
     "Icon",
     "Resolve",
     "Elicit",
+    "Sample",
+    "ListRoots",
     "ElicitationResult",
     "AcceptedElicitation",
     "DeclinedElicitation",

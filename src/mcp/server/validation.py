@@ -26,6 +26,11 @@ def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> b
     return True
 
 
+def wants_sampling_tools(tools: list[Tool] | None, tool_choice: ToolChoice | None) -> bool:
+    """Whether a sampling request is tools-mode: `sampling.tools` gated, array-capable answer."""
+    return tools is not None or tool_choice is not None
+
+
 def validate_sampling_tools(
     client_caps: ClientCapabilities | None,
     tools: list[Tool] | None,
@@ -41,7 +46,7 @@ def validate_sampling_tools(
     Raises:
         MCPError: If tools/tool_choice are provided but client doesn't support them
     """
-    if tools is not None or tool_choice is not None:
+    if wants_sampling_tools(tools, tool_choice):
         if not check_sampling_tools_capability(client_caps):
             raise MCPError(code=INVALID_PARAMS, message="Client does not support sampling tools capability")
 

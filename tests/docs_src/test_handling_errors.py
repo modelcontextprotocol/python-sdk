@@ -1,4 +1,4 @@
-"""`docs/tutorial/handling-errors.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/servers/handling-errors.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from mcp_types import INVALID_PARAMS, ErrorData, TextContent, TextResourceContents
