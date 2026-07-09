@@ -1,12 +1,12 @@
 """Generate the API reference pages and navigation.
 
-Zensical does not run MkDocs plugins, so the work that ``mkdocs-gen-files`` and
-``mkdocs-literate-nav`` used to do at build time happens here as a plain
-pre-build step: this module writes a mkdocstrings stub (``::: <module>``) for
-every public module under ``docs/api/`` and returns the matching nested
-navigation, which ``scripts/docs/build_config.py`` splices into the build config.
+Zensical does not run MkDocs plugins, so the work that `mkdocs-gen-files` and
+`mkdocs-literate-nav` used to do at build time happens here as a plain
+pre-build step: this module writes a mkdocstrings stub (`::: <module>`) for
+every public module under `docs/api/` and returns the matching nested
+navigation, which `scripts/docs/build_config.py` splices into the build config.
 
-Run as a script it just (re)generates ``docs/api/``; imported, :func:`generate`
+Run as a script it just (re)generates `docs/api/`; imported, `generate`
 also returns the nav so the config builder can consume it.
 """
 
@@ -17,9 +17,9 @@ from pathlib import Path
 
 import griffe
 
-# A MkDocs/Zensical nav is a list of entries, each either ``{title: url}`` for a
-# page or ``{title: [children]}`` for a section (a bare ``url`` string attaches
-# a section index page, courtesy of the ``navigation.indexes`` feature).
+# A MkDocs/Zensical nav is a list of entries, each either `{title: url}` for a
+# page or `{title: [children]}` for a section (a bare `url` string attaches
+# a section index page, courtesy of the `navigation.indexes` feature).
 NavItem = "str | dict[str, str | list[NavItem]]"
 
 ROOT = Path(__file__).parent.parent.parent
@@ -40,7 +40,7 @@ _KIND_SECTIONS = {
 
 
 class _Node:
-    """A module (``url``) and/or a package with child modules (``children``)."""
+    """A module (`url`) and/or a package with child modules (`children`)."""
 
     def __init__(self) -> None:
         self.url: str | None = None
@@ -64,19 +64,19 @@ def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
     """Build a compact index body for a package that re-exports another package's API.
 
     mkdocstrings renders a member re-exported across a package boundary
-    (``from other_package import y`` + ``__all__``) as a full duplicate of its
+    (`from other_package import y` + `__all__`) as a full duplicate of its
     canonical documentation whenever the other package happens to be loaded
     already, and silently omits it when it isn't — which of the two a package
     index gets depends on page rendering order. Same-package re-exports
-    (``mcp_types`` re-exporting its private ``._types`` module) always resolve
-    and are unaffected, so such packages keep the plain ``::: package`` stub
-    (return ``None``) and their index remains the full, canonical rendering.
+    (`mcp_types` re-exporting its private `._types` module) always resolve
+    and are unaffected, so such packages keep the plain `::: package` stub
+    (return `None`) and their index remains the full, canonical rendering.
 
     For an affected package, pin the semantics instead of inheriting the
     accident: every export whose canonical page exists elsewhere under the API
     reference becomes a link to it, and only exports documented nowhere else
     (re-exports from private modules) keep their full body here, via an
-    explicit ``members:`` list.
+    explicit `members:` list.
     """
     prefix = f"{package.path}."
     exports = {str(export): package.members[str(export)] for export in package.exports or ()}
@@ -96,9 +96,13 @@ def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
             inline.append(name)
             link_target = f"{package.path}.{name}"
         entry = f"- [`{name}`][{link_target}]"
-        target = member.final_target if member.is_alias else member
+        try:
+            target = member.final_target if member.is_alias else member
+        except griffe.AliasResolutionError as exc:
+            msg = f"gen_ref_pages: export {package.path}.{name} resolves outside the documented packages"
+            raise SystemExit(msg) from exc
         if docstring := target.docstring:
-            summary = docstring.value.split("\n", 1)[0]
+            summary = " ".join(docstring.value.split("\n\n", 1)[0].split("\n"))
             entry += f" — {summary}"
         sections.setdefault(_KIND_SECTIONS[target.kind], []).append(entry)
 
@@ -115,7 +119,7 @@ def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
 
 
 def generate() -> list[NavItem]:
-    """Write ``docs/api/**.md`` stubs and return the API-section navigation."""
+    """Write `docs/api/**.md` stubs and return the API-section navigation."""
     if API_DIR.exists():
         shutil.rmtree(API_DIR)
 
@@ -134,7 +138,9 @@ def generate() -> list[NavItem]:
             if parts[-1] == "__init__":
                 parts = parts[:-1]
                 doc_path = doc_path.with_name("index.md")
-            elif parts[-1].startswith("_"):
+            # A private component anywhere makes the module private: checking
+            # only the leaf would publish pages for e.g. mcp._vendor.util.
+            if any(part.startswith("_") for part in parts):
                 continue
 
             ident = ".".join(parts)
