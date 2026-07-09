@@ -92,6 +92,9 @@ docs = [
     "mkdocstrings-python>=2.0.5",
     # scripts/docs/build_config.py and llms_txt.py read mkdocs.yml directly.
     "pyyaml>=6.0.2",
+    # gen_ref_pages.py imports griffe directly. griffelib is not a typo: it is
+    # griffe's successor distribution (same author) and still imports as
+    # `griffe`; the old `griffe` distribution is the incompatible 1.x line.
     "griffelib>=2.1.0",
 ]
 codegen = ["datamodel-code-generator==0.57.0"]
