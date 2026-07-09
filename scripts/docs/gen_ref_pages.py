@@ -41,8 +41,7 @@ class _Node:
         items: list[NavItem] = []
         if self.url is not None:
             items.append(self.url)
-        for name in sorted(self.children):
-            items.append(self.children[name].to_nav(name))
+        items.extend(self.children[name].to_nav(name) for name in sorted(self.children))
         return {title: items}
 
 
