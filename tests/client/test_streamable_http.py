@@ -748,3 +748,26 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
             )
     send.close()
+
+
+@pytest.mark.anyio
+async def test_get_stream_gives_up_after_repeated_empty_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A GET stream that keeps opening but closing with no events counts each empty connection toward
+    the reconnection budget, so the loop terminates instead of reconnecting forever."""
+    monkeypatch.setattr("mcp.client.streamable_http.DEFAULT_RECONNECTION_DELAY_MS", 0)
+    get_requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal get_requests
+        get_requests += 1
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+
+    transport = StreamableHTTPTransport("http://test/mcp")
+    transport.session_id = "sess-1"
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with anyio.fail_after(5):
+            await transport.handle_get_stream(http, send)
+    assert get_requests == MAX_RECONNECTION_ATTEMPTS
+    send.close()
+    receive.close()

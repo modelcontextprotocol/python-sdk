@@ -38,7 +38,7 @@ from pydantic import FileUrl, ValidationError
 from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client.client import Client
-from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession, _default_message_handler
 from mcp.client.subscriptions import ToolsListChanged, listen
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
@@ -1028,6 +1028,15 @@ async def test_raising_message_handler_on_transport_exception_costs_the_delivery
     assert isinstance(out.message, JSONRPCResponse)
     assert out.message.id == 9
     assert "message_handler raised on transport exception" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_default_message_handler_logs_unhandled_transport_exceptions(caplog: pytest.LogCaptureFixture):
+    """The default handler has no per-request waiter to resolve, so a transport-level `Exception`
+    item (e.g. a GET stream failure) would vanish silently; it logs a warning as a safety net."""
+    with caplog.at_level("WARNING", logger="client"):
+        await _default_message_handler(RuntimeError("boom"))
+    assert "Unhandled exception in message handler" in caplog.text
 
 
 @pytest.mark.anyio
