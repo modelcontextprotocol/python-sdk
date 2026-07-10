@@ -139,11 +139,16 @@ jobs:
       - name: Check README snippets are up to date
         run: uv run --frozen scripts/update_readme_snippets.py --check
 
-  # `mkdocs.yml` sets `strict: true` and `pymdownx.snippets: check_paths: true`,
-  # but until this job existed the docs were only ever built post-merge by
-  # `deploy-docs.yml`, so a broken link, a missing nav target, or a deleted
-  # `docs_src/` include went green on the PR and broke the next deploy of main.
-  # This is the check path; `deploy-docs.yml` stays the deploy path.
+  # `scripts/docs/build.sh` is the whole gauntlet: build_config.py fails on
+  # nav entries without a page and pages without a nav entry, `zensical build
+  # --strict` fails on broken .md links, `pymdownx.snippets: check_paths:
+  # true` fails on a deleted `docs_src/` include, and the post-build steps
+  # fail on unresolved cross-references, inventory download failures, and
+  # broken non-markdown link targets.
+  # Until this job existed the docs were only ever built post-merge by
+  # `deploy-docs.yml`, so those failures went green on the PR and broke the next
+  # deploy of main. This is the check path; `deploy-docs.yml` stays the deploy
+  # path.
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -168,11 +173,5 @@ jobs:
           enable-cache: true
           version: 0.9.5
 
-      - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
-
       - name: Build the docs in strict mode
-        run: uv run --frozen --no-sync mkdocs build --strict
-        env:
-          # Silence mkdocs-material's MkDocs 2.0 warning banner in CI logs.
-          NO_MKDOCS_2_WARNING: "1"
+        run: bash scripts/docs/build.sh
