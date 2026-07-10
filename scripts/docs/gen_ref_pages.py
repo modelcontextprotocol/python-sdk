@@ -61,16 +61,18 @@ class _Node:
 
 
 def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
-    """Build a compact index body for a package that re-exports another package's API.
+    """Build a compact index body for a package that re-exports from outside its own subtree.
 
-    mkdocstrings renders a member re-exported across a package boundary
-    (`from other_package import y` + `__all__`) as a full duplicate of its
-    canonical documentation whenever the other package happens to be loaded
-    already, and silently omits it when it isn't — which of the two a package
-    index gets depends on page rendering order. Same-package re-exports
-    (`mcp_types` re-exporting its private `._types` module) always resolve
-    and are unaffected, so such packages keep the plain `::: package` stub
-    (return `None`) and their index remains the full, canonical rendering.
+    mkdocstrings renders a re-export whose canonical documentation lives on
+    another page as a full duplicate of it: deterministically for aliases
+    within one top-level package (`mcp.client.auth` re-exporting from
+    `mcp.shared.auth`), and order-dependently across top-level packages
+    (`from mcp_types import y` + `__all__` renders the duplicate only when
+    the other package happens to be loaded already, and silently omits the
+    member when it isn't). Packages whose exports all live in their own
+    subtree (`mcp_types` re-exporting its private `._types` module) are
+    unaffected and keep the plain `::: package` stub (return `None`): their
+    index is itself the canonical rendering.
 
     For an affected package, pin the semantics instead of inheriting the
     accident: every export whose canonical page exists elsewhere under the API
@@ -126,6 +128,16 @@ def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
     return "\n".join(body)
 
 
+def _stub(title: str, body: str) -> str:
+    """A stub page: explicit title frontmatter plus the page body.
+
+    The explicit title matters: the stubs have no H1 of their own, and a
+    title-less page falls back to "Index"/the filename — which is what
+    pruned nav rows, browser tabs, and search results show.
+    """
+    return f'---\ntitle: "{title}"\n---\n\n{body.rstrip()}\n'
+
+
 def generate() -> list[NavItem]:
     """Write `docs/api/**.md` stubs and return the API-section navigation."""
     if API_DIR.exists():
@@ -143,7 +155,8 @@ def generate() -> list[NavItem]:
             doc_path = path.relative_to(base).with_suffix(".md")
 
             parts = tuple(module_path.parts)
-            if parts[-1] == "__init__":
+            is_package = parts[-1] == "__init__"
+            if is_package:
                 parts = parts[:-1]
                 doc_path = doc_path.with_name("index.md")
             # A private component anywhere makes the module private: checking
@@ -153,11 +166,8 @@ def generate() -> list[NavItem]:
 
             ident = ".".join(parts)
             documented.add(ident)
-            # Explicit titles: the stubs have no H1 of their own, and a
-            # title-less page falls back to "Index"/the filename — which is
-            # what pruned nav rows, browser tabs, and search results show.
-            stubs[API_DIR / doc_path] = f'---\ntitle: "{parts[-1]}"\n---\n\n::: {ident}\n'
-            if len(parts) == 1:
+            stubs[API_DIR / doc_path] = _stub(parts[-1], f"::: {ident}")
+            if is_package:
                 package_index[ident] = API_DIR / doc_path
 
             node = root
@@ -173,7 +183,7 @@ def generate() -> list[NavItem]:
         module = modules[ident]
         assert isinstance(module, griffe.Module)
         if body := _compact_index(module, documented):
-            stubs[doc_path] = f'---\ntitle: "{ident}"\n---\n\n{body}'
+            stubs[doc_path] = _stub(ident.rpartition(".")[2], body)
 
     for full_doc_path, stub in stubs.items():
         full_doc_path.parent.mkdir(parents=True, exist_ok=True)
