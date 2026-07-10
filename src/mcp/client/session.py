@@ -1195,9 +1195,13 @@ class ClientSession:
     async def list_all_tools(self) -> list[types.Tool]:
         """Drain pagination across `tools/list` and return the full tool list.
 
-        Each page flows through the 2026 x-mcp-header per-page filter via
-        `list_tools` -> `_absorb_tool_listing`, so the returned list is exactly
-        what the cached state would expose.
+        Each intermediate page flows through `list_tools` -> `_absorb_tool_listing`
+        with `complete=False`, which populates per-tool cache state (`_x_mcp_header_maps`,
+        `_tool_output_schemas`) as a pure addition. After the loop ends, the helper
+        runs `_absorb_tool_listing` once more with `complete=True` on the merged
+        result so state for tools that disappeared across pages (or were filtered
+        by the per-page x-mcp-header MUST) is pruned to match the drained universe.
+        The returned list reflects the post-filter view that the cache exposes.
         """
         tools: list[types.Tool] = []
         cursor: str | None = None
@@ -1206,7 +1210,12 @@ class ClientSession:
             tools.extend(result.tools)
             cursor = result.next_cursor
             if cursor is None:
-                return tools
+                break
+        # Final absorption pass with `complete=True` so the per-tool cache matches
+        # the drained listing (prunes entries for tools no longer present).
+        merged = types.ListToolsResult(tools=tools, next_cursor=None)
+        absorbed = self._absorb_tool_listing(merged, complete=True)
+        return absorbed.tools
 
     async def list_all_resources(self) -> list[types.Resource]:
         """Drain pagination across `resources/list` and return the full resource list."""

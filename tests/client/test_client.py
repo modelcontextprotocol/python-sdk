@@ -1158,3 +1158,74 @@ async def test_list_all_helpers_pass_cursor_through_paginated_request_params() -
             tools = await client.session.list_all_tools()
     assert captured == [None, "next-cursor"]
     assert [t.name for t in tools] == ["page1-item", "page2-item"]
+
+
+async def test_list_all_tools_prunes_per_tool_cache_state_for_tools_dropped_across_pages() -> None:
+    """Cubic P2 fix: after a multi-page drain, per-tool cache state (`_x_mcp_header_maps`,
+    `_tool_output_schemas`) must reflect the merged listing (the drained universe). Tools
+    that appeared in a previous `list_tools()` call but are not in the drained listing
+    should not leave stale cache entries (the merged-listing absorption pass with
+    `complete=True` prunes them just like a complete single-page listing would)."""
+
+    survivor = types.Tool(
+        name="survivor",
+        input_schema={"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}},
+    )
+    stale_tool = types.Tool(name="stale-tool", input_schema={"type": "object"})
+    seen_pages: list[str | None] = []
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        cursor = (params.cursor if params else None) or "p1"
+        seen_pages.append(cursor)
+        if seen_pages == ["p1"]:
+            # First call: complete=True listing that seeds the stale tool.
+            return types.ListToolsResult(tools=[stale_tool])
+        if cursor == "p1":
+            return types.ListToolsResult(tools=[survivor], next_cursor="p2")
+        return types.ListToolsResult(tools=[survivor])
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            # Seed: single-page complete listing with stale-tool.
+            seeded = await client.session.list_tools()
+            assert [t.name for t in seeded.tools] == ["stale-tool"]
+            assert set(client.session._x_mcp_header_maps) == {"stale-tool"}
+
+            # Drain: multi-page listing of survivor only.
+            drained = await client.session.list_all_tools()
+            assert [t.name for t in drained] == ["survivor", "survivor"]
+            # After drain, cache reflects only the drained universe.
+            assert set(client.session._x_mcp_header_maps) == {"survivor"}
+            assert set(client.session._tool_output_schemas) == {"survivor"}
+
+
+async def test_list_all_tools_does_not_prune_when_server_state_remains_intact() -> None:
+    """Sanity: if the drained listing is the only listing seen so far, every tool in
+    the union stays in the cache."""
+
+    a = types.Tool(name="a", input_schema={"type": "object"})
+    b = types.Tool(name="b", input_schema={"type": "object"})
+    c = types.Tool(name="c", input_schema={"type": "object"})
+
+    pages: list[types.ListToolsResult] = [
+        types.ListToolsResult(tools=[a, b], next_cursor="p2"),
+        types.ListToolsResult(tools=[c]),
+    ]
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        cursor = (params.cursor if params else None) or "p1"
+        return pages[0] if cursor == "p1" else pages[1]
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_all_tools()
+            assert set(client.session._x_mcp_header_maps) == {"a", "b", "c"}
+            assert set(client.session._tool_output_schemas) == {"a", "b", "c"}
