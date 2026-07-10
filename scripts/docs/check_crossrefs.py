@@ -58,17 +58,21 @@ _EXTERNAL_REF = re.compile(r"<a\s[^>]*autorefs-external[^>]*>")
 class _ProseTextExtractor(HTMLParser):
     """Collect text outside <pre>/<code>/<script>/<style> elements.
 
-    A skipped element leaves a `\\x00` mark and every other tag boundary
-    breaks the text with a newline, so bracket sequences cannot be
-    synthesized by joining text from unrelated elements (`x]</td><td>[y`)
-    while sequences genuinely adjacent in one text node stay intact. A
-    block-level tag resets the skip state, so an unclosed inline `<code>`
-    in authored raw HTML cannot hide the rest of the page.
+    A skipped element leaves a `\\x00` mark. Block-level tag boundaries break
+    the text with a newline, so bracket sequences cannot be synthesized by
+    joining text from unrelated blocks (`x]</td><td>[y`); inline tags break
+    nothing, because their text genuinely flows within one block — a
+    subscript like `**tools**[`0`]` must extract as `tools[\\x00]` so the
+    word-character carve-out in `_UNRESOLVED` still applies. A block-level
+    tag also resets the skip state, so an unclosed inline `<code>` in
+    authored raw HTML cannot hide the rest of the page.
     """
 
     _SKIP = frozenset({"pre", "code", "script", "style"})
     _BLOCK = frozenset(
-        {"article", "blockquote", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "section", "table", "td", "th"}
+        {"article", "blockquote", "caption", "dd", "details", "div", "dl", "dt", "figcaption", "figure"}
+        | {"h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "ol", "p", "section", "summary"}
+        | {"table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul"}
     )
 
     def __init__(self) -> None:
@@ -84,14 +88,17 @@ class _ProseTextExtractor(HTMLParser):
         elif tag in self._BLOCK:
             self._skip_depth = 0
             self.chunks.append("\n")
-        elif not self._skip_depth:
+        elif tag == "br" and not self._skip_depth:
+            # A line break separates text but implies nothing about open
+            # elements (`<br>` is legal inside `<code>`), so unlike block
+            # tags it must not reset the skip state.
             self.chunks.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in self._SKIP:
             if self._skip_depth:
                 self._skip_depth -= 1
-        elif not self._skip_depth:
+        elif tag in self._BLOCK and not self._skip_depth:
             self.chunks.append("\n")
 
     def handle_data(self, data: str) -> None:

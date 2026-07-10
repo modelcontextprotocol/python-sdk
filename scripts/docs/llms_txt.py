@@ -50,7 +50,14 @@ _SNIPPET_LINE = re.compile(r'^(?P<indent>[ \t]*)--8<-- "(?P<path>[^"\n]+)"$', fl
 # own link validation only covers .md targets (a missing image or
 # directory-style link builds green even under --strict; MkDocs failed the
 # build), so everything else is validated here.
-_LINK = re.compile(r'(\]\()([^)\s]+?)(#[^)\s]*)?( +"[^"]*")?(\))')
+_LINK = re.compile(r'(\]\()([^)\s]+?)(#[^)\s]*)?( +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))?(\))')
+# CommonMark forms the classifier deliberately rejects rather than models:
+# angle-bracket destinations `](<target>)` and reference-style definitions
+# `[label]: target` (footnote definitions `[^label]:` are a different,
+# supported syntax). Either would otherwise dodge validation by its spelling;
+# failing loud keeps the guarantee without modelling unused syntax.
+_ANGLE_LINK = re.compile(r"\]\(<")
+_REF_DEFINITION = re.compile(r"^[ \t]*\[(?!\^)[^\]]+\]:", flags=re.MULTILINE)
 # A scheme-prefixed target (https:, mailto:, tel:, ...) is external — the
 # `://` shorthand misses scheme-only URIs like mailto:.
 _EXTERNAL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -60,6 +67,12 @@ _EXTERNAL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
 # least as long as the opener, unclosed runs to EOF, per CommonMark) and spans
 # only in the text between fences; a span cannot cross a blank line, so a
 # stray unpaired backtick cannot swallow the paragraphs (and links) after it.
+# Known approximations of the renderer's block model: 4-space-indented
+# content is treated as prose, because in this corpus indentation is
+# admonition/list body whose links must stay validated — a link in a true
+# indented code block is over-validated (fails loud or gets rewritten in the
+# rendition), never under-validated; and span pairing is bounded by blank
+# lines rather than full block structure.
 _FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
 _CODE_SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)")
 # A leading YAML frontmatter block, as MkDocs/Zensical parse it (mkdocs.utils.meta).
@@ -167,6 +180,24 @@ def _resolve_snippets(markdown: str, src_uri: str) -> str:
     return resolved
 
 
+def _in_code(code: list[tuple[int, int]], position: int) -> bool:
+    """Whether `position` falls inside any code interval."""
+    return any(start <= position < end for start, end in code)
+
+
+def _prose_h1(markdown: str) -> re.Match[str] | None:
+    """The first ATX H1 outside code (at most 3 spaces of indent, per CommonMark).
+
+    Code-awareness matters: every resolved `.py` snippet starts with a
+    `# path` pointer line that must never win over the page's real H1.
+    """
+    code = _code_intervals(markdown)
+    for match in re.finditer(r"^ {0,3}# (.+)$", markdown, flags=re.MULTILINE):
+        if not _in_code(code, match.start()):
+            return match
+    return None
+
+
 def _code_intervals(markdown: str) -> list[tuple[int, int]]:
     """The character spans of fenced code blocks and inline code spans."""
     fences: list[tuple[int, int]] = []
@@ -196,11 +227,17 @@ def _rewrite_links(markdown: str, src_uri: str, site_url: str, prose: dict[str, 
     src_dir = posixpath.dirname(src_uri)
     code = _code_intervals(markdown)
 
+    rejected = ((_ANGLE_LINK, "angle-bracket link destination"), (_REF_DEFINITION, "reference-style link definition"))
+    for pattern, form in rejected:
+        for match in pattern.finditer(markdown):
+            if not _in_code(code, match.start()):
+                raise _BuildError(f"llms_txt: {form} in {src_uri} is not supported here; use a plain inline link")
+
     def rewrite(match: re.Match[str]) -> str:
         opening, target, anchor, title, closing = match.groups()
         if target.startswith("#") or _EXTERNAL.match(target):
             return match.group(0)  # in-page anchor or external URL (https:, mailto:, ...)
-        if any(start <= match.start() < end for start, end in code):
+        if _in_code(code, match.start()):
             return match.group(0)  # illustrative link inside a code block/span
         if target.startswith("/"):
             raise _BuildError(f"llms_txt: absolute link target {target!r} in {src_uri}: link the .md source instead")
@@ -228,10 +265,9 @@ def _title(src_uri: str, nav_title: str | None, meta: dict[str, Any], body: str)
         return nav_title
     if isinstance(meta_title := meta.get("title"), str):
         return meta_title
-    match = re.search(r"^\s*# (.+)$", body, flags=re.MULTILINE)
-    if match is None:
-        raise _BuildError(f"llms_txt: page {src_uri} has no nav title, no title frontmatter, and no H1")
-    return match.group(1).strip()
+    if match := _prose_h1(body):
+        return match.group(1).strip()
+    raise _BuildError(f"llms_txt: page {src_uri} has no nav title, no title frontmatter, and no H1")
 
 
 def generate(site_dir: Path) -> None:
@@ -268,8 +304,10 @@ def generate(site_dir: Path) -> None:
             tail = f": {description}" if description else ""
             index.append(f"- [{title}]({site_url}{md_uri}){tail}")
 
-            # Strip a leading H1 when present: `full` re-titles every page.
-            body = re.sub(r"\A\s*# .+\n", "", markdown)
+            # `full` re-titles every page, so drop its first prose H1 (the
+            # same one `_title` falls back to).
+            h1 = _prose_h1(markdown)
+            body = markdown if h1 is None else markdown[: h1.start()] + markdown[h1.end() :]
             full += [f"# {title}", "", f"Source: {site_url}{_page_url(src_uri)}", "", body.strip(), ""]
         index.append("")
 
