@@ -253,20 +253,25 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.id
 
-        async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
-            event_source.response.raise_for_status()
-            logger.debug("Resumption GET SSE connection established")
+        event_source: EventSource | None = None
+        try:
+            async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as es:
+                event_source = es
+                event_source.response.raise_for_status()
+                logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source.aiter_sse():  # pragma: no branch
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    original_request_id,
-                    ctx.metadata.on_resumption_token_update if ctx.metadata else None,
-                )
-                if is_complete:
-                    await event_source.response.aclose()
-                    break
+                async for sse in event_source.aiter_sse():  # pragma: no branch
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        break
+        finally:
+            if event_source is not None:  # pragma: no branch
+                await event_source.response.aclose()
 
     def _consume_modern_cancellation(self, session_message: SessionMessage) -> bool:
         """Translate an outbound `notifications/cancelled` at 2026; True means "do not POST".
@@ -442,10 +447,11 @@ class StreamableHTTPTransport:
                 # If the SSE event indicates completion, like returning response/error
                 # break the loop
                 if is_complete:
-                    await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
+        finally:
+            await response.aclose()
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:
