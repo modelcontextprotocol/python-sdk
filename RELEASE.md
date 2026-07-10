@@ -39,9 +39,9 @@ the publish job — `skip-existing` makes it skip whatever already landed. The
    commit — and therefore the README PyPI publishes — names the version
    being released. When entering a new phase (alpha → beta → rc), update
    the banner wording too.
-2. Check the full test matrix is green on the release commit. The matrix runs
-   with `continue-on-error`, so a green workflow run does not mean the tests
-   passed — check the individual jobs.
+2. Check the full test matrix is green on the release commit. The publish
+   workflow re-runs the checks and blocks publishing until they pass, so a
+   red leg there means re-running the failed jobs on the Publishing run.
 3. Create the release as a pre-release, passing the exact commit verified in
    step 2 as `--target` (otherwise the tag is created from whatever `main`'s
    HEAD is by then). The tagged commit determines everything about the

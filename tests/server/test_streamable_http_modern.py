@@ -55,6 +55,11 @@ from tests.interaction.transports import StreamingASGITransport
 pytestmark = pytest.mark.anyio
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
+
+
 async def test_single_exchange_dispatch_context_has_no_back_channel() -> None:
     """The per-request dispatch context refuses server-initiated requests; without an SSE sink,
     notify/progress are no-ops."""

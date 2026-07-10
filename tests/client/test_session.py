@@ -39,11 +39,13 @@ from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client.client import Client
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.client.subscriptions import ToolsListChanged, listen
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
-from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnRequest
+from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnNotifyIntercept, OnRequest
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY
 from mcp.shared.transport_context import TransportContext
 
 _SendToClient = anyio.streams.memory.MemoryObjectSendStream[SessionMessage | Exception]
@@ -1341,6 +1343,7 @@ class _OptsRecordingDispatcher:
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -1428,6 +1431,7 @@ async def test_aenter_cancelled_while_dispatcher_starts_unwinds_cleanly():
             self,
             on_request: OnRequest,
             on_notify: OnNotify,
+            on_notify_intercept: OnNotifyIntercept | None = None,
             *,
             task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
         ) -> None:
@@ -1486,6 +1490,7 @@ class _ScriptedDispatcher:
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -1808,3 +1813,137 @@ async def test_session_read_resource_returns_input_required_result_when_opted_in
             result = await client.session.read_resource("memory://r", allow_input_required=True)
     assert isinstance(result, types.InputRequiredResult)
     assert result.request_state == "resource-state"
+
+
+@pytest.mark.anyio
+async def test_a_late_ack_for_a_closed_driver_listen_reaches_message_handler():
+    """Ack consumption is keyed on the live route registry alone: a stray ack for a
+    closed subscription's id surfaces through message_handler like any other unowned frame."""
+    seen: list[object] = []
+    follow_up = anyio.Event()
+
+    async def handler(msg: object) -> None:
+        seen.append(msg)
+        if len(seen) == 2:
+            follow_up.set()
+
+    async with raw_client_session(message_handler=handler) as (session, to_client, _):
+        _set_negotiated_version(session, "2026-07-28")
+        session._register_listen_route("listen-99")  # pyright: ignore[reportPrivateUsage]
+        session._unregister_listen_route("listen-99")  # pyright: ignore[reportPrivateUsage]
+        await to_client.send(
+            SessionMessage(
+                JSONRPCNotification(
+                    jsonrpc="2.0",
+                    method="notifications/subscriptions/acknowledged",
+                    params={
+                        "notifications": {"toolsListChanged": True},
+                        "_meta": {SUBSCRIPTION_ID_META_KEY: "listen-99"},
+                    },
+                )
+            )
+        )
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed", params={}))
+        )
+        with anyio.fail_after(5):
+            await follow_up.wait()
+    assert [type(message).__name__ for message in seen] == [
+        "SubscriptionsAcknowledgedNotification",
+        "ToolListChangedNotification",
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_graceful_result_does_not_outrun_the_events_that_preceded_it():
+    """[ack, event, result] written back-to-back: the event delivers and the wire ack's filter
+    survives a parked message_handler tee, because routes settle on the dispatcher's receive path in wire order."""
+
+    async def parked_handler(message: object) -> None:
+        await anyio.sleep_forever()
+
+    events: list[object] = []
+    honored: list[types.SubscriptionFilter] = []
+    async with raw_client_session(message_handler=parked_handler) as (session, to_client, from_client):
+        _set_negotiated_version(session, "2026-07-28")
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def consume() -> None:
+                    async with listen(session, tools_list_changed=True) as sub:  # pragma: no branch
+                        honored.append(sub.honored)
+                        events.extend([event async for event in sub])
+
+                tg.start_soon(consume)
+                request = await from_client.receive()
+                assert isinstance(request.message, JSONRPCRequest)
+                meta = {SUBSCRIPTION_ID_META_KEY: request.message.id}
+                for message in (
+                    JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="notifications/subscriptions/acknowledged",
+                        params={"notifications": {"toolsListChanged": True}, "_meta": meta},
+                    ),
+                    JSONRPCNotification(
+                        jsonrpc="2.0", method="notifications/tools/list_changed", params={"_meta": meta}
+                    ),
+                    JSONRPCResponse(jsonrpc="2.0", id=request.message.id, result={"_meta": meta}),
+                ):
+                    await to_client.send(SessionMessage(message))
+    assert honored == [types.SubscriptionFilter(tools_list_changed=True)]
+    assert events == [ToolsListChanged()]
+
+
+def _intercept_only_session() -> ClientSession:
+    """A never-entered session whose intercept can be driven directly (it is synchronous)."""
+    dispatcher, _peer = create_direct_dispatcher_pair()
+    return ClientSession(dispatcher=dispatcher)
+
+
+def test_intercept_settles_only_the_named_listen_route_on_cancelled():
+    """SDK demux contract: a server-sent cancel settles exactly the listen route it names and is never consumed."""
+    session = _intercept_only_session()
+    route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
+    intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
+    assert intercept("notifications/cancelled", {"requestId": "unrelated"}) is False
+    assert route.end is None
+    assert intercept("notifications/cancelled", {"requestId": "listen-1"}) is False
+    assert route.end == "lost"
+
+
+def test_intercept_ignores_frames_without_a_route_or_with_broken_meta():
+    """SDK demux contract: frames that correlate to no live route flow through to the normal notification path."""
+    session = _intercept_only_session()
+    intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
+    assert intercept("notifications/tools/list_changed", {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}) is False
+    route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
+    route.set_acked(types.SubscriptionFilter(tools_list_changed=True))
+    assert intercept("notifications/tools/list_changed", None) is False
+    # A non-mapping `_meta` is constructible on pre-2026 wires.
+    assert intercept("notifications/tools/list_changed", {"_meta": "oops"}) is False
+    assert intercept("notifications/tools/list_changed", {"_meta": {SUBSCRIPTION_ID_META_KEY: "other"}}) is False
+    # A non-string uri is not an event; surface validation owns it.
+    meta = {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}
+    assert intercept("notifications/resources/updated", {"uri": 7, **meta}) is False
+    assert route._pending == {}  # pyright: ignore[reportPrivateUsage]
+
+
+def test_intercept_consumes_acks_for_live_routes_and_leaves_malformed_ones():
+    """SDK demux contract: a well-formed ack for a live route is consumed as driver state; malformed acks pass on."""
+    session = _intercept_only_session()
+    route = session._register_listen_route("listen-1")  # pyright: ignore[reportPrivateUsage]
+    intercept = session._intercept_notification  # pyright: ignore[reportPrivateUsage]
+    meta = {"_meta": {SUBSCRIPTION_ID_META_KEY: "listen-1"}}
+    assert intercept("notifications/subscriptions/acknowledged", {"notifications": ["nope"], **meta}) is False
+    assert route.honored is None
+    # A missing `notifications` field must not be read as an (all-refusing) empty filter.
+    assert intercept("notifications/subscriptions/acknowledged", dict(meta)) is False
+    assert route.honored is None
+    assert (
+        intercept("notifications/subscriptions/acknowledged", {"notifications": {"toolsListChanged": True}, **meta})
+        is True
+    )
+    assert route.honored == types.SubscriptionFilter(tools_list_changed=True)
+    # Events deliver but are never consumed - they still tee to message_handler.
+    assert intercept("notifications/tools/list_changed", meta) is False
+    assert list(route._pending) == [ToolsListChanged()]  # pyright: ignore[reportPrivateUsage]

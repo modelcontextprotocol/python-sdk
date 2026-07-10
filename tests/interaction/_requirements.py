@@ -486,12 +486,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "id up front is the SDK surface that makes it satisfiable."
         ),
         added_in="2026-07-28",
-        deferred=(
-            "No public API surface yet: the capability exists at the dispatcher seam "
-            "(CallOptions['request_id'], unit-tested there), but ClientSession.send_request does not "
-            "expose it. The public consumer arrives with the client-side listen driver (Client.listen), "
-            "whose interaction tests will exercise it end to end."
-        ),
     ),
     "protocol:notifications:no-response": Requirement(
         source=f"{SPEC_BASE_URL}/basic#notifications",
@@ -1228,6 +1222,59 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         removed_in="2026-07-28",
         note="removed in 2026-07-28 (SEP-2575); resources/unsubscribe replaced by subscriptions/listen.",
+    ),
+    "subscriptions:listen:client:honored-surfacing": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#acknowledgment",
+        behavior=(
+            "Entering Client.listen() waits for the server's acknowledgment and surfaces the honored "
+            "filter subset on the handle, so the client can check it against what it requested (spec SHOULD)."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:concurrent-demux": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#multiple-concurrent-subscriptions",
+        behavior=(
+            "Concurrently open subscriptions each surface their own acknowledgment: with both listen "
+            "requests in flight before either ack arrives, each handle's honored filter is the subset "
+            "for its own request, routed by subscription id rather than broadcast to every open route."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:iteration": Requirement(
+        source="sdk",
+        behavior=(
+            "An open subscription is an async iterator of typed change events; delivered notifications "
+            "still tee to message_handler so caching and observers keep working."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:graceful-close": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#cancellation",
+        behavior=(
+            "The server's empty subscriptions/listen result (its deliberate close) ends iteration cleanly "
+            "after buffered events drain; no exception is raised."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:lost": Requirement(
+        source="sdk",
+        behavior=(
+            "A listen stream that ends without the graceful result raises SubscriptionLost from iteration; "
+            "there is no automatic re-listen."
+        ),
+        added_in="2026-07-28",
+    ),
+    "subscriptions:listen:client:era-guard": Requirement(
+        source="sdk",
+        behavior=(
+            "Client.listen() on a pre-2026 connection raises ListenNotSupportedError steering to "
+            "subscribe_resource/message_handler instead of leaking a wire -32601."
+        ),
+        removed_in="2026-07-28",
+        note=(
+            "removed_in scopes the matrix to the 2025 cells deliberately: the behavior under test is the "
+            "guard on connections where the method does not exist."
+        ),
     ),
     "resources:updated-notification": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",

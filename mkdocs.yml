@@ -36,6 +36,7 @@ nav:
       - Lifespan: handlers/lifespan.md
       - Elicitation: handlers/elicitation.md
       - Multi-round-trip requests: handlers/multi-round-trip.md
+      - Sampling and roots: handlers/sampling-and-roots.md
       - Progress: handlers/progress.md
       - Logging: handlers/logging.md
       - Subscriptions: handlers/subscriptions.md
@@ -53,6 +54,7 @@ nav:
       - OAuth: client/oauth-clients.md
       - Identity assertion: client/identity-assertion.md
       - Multiple servers: client/session-groups.md
+      - Subscriptions: client/subscriptions.md
       - Caching: client/caching.md
   - Protocol versions: protocol-versions.md
   - Deprecated features: deprecated.md

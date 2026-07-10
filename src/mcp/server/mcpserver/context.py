@@ -16,14 +16,14 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.subscriptions import (
+from mcp.server.subscriptions import SubscriptionBus
+from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.subscriptions import (
     PromptsListChanged,
     ResourcesListChanged,
     ResourceUpdated,
-    SubscriptionBus,
     ToolsListChanged,
 )
-from mcp.shared.exceptions import MCPDeprecationWarning
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer

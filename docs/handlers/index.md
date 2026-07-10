@@ -18,6 +18,9 @@ What it can do while it runs:
 * Ask the user for more input with **[Elicitation](elicitation.md)**, and
   **[Multi-round-trip requests](multi-round-trip.md)**, the 2026-07-28
   pattern that carries it.
+* Ask the client for an LLM completion or its workspace folders with
+  **[Sampling and roots](sampling-and-roots.md)**, deprecated but still
+  served.
 * Report **[Progress](progress.md)** on something slow.
 * Write logs (to standard error, for whoever operates the server) with
   **[Logging](logging.md)**.

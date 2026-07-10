@@ -35,7 +35,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 from pydantic import FileUrl
 
-from mcp import MCPError
+from mcp import MCPDeprecationWarning, MCPError
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import TransportStreams
 from mcp.client.client import Client
@@ -311,13 +311,15 @@ async def test_client_send_progress_notification():
 
 async def test_client_subscribe_resource(simple_server: Server):
     async with Client(simple_server, mode="legacy") as client:
-        result = await client.subscribe_resource("memory://test")
+        with pytest.warns(MCPDeprecationWarning, match="use Client.listen"):
+            result = await client.subscribe_resource("memory://test")  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
 
 async def test_client_unsubscribe_resource(simple_server: Server):
     async with Client(simple_server, mode="legacy") as client:
-        result = await client.unsubscribe_resource("memory://test")
+        with pytest.warns(MCPDeprecationWarning, match="use Client.listen"):
+            result = await client.unsubscribe_resource("memory://test")  # pyright: ignore[reportDeprecated]
         assert result == snapshot(EmptyResult())
 
 
