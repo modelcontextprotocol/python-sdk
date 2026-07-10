@@ -3213,6 +3213,17 @@ class TestAuthorizationEndpointWithQuery:
         params = parse_qs(urlparse(url).query)
         assert params["response_type"] == ["code"]
 
+    def test_build_authorization_url_preserves_multi_value_existing_query(self):
+        """Duplicate keys on the endpoint query are preserved, not collapsed."""
+        url = _build_authorization_url(
+            "https://auth.example.com/authorize?scope=a&scope=b",
+            {"response_type": "code"},
+        )
+        params = parse_qs(urlparse(url).query)
+        assert params["scope"] == ["a", "b"]
+        assert params["response_type"] == ["code"]
+        assert url.count("?") == 1
+
     @pytest.mark.anyio
     async def test_perform_authorization_preserves_endpoint_query(self, oauth_provider: OAuthClientProvider):
         """End-to-end: redirect URL stays valid when the endpoint has a query string."""

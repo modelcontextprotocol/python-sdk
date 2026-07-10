@@ -67,11 +67,18 @@ def _build_authorization_url(auth_endpoint: str, auth_params: Mapping[str, str |
     Naively appending ``?<params>`` would produce an invalid URL with two ``?``
     separators, so the existing query is parsed and merged with ``auth_params``.
     Flow-generated params take precedence on key conflicts; ``None`` values are
-    dropped rather than serialized as the literal string ``"None"``.
+    dropped rather than serialized as the literal string ``"None"``. Existing
+    multi-value query params (e.g. ``?scope=a&scope=b``) are preserved rather
+    than collapsed, except for keys that the flow overrides.
     """
     parsed = urlparse(auth_endpoint)
-    merged_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    merged_params.update({key: value for key, value in auth_params.items() if value is not None})
+    flow_params = {key: value for key, value in auth_params.items() if value is not None}
+    # Keep existing endpoint params (including duplicate keys) except those the
+    # flow overrides, then append the authoritative flow params.
+    existing = [
+        (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key not in flow_params
+    ]
+    merged_params = existing + list(flow_params.items())
     return urlunparse(parsed._replace(query=urlencode(merged_params)))
 
 
