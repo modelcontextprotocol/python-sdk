@@ -126,9 +126,13 @@ extra_css:
 
 markdown_extensions:
   - tables
+  - abbr
   - admonition
   - attr_list
+  - def_list
+  - footnotes
   - md_in_html
+  - pymdownx.betterem
   - pymdownx.details
   - pymdownx.caret
   - pymdownx.critic
