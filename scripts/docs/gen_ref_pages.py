@@ -60,8 +60,8 @@ class _Node:
         return {title: items}
 
 
-def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
-    """Build a compact index body for a package that re-exports from outside its own subtree.
+def _compact_index(module: griffe.Module, documented: set[str]) -> str | None:
+    """Build a compact page body for a module that re-exports from outside its own subtree.
 
     mkdocstrings renders a re-export whose canonical documentation lives on
     another page as a full duplicate of it: deterministically for aliases
@@ -69,40 +69,70 @@ def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
     `mcp.shared.auth`), and order-dependently across top-level packages
     (`from mcp_types import y` + `__all__` renders the duplicate only when
     the other package happens to be loaded already, and silently omits the
-    member when it isn't). Packages whose exports all live in their own
-    subtree (`mcp_types` re-exporting its private `._types` module) are
-    unaffected and keep the plain `::: package` stub (return `None`): their
-    index is itself the canonical rendering.
+    member when it isn't). Modules whose exports all live in their own
+    subtree (`mcp_types` re-exporting its private `._types` module, or a
+    module whose `__all__` lists only its own definitions) are unaffected
+    and keep the plain `::: module` stub (return `None`): their page is
+    itself the canonical rendering.
 
-    For an affected package, pin the semantics instead of inheriting the
+    For an affected module, pin the semantics instead of inheriting the
     accident: every export whose canonical page exists elsewhere under the API
     reference becomes a link to it, and only exports documented nowhere else
     (re-exports from private modules) keep their full body here, via an
     explicit `members:` list.
     """
-    prefix = f"{package.path}."
-    exports = {str(export): package.members[str(export)] for export in package.exports or ()}
+    prefix = f"{module.path}."
+    exports: dict[str, griffe.Object | griffe.Alias] = {}
+    for export in module.exports or ():
+        name = str(export)
+        # Listed exports must be statically documentable: a name provided at
+        # runtime (module `__getattr__`) is a docs error by policy, not a skip.
+        if (member := module.members.get(name)) is None:
+            msg = f"gen_ref_pages: export {module.path}.{name} is not statically visible"
+            raise SystemExit(msg)
+        exports[name] = member
     if not any(member.is_alias and not member.target_path.startswith(prefix) for member in exports.values()):
         return None
 
+    # A plain stub also renders the module's own public members that are not
+    # in `__all__` (`show_if_no_docstring: false` hides the docstring-less
+    # ones); keep them, so flipping a page to compact drops nothing.
+    public = dict(exports)
+    for name, member in module.members.items():
+        if (
+            name not in public
+            and not name.startswith("_")
+            and not member.is_alias
+            and member.kind is not griffe.Kind.MODULE
+            and member.has_docstrings
+        ):
+            public[name] = member
+
     inline: list[str] = []
     sections: dict[str, list[str]] = {}
-    for name in sorted(exports, key=str.lower):
-        member = exports[name]
-        # A target only gets an anchor on its canonical page if it is rendered
-        # there, which the default `show_if_no_docstring: false` limits to
-        # objects with docstrings.
-        if member.is_alias and member.target_path.rpartition(".")[0] in documented and member.has_docstrings:
-            link_target = member.target_path
-        else:
-            inline.append(name)
-            link_target = f"{package.path}.{name}"
-        entry = f"- [`{name}`][{link_target}]"
+    for name in sorted(public, key=str.lower):
+        member = public[name]
         try:
             target = member.final_target if member.is_alias else member
         except griffe.AliasResolutionError as exc:
-            msg = f"gen_ref_pages: export {package.path}.{name} resolves outside the documented packages"
+            msg = f"gen_ref_pages: export {module.path}.{name} resolves outside the documented packages"
             raise SystemExit(msg) from exc
+        # Link to the anchor another page actually renders: the deepest alias
+        # hop whose module is documented (the final target may live in a
+        # private module and only be re-exported by a public one), rendered
+        # there only when docstringed (`show_if_no_docstring: false`).
+        anchor = None
+        hop = member
+        while hop.is_alias:
+            if hop.target_path.rpartition(".")[0] in documented:
+                anchor = hop.target_path
+            hop = hop.target
+        if anchor is not None and member.has_docstrings:
+            link_target = anchor
+        else:
+            inline.append(name)
+            link_target = f"{module.path}.{name}"
+        entry = f"- [`{name}`][{link_target}]"
         if docstring := target.docstring:
             summary = " ".join(docstring.value.split("\n\n", 1)[0].split("\n"))
             entry += f" — {summary}"
@@ -111,12 +141,15 @@ def _compact_index(package: griffe.Module, documented: set[str]) -> str | None:
     # Rendering the stub resolves the cross-package aliases again, in
     # mkdocstrings' own collection. On a warm incremental rebuild the target
     # package's pages can all be cache hits, so nothing else loads it and the
-    # resolution crashes (AliasResolutionError); preloading pins it.
+    # resolution crashes (AliasResolutionError); preloading pins it. The
+    # module's own root package needs no pin: rendering the stub loads it.
     preload = sorted(
-        {member.target_path.split(".")[0] for member in exports.values() if member.is_alias} - {package.path}
+        {member.target_path.split(".")[0] for member in exports.values() if member.is_alias}
+        - {module.path.split(".")[0]}
     )
-    body = [f"::: {package.path}", "    options:"]
-    body += ["      preload_modules:", *(f"        - {module}" for module in preload)]
+    body = [f"::: {module.path}", "    options:"]
+    if preload:
+        body += ["      preload_modules:", *(f"        - {pkg}" for pkg in preload)]
     if inline:
         body += ["      members:", *(f"        - {name}" for name in inline)]
     else:
@@ -145,7 +178,7 @@ def generate() -> list[NavItem]:
 
     root = _Node()
     stubs: dict[Path, str] = {}
-    package_index: dict[str, Path] = {}
+    pages: dict[str, Path] = {}
     documented: set[str] = set()
 
     for package in PACKAGES:
@@ -155,8 +188,7 @@ def generate() -> list[NavItem]:
             doc_path = path.relative_to(base).with_suffix(".md")
 
             parts = tuple(module_path.parts)
-            is_package = parts[-1] == "__init__"
-            if is_package:
+            if parts[-1] == "__init__":
                 parts = parts[:-1]
                 doc_path = doc_path.with_name("index.md")
             # A private component anywhere makes the module private: checking
@@ -167,21 +199,25 @@ def generate() -> list[NavItem]:
             ident = ".".join(parts)
             documented.add(ident)
             stubs[API_DIR / doc_path] = _stub(parts[-1], f"::: {ident}")
-            if is_package:
-                package_index[ident] = API_DIR / doc_path
+            pages[ident] = API_DIR / doc_path
 
             node = root
             for part in parts:
                 node = node.child(part)
             node.url = f"api/{doc_path.as_posix()}"
 
-    # Load every package before inspecting any of them: aliases only resolve
-    # once the module they point at is in the loader's collection.
+    # Load the root packages before inspecting any module: aliases only
+    # resolve once the module they point at is in the loader's collection.
     loader = griffe.GriffeLoader(search_paths=[str(package.parent) for package in PACKAGES])
-    modules = {ident: loader.load(ident) for ident in package_index}
-    for ident, doc_path in package_index.items():
-        module = modules[ident]
-        assert isinstance(module, griffe.Module)
+    for package in PACKAGES:
+        loader.load(package.name)
+    for ident, doc_path in pages.items():
+        try:
+            module = loader.modules_collection[ident]
+        except KeyError as exc:
+            raise SystemExit(f"gen_ref_pages: cannot find {ident} in the loaded packages") from exc
+        if not isinstance(module, griffe.Module):
+            raise SystemExit(f"gen_ref_pages: {ident} is shadowed by a non-module member")
         if body := _compact_index(module, documented):
             stubs[doc_path] = _stub(ident.rpartition(".")[2], body)
 
