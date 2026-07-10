@@ -41,6 +41,7 @@ from mcp.client.auth.utils import (
     validate_authorization_response_iss,
     validate_metadata_issuer,
 )
+from mcp.shared._httpx_utils import redirect_error
 from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,
@@ -416,6 +417,8 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
+        if response.has_redirect_location:
+            raise redirect_error(response, context="OAuth token request")
         if response.status_code not in {200, 201}:
             body = await response.aread()
             body_text = body.decode("utf-8")
@@ -468,6 +471,8 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _handle_refresh_response(self, response: httpx.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
+        if response.has_redirect_location:
+            raise redirect_error(response, context="OAuth token refresh request")
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
             self.context.clear_tokens()

@@ -33,7 +33,7 @@ from pydantic import ValidationError
 from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import RedirectError, create_mcp_http_client, redirect_error
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -211,6 +211,10 @@ class StreamableHTTPTransport:
                     headers[LAST_EVENT_ID] = last_event_id
 
                 async with aconnect_sse(client, "GET", self.url, headers=headers) as event_source:
+                    if event_source.response.has_redirect_location:
+                        # Only reachable with a client that does not follow
+                        # redirects; see redirect_error.
+                        raise redirect_error(event_source.response)
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
@@ -227,6 +231,13 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
+            except RedirectError as exc:
+                # A redirected stream endpoint will redirect on every retry;
+                # deliver once so the session can see it, then stop.
+                logger.exception("GET stream closed: the server redirected the stream endpoint")
+                with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+                    await read_stream_writer.send(exc)
+                return
             except Exception:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
@@ -313,6 +324,25 @@ class StreamableHTTPTransport:
             if self._in_flight_posts.get(request_id) is post:
                 del self._in_flight_posts[request_id]
 
+    async def _resolve_redirected_message(self, ctx: RequestContext, exc: RedirectError) -> None:
+        """Resolve a message whose HTTP exchange ended in a refused redirect.
+
+        Answers a request in-band so its caller is not parked forever; delivers
+        anything else to the session's message handler. The error text names
+        the redirect target and the remedy.
+        """
+        message = ctx.session_message.message
+        if isinstance(message, JSONRPCRequest):
+            error_data = ErrorData(code=INVALID_REQUEST, message=str(exc))
+            payload: SessionMessageOrError = SessionMessage(
+                JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
+            )
+        else:
+            logger.exception("Error sending client message")
+            payload = exc
+        with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+            await ctx.read_stream_writer.send(payload)
+
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         message = ctx.session_message.message
@@ -338,6 +368,11 @@ class StreamableHTTPTransport:
                         code=INVALID_REQUEST,
                     )
                 return
+
+            if response.has_redirect_location:
+                # Only reachable with a client that does not follow redirects;
+                # see redirect_error.
+                raise redirect_error(response)
 
             if response.status_code >= 400:
                 if isinstance(message, JSONRPCRequest):
@@ -528,6 +563,11 @@ class StreamableHTTPTransport:
                 # Stream ended again without response - reconnect again (reset attempt counter)
                 logger.info("SSE stream disconnected, reconnecting...")
                 await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+        except RedirectError:
+            # A redirected stream endpoint will redirect on every retry;
+            # propagate so the request resolves with the guidance instead
+            # of burning the retry budget.
+            raise
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
@@ -583,10 +623,14 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except RedirectError as exc:
+                            # Handled here, before any task group wraps it.
+                            await self._resolve_redirected_message(ctx, exc)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
@@ -657,7 +701,11 @@ async def streamable_http_client(
         url: The MCP server endpoint URL.
         http_client: Optional pre-configured httpx.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
-            authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+            authentication, or other HTTP settings, create a client with
+            mcp.create_mcp_http_client and pass it here; it applies the same defaults,
+            including following only same-origin redirects (a plain httpx.AsyncClient
+            follows none, and a redirect response then resolves the affected request
+            with an error naming the target).
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:

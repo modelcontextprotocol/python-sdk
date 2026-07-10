@@ -1,10 +1,9 @@
 import time
 import uuid
 
-import httpx
 import jwt
 
-from mcp import Client
+from mcp import Client, create_mcp_http_client
 from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
@@ -62,7 +61,7 @@ oauth = IdentityAssertionOAuthProvider(
 
 
 async def main() -> None:
-    async with httpx.AsyncClient(auth=oauth, follow_redirects=True) as http_client:
+    async with create_mcp_http_client(auth=oauth) as http_client:
         transport = streamable_http_client("http://localhost:8001/mcp", http_client=http_client)
         async with Client(transport) as client:
             result = await client.list_tools()

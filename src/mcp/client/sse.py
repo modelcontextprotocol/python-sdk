@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -12,7 +12,7 @@ from httpx_sse import SSEError, aconnect_sse
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import McpHttpClientFactory, RedirectError, create_mcp_http_client, redirect_error
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ async def sse_client(
         timeout: HTTP timeout for regular operations (in seconds).
         sse_read_timeout: Timeout for SSE read operations (in seconds).
         httpx_client_factory: Factory function for creating the HTTPX client.
+            The default follows only same-origin redirects; see create_mcp_http_client.
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
@@ -56,6 +57,10 @@ async def sse_client(
         headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
     ) as client:
         async with aconnect_sse(client, "GET", url) as event_source:
+            if event_source.response.has_redirect_location:
+                # Only reachable with a client that does not follow redirects;
+                # see redirect_error.
+                raise redirect_error(event_source.response)
             event_source.response.raise_for_status()
             logger.debug("SSE connection established")
 
@@ -121,14 +126,35 @@ async def sse_client(
 
                         async def _send_message(session_message: SessionMessage) -> None:
                             logger.debug(f"Sending client message: {session_message}")
-                            response = await client.post(
-                                endpoint_url,
-                                json=session_message.message.model_dump(
-                                    by_alias=True,
-                                    mode="json",
-                                    exclude_unset=True,
-                                ),
-                            )
+                            try:
+                                response = await client.post(
+                                    endpoint_url,
+                                    json=session_message.message.model_dump(
+                                        by_alias=True,
+                                        mode="json",
+                                        exclude_unset=True,
+                                    ),
+                                )
+                                if response.has_redirect_location:
+                                    # Only reachable with a client that does not follow
+                                    # redirects; see redirect_error.
+                                    raise redirect_error(response)
+                            except RedirectError as exc:
+                                # Handled here, before the task group wraps it: answer
+                                # a request in-band so its caller is not parked forever;
+                                # deliver anything else to the session's message handler.
+                                logger.exception("Error sending client message")
+                                message = session_message.message
+                                if isinstance(message, types.JSONRPCRequest):
+                                    error_data = types.ErrorData(code=types.INVALID_REQUEST, message=str(exc))
+                                    payload: SessionMessage | Exception = SessionMessage(
+                                        types.JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
+                                    )
+                                else:
+                                    payload = exc
+                                with suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                    await read_stream_writer.send(payload)
+                                return
                             response.raise_for_status()
                             logger.debug(f"Client message sent successfully: {response.status_code}")
 

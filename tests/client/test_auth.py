@@ -24,6 +24,8 @@ from mcp.client.auth.utils import (
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
     get_client_metadata_scopes,
+    handle_auth_metadata_response,
+    handle_protected_resource_response,
     handle_registration_response,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
@@ -33,6 +35,7 @@ from mcp.client.auth.utils import (
 )
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.shared._httpx_utils import RedirectError
 from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,
@@ -3169,3 +3172,47 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+def _redirect_response(url: str) -> httpx.Response:
+    request = httpx.Request("POST", url)
+    return httpx.Response(307, headers={"location": "https://other.example.com/moved"}, request=request)
+
+
+@pytest.mark.anyio
+async def test_protected_resource_metadata_redirect_raises():
+    """Discovery must not silently move to another URL via a redirect."""
+    with pytest.raises(RedirectError, match="OAuth protected resource metadata request"):
+        await handle_protected_resource_response(
+            _redirect_response("https://api.example.com/.well-known/oauth-protected-resource")
+        )
+
+
+@pytest.mark.anyio
+async def test_auth_server_metadata_redirect_raises():
+    """A redirect must not silently abandon the metadata fallback chain."""
+    with pytest.raises(RedirectError, match="OAuth authorization server metadata request"):
+        await handle_auth_metadata_response(
+            _redirect_response("https://auth.example.com/.well-known/oauth-authorization-server")
+        )
+
+
+@pytest.mark.anyio
+async def test_registration_redirect_raises():
+    """SDK-defined policy: registration responses must come from the requested URL."""
+    with pytest.raises(RedirectError, match="OAuth client registration request"):
+        await handle_registration_response(_redirect_response("https://auth.example.com/register"))
+
+
+@pytest.mark.anyio
+async def test_token_response_redirect_raises(oauth_provider: OAuthClientProvider):
+    """SDK-defined policy: token responses must come from the requested URL."""
+    with pytest.raises(RedirectError, match="OAuth token request"):
+        await oauth_provider._handle_token_response(_redirect_response("https://auth.example.com/token"))
+
+
+@pytest.mark.anyio
+async def test_refresh_response_redirect_raises(oauth_provider: OAuthClientProvider):
+    """SDK-defined policy: refresh responses must come from the requested URL."""
+    with pytest.raises(RedirectError, match="OAuth token refresh request"):
+        await oauth_provider._handle_refresh_response(_redirect_response("https://auth.example.com/token"))

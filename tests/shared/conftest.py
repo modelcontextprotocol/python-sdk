@@ -59,3 +59,15 @@ def pair_factory(request: pytest.FixtureRequest) -> PairFactory:
 
 
 __all__ = ["PairFactory", "direct_pair", "jsonrpc_pair"]
+
+
+@pytest.fixture
+def no_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear proxy environment variables for tests that swap in a mock transport.
+
+    Proxy variables make httpx build proxy mounts at client construction, which
+    would take precedence over a transport assigned after construction.
+    """
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)

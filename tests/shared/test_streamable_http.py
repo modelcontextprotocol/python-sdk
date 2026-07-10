@@ -45,7 +45,7 @@ from starlette.types import Message, Scope
 from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     GET_STREAM_KEY,
@@ -63,6 +63,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
+from mcp.shared._httpx_utils import RedirectError, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from tests.interaction.transports import StreamingASGITransport
@@ -2283,3 +2284,174 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "Error in standalone SSE writer" not in caplog.text
     assert "Error in standalone SSE response" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_post_redirect_to_other_origin_resolves_request_in_band(no_proxy_env: None) -> None:
+    """A redirected request POST resolves with a JSON-RPC error naming the target."""
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(307, headers={"location": "https://other.example.com/mcp"})
+
+    client = create_mcp_http_client()
+    client._transport = httpx.MockTransport(handle)  # swap in the mock transport
+    with anyio.fail_after(5):
+        async with client:
+            # coverage misreports the ->exit arc for nested async with (see AGENTS.md)
+            async with streamable_http_client(  # pragma: no branch
+                "https://example.com/mcp", http_client=client, terminate_on_close=False
+            ) as (read_stream, write_stream):
+                await write_stream.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+                item = await read_stream.receive()
+
+    assert isinstance(item, SessionMessage)
+    assert isinstance(item.message, types.JSONRPCError)
+    assert item.message.id == 1
+    assert "different origin" in item.message.error.message
+    # The redirect was not followed.
+    assert len(seen) == 1
+
+
+@pytest.mark.anyio
+async def test_post_redirect_with_non_following_client_resolves_request_in_band() -> None:
+    """A caller-supplied client that follows no redirects gets the guidance error, not a parse error."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(307, headers={"location": "/mcp/"})
+
+    with anyio.fail_after(5):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            # coverage misreports the ->exit arc for nested async with (see AGENTS.md)
+            async with streamable_http_client(  # pragma: no branch
+                "https://example.com/mcp", http_client=client, terminate_on_close=False
+            ) as (read_stream, write_stream):
+                await write_stream.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+                item = await read_stream.receive()
+
+    assert isinstance(item, SessionMessage)
+    assert isinstance(item.message, types.JSONRPCError)
+    assert "https://example.com/mcp/" in item.message.error.message
+    assert "Connect to that URL directly" in item.message.error.message
+
+
+@pytest.mark.anyio
+async def test_notification_redirect_is_delivered_to_session(no_proxy_env: None) -> None:
+    """A redirected notification POST surfaces on the read stream instead of dying in a log."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(307, headers={"location": "https://other.example.com/mcp"})
+
+    client = create_mcp_http_client()
+    client._transport = httpx.MockTransport(handle)  # swap in the mock transport
+    with anyio.fail_after(5):
+        async with client:
+            # coverage misreports the ->exit arc for nested async with (see AGENTS.md)
+            async with streamable_http_client(  # pragma: no branch
+                "https://example.com/mcp", http_client=client, terminate_on_close=False
+            ) as (read_stream, write_stream):
+                notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/roots/list_changed")
+                await write_stream.send(SessionMessage(notification))
+                item = await read_stream.receive()
+
+    assert isinstance(item, RedirectError)
+    assert "different origin" in str(item)
+
+
+@pytest.mark.anyio
+async def test_get_stream_stops_on_redirect(no_proxy_env: None) -> None:
+    """A redirected standalone GET stream gives up instead of burning the retry budget."""
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(307, headers={"location": "https://other.example.com/mcp"})
+
+    transport = StreamableHTTPTransport("https://example.com/mcp")
+    transport.session_id = "session-1"
+    client = create_mcp_http_client()
+    client._transport = httpx.MockTransport(handle)  # swap in the mock transport
+    writer, reader = create_context_streams[SessionMessage | Exception](1)
+    async with client, writer, reader:
+        with anyio.fail_after(5):
+            await transport.handle_get_stream(client, writer)
+            delivered = await reader.receive()
+
+    assert len(seen) == 1
+    assert isinstance(delivered, RedirectError)
+
+
+@pytest.mark.anyio
+async def test_reconnection_propagates_redirect_error(no_proxy_env: None) -> None:
+    """A redirected reconnection GET propagates instead of burning the retry budget."""
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(307, headers={"location": "https://other.example.com/mcp"})
+
+    transport = StreamableHTTPTransport("https://example.com/mcp")
+    client = create_mcp_http_client()
+    client._transport = httpx.MockTransport(handle)  # swap in the mock transport
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    ctx = RequestContext(
+        client=client,
+        session_id="session-1",
+        session_message=SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")),
+        metadata=None,
+        read_stream_writer=read_stream_writer,
+    )
+    async with client, read_stream_writer, read_stream:
+        with anyio.fail_after(5), pytest.raises(RedirectError):
+            await transport._handle_reconnection(ctx, "event-1", None, 0)
+
+    assert len(seen) == 1
+
+
+@pytest.mark.anyio
+async def test_get_stream_stops_on_redirect_with_non_following_client() -> None:
+    """A caller-supplied non-following client gets the same guidance on the GET stream."""
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(307, headers={"location": "/mcp/"})
+
+    transport = StreamableHTTPTransport("https://example.com/mcp")
+    transport.session_id = "session-1"
+    writer, reader = create_context_streams[SessionMessage | Exception](1)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client, writer, reader:
+        with anyio.fail_after(5):
+            await transport.handle_get_stream(client, writer)
+            delivered = await reader.receive()
+
+    assert len(seen) == 1
+    assert isinstance(delivered, RedirectError)
+    assert "Connect to that URL directly" in str(delivered)
+
+
+@pytest.mark.anyio
+async def test_resumption_redirect_resolves_request_in_band(no_proxy_env: None) -> None:
+    """A redirected resumption GET resolves the request in-band instead of killing the session."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(307, headers={"location": "https://other.example.com/mcp"})
+
+    client = create_mcp_http_client()
+    client._transport = httpx.MockTransport(handle)  # swap in the mock transport
+    with anyio.fail_after(5):
+        async with client:
+            # coverage misreports the ->exit arc for nested async with (see AGENTS.md)
+            async with streamable_http_client(  # pragma: no branch
+                "https://example.com/mcp", http_client=client, terminate_on_close=False
+            ) as (read_stream, write_stream):
+                request = types.JSONRPCRequest(jsonrpc="2.0", id=7, method="tools/list")
+                metadata = ClientMessageMetadata(resumption_token="event-1")
+                await write_stream.send(SessionMessage(request, metadata=metadata))
+                item = await read_stream.receive()
+
+    assert isinstance(item, SessionMessage)
+    assert isinstance(item.message, types.JSONRPCError)
+    assert item.message.id == 7
+    assert "different origin" in item.message.error.message

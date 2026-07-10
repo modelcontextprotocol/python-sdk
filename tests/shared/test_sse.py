@@ -39,8 +39,9 @@ from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared._httpx_utils import McpHttpClientFactory
+from mcp.shared._httpx_utils import McpHttpClientFactory, RedirectError, create_mcp_http_client
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from tests.interaction.transports import StreamingASGITransport
 
 SERVER_NAME = "test_server_for_SSE"
@@ -428,6 +429,7 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     mock_event_source = MagicMock()
     mock_event_source.aiter_sse.return_value = mock_aiter_sse()
     mock_event_source.response = MagicMock()
+    mock_event_source.response.has_redirect_location = False
     mock_event_source.response.raise_for_status = MagicMock()
 
     mock_aconnect_sse = MagicMock()
@@ -437,7 +439,9 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     mock_client = MagicMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
+    mock_client.post = AsyncMock(
+        return_value=MagicMock(status_code=200, has_redirect_location=False, raise_for_status=MagicMock())
+    )
 
     with (
         patch("mcp.client.sse.create_mcp_http_client", return_value=mock_client),
@@ -480,3 +484,120 @@ async def test_sse_session_cleanup_on_disconnect() -> None:
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 404
+
+
+class _EndpointThenOpen(httpx.AsyncByteStream):
+    """SSE body: announce the message endpoint, then hold the stream open."""
+
+    def __init__(self, endpoint: str) -> None:
+        self._endpoint = endpoint
+
+    async def __aiter__(self) -> AsyncGenerator[bytes, None]:
+        yield f"event: endpoint\r\ndata: {self._endpoint}\r\n\r\n".encode()
+        await anyio.sleep_forever()
+
+
+def _sse_redirecting_setup(post_location: str, seen: list[httpx.Request]) -> httpx.MockTransport:
+    """GET serves an SSE stream announcing /messages/; POST answers 307 to `post_location`."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.method == "GET":
+            return httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=_EndpointThenOpen("/messages/")
+            )
+        return httpx.Response(307, headers={"location": post_location})
+
+    return httpx.MockTransport(handle)
+
+
+@pytest.mark.anyio
+async def test_sse_post_redirect_to_other_origin_is_delivered(no_proxy_env: None) -> None:
+    """A redirected message POST surfaces on the read stream instead of dying in a log."""
+    seen: list[httpx.Request] = []
+    transport = _sse_redirecting_setup("https://other.example.com/collect", seen)
+
+    def factory(headers: Any = None, timeout: Any = None, auth: Any = None) -> httpx.AsyncClient:
+        client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+        client._transport = transport  # swap in the mock transport
+        return client
+
+    with anyio.fail_after(5):
+        async with sse_client("https://example.com/sse", httpx_client_factory=factory) as (read_stream, write_stream):
+            await write_stream.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")))
+            item = await read_stream.receive()
+
+    assert isinstance(item, SessionMessage)
+    assert isinstance(item.message, types.JSONRPCError)
+    assert item.message.id == 1
+    assert "different origin" in item.message.error.message
+    # The POST was not re-sent to the other origin.
+    assert all(request.url.host == "example.com" for request in seen)
+
+
+@pytest.mark.anyio
+async def test_sse_post_same_origin_redirect_is_followed(no_proxy_env: None) -> None:
+    """A same-origin redirect on the message POST is followed transparently."""
+    seen: list[httpx.Request] = []
+    followed = anyio.Event()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.method == "GET":
+            return httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=_EndpointThenOpen("/messages/")
+            )
+        if str(request.url.path) == "/canonical/":
+            followed.set()
+            return httpx.Response(202)
+        return httpx.Response(307, headers={"location": "/canonical/"})
+
+    transport = httpx.MockTransport(handle)
+
+    def factory(headers: Any = None, timeout: Any = None, auth: Any = None) -> httpx.AsyncClient:
+        client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
+        client._transport = transport  # swap in the mock transport
+        return client
+
+    with anyio.fail_after(5):
+        async with sse_client("https://example.com/sse", httpx_client_factory=factory) as (_read_stream, write_stream):
+            notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/roots/list_changed")
+            await write_stream.send(SessionMessage(notification))
+            await followed.wait()
+
+    posts = [request for request in seen if request.method == "POST"]
+    assert [str(request.url.path) for request in posts] == ["/messages/", "/canonical/"]
+
+
+@pytest.mark.anyio
+async def test_sse_post_redirect_with_non_following_client_is_delivered() -> None:
+    """A caller-supplied client that follows no redirects gets the guidance error delivered."""
+    seen: list[httpx.Request] = []
+    transport = _sse_redirecting_setup("/canonical/", seen)
+
+    def factory(headers: Any = None, timeout: Any = None, auth: Any = None) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=transport)
+
+    with anyio.fail_after(5):
+        async with sse_client("https://example.com/sse", httpx_client_factory=factory) as (read_stream, write_stream):
+            notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/roots/list_changed")
+            await write_stream.send(SessionMessage(notification))
+            item = await read_stream.receive()
+
+    assert isinstance(item, RedirectError)
+    assert "Connect to that URL directly" in str(item)
+
+
+@pytest.mark.anyio
+async def test_sse_connect_redirect_with_non_following_client_raises() -> None:
+    """A redirect on the SSE connect GET raises the guidance error to the caller."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(307, headers={"location": "/sse/"})
+
+    def factory(headers: Any = None, timeout: Any = None, auth: Any = None) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+    with anyio.fail_after(5), pytest.raises(RedirectError, match="Connect to that URL directly"):
+        async with sse_client("https://example.com/sse", httpx_client_factory=factory):
+            pass  # pragma: no cover - connect fails before the body runs

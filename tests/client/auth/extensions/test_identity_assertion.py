@@ -14,6 +14,7 @@ import pytest
 
 from mcp.client.auth import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider, _origin
+from mcp.shared._httpx_utils import RedirectError
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthToken
 
 ISSUER = "https://auth.example.com"
@@ -409,3 +410,26 @@ def test_origin_normalizes_default_ports() -> None:
     assert _origin("http://host") == _origin("http://host:80")
     assert _origin("https://host") != _origin("https://host:8443")
     assert _origin("https://host") != _origin("https://other")
+
+
+@pytest.mark.anyio
+async def test_token_exchange_redirect_raises() -> None:
+    """SDK-defined policy: token exchange responses must come from the requested URL."""
+    requests: list[httpx.Request] = []
+    storage = InMemoryStorage()
+    auth = make_provider(storage)
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        host, path = request.url.host, request.url.path
+        if host == "mcp.example.com":
+            return httpx.Response(401)
+        if host == "auth.example.com" and path in (ASM_PATH, OIDC_PATH):
+            return httpx.Response(200, content=asm_body(), headers={"content-type": "application/json"})
+        if host == "auth.example.com" and path == "/token":
+            return httpx.Response(307, headers={"location": "https://other.example.com/token"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")  # pragma: no cover
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle), auth=auth) as http:
+        with pytest.raises(RedirectError, match="OAuth token exchange request"):
+            await http.get("https://mcp.example.com/mcp")
