@@ -21,17 +21,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/../.."
 
 uv sync --frozen --group docs
+
+# Zensical's incremental cache is unsound: a warm rebuild where only some
+# pages re-render silently drops cross-references to cache-hit pages, and
+# HTML for since-deleted pages lingers in site/. Build cold so the output
+# (and the checks below) are deterministic.
+rm -rf .cache site
+
 uv run --frozen --no-sync python scripts/docs/build_config.py
 uv run --frozen --no-sync zensical build -f mkdocs.gen.yml --strict
 
-# Zensical renders an unresolvable [`name`][identifier] cross-reference as
-# literal bracket text and stays green even under --strict (mkdocs-autorefs
-# used to warn, and strict mode failed). The generated API index relies on
-# such references, so catch the failure mode here.
-if grep -rn --include='*.html' -F '[<code>' site/ > /dev/null; then
-    echo "error: unresolved cross-references rendered as literal text:" >&2
-    grep -rn --include='*.html' -Fo -m 1 '[<code>' site/ | head -20 >&2
-    exit 1
-fi
+# Zensical stays green even under --strict when a cross-reference fails to
+# resolve (rendered as literal bracket text) or an objects.inv inventory
+# fails to download (every link through it silently degrades to plain text);
+# MkDocs strict mode aborted on both. Validate the built site instead.
+uv run --frozen --no-sync python scripts/docs/check_crossrefs.py --site-dir site
 
 uv run --frozen --no-sync python scripts/docs/llms_txt.py --site-dir site

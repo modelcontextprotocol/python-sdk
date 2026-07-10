@@ -139,9 +139,12 @@ jobs:
       - name: Check README snippets are up to date
         run: uv run --frozen scripts/update_readme_snippets.py --check
 
-  # `zensical build --strict` fails on broken links / missing nav targets and
-  # `pymdownx.snippets: check_paths: true` fails on a deleted `docs_src/`
-  # include; the llms_txt step additionally re-resolves every snippet and link.
+  # `scripts/docs/build.sh` is the whole gauntlet: build_config.py fails on
+  # nav entries without a page and pages without a nav entry, `zensical build
+  # --strict` fails on broken .md links, `pymdownx.snippets: check_paths:
+  # true` fails on a deleted `docs_src/` include, and the post-build steps
+  # fail on unresolved cross-references, inventory download failures, and
+  # broken non-markdown link targets.
   # Until this job existed the docs were only ever built post-merge by
   # `deploy-docs.yml`, so those failures went green on the PR and broke the next
   # deploy of main. This is the check path; `deploy-docs.yml` stays the deploy
