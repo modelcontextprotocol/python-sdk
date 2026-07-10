@@ -10,11 +10,11 @@ three kinds of artifact into the built `site/`:
   `servers/tools/index.md`), which is what the llms.txt links point at.
 - `llms-full.txt`: every prose page concatenated for single-fetch consumption.
 
-Page markdown is the source markdown with `--8<--` snippet includes resolved
-(so the `docs_src/` code examples appear inline) and relative links rewritten
-to absolute URLs. The API reference pages under `api/` are mkdocstrings stubs
-with no prose source, so they are linked as rendered HTML from an Optional
-section instead of being embedded.
+Page markdown is the source markdown with YAML frontmatter stripped, `--8<--`
+snippet includes resolved (so the `docs_src/` code examples appear inline) and
+relative links rewritten to absolute URLs. The API reference pages under
+`api/` are mkdocstrings stubs with no prose source, so they are linked as
+rendered HTML from an Optional section instead of being embedded.
 
 Usage:
     python scripts/docs/llms_txt.py --site-dir site
@@ -26,6 +26,7 @@ import argparse
 import posixpath
 import re
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import yaml
 
@@ -43,11 +44,26 @@ _OPTIONAL_PAGES = [
 ]
 
 _SNIPPET_LINE = re.compile(r'^(?P<indent>[ \t]*)--8<-- "(?P<path>[^"\n]+)"$', flags=re.MULTILINE)
-_MD_LINK = re.compile(r'(\]\()([^)\s]+\.md)(#[^)\s]*)?( +"[^"]*")?(\))')
-# Relative link/image targets with a non-markdown file extension. Zensical's
-# link validation only covers .md targets (a missing image builds green even
-# under --strict; MkDocs failed the build), so these are validated here.
-_ASSET_LINK = re.compile(r'\]\(([^)\s#]+\.(?!md[)#\s])[a-zA-Z0-9]{1,4})(?:#[^)\s]*)?( +"[^"]*")?\)')
+# Every markdown link/image target: `](target#anchor "title")`. Each target is
+# classified in `_rewrite_links` — there is deliberately no shape-based
+# pre-filter here, so no link can dodge validation by its spelling. Zensical's
+# own link validation only covers .md targets (a missing image or
+# directory-style link builds green even under --strict; MkDocs failed the
+# build), so everything else is validated here.
+_LINK = re.compile(r'(\]\()([^)\s]+?)(#[^)\s]*)?( +"[^"]*")?(\))')
+# A scheme-prefixed target (https:, mailto:, tel:, ...) is external — the
+# `://` shorthand misses scheme-only URIs like mailto:.
+_EXTERNAL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
+# Fenced code blocks and inline code spans: their content is inert in the
+# rendered HTML, so links inside them are illustrative text, neither validated
+# nor rewritten. Fences are matched line-based in `_code_intervals` (closer at
+# least as long as the opener, unclosed runs to EOF, per CommonMark) and spans
+# only in the text between fences; a span cannot cross a blank line, so a
+# stray unpaired backtick cannot swallow the paragraphs (and links) after it.
+_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+_CODE_SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)")
+# A leading YAML frontmatter block, as MkDocs/Zensical parse it (mkdocs.utils.meta).
+_FRONTMATTER = re.compile(r"\A---[ \t]*\n(?P<block>.*?)^(?:---|\.\.\.)[ \t]*(?:\n|\Z)", flags=re.MULTILINE | re.DOTALL)
 
 
 class _BuildError(Exception):
@@ -66,20 +82,43 @@ def _page_url(src_uri: str) -> str:
     return _dest_md_uri(src_uri).removesuffix("index.md")
 
 
+def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+    """Split a leading YAML frontmatter block from a page (mirrors mkdocs.utils.meta).
+
+    Hand-rolled deliberately: mkdocs is only a transitive dependency of this
+    toolchain, so the pipeline must not import it. The hook this replaced ran
+    post-frontmatter-extraction, so renditions never contained frontmatter and
+    `meta` fed the page title and llms.txt description. A leading block that
+    isn't a YAML mapping is page content, not frontmatter; an empty block is
+    frontmatter with no meta.
+    """
+    match = _FRONTMATTER.match(text)
+    if match is None:
+        return {}, text
+    try:
+        meta = yaml.safe_load(match["block"])
+    except yaml.YAMLError:
+        return {}, text
+    if meta is not None and not isinstance(meta, dict):
+        return {}, text
+    return meta or {}, text[match.end() :].lstrip("\n")
+
+
 def _collect_pages(items: list, prose: dict[str, str | None]) -> list[str]:
     """Collect the prose pages under a nav subtree, in nav order.
 
     Records each page in `prose` (src_uri -> nav title, or `None` to fall
     back to the page's H1). This is the single owner of the prose-page rule:
-    a page entry counts when it ends in .md and is not part of the generated
-    API reference.
+    a page entry counts when it is a local .md path (external URLs render as
+    outbound nav links and are omitted, as the MkDocs pipeline did) and is not
+    part of the generated API reference.
     """
     pages: list[str] = []
     for entry in items:
         title, value = next(iter(entry.items())) if isinstance(entry, dict) else (None, entry)
         if isinstance(value, list):
             pages.extend(_collect_pages(value, prose))
-        elif value.endswith(".md") and not value.startswith("api/"):
+        elif not _EXTERNAL.match(value) and value.endswith(".md") and not value.startswith("api/"):
             prose[value] = title
             pages.append(value)
     return pages
@@ -128,40 +167,77 @@ def _resolve_snippets(markdown: str, src_uri: str) -> str:
     return resolved
 
 
+def _code_intervals(markdown: str) -> list[tuple[int, int]]:
+    """The character spans of fenced code blocks and inline code spans."""
+    fences: list[tuple[int, int]] = []
+    opener = ""
+    start = offset = 0
+    for line in markdown.splitlines(keepends=True):
+        if not opener:
+            if match := _FENCE.match(line):
+                opener, start = match[1], offset
+        elif (stripped := line.strip()).startswith(opener) and set(stripped) == {opener[0]}:
+            fences.append((start, offset + len(line)))
+            opener = ""
+        offset += len(line)
+    if opener:
+        fences.append((start, len(markdown)))
+
+    intervals = list(fences)
+    previous_end = 0
+    for fence_start, fence_end in [*fences, (len(markdown), len(markdown))]:
+        segment = markdown[previous_end:fence_start]
+        intervals += [(previous_end + m.start(), previous_end + m.end()) for m in _CODE_SPAN.finditer(segment)]
+        previous_end = fence_end
+    return intervals
+
+
 def _rewrite_links(markdown: str, src_uri: str, site_url: str, prose: dict[str, str | None]) -> str:
     src_dir = posixpath.dirname(src_uri)
-
-    for match in _ASSET_LINK.finditer(markdown):
-        target = match.group(1)
-        if "://" in target:
-            continue
-        if not (DOCS / posixpath.normpath(posixpath.join(src_dir, target))).exists():
-            raise _BuildError(f"llms_txt: cannot resolve asset link target {target!r} in {src_uri}")
+    code = _code_intervals(markdown)
 
     def rewrite(match: re.Match[str]) -> str:
         opening, target, anchor, title, closing = match.groups()
-        if "://" in target:
-            return match.group(0)
+        if target.startswith("#") or _EXTERNAL.match(target):
+            return match.group(0)  # in-page anchor or external URL (https:, mailto:, ...)
+        if any(start <= match.start() < end for start, end in code):
+            return match.group(0)  # illustrative link inside a code block/span
+        if target.startswith("/"):
+            raise _BuildError(f"llms_txt: absolute link target {target!r} in {src_uri}: link the .md source instead")
         linked = posixpath.normpath(posixpath.join(src_dir, target))
-        if not (DOCS / linked).exists():
+        if linked == ".." or linked.startswith("../"):
+            raise _BuildError(f"llms_txt: link target {target!r} in {src_uri} escapes docs/")
+        if (DOCS / linked).is_dir():
+            raise _BuildError(
+                f"llms_txt: directory-style link target {target!r} in {src_uri}: link the page's .md source instead"
+            )
+        if not (DOCS / linked).is_file():
             raise _BuildError(f"llms_txt: cannot resolve link target {target!r} in {src_uri}")
-        # Pages without a markdown rendition (the api/ stubs) link to their HTML instead.
-        url = _dest_md_uri(linked) if linked in prose else _page_url(linked)
+        if linked.endswith(".md"):
+            # Pages without a markdown rendition (the api/ stubs) link to their HTML instead.
+            url = _dest_md_uri(linked) if linked in prose else _page_url(linked)
+        else:
+            url = linked  # assets are published at their docs-relative path
         return f"{opening}{site_url}{url}{anchor or ''}{title or ''}{closing}"
 
-    return _MD_LINK.sub(rewrite, markdown)
+    return _LINK.sub(rewrite, markdown)
 
 
-def _title(src_uri: str, nav_title: str | None, body: str) -> str:
+def _title(src_uri: str, nav_title: str | None, meta: dict[str, Any], body: str) -> str:
     if nav_title is not None:
         return nav_title
+    if isinstance(meta_title := meta.get("title"), str):
+        return meta_title
     match = re.search(r"^\s*# (.+)$", body, flags=re.MULTILINE)
     if match is None:
-        raise _BuildError(f"llms_txt: page {src_uri} has no nav title and no H1")
+        raise _BuildError(f"llms_txt: page {src_uri} has no nav title, no title frontmatter, and no H1")
     return match.group(1).strip()
 
 
 def generate(site_dir: Path) -> None:
+    if not (DOCS / "api").is_dir():
+        raise _BuildError("llms_txt: docs/api not found (run gen_ref_pages first)")
+
     config = yaml.safe_load((ROOT / "mkdocs.yml").read_text(encoding="utf-8"))
     site_url = config["site_url"].rstrip("/") + "/"
 
@@ -171,8 +247,9 @@ def generate(site_dir: Path) -> None:
     ordered: list[tuple[str, list[str]]] = ([("Docs", top_level)] if top_level else []) + sections
 
     rendered: dict[str, str] = {}
+    metas: dict[str, dict[str, Any]] = {}
     for src_uri in prose:
-        markdown = (DOCS / src_uri).read_text(encoding="utf-8")
+        metas[src_uri], markdown = _split_frontmatter((DOCS / src_uri).read_text(encoding="utf-8"))
         markdown = _resolve_snippets(markdown, src_uri)
         rendered[src_uri] = _rewrite_links(markdown, src_uri, site_url, prose)
 
@@ -186,25 +263,29 @@ def generate(site_dir: Path) -> None:
             (site_dir / md_uri).parent.mkdir(parents=True, exist_ok=True)
             (site_dir / md_uri).write_text(markdown, encoding="utf-8")
 
-            title = _title(src_uri, prose[src_uri], markdown)
-            index.append(f"- [{title}]({site_url}{md_uri})")
+            title = _title(src_uri, prose[src_uri], metas[src_uri], markdown)
+            description = metas[src_uri].get("description")
+            tail = f": {description}" if description else ""
+            index.append(f"- [{title}]({site_url}{md_uri}){tail}")
 
-            body, h1_found = re.subn(r"\A\s*# .+\n", "", markdown)
-            if not h1_found:
-                raise _BuildError(f"llms_txt: page {src_uri} does not start with an H1")
+            # Strip a leading H1 when present: `full` re-titles every page.
+            body = re.sub(r"\A\s*# .+\n", "", markdown)
             full += [f"# {title}", "", f"Source: {site_url}{_page_url(src_uri)}", "", body.strip(), ""]
         index.append("")
 
     index += ["## Optional", ""]
-    # Every generated package index must be listed: a package added to
-    # gen_ref_pages.PACKAGES without an entry here would be published on the
-    # site but silently missing from llms.txt.
+    # _OPTIONAL_PAGES must match the generated package indexes exactly: a
+    # package added to gen_ref_pages.PACKAGES without an entry here would be
+    # published on the site but silently missing from llms.txt, and a stale
+    # entry would link a page that no longer exists.
     generated = {f"api/{path.name}/index.md" for path in (DOCS / "api").iterdir() if path.is_dir()}
-    if unlisted := generated - {src_uri for src_uri, _, _ in _OPTIONAL_PAGES}:
-        raise _BuildError(f"llms_txt: generated package indexes missing from _OPTIONAL_PAGES: {sorted(unlisted)}")
+    listed = {src_uri for src_uri, _, _ in _OPTIONAL_PAGES}
+    if generated != listed:
+        raise _BuildError(
+            f"llms_txt: _OPTIONAL_PAGES out of sync with docs/api:"
+            f" missing {sorted(generated - listed)}, stale {sorted(listed - generated)}"
+        )
     for src_uri, title, description in _OPTIONAL_PAGES:
-        if not (DOCS / src_uri).exists():
-            raise _BuildError(f"llms_txt: optional page {src_uri} not found (run gen_ref_pages first)")
         index.append(f"- [{title}]({site_url}{_page_url(src_uri)}): {description}")
     index.append("")
 
@@ -220,6 +301,8 @@ def main() -> None:
         generate(Path(args.site_dir))
     except _BuildError as exc:
         raise SystemExit(str(exc)) from exc
+    except OSError as exc:
+        raise SystemExit(f"llms_txt: {exc}") from exc
 
 
 if __name__ == "__main__":
