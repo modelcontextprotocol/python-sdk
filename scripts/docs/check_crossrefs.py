@@ -130,12 +130,18 @@ def _origin(url: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--site-dir", default="site", help="The built site directory to scan.")
+    parser.add_argument("--site-dir", default=str(ROOT / "site"), help="The built site directory to scan.")
     args = parser.parse_args()
+
+    site_dir = Path(args.site_dir)
+    # rglob on a missing directory yields nothing, which would read as a
+    # clean site (or a bogus inventory failure); fail up front instead.
+    if not site_dir.is_dir():
+        raise SystemExit(f"check_crossrefs: {site_dir} not found (run the build first)")
 
     unlinked = _inventory_origins()
     failures: list[str] = []
-    for page in sorted(Path(args.site_dir).rglob("*.html")):
+    for page in sorted(site_dir.rglob("*.html")):
         html = page.read_text(encoding="utf-8")
         if unlinked and "autorefs-external" in html:
             for tag in _EXTERNAL_REF.finditer(html):

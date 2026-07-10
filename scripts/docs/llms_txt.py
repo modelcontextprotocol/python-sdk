@@ -50,14 +50,17 @@ _SNIPPET_LINE = re.compile(r'^(?P<indent>[ \t]*)--8<-- "(?P<path>[^"\n]+)"$', fl
 # own link validation only covers .md targets (a missing image or
 # directory-style link builds green even under --strict; MkDocs failed the
 # build), so everything else is validated here.
-_LINK = re.compile(r'(\]\()([^)\s]+?)(#[^)\s]*)?( +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))?(\))')
+_LINK = re.compile(r'(\]\([ \t]*)([^)\s]+?)(#[^)\s]*)?( +(?:"[^"]*"|\'[^\']*\'|\([^()]*\)))?([ \t]*\))')
 # CommonMark forms the classifier deliberately rejects rather than models:
 # angle-bracket destinations `](<target>)` and reference-style definitions
 # `[label]: target` (footnote definitions `[^label]:` are a different,
 # supported syntax). Either would otherwise dodge validation by its spelling;
 # failing loud keeps the guarantee without modelling unused syntax.
-_ANGLE_LINK = re.compile(r"\]\(<")
+_ANGLE_LINK = re.compile(r"\]\([ \t]*<")
 _REF_DEFINITION = re.compile(r"^[ \t]*\[(?!\^)[^\]]+\]:", flags=re.MULTILINE)
+# Block HTML comments are inert in rendered output: python-markdown passes
+# them through verbatim, so commented-out prose must not be validated.
+_HTML_COMMENT = re.compile(r"<!--.*?-->", flags=re.DOTALL)
 # A scheme-prefixed target (https:, mailto:, tel:, ...) is external — the
 # `://` shorthand misses scheme-only URIs like mailto:.
 _EXTERNAL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -132,6 +135,10 @@ def _collect_pages(items: list, prose: dict[str, str | None]) -> list[str]:
         if isinstance(value, list):
             pages.extend(_collect_pages(value, prose))
         elif not _EXTERNAL.match(value) and value.endswith(".md") and not value.startswith("api/"):
+            # Contained values only: an escaping entry would write its
+            # rendition outside the built site.
+            if value.startswith("/") or posixpath.normpath(value).startswith(".."):
+                raise _BuildError(f"llms_txt: nav entry {value!r} escapes docs/")
             prose[value] = title
             pages.append(value)
     return pages
@@ -218,7 +225,8 @@ def _code_intervals(markdown: str) -> list[tuple[int, int]]:
     previous_end = 0
     for fence_start, fence_end in [*fences, (len(markdown), len(markdown))]:
         segment = markdown[previous_end:fence_start]
-        intervals += [(previous_end + m.start(), previous_end + m.end()) for m in _CODE_SPAN.finditer(segment)]
+        for pattern in (_CODE_SPAN, _HTML_COMMENT):
+            intervals += [(previous_end + m.start(), previous_end + m.end()) for m in pattern.finditer(segment)]
         previous_end = fence_end
     return intervals
 

@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import posixpath
 import re
 from pathlib import Path
 
@@ -52,6 +53,10 @@ def _validate_nav(nav: list, docs_dir: Path) -> None:
     generator that writes the files, so it cannot drift.
     """
     pages = _nav_pages(nav)
+    # Containment before existence: `docs_dir / page` would happily resolve
+    # an absolute value or a `../` escape against the wrong root.
+    if escaping := sorted(p for p in pages if p.startswith("/") or posixpath.normpath(p).startswith("..")):
+        raise SystemExit(f"build_config: nav references pages outside docs/: {escaping}")
     if missing := sorted(page for page in pages if not (docs_dir / page).is_file()):
         raise SystemExit(f"build_config: nav references pages that don't exist under docs/: {missing}")
     # Dot-directories (e.g. `.overrides` theme files) are not pages: the site
