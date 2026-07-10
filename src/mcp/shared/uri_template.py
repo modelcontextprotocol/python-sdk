@@ -813,7 +813,7 @@ def _parse_expression(template: str, body: str, pos: int) -> _Expression:
         explode = spec.endswith("*")
         name = spec[:-1] if explode else spec
 
-        if not _VARNAME_RE.match(name):
+        if not _VARNAME_RE.fullmatch(name):
             raise InvalidUriTemplate(
                 f"Invalid variable name {name!r} at position {pos}",
                 template=template,

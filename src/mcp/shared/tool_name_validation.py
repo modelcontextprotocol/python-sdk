@@ -17,10 +17,8 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
-# Regular expression for valid tool names according to SEP-986 specification.
-# End-anchored with \Z rather than $: in Python's default mode $ also matches
-# just before a single trailing newline, which would let "name\n" validate.
-TOOL_NAME_REGEX = re.compile(r"^[A-Za-z0-9._-]{1,128}\Z")
+# Regular expression for valid tool names according to SEP-986 specification
+TOOL_NAME_REGEX = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 # SEP reference URL for warning messages
 SEP_986_URL = "https://modelcontextprotocol.io/specification/2025-11-25/server/tools#tool-names"
@@ -79,7 +77,7 @@ def validate_tool_name(name: str) -> ToolNameValidationResult:
         warnings.append("Tool name starts or ends with a dot, which may cause parsing issues in some contexts")
 
     # Check for invalid characters
-    if not TOOL_NAME_REGEX.match(name):
+    if not TOOL_NAME_REGEX.fullmatch(name):
         # Find all invalid characters (unique, preserving order)
         invalid_chars: list[str] = []
         seen: set[str] = set()
