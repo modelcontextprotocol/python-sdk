@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from typing import Any
+from unittest import mock
 
 import anyio
 import pytest
@@ -10,6 +11,7 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
 from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 from mcp.types import (
     CancelledNotification,
     CancelledNotificationParams,
@@ -339,3 +341,29 @@ async def test_connection_closed():
                 await ev_closed.wait()
             with anyio.fail_after(1):  # pragma: no cover
                 await ev_response.wait()
+
+
+@pytest.mark.anyio
+async def test_respond_after_cancel_does_not_raise():
+    """
+    Test that calling respond() after cancel() does not raise AssertionError.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2416.
+    When a CancelledNotification arrives after the handler returns but before
+    respond() is called, both cancel() and respond() see _completed=False.
+    cancel() sets it to True and sends the cancellation error; respond() should
+    silently return instead of asserting.
+    """
+    mock_session: Any = mock.AsyncMock()
+    mock_session._send_response = mock.AsyncMock()
+    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call")
+    responder: RequestResponder[Any, Any] = RequestResponder(
+        request_id=1,
+        request_meta=None,
+        request=request,  # type: ignore[reportArgumentType]
+        session=mock_session,
+        on_complete=lambda r: None,
+    )
+    with responder:
+        await responder.cancel()
+        await responder.respond(ErrorData(code=0, message="ok"))
