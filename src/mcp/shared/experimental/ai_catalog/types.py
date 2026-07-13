@@ -24,9 +24,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
+from mcp_types._types import MCPModel
 from pydantic import Field, model_validator
-
-from mcp.types._types import MCPModel
 
 #: Media type identifying an AI Catalog document.
 AI_CATALOG_MEDIA_TYPE = "application/ai-catalog+json"

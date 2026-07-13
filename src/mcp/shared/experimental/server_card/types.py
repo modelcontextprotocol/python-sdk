@@ -17,10 +17,9 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal
 
+from mcp_types import Icon
+from mcp_types._types import MCPModel
 from pydantic import Field, field_validator
-
-from mcp.types import Icon
-from mcp.types._types import MCPModel
 
 #: Canonical ``$schema`` value for a Server Card document.
 SERVER_CARD_SCHEMA_URL = "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json"
