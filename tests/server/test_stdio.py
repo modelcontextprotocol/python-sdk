@@ -103,8 +103,11 @@ async def test_stdio_server_does_not_close_real_std_handles(monkeypatch: pytest.
 
         with anyio.fail_after(5):
             async with stdio_server() as (read_stream, write_stream):
-                async with read_stream, write_stream:
-                    pass
+                # Close the streams so the reader/writer tasks unwind and the
+                # server context exits (explicit aclose keeps this branch-free
+                # for the repo's 100% coverage gate).
+                await read_stream.aclose()
+                await write_stream.aclose()
 
         # Force finalization of any TextIOWrapper the server created internally.
         gc.collect()
@@ -132,8 +135,8 @@ async def test_stdio_server_bufferless_text_streams(monkeypatch: pytest.MonkeyPa
 
     with anyio.fail_after(5):
         async with stdio_server() as (read_stream, write_stream):
-            async with read_stream, write_stream:
-                pass
+            await read_stream.aclose()
+            await write_stream.aclose()
 
 
 @pytest.mark.anyio
