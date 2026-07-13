@@ -119,6 +119,24 @@ async def test_stdio_server_does_not_close_real_std_handles(monkeypatch: pytest.
 
 
 @pytest.mark.anyio
+async def test_stdio_server_bufferless_text_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: default startup must not crash on bufferless in-memory text streams.
+
+    In-memory text streams like `io.StringIO` have neither a real `fileno()` nor a
+    `.buffer`, so both the fd-dup path and the `.buffer` re-wrap path fail. In that
+    case `stdio_server()` must use the stream directly. Before the fix, the fallback
+    reached for `std.buffer` and raised `AttributeError` during startup.
+    """
+    monkeypatch.setattr(sys, "stdin", io.StringIO())  # empty -> immediate EOF
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            async with read_stream, write_stream:
+                pass
+
+
+@pytest.mark.anyio
 async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
     """Non-UTF-8 stdin bytes surface as an in-stream exception without killing the stream.
 

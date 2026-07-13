@@ -62,6 +62,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
             wrapper = TextIOWrapper(binary, encoding="utf-8", errors=errors)
             to_close.append(wrapper)
         except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+            # No real fd. A bufferless in-memory text stream (e.g. io.StringIO)
+            # has no .buffer to re-wrap, so use it directly -- it is already text,
+            # and we did not create it, so there is nothing to tear down. Otherwise
+            # re-wrap .buffer and detach() on exit so the finalizer cannot close the
+            # real handle.
+            if not hasattr(std, "buffer"):
+                return anyio.wrap_file(std)
             wrapper = TextIOWrapper(std.buffer, encoding="utf-8", errors=errors)
             to_detach.append(wrapper)
         return anyio.wrap_file(wrapper)
