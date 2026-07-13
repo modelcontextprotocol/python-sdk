@@ -1688,6 +1688,8 @@ In v1, a non-2xx response to a message POST (other than 404) raised `httpx.HTTPS
 | 404, no session yet | `McpError` with positive code `32600` | `MCPError(-32601, 'Not Found')` |
 | Any other 4xx/5xx | `httpx.HTTPStatusError` escapes as `ExceptionGroup` | `MCPError(-32603, 'Server returned an error response')` |
 
+Every error the transport synthesizes from a status (the last three rows) carries that status on `error.data` as `{"httpStatus": 503}`. The JSON-RPC code cannot express the retry decision — a terminal `401` and a transient `503` are both `-32603` — so read the status when deciding whether to retry. An error the *server* supplied in the body (the first row) keeps its own `data` untouched.
+
 Both common v1 patterns silently stop working: an `except* httpx.HTTPStatusError` around the transport context becomes dead code because status errors no longer escape the context, and a session-expiry check on `error.code == 32600` never matches again because the code is now the standard negative `-32600`.
 
 **Before (v1):**
