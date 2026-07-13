@@ -1,5 +1,7 @@
+import gc
 import io
 import sys
+import tempfile
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -73,6 +75,47 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
     received_responses = [jsonrpc_message_adapter.validate_json(line.strip()) for line in output_lines]
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+@pytest.mark.anyio
+async def test_stdio_server_does_not_close_real_std_handles(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression test for issue #1933: the default path must not close process stdio.
+
+    `stdio_server()` re-wraps `sys.stdin.buffer`/`sys.stdout.buffer` in a `TextIOWrapper`
+    to force UTF-8. The wrapper's `__del__` finalizer used to close the underlying buffer,
+    so any code running after the server exits raised
+    `ValueError: I/O operation on closed file.` on `print()` / stdout writes.
+
+    The default path dups the fds and wraps the copies, so tearing the wrappers down
+    closes only the duplicates and leaves the real process handles usable. Real
+    fd-backed temp files stand in for the process handles here so that the fix's
+    `sys.std{in,out}.fileno()` path is exercised; the empty stdin file reaches EOF
+    immediately so the reader worker unwinds without a client.
+    """
+    with (
+        tempfile.TemporaryFile(mode="rb", buffering=0) as stdin_raw,
+        tempfile.TemporaryFile(mode="wb", buffering=0) as stdout_raw,
+    ):
+        stdin_file = TextIOWrapper(stdin_raw, encoding="utf-8")  # empty -> immediate EOF
+        stdout_file = TextIOWrapper(stdout_raw, encoding="utf-8")
+        monkeypatch.setattr(sys, "stdin", stdin_file)
+        monkeypatch.setattr(sys, "stdout", stdout_file)
+
+        with anyio.fail_after(5):
+            async with stdio_server() as (read_stream, write_stream):
+                async with read_stream, write_stream:
+                    pass
+
+        # Force finalization of any TextIOWrapper the server created internally.
+        gc.collect()
+
+        # On the buggy code these assertions fail: the internal wrapper's __del__
+        # closed the buffer we handed in.
+        assert not stdin_raw.closed, "stdio_server closed the real stdin buffer"
+        assert not stdout_raw.closed, "stdio_server closed the real stdout buffer"
+        # And the process handles stay usable after the server exits.
+        stdout_file.write("after-server-exit\n")
+        stdout_file.flush()
 
 
 @pytest.mark.anyio
