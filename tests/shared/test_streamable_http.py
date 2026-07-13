@@ -8,7 +8,7 @@ import json
 import multiprocessing
 import socket
 import time
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
@@ -2526,6 +2526,42 @@ async def test_a_json_body_that_is_not_a_jsonrpc_error_falls_back_to_the_stand_i
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, json=body)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(request)))
+            reply = await read.receive()
+
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message.root, types.JSONRPCError)
+            assert reply.message.root.error == types.ErrorData(
+                code=types.INTERNAL_ERROR, message="Server returned an error response"
+            )
+
+
+@pytest.mark.anyio
+async def test_a_non_2xx_body_that_fails_to_read_still_resolves_the_caller() -> None:
+    """A stalled or truncated error body must not strand the caller.
+
+    `aread()` on the non-2xx body raises `ReadTimeout`/`RemoteProtocolError` when the connection
+    dies mid-body. Those derive from `httpx.HTTPError`, not `httpx.StreamError`, so letting the
+    body-parsing `except` miss them would put the escaping exception right back into the POST's
+    background task — the very bug this path exists to fix.
+    """
+
+    class _DyingStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            raise httpx.ReadTimeout("connection died mid-body")
+            yield b""  # pragma: no cover
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, headers={"content-type": "application/json"}, stream=_DyingStream())
 
     with anyio.fail_after(5):
         async with (

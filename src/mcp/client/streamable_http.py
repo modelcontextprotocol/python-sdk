@@ -542,8 +542,12 @@ class StreamableHTTPTransport:
                     reply = JSONRPCError(jsonrpc="2.0", id=request_id, error=parsed.root.error)
                     await read_stream_writer.send(SessionMessage(JSONRPCMessage(reply)))
                     return
-            except (httpx.StreamError, ValidationError):
-                logger.debug("Non-2xx body was not a JSON-RPC error; using the status-derived fallback")
+            # `httpx.HTTPError` covers reading the body as much as parsing it: a stalled or
+            # truncated error body raises `ReadTimeout`/`RemoteProtocolError` here, and letting
+            # that escape would strand the caller exactly as the bug this method exists to fix.
+            # `StreamError` is not one of its subclasses (it derives from `RuntimeError`).
+            except (httpx.HTTPError, httpx.StreamError, ValidationError):
+                logger.debug("Could not read a JSON-RPC error from the non-2xx body; using the fallback")
 
         error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
         jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data)
