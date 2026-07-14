@@ -2,13 +2,13 @@
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import anyio
 import httpx2
 import pytest
-from mcp_types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
+from mcp_types import INVALID_REQUEST, JSONRPCRequest, ListToolsResult, PaginatedRequestParams
 from starlette.types import Message, Scope
 
 from mcp import Client
@@ -18,6 +18,7 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio
@@ -99,6 +100,49 @@ async def running_manager():
     async with manager.run():
         # Patch app.run here if it's simpler, or patch it within the test
         yield manager, app
+
+
+@pytest.mark.anyio
+async def test_streamable_http_post_sse_cleans_up_streams_when_response_returns(monkeypatch: pytest.MonkeyPatch):
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+    sent_messages: list[Message] = []
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode()
+
+    class DisconnectingEventSourceResponse:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def __call__(self, scope: Scope, receive: Any, send: Any) -> None:
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+
+    async def send(message: Message) -> None:
+        sent_messages.append(message)
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": [
+            (b"accept", b"application/json, text/event-stream"),
+            (b"content-type", b"application/json"),
+        ],
+    }
+
+    monkeypatch.setattr("mcp.server.streamable_http.EventSourceResponse", DisconnectingEventSourceResponse)
+
+    async with transport.connect() as (read_stream, _write_stream):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(transport.handle_request, scope, receive, send)
+            session_message = cast(SessionMessage, await read_stream.receive())
+            assert isinstance(session_message.message, JSONRPCRequest)
+            assert session_message.message.method == "tools/list"
+
+    assert transport._request_streams == {}
+    assert transport._sse_stream_writers == {}
+    assert any(message["type"] == "http.response.start" for message in sent_messages)
 
 
 @pytest.mark.anyio
