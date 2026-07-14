@@ -894,7 +894,7 @@ async def test_modern_tools_call_leaves_mis_shaped_name_and_arguments_to_dispatc
 
 async def test_modern_tools_call_rejects_a_duplicated_mcp_param_header() -> None:
     """A duplicated recognized header is rejected even if one copy matches: readers may disagree on which wins."""
-    # An httpx header list with a repeated name reaches the ASGI scope as two raw header lines.
+    # An httpx2 header list with a repeated name reaches the ASGI scope as two raw header lines.
     duplicated = httpx2.Headers(
         [*_TOOL_CALL_HEADERS.items(), ("mcp-param-region", "spoofed"), ("mcp-param-region", "eu")]
     )

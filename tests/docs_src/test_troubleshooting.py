@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from mcp_types import (
     INVALID_PARAMS,
@@ -125,10 +125,10 @@ async def test_the_default_streamable_http_app_answers_a_real_hostname_with_421(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """tutorial003: one 421, three spellings. The page presents all three as the same event."""
-    transport = httpx.ASGITransport(app=tutorial003.app)
+    transport = httpx2.ASGITransport(app=tutorial003.app)
     async with tutorial003.mcp.session_manager.run():
         # What curl (or the reverse proxy's access log) shows: the status and the plain-text body.
-        async with httpx.AsyncClient(transport=transport, base_url="http://mcp.example.com") as raw:
+        async with httpx2.AsyncClient(transport=transport, base_url="http://mcp.example.com") as raw:
             with caplog.at_level(logging.WARNING, logger="mcp.server.transport_security"):
                 response = await raw.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
         assert (response.status_code, response.text) == (421, "Invalid Host header")
@@ -137,7 +137,7 @@ async def test_the_default_streamable_http_app_answers_a_real_hostname_with_421(
         # What the server operator finds by grepping the server log.
         assert "Invalid Host header: mcp.example.com" in caplog.messages
         # What the python `Client` raises instead: the generic stand-in, wrapped by the task group.
-        async with httpx.AsyncClient(transport=transport) as http_client:
+        async with httpx2.AsyncClient(transport=transport) as http_client:
             client = Client(streamable_http_client("http://mcp.example.com/mcp", http_client=http_client))
             with pytest.raises(Exception) as exc_info:  # pragma: no branch
                 await client.__aenter__()  # the connection attempt itself is what fails
@@ -147,9 +147,9 @@ async def test_the_default_streamable_http_app_answers_a_real_hostname_with_421(
 
 async def test_an_allowlisted_hostname_connects_and_calls_a_tool() -> None:
     """tutorial004: `transport_security=` names the deployed hostname, and the same client connects."""
-    transport = httpx.ASGITransport(app=tutorial004.app)
+    transport = httpx2.ASGITransport(app=tutorial004.app)
     async with tutorial004.mcp.session_manager.run():
-        async with httpx.AsyncClient(transport=transport) as http_client:
+        async with httpx2.AsyncClient(transport=transport) as http_client:
             allowed = streamable_http_client("http://mcp.example.com/mcp", http_client=http_client)
             async with Client(allowed) as c:  # pragma: no branch
                 assert c.protocol_version == "2026-07-28"
@@ -159,8 +159,8 @@ async def test_an_allowlisted_hostname_connects_and_calls_a_tool() -> None:
 
 async def test_a_mounted_app_without_a_lifespan_fails_on_the_first_request() -> None:
     """tutorial005: Starlette never runs a mounted sub-app's lifespan, so nothing starts the manager."""
-    transport = httpx.ASGITransport(app=tutorial005.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http:
+    transport = httpx2.ASGITransport(app=tutorial005.app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http:
         with pytest.raises(RuntimeError, match=r"Task group is not initialized\. Make sure to use run\(\)\."):
             await http.post("/mcp")
 
@@ -170,7 +170,7 @@ async def test_a_session_id_the_server_never_issued_gets_a_404_session_not_found
     mcp = MCPServer("Weather")
     app = mcp.streamable_http_app()
     async with mcp.session_manager.run():
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as h:
+        async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as h:
             response = await h.post(
                 "/mcp",
                 json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
@@ -243,9 +243,9 @@ async def test_a_legacy_ctx_elicit_without_a_callback_says_elicitation_not_suppo
 
 async def test_ctx_elicit_over_stateless_http_has_no_back_channel() -> None:
     """tutorial008: `stateless_http=True` leaves the server no channel to send `elicitation/create`."""
-    transport = httpx.ASGITransport(app=tutorial008.app)
+    transport = httpx2.ASGITransport(app=tutorial008.app)
     async with tutorial008.mcp.session_manager.run():
-        async with httpx.AsyncClient(transport=transport) as http_client:
+        async with httpx2.AsyncClient(transport=transport) as http_client:
             stateless = streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http_client)
             async with Client(stateless) as c:  # pragma: no branch
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch

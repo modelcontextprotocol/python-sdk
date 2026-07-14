@@ -189,7 +189,7 @@ class _ParkedSSEStream(httpx2.AsyncByteStream):
     """An SSE response body that emits one comment line, then parks until closed.
 
     `opened` fires once the transport is iterating the body (the POST is truly in
-    flight); `closed` fires when httpx tears the body down — the observable proof
+    flight); `closed` fires when httpx2 tears the body down — the observable proof
     that an abort, not a response, ended the stream.
     """
 
