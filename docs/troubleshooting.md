@@ -179,7 +179,7 @@ async def list_tools() -> None:
         async with Client("https://mcp.example.com/mcp") as client:
             await client.list_tools()
     except MCPError as exc:
-        status = (exc.error.data or {}).get("httpStatus")  # 421 here; 401, 403, 503 … elsewhere
+        status = (exc.error.data or {}).get("httpStatus")  # 421 here; 401, 403, 503 elsewhere
         print(status)
 ```
 
