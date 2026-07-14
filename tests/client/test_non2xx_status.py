@@ -5,13 +5,15 @@ a proper JSONRPCError (not a timeout).
 
 Closes #3091
 """
+
 import json
 import pytest
 import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.client.streamable_http import StreamableHTTPTransport, RequestContext
-from mcp_types import JSONRPCRequest, JSONRPCError, ErrorData, SessionMessage
+from mcp.shared.message import SessionMessage
+from mcp_types import JSONRPCRequest, JSONRPCError, ErrorData
 
 
 class TestNon2xxStatusHandling:
@@ -122,11 +124,9 @@ class TestNon2xxStatusHandling:
 
         ctx = self._make_request_context()
 
-        error_body = json.dumps({
-            "jsonrpc": "2.0",
-            "id": "test-123",
-            "error": {"code": -32600, "message": "Invalid Request"}
-        }).encode()
+        error_body = json.dumps(
+            {"jsonrpc": "2.0", "id": "test-123", "error": {"code": -32600, "message": "Invalid Request"}}
+        ).encode()
 
         mock_response = MagicMock()
         mock_response.status_code = 400
