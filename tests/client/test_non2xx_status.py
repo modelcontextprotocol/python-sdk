@@ -7,13 +7,13 @@ Closes #3091
 """
 
 import json
-import pytest
-import httpx
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from mcp.client.streamable_http import StreamableHTTPTransport, RequestContext
+import pytest
+from mcp_types import JSONRPCError, JSONRPCRequest
+
+from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
 from mcp.shared.message import SessionMessage
-from mcp_types import JSONRPCRequest, JSONRPCError, ErrorData
 
 
 class TestNon2xxStatusHandling:
