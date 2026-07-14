@@ -4,27 +4,25 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections import deque
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
 import anyio
 from anyio.abc import TaskStatus
 from mcp_types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
+from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.connection import Connection
 from mcp.server.runner import serve_connection, serve_loop
-from mcp.server.streamable_http import (
-    MCP_SESSION_ID_HEADER,
-    EventStore,
-    StreamableHTTPServerTransport,
-)
+from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, EventStore, StreamableHTTPServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
@@ -35,6 +33,9 @@ if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_REQUEST_BODY_SIZE: Final = 4 * 1024 * 1024
+"""Default maximum Streamable HTTP request body size in bytes (4 MiB)."""
 
 
 class StreamableHTTPSessionManager:
@@ -69,6 +70,8 @@ class StreamableHTTPSessionManager:
             retry_interval is also configured, ensure the idle timeout comfortably exceeds the retry interval to
             avoid reaping sessions during normal SSE polling gaps. Default is None (no timeout). A value of 1800
             (30 minutes) is recommended for most deployments.
+        max_request_body_size: Maximum size in bytes for Streamable HTTP POST request bodies. Requests that
+            exceed this limit receive a 413 response before parsing or session creation. Defaults to 4 MiB.
     """
 
     def __init__(
@@ -80,11 +83,14 @@ class StreamableHTTPSessionManager:
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
         session_idle_timeout: float | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
     ):
         if session_idle_timeout is not None and session_idle_timeout <= 0:
             raise ValueError("session_idle_timeout must be a positive number of seconds")
         if stateless and session_idle_timeout is not None:
             raise RuntimeError("session_idle_timeout is not supported in stateless mode")
+        if max_request_body_size <= 0:
+            raise ValueError("max_request_body_size must be a positive number of bytes")
 
         self.app = app
         self.event_store = event_store
@@ -93,6 +99,8 @@ class StreamableHTTPSessionManager:
         self.security_settings = security_settings
         self.retry_interval = retry_interval
         self.session_idle_timeout = session_idle_timeout
+        self.max_request_body_size = max_request_body_size
+        self.asgi_app = RequestBodyLimitMiddleware(self.handle_request, max_request_body_size)
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -360,6 +368,54 @@ class StreamableHTTPSessionManager:
             await response(scope, receive, send)
 
 
+class RequestBodyLimitMiddleware:
+    """Reject oversized HTTP request bodies before invoking an ASGI application."""
+
+    def __init__(self, app: ASGIApp, max_body_size: int) -> None:
+        self.app = app
+        self.max_body_size = max_body_size
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["method"] != "POST":
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        content_length = headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared_size = int(content_length)
+            except ValueError:
+                pass
+            else:
+                if declared_size > self.max_body_size:
+                    response = Response("Request body too large", status_code=413)
+                    return await response(scope, receive, send)
+
+        cached_messages: deque[Message] = deque()
+        received_size = 0
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                cached_messages.append(message)
+                break
+
+            received_size += len(message.get("body", b""))
+            if received_size > self.max_body_size:
+                response = Response("Request body too large", status_code=413)
+                return await response(scope, receive, send)
+            cached_messages.append(message)
+            if not message.get("more_body", False):
+                break
+
+        async def replay() -> Message:
+            if cached_messages:
+                return cached_messages.popleft()
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+
 class StreamableHTTPASGIApp:
     """ASGI application for Streamable HTTP server transport."""
 
@@ -367,4 +423,4 @@ class StreamableHTTPASGIApp:
         self.session_manager = session_manager
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        await self.session_manager.handle_request(scope, receive, send)
+        await self.session_manager.asgi_app(scope, receive, send)

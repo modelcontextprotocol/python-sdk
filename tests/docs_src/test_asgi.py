@@ -43,6 +43,7 @@ async def test_streamable_http_app_takes_runs_options_except_port() -> None:
         "stateless_http",
         "event_store",
         "retry_interval",
+        "max_request_body_size",
         "transport_security",
         "host",
     }
@@ -54,6 +55,17 @@ async def test_a_request_before_the_session_manager_runs_is_rejected() -> None:
     async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         with pytest.raises(RuntimeError, match=r"Task group is not initialized\. Make sure to use run\(\)\."):
             await http.post("/mcp")
+
+
+async def test_streamable_http_app_applies_the_configured_request_body_limit() -> None:
+    """The documented `max_request_body_size` option rejects larger requests with HTTP 413."""
+    server = MCPServer("Notes")
+    app = server.streamable_http_app(max_request_body_size=8)
+    transport = httpx2.ASGITransport(app=app)
+    async with server.session_manager.run():
+        async with httpx2.AsyncClient(transport=transport, base_url="http://localhost") as http:
+            response = await http.post("/mcp", content=b"123456789")
+    assert response.status_code == 413
 
 
 async def test_mounting_at_the_root_keeps_the_default_path() -> None:
