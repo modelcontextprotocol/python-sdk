@@ -136,6 +136,13 @@ at runtime, so an `httpx.AsyncClient` passed as `http_client` degrades in
 subtle ways (server-initiated messages stop arriving) instead of raising
 immediately.
 
+The client also identifies itself differently: the default User-Agent is now
+`python-httpx2/<version>`, and log lines come from the `httpx2` and
+`httpcore2.*` loggers, so a `logging.getLogger("httpx")` or
+`logging.getLogger("httpcore")` suppression no longer matches anything.
+Telemetry integrations keyed to the `httpx` module (such as OpenTelemetry's
+httpx instrumentation) stop seeing the SDK's traffic as well.
+
 TLS verification also changes: `httpx` validated certificates against the
 bundled `certifi` CA list, while `httpx2` validates against the operating
 system trust store via [`truststore`](https://pypi.org/project/truststore/).
