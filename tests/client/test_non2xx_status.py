@@ -30,14 +30,14 @@ class TestNon2xxStatusHandling:
         ctx.metadata = None
         return ctx
 
+    def _make_transport(self) -> StreamableHTTPTransport:
+        """Create a StreamableHTTPTransport for testing."""
+        return StreamableHTTPTransport("http://test/mcp")
+
     @pytest.mark.anyio
     async def test_401_produces_error_response(self):
         """401 Unauthorized should produce a JSONRPCError with the request's ID."""
-        # This test verifies the fix for #3091
-        # When server returns 401, caller should get a proper error, not a timeout
-        transport = StreamableHTTPTransport.__new__(StreamableHTTPTransport)
-        transport.url = "http://test"
-        transport.session_id = None
+        transport = self._make_transport()
 
         ctx = self._make_request_context()
 
@@ -67,9 +67,7 @@ class TestNon2xxStatusHandling:
     @pytest.mark.anyio
     async def test_403_produces_error_response(self):
         """403 Forbidden should produce a JSONRPCError with the request's ID."""
-        transport = StreamableHTTPTransport.__new__(StreamableHTTPTransport)
-        transport.url = "http://test"
-        transport.session_id = None
+        transport = self._make_transport()
 
         ctx = self._make_request_context()
 
@@ -93,9 +91,7 @@ class TestNon2xxStatusHandling:
     @pytest.mark.anyio
     async def test_500_produces_error_response(self):
         """500 Internal Server Error should produce a JSONRPCError."""
-        transport = StreamableHTTPTransport.__new__(StreamableHTTPTransport)
-        transport.url = "http://test"
-        transport.session_id = None
+        transport = self._make_transport()
 
         ctx = self._make_request_context()
 
@@ -118,9 +114,7 @@ class TestNon2xxStatusHandling:
     @pytest.mark.anyio
     async def test_json_error_body_is_parsed(self):
         """When server returns JSON-RPC error body, it should be used directly."""
-        transport = StreamableHTTPTransport.__new__(StreamableHTTPTransport)
-        transport.url = "http://test"
-        transport.session_id = None
+        transport = self._make_transport()
 
         ctx = self._make_request_context()
 
