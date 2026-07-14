@@ -99,8 +99,8 @@ The SDK now depends on [`httpx2`](https://pypi.org/project/httpx2/) instead of
 `httpx`) with server-sent events support built in, so the separate `httpx-sse`
 dependency is gone.
 
-The swap itself does not change any SDK signatures — `streamable_http_client`
-and `sse_client` accept the same arguments as elsewhere in v2 — but the client
+The swap itself does not change any SDK signatures - `streamable_http_client`
+and `sse_client` accept the same arguments as elsewhere in v2 - but the client
 type they expect is now `httpx2.AsyncClient`. If you construct your own client to pass as
 `http_client` (or build an `httpx2.Auth` subclass for `auth`), import from
 `httpx2`:
@@ -125,13 +125,24 @@ http_client = httpx2.AsyncClient(follow_redirects=True)
 changes. To consume SSE directly, use `httpx2.EventSource` (or
 `AsyncClient.sse()`) instead of the `httpx-sse` helpers.
 
+Exception handlers need the same rename: the SDK now raises `httpx2`
+exceptions (`httpx2.ConnectError`, `httpx2.HTTPStatusError`, and so on), and
+this failure mode is silent. `httpx` usually stays installed as a transitive
+dependency of other packages, so an old `except httpx.ConnectError:` block
+keeps importing fine and simply never matches again. Audit `except httpx.`
+clauses and `isinstance` checks along with the imports. The same identity
+split applies to objects: `httpx` and `httpx2` types are not interchangeable
+at runtime, so an `httpx.AsyncClient` passed as `http_client` degrades in
+subtle ways (server-initiated messages stop arriving) instead of raising
+immediately.
+
 TLS verification also changes: `httpx` validated certificates against the
 bundled `certifi` CA list, while `httpx2` validates against the operating
 system trust store via [`truststore`](https://pypi.org/project/truststore/).
 If your environment has no usable system CA store (some minimal containers),
 or you relied on certifi's bundle specifically, point the standard
-`SSL_CERT_FILE` or `SSL_CERT_DIR` environment variable at a CA bundle —
-`httpx2` honors these before falling back to the system store — or pass an
+`SSL_CERT_FILE` or `SSL_CERT_DIR` environment variable at a CA bundle
+(`httpx2` honors these before falling back to the system store), or pass an
 explicit `verify=ssl_context` to your `httpx2.AsyncClient`. Passing a CA
 bundle path as `verify="ca.pem"` or using the `cert=` parameter is deprecated
 in `httpx2`; build an `ssl.SSLContext` and configure it instead.

@@ -56,7 +56,7 @@ Two things to notice:
 
 One TLS note: `httpx2` verifies certificates against the operating system trust store (via
 [`truststore`](https://pypi.org/project/truststore/)), not a bundled CA list. In an environment with
-no usable system CA store — some minimal containers — set the standard `SSL_CERT_FILE`/`SSL_CERT_DIR`
+no usable system CA store (some minimal containers), set the standard `SSL_CERT_FILE`/`SSL_CERT_DIR`
 environment variables or pass an explicit `verify=ssl_context` to your `httpx2.AsyncClient`
 (background in
 [`httpx` and `httpx-sse` replaced by `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
