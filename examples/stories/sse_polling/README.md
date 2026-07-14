@@ -57,7 +57,7 @@ kill "$SERVER_PID"
   release; this story calls it directly because the event-store and
   retry-interval kwargs are the point.
 - DNS-rebinding protection is disabled (`transport_security=NO_DNS_REBIND`)
-  because the in-process httpx client sends no `Origin` header. Drop the kwarg
+  because the in-process httpx2 client sends no `Origin` header. Drop the kwarg
   for a real deployment.
 - `event_store.py` here is example-grade only (sequential IDs, no eviction). A
   production server would back the `EventStore` interface with persistent

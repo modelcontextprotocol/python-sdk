@@ -3,14 +3,14 @@
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock
 from urllib.parse import urlparse
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
-from httpx_sse import ServerSentEvent
+from httpx2 import ServerSentEvent
 from inline_snapshot import snapshot
 from mcp_types import (
     CallToolRequestParams,
@@ -54,13 +54,13 @@ def in_process_client_factory(app: Starlette) -> McpHttpClientFactory:
 
     def factory(
         headers: dict[str, str] | None = None,
-        timeout: httpx.Timeout | None = None,
-        auth: httpx.Auth | None = None,
-    ) -> httpx.AsyncClient:
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
         # The SSE GET runs until it observes a disconnect, so the bridge must let the
         # application drain on close rather than cancelling it. follow_redirects matches
         # create_mcp_http_client, the factory this one stands in for.
-        return httpx.AsyncClient(
+        return httpx2.AsyncClient(
             transport=StreamingASGITransport(app, cancel_on_close=False),
             base_url=BASE_URL,
             headers=headers,
@@ -112,7 +112,7 @@ def make_server_app() -> Starlette:
 async def test_raw_sse_connection() -> None:
     """The SSE GET responds 200 with an event-stream content type, announcing the session
     endpoint as its first event."""
-    http_client = httpx.AsyncClient(
+    http_client = httpx2.AsyncClient(
         transport=StreamingASGITransport(make_server_app(), cancel_on_close=False), base_url=BASE_URL
     )
 
@@ -416,40 +416,40 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     )
     response_json = response.model_dump_json(by_alias=True, exclude_none=True)
 
-    # Create mock SSE events using httpx_sse's ServerSentEvent
-    async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
-        # First: endpoint event
-        yield ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123")
-        # Empty data keep-alive ping - this is what we're testing
-        yield ServerSentEvent(event="message", data="")
-        # Real JSON-RPC response
-        yield ServerSentEvent(event="message", data=response_json)
-
+    # Mock SSE events using httpx2's ServerSentEvent: an endpoint event, an
+    # empty keep-alive ping (the case under test), then a real response.
     mock_event_source = MagicMock()
-    mock_event_source.aiter_sse.return_value = mock_aiter_sse()
-    mock_event_source.response = MagicMock()
+    mock_event_source.__aiter__.return_value = [
+        ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123"),
+        ServerSentEvent(event="message", data=""),
+        ServerSentEvent(event="message", data=response_json),
+    ]
     mock_event_source.response.raise_for_status = MagicMock()
 
-    mock_aconnect_sse = MagicMock()
-    mock_aconnect_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
-    mock_aconnect_sse.__aexit__ = AsyncMock(return_value=None)
+    mock_sse = MagicMock()
+    mock_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_sse.__aexit__ = AsyncMock(return_value=None)
 
     mock_client = MagicMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.sse = MagicMock(return_value=mock_sse)
     mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
 
-    with (
-        patch("mcp.client.sse.create_mcp_http_client", return_value=mock_client),
-        patch("mcp.client.sse.aconnect_sse", return_value=mock_aconnect_sse),
-    ):
-        async with sse_client("http://test/sse") as (read_stream, _):
-            # Read the message - should skip the empty one and get the real response
-            msg = await read_stream.receive()
-            # If we get here without error, the empty message was skipped successfully
-            assert not isinstance(msg, Exception)
-            assert isinstance(msg.message, types.JSONRPCResponse)
-            assert msg.message.id == 1
+    def mock_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return mock_client
+
+    async with sse_client("http://test/sse", httpx_client_factory=mock_factory) as (read_stream, _):
+        # Read the message - should skip the empty one and get the real response
+        msg = await read_stream.receive()
+        # If we get here without error, the empty message was skipped successfully
+        assert not isinstance(msg, Exception)
+        assert isinstance(msg.message, types.JSONRPCResponse)
+        assert msg.message.id == 1
 
 
 @pytest.mark.anyio

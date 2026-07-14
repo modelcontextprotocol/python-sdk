@@ -35,7 +35,7 @@ You don't need to know any of this to use the SDK, but if you're wondering what 
 * [`anyio`](https://anyio.readthedocs.io/): the async runtime. The whole SDK is written against anyio, so it runs on either `asyncio` or `trio`.
 * [`pydantic`](https://docs.pydantic.dev/): what every `mcp_types` model is built on, plus all schema generation and validation.
 * [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/): server configuration via `MCP_*` environment variables and `.env` files.
-* [`httpx`](https://www.python-httpx.org/) and [`httpx-sse`](https://pypi.org/project/httpx-sse/): the HTTP client behind the Streamable HTTP and SSE *client* transports.
+* [`httpx2`](https://pypi.org/project/httpx2/): the HTTP client behind the Streamable HTTP and SSE *client* transports, with server-sent events support built in.
 * [`starlette`](https://www.starlette.io/), [`uvicorn`](https://www.uvicorn.org/), [`sse-starlette`](https://pypi.org/project/sse-starlette/), and [`python-multipart`](https://pypi.org/project/python-multipart/): the HTTP *server* transports.
 * [`jsonschema`](https://pypi.org/project/jsonschema/): validates a tool's structured output against its declared output schema.
 * [`pyjwt[crypto]`](https://pyjwt.readthedocs.io/): OAuth token handling for authorization.

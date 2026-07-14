@@ -6,7 +6,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from mcp_types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 from starlette.types import Message, Scope
@@ -331,8 +331,8 @@ async def test_e2e_streamable_http_server_cleanup():
     mcp_app = app.streamable_http_app(host=host)
     async with (
         mcp_app.router.lifespan_context(mcp_app),
-        httpx.ASGITransport(mcp_app) as transport,
-        httpx.AsyncClient(transport=transport) as http_client,
+        httpx2.ASGITransport(mcp_app) as transport,
+        httpx2.AsyncClient(transport=transport) as http_client,
         Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client), mode="legacy") as client,
     ):
         await client.list_tools()

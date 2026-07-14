@@ -2,7 +2,7 @@
 
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
@@ -31,12 +31,14 @@ def test_app():
 @pytest.fixture
 async def test_client(test_app: Starlette):
     """Fixture to create an HTTP client for the protected resource app."""
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="https://mcptest.com") as client:
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=test_app), base_url="https://mcptest.com"
+    ) as client:
         yield client
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint_with_path(test_client: httpx.AsyncClient):
+async def test_metadata_endpoint_with_path(test_client: httpx2.AsyncClient):
     """Test the OAuth 2.0 Protected Resource metadata endpoint for path-based resource."""
 
     # For resource with path "/resource", metadata should be accessible at the path-aware location
@@ -54,7 +56,7 @@ async def test_metadata_endpoint_with_path(test_client: httpx.AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint_root_path_returns_404(test_client: httpx.AsyncClient):
+async def test_metadata_endpoint_root_path_returns_404(test_client: httpx2.AsyncClient):
     """Test that root path returns 404 for path-based resource."""
 
     # Root path should return 404 for path-based resources
@@ -81,14 +83,14 @@ def root_resource_app():
 @pytest.fixture
 async def root_resource_client(root_resource_app: Starlette):
     """Fixture to create an HTTP client for the root resource app."""
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=root_resource_app), base_url="https://mcptest.com"
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=root_resource_app), base_url="https://mcptest.com"
     ) as client:
         yield client
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint_without_path(root_resource_client: httpx.AsyncClient):
+async def test_metadata_endpoint_without_path(root_resource_client: httpx2.AsyncClient):
     """Test metadata endpoint for root-level resource."""
 
     # For root resource, metadata should be at standard location

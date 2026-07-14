@@ -67,6 +67,9 @@ v2 raises the minimum versions of several shared dependencies and adds new requi
 | pywin32 (Windows) | `>=310` (Python <3.14) | `>=311` | floor raised on Python <3.14 |
 | opentelemetry-api | not a dependency | `>=1.28.0` | new required dependency |
 | mcp-types | not a dependency | `==<exact mcp version>` | new, exact-pinned |
+| httpx | `>=0.27.1,<1.0.0` | removed | see [`httpx` and `httpx-sse` replaced by `httpx2`](#httpx-and-httpx-sse-replaced-by-httpx2) |
+| httpx-sse | `>=0.4` | removed | see [`httpx` and `httpx-sse` replaced by `httpx2`](#httpx-and-httpx-sse-replaced-by-httpx2) |
+| httpx2 | not a dependency | `>=2.5.0` | new required dependency |
 | `ws` extra | `websockets>=15.0.1` | removed | see [WebSocket transport removed](#websocket-transport-removed) |
 
 **Before (v1):**
@@ -88,6 +91,68 @@ dependencies = [
 ```
 
 Relax or bump any conflicting pins when upgrading. sse-starlette jumps two majors, so a project that imports `sse_starlette` itself must also work through that library's own breaking changes to co-install with mcp v2. `opentelemetry-api` is a new hard dependency because every outbound request now carries a `_meta` envelope used for OpenTelemetry trace propagation; see [Every outbound request now carries a `_meta` envelope](#every-outbound-request-now-carries-a-_meta-envelope-opentelemetry-is-on-by-default). `mcp-types` is exact-pinned to the SDK version; nothing in a v1 tree can conflict with it, but do not pin `mcp-types` independently of `mcp`.
+
+### `httpx` and `httpx-sse` replaced by `httpx2`
+
+The SDK now depends on [`httpx2`](https://pypi.org/project/httpx2/) instead of
+`httpx` and `httpx-sse`. `httpx2` is the next-generation HTTP client (a fork of
+`httpx`) with server-sent events support built in, so the separate `httpx-sse`
+dependency is gone.
+
+The swap itself does not change any SDK signatures - `streamable_http_client`
+and `sse_client` accept the same arguments as elsewhere in v2 - but the client
+type they expect is now `httpx2.AsyncClient`. If you construct your own client to pass as
+`http_client` (or build an `httpx2.Auth` subclass for `auth`), import from
+`httpx2`:
+
+**Before (v1):**
+
+```python
+import httpx
+
+http_client = httpx.AsyncClient(follow_redirects=True)
+```
+
+**After (v2):**
+
+```python
+import httpx2
+
+http_client = httpx2.AsyncClient(follow_redirects=True)
+```
+
+`httpx2` is API-compatible with `httpx`, so usually only the import name
+changes. To consume SSE directly, use `httpx2.EventSource` (or
+`AsyncClient.sse()`) instead of the `httpx-sse` helpers.
+
+Exception handlers need the same rename: the SDK now raises `httpx2`
+exceptions (`httpx2.ConnectError`, `httpx2.HTTPStatusError`, and so on), and
+this failure mode is silent. `httpx` usually stays installed as a transitive
+dependency of other packages, so an old `except httpx.ConnectError:` block
+keeps importing fine and simply never matches again. Audit `except httpx.`
+clauses and `isinstance` checks along with the imports. The same identity
+split applies to objects: `httpx` and `httpx2` types are not interchangeable
+at runtime, so an `httpx.AsyncClient` passed as `http_client` degrades in
+subtle ways (server-initiated messages stop arriving) instead of raising
+immediately.
+
+The client also identifies itself differently: the default User-Agent is now
+`python-httpx2/<version>`, and log lines come from the `httpx2` and
+`httpcore2.*` loggers, so a `logging.getLogger("httpx")` or
+`logging.getLogger("httpcore")` suppression no longer matches anything.
+Telemetry integrations keyed to the `httpx` module (such as OpenTelemetry's
+httpx instrumentation) stop seeing the SDK's traffic as well.
+
+TLS verification also changes: `httpx` validated certificates against the
+bundled `certifi` CA list, while `httpx2` validates against the operating
+system trust store via [`truststore`](https://pypi.org/project/truststore/).
+If your environment has no usable system CA store (some minimal containers),
+or you relied on certifi's bundle specifically, point the standard
+`SSL_CERT_FILE` or `SSL_CERT_DIR` environment variable at a CA bundle
+(`httpx2` honors these before falling back to the system store), or pass an
+explicit `verify=ssl_context` to your `httpx2.AsyncClient`. Passing a CA
+bundle path as `verify="ca.pem"` or using the `cert=` parameter is deprecated
+in `httpx2`; build an `ssl.SSLContext` and configure it instead.
 
 ### `mcp dev` and `mcp install` pin the spawned environment to your SDK version
 
@@ -111,7 +176,7 @@ unchanged. Only the `mcp.types` submodule and `mcp.shared.version` were removed.
 package's API reference is at [`mcp_types`](api/mcp_types/index.md).
 
 **Why:** keeping the wire types in their own package lets tooling and lightweight clients
-depend on the protocol schema without pulling in `httpx`, `starlette`, `uvicorn`, and the
+depend on the protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the
 rest of the server/transport stack.
 
 **Before (v1):**
@@ -1594,13 +1659,13 @@ async with streamablehttp_client(
 **After (v2):**
 
 ```python
-import httpx
+import httpx2
 from mcp.client.streamable_http import streamable_http_client
 
-# Configure headers, timeout, and auth on the httpx.AsyncClient
-http_client = httpx.AsyncClient(
+# Configure headers, timeout, and auth on the httpx2.AsyncClient
+http_client = httpx2.AsyncClient(
     headers={"Authorization": "Bearer token"},
-    timeout=httpx.Timeout(30, read=300),
+    timeout=httpx2.Timeout(30, read=300),
     auth=my_auth,
     follow_redirects=True,
 )
@@ -1613,7 +1678,7 @@ async with http_client:
         ...
 ```
 
-v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx.AsyncClient` to preserve that behavior.
+v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx2.AsyncClient` to preserve that behavior.
 
 ### `get_session_id` callback removed from `streamable_http_client`
 
@@ -1621,7 +1686,7 @@ The `get_session_id` callback (third element of the returned tuple) has been rem
 
 The `GetSessionIdCallback` type alias is gone as well, so `from mcp.client.streamable_http import GetSessionIdCallback` now raises `ImportError`. Drop the annotation, or inline `Callable[[], str | None]` if your own wrapper code still needs the type.
 
-If you need to capture the session ID (e.g., for session resumption testing), you can use httpx event hooks to capture it from the response headers:
+If you need to capture the session ID (e.g., for session resumption testing), you can use httpx2 event hooks to capture it from the response headers:
 
 **Before (v1):**
 
@@ -1637,7 +1702,7 @@ async with streamable_http_client(url) as (read_stream, write_stream, get_sessio
 **After (v2):**
 
 ```python
-import httpx
+import httpx2
 from mcp.client.streamable_http import streamable_http_client
 
 # Option 1: Simply ignore if you don't need the session ID
@@ -1645,15 +1710,15 @@ async with streamable_http_client(url) as (read_stream, write_stream):
     async with ClientSession(read_stream, write_stream) as session:
         await session.initialize()
 
-# Option 2: Capture session ID via httpx event hooks if needed
+# Option 2: Capture session ID via httpx2 event hooks if needed
 captured_session_ids: list[str] = []
 
-async def capture_session_id(response: httpx.Response) -> None:
+async def capture_session_id(response: httpx2.Response) -> None:
     session_id = response.headers.get("mcp-session-id")
     if session_id:
         captured_session_ids.append(session_id)
 
-http_client = httpx.AsyncClient(
+http_client = httpx2.AsyncClient(
     event_hooks={"response": [capture_session_id]},
     follow_redirects=True,
 )
@@ -1667,7 +1732,7 @@ async with http_client:
 
 ### `StreamableHTTPTransport` parameters removed
 
-The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
+The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx2.AsyncClient` instead (see example above).
 
 Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
 
@@ -1730,7 +1795,7 @@ async with streamable_http_client(url) as (read, write):
                 raise
 ```
 
-Move HTTP-status failure handling from around the transport context to around the individual calls, catching `MCPError` (see [`McpError` renamed to `MCPError`](#mcperror-renamed-to-mcperror)). Connect-level failures such as `httpx.ConnectError` still escape the transport context as before; keep context-level handling for those only.
+Move HTTP-status failure handling from around the transport context to around the individual calls, catching `MCPError` (see [`McpError` renamed to `MCPError`](#mcperror-renamed-to-mcperror)). Connect-level failures such as `httpx2.ConnectError` still escape the transport context as before; keep context-level handling for those only.
 
 ### `terminate_windows_process` removed
 

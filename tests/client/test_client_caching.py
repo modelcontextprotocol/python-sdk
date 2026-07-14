@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 import anyio
 import anyio.lowlevel
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -836,9 +836,9 @@ async def test_a_cache_hit_listing_still_mirrors_x_mcp_headers_on_tools_call() -
 
     server = Server("headers", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    posts: list[httpx.Request] = []
+    posts: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         posts.append(request)
 
     config = CacheConfig(store=InMemoryResponseCacheStore(), partition="p", target_id="svc")

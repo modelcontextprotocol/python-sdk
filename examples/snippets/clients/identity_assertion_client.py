@@ -16,7 +16,7 @@ to use.
 
 import asyncio
 
-import httpx
+import httpx2
 
 from mcp import ClientSession
 from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuthProvider
@@ -66,7 +66,7 @@ async def main() -> None:
         scope="user",
     )
 
-    async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as http_client:
+    async with httpx2.AsyncClient(auth=oauth_auth, follow_redirects=True) as http_client:
         async with streamable_http_client("http://localhost:8001/mcp", http_client=http_client) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()

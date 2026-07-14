@@ -14,7 +14,7 @@ from types import TracebackType
 from typing import Any, Literal, TypeAlias, overload
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 from pydantic import BaseModel, Field
 from typing_extensions import Self
@@ -324,7 +324,7 @@ class ClientSessionGroup:
             else:
                 httpx_client = create_mcp_http_client(
                     headers=server_params.headers,
-                    timeout=httpx.Timeout(
+                    timeout=httpx2.Timeout(
                         server_params.timeout,
                         read=server_params.sse_read_timeout,
                     ),

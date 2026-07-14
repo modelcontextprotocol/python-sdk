@@ -1,6 +1,6 @@
 """HTTP-only: ``build_auth`` returns a ``ClientCredentialsOAuthProvider``; ``whoami`` round-trips client_id + scopes."""
 
-import httpx
+import httpx2
 
 from mcp.client import Client
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
@@ -13,12 +13,12 @@ from stories._shared.auth import MCP_URL, InMemoryTokenStorage
 from .server import DEMO_CLIENT_ID, DEMO_CLIENT_SECRET, DEMO_SCOPE
 
 
-def build_auth(_http: httpx.AsyncClient) -> httpx.Auth:
-    """The ``httpx.Auth`` for the ``client_credentials`` grant — five lines of provider config.
+def build_auth(_http: httpx2.AsyncClient) -> httpx2.Auth:
+    """The ``httpx2.Auth`` for the ``client_credentials`` grant — five lines of provider config.
 
     The SDK then handles 401 → RFC 9728 PRM → RFC 8414 AS-metadata discovery → token POST →
     Bearer attachment automatically. ``Client(url)`` has no ``auth=`` passthrough yet, so the
-    harness threads this onto the transport's ``httpx.AsyncClient`` and hands ``main`` the
+    harness threads this onto the transport's ``httpx2.AsyncClient`` and hands ``main`` the
     already-authed ``target``.
     """
     return ClientCredentialsOAuthProvider(

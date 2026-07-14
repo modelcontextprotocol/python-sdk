@@ -30,7 +30,7 @@ uv run python -m stories.identity_assertion.client --http http://127.0.0.1:8000/
 
 `Client(url)` has no `auth=` passthrough, so both runners thread the module's
 `build_auth` export (an `IdentityAssertionOAuthProvider`) onto the
-`httpx.AsyncClient` underneath the transport and hand `main` a target that is
+`httpx2.AsyncClient` underneath the transport and hand `main` a target that is
 already routed through it.
 
 ## Try it without the SDK client
@@ -57,7 +57,7 @@ kill "$SERVER_PID"
   return a fresh ID-JAG. In production this is an RFC 8693 token exchange
   against your IdP; here it calls the stand-in signer in `idp.py`.
 - `client.py` `build_auth` — `IdentityAssertionOAuthProvider` is the same
-  `httpx.Auth` shape as every other provider. Note `issuer=ISSUER` with the
+  `httpx2.Auth` shape as every other provider. Note `issuer=ISSUER` with the
   trailing slash: the provider compares it to the metadata document's `issuer`
   by simple string comparison and refuses a mismatch before sending anything.
 - `server.py` `exchange_identity_assertion` — the whole authorization-server

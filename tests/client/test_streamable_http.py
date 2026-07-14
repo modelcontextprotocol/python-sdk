@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -85,16 +85,16 @@ def test_mcp_name_header_values_are_base64_wrapped_when_unsafe_for_an_http_field
 async def test_post_request_merges_per_message_metadata_headers() -> None:
     """`ClientMessageMetadata.headers` on a `SessionMessage` are merged into the outgoing POST headers
     (SDK-defined: the headers sidecar is the path the session uses to reach the transport)."""
-    recorded: list[httpx.Request] = []
+    recorded: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         recorded.append(request)
         body = json.loads(request.content)
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(
@@ -117,12 +117,12 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
     "Session terminated" is meaningless, and the discover→initialize fallback ladder keys on -32601.
     """
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(404)
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(404)
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="server/discover", params={})))
@@ -145,18 +145,18 @@ async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_
        passes through the session's stamp) then reads the cache and carries the
        negotiated version — the spec MUST for all post-initialization HTTP requests.
     """
-    recorded: list[httpx.Request] = []
+    recorded: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         recorded.append(request)
         body = json.loads(request.content)
         if "id" not in body or "result" in body:
-            return httpx.Response(202)
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+            return httpx2.Response(202)
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(
@@ -185,11 +185,11 @@ async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_
     assert recorded[3].headers[MCP_PROTOCOL_VERSION_HEADER] == "2025-11-25"
 
 
-class _ParkedSSEStream(httpx.AsyncByteStream):
+class _ParkedSSEStream(httpx2.AsyncByteStream):
     """An SSE response body that emits one comment line, then parks until closed.
 
     `opened` fires once the transport is iterating the body (the POST is truly in
-    flight); `closed` fires when httpx tears the body down — the observable proof
+    flight); `closed` fires when httpx2 tears the body down — the observable proof
     that an abort, not a response, ended the stream.
     """
 
@@ -210,16 +210,16 @@ class _ParkedSSEStream(httpx.AsyncByteStream):
 
 def _sse_or_ack_handler(
     parked: _ParkedSSEStream, posted: list[dict[str, Any]], frame_posted: anyio.Event
-) -> Callable[[httpx.Request], httpx.Response]:
+) -> Callable[[httpx2.Request], httpx2.Response]:
     """Requests get the parked SSE body; notifications get 202 and set `frame_posted`."""
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         body = json.loads(request.content)
         posted.append(body)
         if "id" in body:
-            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
         frame_posted.set()
-        return httpx.Response(202)
+        return httpx2.Response(202)
 
     return handler
 
@@ -232,13 +232,13 @@ async def test_modern_cancelled_frame_aborts_the_matching_in_flight_post() -> No
     parked = _ParkedSSEStream()
     posted: list[dict[str, Any]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         posted.append(json.loads(request.content))
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (_read, write),
         ):
             await write.send(
@@ -272,7 +272,7 @@ async def test_legacy_cancelled_frame_posts_and_leaves_the_stream_open(stamped_v
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (_read, write),
         ):
             metadata = (
@@ -316,16 +316,16 @@ async def test_modern_cancelled_frames_matching_no_post_are_swallowed(params: di
     parked = _ParkedSSEStream()
     posted: list[dict[str, Any]] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         body = json.loads(request.content)
         posted.append(body)
         if body.get("id") == 1:
-            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(
@@ -362,7 +362,7 @@ async def test_handler_scoped_cancelled_frames_are_translated_at_modern_too() ->
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (_read, write),
         ):
             await write.send(
@@ -395,19 +395,19 @@ async def test_cancel_for_a_request_sent_under_2025_still_posts_after_modern_ado
     posted: list[dict[str, Any]] = []
     frame_posted = anyio.Event()
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         body = json.loads(request.content)
         posted.append(body)
         if body.get("id") == 1:
-            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=parked)
         if "id" in body:
-            return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+            return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
         frame_posted.set()
-        return httpx.Response(202)
+        return httpx2.Response(202)
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(
@@ -472,7 +472,7 @@ async def test_scope_cancel_aborts_a_modern_listen_post_end_to_end() -> None:
 
     posted_methods: list[str] = []
 
-    async def record_request(request: httpx.Request) -> None:
+    async def record_request(request: httpx2.Request) -> None:
         posted_methods.append(json.loads(request.content)["method"])
 
     acked = anyio.Event()
@@ -485,7 +485,7 @@ async def test_scope_cancel_aborts_a_modern_listen_post_end_to_end() -> None:
 
     with anyio.fail_after(15):
         async with (
-            httpx.AsyncClient(
+            httpx2.AsyncClient(
                 transport=StreamingASGITransport(app),
                 base_url="http://testserver",
                 event_hooks={"request": [record_request]},
@@ -526,7 +526,7 @@ async def test_scope_cancel_aborts_a_modern_listen_post_end_to_end() -> None:
     assert posted_methods == ["subscriptions/listen"]
 
 
-class _CompletingSSEStream(httpx.AsyncByteStream):
+class _CompletingSSEStream(httpx2.AsyncByteStream):
     """An SSE body that delivers one JSON-RPC response, then parks in `aclose`.
 
     Holding `aclose` keeps the finished POST task alive past its response, so a
@@ -554,13 +554,13 @@ async def test_a_finished_post_task_does_not_evict_a_reused_ids_new_registration
     posted: list[dict[str, Any]] = []
     streams = [completing, parked]
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         posted.append(json.loads(request.content))
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=streams.pop(0))
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=streams.pop(0))
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             modern = ClientMessageMetadata(headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_MODERN_VERSION})
@@ -593,7 +593,7 @@ async def test_a_finished_post_task_does_not_evict_a_reused_ids_new_registration
     assert [body["method"] for body in posted] == ["tools/call", "subscriptions/listen"]
 
 
-class _DyingSSEStream(httpx.AsyncByteStream):
+class _DyingSSEStream(httpx2.AsyncByteStream):
     """Emits one id-less comment then breaks - a non-resumable stream dropping."""
 
     def __init__(self) -> None:
@@ -602,7 +602,7 @@ class _DyingSSEStream(httpx.AsyncByteStream):
     async def __aiter__(self) -> AsyncIterator[bytes]:
         self.opened.set()
         yield b": hello\n\n"
-        raise httpx.ReadError("connection reset")
+        raise httpx2.ReadError("connection reset")
 
     async def aclose(self) -> None:
         pass
@@ -614,12 +614,12 @@ async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> 
     response; the transport resolves the waiter with CONNECTION_CLOSED instead of hanging forever."""
     dying = _DyingSSEStream()
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=dying)
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=dying)
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(
@@ -632,7 +632,7 @@ async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> 
     assert reply.message.error.code == CONNECTION_CLOSED
 
 
-class _DeliverOnCommandSSEStream(httpx.AsyncByteStream):
+class _DeliverOnCommandSSEStream(httpx2.AsyncByteStream):
     """Parks after opening, then delivers one JSON-RPC response when told."""
 
     def __init__(self, response_body: dict[str, Any]) -> None:
@@ -656,14 +656,14 @@ async def test_a_superseded_posts_late_real_response_cannot_answer_the_successor
     the reused id's waiter; only the successor's own response arrives."""
     stale = _DeliverOnCommandSSEStream({"jsonrpc": "2.0", "id": "dup-1", "result": {"origin": "stale"}})
     succeeding = _DeliverOnCommandSSEStream({"jsonrpc": "2.0", "id": "dup-1", "result": {"origin": "fresh"}})
-    streams: list[httpx.AsyncByteStream] = [stale, succeeding]
+    streams: list[httpx2.AsyncByteStream] = [stale, succeeding]
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=streams.pop(0))
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=streams.pop(0))
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="dup-1", method="tools/call", params={})))
@@ -685,12 +685,12 @@ async def test_a_202_to_a_request_resolves_the_waiter_with_an_error() -> None:
     response will follow (the spec requires SSE or JSON for requests); the transport
     resolves the waiter with INVALID_REQUEST instead of parking the caller forever."""
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(202)
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(202)
 
     with anyio.fail_after(5):
         async with (
-            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
             streamable_http_client("http://test/mcp", http_client=http) as (read, write),
         ):
             await write.send(
@@ -704,7 +704,7 @@ async def test_a_202_to_a_request_resolves_the_waiter_with_an_error() -> None:
 
 
 def _abandoned_request_context(
-    http: httpx.AsyncClient, send: ContextSendStream[SessionMessage | Exception]
+    http: httpx2.AsyncClient, send: ContextSendStream[SessionMessage | Exception]
 ) -> RequestContext:
     return RequestContext(
         client=http,
@@ -722,7 +722,7 @@ async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error
     """An id-bearing stream that exhausts its reconnection budget also resolves the waiter with CONNECTION_CLOSED."""
     transport = StreamableHTTPTransport("http://test/mcp")
     send, receive = create_context_streams[SessionMessage | Exception](1)
-    async with httpx.AsyncClient() as http:
+    async with httpx2.AsyncClient() as http:
         with anyio.fail_after(5):
             await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
@@ -742,7 +742,7 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
     transport = StreamableHTTPTransport("http://test/mcp")
     send, receive = create_context_streams[SessionMessage | Exception](1)
     receive.close()
-    async with httpx.AsyncClient() as http:
+    async with httpx2.AsyncClient() as http:
         with anyio.fail_after(5):
             await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS

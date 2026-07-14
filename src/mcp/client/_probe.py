@@ -89,7 +89,7 @@ async def negotiate_auto(session: ClientSession) -> None:
                 version = mutual[-1]
                 continue
             return
-        # any other exception (httpx.TransportError, ConnectionError, anyio errors,
+        # any other exception (httpx2.TransportError, ConnectionError, anyio errors,
         # RuntimeError from adopt) → propagate
         try:
             result = types.DiscoverResult.model_validate(raw)

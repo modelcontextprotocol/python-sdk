@@ -121,8 +121,7 @@ dependencies = [
     # stderr (agronholm/anyio#816, fixed in 4.10).
     "anyio>=4.10; python_version >= '3.14'",
     "anyio>=4.9; python_version < '3.14'",
-    "httpx>=0.27.1,<1.0.0",
-    "httpx-sse>=0.4",
+    "httpx2>=2.5.0",
     "mcp-types=={{ version }}",
     "pydantic>=2.12.0",
     "starlette>=0.48.0; python_version >= '3.14'",
