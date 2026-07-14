@@ -47,8 +47,8 @@ async def sse_client(
         headers: Optional headers to include in requests.
         timeout: HTTP timeout for regular operations (in seconds).
         sse_read_timeout: Timeout for SSE read operations (in seconds).
-        httpx_client_factory: Factory function for creating the HTTPX client.
-        auth: Optional HTTPX authentication handler.
+        httpx_client_factory: Factory function for creating the httpx2 client.
+        auth: Optional httpx2 authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")

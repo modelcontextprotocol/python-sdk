@@ -1,4 +1,4 @@
-"""OAuth2 Authentication implementation for HTTPX.
+"""OAuth2 Authentication implementation for httpx2.
 
 Implements authorization code flow with PKCE and automatic token refresh.
 """
@@ -528,7 +528,7 @@ class OAuthClientProvider(httpx2.Auth):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
     async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
-        """HTTPX auth flow integration."""
+        """httpx2 auth flow integration."""
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()

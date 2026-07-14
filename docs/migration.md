@@ -99,8 +99,8 @@ The SDK now depends on [`httpx2`](https://pypi.org/project/httpx2/) instead of
 `httpx`) with server-sent events support built in, so the separate `httpx-sse`
 dependency is gone.
 
-The swap itself does not change any SDK signatures - `streamable_http_client`
-and `sse_client` accept the same arguments as elsewhere in v2 - but the client
+The swap itself does not change any SDK signatures — `streamable_http_client`
+and `sse_client` accept the same arguments as elsewhere in v2 — but the client
 type they expect is now `httpx2.AsyncClient`. If you construct your own client to pass as
 `http_client` (or build an `httpx2.Auth` subclass for `auth`), import from
 `httpx2`:
@@ -129,8 +129,12 @@ TLS verification also changes: `httpx` validated certificates against the
 bundled `certifi` CA list, while `httpx2` validates against the operating
 system trust store via [`truststore`](https://pypi.org/project/truststore/).
 If your environment has no usable system CA store (some minimal containers),
-or you relied on certifi's bundle specifically, pass an explicit
-`verify=ssl_context` to your `httpx2.AsyncClient`.
+or you relied on certifi's bundle specifically, point the standard
+`SSL_CERT_FILE` or `SSL_CERT_DIR` environment variable at a CA bundle —
+`httpx2` honors these before falling back to the system store — or pass an
+explicit `verify=ssl_context` to your `httpx2.AsyncClient`. Passing a CA
+bundle path as `verify="ca.pem"` or using the `cert=` parameter is deprecated
+in `httpx2`; build an `ssl.SSLContext` and configure it instead.
 
 ### `mcp dev` and `mcp install` pin the spawned environment to your SDK version
 
