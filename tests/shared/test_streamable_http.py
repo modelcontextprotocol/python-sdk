@@ -2370,7 +2370,9 @@ async def test_streamable_http_client_reconnect_failure_propagates_error() -> No
     with patch("mcp.client.streamable_http.anyio.sleep", new_callable=AsyncMock) as mock_sleep:
         with pytest.raises(StreamableHTTPError) as exc_info:
             with anyio.fail_after(5):
-                async with streamable_http_client("http://localhost:8000/mcp", http_client=client) as (
+                async with streamable_http_client(
+                    "http://localhost:8000/mcp", http_client=client
+                ) as (  # pragma: no branch
                     read_stream,
                     write_stream,
                 ):
