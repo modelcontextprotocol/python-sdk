@@ -1,6 +1,6 @@
 """Implements StreamableHTTP transport for MCP clients."""
 
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
 import contextlib
 import logging
