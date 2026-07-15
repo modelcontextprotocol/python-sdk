@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -5,6 +6,8 @@ import pytest
 import mcp.types as types
 from mcp.server.lowlevel.server import Server
 from mcp.server.session import ServerSession
+from mcp.shared.exceptions import McpError
+from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.shared.session import RequestResponder
 
 
@@ -72,3 +75,48 @@ async def test_normal_message_handling_not_affected():
 
     # Verify _handle_request was called
     server._handle_request.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_mcp_error_propagates_as_jsonrpc_error():
+    """Test that McpError raised in a tool handler propagates as a JSON-RPC error.
+
+    The structured error code must be preserved on the wire instead of being
+    swallowed into a CallToolResult with isError=True.
+    """
+    server = Server("test-server")
+
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+        raise McpError(types.ErrorData(code=-32000, message="server fault", data={"reason": "demo"}))
+
+    async with create_connected_server_and_client_session(server) as client_session:
+        await client_session.initialize()
+
+        with pytest.raises(McpError) as exc_info:
+            await client_session.call_tool("faulty_tool", {})
+
+        error = exc_info.value.error
+        assert error.code == -32000
+        assert error.message == "server fault"
+        assert error.data == {"reason": "demo"}
+
+
+@pytest.mark.anyio
+async def test_generic_exception_still_returns_error_result():
+    """Test that non-McpError exceptions are still returned as isError=True results."""
+    server = Server("test-server")
+
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+        raise ValueError("Something went wrong")
+
+    async with create_connected_server_and_client_session(server) as client_session:
+        await client_session.initialize()
+
+        result = await client_session.call_tool("failing_tool", {})
+
+        assert result.isError is True
+        assert len(result.content) == 1
+        assert isinstance(result.content[0], types.TextContent)
+        assert "Something went wrong" in result.content[0].text
