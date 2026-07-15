@@ -76,7 +76,6 @@ def _unwrap_exception(exc: BaseException) -> BaseException:
     return exc
 
 
-
 @dataclass
 class RequestContext:
     """Context for a request operation."""
@@ -247,7 +246,6 @@ class StreamableHTTPTransport:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
                 last_exc = exc
-
 
             if attempt >= MAX_RECONNECTION_ATTEMPTS:
                 logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
@@ -467,7 +465,6 @@ class StreamableHTTPTransport:
         except httpx2.HTTPError:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
-
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
@@ -553,7 +550,6 @@ class StreamableHTTPTransport:
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
-
 
     async def post_writer(
         self,
@@ -744,4 +740,3 @@ async def streamable_http_client(
         if isinstance(unwrapped, StreamableHTTPError):
             raise unwrapped from exc
         raise
-

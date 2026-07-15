@@ -2339,15 +2339,17 @@ async def test_streamable_http_client_reconnect_failure_propagates_error() -> No
         "content-type": "application/json",
         "mcp-session-id": "test-session",
     }
-    mock_response.aread.return_value = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {},
-            "serverInfo": {"name": "test-server", "version": "1.0"},
+    mock_response.aread.return_value = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "serverInfo": {"name": "test-server", "version": "1.0"},
+            },
         }
-    }).encode("utf-8")
+    ).encode("utf-8")
 
     mock_initialized_response = AsyncMock(spec=httpx2.Response)
     mock_initialized_response.status_code = 202
@@ -2361,7 +2363,6 @@ async def test_streamable_http_client_reconnect_failure_propagates_error() -> No
 
     client.stream = mock_stream
 
-
     # Mock client.sse to raise httpx2.HTTPError
     client.sse.side_effect = httpx2.HTTPError("SSE connection refused")
 
@@ -2369,39 +2370,43 @@ async def test_streamable_http_client_reconnect_failure_propagates_error() -> No
     with patch("mcp.client.streamable_http.anyio.sleep", new_callable=AsyncMock) as mock_sleep:
         with pytest.raises(StreamableHTTPError) as exc_info:
             with anyio.fail_after(5):
-                async with streamable_http_client("http://localhost:8000/mcp", http_client=client) as (read_stream, write_stream):
+                async with streamable_http_client("http://localhost:8000/mcp", http_client=client) as (
+                    read_stream,
+                    write_stream,
+                ):
                     # Send initialize message
-                    await write_stream.send(SessionMessage(
-                        types.JSONRPCRequest(
-                            jsonrpc="2.0",
-                            id=1,
-                            method="initialize",
-                            params={
-                                "protocolVersion": "2025-06-18",
-                                "capabilities": {},
-                                "clientInfo": {"name": "test-client", "version": "1.0"},
-                            },
+                    await write_stream.send(
+                        SessionMessage(
+                            types.JSONRPCRequest(
+                                jsonrpc="2.0",
+                                id=1,
+                                method="initialize",
+                                params={
+                                    "protocolVersion": "2025-06-18",
+                                    "capabilities": {},
+                                    "clientInfo": {"name": "test-client", "version": "1.0"},
+                                },
+                            )
                         )
-                    ))
+                    )
 
                     # Receive the response
                     await read_stream.receive()
 
                     # Send notifications/initialized (which will trigger start_get_stream)
-                    await write_stream.send(SessionMessage(
-                        types.JSONRPCNotification(
-                            jsonrpc="2.0",
-                            method="notifications/initialized",
+                    await write_stream.send(
+                        SessionMessage(
+                            types.JSONRPCNotification(
+                                jsonrpc="2.0",
+                                method="notifications/initialized",
+                            )
                         )
-                    ))
+                    )
 
                     # Wait for the task group to fail
                     event = anyio.Event()
                     await event.wait()
 
-
         assert "Failed to connect to GET stream" in str(exc_info.value)
         assert client.sse.call_count == 2
         mock_sleep.assert_called_once_with(1.0)
-
-
