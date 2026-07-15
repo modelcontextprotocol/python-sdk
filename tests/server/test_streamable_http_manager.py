@@ -76,9 +76,9 @@ async def test_handle_request_without_run_raises_error():
     manager = StreamableHTTPSessionManager(app=app)
 
     # Mock ASGI parameters
-    scope = {"type": "http", "method": "POST", "path": "/test"}
+    scope: Scope = {"type": "http", "method": "POST", "path": "/test", "headers": []}
 
-    async def receive():  # pragma: no cover
+    async def receive() -> Message:
         return {"type": "http.request", "body": b""}
 
     async def send(message: Message):  # pragma: no cover
@@ -108,7 +108,7 @@ async def test_oversized_content_length_is_rejected_before_body_read_or_session_
         "headers": [(b"content-length", b"9")],
     }
     async with manager.run():
-        await manager.asgi_app(scope, receive, send)
+        await manager.handle_request(scope, receive, send)
         assert manager._server_instances == {}
 
     response_start = next(message for message in sent_messages if message["type"] == "http.response.start")
@@ -150,6 +150,33 @@ async def test_oversized_streamed_body_is_rejected_before_session_creation(
 async def test_client_disconnect_while_streaming_request_body_is_replayed() -> None:
     """SDK-defined: raw ASGI is required to prove a disconnect before body completion reaches the transport."""
     disconnect: Message = {"type": "http.disconnect"}
+    request_messages: Iterator[Message] = iter(
+        [{"type": "http.request", "body": b"1234", "more_body": True}, disconnect]
+    )
+    received_messages: list[Message] = []
+
+    async def receive() -> Message:
+        return next(request_messages)
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        received_messages.append(await receive())
+        received_messages.append(await receive())
+
+    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": []}
+    middleware = RequestBodyLimitMiddleware(app, max_body_size=8)
+
+    await middleware(scope, receive, AsyncMock())
+
+    assert received_messages == [
+        {"type": "http.request", "body": b"1234", "more_body": True},
+        disconnect,
+    ]
+
+
+@pytest.mark.anyio
+async def test_client_disconnect_before_request_body_is_replayed() -> None:
+    """SDK-defined: raw ASGI proves a disconnect before the first body message reaches the transport."""
+    disconnect: Message = {"type": "http.disconnect"}
     received_messages: list[Message] = []
 
     async def receive() -> Message:
@@ -164,6 +191,32 @@ async def test_client_disconnect_while_streaming_request_body_is_replayed() -> N
     await middleware(scope, receive, AsyncMock())
 
     assert received_messages == [disconnect]
+
+
+@pytest.mark.anyio
+async def test_request_body_chunks_are_replayed_as_one_message() -> None:
+    """SDK-defined: raw ASGI proves chunk overhead is discarded before the body reaches the transport."""
+    request_messages: Iterator[Message] = iter(
+        [
+            {"type": "http.request", "body": b"12", "more_body": True},
+            {"type": "http.request", "body": b"34", "more_body": True},
+            {"type": "http.request", "body": b"56", "more_body": False},
+        ]
+    )
+    received_messages: list[Message] = []
+
+    async def receive() -> Message:
+        return next(request_messages)
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        received_messages.append(await receive())
+
+    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": []}
+    middleware = RequestBodyLimitMiddleware(app, max_body_size=8)
+
+    await middleware(scope, receive, AsyncMock())
+
+    assert received_messages == [{"type": "http.request", "body": b"123456", "more_body": False}]
 
 
 def test_request_body_limit_defaults_to_four_mib() -> None:
@@ -216,7 +269,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive():  # pragma: no cover
+    async def mock_receive():
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -274,7 +327,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive():  # pragma: no cover
+    async def mock_receive():
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -392,7 +445,7 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
         }
 
         async def mock_receive():
-            return {"type": "http.request", "body": b"{}", "more_body": False}  # pragma: no cover
+            return {"type": "http.request", "body": b"{}", "more_body": False}
 
         with caplog.at_level(logging.INFO):
             await manager.handle_request(scope, mock_receive, mock_send)
@@ -472,7 +525,7 @@ async def test_idle_session_is_reaped(caplog: pytest.LogCaptureFixture, request:
             "headers": [(b"content-type", b"application/json")],
         }
 
-        async def mock_receive():  # pragma: no cover
+        async def mock_receive():
             return {"type": "http.request", "body": b"", "more_body": False}
 
         await manager.handle_request(scope, mock_receive, mock_send)

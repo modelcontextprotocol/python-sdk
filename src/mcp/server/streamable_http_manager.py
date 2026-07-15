@@ -100,7 +100,7 @@ class StreamableHTTPSessionManager:
         self.retry_interval = retry_interval
         self.session_idle_timeout = session_idle_timeout
         self.max_request_body_size = max_request_body_size
-        self.asgi_app = RequestBodyLimitMiddleware(self.handle_request, max_request_body_size)
+        self.asgi_app = RequestBodyLimitMiddleware(self._handle_request, max_request_body_size)
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -167,6 +167,9 @@ class StreamableHTTPSessionManager:
 
         Dispatches to the appropriate handler based on stateless mode.
         """
+        await self.asgi_app(scope, receive, send)
+
+    async def _handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
 
@@ -392,21 +395,33 @@ class RequestBodyLimitMiddleware:
                     response = Response("Request body too large", status_code=413)
                     return await response(scope, receive, send)
 
-        cached_messages: deque[Message] = deque()
-        received_size = 0
+        received_body = bytearray()
+        received_request = False
+        body_complete = False
+        trailing_message: Message | None = None
         while True:
             message = await receive()
             if message["type"] != "http.request":
-                cached_messages.append(message)
+                trailing_message = message
                 break
 
-            received_size += len(message.get("body", b""))
-            if received_size > self.max_body_size:
+            received_request = True
+            body = message.get("body", b"")
+            if len(received_body) + len(body) > self.max_body_size:
                 response = Response("Request body too large", status_code=413)
                 return await response(scope, receive, send)
-            cached_messages.append(message)
+            received_body.extend(body)
             if not message.get("more_body", False):
+                body_complete = True
                 break
+
+        cached_messages: deque[Message] = deque()
+        if received_request:
+            cached_messages.append(
+                {"type": "http.request", "body": bytes(received_body), "more_body": not body_complete}
+            )
+        if trailing_message is not None:
+            cached_messages.append(trailing_message)
 
         async def replay() -> Message:
             if cached_messages:
