@@ -45,7 +45,7 @@ class TestNon2xxStatusHandling:
         mock_response.headers = {"content-type": "text/plain"}
         mock_response.aread = AsyncMock(return_value=b"Unauthorized")
 
-        # Use async context manager mock
+        # Use MagicMock with async __aenter__/__aexit__
         mock_stream_ctx = MagicMock()
         mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_stream_ctx.__aexit__ = AsyncMock(return_value=False)
