@@ -200,6 +200,7 @@ class StreamableHTTPTransport:
         last_event_id: str | None = None
         retry_interval_ms: int | None = None
         attempt: int = 0
+        last_exc: Exception | None = None
 
         while attempt < MAX_RECONNECTION_ATTEMPTS:  # pragma: no branch
             try:
@@ -227,13 +228,16 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception:
+            except Exception as exc:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
+                last_exc = exc
 
-            if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+            if attempt >= MAX_RECONNECTION_ATTEMPTS:
                 logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
-                return
+                raise StreamableHTTPError(
+                    f"Failed to connect to GET stream after {MAX_RECONNECTION_ATTEMPTS} attempts"
+                ) from last_exc
 
             # Wait before reconnecting
             delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS

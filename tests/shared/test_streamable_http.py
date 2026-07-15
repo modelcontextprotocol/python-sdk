@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
 import anyio
@@ -45,7 +45,11 @@ from starlette.types import Message, Scope
 from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import (
+    StreamableHTTPError,
+    StreamableHTTPTransport,
+    streamable_http_client,
+)
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     GET_STREAM_KEY,
@@ -2283,3 +2287,32 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "Error in standalone SSE writer" not in caplog.text
     assert "Error in standalone SSE response" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_reconnect_failure_propagates_error() -> None:
+    """Client should raise StreamableHTTPError when reconnection fails completely."""
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+    transport.session_id = "test-session"
+    client = AsyncMock(spec=httpx2.AsyncClient)
+
+    # Create a context-aware stream writer (matches StreamWriter type alias)
+    write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
+
+    # Mock client.sse to raise an exception
+    client.sse.side_effect = Exception("Connection refused")
+
+    # Patch anyio.sleep to avoid waiting
+    with patch("mcp.client.streamable_http.anyio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with pytest.raises(StreamableHTTPError) as exc_info:
+            await transport.handle_get_stream(client, write_stream)
+        assert "Failed to connect to GET stream" in str(exc_info.value)
+        # Should have attempted MAX_RECONNECTION_ATTEMPTS times (default is 2)
+        assert client.sse.call_count == 2
+        # Should have slept between attempts (attempts - 1 times)
+        assert mock_sleep.call_count == 1
+        # Verify it slept with the default delay (1000ms / 1000.0 = 1.0s)
+        mock_sleep.assert_called_once_with(1.0)
+
+    await write_stream.aclose()
+    await read_stream.aclose()
