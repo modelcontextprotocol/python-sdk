@@ -2325,6 +2325,11 @@ async def test_streamable_http_client_reconnect_failure_propagates_error() -> No
     """
     client = AsyncMock(spec=httpx2.AsyncClient)
 
+    # Mock client.delete for session termination
+    mock_delete_response = AsyncMock(spec=httpx2.Response)
+    mock_delete_response.status_code = 204
+    client.delete.return_value = mock_delete_response
+
     # Mock post_writer requests:
     # 1. initialize request -> returns response with session ID
     # 2. notifications/initialized -> returns 202 Accepted
