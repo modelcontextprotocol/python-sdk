@@ -2299,8 +2299,8 @@ async def test_reconnect_failure_propagates_error() -> None:
     # Create a context-aware stream writer (matches StreamWriter type alias)
     write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
 
-    # Mock client.sse to raise an exception
-    client.sse.side_effect = Exception("Connection refused")
+    # Mock client.sse to raise a connection error
+    client.sse.side_effect = httpx2.ConnectError("Connection refused")
 
     # Patch anyio.sleep to avoid waiting
     with patch("mcp.client.streamable_http.anyio.sleep", new_callable=AsyncMock) as mock_sleep:
@@ -2316,3 +2316,87 @@ async def test_reconnect_failure_propagates_error() -> None:
 
     await write_stream.aclose()
     await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_reconnect_failure_propagates_error() -> None:
+    """streamable_http_client context manager should propagate StreamableHTTPError
+    when the GET stream connection fails completely (max attempts exceeded).
+    """
+    client = AsyncMock(spec=httpx2.AsyncClient)
+
+    # Mock post_writer requests:
+    # 1. initialize request -> returns response with session ID
+    # 2. notifications/initialized -> returns 202 Accepted
+    mock_response = AsyncMock(spec=httpx2.Response)
+    mock_response.status_code = 200
+    mock_response.headers = {
+        "content-type": "application/json",
+        "mcp-session-id": "test-session",
+    }
+    mock_response.aread.return_value = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "serverInfo": {"name": "test-server", "version": "1.0"},
+        }
+    }).encode("utf-8")
+
+    mock_initialized_response = AsyncMock(spec=httpx2.Response)
+    mock_initialized_response.status_code = 202
+
+    # Use asynccontextmanager to mock client.stream
+    responses = [mock_response, mock_initialized_response]
+
+    @asynccontextmanager
+    async def mock_stream(*args: Any, **kwargs: Any):
+        yield responses.pop(0)
+
+    client.stream = mock_stream
+
+
+    # Mock client.sse to raise httpx2.HTTPError
+    client.sse.side_effect = httpx2.HTTPError("SSE connection refused")
+
+    # Patch anyio.sleep to avoid waiting during reconnect attempts
+    with patch("mcp.client.streamable_http.anyio.sleep", new_callable=AsyncMock) as mock_sleep:
+        with pytest.raises(StreamableHTTPError) as exc_info:
+            with anyio.fail_after(5):
+                async with streamable_http_client("http://localhost:8000/mcp", http_client=client) as (read_stream, write_stream):
+                    # Send initialize message
+                    await write_stream.send(SessionMessage(
+                        types.JSONRPCRequest(
+                            jsonrpc="2.0",
+                            id=1,
+                            method="initialize",
+                            params={
+                                "protocolVersion": "2025-06-18",
+                                "capabilities": {},
+                                "clientInfo": {"name": "test-client", "version": "1.0"},
+                            },
+                        )
+                    ))
+
+                    # Receive the response
+                    await read_stream.receive()
+
+                    # Send notifications/initialized (which will trigger start_get_stream)
+                    await write_stream.send(SessionMessage(
+                        types.JSONRPCNotification(
+                            jsonrpc="2.0",
+                            method="notifications/initialized",
+                        )
+                    ))
+
+                    # Wait for the task group to fail
+                    event = anyio.Event()
+                    await event.wait()
+
+
+        assert "Failed to connect to GET stream" in str(exc_info.value)
+        assert client.sse.call_count == 2
+        mock_sleep.assert_called_once_with(1.0)
+
+
