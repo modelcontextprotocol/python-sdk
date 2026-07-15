@@ -26,7 +26,7 @@ class TestNon2xxStatusHandling:
         ctx.session_message.message = MagicMock(spec=JSONRPCRequest)
         ctx.session_message.message.id = request_id
         ctx.read_stream_writer = AsyncMock()
-        ctx.client = AsyncMock()
+        ctx.client = MagicMock()  # Use MagicMock for client (not AsyncMock)
         ctx.metadata = None
         return ctx
 
