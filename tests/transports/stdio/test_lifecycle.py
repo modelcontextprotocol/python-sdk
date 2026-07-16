@@ -15,12 +15,15 @@ import sys
 import threading
 from contextlib import AsyncExitStack
 from pathlib import Path
+from textwrap import dedent
 
 import anyio
 import anyio.abc
 import pytest
+from mcp_types import TextContent
 
 from mcp.client import stdio
+from mcp.client.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.os.win32.utilities import FallbackProcess
 from tests.transports.stdio._liveness import (
@@ -274,3 +277,49 @@ async def test_fallback_process_wait_is_cancellable_while_the_child_lives() -> N
         popen.wait()
         popen.stdin.close()
         popen.stdout.close()
+
+
+@pytest.mark.anyio
+async def test_a_tool_spawned_childs_stdout_writes_never_reach_the_wire(tmp_path: Path) -> None:
+    """A child writing to its inherited stdout pollutes the server's stderr, never the protocol.
+
+    Regression for the stdout half of `stdio_server`'s descriptor isolation:
+    pre-isolation, a tool-spawned child that printed to its inherited stdout
+    wrote straight into the JSON-RPC stream ahead of the tool response. The
+    junk line arriving on the server's stderr is the whole assertion: fd 1 has
+    exactly one target, so stderr delivery proves the wire never saw it (the
+    byte-level wire-purity twin is in tests/server/test_stdio.py).
+    """
+    server = dedent(
+        """
+        import subprocess, sys
+        from mcp.server import MCPServer
+
+        mcp = MCPServer("noisy-spawner")
+
+        @mcp.tool()
+        def run_noisy_child() -> str:
+            # No redirection: the child inherits the server's stdout.
+            proc = subprocess.run([sys.executable, "-c", "print('this is not json')"], timeout=20)
+            return str(proc.returncode)
+
+        mcp.run()
+        """
+    )
+
+    with (tmp_path / "server-stderr.txt").open("w+") as errlog:
+        transport = stdio_client(StdioServerParameters(command=sys.executable, args=["-c", server]), errlog=errlog)
+        # Three interpreter cold starts (the server also imports the SDK) on a
+        # loaded runner; a regressed Windows leg hangs rather than corrupts, so
+        # the bound only has to beat "never".
+        with anyio.fail_after(40):
+            async with Client(transport) as client:
+                result = await client.call_tool("run_noisy_child")
+        errlog.seek(0)
+        server_stderr = errlog.read()
+
+    content = result.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == "0"
+    # Diverted to the server's stderr instead of landing on the wire.
+    assert "this is not json" in server_stderr

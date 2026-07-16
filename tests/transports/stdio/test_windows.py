@@ -269,7 +269,8 @@ async def test_a_tool_spawned_python_child_with_default_stdin_completes_promptly
         def run_child_bare() -> str:
             # No redirection at all: Windows still hands a console child the
             # parent's standard handles, so pre-isolation this hung too. The
-            # child prints nothing, keeping the inherited stdout wire clean.
+            # child prints nothing, keeping this test pinned on the hang; the
+            # noisy-child shape is owned by test_lifecycle.py.
             proc = subprocess.run([sys.executable, "-c", "pass"], timeout=20)
             return str(proc.returncode)
 
