@@ -622,6 +622,7 @@ Transport-specific parameters have been moved from the `MCPServer` constructor t
 - `sse_path`, `message_path` - SSE transport paths
 - `streamable_http_path` - StreamableHTTP endpoint path
 - `json_response`, `stateless_http` - StreamableHTTP behavior
+- `max_request_body_size` - StreamableHTTP request-body limit
 - `event_store`, `retry_interval` - StreamableHTTP event handling
 - `transport_security` - DNS rebinding protection
 
@@ -674,6 +675,21 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
 If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
+
+### Streamable HTTP request bodies are limited to 4 MiB
+
+V2 applies a 4 MiB default limit to Streamable HTTP POST bodies and returns HTTP 413 before parsing
+the JSON or creating a session when that limit is exceeded.
+
+Most servers need no migration. If your application intentionally accepts larger MCP messages,
+set an explicit byte limit on `run()` or `streamable_http_app()`:
+
+```python
+mcp.run(transport="streamable-http", max_request_body_size=8 * 1024 * 1024)
+```
+
+The limit must be positive and applies to both legacy session-based requests and V2's modern
+single-exchange requests. Keep the smallest value your application actually needs.
 
 ### Streamable HTTP: lifespan now entered once at manager startup
 

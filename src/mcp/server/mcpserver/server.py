@@ -87,7 +87,7 @@ from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -369,6 +369,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = ...,
         event_store: EventStore | None = ...,
         retry_interval: int | None = ...,
+        max_request_body_size: int = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -1050,6 +1051,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using StreamableHTTP transport."""
@@ -1061,6 +1063,7 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
             transport_security=transport_security,
             host=host,
         )
@@ -1209,6 +1212,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -1219,6 +1223,7 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
             transport_security=transport_security,
             host=host,
             auth=self.settings.auth,

@@ -52,6 +52,7 @@ def test_streamable_http_app_has_no_era_knob() -> None:
         "stateless_http",
         "event_store",
         "retry_interval",
+        "max_request_body_size",
         "transport_security",
         "host",
     }
