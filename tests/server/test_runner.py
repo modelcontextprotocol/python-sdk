@@ -42,6 +42,8 @@ from mcp_types import (
     RequestId,
     RequestParams,
     SetLevelRequestParams,
+    SubscriptionsListenRequestParams,
+    SubscriptionsListenResult,
     Tool,
     UnsupportedProtocolVersionErrorData,
 )
@@ -2139,6 +2141,139 @@ async def test_dual_era_loop_modern_locked_envelope_less_reject_with_adjacent_ca
         result = (await s2c.receive()).message
         assert isinstance(result, JSONRPCResponse)
         assert result.id == 10
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_listen_with_request_id_zero_stamps_and_resolves_the_falsy_id():
+    """Request id 0 is falsy but valid: the ack and the graceful-close result
+    are stamped with the literal 0, the pending request keeps its id through
+    the whole lifecycle, and the ack still locks the era."""
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus)
+    srv: SrvT = Server(name="listen-server", version="0.0.1", on_subscriptions_listen=handler)
+    on_notify, notes_send, notes = _note_collector()
+    result_box: list[dict[str, Any]] = []
+    try:
+        async with dual_era_client(srv, client_on_notify=on_notify) as (client, _):
+            async with anyio.create_task_group() as tg:
+
+                async def open_listen() -> None:
+                    result_box.append(
+                        await client.send_raw_request(
+                            "subscriptions/listen", _modern_listen_params(), {"request_id": 0}
+                        )
+                    )
+
+                tg.start_soon(open_listen)
+                method, params = await notes.receive()
+                assert method == ACK_METHOD
+                assert params["_meta"][SUBSCRIPTION_ID_META_KEY] == 0
+                with pytest.raises(MCPError) as init_exc:
+                    await client.send_raw_request("initialize", _initialize_params())
+                assert init_exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
+                handler.close()
+    finally:
+        notes_send.close()
+        notes.close()
+    assert result_box[0]["_meta"][SUBSCRIPTION_ID_META_KEY] == 0
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_double_cancel_and_stale_cancel_are_silent_and_recycle_the_slot():
+    """Cancel idempotence over the loop: a double cancel of a live listen is
+    total silence and frees its max_subscriptions=1 slot; a cancel for an
+    already-resolved listen id is ignored and the connection keeps serving."""
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus, max_subscriptions=1)
+    srv: SrvT = Server(name="listen-server", version="0.0.1", on_subscriptions_listen=handler)
+    async with raw_dual_era_loop(srv) as (c2s, s2c):
+        c2s.send_nowait(_raw_req("d1", "subscriptions/listen", _modern_listen_params()))
+        await _expect_ack(s2c, "d1")
+        c2s.send_nowait(_raw_note("notifications/cancelled", {"requestId": "d1"}))
+        c2s.send_nowait(_raw_note("notifications/cancelled", {"requestId": "d1"}))
+        await anyio.wait_all_tasks_blocked()
+        with pytest.raises(anyio.WouldBlock):
+            s2c.receive_nowait()
+        # The slot is free again: with max_subscriptions=1 a second listen
+        # could only ack if the cancelled stream fully cleaned up.
+        c2s.send_nowait(_raw_req("d2", "subscriptions/listen", _modern_listen_params()))
+        await _expect_ack(s2c, "d2")
+        handler.close()
+        result = (await s2c.receive()).message
+        assert isinstance(result, JSONRPCResponse)
+        assert result.id == "d2"
+        # A stale cancel for the resolved id is ignored: no frame for d2, and
+        # a third listen still serves.
+        c2s.send_nowait(_raw_note("notifications/cancelled", {"requestId": "d2"}))
+        c2s.send_nowait(_raw_req("d3", "subscriptions/listen", _modern_listen_params()))
+        await _expect_ack(s2c, "d3")
+        await anyio.wait_all_tasks_blocked()
+        with pytest.raises(anyio.WouldBlock):
+            s2c.receive_nowait()
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_cancelling_one_of_two_listens_keeps_the_other_flowing():
+    """Two live listen streams on one connection: cancelling one is silent for
+    its id and events keep fanning out to the survivor, stamped with the
+    survivor's subscription id only."""
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus)
+    srv: SrvT = Server(name="listen-server", version="0.0.1", on_subscriptions_listen=handler)
+    async with raw_dual_era_loop(srv) as (c2s, s2c):
+        c2s.send_nowait(_raw_req("a", "subscriptions/listen", _modern_listen_params()))
+        c2s.send_nowait(_raw_req("b", "subscriptions/listen", _modern_listen_params()))
+        for expected in ("a", "b"):
+            await _expect_ack(s2c, expected)
+        c2s.send_nowait(_raw_note("notifications/cancelled", {"requestId": "a"}))
+        await anyio.wait_all_tasks_blocked()
+        await bus.publish(ToolsListChanged())
+        event = (await s2c.receive()).message
+        assert isinstance(event, JSONRPCNotification)
+        assert event.method == "notifications/tools/list_changed"
+        assert event.params is not None
+        assert event.params["_meta"][SUBSCRIPTION_ID_META_KEY] == "b"
+        # One event, one survivor: nothing was written for the cancelled "a".
+        await anyio.wait_all_tasks_blocked()
+        with pytest.raises(anyio.WouldBlock):
+            s2c.receive_nowait()
+        handler.close()
+        result = (await s2c.receive()).message
+        assert isinstance(result, JSONRPCResponse)
+        assert result.id == "b"
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_custom_listen_handler_serves_and_only_a_valid_result_locks():
+    """A plain async function as `on_subscriptions_listen` (not
+    `ListenHandler`) serves over the loop like any request. A result missing
+    the required stamped `_meta` fails outbound validation with
+    INTERNAL_ERROR and - like every failed request - never locks the era; a
+    schema-valid result serves and locks."""
+
+    async def bad(ctx: Ctx, params: SubscriptionsListenRequestParams) -> SubscriptionsListenResult:
+        return SubscriptionsListenResult()  # no _meta: schema-invalid
+
+    srv_bad: SrvT = Server(name="listen-server", version="0.0.1", on_subscriptions_listen=bad)
+    async with dual_era_client(srv_bad) as (client, _):
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("subscriptions/listen", _modern_listen_params())
+        assert exc_info.value.error.code == INTERNAL_ERROR
+        assert exc_info.value.error.message == "Handler returned an invalid result"
+        # The failed listen never locked: the legacy handshake still works.
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+
+    async def good(ctx: Ctx, params: SubscriptionsListenRequestParams) -> SubscriptionsListenResult:
+        return SubscriptionsListenResult(_meta={SUBSCRIPTION_ID_META_KEY: ctx.request_id})
+
+    srv_good: SrvT = Server(name="listen-server", version="0.0.1", on_subscriptions_listen=good)
+    async with dual_era_client(srv_good) as (client, _):
+        result = await client.send_raw_request("subscriptions/listen", _modern_listen_params())
+        assert result["resultType"] == "complete"
+        with pytest.raises(MCPError) as init_exc:
+            await client.send_raw_request("initialize", _initialize_params())
+        assert init_exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio
