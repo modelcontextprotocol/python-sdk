@@ -179,6 +179,20 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     def can_send_request(self) -> bool:
         return self.transport.can_send_request and not self._closed
 
+    @property
+    def must_stay_silent(self) -> bool:
+        """The peer cancelled this silence-committed request: nothing may be written for it.
+
+        Consulted by both frame-suppressing sites - `_answer_error` and the
+        shutdown drain. The interrupt arm expresses the same fact from the
+        write side: within `scope.cancelled_caught`, `cancel_requested` is
+        definitionally set, so its `cancel_answer is not None` check is
+        exactly `not must_stay_silent`. Once true, result, error, and drain
+        frames for this id are all forbidden - the transport spec's MUST NOT
+        after `notifications/cancelled`.
+        """
+        return self.cancel_answer is None and self.cancel_requested.is_set()
+
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         if self._closed:
             logger.debug("dropped %s: dispatch context closed", method)
@@ -796,9 +810,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         except anyio.get_cancelled_exc_class():
             # Shutdown: answer the request so the peer isn't left waiting - unless
             # an answer write already started (it may have reached the transport;
-            # prefer possibly-zero answers over possibly-two). The shielded helper
-            # is needed because bare awaits re-raise here.
-            if not answer_write_started:
+            # prefer possibly-zero answers over possibly-two), or the peer already
+            # cancelled a silence-committed request (the 2026 rule forbids ANY
+            # frame after the cancel, the shutdown drain included; requests the
+            # peer did NOT cancel keep their drain answer regardless of the
+            # commitment). The shielded helper is needed because bare awaits
+            # re-raise here.
+            if not answer_write_started and not dctx.must_stay_silent:
                 await self._final_write(
                     partial(self._write_error, req.id, ErrorData(code=CONNECTION_CLOSED, message="Connection closed")),
                     shield=True,
@@ -848,7 +866,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         failure was computed before the cancellation interrupt could land (a
         synchronous raise after the cancel arrived, or a shielded handler).
         """
-        if dctx.cancel_answer is None and dctx.cancel_requested.is_set():
+        if dctx.must_stay_silent:
             logger.debug("dropped error for %r: peer cancelled a silence-committed request", request_id)
             return
         await self._write_error(request_id, error)

@@ -309,6 +309,64 @@ async def test_cancel_and_frame_seams_are_noops_on_non_jsonrpc_contexts():
 
 
 @pytest.mark.anyio
+async def test_shutdown_drain_stays_silent_for_a_peer_cancelled_silence_committed_request():
+    """Loop shutdown catching a silence-committed request whose peer already
+    cancelled writes NOTHING for it: the 2026 rule forbids any frame after
+    the cancel, the CONNECTION_CLOSED drain answer included. Requests the
+    peer did NOT cancel keep the drain answer regardless of the commitment
+    (see test_shutdown_answers_in_flight_request_with_connection_closed)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_started = anyio.Event()
+    release_shield = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        suppress_cancel_answer(ctx)
+        handler_started.set()
+        # Survive the peer-cancel interrupt inside the shield, then hold the
+        # request in flight until the loop shutdown catches it unwinding.
+        with anyio.CancelScope(shield=True):
+            await ctx.cancel_requested.wait()
+            await release_shield.wait()
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass
+
+    late: list[SessionMessage | Exception] = []
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=7, method="slow")))
+                await handler_started.wait()
+                await c2s_send.send(
+                    SessionMessage(
+                        message=JSONRPCNotification(
+                            jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 7}
+                        )
+                    )
+                )
+                await anyio.wait_all_tasks_blocked()
+                # The handler observed the cancel inside its shield; shut the
+                # loop down while the request is still in flight.
+                tg.cancel_scope.cancel()
+                release_shield.set()
+        while True:
+            try:
+                late.append(s2c_recv.receive_nowait())
+            except (anyio.WouldBlock, anyio.EndOfStream, anyio.ClosedResourceError):
+                break
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    # Total silence for the cancelled id: no drain frame at shutdown.
+    assert late == []
+
+
+@pytest.mark.anyio
 async def test_peer_cancel_landing_after_handlers_last_checkpoint_writes_only_the_result():
     """A peer cancel that fails to interrupt the handler writes only the result: one answer per
     id goes on the wire (SDK-defined). The recording stream is needed because a memory stream's
