@@ -63,7 +63,6 @@ from mcp.server.runner import (
     _extract_meta,
     _has_modern_envelope,
     _initialize_after_modern_data,
-    _NoServerRequestsDispatchContext,
     aclose_shielded,
     serve_connection,
     serve_dual_era_loop,
@@ -71,7 +70,7 @@ from mcp.server.runner import (
 )
 from mcp.server.session import ServerSession
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler
-from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify
+from mcp.shared.dispatcher import CallOptions, DispatchContext, NoServerRequestsDispatchContext, OnNotify
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import MessageMetadata, SessionMessage
@@ -2257,7 +2256,7 @@ class _RecordingInnerDctx:
 @pytest.mark.anyio
 async def test_no_server_requests_dispatch_context_denies_requests_and_delegates_the_rest():
     inner = _RecordingInnerDctx()
-    wrapper = _NoServerRequestsDispatchContext(inner)
+    wrapper = NoServerRequestsDispatchContext(inner)
     assert wrapper.can_send_request is False
     # The transport metadata is masked to agree with the wrapper's denial.
     assert wrapper.transport == TransportContext(kind="jsonrpc", can_send_request=False)
@@ -2275,7 +2274,7 @@ async def test_no_server_requests_dispatch_context_denies_requests_and_delegates
 def test_no_server_requests_dispatch_context_passes_an_already_denying_transport_through():
     inner = _RecordingInnerDctx()
     inner.transport = TransportContext(kind="jsonrpc", can_send_request=False)
-    assert _NoServerRequestsDispatchContext(inner).transport is inner.transport
+    assert NoServerRequestsDispatchContext(inner).transport is inner.transport
 
 
 @pytest.mark.anyio

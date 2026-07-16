@@ -34,7 +34,13 @@ from mcp import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
-from mcp.shared.dispatcher import CallOptions, DispatchContext, coerce_request_id
+from mcp.shared.dispatcher import (
+    CallOptions,
+    DispatchContext,
+    Dispatcher,
+    NoServerRequestsDispatchContext,
+    coerce_request_id,
+)
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
     JSONRPCDispatcher,
@@ -309,6 +315,85 @@ async def test_cancel_and_frame_seams_are_noops_on_non_jsonrpc_contexts():
 
 
 @pytest.mark.anyio
+async def test_seam_setters_reach_through_the_no_server_requests_wrapper():
+    """`NoServerRequestsDispatchContext` is not structurally silent - it
+    delegates wire I/O to the loop context it wraps - so facts attached
+    through it must land on the wrapped context instead of silently no-oping:
+    the observer fires for the wrapped request's frames, and the silence
+    commitment suppresses its late cancel answer."""
+    calls: list[str] = []
+    handler_started = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        wrapper = NoServerRequestsDispatchContext(ctx)
+        if method == "probe":
+            return {"alive": True}
+        if method == "emit":
+            observe_success_frames(wrapper, lambda: calls.append(method))
+            return {"ok": True}
+        suppress_cancel_answer(wrapper)
+        handler_started.set()
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    outcome: list[Any] = []
+
+    async def call_slow(client: Dispatcher[TransportContext], abandoned: anyio.CancelScope) -> None:
+        # A (buggy) late "Request cancelled" frame would raise MCPError here
+        # and fail the test through the task group; a late result lands in
+        # `outcome`. Silence leaves the call parked until `abandoned` is
+        # cancelled.
+        with abandoned:
+            outcome.append(await client.send_raw_request("slow", None, {"request_id": 9}))
+
+    async with running_pair(jsonrpc_pair, server_on_request=on_request) as (client, *_):
+        with anyio.fail_after(5):
+            assert await client.send_raw_request("emit", None) == {"ok": True}
+            # The observer landed on the wrapped loop context: it fired for
+            # the result frame despite being attached via the wrapper.
+            assert calls == ["emit"]
+            abandoned = anyio.CancelScope()
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(call_slow, client, abandoned)
+                await handler_started.wait()
+                await client.notify("notifications/cancelled", {"requestId": 9})
+                # Ordering marker: the probe's answer proves the server
+                # consumed the cancel and wrote nothing for id 9 before it.
+                assert await client.send_raw_request("probe", None) == {"alive": True}
+                await anyio.wait_all_tasks_blocked()
+                abandoned.cancel()
+    assert outcome == []
+
+
+@pytest.mark.anyio
+async def test_observe_success_frames_contains_a_raising_observer_and_still_writes_the_frames(
+    caplog: pytest.LogCaptureFixture,
+):
+    """The observer boundary matches the subscription bus's listener boundary:
+    a raising observer is logged and skipped, and both the request-scoped
+    notification and the success result still reach the wire - an observer
+    bug cannot convert the success it is observing into an error response."""
+
+    def bad_observer() -> None:
+        raise RuntimeError("observer bug")
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        observe_success_frames(ctx, bad_observer)
+        await ctx.notify("x/note", None)
+        return {"ok": True}
+
+    async with running_pair(jsonrpc_pair, server_on_request=on_request) as (client, _server, client_rec, _srec):
+        with anyio.fail_after(5):
+            with caplog.at_level(logging.ERROR, logger="mcp.shared.jsonrpc_dispatcher"):
+                assert await client.send_raw_request("emit", None) == {"ok": True}
+            await client_rec.notified.wait()
+    # The observer raised before BOTH frames (notification, then result) and
+    # both were still written.
+    assert client_rec.notifications == [("x/note", None)]
+    assert [r.message for r in caplog.records].count("on_success_frame observer raised; continuing") == 2
+
+
+@pytest.mark.anyio
 async def test_shutdown_drain_stays_silent_for_a_peer_cancelled_silence_committed_request():
     """Loop shutdown catching a silence-committed request whose peer already
     cancelled writes NOTHING for it: the 2026 rule forbids any frame after
@@ -364,6 +449,58 @@ async def test_shutdown_drain_stays_silent_for_a_peer_cancelled_silence_committe
             s.close()
     # Total silence for the cancelled id: no drain frame at shutdown.
     assert late == []
+
+
+@pytest.mark.anyio
+async def test_legacy_cancel_answer_is_minted_per_request_so_mutation_cannot_corrupt_later_answers():
+    """Over in-memory transports the answer object crosses to the peer by
+    reference, so the legacy cancel answer must be minted per request: a
+    consumer mutating one received answer must not corrupt the byte-identical
+    code-0 answer later cancelled requests depend on."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    started: dict[RequestId, anyio.Event] = {1: anyio.Event(), 2: anyio.Event()}
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        assert ctx.request_id is not None
+        started[ctx.request_id].set()
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass
+
+    async def cancel_and_receive_answer(rid: int) -> ErrorData:
+        await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=rid, method="slow")))
+        await started[rid].wait()
+        await c2s_send.send(
+            SessionMessage(
+                message=JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled", params={"requestId": rid})
+            )
+        )
+        answer = await s2c_recv.receive()
+        assert isinstance(answer, SessionMessage)
+        assert isinstance(answer.message, JSONRPCError)
+        assert answer.message.id == rid
+        return answer.message.error
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                first = await cancel_and_receive_answer(1)
+                assert first == ErrorData(code=0, message="Request cancelled")
+                # A consumer scribbling on its received answer object...
+                first.message = "corrupted"
+                # ...must not reach the next request's answer.
+                second = await cancel_and_receive_answer(2)
+                assert second == ErrorData(code=0, message="Request cancelled")
+                assert second is not first
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
 
 
 @pytest.mark.anyio

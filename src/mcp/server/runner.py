@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Mapping
-from dataclasses import KW_ONLY, dataclass, replace
+from dataclasses import KW_ONLY, dataclass
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, Generic, Literal, cast
 
@@ -35,7 +35,6 @@ from mcp_types import (
     Implementation,
     InitializeRequestParams,
     InitializeResult,
-    RequestId,
     RequestParams,
     RequestParamsMeta,
     UnsupportedProtocolVersionErrorData,
@@ -56,8 +55,14 @@ from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest
-from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.dispatcher import (
+    DispatchContext,
+    Dispatcher,
+    NoServerRequestsDispatchContext,
+    OnNotify,
+    OnRequest,
+)
+from mcp.shared.exceptions import MCPError
 from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request
 from mcp.shared.jsonrpc_dispatcher import (
     JSONRPCDispatcher,
@@ -65,7 +70,7 @@ from mcp.shared.jsonrpc_dispatcher import (
     observe_success_frames,
     suppress_cancel_answer,
 )
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
@@ -490,57 +495,6 @@ def modern_error_data(exc: Exception) -> ErrorData:
     return ErrorData(code=INTERNAL_ERROR, message="Internal server error")
 
 
-@dataclass
-class _NoServerRequestsDispatchContext:
-    """Delegating `DispatchContext` that refuses server-initiated requests.
-
-    Wraps the loop dispatcher's per-message context for modern-era dispatch:
-    the modern protocol forbids server-initiated JSON-RPC requests, so
-    `send_raw_request` refuses while notifications and progress still ride
-    the duplex pipe.
-    """
-
-    _inner: DispatchContext[TransportContext]
-
-    @property
-    def transport(self) -> TransportContext:
-        # Mask the per-message flag so the transport metadata agrees with this
-        # wrapper's denial: the modern HTTP entry builds its context with
-        # can_send_request=False, while the loop's default builder says True.
-        transport = self._inner.transport
-        return replace(transport, can_send_request=False) if transport.can_send_request else transport
-
-    @property
-    def can_send_request(self) -> bool:
-        return False
-
-    @property
-    def request_id(self) -> RequestId | None:
-        return self._inner.request_id
-
-    @property
-    def message_metadata(self) -> MessageMetadata:
-        return self._inner.message_metadata
-
-    @property
-    def cancel_requested(self) -> anyio.Event:
-        return self._inner.cancel_requested
-
-    async def send_raw_request(
-        self,
-        method: str,
-        params: Mapping[str, Any] | None,
-        opts: CallOptions | None = None,
-    ) -> dict[str, Any]:
-        raise NoBackChannelError(method)
-
-    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
-        await self._inner.notify(method, params, opts)
-
-    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        await self._inner.progress(progress, total, message)
-
-
 async def serve_dual_era_loop(
     server: Server[LifespanT],
     read_stream: ReadStream[SessionMessage | Exception],
@@ -704,7 +658,7 @@ async def serve_dual_era_loop(
         try:
             return await serve_one(
                 server,
-                _NoServerRequestsDispatchContext(dctx),
+                NoServerRequestsDispatchContext(dctx),
                 method,
                 params,
                 connection=connection,
@@ -772,7 +726,7 @@ async def serve_dual_era_loop(
         connection = Connection.from_envelope(modern_version, None, None, outbound=standalone_outbound)
         notify_runner = ServerRunner(server, connection, lifespan_state)
         try:
-            await notify_runner.on_notify(_NoServerRequestsDispatchContext(dctx), method, params)
+            await notify_runner.on_notify(NoServerRequestsDispatchContext(dctx), method, params)
         finally:
             await aclose_shielded(connection)
 
@@ -832,7 +786,7 @@ def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> O
         )
         return await serve_one(
             server,
-            _NoServerRequestsDispatchContext(dctx),
+            NoServerRequestsDispatchContext(dctx),
             method,
             params,
             connection=connection,

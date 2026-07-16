@@ -18,12 +18,14 @@ embedding a server in-process.
 
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, replace
 from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 
 import anyio
 import anyio.abc
 from mcp_types import RequestId
 
+from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
 
@@ -33,6 +35,7 @@ __all__ = [
     "CallOptions",
     "DispatchContext",
     "Dispatcher",
+    "NoServerRequestsDispatchContext",
     "OnNotify",
     "OnNotifyIntercept",
     "OnRequest",
@@ -216,6 +219,60 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
         A no-op when no token was supplied.
         """
         ...
+
+
+@dataclass
+class NoServerRequestsDispatchContext:
+    """Delegating `DispatchContext` that refuses server-initiated requests.
+
+    Wraps another dispatch context for entries whose protocol forbids
+    server-initiated JSON-RPC requests (the modern 2026-07-28 era):
+    `send_raw_request` refuses while notifications and progress still ride
+    the wrapped context's channel. Because it delegates wire I/O, the
+    per-request seam setters in `mcp.shared.jsonrpc_dispatcher`
+    (`suppress_cancel_answer`, `observe_success_frames`) reach through it to
+    the wrapped context.
+    """
+
+    inner: DispatchContext[TransportContext]
+
+    @property
+    def transport(self) -> TransportContext:
+        # Mask the per-message flag so the transport metadata agrees with this
+        # wrapper's denial: the modern HTTP entry builds its context with
+        # can_send_request=False, while the loop's default builder says True.
+        transport = self.inner.transport
+        return replace(transport, can_send_request=False) if transport.can_send_request else transport
+
+    @property
+    def can_send_request(self) -> bool:
+        return False
+
+    @property
+    def request_id(self) -> RequestId | None:
+        return self.inner.request_id
+
+    @property
+    def message_metadata(self) -> MessageMetadata:
+        return self.inner.message_metadata
+
+    @property
+    def cancel_requested(self) -> anyio.Event:
+        return self.inner.cancel_requested
+
+    async def send_raw_request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
+    ) -> dict[str, Any]:
+        raise NoBackChannelError(method)
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        await self.inner.notify(method, params, opts)
+
+    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
+        await self.inner.progress(progress, total, message)
 
 
 OnRequest = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[dict[str, Any]]]
