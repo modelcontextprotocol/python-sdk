@@ -164,8 +164,9 @@ class ListenHandler:
     cancels the handler; the stream just ends, per the spec's abrupt-close
     contract) or `close` ends all streams gracefully.
 
-    Requires a transport that can stream a request's response (streamable
-    HTTP's SSE mode).
+    Requires a transport that can stream a request's response: streamable
+    HTTP's SSE mode, or a duplex stream pair (stdio) where the listen request
+    simply stays pending while notifications ride the pipe.
 
     `max_subscriptions` bounds concurrent streams (further listen requests are
     rejected with `INTERNAL_ERROR`, before the ack). `max_buffered_events`

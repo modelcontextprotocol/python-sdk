@@ -59,7 +59,12 @@ from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
+from mcp.shared.jsonrpc_dispatcher import (
+    JSONRPCDispatcher,
+    handler_exception_to_error_data,
+    observe_success_frames,
+    suppress_cancel_answer,
+)
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
@@ -575,15 +580,29 @@ async def serve_dual_era_loop(
     for genuine version negotiation or for `initialize` on an
     already-modern connection.
 
-    The era lock rides the request's own dispatch. For the inline methods
-    (`initialize`, `server/discover`) that completes before the next frame is
-    read, so the canonical probe-then-go flow is race-free; a pinned-modern
-    client that pipelines frames ahead of its first response should expect
-    envelope-less notifications sent in that window to be dropped. The lock
-    settles exactly once: a request from the other era that was already in
-    flight when the lock committed may still complete and its response
-    stands, but the era does not move; and a success the peer cancelled away
-    (it sees "Request cancelled", not the result) does not lock either.
+    The modern lock commits on the FIRST client-visible success frame the
+    classified request produces - a request-scoped notification (progress and
+    the `subscriptions/listen` ack ride those) or its result - immediately
+    before that frame is written, with no checkpoint in between. One
+    definition for every method: a plain request locks at its response
+    exactly as before, and a streaming request (`subscriptions/listen`, whose
+    response arrives only at close) locks at its ack, so a pipelined
+    `initialize` behind the ack can never hijack a live stream back to
+    legacy. For the inline methods (`initialize`, `server/discover`) the
+    dispatch completes before the next frame is read, so the canonical
+    probe-then-go flow is race-free; a pinned-modern client that pipelines
+    frames ahead of its first response should expect envelope-less
+    notifications sent in that window to be dropped. The lock settles exactly
+    once: a request from the other era that was already in flight when the
+    lock committed may still complete and its response stands, but the era
+    does not move; and a success the peer cancelled away before any frame
+    went out does not lock either.
+
+    Classified-modern requests are also governed by the 2026 cancellation
+    rule for their whole lifetime: after an inbound `notifications/cancelled`
+    the server sends nothing further for that request - no result, no error
+    (the transport spec's MUST NOT). Legacy-era requests keep the
+    byte-identical "Request cancelled" answer released 2025 clients expect.
     """
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
         read_stream,
@@ -601,28 +620,37 @@ async def serve_dual_era_loop(
     modern_version = LATEST_MODERN_VERSION
 
     def era_settles(dctx: DispatchContext[TransportContext]) -> bool:
-        # The one definition of "this request may lock the era": it settled as
+        # The one definition of "this request may lock the era": it produced
         # a client-visible success on a still-unlocked connection. The lock is
         # monotone - the first success wins, so a straggling request from the
         # other era can never overwrite a committed lock. A pending peer
-        # cancel means the dispatcher is about to replace this response with
-        # "Request cancelled": the client never sees the success, no lock.
+        # cancel means the client already abandoned this request and will
+        # never read the frame as a success: no lock.
         return era == "unlocked" and not dctx.cancel_requested.is_set()
+
+    def commit_modern(dctx: DispatchContext[TransportContext], version: str) -> None:
+        # The success-frame observer for classified-modern requests: the
+        # dispatcher invokes it immediately before each non-error frame for
+        # the request (ack/event notifications, progress, or the result),
+        # with no checkpoint before the write - so by the time the client can
+        # read any modern output, the era is already locked and a pipelined
+        # `initialize` is rejected instead of hijacking the connection.
+        nonlocal era, modern_version
+        if era_settles(dctx):
+            era, modern_version = "modern", version
 
     async def serve_modern(
         dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        nonlocal era, modern_version
         route = classify_inbound_request({"method": method, "params": params})
         if isinstance(route, InboundLadderRejection):
             raise MCPError(code=route.code, message=route.message, data=route.data)
-        if method == "subscriptions/listen":
-            # The registered listen handler assumes the HTTP entry's stream
-            # semantics; served over a stream pair it would wedge. Reject until
-            # this transport grows its own listen design.
-            raise MCPError(
-                code=METHOD_NOT_FOUND, message="subscriptions/listen is not served over this transport", data=method
-            )
+        # Classification succeeded: 2026 wire semantics govern this request's
+        # lifecycle from here. Both facts attach synchronously - no checkpoint
+        # since the dispatcher entered the handler scope - so a peer cancel
+        # can never interleave and observe the legacy defaults.
+        suppress_cancel_answer(dctx)
+        observe_success_frames(dctx, partial(commit_modern, dctx, route.protocol_version))
         connection = Connection.from_envelope(
             route.protocol_version,
             route.client_info,
@@ -630,7 +658,7 @@ async def serve_dual_era_loop(
             outbound=standalone_outbound,
         )
         try:
-            result = await serve_one(
+            return await serve_one(
                 server,
                 _NoServerRequestsDispatchContext(dctx),
                 method,
@@ -647,9 +675,6 @@ async def serve_dual_era_loop(
                 raise
             error = modern_error_data(exc)
             raise MCPError(code=error.code, message=error.message, data=error.data) from exc
-        if era_settles(dctx):
-            era, modern_version = "modern", route.protocol_version
-        return result
 
     async def on_request(
         dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None

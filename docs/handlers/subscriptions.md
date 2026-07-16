@@ -52,12 +52,10 @@ Two things the stream is *not*:
     handler on the low-level `Server` and acknowledge a smaller filter than the client asked
     for; the acknowledgment is how the client learns what it actually got.
 
-!!! warning "Streamable HTTP only, for now"
-    `subscriptions/listen` needs a transport that can stream a request's response, which today
-    means streamable HTTP. Over stdio a 2026-07-28 connection rejects the method with
-    METHOD_NOT_FOUND, even though `server/discover` advertises the subscription capabilities
-    there. Serving it over stdio is planned; the open-stream semantics for that transport are
-    not built yet.
+`subscriptions/listen` is served on every transport that can stream a request's response: over
+streamable HTTP the response is the SSE stream, and over stdio the listen request simply stays
+pending on the duplex pipe (the acknowledgment and every event are notifications; the request's
+result arrives only when the stream ends gracefully).
 
 ## The client end
 
