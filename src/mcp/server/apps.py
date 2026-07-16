@@ -233,8 +233,7 @@ def client_supports_apps(ctx: Context[Any] | ServerRequestContext[Any, Any]) -> 
 def _client_capabilities(ctx: Context[Any] | ServerRequestContext[Any, Any]) -> Any:
     if isinstance(ctx, Context):
         return ctx.client_capabilities
-    client_params = ctx.session.client_params
-    return client_params.capabilities if client_params else None
+    return ctx.session.client_capabilities
 
 
 def _require_ui_scheme(uri: str) -> None:

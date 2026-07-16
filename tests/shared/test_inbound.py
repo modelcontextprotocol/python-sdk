@@ -98,19 +98,55 @@ def assert_rejected(result: object, code: int) -> InboundLadderRejection:
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "named"),
     [
-        pytest.param({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, id="no-params"),
-        pytest.param({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}, id="no-meta"),
-        pytest.param(envelope(drop=frozenset({PROTOCOL_VERSION_META_KEY})), id="meta-missing-version"),
-        pytest.param(envelope(drop=frozenset({CLIENT_INFO_META_KEY})), id="meta-missing-client-info"),
-        pytest.param(envelope(drop=frozenset({CLIENT_CAPABILITIES_META_KEY})), id="meta-missing-client-caps"),
+        pytest.param(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            [PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY],
+            id="no-params",
+        ),
+        pytest.param(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            [PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY],
+            id="no-meta",
+        ),
+        pytest.param(
+            envelope(drop=frozenset({PROTOCOL_VERSION_META_KEY})),
+            [PROTOCOL_VERSION_META_KEY],
+            id="meta-missing-version",
+        ),
+        pytest.param(
+            envelope(drop=frozenset({CLIENT_CAPABILITIES_META_KEY})),
+            [CLIENT_CAPABILITIES_META_KEY],
+            id="meta-missing-client-caps",
+        ),
+        pytest.param(
+            envelope(drop=frozenset({PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY})),
+            [PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY],
+            id="meta-missing-both",
+        ),
     ],
 )
-def test_envelope_rung_rejects_missing_keys(body: dict[str, Any]) -> None:
-    """Spec-mandated: a modern request lacking any of the three reserved `_meta` keys is rejected INVALID_PARAMS."""
+def test_envelope_rung_rejects_missing_required_keys(body: dict[str, Any], named: list[str]) -> None:
+    """Spec-mandated (basic/index.mdx per-request protocol fields): a modern
+    request lacking a required `_meta` envelope key (protocol version or
+    client capabilities) is rejected INVALID_PARAMS with a message naming the
+    missing key(s)."""
     rejection = assert_rejected(classify_inbound_request(body), INVALID_PARAMS)
     assert rejection.data is None
+    for key in named:
+        assert key in rejection.message
+
+
+def test_envelope_rung_accepts_pair_only_envelope_without_client_info() -> None:
+    """Spec-mandated (spec PR #3002): `clientInfo` is optional - a request whose
+    `_meta` carries only the protocol-version + client-capabilities pair
+    routes, with `client_info` read as `None`."""
+    result = classify_inbound_request(envelope(drop=frozenset({CLIENT_INFO_META_KEY})))
+    assert isinstance(result, InboundModernRoute)
+    assert result.protocol_version == LATEST_MODERN_VERSION
+    assert result.client_info is None
+    assert result.client_capabilities == CLIENT_CAPS
 
 
 @pytest.mark.parametrize(

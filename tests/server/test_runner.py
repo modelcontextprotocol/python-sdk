@@ -1448,6 +1448,44 @@ async def test_dual_era_loop_malformed_envelope_content_never_locks(server: SrvT
 
 
 @pytest.mark.anyio
+async def test_dual_era_loop_pair_only_envelope_serves_modern_and_locks(server: SrvT):
+    """Spec-mandated (spec PR #3002): the required envelope pair (protocol version
+    + client capabilities) without the optional clientInfo is a complete
+    modern request - it is served, records the declared capabilities without
+    client params, locks the era modern, and a later legacy `initialize` is
+    rejected with -32022."""
+    params = _modern_params()
+    del params["_meta"][CLIENT_INFO_META_KEY]
+    async with dual_era_client(server) as (client, _):
+        result = await client.send_raw_request("tools/list", params)
+        assert result["tools"][0]["name"] == "t"
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("initialize", _initialize_params())
+    assert exc_info.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
+    ctx = _seen_ctx[-1]
+    assert ctx.session.client_params is None
+    assert ctx.session.client_capabilities == ClientCapabilities()
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_version_without_capabilities_rejects_naming_the_key_and_never_locks(server: SrvT):
+    """A `_meta` declaring the protocol version but missing the required
+    client-capabilities key routes modern - never the legacy path with its
+    generic 'Invalid request parameters' - and is rejected INVALID_PARAMS
+    naming the missing key; like every failed classification it locks no era,
+    so the legacy handshake stays available."""
+    params = _modern_params()
+    del params["_meta"][CLIENT_CAPABILITIES_META_KEY]
+    async with dual_era_client(server) as (client, _):
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("tools/list", params)
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert CLIENT_CAPABILITIES_META_KEY in exc_info.value.error.message
+
+
+@pytest.mark.anyio
 async def test_dual_era_loop_failed_modern_request_never_locks(server: SrvT):
     """A well-formed modern request for an unknown method fails without
     locking; the next modern request locks on its own success."""
@@ -1692,13 +1730,19 @@ async def test_dual_era_loop_custom_method_with_mis_shaped_envelope_values_still
     assert seen == [None]
 
 
-def test_has_modern_envelope_requires_the_full_key_triple():
+def test_has_modern_envelope_keys_on_the_protocol_version_key():
+    """Era evidence is the reserved protocol-version `_meta` key: legacy traffic
+    never mints it (bare `_meta` / `progressToken` is not evidence), and a
+    half-built envelope still routes modern so the classifier - not the legacy
+    path - names its missing required key."""
     assert not _has_modern_envelope(None)
     assert not _has_modern_envelope({})
     assert not _has_modern_envelope({"_meta": None})
     assert not _has_modern_envelope({"_meta": {"progressToken": 1}})
-    partial_meta = {k: v for k, v in _modern_envelope().items() if k != CLIENT_CAPABILITIES_META_KEY}
-    assert not _has_modern_envelope({"_meta": partial_meta})
+    version_only = {PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION}
+    assert _has_modern_envelope({"_meta": version_only})
+    pair_only = {k: v for k, v in _modern_envelope().items() if k != CLIENT_INFO_META_KEY}
+    assert _has_modern_envelope({"_meta": pair_only})
     assert _has_modern_envelope(_modern_params())
 
 

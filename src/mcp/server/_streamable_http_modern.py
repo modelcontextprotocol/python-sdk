@@ -218,9 +218,11 @@ async def _tool_input_schema(
     """
     meta = {
         PROTOCOL_VERSION_META_KEY: verdict.protocol_version,
-        CLIENT_INFO_META_KEY: verdict.client_info,
         CLIENT_CAPABILITIES_META_KEY: verdict.client_capabilities,
     }
+    if verdict.client_info is not None:
+        # Optional key: a conforming pair-only caller omits it rather than sending null.
+        meta[CLIENT_INFO_META_KEY] = verdict.client_info
     list_params: dict[str, Any] = {"_meta": meta}
     try:
         _methods.validate_client_request("tools/list", verdict.protocol_version, list_params)

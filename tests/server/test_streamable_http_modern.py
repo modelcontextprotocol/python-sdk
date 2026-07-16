@@ -26,6 +26,7 @@ from mcp_types import (
     PROTOCOL_VERSION_META_KEY,
     CallToolRequestParams,
     CallToolResult,
+    ClientCapabilities,
     ErrorData,
     JSONRPCError,
     JSONRPCResponse,
@@ -156,6 +157,40 @@ def _list_tools_body() -> dict[str, Any]:
         CLIENT_CAPABILITIES_META_KEY: {},
     }
     return {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {"_meta": meta}}
+
+
+async def test_handle_modern_request_serves_pair_only_envelope_without_client_info() -> None:
+    """Spec-mandated (spec PR #3002): `clientInfo` is optional - a request whose
+    `_meta` carries only the protocol-version + client-capabilities pair is
+    served, with the declared capabilities recorded and `client_params` None."""
+    seen: list[tuple[object, object]] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        seen.append((ctx.session.client_params, ctx.session.client_capabilities))
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    server: Server[Any] = Server("test", on_list_tools=list_tools)
+    body = _list_tools_body()
+    del body["params"]["_meta"][CLIENT_INFO_META_KEY]
+    async with _asgi_client(server) as http:
+        response = await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 200
+    assert response.json()["result"]["tools"] == []
+    assert seen == [(None, ClientCapabilities())]
+
+
+async def test_handle_modern_request_missing_capabilities_rejects_naming_the_key() -> None:
+    """Spec-mandated (basic/index.mdx): the protocol version without the
+    required client-capabilities key is malformed - INVALID_PARAMS (HTTP 400)
+    with a message naming the missing key."""
+    body = _list_tools_body()
+    del body["params"]["_meta"][CLIENT_CAPABILITIES_META_KEY]
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == INVALID_PARAMS
+    assert CLIENT_CAPABILITIES_META_KEY in error["message"]
 
 
 async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info() -> None:
@@ -707,6 +742,20 @@ async def test_modern_tools_call_accepts_matching_mcp_param_header() -> None:
         )
     assert response.status_code == 200
     assert response.json()["result"]["content"] == []
+
+
+async def test_modern_tools_call_validates_mcp_param_headers_for_a_pair_only_envelope() -> None:
+    """The schema-resolving `tools/list` walk builds its synthetic envelope from the caller's:
+    a pair-only caller (spec PR #3002, no clientInfo) omits the optional key rather than sending
+    null, so header validation still runs and a mismatched header is still rejected."""
+    body = _tool_call_body({"region": "east"})
+    del body["params"]["_meta"][CLIENT_INFO_META_KEY]
+    async with _asgi_client(_x_mcp_server()) as http:
+        matched = await http.post("/mcp", json=body, headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "east"})
+        mismatched = await http.post("/mcp", json=body, headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "west"})
+    assert matched.status_code == 200
+    assert mismatched.status_code == 400
+    assert mismatched.json()["error"]["code"] == HEADER_MISMATCH
 
 
 @pytest.mark.parametrize("json_response", [True, False])

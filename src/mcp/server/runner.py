@@ -439,19 +439,23 @@ async def serve_loop(
     )
 
 
-_MODERN_ENVELOPE_KEYS = (PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY)
-
-
 def _has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
-    """Whether `params._meta` carries every reserved modern-envelope key.
+    """Whether `params._meta` carries the reserved protocol-version key.
 
-    Era evidence is the FULL key triple - bare `_meta` is not (legacy traffic
-    carries `progressToken` there).
+    Era evidence is the client's explicit version declaration: the
+    `io.modelcontextprotocol/protocolVersion` key exists only in 2026-07-28+
+    envelopes, and the `io.modelcontextprotocol/` prefix is spec-reserved, so
+    legacy traffic never mints it (bare `_meta` is NOT evidence - legacy
+    requests carry `progressToken` there). Presence of the version key alone
+    is the rule, not the full required pair, so a half-built envelope
+    (version present, capabilities missing) still routes modern and gets the
+    classifier's INVALID_PARAMS naming the missing key instead of the legacy
+    path's generic one - and, like every failed classification, locks no era.
     """
     if not params:
         return False
     meta = params.get("_meta")
-    return isinstance(meta, Mapping) and all(key in meta for key in _MODERN_ENVELOPE_KEYS)
+    return isinstance(meta, Mapping) and PROTOCOL_VERSION_META_KEY in meta
 
 
 def _initialize_after_modern_data(params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -557,8 +561,8 @@ async def serve_dual_era_loop(
       like `serve_loop` for its lifetime, and modern envelope traffic is then
       rejected with INVALID_REQUEST. `initialize` never routes modern - the
       method is legacy-distinctive by definition - even when a confused
-      client stamps the envelope triple on it.
-    - A request carrying the modern `_meta` envelope triple - or
+      client stamps the envelope keys on it.
+    - A request whose `_meta` declares the modern protocol version - or
       `server/discover`, a modern-only method - is classified
       (`classify_inbound_request`) and served single-exchange via `serve_one`
       with a born-ready per-request `Connection`, the same dispatch model as
@@ -676,7 +680,7 @@ async def serve_dual_era_loop(
             return await serve_modern(dctx, method, params)
         # Unlocked. `initialize` is legacy-distinctive by definition (the
         # method does not exist at modern versions), so it takes the handshake
-        # path even when the envelope triple is stamped on it.
+        # path even when the envelope keys are stamped on it.
         if method != "initialize" and (method == "server/discover" or _has_modern_envelope(params)):
             return await serve_modern(dctx, method, params)
         result = await loop_runner.on_request(dctx, method, params)

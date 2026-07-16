@@ -302,12 +302,14 @@ PACKAGE_BY_VERSION = {
     "2026-07-28": "mcp_types.v2026_07_28",
 }
 
-# The three reserved `params._meta` entries the 2026 surface requires on every request.
+# The reserved `params._meta` entries the 2026 surface accepts on every request.
+# `clientInfo` is optional (SHOULD-include, spec PR #3002); the other two are required.
 META_TRIPLE: dict[str, Any] = {
     "io.modelcontextprotocol/protocolVersion": "2026-07-28",
     "io.modelcontextprotocol/clientInfo": {"name": "client", "version": "1.0"},
     "io.modelcontextprotocol/clientCapabilities": {},
 }
+META_REQUIRED_KEYS = ("io.modelcontextprotocol/protocolVersion", "io.modelcontextprotocol/clientCapabilities")
 
 # One minimal valid params mapping per surface request class.
 REQUEST_PARAMS_FIXTURES: dict[type[BaseModel], dict[str, Any] | None] = {
@@ -651,14 +653,22 @@ def test_unknown_version_strings_raise_value_error_on_every_parse_function():
         assert "2099-01-01" in str(excinfo.value)
 
 
-def test_2026_07_28_requests_missing_a_reserved_meta_entry_reject_as_missing():
-    for absent_key in META_TRIPLE:
+def test_2026_07_28_requests_missing_a_required_meta_entry_reject_as_missing():
+    for absent_key in META_REQUIRED_KEYS:
         partial_meta = {key: value for key, value in META_TRIPLE.items() if key != absent_key}
         with pytest.raises(pydantic.ValidationError) as excinfo:
             methods.parse_client_request("tools/list", "2026-07-28", {"_meta": partial_meta})
         assert [error["loc"] for error in excinfo.value.errors() if error["type"] == "missing"] == [
             ("params", "_meta", absent_key)
         ]
+
+
+def test_2026_07_28_requests_accept_meta_without_the_optional_client_info():
+    """spec PR #3002: `clientInfo` is optional on the 2026 surface - the required
+    pair alone validates."""
+    pair_meta = {key: value for key, value in META_TRIPLE.items() if key != "io.modelcontextprotocol/clientInfo"}
+    parsed = methods.parse_client_request("tools/list", "2026-07-28", {"_meta": pair_meta})
+    assert isinstance(parsed, types.ListToolsRequest)
 
 
 def test_2026_07_28_results_require_result_type():

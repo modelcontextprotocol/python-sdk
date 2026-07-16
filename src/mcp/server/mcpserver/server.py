@@ -1320,8 +1320,8 @@ def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: st
         MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
             did not advertise `identifier`.
     """
-    client_params = ctx.session.client_params
-    declared = client_params.capabilities.extensions if client_params else None
+    capabilities = ctx.session.client_capabilities
+    declared = capabilities.extensions if capabilities else None
     if not declared or identifier not in declared:
         data = MissingRequiredClientCapabilityErrorData(
             required_capabilities=ClientCapabilities(extensions={identifier: {}})
