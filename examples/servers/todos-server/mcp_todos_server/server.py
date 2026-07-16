@@ -29,5 +29,7 @@ def main(transport: str, port: int | None) -> int:
     else:
         resolved_port = port if port is not None else int(os.environ.get("PORT", "3000"))
         print(f"[todos] listening on http://127.0.0.1:{resolved_port}/mcp", file=sys.stderr)
+        # The SDK binds 127.0.0.1 and validates Host/Origin against localhost by default,
+        # matching the TypeScript reference's protected HTTP wiring.
         mcp.run(transport="streamable-http", port=resolved_port)
     return 0

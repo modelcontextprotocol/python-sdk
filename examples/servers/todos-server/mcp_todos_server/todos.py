@@ -1,4 +1,4 @@
-"""The "todos" demo application — a Python port of the TypeScript SDK's reference todos-server.
+"""The "todos" demo application, a Python port of the TypeScript SDK's reference todos-server.
 
 It is a small but believable application (a project todo board) where every MCP feature has
 a job: CRUD tools the model calls from chat, the board and each task exposed as resources,
@@ -23,8 +23,7 @@ from typing import Annotated, Literal
 
 import anyio
 from mcp import MCPDeprecationWarning
-from mcp.server import ServerRequestContext
-from mcp.server.lowlevel import NotificationOptions
+from mcp.server import NotificationOptions, ServerRequestContext
 from mcp.server.mcpserver import (
     AcceptedElicitation,
     Context,
@@ -46,6 +45,7 @@ from mcp_types import (
     CreateMessageResult,
     EmptyResult,
     ListResourcesResult,
+    LoggingLevel,
     PaginatedRequestParams,
     PromptReference,
     Resource,
@@ -77,7 +77,7 @@ class Task:
     notes: str | None = None
 
 
-tasks: dict[str, Task] = {}
+tasks_by_id: dict[str, Task] = {}
 _next_id = itertools.count(1)
 
 
@@ -89,16 +89,16 @@ def add_task_record(
     notes: str | None = None,
 ) -> Task:
     created = Task(id=f"t{next(_next_id)}", title=title, project=project, priority=priority, due=due, notes=notes)
-    tasks[created.id] = created
+    tasks_by_id[created.id] = created
     return created
 
 
 def open_tasks() -> list[Task]:
-    return [task for task in tasks.values() if task.status == "open"]
+    return [task for task in tasks_by_id.values() if task.status == "open"]
 
 
 def projects() -> list[str]:
-    return list(dict.fromkeys(task.project for task in tasks.values()))
+    return list(dict.fromkeys(task.project for task in tasks_by_id.values()))
 
 
 def describe_task(task: Task) -> str:
@@ -117,7 +117,7 @@ def describe_task(task: Task) -> str:
 
 
 def render_board() -> str:
-    done = [task for task in tasks.values() if task.status == "done"]
+    done = [task for task in tasks_by_id.values() if task.status == "done"]
     lines = [
         "# Todo board",
         "",
@@ -162,11 +162,11 @@ def is_modern(ctx: Context) -> bool:
     return is_version_at_least(ctx.protocol_version or "", "2026-07-28")
 
 
-# Per-resource subscriptions (pre-2026 clients call resources/subscribe; tracked here so updates
-# only go to subscribers) and the logging/setLevel threshold. Both are process-wide: over stdio a
-# process serves exactly one client, and over HTTP this demo shares them across sessions.
+# Per-resource subscriptions (pre-2026 clients call resources/subscribe) and the logging/setLevel
+# threshold. Both are process-wide: over stdio a process serves exactly one client; over HTTP this
+# demo shares them across sessions (one session's subscribe or setLevel affects all of them).
 resource_subscriptions: set[str] = set()
-_log_level_threshold: str | None = None
+_log_level_threshold: LoggingLevel | None = None
 
 _LOG_LEVEL_ORDER = {
     "debug": 0,
@@ -195,10 +195,10 @@ async def log_info(ctx: Context, text: str) -> None:
             return
     else:
         threshold = _log_level_threshold
-        if threshold is not None and _LOG_LEVEL_ORDER.get(threshold, 0) > severity:
+        if threshold is not None and _LOG_LEVEL_ORDER[threshold] > severity:
             return
     # The logging capability is deprecated at 2026-07-28, but this notification is still the
-    # only wire shape for it on both eras — the deprecation warning is expected, so silence it.
+    # only wire shape for it on both eras; the deprecation warning is expected, so silence it.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MCPDeprecationWarning)
         await ctx.log("info", text, logger_name="todos")  # pyright: ignore[reportDeprecated]
@@ -207,12 +207,12 @@ async def log_info(ctx: Context, text: str) -> None:
 async def announce_board_change(ctx: Context) -> None:
     """Tell connected clients the board changed: the resource list, and the board resource for watchers.
 
-    Modern (2026-07-28) clients hear about it through their `subscriptions/listen` streams — the
+    Modern (2026-07-28) clients hear about it through their `subscriptions/listen` streams: the
     `ctx.notify_*` calls publish to those and are a no-op when nobody listens. Pre-2026 clients get
     the spontaneous notifications instead. The pre-2026 notifications go to the session that made
     the mutating call: over stdio (one client per process) that is every subscriber; over HTTP
-    with several concurrent pre-2026 sessions, other sessions don't hear about it — cross-session
-    delivery would need connection-level bookkeeping the high-level API doesn't expose yet.
+    with several concurrent pre-2026 sessions, other sessions don't hear about it, because
+    cross-session delivery would need connection-level bookkeeping the high-level API doesn't expose.
     """
     await ctx.notify_resources_changed()
     await ctx.notify_resource_updated(BOARD_URI)
@@ -227,8 +227,8 @@ async def announce_board_change(ctx: Context) -> None:
 # The three interactive tools (clear_done, prioritize, brainstorm_tasks) ask through resolver
 # dependencies: a tool parameter annotated `Annotated[T, Resolve(fn)]` is filled by running `fn`
 # before the tool body, and a resolver that returns `Elicit(...)` or `Sample(...)` has the
-# framework put the question to the client — carried inside `InputRequiredResult` rounds on
-# 2026-07-28 connections, sent as push-style requests on pre-2026 ones, with the multi-round
+# framework put the question to the client, carried inside `InputRequiredResult` rounds on
+# 2026-07-28 connections and sent as push-style requests on pre-2026 ones, with the multi-round
 # state sealed by the server. Every answer is pinned to the exact question render it accepted,
 # so a resolver whose question embeds board state (the done count, the open-task titles) never
 # consumes a stale answer: if the board changes between rounds, the framework re-asks instead.
@@ -281,7 +281,7 @@ def build_brainstorm_sampling(topic: str, wanted: int) -> Sample:
     )
 
 
-# What the server claims to be doing while it "works through" a task — pure colour for the log stream.
+# What the server claims to be doing while it "works through" a task; pure color for the log stream.
 WORK_QUIPS = [
     "applying percussive maintenance",
     "turning it off and on again",
@@ -325,7 +325,7 @@ def board() -> str:
 
 @mcp.resource(TASK_URI_TEMPLATE, name="task", description="A single task by id", mime_type="text/markdown")
 def task_resource(id: str) -> str:
-    task = tasks.get(id)
+    task = tasks_by_id.get(id)
     return describe_task(task) if task else f"No task with id {id}"
 
 
@@ -375,7 +375,7 @@ async def handle_completion(
         if ref.name == "plan-my-day" and argument.name == "focus":
             return Completion(values=[project for project in projects() if project.startswith(argument.value)])
     if isinstance(ref, ResourceTemplateReference) and ref.uri == TASK_URI_TEMPLATE and argument.name == "id":
-        return Completion(values=[task_id for task_id in tasks if task_id.startswith(argument.value)])
+        return Completion(values=[task_id for task_id in tasks_by_id if task_id.startswith(argument.value)])
     return None
 
 
@@ -426,9 +426,8 @@ async def add_tasks(
     tasks: Annotated[list[TaskInput], Field(min_length=1, description="Tasks to add")],
     ctx: Context,
 ) -> str:
-    new_tasks = tasks
     added: list[Task] = []
-    for index, item in enumerate(new_tasks):
+    for index, item in enumerate(tasks):
         # Pretend each insert takes a moment so the host has in-flight progress to render.
         await anyio.sleep(0.1)
         added.append(
@@ -440,7 +439,7 @@ async def add_tasks(
                 notes=item.notes,
             )
         )
-        await ctx.report_progress(index + 1, len(new_tasks), f'added "{item.title}"')
+        await ctx.report_progress(index + 1, len(tasks), f'added "{item.title}"')
     await announce_board_change(ctx)
     await log_info(ctx, f"added {len(added)} task(s)")
     return f"Added {len(added)} task(s):\n" + "\n".join(describe_task(task) for task in added)
@@ -458,15 +457,15 @@ def ask_custom_count(
     return None
 
 
-BrainstormOrder = tuple[int, str]
-"""(wanted, topic) once the forms settle; the bow-out action string ("decline"/"cancel") otherwise."""
+BrainstormOutcome = tuple[int, str] | str
+"""(wanted, topic) once the forms settle, or the bow-out action string ("decline"/"cancel")."""
 
 
 def resolve_brainstorm_order(
     theme: str | None,
     count_form: Annotated[ElicitationResult[BrainstormCountForm], Resolve(ask_count)],
     custom_form: Annotated[ElicitationResult[BrainstormCustomCountForm], Resolve(ask_custom_count)],
-) -> BrainstormOrder | str:
+) -> BrainstormOutcome:
     """Reduce the form answers to (wanted, topic), or to the answer's action when the user bowed out.
 
     The theme can come from the model (tool argument) or from the user (the form's theme field,
@@ -485,7 +484,7 @@ def resolve_brainstorm_order(
 
 
 def sample_ideas(
-    order: Annotated[BrainstormOrder | str, Resolve(resolve_brainstorm_order)],
+    order: Annotated[BrainstormOutcome, Resolve(resolve_brainstorm_order)],
 ) -> Sample | None:
     if isinstance(order, str):
         return None
@@ -504,7 +503,7 @@ async def brainstorm_tasks(
         str | None, Field(description='Theme for the invented tasks (default: "an engineer\'s week in hell")')
     ] = None,
     *,
-    order: Annotated[BrainstormOrder | str, Resolve(resolve_brainstorm_order)],
+    order: Annotated[BrainstormOutcome, Resolve(resolve_brainstorm_order)],
     ideas: Annotated[CreateMessageResult | None, Resolve(sample_ideas)],
     ctx: Context,
 ) -> CallToolResult:
@@ -531,7 +530,7 @@ async def list_tasks(
     wanted = status if status is not None else "open"
     matching = [
         task
-        for task in tasks.values()
+        for task in tasks_by_id.values()
         if (wanted == "all" or task.status == wanted) and (not project or task.project == project)
     ]
     if not matching:
@@ -545,8 +544,8 @@ async def complete_task(
     ctx: Context,
 ) -> CallToolResult:
     needle = task.lower()
-    found = tasks.get(task) or next(
-        (candidate for candidate in tasks.values() if needle in candidate.title.lower()), None
+    found = tasks_by_id.get(task) or next(
+        (candidate for candidate in tasks_by_id.values() if needle in candidate.title.lower()), None
     )
     if found is None:
         return text_result(f'No task matches "{task}".', is_error=True)
@@ -575,10 +574,9 @@ async def work_through_tasks(
     if not queue:
         return "Nothing open — the board is already clear."
     pace_seconds = secondsPerTask if secondsPerTask is not None else 3.0
+    # Cancellation: when the client cancels the call (notifications/cancelled), the SDK cancels
+    # this handler at its next await, so the loop stops instead of ploughing through the queue.
     for index, task in enumerate(queue):
-        # Cancellation: when the client cancels the call (notifications/cancelled), the SDK
-        # cancels this handler at its next await, so the loop stops instead of ploughing
-        # through the rest of the queue.
         quip = WORK_QUIPS[index % len(WORK_QUIPS)]
         await log_info(ctx, f'working on "{task.title}" — {quip}…')
         await anyio.sleep(pace_seconds)
@@ -595,7 +593,7 @@ def confirm_clear() -> Elicit[ClearConfirmation] | ClearConfirmation:
     An empty board resolves to a non-confirmation with no round-trip, so even if tasks complete
     concurrently before the tool body runs, nothing is deleted without the user being asked.
     """
-    done = sum(1 for task in tasks.values() if task.status == "done")
+    done = sum(1 for task in tasks_by_id.values() if task.status == "done")
     if done == 0:
         return ClearConfirmation(confirm=False)
     return Elicit(f"Delete {done} completed task(s) from the board?", ClearConfirmation)
@@ -606,14 +604,14 @@ async def clear_done(
     confirmation: Annotated[ElicitationResult[ClearConfirmation], Resolve(confirm_clear)],
     ctx: Context,
 ) -> str:
-    done = [task for task in tasks.values() if task.status == "done"]
+    done = [task for task in tasks_by_id.values() if task.status == "done"]
     if not done:
         return "No completed tasks to clear."
     if not (isinstance(confirmation, AcceptedElicitation) and confirmation.data.confirm):
-        # Decline and cancel are answers — report them and stop, never ask again.
+        # Decline and cancel are answers; report them and stop, never ask again.
         return f"Nothing deleted (user answered: {confirmation.action})."
     for task in done:
-        tasks.pop(task.id, None)
+        tasks_by_id.pop(task.id, None)
     await announce_board_change(ctx)
     await log_info(ctx, f"cleared {len(done)} completed task(s)")
     return f"Deleted {len(done)} completed task(s)."
@@ -656,7 +654,7 @@ async def prioritize(
     ranked = apply_ranking(sampled_text(ranking), candidates)
     for index, task in enumerate(ranked):
         task.priority = priority_for_rank(index, len(ranked))
-    # Priorities are board-visible state — watchers and list caches must hear about it.
+    # Priorities are board-visible state; watchers and list caches must hear about it.
     await announce_board_change(ctx)
     await log_info(ctx, f"prioritize: ranked {len(ranked)} open task(s) via the host LLM")
     return f"Re-prioritized {len(ranked)} task(s):\n" + "\n".join(
@@ -668,7 +666,7 @@ async def prioritize(
 #
 # Three pre-2026 methods (resources/subscribe, resources/unsubscribe, logging/setLevel) and a
 # dynamic resources/list have no MCPServer surface yet, so they are registered on the underlying
-# low-level server — the same pattern the everything-server uses.
+# low-level server, the same pattern the everything-server uses.
 
 
 async def handle_subscribe(ctx: ServerRequestContext, params: SubscribeRequestParams) -> EmptyResult:
@@ -699,7 +697,7 @@ async def handle_list_resources(ctx: ServerRequestContext, params: PaginatedRequ
             description="A single task by id",
             mime_type="text/markdown",
         )
-        for task in tasks.values()
+        for task in tasks_by_id.values()
     )
     return ListResourcesResult(resources=resources)
 
@@ -715,10 +713,11 @@ async def serve_stdio() -> None:
     """Serve over stdio, advertising listChanged capabilities to pre-2026 clients.
 
     `mcp.run()` would serve stdio too, but its pre-2026 handshake advertises
-    listChanged=false for tools/prompts/resources. This server does send those
-    notifications (and the TypeScript reference server advertises them), so build
-    the initialization options ourselves. Over streamable HTTP the SDK offers no
-    equivalent seam, so pre-2026 HTTP clients still see listChanged=false there.
+    listChanged=false for tools/prompts/resources. Build the initialization options
+    ourselves to advertise the same listChanged flags the TypeScript reference does
+    (of those notifications, this server actually sends the resource ones). Over
+    streamable HTTP the SDK offers no equivalent seam, so pre-2026 HTTP clients
+    still see listChanged=false there.
     """
     init_options = _lowlevel.create_initialization_options(
         notification_options=NotificationOptions(prompts_changed=True, resources_changed=True, tools_changed=True)
