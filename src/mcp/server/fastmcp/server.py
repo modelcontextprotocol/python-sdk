@@ -62,7 +62,7 @@ from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
@@ -106,6 +106,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     json_response: bool
     stateless_http: bool
     """Define if the server should create a new transport per request."""
+    max_request_body_size: int
 
     # resource settings
     warn_on_duplicate_resources: bool
@@ -166,6 +167,7 @@ class FastMCP(Generic[LifespanResultT]):
         streamable_http_path: str = "/mcp",
         json_response: bool = False,
         stateless_http: bool = False,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
@@ -193,6 +195,7 @@ class FastMCP(Generic[LifespanResultT]):
             streamable_http_path=streamable_http_path,
             json_response=json_response,
             stateless_http=stateless_http,
+            max_request_body_size=max_request_body_size,
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
@@ -960,6 +963,7 @@ class FastMCP(Generic[LifespanResultT]):
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
+                max_request_body_size=self.settings.max_request_body_size,
             )
 
         # Create the ASGI handler

@@ -1490,3 +1490,12 @@ def test_streamable_http_no_redirect() -> None:
 
     # Verify path values
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
+
+
+def test_streamable_http_app_passes_the_configured_request_body_limit_to_its_manager() -> None:
+    """SDK-defined: FastMCP forwards its public request-body setting to the Streamable HTTP manager."""
+    mcp = FastMCP(max_request_body_size=8)
+
+    mcp.streamable_http_app()
+
+    assert mcp.session_manager.max_request_body_size == 8

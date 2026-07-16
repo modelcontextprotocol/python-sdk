@@ -1,19 +1,24 @@
 """Tests for StreamableHTTPSessionManager."""
 
 import json
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import anyio
 import pytest
-from starlette.types import Message, Scope
+from starlette.types import Message, Receive, Scope, Send
 
 from mcp.server import streamable_http_manager
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    RequestBodyLimitMiddleware,
+    StreamableHTTPSessionManager,
+)
 from mcp.types import INVALID_REQUEST
 
 
@@ -68,9 +73,9 @@ async def test_handle_request_without_run_raises_error():
     manager = StreamableHTTPSessionManager(app=app)
 
     # Mock ASGI parameters
-    scope = {"type": "http", "method": "POST", "path": "/test"}
+    scope: Scope = {"type": "http", "method": "POST", "path": "/test", "headers": []}
 
-    async def receive():  # pragma: no cover
+    async def receive() -> Message:
         return {"type": "http.request", "body": b""}
 
     async def send(message: Message):  # pragma: no cover
@@ -81,6 +86,126 @@ async def test_handle_request_without_run_raises_error():
         await manager.handle_request(scope, receive, send)
 
     assert "Task group is not initialized. Make sure to use run()." in str(excinfo.value)
+
+
+@pytest.mark.anyio
+async def test_oversized_content_length_is_rejected_before_body_read_or_session_creation() -> None:
+    """SDK-defined: an oversized declared body gets HTTP 413 before the server reads it or creates a session."""
+    manager = StreamableHTTPSessionManager(app=Server("test-size-limit"), max_request_body_size=8)
+    sent_messages: list[Message] = []
+    receive = AsyncMock(return_value={"type": "http.request", "body": b"123456789", "more_body": False})
+
+    async def send(message: Message) -> None:
+        sent_messages.append(message)
+
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": [(b"content-length", b"9")],
+    }
+    async with manager.run():
+        await manager.handle_request(scope, receive, send)
+        assert manager._server_instances == {}
+
+    response_start = next(message for message in sent_messages if message["type"] == "http.response.start")
+    assert response_start["status"] == 413
+    receive.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("headers", [[], [(b"content-length", b"invalid")], [(b"content-length", b"8")]])
+async def test_oversized_streamed_body_is_rejected_before_session_creation(
+    headers: list[tuple[bytes, bytes]],
+) -> None:
+    """SDK-defined: streamed bodies enforce the limit with missing, invalid, or understated length."""
+    manager = StreamableHTTPSessionManager(app=Server("test-streamed-size-limit"), max_request_body_size=8)
+    sent_messages: list[Message] = []
+    request_messages: Iterator[Message] = iter(
+        [
+            {"type": "http.request", "body": b"1234", "more_body": True},
+            {"type": "http.request", "body": b"56789", "more_body": False},
+        ]
+    )
+
+    async def receive() -> Message:
+        return next(request_messages)
+
+    async def send(message: Message) -> None:
+        sent_messages.append(message)
+
+    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": headers}
+    async with manager.run():
+        await manager.handle_request(scope, receive, send)
+        assert manager._server_instances == {}
+
+    response_start = next(message for message in sent_messages if message["type"] == "http.response.start")
+    assert response_start["status"] == 413
+
+
+@pytest.mark.anyio
+async def test_request_body_chunks_are_replayed_as_one_message() -> None:
+    """SDK-defined: raw ASGI proves chunk overhead is discarded before the body reaches the transport."""
+    request_messages: Iterator[Message] = iter(
+        [
+            {"type": "http.request", "body": b"12", "more_body": True},
+            {"type": "http.request", "body": b"34", "more_body": True},
+            {"type": "http.request", "body": b"56", "more_body": False},
+            {"type": "http.disconnect"},
+        ]
+    )
+    received_messages: list[Message] = []
+
+    async def receive() -> Message:
+        return next(request_messages)
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        received_messages.append(await receive())
+        received_messages.append(await receive())
+
+    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": []}
+    middleware = RequestBodyLimitMiddleware(app, max_body_size=8)
+
+    await middleware(scope, receive, AsyncMock())
+
+    assert received_messages == [
+        {"type": "http.request", "body": b"123456", "more_body": False},
+        {"type": "http.disconnect"},
+    ]
+
+
+@pytest.mark.anyio
+async def test_disconnect_before_request_body_is_replayed() -> None:
+    """SDK-defined: raw ASGI proves a disconnect before the first body message reaches the transport."""
+    disconnect: Message = {"type": "http.disconnect"}
+    received_messages: list[Message] = []
+
+    async def receive() -> Message:
+        return disconnect
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        received_messages.append(await receive())
+
+    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": []}
+    middleware = RequestBodyLimitMiddleware(app, max_body_size=8)
+
+    await middleware(scope, receive, AsyncMock())
+
+    assert received_messages == [disconnect]
+
+
+def test_request_body_limit_defaults_to_four_mib() -> None:
+    """SDK-defined: Streamable HTTP request bodies are limited to 4 MiB by default."""
+    manager = StreamableHTTPSessionManager(app=Server("test-default-size-limit"))
+    assert manager.max_request_body_size == DEFAULT_MAX_REQUEST_BODY_SIZE == 4 * 1024 * 1024
+
+
+@pytest.mark.parametrize("max_request_body_size", [0, -1])
+def test_request_body_limit_rejects_non_positive_values(max_request_body_size: int) -> None:
+    """SDK-defined: callers cannot disable request-size protection with a non-positive value."""
+    with pytest.raises(ValueError) as exc_info:
+        StreamableHTTPSessionManager(app=Server("test-invalid-size-limit"), max_request_body_size=max_request_body_size)
+    assert str(exc_info.value) == "max_request_body_size must be a positive number of bytes"
 
 
 class TestException(Exception):
@@ -118,7 +243,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive():  # pragma: no cover
+    async def mock_receive():
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -177,7 +302,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive():  # pragma: no cover
+    async def mock_receive():
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -297,7 +422,7 @@ async def test_unknown_session_id_returns_404():
         }
 
         async def mock_receive():
-            return {"type": "http.request", "body": b"{}", "more_body": False}  # pragma: no cover
+            return {"type": "http.request", "body": b"{}", "more_body": False}
 
         await manager.handle_request(scope, mock_receive, mock_send)
 
@@ -336,7 +461,7 @@ async def test_idle_session_is_reaped():
             "headers": [(b"content-type", b"application/json")],
         }
 
-        async def mock_receive():  # pragma: no cover
+        async def mock_receive():
             return {"type": "http.request", "body": b"", "more_body": False}
 
         await manager.handle_request(scope, mock_receive, mock_send)

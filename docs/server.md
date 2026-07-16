@@ -1253,6 +1253,7 @@ The FastMCP server instance accessible via `ctx.fastmcp` provides access to serv
   - `host` and `port` - Server network configuration
   - `mount_path`, `sse_path`, `streamable_http_path` - Transport paths
   - `stateless_http` - Whether the server operates in stateless mode
+  - `max_request_body_size` - Maximum Streamable HTTP POST body size in bytes
   - And other configuration options
 
 ```python
@@ -1416,6 +1417,14 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 ### Streamable HTTP Transport
 
 > **Note**: Streamable HTTP transport is the recommended transport for production deployments. Use `stateless_http=True` and `json_response=True` for optimal scalability.
+
+Streamable HTTP POST bodies are limited to 4 MiB by default. Larger requests receive HTTP 413
+before parsing or session creation. If your server intentionally accepts larger MCP messages,
+configure the smallest suitable byte limit:
+
+```python
+mcp = FastMCP("Large messages", max_request_body_size=8 * 1024 * 1024)
+```
 
 <!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
