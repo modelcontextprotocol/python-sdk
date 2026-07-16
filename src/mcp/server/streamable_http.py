@@ -672,6 +672,26 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
+        # Per the Streamable HTTP spec, a GET that the server will not serve as a
+        # standalone SSE stream MUST be answered with 405 Method Not Allowed:
+        #   "The server MUST either return Content-Type: text/event-stream in
+        #    response to this HTTP GET, or else return HTTP 405 Method Not Allowed,
+        #    indicating that the server does not offer an SSE stream at this endpoint."
+        # Spec-compliant clients probe with a pre-`initialize` GET and treat 405 as
+        # the graceful "no SSE, fall through to POST" signal. In stateful mode a GET
+        # without an established session can never open an SSE stream, so falling
+        # through to session validation (which returns 400 "Missing session ID")
+        # makes that probe impossible to satisfy. Return the spec-mandated 405 here.
+        if self.mcp_session_id and not self._get_session_id(request):
+            response = self._create_error_response(
+                "Method Not Allowed: No standalone SSE stream is available without an active session; "
+                "POST to initialize a session first",
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                headers={"Allow": "POST"},
+            )
+            await response(request.scope, request.receive, send)
+            return
+
         if not await self._validate_request_headers(request, send):
             return
 
