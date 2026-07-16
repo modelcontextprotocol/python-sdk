@@ -143,6 +143,58 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
 
 
 @pytest.mark.anyio
+async def test_client_session_group_skips_unadvertised_capabilities(mock_exit_stack: contextlib.AsyncExitStack):
+    server_info = types.Implementation(name="ToolsOnlyServer", version="1")
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    mock_tool = types.Tool(name="ping", input_schema={})
+    mock_session.initialize_result = types.InitializeResult(
+        protocol_version="2025-03-26",
+        capabilities=types.ServerCapabilities(tools=types.ToolsCapability(list_changed=False)),
+        server_info=server_info,
+    )
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[mock_tool])
+    mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+    with mock.patch.object(group, "_establish_session", return_value=(server_info, mock_session)):
+        await group.connect_to_server(StdioServerParameters(command="test"))
+
+    assert group.tools == {"ping": mock_tool}
+    assert group.resources == {}
+    assert group.prompts == {}
+    mock_session.list_tools.assert_awaited_once()
+    mock_session.list_resources.assert_not_awaited()
+    mock_session.list_prompts.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_client_session_group_skips_unadvertised_tools(mock_exit_stack: contextlib.AsyncExitStack):
+    server_info = types.Implementation(name="PromptServer", version="1")
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    mock_prompt = types.Prompt(name="explain")
+    mock_session.initialize_result = types.InitializeResult(
+        protocol_version="2025-03-26",
+        capabilities=types.ServerCapabilities(prompts=types.PromptsCapability(list_changed=False)),
+        server_info=server_info,
+    )
+    mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[mock_prompt])
+    mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[])
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+    with mock.patch.object(group, "_establish_session", return_value=(server_info, mock_session)):
+        await group.connect_to_server(StdioServerParameters(command="test"))
+
+    assert group.prompts == {"explain": mock_prompt}
+    assert group.resources == {}
+    assert group.tools == {}
+    mock_session.list_prompts.assert_awaited_once()
+    mock_session.list_resources.assert_not_awaited()
+    mock_session.list_tools.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_stack: contextlib.AsyncExitStack):
     """Test connecting with a component name hook."""
     # --- Mock Dependencies ---
