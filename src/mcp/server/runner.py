@@ -626,8 +626,19 @@ async def serve_dual_era_loop(
     Classified-modern requests are also governed by the 2026 cancellation
     rule for their whole lifetime: after an inbound `notifications/cancelled`
     the server sends nothing further for that request - no result, no error
-    (the transport spec's MUST NOT). Legacy-era requests keep the
-    byte-identical "Request cancelled" answer released 2025 clients expect.
+    (the transport spec's MUST NOT). Once the connection is LOCKED modern the
+    rule widens from classification-scoped to connection-scoped: every
+    request - including one rejected before classification succeeds
+    (envelope-less, malformed envelope) - carries the silence commitment, so
+    a rejection error computed after the peer's cancel never reaches the wire
+    (the rejection itself, absent a cancel, is of course still answered).
+    Legacy-era requests keep the byte-identical "Request cancelled" answer
+    released 2025 clients expect - including a legacy-classified request
+    still in flight when the modern lock commits (the straggler carve-out
+    covers its cancel answer, not just its response) - as does a request that
+    fails classification on a still-unlocked connection: an unclassifiable
+    request has not proven modern semantics, so the legacy answer stands
+    there.
     """
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
         read_stream,
@@ -672,11 +683,18 @@ async def serve_dual_era_loop(
         if isinstance(route, InboundLadderRejection):
             raise MCPError(code=route.code, message=route.message, data=route.data)
         # Classification succeeded: 2026 wire semantics govern this request's
-        # lifecycle from here. Both facts attach synchronously - no checkpoint
-        # since the dispatcher entered the handler scope - so a peer cancel
-        # can never interleave and observe the legacy defaults.
-        suppress_cancel_answer(dctx)
-        observe_success_frames(dctx, partial(commit_modern, dctx, route.protocol_version))
+        # lifecycle from here. On a still-unlocked connection this is the
+        # silence rule's exact scope - a request that fails classification
+        # above has not proven modern semantics and keeps the legacy cancel
+        # answer - and the era lock rides the request's first success frame.
+        # Both facts attach synchronously - no checkpoint since the
+        # dispatcher entered the handler scope - so a peer cancel can never
+        # interleave and observe the legacy defaults. Once the connection is
+        # locked, neither attaches here: `on_request` owns the
+        # connection-scoped silence fact, and the lock can never move again.
+        if era == "unlocked":
+            suppress_cancel_answer(dctx)
+            observe_success_frames(dctx, partial(commit_modern, dctx, route.protocol_version))
         connection = Connection.from_envelope(
             route.protocol_version,
             route.client_info,
@@ -718,6 +736,16 @@ async def serve_dual_era_loop(
             # METHOD_NOT_FOUND a handshake-only server produced, byte for byte.
             return await loop_runner.on_request(dctx, method, params)
         if era == "modern":
+            # Connection-scoped silence: once locked modern, EVERY request is
+            # governed by the 2026 cancellation rule, rejections included - a
+            # rejection error is a legitimate answer, but nothing may follow
+            # the peer's `notifications/cancelled`. Pre-classification rejects
+            # run on a spawned task, so an adjacent cancel can precede them
+            # under trio's randomized scheduling (asyncio's FIFO always starts
+            # the reject's answer write first - the legitimate
+            # already-answering case; inline `initialize` has no window at
+            # all). See the cancellation paragraph on `serve_dual_era_loop`.
+            suppress_cancel_answer(dctx)
             if method == "initialize":
                 raise MCPError(
                     code=UNSUPPORTED_PROTOCOL_VERSION,

@@ -2102,6 +2102,47 @@ async def test_dual_era_loop_adjacent_cancel_behind_a_fast_modern_request_cannot
 
 
 @pytest.mark.anyio
+async def test_dual_era_loop_modern_locked_envelope_less_reject_with_adjacent_cancel_never_answers_legacy():
+    """On a modern-locked connection the silence commitment is
+    connection-scoped: it attaches to every request, including one rejected
+    before classification (envelope-less). With the cancel adjacent behind
+    the request, asyncio's FIFO scheduling always starts the reject's answer
+    write before the read loop consumes the cancel - the legitimate
+    already-answering case - so exactly one frame appears for the id: the
+    INVALID_PARAMS classification error, never a code-0 legacy cancel answer,
+    and nothing after it. (The silenced arm - the cancel consumed before the
+    reject computes, reachable under trio's randomized scheduling - is pinned
+    at the dispatcher level by
+    test_suppress_cancel_answer_silences_even_an_error_raised_after_the_cancel_landed.)"""
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
+
+    srv: SrvT = Server(name="fast-server", version="0.0.1", on_list_tools=list_tools)
+    async with raw_dual_era_loop(srv) as (c2s, s2c):
+        # Lock modern with a classified request.
+        c2s.send_nowait(_raw_req(1, "tools/list", _modern_params()))
+        locked = (await s2c.receive()).message
+        assert isinstance(locked, JSONRPCResponse)
+        # Envelope-less request with the cancel adjacent behind it.
+        c2s.send_nowait(_raw_req(9, "tools/list", {"plain": True}))
+        c2s.send_nowait(_raw_note("notifications/cancelled", {"requestId": 9}))
+        answer = (await s2c.receive()).message
+        assert isinstance(answer, JSONRPCError)
+        assert answer.id == 9
+        assert answer.error.code == INVALID_PARAMS
+        assert answer.error != ErrorData(code=0, message="Request cancelled")
+        # Nothing further for the cancelled id, and the connection stays healthy.
+        await anyio.wait_all_tasks_blocked()
+        with pytest.raises(anyio.WouldBlock):
+            s2c.receive_nowait()
+        c2s.send_nowait(_raw_req(10, "tools/list", _modern_params()))
+        result = (await s2c.receive()).message
+        assert isinstance(result, JSONRPCResponse)
+        assert result.id == 10
+
+
+@pytest.mark.anyio
 async def test_dual_era_loop_maps_unmapped_handler_exceptions_like_the_modern_http_entry():
     """An unmapped handler exception on a modern request surfaces as the
     generic INTERNAL_ERROR - the same boundary as the modern HTTP entry - so
