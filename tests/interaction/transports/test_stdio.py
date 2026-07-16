@@ -113,7 +113,8 @@ async def test_stdio_server_writes_one_jsonrpc_message_per_line() -> None:
     """Every `stdio_server` write is one valid JSON-RPC message on its own line.
 
     Each line is newline-terminated with payload newlines JSON-escaped. This proves the
-    transport's own framing; it does not guard `sys.stdout` against handler code (see the
+    transport's own framing over injected streams; the descriptor-level guard that keeps
+    handler code off the wire is pinned by tests/server/test_stdio.py (see the narrowed
     divergence on `transport:stdio:stream-purity`).
     """
     captured = io.StringIO()

@@ -3916,9 +3916,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over stdio: stdin/stdout purity is stdio-specific.",
         divergence=Divergence(
             note=(
-                "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
-                "handler code that calls print() writes directly to the protocol stream and corrupts the "
-                "framing. The spec MUST is satisfied only as long as application code behaves."
+                "While serving, stdio_server moves the wire to private descriptors and diverts fd 0/1, so "
+                "handler code and its child processes can neither read protocol bytes nor write into the "
+                "stream (pinned by tests/server/test_stdio.py). Remaining gaps: output flushed to stdout "
+                "before the transport enters can still precede the first frame; the claim is best-effort "
+                "and skipped for explicitly injected streams; and a stderr merged into stdout (2>&1) is "
+                "detected and neutralized only on POSIX - Windows pipe handles carry no identity."
             ),
         ),
     ),
