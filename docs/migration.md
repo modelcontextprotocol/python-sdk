@@ -1855,6 +1855,32 @@ group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
 per-process terminate/kill fallback are gone. The win32 utilities logger is now
 named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
+### `stdio_server` keeps the protocol stdin on a private descriptor
+
+While serving on the process's real stdin, the stdio server transport now duplicates
+the protocol pipe to a private descriptor and points fd 0 — and, on Windows, the
+standard input handle — at the null device, restoring both when the transport exits.
+Subprocesses started by handler code therefore inherit the null device instead of the
+protocol pipe. (The claim is best-effort: in the rare process whose descriptor table
+cannot be rearranged, the transport serves stdin in place, exactly as v1 did.)
+
+In v1 a child inheriting the pipe could consume protocol bytes, and on Windows it
+hung inside interpreter startup — behind the transport's pending read on the shared
+pipe ([CPython gh-78961](https://github.com/python/cpython/issues/78961)) — until
+the next request arrived: the
+[#671](https://github.com/modelcontextprotocol/python-sdk/issues/671) hang, for
+which passing `stdin=subprocess.DEVNULL` on every spawn was the required
+workaround. On v2 the workaround is no longer needed, for any spawn API,
+redirected or not.
+
+To migrate: nothing, unless handler code read `sys.stdin` (or called `input()`)
+during a stdio session — it now sees end-of-file instead of racing the transport for
+protocol bytes; there was never a meaningful value to read there. Likewise, bytes
+something buffered out of `sys.stdin` before the server started no longer reach the
+transport (they never reliably did). Passing explicit `stdin=`/`stdout=` streams to
+`stdio_server(...)` skips the descriptor changes entirely, as does any environment
+where `sys.stdin` is not backed by the process's real fd 0.
+
 ### WebSocket transport removed
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.

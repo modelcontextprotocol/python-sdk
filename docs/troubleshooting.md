@@ -141,41 +141,6 @@ There is no error string for this, which is exactly why it is hard to search. Th
 
 An "invalid" tool name is *not* on that list: a non-conforming name logs a warning but the tool is registered and listed anyway.
 
-## My stdio tool hangs when it starts a subprocess on Windows
-
-Your server is running over `stdio`, and a tool starts another process with
-`asyncio.create_subprocess_exec`, `asyncio.create_subprocess_shell`, or
-`subprocess.Popen`. The tool call never returns on Windows, while the same code
-works over an HTTP transport.
-
-The child inherited the server's stdin. In a stdio server, stdin is the protocol
-pipe and the server is already waiting on it for the next JSON-RPC message. A
-Python child process on Windows can block during startup when it inherits that
-same pipe.
-
-If you do not intend to send input to the child, redirect its stdin:
-
-```python
-import asyncio
-import subprocess
-import sys
-
-
-async def run_script() -> tuple[bytes, bytes]:
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "script.py",
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return await process.communicate()
-```
-
-Use the same idea with `subprocess.Popen(..., stdin=subprocess.DEVNULL)`. Also
-capture or redirect the child's stdout. The stdio server's stdout is the MCP
-wire, so a child that writes there can corrupt the connection.
-
 ## `MCPError: Server returned an error response`
 
 The server refused the HTTP request outright, with a body that is not JSON-RPC, so the python `Client` has nothing better to show you than this stand-in.
