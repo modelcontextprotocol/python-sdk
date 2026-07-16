@@ -41,11 +41,13 @@ from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsag
     _OutboundPlan,
     _Pending,
     _plan_outbound,
+    observe_success_frames,
+    suppress_cancel_answer,
 )
 from mcp.shared.message import ClientMessageMetadata, MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
-from .conftest import jsonrpc_pair
+from .conftest import direct_pair, jsonrpc_pair
 from .test_dispatcher import Recorder, echo_handlers, running_pair
 
 DCtx = DispatchContext[TransportContext]
@@ -154,6 +156,156 @@ async def test_peer_cancel_interrupt_mode_writes_cancelled_error_response():
                 await handler_exited.wait()
     assert seen_ctx[0].cancel_requested.is_set()
     assert seen_error == [ErrorData(code=0, message="Request cancelled")]
+
+
+@pytest.mark.anyio
+async def test_suppress_cancel_answer_makes_a_peer_cancelled_request_fully_silent():
+    """A request committed to 2026 cancel semantics gets NO late answer: after
+    the peer cancel nothing at all is written for its id (no result, no
+    error), and the loop keeps serving other requests."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_started = anyio.Event()
+    handler_exited = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "probe":
+            return {"alive": True}
+        suppress_cancel_answer(ctx)
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=7, method="slow")))
+                await handler_started.wait()
+                await c2s_send.send(
+                    SessionMessage(
+                        message=JSONRPCNotification(
+                            jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 7}
+                        )
+                    )
+                )
+                await handler_exited.wait()
+                # Once every task is parked again the cancelled handler task has
+                # fully unwound, so the buffered write stream would already
+                # carry any (buggy) late answer for id 7.
+                await anyio.wait_all_tasks_blocked()
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=8, method="probe")))
+                resp = await s2c_recv.receive()
+                assert isinstance(resp, SessionMessage)
+                assert isinstance(resp.message, JSONRPCResponse)
+                # The probe's answer is the FIRST frame the server ever wrote:
+                # total silence for the cancelled id.
+                assert resp.message.id == 8
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_suppress_cancel_answer_silences_even_an_error_raised_after_the_cancel_landed():
+    """A handler that observes the peer cancel and raises before the
+    cancellation interrupt can land (shielded, then a synchronous raise)
+    still gets total silence: the error computed after the cancel must not
+    reach the wire either."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_started = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "probe":
+            return {"alive": True}
+        suppress_cancel_answer(ctx)
+        handler_started.set()
+        # Survive the interrupt so the cancel is observed, not delivered; the
+        # raise below then reaches the dispatcher's error arm directly.
+        with anyio.CancelScope(shield=True):
+            await ctx.cancel_requested.wait()
+        raise MCPError(code=INTERNAL_ERROR, message="computed after the cancel")
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=7, method="slow")))
+                await handler_started.wait()
+                await c2s_send.send(
+                    SessionMessage(
+                        message=JSONRPCNotification(
+                            jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 7}
+                        )
+                    )
+                )
+                await anyio.wait_all_tasks_blocked()
+                await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=8, method="probe")))
+                resp = await s2c_recv.receive()
+                assert isinstance(resp, SessionMessage)
+                assert isinstance(resp.message, JSONRPCResponse)
+                # The probe's answer is the first frame ever written: the
+                # post-cancel MCPError never reached the wire.
+                assert resp.message.id == 8
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_observe_success_frames_fires_for_notifications_and_the_result_but_not_errors():
+    """The observer runs immediately before each non-error frame for the
+    request - the request-scoped notification and the success result - and
+    never for an error response."""
+    calls: list[str] = []
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        observe_success_frames(ctx, lambda: calls.append(method))
+        if method == "fail":
+            raise MCPError(code=INTERNAL_ERROR, message="nope")
+        await ctx.notify("x/note", None)
+        return {"ok": True}
+
+    async with running_pair(jsonrpc_pair, server_on_request=on_request) as (client, *_):
+        with anyio.fail_after(5):
+            assert await client.send_raw_request("emit", None) == {"ok": True}
+            # Once before the notification frame, once before the result frame.
+            assert calls == ["emit", "emit"]
+            with pytest.raises(MCPError):
+                await client.send_raw_request("fail", None)
+            # Error responses never fire the observer.
+            assert calls == ["emit", "emit"]
+
+
+@pytest.mark.anyio
+async def test_cancel_and_frame_seams_are_noops_on_non_jsonrpc_contexts():
+    """`suppress_cancel_answer` / `observe_success_frames` configure the
+    JSON-RPC loop context's late-answer machinery; other dispatch contexts
+    are already structurally silent after a cancel, so on the direct
+    dispatcher both are safe no-ops."""
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        suppress_cancel_answer(ctx)
+        observe_success_frames(ctx, lambda: None)
+        return {"ok": True}
+
+    async with running_pair(direct_pair, server_on_request=on_request) as (client, *_):
+        with anyio.fail_after(5):
+            assert await client.send_raw_request("m", None) == {"ok": True}
 
 
 @pytest.mark.anyio
