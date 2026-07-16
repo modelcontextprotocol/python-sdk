@@ -48,6 +48,21 @@ class TestResourceTemplate:
         assert template.matches("test://foo") is None
         assert template.matches("other://foo/123") is None
 
+    def test_template_matches_rejects_trailing_newline_after_literal(self):
+        """A trailing newline after a literal segment slipped past `$` with re.match."""
+
+        def my_func(key: str) -> str:  # pragma: no cover
+            return key
+
+        template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="test://{key}/data",
+            name="test",
+        )
+
+        assert template.matches("test://foo/data") == {"key": "foo"}
+        assert template.matches("test://foo/data\n") is None
+
     @pytest.mark.anyio
     async def test_create_resource(self):
         """Test creating a resource from a template."""
