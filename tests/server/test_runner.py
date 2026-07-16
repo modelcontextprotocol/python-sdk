@@ -31,14 +31,19 @@ from mcp_types import (
     ErrorData,
     Implementation,
     InitializeRequestParams,
+    JSONRPCError,
+    JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     ListToolsResult,
     NotificationParams,
     PaginatedRequestParams,
     ProgressNotificationParams,
+    RequestId,
     RequestParams,
     SetLevelRequestParams,
     Tool,
+    UnsupportedProtocolVersionErrorData,
 )
 from mcp_types.version import (
     LATEST_HANDSHAKE_VERSION,
@@ -1466,6 +1471,57 @@ def _note_collector() -> tuple[
     return on_notify, send, recv
 
 
+def _raw_req(rid: RequestId, method: str, params: dict[str, Any] | None = None) -> SessionMessage:
+    return SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=rid, method=method, params=params))
+
+
+def _raw_note(method: str, params: dict[str, Any] | None = None) -> SessionMessage:
+    return SessionMessage(message=JSONRPCNotification(jsonrpc="2.0", method=method, params=params))
+
+
+async def _expect_ack(s2c: MemoryObjectReceiveStream[SessionMessage], subscription_id: RequestId) -> None:
+    """Receive the next frame and assert it is the ack stamped with `subscription_id`."""
+    ack = (await s2c.receive()).message
+    assert isinstance(ack, JSONRPCNotification)
+    assert ack.method == ACK_METHOD
+    assert ack.params is not None
+    assert ack.params["_meta"][SUBSCRIPTION_ID_META_KEY] == subscription_id
+
+
+@asynccontextmanager
+async def raw_dual_era_loop(
+    server: SrvT,
+) -> AsyncIterator[
+    tuple[MemoryObjectSendStream[SessionMessage | Exception], MemoryObjectReceiveStream[SessionMessage]]
+]:
+    """Yield raw `(c2s_send, s2c_recv)` streams around a live `serve_dual_era_loop`.
+
+    For frame-adjacency tests: `send_nowait` places frames in the loop's
+    buffer back-to-back, so races are driven at the wire with no client
+    dispatcher reordering between them. Assert absence with
+    `anyio.wait_all_tasks_blocked()` + `receive_nowait` (every frame the
+    server will ever write for the consumed input is buffered once all tasks
+    are parked), never with timed drains.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage](32)
+    body_exc: BaseException | None = None
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(partial(serve_dual_era_loop, server, c2s_recv, s2c_send, lifespan_state=_LIFESPAN))
+            try:
+                with anyio.fail_after(5):
+                    yield c2s_send, s2c_recv
+            except BaseException as e:
+                body_exc = e
+            tg.cancel_scope.cancel()
+        if body_exc is not None:
+            raise body_exc
+    finally:
+        for stream in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            stream.close()
+
+
 @pytest.mark.anyio
 async def test_dual_era_loop_serves_listen_and_locks_the_era_at_the_ack():
     """The full listen lifecycle over the stream loop: the request stays
@@ -1920,6 +1976,132 @@ async def test_dual_era_loop_modern_success_cancelled_away_at_the_response_write
 
 
 @pytest.mark.anyio
+async def test_dual_era_loop_cancel_racing_the_listen_ack_write_pins_the_accepted_orphaned_modern_lock():
+    """ACCEPTED DOCTRINE DEVIATION, pinned deliberately: a peer cancel landing
+    at the ack write's own checkpoint - after `commit_modern` ran, before the
+    frame delivered - leaves the era locked modern with ZERO frames on the
+    wire. `era_settles` re-checks `cancel_requested` at fire time, so this is
+    the only remaining window; closing it entirely needs a post-write commit,
+    which reopens the pipelined-initialize hijack the at-first-frame lock
+    exists to prevent (see the residual-corner paragraph on
+    `serve_dual_era_loop`). What this test pins is that the orphaned state is
+    self-consistent and client-recoverable: total silence for the cancelled
+    listen, its subscription slot freed, a follow-up initialize answered with
+    -32022 naming the modern versions (released auto-negotiating clients
+    treat that as modern evidence and re-probe), and the connection still
+    serving modern traffic. Only a validly-classified modern envelope reaches
+    this path, so the peer already committed to modern and cannot be
+    bricked.
+
+    Steps:
+        1. listen + cancel adjacent in the buffer -> zero frames delivered.
+        2. initialize -> -32022 with the typed payload (era IS locked).
+        3. fresh listen acks (slot freed) and resolves on graceful close.
+    """
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus, max_subscriptions=1)
+    srv: SrvT = Server(name="listen-server", version="0.0.1", on_subscriptions_listen=handler)
+    async with raw_dual_era_loop(srv) as (c2s, s2c):
+        # Adjacent in the buffer before the server reads either: the loop
+        # spawns the listen handler, the handler commits the modern lock
+        # immediately before the ack write, the write's checkpoint yields to
+        # the read loop, and the read loop's cancel then cancels the ack away.
+        c2s.send_nowait(_raw_req("L", "subscriptions/listen", _modern_listen_params()))
+        c2s.send_nowait(_raw_note("notifications/cancelled", {"requestId": "L"}))
+        await anyio.wait_all_tasks_blocked()
+        # Zero frames delivered: no ack, and no response/error for the
+        # cancelled listen (the 2026 silence rule).
+        with pytest.raises(anyio.WouldBlock):
+            s2c.receive_nowait()
+        # The era is locked modern despite the empty wire: initialize gets the
+        # typed -32022 rejection naming what the connection serves.
+        c2s.send_nowait(_raw_req(2, "initialize", _initialize_params()))
+        init_answer = (await s2c.receive()).message
+        assert isinstance(init_answer, JSONRPCError)
+        assert init_answer.id == 2
+        assert init_answer.error.code == UNSUPPORTED_PROTOCOL_VERSION
+        assert init_answer.error.data == UnsupportedProtocolVersionErrorData(
+            supported=list(MODERN_PROTOCOL_VERSIONS), requested=LATEST_HANDSHAKE_VERSION
+        ).model_dump(mode="json")
+        # Recoverable: the cancelled listen's max_subscriptions=1 slot was
+        # freed, and the connection serves modern traffic - a new listen acks
+        # and resolves gracefully.
+        c2s.send_nowait(_raw_req("L2", "subscriptions/listen", _modern_listen_params()))
+        await _expect_ack(s2c, "L2")
+        handler.close()
+        result = (await s2c.receive()).message
+        assert isinstance(result, JSONRPCResponse)
+        assert result.id == "L2"
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_initialize_pipelined_adjacent_behind_a_listen_cannot_hijack_the_stream():
+    """listen + initialize adjacent in the loop's buffer, before the ack write
+    could complete: the modern lock commits immediately before the ack write
+    starts, and initialize runs inline only after the read loop resumes - so
+    modern wins, the initialize is rejected with -32022, the rejection is
+    sticky, and the listen stream stays live underneath it."""
+    bus = InMemorySubscriptionBus()
+    handler = ListenHandler(bus)
+    srv: SrvT = Server(name="listen-server", version="0.0.1", on_subscriptions_listen=handler)
+    async with raw_dual_era_loop(srv) as (c2s, s2c):
+        c2s.send_nowait(_raw_req("L", "subscriptions/listen", _modern_listen_params()))
+        c2s.send_nowait(_raw_req(2, "initialize", _initialize_params()))
+        # Exactly two frames, in either write order: the ack for the live
+        # listen and the -32022 for the hijack attempt. Nothing for id "L".
+        frames = [(await s2c.receive()).message, (await s2c.receive()).message]
+        (ack,) = [f for f in frames if isinstance(f, JSONRPCNotification)]
+        (init_answer,) = [f for f in frames if isinstance(f, JSONRPCError)]
+        assert ack.method == ACK_METHOD
+        assert ack.params is not None
+        assert ack.params["_meta"][SUBSCRIPTION_ID_META_KEY] == "L"
+        assert init_answer.id == 2
+        assert init_answer.error.code == UNSUPPORTED_PROTOCOL_VERSION
+        # Sticky: a retried initialize is rejected identically.
+        c2s.send_nowait(_raw_req(3, "initialize", _initialize_params()))
+        follow = (await s2c.receive()).message
+        assert isinstance(follow, JSONRPCError)
+        assert follow.id == 3
+        assert follow.error.code == UNSUPPORTED_PROTOCOL_VERSION
+        # The stream the initialize tried to hijack is genuinely live.
+        await bus.publish(ToolsListChanged())
+        event = (await s2c.receive()).message
+        assert isinstance(event, JSONRPCNotification)
+        assert event.method == "notifications/tools/list_changed"
+        assert event.params is not None
+        assert event.params["_meta"][SUBSCRIPTION_ID_META_KEY] == "L"
+        handler.close()
+        result = (await s2c.receive()).message
+        assert isinstance(result, JSONRPCResponse)
+        assert result.id == "L"
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_adjacent_cancel_behind_a_fast_modern_request_cannot_orphan_the_lock():
+    """The orphaned-lock corner is confined to mid-handler frames (ack,
+    progress): a plain request's in-flight entry is removed before its
+    response write starts, with no checkpoint in between, so an adjacent
+    cancel consumed during the write no longer reaches the request - the
+    response is delivered and the era locks WITH a frame on the wire."""
+
+    async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="t", input_schema={"type": "object"})])
+
+    srv: SrvT = Server(name="fast-server", version="0.0.1", on_list_tools=list_tools)
+    async with raw_dual_era_loop(srv) as (c2s, s2c):
+        c2s.send_nowait(_raw_req(5, "tools/list", _modern_params()))
+        c2s.send_nowait(_raw_note("notifications/cancelled", {"requestId": 5}))
+        result = (await s2c.receive()).message
+        assert isinstance(result, JSONRPCResponse)
+        assert result.id == 5
+        c2s.send_nowait(_raw_req(6, "initialize", _initialize_params()))
+        answer = (await s2c.receive()).message
+        assert isinstance(answer, JSONRPCError)
+        assert answer.id == 6
+        assert answer.error.code == UNSUPPORTED_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
 async def test_dual_era_loop_maps_unmapped_handler_exceptions_like_the_modern_http_entry():
     """An unmapped handler exception on a modern request surfaces as the
     generic INTERNAL_ERROR - the same boundary as the modern HTTP entry - so
@@ -2070,4 +2252,12 @@ async def test_dual_era_client_propagates_body_exception_unwrapped(server: SrvT)
     """The harness re-raises body exceptions as-is, not as `ExceptionGroup`."""
     with pytest.raises(RuntimeError, match="boom"):
         async with dual_era_client(server):
+            raise RuntimeError("boom")
+
+
+@pytest.mark.anyio
+async def test_raw_dual_era_loop_propagates_body_exception_unwrapped(server: SrvT):
+    """The raw-frame harness re-raises body exceptions as-is, not as `ExceptionGroup`."""
+    with pytest.raises(RuntimeError, match="boom"):
+        async with raw_dual_era_loop(server):
             raise RuntimeError("boom")

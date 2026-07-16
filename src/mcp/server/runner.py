@@ -595,8 +595,33 @@ async def serve_dual_era_loop(
     notifications sent in that window to be dropped. The lock settles exactly
     once: a request from the other era that was already in flight when the
     lock committed may still complete and its response stands, but the era
-    does not move; and a success the peer cancelled away before any frame
-    went out does not lock either.
+    does not move; and a peer cancel observed before the first frame's write
+    begins prevents the lock (the commit re-checks `cancel_requested` at fire
+    time).
+
+    One residual corner is accepted, deliberately: the lock commits
+    immediately before the frame's transport write, and that write's own
+    checkpoint is the first point a pending peer cancel can land - so a
+    cancel arriving DURING the write cancels the frame away after the lock
+    already committed, leaving the connection locked modern with ZERO frames
+    delivered. Only mid-handler frames (the listen ack, progress) have this
+    window; a plain request's response cannot be cancelled away (its
+    in-flight entry is removed before the response write starts, with no
+    checkpoint in between, so a peer cancel no longer reaches it). The
+    converse exists too: a handler that shields its own send past a pending
+    cancel delivers a frame WITHOUT the lock - `era_settles` declined at fire
+    time - but that frame is output the handler forced after the cancel said
+    stop, not a state this loop produces. The
+    orphaned lock is self-consistent and client-recoverable: only a
+    validly-classified modern envelope reaches this path, so the peer already
+    committed to modern; a follow-up `initialize` is answered with
+    UNSUPPORTED_PROTOCOL_VERSION (-32022) naming the modern versions, which
+    released auto-negotiating clients treat as modern evidence and re-probe;
+    and the connection keeps serving modern traffic. Closing the corner would
+    require committing the lock only after the write is known delivered,
+    which reopens the worse race this design exists to prevent (an
+    `initialize` pipelined behind an ack the client already read, flipping a
+    live stream legacy).
 
     Classified-modern requests are also governed by the 2026 cancellation
     rule for their whole lifetime: after an inbound `notifications/cancelled`
@@ -629,12 +654,13 @@ async def serve_dual_era_loop(
         return era == "unlocked" and not dctx.cancel_requested.is_set()
 
     def commit_modern(dctx: DispatchContext[TransportContext], version: str) -> None:
-        # The success-frame observer for classified-modern requests: the
-        # dispatcher invokes it immediately before each non-error frame for
-        # the request (ack/event notifications, progress, or the result),
-        # with no checkpoint before the write - so by the time the client can
-        # read any modern output, the era is already locked and a pipelined
-        # `initialize` is rejected instead of hijacking the connection.
+        # The success-frame observer for classified-modern requests: invoked
+        # immediately before each non-error frame's write, with no checkpoint
+        # in between - by the time the client can read any modern output, the
+        # era is locked and a pipelined `initialize` is rejected instead of
+        # hijacking the connection. `era_settles` re-checks `cancel_requested`
+        # at fire time; the cancel-during-the-write residue is the accepted
+        # corner documented on `serve_dual_era_loop`.
         nonlocal era, modern_version
         if era_settles(dctx):
             era, modern_version = "modern", version
