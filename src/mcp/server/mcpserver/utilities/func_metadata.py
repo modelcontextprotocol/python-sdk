@@ -445,7 +445,7 @@ def _try_create_model_and_schema(
         # If we successfully created a model, try to get its schema
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
-            schema = model.model_json_schema(schema_generator=StrictJsonSchema)
+            schema = model.model_json_schema(schema_generator=StrictJsonSchema, mode="serialization")
         except (
             PydanticUserError,
             TypeError,

@@ -11,7 +11,7 @@ import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, InputRequiredResult
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
@@ -1110,6 +1110,56 @@ def test_structured_output_aliases():
     assert "field_second" not in structured_content_defaults
     assert structured_content_defaults["first"] is None
     assert structured_content_defaults["second"] is None
+
+
+def test_structured_output_computed_field():
+    """A computed field is in the serialized output, so it must appear in the schema."""
+
+    class ModelWithComputed(BaseModel):
+        value: int
+
+        @computed_field
+        @property
+        def doubled(self) -> int:  # pragma: no cover
+            return self.value * 2
+
+    def func_with_computed() -> ModelWithComputed:  # pragma: no cover
+        return ModelWithComputed(value=3)
+
+    meta = func_metadata(func_with_computed)
+
+    assert meta.output_schema is not None
+    assert "doubled" in meta.output_schema["properties"]
+
+    converted = meta.convert_result(ModelWithComputed(value=3))
+    assert isinstance(converted, CallToolResult)
+    structured_content = converted.structured_content
+    assert structured_content is not None
+    assert structured_content == {"value": 3, "doubled": 6}
+    # Every serialized key must be advertised in the schema.
+    assert set(structured_content) <= set(meta.output_schema["properties"])
+
+
+def test_structured_output_serialization_alias():
+    """A serialization_alias changes the dumped key, so the schema must use it too."""
+
+    class ModelWithSerializationAlias(BaseModel):
+        value: int = Field(serialization_alias="the_value")
+
+    def func_with_serialization_alias() -> ModelWithSerializationAlias:  # pragma: no cover
+        return ModelWithSerializationAlias(value=7)
+
+    meta = func_metadata(func_with_serialization_alias)
+
+    assert meta.output_schema is not None
+    assert "the_value" in meta.output_schema["properties"]
+    assert "value" not in meta.output_schema["properties"]
+
+    converted = meta.convert_result(ModelWithSerializationAlias(value=7))
+    assert isinstance(converted, CallToolResult)
+    structured_content = converted.structured_content
+    assert structured_content is not None
+    assert structured_content == {"the_value": 7}
 
 
 def test_basemodel_reserved_names():
