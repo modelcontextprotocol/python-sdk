@@ -150,6 +150,24 @@ def test_metadata_url_construction_various_resource_configurations(resource_url:
 # Tests for consistency between URL generation and route registration
 
 
+@pytest.mark.anyio
+async def test_path_based_identifiers_keep_trailing_slash():
+    """Path-based resource/AS identifiers keep a configured trailing slash."""
+    routes = create_protected_resource_routes(
+        resource_url=AnyHttpUrl("https://rs.example.com/mcp/"),
+        authorization_servers=[AnyHttpUrl("https://as.example.com/realms/foo/")],
+    )
+    app = Starlette(routes=routes)
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app), base_url="https://rs.example.com"
+    ) as client:
+        response = await client.get("/.well-known/oauth-protected-resource/mcp/")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["resource"] == "https://rs.example.com/mcp/"
+        assert body["authorization_servers"] == ["https://as.example.com/realms/foo/"]
+
+
 def test_route_consistency_route_path_matches_metadata_url():
     """Test that route path matches the generated metadata URL."""
     resource_url = AnyHttpUrl("https://example.com/mcp")

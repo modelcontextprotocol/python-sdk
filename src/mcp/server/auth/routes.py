@@ -47,6 +47,19 @@ TOKEN_PATH = "/token"
 REGISTRATION_PATH = "/register"
 REVOCATION_PATH = "/revoke"
 
+
+def _metadata_identifier_url(url: AnyHttpUrl) -> str:
+    """Canonical wire form for issuer/resource identifiers in OAuth metadata.
+
+    Bare ``AnyHttpUrl("https://host")`` synthesizes a trailing slash. Strip that
+    only for root URLs (path ``""`` or ``"/"``) so RFC 8414/9728 exact string
+    comparison works. Path-based identifiers keep a trailing slash if present.
+    """
+    s = str(url)
+    if urlparse(s).path in ("", "/"):
+        return s.rstrip("/")
+    return s
+
 # SEP-990: leg 2 uses the RFC 7523 jwt-bearer grant; support is advertised as the ID-JAG profile.
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 
@@ -169,7 +182,7 @@ def build_metadata(
 
     # Create metadata
     metadata = OAuthMetadata(
-        issuer=cast(AnyHttpUrl, str(issuer_url).rstrip("/")),
+        issuer=cast(AnyHttpUrl, _metadata_identifier_url(issuer_url)),
         authorization_endpoint=authorization_url,
         token_endpoint=token_url,
         scopes_supported=client_registration_options.valid_scopes,
@@ -237,10 +250,10 @@ def create_protected_resource_routes(
         List of Starlette routes for protected resource metadata
     """
     metadata = ProtectedResourceMetadata(
-        resource=cast(AnyHttpUrl, str(resource_url).rstrip("/")),
+        resource=cast(AnyHttpUrl, _metadata_identifier_url(resource_url)),
         authorization_servers=cast(
             list[AnyHttpUrl],
-            [str(server).rstrip("/") for server in authorization_servers],
+            [_metadata_identifier_url(server) for server in authorization_servers],
         ),
         scopes_supported=scopes_supported,
         resource_name=resource_name,

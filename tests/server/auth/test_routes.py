@@ -81,3 +81,15 @@ def test_build_metadata_strips_trailing_slash_from_anyhttpurl_issuer():
 
     served = metadata.model_dump(mode="json", exclude_none=True)
     assert served["issuer"] == "http://localhost:8000"
+
+
+def test_build_metadata_preserves_trailing_slash_on_path_issuer():
+    """Path-based issuer identifiers keep a configured trailing slash (exact-string match)."""
+    issuer_url = AnyHttpUrl("https://as.example.com/tenant/")
+    assert str(issuer_url).endswith("/tenant/")
+
+    metadata = build_metadata(issuer_url, None, ClientRegistrationOptions(), RevocationOptions())
+
+    served = metadata.model_dump(mode="json", exclude_none=True)
+    assert served["issuer"] == "https://as.example.com/tenant/"
+    assert served["authorization_endpoint"] == "https://as.example.com/tenant/authorize"
