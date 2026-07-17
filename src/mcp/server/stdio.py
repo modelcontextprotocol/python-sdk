@@ -68,7 +68,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                     json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()
-        except anyio.ClosedResourceError:  # pragma: no cover
+        except (anyio.ClosedResourceError, BrokenPipeError, ConnectionResetError):  # pragma: no cover
+            # BrokenPipeError / ConnectionResetError occur when the parent
+            # process (MCP client) closes the stdout pipe — e.g. during
+            # restart, kill, or graceful shutdown. This is a graceful
+            # shutdown signal, not a crash — suppress it so the server
+            # exits cleanly instead of propagating an ExceptionGroup from
+            # anyio's TaskGroup.
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg:
