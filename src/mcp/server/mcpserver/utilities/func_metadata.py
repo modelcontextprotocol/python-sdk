@@ -4,7 +4,7 @@ import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, ClassVar, Union, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
@@ -47,17 +47,22 @@ class StrictJsonSchema(GenerateJsonSchema):
 class ArgModelBase(BaseModel):
     """A model representing the arguments to a function."""
 
+    # Maps each model field name to the real Python parameter name to forward it under.
+    # They differ for aliased parameters: our internal shadow-rename (field "field_schema"
+    # -> param "schema") and a user Field(alias=...) (field "city" stays the param name,
+    # the alias is only the wire name). field_info.alias alone can't tell the two apart.
+    param_names: ClassVar[dict[str, str]] = {}
+
     def model_dump_one_level(self) -> dict[str, Any]:
         """Return a dict of the model's fields, one level deep.
 
         That is, sub-models etc are not dumped - they are kept as Pydantic models.
         """
         kwargs: dict[str, Any] = {}
-        for field_name, field_info in self.__class__.model_fields.items():
-            value = getattr(self, field_name)
-            # Use the alias if it exists, otherwise use the field name
-            output_name = field_info.alias if field_info.alias else field_name
-            kwargs[output_name] = value
+        for field_name in self.__class__.model_fields:
+            # Forward under the real parameter name, not the schema alias - the alias is
+            # a wire name and isn't necessarily a valid kwarg for the underlying function.
+            kwargs[self.param_names.get(field_name, field_name)] = getattr(self, field_name)
         return kwargs
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -237,6 +242,7 @@ def func_metadata(
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
+    param_names: dict[str, str] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
             raise InvalidSignature(f"Parameter {param.name} of {func.__name__} cannot start with '_'")
@@ -258,6 +264,8 @@ def func_metadata(
             # Use a prefixed field name
             field_name = f"field_{field_name}"
 
+        param_names[field_name] = param.name
+
         if param.default is not inspect.Parameter.empty:
             dynamic_pydantic_model_params[field_name] = (
                 Annotated[(annotation, *field_metadata, Field(**field_kwargs))],
@@ -271,6 +279,7 @@ def func_metadata(
         __base__=ArgModelBase,
         **dynamic_pydantic_model_params,
     )
+    arguments_model.param_names = param_names
 
     if structured_output is False:
         return FuncMetadata(arg_model=arguments_model)
