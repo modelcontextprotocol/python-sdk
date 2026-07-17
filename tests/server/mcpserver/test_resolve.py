@@ -2719,23 +2719,25 @@ async def test_a_resolver_may_depend_on_another_resolvers_value():
 
 
 @pytest.mark.anyio
-async def test_a_client_supplied_value_for_a_resolved_parameter_is_discarded():
-    """A value the client sends under a resolved parameter's name never reaches the
-    tool; the resolver's value wins. SDK-defined: resolved parameters are server-side only."""
+async def test_a_client_supplied_value_for_a_resolved_parameter_is_rejected():
+    """A value the client sends under a resolved parameter's name fails validation.
+    SDK-defined: resolved parameters are absent from the schema, so extras are forbidden."""
     mcp = MCPServer(name="Walk", request_state_security=RequestStateSecurity.ephemeral())
 
     def price_of(title: str) -> int:
-        return 42
+        return 42  # pragma: no cover - never reached; call fails at arg validation
 
     @mcp.tool()
     async def quote(title: str, price: Annotated[int, Resolve(price_of)]) -> str:
-        return f"{title}: {price}"
+        return f"{title}: {price}"  # pragma: no cover - never reached; call fails at arg validation
 
     async with Client(mcp) as client:
         result = await client.call_tool("quote", {"title": "Dune", "price": 999})
 
-    assert not result.is_error
-    assert result.content == [TextContent(type="text", text="Dune: 42")]
+    assert result.is_error
+    assert isinstance(result.content[0], TextContent)
+    # pydantic's "Extra inputs are not permitted" wording changes across versions.
+    assert result.content[0].text.startswith("Error executing tool quote:")
 
 
 @pytest.mark.anyio
@@ -2757,6 +2759,7 @@ async def test_resolved_parameters_are_absent_from_the_advertised_tool_schema():
     assert advertised.input_schema == snapshot(
         {
             "type": "object",
+            "additionalProperties": False,
             "properties": {"title": {"title": "Title", "type": "string"}},
             "required": ["title"],
             "title": "quoteArguments",

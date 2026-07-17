@@ -20,6 +20,7 @@ async def test_the_host_sees_exactly_what_the_decorators_registered() -> None:
         assert search.input_schema == snapshot(
             {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {"query": {"title": "Query", "type": "string"}},
                 "required": ["query"],
                 "title": "search_booksArguments",

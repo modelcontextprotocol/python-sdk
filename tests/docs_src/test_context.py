@@ -20,6 +20,7 @@ async def test_the_context_parameter_is_not_in_the_input_schema() -> None:
         assert tool.input_schema == snapshot(
             {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {"query": {"title": "Query", "type": "string"}},
                 "required": ["query"],
                 "title": "search_booksArguments",
@@ -56,7 +57,7 @@ async def test_a_context_only_tool_takes_no_arguments() -> None:
     async with Client(tutorial002.mcp) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
         assert tools["describe_catalog"].input_schema == snapshot(
-            {"type": "object", "properties": {}, "title": "describe_catalogArguments"}
+            {"type": "object", "additionalProperties": False, "properties": {}, "title": "describe_catalogArguments"}
         )
 
 

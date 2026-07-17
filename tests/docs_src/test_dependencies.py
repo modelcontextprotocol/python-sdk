@@ -31,6 +31,7 @@ async def test_the_resolved_parameter_is_invisible_to_the_model() -> None:
     assert tool.input_schema == snapshot(
         {
             "type": "object",
+            "additionalProperties": False,
             "properties": {"title": {"title": "Title", "type": "string"}},
             "required": ["title"],
             "title": "reserve_bookArguments",
@@ -38,12 +39,15 @@ async def test_the_resolved_parameter_is_invisible_to_the_model() -> None:
     )
 
 
-async def test_a_client_supplied_value_for_a_resolved_parameter_is_ignored() -> None:
-    """tutorial001: the resolver's value is the only one the tool can receive."""
+async def test_a_client_supplied_value_for_a_resolved_parameter_is_rejected() -> None:
+    """tutorial001: resolved parameters are not in the schema, so extra arguments fail validation."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("reserve_book", {"title": "Dune", "stock": {"title": "Dune", "copies": 999}})
 
-    assert result.content == [TextContent(type="text", text="Reserved 'Dune' (6 copies left).")]
+    assert result.is_error
+    assert isinstance(result.content[0], TextContent)
+    # pydantic's "Extra inputs are not permitted" wording changes across versions.
+    assert result.content[0].text.startswith("Error executing tool reserve_book:")
 
 
 async def test_a_resolver_can_depend_on_another_resolver() -> None:

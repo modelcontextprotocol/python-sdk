@@ -11,7 +11,7 @@ import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, InputRequiredResult
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
@@ -275,6 +275,7 @@ async def test_lambda_function():
 
     # Test schema
     assert meta.arg_model.model_json_schema() == {
+        "additionalProperties": False,
         "properties": {
             "x": {"title": "x", "type": "string"},
             "y": {"default": 5, "title": "y", "type": "string"},
@@ -464,6 +465,7 @@ def test_complex_function_json_schema():
             "my_model_a_forward_ref",
             "my_model_b",
         ],
+        "additionalProperties": False,
         "title": "complex_arguments_fnArguments",
         "type": "object",
     }
@@ -1295,6 +1297,16 @@ def test_call_tool_result_in_union_with_input_required_result_is_still_rejected(
 
     with pytest.raises(InvalidSignature, match="CallToolResult cannot be used in Union"):
         func_metadata(fn)
+
+
+def test_unknown_argument_raises_validation_error():
+    """SDK-defined: a tools/call argument name not on the tool schema fails validation."""
+
+    def read_doc(topic: str = "") -> str: ...  # pragma: no branch
+
+    meta = func_metadata(read_doc)
+    with pytest.raises(ValidationError):
+        meta.arg_model.model_validate({"path": "something"})
 
 
 def test_union_of_only_input_required_subclasses_yields_no_output_schema():
