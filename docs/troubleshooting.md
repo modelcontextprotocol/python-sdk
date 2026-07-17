@@ -197,11 +197,28 @@ async with Client("https://mcp.example.com/mcp") as client:
 mcp.shared.exceptions.MCPError: Server returned an error response
 ```
 
-The words the server actually sent, `421` and `Invalid Host header`, never reach you: the 421 body has no `Content-Type: application/json`, so the client cannot parse it. They are in the **server's log**, which is where to look next:
+The reason phrase the server sent, `Invalid Host header`, never reaches you: the 421 body has no `Content-Type: application/json`, so the client cannot parse it. It is in the **server's log**, which is where to look next:
 
 ```text
 WARNING mcp.server.transport_security: Invalid Host header: mcp.example.com
 ```
+
+The *status* does reach you, on the error's `data`, which is how you tell one refusal from another without parsing the message:
+
+```python
+from mcp.shared.exceptions import MCPError
+
+
+async def list_tools() -> None:
+    try:
+        async with Client("https://mcp.example.com/mcp") as client:
+            await client.list_tools()
+    except MCPError as exc:
+        status = (exc.error.data or {}).get("httpStatus")  # 421 here; 401, 403, 503 elsewhere
+        print(status)
+```
+
+That is what makes a retry policy possible: a `401` or `403` is terminal and retrying it only burns attempts, while a `502`/`503` is worth another go.
 
 The fix is `transport_security=`. Allowlist the hostname you actually serve:
 
