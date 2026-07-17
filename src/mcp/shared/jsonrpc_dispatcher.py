@@ -22,6 +22,7 @@ from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     REQUEST_TIMEOUT,
     ErrorData,
     JSONRPCError,
@@ -553,6 +554,23 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         on_request: OnRequest,
         sender_ctx: contextvars.Context | None,
     ) -> None:
+        # Key coerced so a stringified `notifications/cancelled` id still correlates.
+        key = coerce_request_id(req.id)
+        if key in self._in_flight:
+            # Duplicate in-flight id. The spec requires request ids to be unique
+            # within a session while a request is outstanding; a blind overwrite
+            # here would silently retarget `notifications/cancelled` onto the newer
+            # request and orphan the older one (see #3060). Reject the duplicate
+            # instead - ids may still be reused once the earlier request completes.
+            # Mirrors `direct_dispatcher`'s guard for caller-supplied ids.
+            logger.warning("duplicate in-flight request id %r; rejecting with INVALID_REQUEST", req.id)
+            self._spawn(
+                self._write_error,
+                req.id,
+                ErrorData(code=INVALID_REQUEST, message=f"request id {req.id!r} is already in flight"),
+                sender_ctx=sender_ctx,
+            )
+            return
         progress_token = progress_token_from_params(req.params)
         try:
             transport_ctx = self._transport_builder(metadata)
@@ -574,10 +592,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             _progress_token=progress_token,
         )
         scope = anyio.CancelScope()
-        # TODO(maxisbey): duplicate ids blind-overwrite (v1/TS parity); revisit
-        # rejecting with INVALID_REQUEST. Key coerced so a stringified
-        # `notifications/cancelled` id still correlates.
-        self._in_flight[coerce_request_id(req.id)] = _InFlight(scope=scope, dctx=dctx)
+        self._in_flight[key] = _InFlight(scope=scope, dctx=dctx)
         if req.method in self._inline_methods:
             # Spawn so `sender_ctx` applies, but park the read loop until the
             # handler returns - that's the inline ordering guarantee.
@@ -705,12 +720,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     result = await on_request(dctx, req.method, req.params)
                 finally:
                     # Close the back-channel and drop from `_in_flight`; no checkpoint
-                    # since handler return, so a peer cancel can't interleave.
-                    # Identity guard: don't evict a duplicate id's newer entry.
+                    # since handler return, so a peer cancel can't interleave. Duplicate
+                    # ids are rejected at registration, so this entry is always ours.
                     dctx.close()
-                    key = coerce_request_id(req.id)
-                    if (entry := self._in_flight.get(key)) is not None and entry.dctx is dctx:
-                        del self._in_flight[key]
+                    self._in_flight.pop(coerce_request_id(req.id), None)
                 # A write interrupted by cancellation may still have delivered
                 # (a memory-stream send can hand its item to the receiver and
                 # still raise), so a started answer write counts as sent below:
@@ -750,7 +763,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 await self._write_error(req.id, ErrorData(code=0, message=str(e)))
                 if self._raise_handler_exceptions:
                     raise
-        # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
+        # No `_in_flight` pop here: the inner finally covers every path.
 
     def _allocate_id(self) -> int:
         self._next_id += 1
