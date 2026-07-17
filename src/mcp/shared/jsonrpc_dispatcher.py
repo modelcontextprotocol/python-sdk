@@ -12,7 +12,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Generic, Literal, cast
+from typing import Any, Final, Generic, Literal, cast
 
 import anyio
 import anyio.abc
@@ -43,6 +43,7 @@ from mcp.shared.dispatcher import (
     CallOptions,
     DispatchContext,
     Dispatcher,
+    NoServerRequestsDispatchContext,
     OnNotify,
     OnNotifyIntercept,
     OnRequest,
@@ -64,7 +65,9 @@ __all__ = [
     "JSONRPCDispatcher",
     "cancelled_request_id_from_params",
     "handler_exception_to_error_data",
+    "observe_success_frames",
     "progress_token_from_params",
+    "suppress_cancel_answer",
 ]
 
 logger = logging.getLogger(__name__)
@@ -131,6 +134,19 @@ class _InFlight(Generic[TransportT]):
     dctx: _JSONRPCDispatchContext[TransportT]
 
 
+_LEGACY_CANCEL_ANSWER: Final[ErrorData] = ErrorData(code=0, message="Request cancelled")
+"""Template for the answer a peer-cancelled request gets by default.
+
+TODO(L38): the spec says receivers SHOULD NOT respond after a cancel; the
+existing server always has, so this pins released-client compat. A template,
+never written to the wire itself: the one site that writes a cancel answer
+sends a fresh `model_copy` (`ErrorData` is not frozen, and over in-memory
+transports the answer object crosses to the peer by reference, so sharing
+one instance would let a consumer's mutation corrupt every later cancel
+answer process-wide).
+"""
+
+
 @dataclass
 class _JSONRPCDispatchContext(Generic[TransportT]):
     """Concrete `DispatchContext` produced for each inbound JSON-RPC message."""
@@ -143,6 +159,24 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     _progress_token: ProgressToken | None = None
     _closed: bool = False
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
+    cancel_answer: ErrorData | None = field(default_factory=lambda: _LEGACY_CANCEL_ANSWER)
+    """The error written when a peer cancel interrupts this request's handler.
+
+    `None` means silence: no frame at all follows the cancel. The default is
+    the shared legacy compat template (the write site sends a copy, never the
+    template itself); loop layers that know a request is governed by 2026-era
+    wire rules (which forbid any frame for a request after
+    `notifications/cancelled`) clear it via `suppress_cancel_answer`.
+    """
+    on_success_frame: Callable[[], None] | None = None
+    """Observer invoked synchronously immediately before each non-error frame
+    written for this request: a request-scoped notification (progress rides
+    those) or the success result. Never invoked for error responses, nor for
+    notifications dropped because the context closed. Set via
+    `observe_success_frames`; loop layers use it to commit connection state no
+    later than the request's first client-visible output. Always invoked
+    through `fire_success_frame`, which contains a raising observer.
+    """
 
     @property
     def request_id(self) -> RequestId | None:
@@ -152,10 +186,39 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     def can_send_request(self) -> bool:
         return self.transport.can_send_request and not self._closed
 
+    @property
+    def must_stay_silent(self) -> bool:
+        """The peer cancelled this silence-committed request: nothing may be written for it.
+
+        Consulted by both frame-suppressing sites - `_answer_error` and the
+        shutdown drain. The interrupt arm expresses the same fact from the
+        write side: within `scope.cancelled_caught`, `cancel_requested` is
+        definitionally set, so its `cancel_answer is not None` check is
+        exactly `not must_stay_silent`. Once true, result, error, and drain
+        frames for this id are all forbidden - the transport spec's MUST NOT
+        after `notifications/cancelled`.
+        """
+        return self.cancel_answer is None and self.cancel_requested.is_set()
+
+    def fire_success_frame(self) -> None:
+        """Invoke the success-frame observer ahead of a non-error frame write.
+
+        Contained like the subscription bus's listener boundary: a raising
+        observer is logged and skipped, never propagated, so an observer bug
+        cannot convert the success it is observing into an error response.
+        """
+        if self.on_success_frame is None:
+            return
+        try:
+            self.on_success_frame()
+        except Exception:  # observer boundary: the frame must still be written
+            logger.exception("on_success_frame observer raised; continuing")
+
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         if self._closed:
             logger.debug("dropped %s: dispatch context closed", method)
             return
+        self.fire_success_frame()
         await self._dispatcher.notify(method, params, opts, _related_request_id=self._request_id)
 
     async def send_raw_request(
@@ -180,6 +243,65 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
 
     def close(self) -> None:
         self._closed = True
+
+
+def _wire_context(dctx: DispatchContext[Any]) -> _JSONRPCDispatchContext[Any] | None:
+    """Resolve `dctx` to the JSON-RPC loop context that owns its wire request, if any.
+
+    `NoServerRequestsDispatchContext` delegates wire I/O to the context it
+    wraps, so per-request facts attached through it must land on the wrapped
+    context - the seam setters peel it here rather than silently no-oping on
+    a context that IS a loop request underneath. Every other context type
+    resolves to None: those are structurally silent after a peer cancel
+    (single-exchange HTTP unwinds the response stream, direct dispatch
+    unwinds into the caller's own cancelled scope), so there is no late
+    answer to configure and the setters are documented no-ops for them.
+    """
+    while isinstance(dctx, NoServerRequestsDispatchContext):
+        dctx = dctx.inner
+    return dctx if isinstance(dctx, _JSONRPCDispatchContext) else None
+
+
+def suppress_cancel_answer(dctx: DispatchContext[Any]) -> None:
+    """Commit `dctx`'s request to silence on peer cancellation.
+
+    2026-era wire rule: once the peer sends `notifications/cancelled` for a
+    request, the server MUST NOT send any further frame for it - no result,
+    no error. Era-aware loop layers call this the moment a request commits to
+    those semantics; do so before the request's first checkpoint, so a racing
+    cancel can never observe the legacy default answer.
+
+    Reaches through `NoServerRequestsDispatchContext` to the loop context it
+    delegates to. No-op for dispatch contexts that are already structurally
+    silent after a cancel (single-exchange HTTP closes the response stream;
+    direct dispatch unwinds into the caller's own cancelled scope) - only the
+    JSON-RPC loop context writes a late answer to suppress.
+    """
+    wire = _wire_context(dctx)
+    if wire is not None:
+        wire.cancel_answer = None
+
+
+def observe_success_frames(dctx: DispatchContext[Any], observer: Callable[[], None]) -> None:
+    """Invoke `observer` immediately before each non-error frame written for `dctx`'s request.
+
+    Fires for request-scoped notifications (progress rides those) and for the
+    success result, in the writing task with no checkpoint before the write -
+    so state the observer commits is settled before the peer can read the
+    frame. It does not fire for error responses or for notifications dropped
+    because the request already finished. A raising observer is contained -
+    logged and skipped, the frame still written - matching the subscription
+    bus's listener boundary, so an observer bug cannot convert a success into
+    an error response.
+
+    Reaches through `NoServerRequestsDispatchContext` like
+    `suppress_cancel_answer`. No-op for other non-loop dispatch contexts: the
+    only caller is the dual-era loop's era lock, which has no analogue on the
+    single-exchange or direct paths.
+    """
+    wire = _wire_context(dctx)
+    if wire is not None:
+        wire.on_success_frame = observer
 
 
 def _default_transport_builder(_meta: MessageMetadata) -> TransportContext:
@@ -717,21 +839,29 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 # peers drop late responses, while a second answer for one id
                 # would break JSON-RPC.
                 answer_write_started = True
+                dctx.fire_success_frame()
                 await self._write_result(req.id, result)
-            if scope.cancelled_caught:
+            if scope.cancelled_caught and dctx.cancel_answer is not None:
                 # anyio absorbs the scope's own cancel at __exit__, and
                 # `cancelled_caught` (unlike `cancel_called`) guarantees the
                 # result write above did not happen - no double response.
-                # TODO(L38): spec says SHOULD NOT respond after cancel;
-                # the existing server always has, so match that for now.
+                # `cancel_answer` is the legacy compat answer unless the loop
+                # layer committed this request to 2026 cancel semantics
+                # (silence) via `suppress_cancel_answer`. Written as a fresh
+                # copy: frames cross in-memory transports by reference, and
+                # the default answer is a shared template.
                 answer_write_started = True
-                await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
+                await self._write_error(req.id, dctx.cancel_answer.model_copy())
         except anyio.get_cancelled_exc_class():
             # Shutdown: answer the request so the peer isn't left waiting - unless
             # an answer write already started (it may have reached the transport;
-            # prefer possibly-zero answers over possibly-two). The shielded helper
-            # is needed because bare awaits re-raise here.
-            if not answer_write_started:
+            # prefer possibly-zero answers over possibly-two), or the peer already
+            # cancelled a silence-committed request (the 2026 rule forbids ANY
+            # frame after the cancel, the shutdown drain included; requests the
+            # peer did NOT cancel keep their drain answer regardless of the
+            # commitment). The shielded helper is needed because bare awaits
+            # re-raise here.
+            if not answer_write_started and not dctx.must_stay_silent:
                 await self._final_write(
                     partial(self._write_error, req.id, ErrorData(code=CONNECTION_CLOSED, message="Connection closed")),
                     shield=True,
@@ -742,12 +872,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         except Exception as e:
             error = handler_exception_to_error_data(e)
             if error is not None:
-                await self._write_error(req.id, error)
+                await self._answer_error(dctx, req.id, error)
             else:
                 logger.exception("handler for %r raised", req.method)
                 # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
                 # INTERNAL_ERROR. Revisit per the suite's divergence entry.
-                await self._write_error(req.id, ErrorData(code=0, message=str(e)))
+                await self._answer_error(dctx, req.id, ErrorData(code=0, message=str(e)))
                 if self._raise_handler_exceptions:
                     raise
         # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
@@ -770,6 +900,21 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             await self._write(JSONRPCError(jsonrpc="2.0", id=request_id, error=error))
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped error for %r: write stream closed", request_id)
+
+    async def _answer_error(
+        self, dctx: _JSONRPCDispatchContext[TransportT], request_id: RequestId, error: ErrorData
+    ) -> None:
+        """Write a handler-origin error response, honoring the request's cancel-silence commitment.
+
+        A request committed to silence via `suppress_cancel_answer` whose peer
+        has already cancelled gets NO frame at all - even when the handler's
+        failure was computed before the cancellation interrupt could land (a
+        synchronous raise after the cancel arrived, or a shielded handler).
+        """
+        if dctx.must_stay_silent:
+            logger.debug("dropped error for %r: peer cancelled a silence-committed request", request_id)
+            return
+        await self._write_error(request_id, error)
 
     async def _final_write(
         self,
