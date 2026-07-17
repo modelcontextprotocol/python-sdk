@@ -1,6 +1,6 @@
 """Implements StreamableHTTP transport for MCP clients."""
 
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
 import contextlib
 import logging
@@ -60,6 +60,20 @@ class StreamableHTTPError(Exception):
 
 class ResumptionError(StreamableHTTPError):
     """Raised when resumption request is invalid."""
+
+
+def _unwrap_exception(exc: BaseException) -> BaseException:
+    """Recursively find and return the first StreamableHTTPError in an exception's tree/group."""
+    if isinstance(exc, StreamableHTTPError):
+        return exc
+
+    exceptions = getattr(exc, "exceptions", None)
+    if exceptions is not None:
+        for sub_exc in exceptions:
+            unwrapped = _unwrap_exception(sub_exc)
+            if isinstance(unwrapped, StreamableHTTPError):
+                return unwrapped
+    return exc
 
 
 @dataclass
@@ -200,6 +214,7 @@ class StreamableHTTPTransport:
         last_event_id: str | None = None
         retry_interval_ms: int | None = None
         attempt: int = 0
+        last_exc: Exception | None = None
 
         while attempt < MAX_RECONNECTION_ATTEMPTS:  # pragma: no branch
             try:
@@ -227,13 +242,16 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception:
+            except httpx2.HTTPError as exc:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
+                last_exc = exc
 
-            if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+            if attempt >= MAX_RECONNECTION_ATTEMPTS:
                 logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
-                return
+                raise StreamableHTTPError(
+                    f"Failed to connect to GET stream after {MAX_RECONNECTION_ATTEMPTS} attempts"
+                ) from last_exc
 
             # Wait before reconnecting
             delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
@@ -444,7 +462,7 @@ class StreamableHTTPTransport:
                 if is_complete:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
-        except Exception:
+        except httpx2.HTTPError:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
 
         # Stream ended without response - reconnect if we received an event with ID
@@ -528,7 +546,7 @@ class StreamableHTTPTransport:
                 # Stream ended again without response - reconnect again (reset attempt counter)
                 logger.info("SSE stream disconnected, reconnecting...")
                 await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
-        except Exception as e:  # pragma: no cover
+        except httpx2.HTTPError as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
@@ -680,39 +698,45 @@ async def streamable_http_client(
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-    async with contextlib.AsyncExitStack() as stack:
-        # Only manage client lifecycle if we created it
-        if not client_provided:
-            await stack.enter_async_context(client)
+    try:
+        async with contextlib.AsyncExitStack() as stack:
+            # Only manage client lifecycle if we created it
+            if not client_provided:
+                await stack.enter_async_context(client)
 
-        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
+            read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+            write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
-        async with (
-            read_stream_writer,
-            read_stream,
-            write_stream,
-            write_stream_reader,
-            anyio.create_task_group() as tg,
-        ):
-
-            def start_get_stream() -> None:
-                tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
-
-            tg.start_soon(
-                transport.post_writer,
-                client,
-                write_stream_reader,
+            async with (
                 read_stream_writer,
+                read_stream,
                 write_stream,
-                start_get_stream,
-                tg,
-            )
+                write_stream_reader,
+                anyio.create_task_group() as tg,
+            ):
 
-            try:
-                yield read_stream, write_stream
-            finally:
-                if transport.session_id and terminate_on_close:
-                    await transport.terminate_session(client)
-                tg.cancel_scope.cancel()
-        await resync_tracer()
+                def start_get_stream() -> None:
+                    tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
+
+                tg.start_soon(
+                    transport.post_writer,
+                    client,
+                    write_stream_reader,
+                    read_stream_writer,
+                    write_stream,
+                    start_get_stream,
+                    tg,
+                )
+
+                try:
+                    yield read_stream, write_stream
+                finally:
+                    if transport.session_id and terminate_on_close:
+                        await transport.terminate_session(client)
+                    tg.cancel_scope.cancel()
+            await resync_tracer()
+    except BaseException as exc:
+        unwrapped = _unwrap_exception(exc)
+        if isinstance(unwrapped, StreamableHTTPError):
+            raise unwrapped from exc
+        raise
