@@ -884,6 +884,26 @@ def test_tool_call_result_annotated_is_structured_and_converted():
     assert isinstance(meta.convert_result(func_returning_annotated_tool_call_result()), CallToolResult)
 
 
+def test_tool_call_result_annotated_structured_content_is_normalized():
+    """A directly-returned CallToolResult has its structured_content normalized, so
+    serialization aliases match the declared output schema."""
+
+    class Person(BaseModel):
+        name: str = Field(serialization_alias="full_name")
+
+    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, Person]:
+        return CallToolResult(content=[], structured_content={"name": "Brandon"})
+
+    meta = func_metadata(func_returning_annotated_tool_call_result)
+
+    assert meta.output_schema is not None
+    assert "full_name" in meta.output_schema["properties"]
+
+    converted = meta.convert_result(func_returning_annotated_tool_call_result())
+    assert isinstance(converted, CallToolResult)
+    assert converted.structured_content == {"full_name": "Brandon"}
+
+
 def test_tool_call_result_annotated_unioned_with_input_required_result_is_equivalent_to_the_bare_annotated_form():
     """Stripping `InputRequiredResult` makes the residual behave exactly as if it were the
     declared return annotation, including the `Annotated[CallToolResult, Model]` special case
@@ -1120,7 +1140,7 @@ def test_structured_output_computed_field():
 
         @computed_field
         @property
-        def doubled(self) -> int:  # pragma: no cover
+        def doubled(self) -> int:
             return self.value * 2
 
     def func_with_computed() -> ModelWithComputed:  # pragma: no cover
