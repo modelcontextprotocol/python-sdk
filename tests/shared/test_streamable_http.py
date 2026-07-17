@@ -511,6 +511,40 @@ async def test_json_parsing(basic_app: Starlette) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("body", "expected_id"),
+    [
+        pytest.param({"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}, 3, id="wrong-jsonrpc-version"),
+        pytest.param({"id": 4, "method": "ping", "params": {}}, 4, id="missing-jsonrpc-field"),
+        pytest.param({"jsonrpc": "2.0", "id": 8, "method": 12345, "params": {}}, 8, id="method-not-a-string"),
+        pytest.param({"jsonrpc": "2.0", "id": 2.5, "method": 12345, "params": {}}, None, id="id-not-a-valid-type"),
+    ],
+)
+async def test_validation_error_preserves_request_id(
+    basic_app: Starlette, body: dict[str, Any], expected_id: int | None
+) -> None:
+    """An envelope-invalid message is answered with an error carrying the original request id.
+
+    The id is extracted best-effort from the raw payload so the client can correlate the
+    error response with its request; when no valid id can be extracted, the error falls
+    back to a null id per the JSON-RPC 2.0 specification.
+    """
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+        assert response.status_code == 400
+        error = types.JSONRPCError.model_validate_json(response.text)
+        assert error.id == expected_id
+        assert error.error.code == types.INVALID_REQUEST
+
+
+@pytest.mark.anyio
 async def test_method_not_allowed(basic_app: Starlette) -> None:
     """Unsupported HTTP methods are rejected with 405."""
     async with make_client(basic_app) as client:

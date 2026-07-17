@@ -22,7 +22,6 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp_types import (
     DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
-    INVALID_PARAMS,
     INVALID_REQUEST,
     PARSE_ERROR,
     ErrorData,
@@ -44,7 +43,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage, extract_raw_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -331,8 +330,14 @@ class StreamableHTTPServerTransport:
         status_code: HTTPStatus,
         error_code: int = INVALID_REQUEST,
         headers: dict[str, str] | None = None,
+        request_id: RequestId | None = None,
     ) -> Response:
-        """Create an error response with a simple string message."""
+        """Create an error response with a simple string message.
+
+        ``request_id`` correlates the error with the originating request when it
+        could be extracted from the (possibly invalid) request body; it defaults
+        to ``None`` (a null id) per the JSON-RPC 2.0 specification.
+        """
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
         if headers:
             response_headers.update(headers)
@@ -343,7 +348,7 @@ class StreamableHTTPServerTransport:
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id=None,
+            id=request_id,
             error=ErrorData(code=error_code, message=error_message),
         )
 
@@ -494,10 +499,14 @@ class StreamableHTTPServerTransport:
             try:
                 message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
             except ValidationError as e:
+                # Correlate the error with the originating request: even though the
+                # envelope is invalid, the id is often still extractable from the raw
+                # payload (falls back to a null id per the JSON-RPC 2.0 spec).
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,
-                    INVALID_PARAMS,
+                    INVALID_REQUEST,
+                    request_id=extract_raw_request_id(raw_message),
                 )
                 await response(scope, receive, send)
                 return
