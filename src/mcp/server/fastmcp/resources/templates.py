@@ -86,7 +86,7 @@ class ResourceTemplate(BaseModel):
         """Check if URI matches template and extract parameters."""
         # Convert template to regex pattern
         pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
-        match = re.match(f"^{pattern}$", uri)
+        match = re.fullmatch(pattern, uri)
         if match:
             return match.groupdict()
         return None

@@ -66,12 +66,17 @@ class TestValidateToolName:
                 ("get,user,profile", "','"),
                 ("user/profile/update", "'/'"),
                 ("user@domain.com", "'@'"),
+                # a single trailing newline slipped past `$` with re.match
+                ("valid_name\n", "'\\n'"),
+                ("a" * 127 + "\n", "'\\n'"),
             ],
             ids=[
                 "with_spaces",
                 "with_commas",
                 "with_slashes",
                 "with_at_symbol",
+                "with_trailing_newline",
+                "max_length_with_trailing_newline",
             ],
         )
         def test_rejects_invalid_characters(self, tool_name: str, expected_char: str) -> None:
