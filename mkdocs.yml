@@ -68,6 +68,7 @@ nav:
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
   - Troubleshooting: troubleshooting.md
+  - Transport Security: transport-security.md
   - Migration Guide: migration.md
   - API Reference: api/
 
