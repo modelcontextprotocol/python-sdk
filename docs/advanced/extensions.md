@@ -19,7 +19,8 @@ Pass instances at construction:
 Done. The server now advertises `io.modelcontextprotocol/ui` under
 `capabilities.extensions` and serves everything the extension contributes.
 
-`Apps` is the built-in reference extension, and it gets its own page: **[MCP Apps](apps.md)**.
+Two built-in reference extensions ship with the SDK, and each gets its own page:
+**[MCP Apps](apps.md)** and **[Tasks](tasks.md)**.
 
 !!! note
     Extensions are fixed at construction. There is no `add_extension` to call later:
@@ -175,6 +176,9 @@ from mcp.client import advertise
 
 client = Client(mcp, extensions=[advertise("com.example/search")])
 ```
+
+For an extension with client-side behaviour, construct its object instead; the
+built-in example is `mcp.client.TasksExtension` ([Tasks](tasks.md)).
 
 ## Writing a client extension
 

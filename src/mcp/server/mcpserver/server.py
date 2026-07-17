@@ -14,12 +14,10 @@ from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
-    MISSING_REQUIRED_CLIENT_CAPABILITY,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
     CallToolResult,
-    ClientCapabilities,
     CompleteRequestParams,
     CompleteResult,
     Completion,
@@ -31,7 +29,6 @@ from mcp_types import (
     ListResourcesResult,
     ListResourceTemplatesResult,
     ListToolsResult,
-    MissingRequiredClientCapabilityErrorData,
     PaginatedRequestParams,
     ReadResourceRequestParams,
     ReadResourceResult,
@@ -66,6 +63,9 @@ from mcp.server.extension import (
     RequestHandler,
     compose_tool_call_interceptor,
     validate_extension_identifier,
+)
+from mcp.server.extension import (
+    require_client_extension as require_client_extension,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
@@ -1301,33 +1301,3 @@ def _version_gated(method: MethodBinding) -> RequestHandler:
         return await method.handler(ctx, params)
 
     return gated
-
-
-def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: str) -> None:
-    """Assert the connected client declared support for `identifier`.
-
-    Call this from an extension's handler or `intercept_tool_call` before
-    offering extension-specific behaviour. Raises `MCPError` with the
-    `-32021` (missing required client capability) code and a
-    `requiredCapabilities` payload when the client did not declare the
-    extension, per SEP-2133.
-
-    Args:
-        ctx: The current request context.
-        identifier: The extension identifier the client must have declared.
-
-    Raises:
-        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
-            did not advertise `identifier`.
-    """
-    client_params = ctx.session.client_params
-    declared = client_params.capabilities.extensions if client_params else None
-    if not declared or identifier not in declared:
-        data = MissingRequiredClientCapabilityErrorData(
-            required_capabilities=ClientCapabilities(extensions={identifier: {}})
-        )
-        raise MCPError(
-            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
-            message=f"Client did not declare required extension {identifier!r}",
-            data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
-        )

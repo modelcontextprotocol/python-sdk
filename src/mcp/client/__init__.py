@@ -21,6 +21,7 @@ from mcp.client.extension import (
     advertise,
 )
 from mcp.client.session import ClientSession
+from mcp.client.tasks import TaskCancelledError, TaskError, TaskFailedError, TaskInputRequiredError, TasksExtension
 
 __all__ = [
     "CacheConfig",
@@ -37,6 +38,11 @@ __all__ = [
     "NotificationBinding",
     "ResponseCacheStore",
     "ResultClaim",
+    "TaskCancelledError",
+    "TaskError",
+    "TaskFailedError",
+    "TaskInputRequiredError",
+    "TasksExtension",
     "Transport",
     "UnexpectedClaimedResult",
     "advertise",

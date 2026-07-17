@@ -13,22 +13,26 @@
 client: []
 
 server:
-  # SEP-2663 (io.modelcontextprotocol/tasks): the SDK does not implement the
-  # tasks extension yet. These extension-tagged scenarios are selected only by
-  # the bare `--suite all` leg — extension scenarios never match a
-  # --spec-version filter and the active/draft suites exclude them — so these
-  # entries are inert for the other legs that read this file.
+  # SEP-2663 (io.modelcontextprotocol/tasks): the SDK implements the extension
+  # with tasks born terminal — the tool runs to completion inside the
+  # interceptor, so there is no background execution and no in-task
+  # `input_required` parking (see the deferred follow-ups in
+  # src/mcp/server/tasks.py). tasks-mrtr-input needs exactly that surface: a
+  # task that parks with `status:"input_required"` + a non-empty
+  # `inputRequests` map on tasks/get, resumes via the tasks/update
+  # inputResponses loop, and supports partial fulfillment across two pending
+  # keys. The everything-server's `confirm_delete`/`multi_input` fixtures
+  # therefore resolve their elicitation on the original `tools/call` (SEP-2322
+  # MRTR) and never mint a task, so all three checks fail with "did not create
+  # a task". Remove this entry when background task execution and the in-task
+  # input_required/tasks/update resume loop land. Extension-tagged scenarios
+  # are selected only by the bare `--suite all` leg — they never match a
+  # --spec-version filter and the active/draft suites exclude them — so this
+  # entry is inert for the other legs that read this file.
   #
   # `tasks-status-notifications` is intentionally NOT listed: the harness
   # skips it unconditionally (pending its rewrite against subscriptions/
   # listen), and a baseline entry for a scenario with no failing checks is
-  # flagged stale.
-  - tasks-lifecycle
-  - tasks-capability-negotiation
-  - tasks-wire-fields
-  - tasks-request-state-removal
+  # flagged stale. The other eight tasks-* scenarios pass against the
+  # everything-server's Tasks registration and are not listed either.
   - tasks-mrtr-input
-  - tasks-request-headers
-  - tasks-dispatch-and-envelope
-  - tasks-required-task-error
-  - tasks-mrtr-composition

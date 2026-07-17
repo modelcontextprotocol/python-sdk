@@ -325,6 +325,27 @@ async def test_handle_modern_request_rejects_mismatched_name_header_with_400_and
     assert response.json()["error"]["code"] == HEADER_MISMATCH
 
 
+async def test_tasks_request_without_tasks_extension_fails_header_rung_before_method_dispatch() -> None:
+    """Pins the SEP-2243 rung ordering for the SEP-2663 routing headers: `tasks/get` is
+    name-bearing (`Mcp-Name` MUST carry `params.taskId` per SEP-2663 §Streamable HTTP: Routing
+    Headers), and the header rung runs before method dispatch. On a server WITHOUT the tasks
+    extension, a request whose `Mcp-Name` agrees with the body reaches dispatch and is answered
+    METHOD_NOT_FOUND at HTTP 404; one with `Mcp-Name` absent is rejected HEADER_MISMATCH at
+    HTTP 400 without dispatch ever seeing the method."""
+    body = _list_tools_body()
+    body["method"] = "tasks/get"
+    body["params"]["taskId"] = "task-123"
+    async with _asgi_client(Server("test")) as http:
+        with_name = await http.post(
+            "/mcp", json=body, headers={MCP_METHOD_HEADER: "tasks/get", MCP_NAME_HEADER: "task-123"}
+        )
+        without_name = await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "tasks/get"})
+    assert with_name.status_code == 404
+    assert with_name.json()["error"]["code"] == METHOD_NOT_FOUND
+    assert without_name.status_code == 400
+    assert without_name.json()["error"]["code"] == HEADER_MISMATCH
+
+
 # --- SSE response mode ---------------------------------------------------------
 
 
