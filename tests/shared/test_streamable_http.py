@@ -1608,6 +1608,26 @@ async def test_client_crash_handled(basic_app: Starlette) -> None:
         assert tools.tools
 
 
+def test_prepare_headers_includes_same_origin():
+    """Default Origin header is derived from the target URL (scheme://host[:port]).
+
+    Regression test for #2727: spec-compliant servers enforcing
+    anti-DNS-rebinding / CSRF protection reject requests with no Origin.
+    """
+    transport = StreamableHTTPTransport(url="http://my-go-server:8081/mcp")
+    headers = transport._prepare_headers()
+    assert headers["origin"] == "http://my-go-server:8081"
+
+    https_transport = StreamableHTTPTransport(url="https://example.com/mcp/path?x=1")
+    assert https_transport._prepare_headers()["origin"] == "https://example.com"
+
+
+def test_prepare_headers_omits_origin_for_invalid_url():
+    """No Origin header is added when the URL lacks a scheme or host."""
+    transport = StreamableHTTPTransport(url="not-a-url")
+    assert "origin" not in transport._prepare_headers()
+
+
 @pytest.mark.anyio
 async def test_handle_sse_event_skips_empty_data() -> None:
     """_handle_sse_event skips empty SSE data (keep-alive pings) without writing to the stream."""
