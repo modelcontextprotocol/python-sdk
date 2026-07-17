@@ -946,3 +946,286 @@ async def test_read_resource_auto_loop_resolves_input_required_via_callbacks() -
     assert result == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="memory://gated", text="unlocked")])
     )
+
+
+# ---------- list_all_* pagination-draining helpers ----------
+#
+# Each helper drives the existing single-page list_* method through a
+# cursor loop and returns the flattened list. The fixtures return one
+# page per call in order; the helper under test must dispatch until the
+# server stops sending a next_cursor.
+
+
+def _make_tools(names: list[str]) -> list[types.Tool]:
+    return [types.Tool(name=n, input_schema={"type": "object"}) for n in names]
+
+
+def _make_resources(uris: list[str]) -> list[types.Resource]:
+    return [types.Resource(uri=u, name=u.rsplit("/", 1)[-1]) for u in uris]
+
+
+def _make_resource_templates(uris: list[str]) -> list[types.ResourceTemplate]:
+    return [types.ResourceTemplate(uri_template=u, name=u.rsplit("/", 1)[-1]) for u in uris]
+
+
+def _make_prompts(names: list[str]) -> list[types.Prompt]:
+    return [types.Prompt(name=n) for n in names]
+
+
+async def test_list_all_tools_drains_pagination() -> None:
+    """`list_all_tools` keeps calling `tools/list` with the previous next_cursor until the
+    server returns a page with `next_cursor=None`, and returns the flattened list."""
+
+    pages: list[types.ListToolsResult] = [
+        types.ListToolsResult(tools=_make_tools(["a", "b"]), next_cursor="p2"),
+        types.ListToolsResult(tools=_make_tools(["c"]), next_cursor="p3"),
+        types.ListToolsResult(tools=_make_tools(["d", "e"])),
+    ]
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        cursor = (params.cursor if params else None) or "p1"
+        idx = {"p1": 0, "p2": 1, "p3": 2}[cursor]
+        return pages[idx]
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            tools = await client.session.list_all_tools()
+    assert [t.name for t in tools] == ["a", "b", "c", "d", "e"]
+
+
+async def test_list_all_tools_single_page_works() -> None:
+    """`list_all_tools` returns the single page's items when no cursor is involved."""
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=_make_tools(["only"]))
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            tools = await client.session.list_all_tools()
+    assert [t.name for t in tools] == ["only"]
+
+
+async def test_list_all_tools_empty_returns_empty_list() -> None:
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[])
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            tools = await client.session.list_all_tools()
+    assert tools == []
+
+
+async def test_list_all_resources_drains_pagination() -> None:
+    pages: list[types.ListResourcesResult] = [
+        types.ListResourcesResult(resources=_make_resources(["memory://r1", "memory://r2"]), next_cursor="p2"),
+        types.ListResourcesResult(resources=_make_resources(["memory://r3"])),
+    ]
+
+    async def on_list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        cursor = (params.cursor if params else None) or "p1"
+        return pages[0] if cursor == "p1" else pages[1]
+
+    server = Server("test", on_list_resources=on_list_resources)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            resources = await client.session.list_all_resources()
+    assert [r.uri for r in resources] == ["memory://r1", "memory://r2", "memory://r3"]
+
+
+async def test_list_all_resource_templates_drains_pagination() -> None:
+    pages: list[types.ListResourceTemplatesResult] = [
+        types.ListResourceTemplatesResult(
+            resource_templates=_make_resource_templates(["tmpl://{a}"]),
+            next_cursor="p2",
+        ),
+        types.ListResourceTemplatesResult(resource_templates=_make_resource_templates(["tmpl://{b}"])),
+    ]
+
+    async def on_list_resource_templates(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourceTemplatesResult:
+        cursor = (params.cursor if params else None) or "p1"
+        return pages[0] if cursor == "p1" else pages[1]
+
+    server = Server("test", on_list_resource_templates=on_list_resource_templates)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            templates = await client.session.list_all_resource_templates()
+    assert [t.uri_template for t in templates] == ["tmpl://{a}", "tmpl://{b}"]
+
+
+async def test_list_all_prompts_drains_pagination() -> None:
+    pages: list[types.ListPromptsResult] = [
+        types.ListPromptsResult(prompts=_make_prompts(["p1"]), next_cursor="p2"),
+        types.ListPromptsResult(prompts=_make_prompts(["p2", "p3"])),
+    ]
+
+    async def on_list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        cursor = (params.cursor if params else None) or "p1"
+        return pages[0] if cursor == "p1" else pages[1]
+
+    server = Server("test", on_list_prompts=on_list_prompts)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            prompts = await client.session.list_all_prompts()
+    assert [p.name for p in prompts] == ["p1", "p2", "p3"]
+
+
+async def test_list_all_helpers_do_not_share_cursor_state() -> None:
+    """Each `list_all_*` helper starts at cursor=None; calling one does not affect another's
+    pagination state (the helpers read no shared cursor, only the server's per-page next_cursor)."""
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=_make_tools(["t1"]))
+
+    async def on_list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(prompts=_make_prompts(["only-prompt"]))
+
+    server = Server("test", on_list_tools=on_list_tools, on_list_prompts=on_list_prompts)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            tools = await client.session.list_all_tools()
+            prompts = await client.session.list_all_prompts()
+    assert [t.name for t in tools] == ["t1"]
+    assert [p.name for p in prompts] == ["only-prompt"]
+
+
+async def test_list_all_tools_stops_when_server_sends_terminal_empty_page() -> None:
+    """A terminal page with cursor=None (even if zero items) ends the drain loop."""
+
+    pages: list[types.ListToolsResult] = [
+        types.ListToolsResult(tools=_make_tools(["first"]), next_cursor="p2"),
+        types.ListToolsResult(tools=[], next_cursor=None),
+        types.ListToolsResult(tools=_make_tools(["never-returned"])),
+    ]
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        cursor = (params.cursor if params else None) or "p1"
+        return pages[0] if cursor == "p1" else pages[1]
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            tools = await client.session.list_all_tools()
+    assert [t.name for t in tools] == ["first"]
+
+
+async def test_list_all_helpers_pass_cursor_through_paginated_request_params() -> None:
+    """The helpers must hand the server's `next_cursor` back as `params.cursor` on the next call
+    (not as a positional arg or otherwise mangled). Server-side capture proves it."""
+
+    captured: list[str | None] = []
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        captured.append(params.cursor if params else None)
+        if len(captured) == 1:
+            return types.ListToolsResult(tools=_make_tools(["page1-item"]), next_cursor="next-cursor")
+        return types.ListToolsResult(tools=_make_tools(["page2-item"]), next_cursor=None)
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            tools = await client.session.list_all_tools()
+    assert captured == [None, "next-cursor"]
+    assert [t.name for t in tools] == ["page1-item", "page2-item"]
+
+
+async def test_list_all_tools_prunes_per_tool_cache_state_for_tools_dropped_across_pages() -> None:
+    """Cubic P2 fix: after a multi-page drain, per-tool cache state (`_x_mcp_header_maps`,
+    `_tool_output_schemas`) must reflect the merged listing (the drained universe). Tools
+    that appeared in a previous `list_tools()` call but are not in the drained listing
+    should not leave stale cache entries (the merged-listing absorption pass with
+    `complete=True` prunes them just like a complete single-page listing would)."""
+
+    survivor = types.Tool(
+        name="survivor",
+        input_schema={"type": "object", "properties": {"region": {"type": "string", "x-mcp-header": "Region"}}},
+    )
+    stale_tool = types.Tool(name="stale-tool", input_schema={"type": "object"})
+    seen_pages: list[str | None] = []
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        cursor = (params.cursor if params else None) or "p1"
+        seen_pages.append(cursor)
+        if seen_pages == ["p1"]:
+            # First call: complete=True listing that seeds the stale tool.
+            return types.ListToolsResult(tools=[stale_tool])
+        if cursor == "p1":
+            return types.ListToolsResult(tools=[survivor], next_cursor="p2")
+        return types.ListToolsResult(tools=[survivor])
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            # Seed: single-page complete listing with stale-tool.
+            seeded = await client.session.list_tools()
+            assert [t.name for t in seeded.tools] == ["stale-tool"]
+            assert set(client.session._x_mcp_header_maps) == {"stale-tool"}
+
+            # Drain: multi-page listing of survivor only.
+            drained = await client.session.list_all_tools()
+            assert [t.name for t in drained] == ["survivor", "survivor"]
+            # After drain, cache reflects only the drained universe.
+            assert set(client.session._x_mcp_header_maps) == {"survivor"}
+            assert set(client.session._tool_output_schemas) == {"survivor"}
+
+
+async def test_list_all_tools_does_not_prune_when_server_state_remains_intact() -> None:
+    """Sanity: if the drained listing is the only listing seen so far, every tool in
+    the union stays in the cache."""
+
+    a = types.Tool(name="a", input_schema={"type": "object"})
+    b = types.Tool(name="b", input_schema={"type": "object"})
+    c = types.Tool(name="c", input_schema={"type": "object"})
+
+    pages: list[types.ListToolsResult] = [
+        types.ListToolsResult(tools=[a, b], next_cursor="p2"),
+        types.ListToolsResult(tools=[c]),
+    ]
+
+    async def on_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        cursor = (params.cursor if params else None) or "p1"
+        return pages[0] if cursor == "p1" else pages[1]
+
+    server = Server("test", on_list_tools=on_list_tools)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            await client.session.list_all_tools()
+            assert set(client.session._x_mcp_header_maps) == {"a", "b", "c"}
+            assert set(client.session._tool_output_schemas) == {"a", "b", "c"}

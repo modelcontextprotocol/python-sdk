@@ -1183,6 +1183,73 @@ class ClientSession:
 
         return result
 
+    # ---------- Pagination-draining helpers ----------
+    #
+    # The single-page `list_*` methods return the server's first page plus a
+    # `next_cursor`; callers who don't loop on the cursor silently get only
+    # page zero. The four `list_all_*` helpers drain all pages and return a
+    # flat list, so the common "give me everything" use case stops hiding
+    # pagination behind what looks like a single call. The single-page
+    # methods are unchanged.
+
+    async def list_all_tools(self) -> list[types.Tool]:
+        """Drain pagination across `tools/list` and return the full tool list.
+
+        Each intermediate page flows through `list_tools` -> `_absorb_tool_listing`
+        with `complete=False`, which populates per-tool cache state (`_x_mcp_header_maps`,
+        `_tool_output_schemas`) as a pure addition. After the loop ends, the helper
+        runs `_absorb_tool_listing` once more with `complete=True` on the merged
+        result so state for tools that disappeared across pages (or were filtered
+        by the per-page x-mcp-header MUST) is pruned to match the drained universe.
+        The returned list reflects the post-filter view that the cache exposes.
+        """
+        tools: list[types.Tool] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_tools(params=types.PaginatedRequestParams(cursor=cursor))
+            tools.extend(result.tools)
+            cursor = result.next_cursor
+            if cursor is None:
+                break
+        # Final absorption pass with `complete=True` so the per-tool cache matches
+        # the drained listing (prunes entries for tools no longer present).
+        merged = types.ListToolsResult(tools=tools, next_cursor=None)
+        absorbed = self._absorb_tool_listing(merged, complete=True)
+        return absorbed.tools
+
+    async def list_all_resources(self) -> list[types.Resource]:
+        """Drain pagination across `resources/list` and return the full resource list."""
+        items: list[types.Resource] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_resources(params=types.PaginatedRequestParams(cursor=cursor))
+            items.extend(result.resources)
+            cursor = result.next_cursor
+            if cursor is None:
+                return items
+
+    async def list_all_resource_templates(self) -> list[types.ResourceTemplate]:
+        """Drain pagination across `resources/templates/list` and return the full template list."""
+        templates: list[types.ResourceTemplate] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_resource_templates(params=types.PaginatedRequestParams(cursor=cursor))
+            templates.extend(result.resource_templates)
+            cursor = result.next_cursor
+            if cursor is None:
+                return templates
+
+    async def list_all_prompts(self) -> list[types.Prompt]:
+        """Drain pagination across `prompts/list` and return the full prompt list."""
+        items: list[types.Prompt] = []
+        cursor: str | None = None
+        while True:
+            result = await self.list_prompts(params=types.PaginatedRequestParams(cursor=cursor))
+            items.extend(result.prompts)
+            cursor = result.next_cursor
+            if cursor is None:
+                return items
+
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
