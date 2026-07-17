@@ -113,16 +113,26 @@ class RequireAuthMiddleware:
             # auth_credentials should always be provided; this is just paranoia
             if auth_credentials is None or required_scope not in auth_credentials.scopes:
                 await self._send_auth_error(
-                    send, status_code=403, error="insufficient_scope", description=f"Required scope: {required_scope}"
+                    send,
+                    status_code=403,
+                    error="insufficient_scope",
+                    description=f"Required scope: {required_scope}",
+                    # RFC 6750 3.1: on insufficient_scope, the challenge MAY carry the
+                    # scope necessary to access the resource.
+                    scope=" ".join(self.required_scopes),
                 )
                 return
 
         await self.app(scope, receive, send)
 
-    async def _send_auth_error(self, send: Send, status_code: int, error: str, description: str) -> None:
+    async def _send_auth_error(
+        self, send: Send, status_code: int, error: str, description: str, scope: str | None = None
+    ) -> None:
         """Send an authentication error response with WWW-Authenticate header."""
         # Build WWW-Authenticate header value
         www_auth_parts = [f'error="{error}"', f'error_description="{description}"']
+        if scope:
+            www_auth_parts.append(f'scope="{scope}"')
         if self.resource_metadata_url:  # pragma: no cover
             www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
 
