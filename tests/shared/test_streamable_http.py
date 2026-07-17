@@ -854,6 +854,26 @@ async def test_get_validation(basic_app: Starlette) -> None:
         assert "Not Acceptable" in response.text
 
 
+@pytest.mark.anyio
+async def test_get_without_session_returns_405(basic_app: Starlette) -> None:
+    """A pre-`initialize` GET that the server won't serve as SSE returns 405, not 400.
+
+    Per the Streamable HTTP spec the server MUST answer such a GET with 405 Method
+    Not Allowed. Spec-compliant clients probe with a session-less GET before
+    `initialize` to ask "do you offer a standalone SSE stream?" and treat only 405
+    as the graceful "no SSE, fall through to POST" signal. Returning 400 (missing
+    session ID) makes that probe impossible to satisfy.
+    """
+    async with make_client(basic_app) as client:
+        response = await client.get(
+            "/mcp",
+            headers={"Accept": "text/event-stream"},
+        )
+        assert response.status_code == 405
+        assert "Method Not Allowed" in response.text
+        assert response.headers.get("Allow") == "POST"
+
+
 # Client-specific fixtures
 @pytest.fixture
 async def initialized_client_session(basic_app: Starlette) -> AsyncIterator[ClientSession]:
