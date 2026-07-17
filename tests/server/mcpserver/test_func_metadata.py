@@ -258,6 +258,19 @@ def test_structured_output_dict_str_types():
         "title": "func_dict_listDictOutput",
     }
 
+    def func_dict_with_description() -> Annotated[
+        dict[str, int], Field(description="Configuration values")
+    ]:  # pragma: no cover
+        return {"timeout": 30}
+
+    meta = func_metadata(func_dict_with_description)
+    assert meta.output_schema == {
+        "type": "object",
+        "additionalProperties": {"type": "integer"},
+        "title": "func_dict_with_descriptionDictOutput",
+        "description": "Configuration values",
+    }
+
     # Test dict[int, str] - should be wrapped since key is not str
     def func_dict_int_key() -> dict[int, str]:  # pragma: no cover
         return {1: "a", 2: "b"}
