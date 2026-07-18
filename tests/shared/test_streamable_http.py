@@ -2309,7 +2309,7 @@ async def test_standalone_transport_pre_session_get_returns_405() -> None:
         sent.append(message)
 
     async def asgi_receive() -> Message:
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": b"", "more_body": False}  # pragma: no cover
 
     # Send a GET request without a session ID header
     scope: Scope = {
@@ -2361,7 +2361,7 @@ async def test_standalone_transport_get_with_wrong_session_returns_404() -> None
         sent.append(message)
 
     async def asgi_receive() -> Message:
-        return {"type": "http.request", "body": b"", "more_body": False}
+        return {"type": "http.request", "body": b"", "more_body": False}  # pragma: no cover
 
     # Send a GET request with a WRONG session ID header
     scope: Scope = {
