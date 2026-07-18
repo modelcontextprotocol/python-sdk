@@ -473,6 +473,8 @@ async def test_other_requests_blocked_before_initialization():
     error_response_received = False
     error_code = None
     error_message_text = None
+    error_data = None
+    session_ref: list[ServerSession] = []
 
     async def run_server():
         async with ServerSession(
@@ -483,13 +485,14 @@ async def test_other_requests_blocked_before_initialization():
                 server_version="0.1.0",
                 capabilities=ServerCapabilities(),
             ),
-        ):
+        ) as session:
+            session_ref.append(session)
             # Server should handle the request and send an error response
             # No need to process incoming_messages since the error is handled automatically
             await anyio.sleep(0.1)  # Give time for the request to be processed
 
     async def mock_client():
-        nonlocal error_response_received, error_code, error_message_text
+        nonlocal error_response_received, error_code, error_message_text, error_data
 
         # Try to send a non-ping request before initialization
         await client_to_server_send.send(
@@ -510,6 +513,7 @@ async def test_other_requests_blocked_before_initialization():
             error_response_received = True
             error_code = error_message.message.root.error.code
             error_message_text = error_message.message.root.error.message
+            error_data = error_message.message.root.error.data
 
     async with (
         client_to_server_send,
@@ -529,4 +533,15 @@ async def test_other_requests_blocked_before_initialization():
     # parameters" message regardless of the actual cause -- indistinguishable
     # from a genuinely malformed request.
     assert error_code == types.INVALID_REQUEST
+    assert error_message_text is not None and "session not initialized" in error_message_text.lower()
+    # data is the machine-readable discriminator -- message text isn't meant
+    # to be programmatically parsed, this is.
+    assert error_data == "session_not_initialized"
+    # Answering via responder.respond() (rather than raising, as before this
+    # fix) means RequestResponder.__exit__ sees _completed=True and fires
+    # on_complete, which pops the request out of _in_flight. Before this fix,
+    # the bare RuntimeError bypassed the responder's context-manager cleanup
+    # entirely, so every rejected pre-init request leaked an _in_flight
+    # entry for the life of the session.
+    assert session_ref and len(session_ref[0]._in_flight) == 0
     assert error_message_text is not None and "session not initialized" in error_message_text.lower()

@@ -211,16 +211,27 @@ class ServerSession(
                     # parameters") -- indistinguishable from an actually
                     # malformed request. INVALID_REQUEST (not INVALID_PARAMS)
                     # is used because the request's parameters aren't the
-                    # problem; the session's state is.
+                    # problem; the session's state is -- matching the existing
+                    # "Session not found" usage in streamable_http_manager.py
+                    # for the same class of session-validity condition.
+                    #
+                    # The message states the fact (an initialize handshake is
+                    # required) without asserting *why* this particular
+                    # session never completed one -- this branch can't tell a
+                    # genuinely uninitialized session (e.g. a client bug) from
+                    # a stream that reconnected without reinitializing, so it
+                    # doesn't claim either.
                     with responder:
                         await responder.respond(
                             types.ErrorData(
                                 code=types.INVALID_REQUEST,
                                 message=(
-                                    "MCP session not initialized: this session_id's "
-                                    "stream was reconnected or lost without a fresh "
-                                    "'initialize' handshake. Reconnect and initialize "
-                                    "a new session."
+                                    "MCP session not initialized: an 'initialize' "
+                                    "request must complete successfully before "
+                                    "other requests are handled. If this session "
+                                    "was previously initialized, its stream may "
+                                    "have been reconnected without a fresh "
+                                    "handshake."
                                 ),
                                 data="session_not_initialized",
                             )
