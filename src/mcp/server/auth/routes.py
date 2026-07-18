@@ -60,6 +60,7 @@ def _metadata_identifier_url(url: AnyHttpUrl) -> str:
         return s.rstrip("/")
     return s
 
+
 # SEP-990: leg 2 uses the RFC 7523 jwt-bearer grant; support is advertised as the ID-JAG profile.
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 

@@ -158,9 +158,7 @@ async def test_path_based_identifiers_keep_trailing_slash():
         authorization_servers=[AnyHttpUrl("https://as.example.com/realms/foo/")],
     )
     app = Starlette(routes=routes)
-    async with httpx2.AsyncClient(
-        transport=httpx2.ASGITransport(app=app), base_url="https://rs.example.com"
-    ) as client:
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="https://rs.example.com") as client:
         response = await client.get("/.well-known/oauth-protected-resource/mcp/")
         assert response.status_code == 200
         body = response.json()
