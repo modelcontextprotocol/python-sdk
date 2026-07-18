@@ -772,7 +772,7 @@ async def test_pre_session_get_rejected_without_creating_transport() -> None:
         }
 
         async def mock_receive() -> Message:
-            return {"type": "http.request", "body": b"", "more_body": False}
+            return {"type": "http.request", "body": b"", "more_body": False}  # pragma: no cover
 
         await manager.handle_request(scope, mock_receive, mock_send)
 
