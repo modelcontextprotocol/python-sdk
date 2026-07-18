@@ -719,8 +719,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                     if raise_exceptions:
                         raise message
 
-            for warning in w:  # pragma: no cover
-                logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
+            recorded_warnings = list(w)
+
+        for warning in recorded_warnings:
+            logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
 
     async def _handle_request(
         self,
