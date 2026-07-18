@@ -1,6 +1,6 @@
 # Issue #2150 local verification notes
 
-Upstream: https://github.com/modelcontextprotocol/python-sdk/issues/2150
+Upstream: <https://github.com/modelcontextprotocol/python-sdk/issues/2150>
 SHA baseline: 3a6f2996cdd8358957479791e8b26198c07d6a75
 
 ## Bug (still present on main at scout time)
