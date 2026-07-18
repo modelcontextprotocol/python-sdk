@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 
 from mcp.client.experimental.ai_catalog import fetch_ai_catalog, well_known_ai_catalog_url
 from mcp.client.experimental.server_card import fetch_server_card
@@ -10,7 +10,7 @@ async def main() -> None:
     # before fetching cards. Pass your own `http_client` to enforce a network
     # policy (timeouts, redirect caps, blocking private address ranges) when
     # discovering hosts you do not fully trust.
-    async with httpx.AsyncClient() as http_client:
+    async with httpx2.AsyncClient() as http_client:
         catalog_url = well_known_ai_catalog_url("https://dice.example.com")
         catalog = await fetch_ai_catalog(catalog_url, http_client=http_client)
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from urllib.parse import urljoin, urlsplit
 
-import httpx
+import httpx2
 
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.experimental.ai_catalog.types import (
@@ -47,7 +47,7 @@ def well_known_ai_catalog_url(url: str, *, well_known_path: str = AI_CATALOG_WEL
     return urljoin(f"{parts.scheme}://{parts.netloc}", well_known_path)
 
 
-async def fetch_ai_catalog(url: str, *, http_client: httpx.AsyncClient | None = None) -> AICatalog:
+async def fetch_ai_catalog(url: str, *, http_client: httpx2.AsyncClient | None = None) -> AICatalog:
     """Fetch and validate the AI Catalog at ``url``.
 
     ``url`` is fetched as-is — catalogs are location-independent; use
@@ -56,7 +56,7 @@ async def fetch_ai_catalog(url: str, *, http_client: httpx.AsyncClient | None = 
     auth, otherwise a short-lived client with MCP defaults is used.
 
     Raises:
-        httpx.HTTPError: If the request fails or returns a non-2xx status.
+        httpx2.HTTPError: If the request fails or returns a non-2xx status.
         pydantic.ValidationError: If the document is not a valid AI Catalog.
     """
     if http_client is None:

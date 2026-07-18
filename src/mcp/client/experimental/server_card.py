@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
-import httpx
+import httpx2
 
 from mcp.client.experimental.ai_catalog import fetch_ai_catalog, well_known_ai_catalog_url
 from mcp.shared._httpx_utils import create_mcp_http_client
@@ -35,7 +35,7 @@ from mcp.shared.experimental.server_card.types import ServerCard
 __all__ = ["fetch_server_card", "load_server_card", "discover_server_cards"]
 
 
-async def fetch_server_card(url: str, *, http_client: httpx.AsyncClient | None = None) -> ServerCard:
+async def fetch_server_card(url: str, *, http_client: httpx2.AsyncClient | None = None) -> ServerCard:
     """Fetch and validate the Server Card at ``url``.
 
     ``url`` is the card's location, typically taken from an AI Catalog
@@ -43,7 +43,7 @@ async def fetch_server_card(url: str, *, http_client: httpx.AsyncClient | None =
     pooling / auth, otherwise a short-lived client with MCP defaults is used.
 
     Raises:
-        httpx.HTTPError: If the request fails or returns a non-2xx status.
+        httpx2.HTTPError: If the request fails or returns a non-2xx status.
         pydantic.ValidationError: If the document is not a valid Server Card.
     """
     if http_client is None:
@@ -54,7 +54,7 @@ async def fetch_server_card(url: str, *, http_client: httpx.AsyncClient | None =
     return ServerCard.model_validate(response.json())
 
 
-async def discover_server_cards(url: str, *, http_client: httpx.AsyncClient | None = None) -> list[ServerCard]:
+async def discover_server_cards(url: str, *, http_client: httpx2.AsyncClient | None = None) -> list[ServerCard]:
     """Discover the MCP servers advertised by the host of ``url``.
 
     Fetches the host's AI Catalog from ``/.well-known/ai-catalog.json``
@@ -73,7 +73,7 @@ async def discover_server_cards(url: str, *, http_client: httpx.AsyncClient | No
     Raises:
         ValueError: If ``url`` is not an absolute http(s) URL, or the catalog
             references a card at a non-http(s) URL.
-        httpx.HTTPError: If a request fails or returns a non-2xx status.
+        httpx2.HTTPError: If a request fails or returns a non-2xx status.
         pydantic.ValidationError: If the catalog or a referenced card is invalid.
     """
     if http_client is None:
@@ -83,7 +83,7 @@ async def discover_server_cards(url: str, *, http_client: httpx.AsyncClient | No
     catalog_url = well_known_ai_catalog_url(url)
     try:
         catalog = await fetch_ai_catalog(catalog_url, http_client=http_client)
-    except httpx.HTTPStatusError as exc:
+    except httpx2.HTTPStatusError as exc:
         if exc.response.status_code != 404:
             raise
         catalog_url = well_known_ai_catalog_url(url, well_known_path=MCP_CATALOG_WELL_KNOWN_PATH)

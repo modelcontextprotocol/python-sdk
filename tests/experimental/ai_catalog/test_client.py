@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 
-import httpx
+import httpx2
 import pytest
 from pydantic import ValidationError
 from starlette.applications import Starlette
@@ -49,8 +49,8 @@ def test_well_known_ai_catalog_url_rejects_non_http_scheme() -> None:
 
 async def test_fetch_with_provided_client() -> None:
     app = Starlette(routes=[ai_catalog_route(CATALOG)])
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
         catalog = await fetch_ai_catalog("https://example.com/.well-known/ai-catalog.json", http_client=client)
     assert catalog == CATALOG
 
@@ -59,11 +59,11 @@ async def test_fetch_with_default_client(monkeypatch: pytest.MonkeyPatch) -> Non
     # Cover the branch that creates its own client, without touching the
     # network: bind the module's client factory to an in-memory ASGI transport.
     app = Starlette(routes=[ai_catalog_route(CATALOG)])
-    transport = httpx.ASGITransport(app=app)
+    transport = httpx2.ASGITransport(app=app)
     monkeypatch.setattr(
         client_module,
         "create_mcp_http_client",
-        functools.partial(httpx.AsyncClient, transport=transport, follow_redirects=True),
+        functools.partial(httpx2.AsyncClient, transport=transport, follow_redirects=True),
     )
     catalog = await fetch_ai_catalog("https://example.com/.well-known/ai-catalog.json")
     assert catalog == CATALOG
@@ -74,15 +74,15 @@ async def test_fetch_invalid_catalog_raises_validation_error() -> None:
         return JSONResponse({"specVersion": "1.0"})  # entries missing
 
     app = Starlette(routes=[Route("/.well-known/ai-catalog.json", bad, methods=["GET"])])
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
         with pytest.raises(ValidationError):
             await fetch_ai_catalog("https://example.com/.well-known/ai-catalog.json", http_client=client)
 
 
 async def test_fetch_raises_for_http_error() -> None:
     app = Starlette(routes=[])  # nothing at the well-known path -> 404
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(httpx.HTTPStatusError):
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
+        with pytest.raises(httpx2.HTTPStatusError):
             await fetch_ai_catalog("https://example.com/.well-known/ai-catalog.json", http_client=client)
