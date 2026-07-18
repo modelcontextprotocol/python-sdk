@@ -472,6 +472,7 @@ async def test_other_requests_blocked_before_initialization():
 
     error_response_received = False
     error_code = None
+    error_message_text = None
 
     async def run_server():
         async with ServerSession(
@@ -488,7 +489,7 @@ async def test_other_requests_blocked_before_initialization():
             await anyio.sleep(0.1)  # Give time for the request to be processed
 
     async def mock_client():
-        nonlocal error_response_received, error_code
+        nonlocal error_response_received, error_code, error_message_text
 
         # Try to send a non-ping request before initialization
         await client_to_server_send.send(
@@ -508,6 +509,7 @@ async def test_other_requests_blocked_before_initialization():
         if isinstance(error_message.message.root, types.JSONRPCError):  # pragma: no branch
             error_response_received = True
             error_code = error_message.message.root.error.code
+            error_message_text = error_message.message.root.error.message
 
     async with (
         client_to_server_send,
@@ -520,4 +522,11 @@ async def test_other_requests_blocked_before_initialization():
         tg.start_soon(mock_client)
 
     assert error_response_received
-    assert error_code == types.INVALID_PARAMS
+    # INVALID_REQUEST (not INVALID_PARAMS): the request's parameters aren't
+    # the problem, the session's initialization state is. Previously this
+    # fell through to BaseSession._receive_loop's generic exception handler,
+    # which always reported INVALID_PARAMS with a generic "Invalid request
+    # parameters" message regardless of the actual cause -- indistinguishable
+    # from a genuinely malformed request.
+    assert error_code == types.INVALID_REQUEST
+    assert error_message_text is not None and "session not initialized" in error_message_text.lower()

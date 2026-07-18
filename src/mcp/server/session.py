@@ -202,7 +202,29 @@ class ServerSession(
                 pass
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError("Received request before initialization was complete")
+                    # Answer the request directly with a self-describing error
+                    # instead of raising. A bare exception here would propagate
+                    # to BaseSession._receive_loop's blanket except-Exception
+                    # handler, which discards the exception's message entirely
+                    # and always responds with the generic, misleading
+                    # ErrorData(code=INVALID_PARAMS, message="Invalid request
+                    # parameters") -- indistinguishable from an actually
+                    # malformed request. INVALID_REQUEST (not INVALID_PARAMS)
+                    # is used because the request's parameters aren't the
+                    # problem; the session's state is.
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_REQUEST,
+                                message=(
+                                    "MCP session not initialized: this session_id's "
+                                    "stream was reconnected or lost without a fresh "
+                                    "'initialize' handshake. Reconnect and initialize "
+                                    "a new session."
+                                ),
+                                data="session_not_initialized",
+                            )
+                        )
 
     async def _received_notification(self, notification: types.ClientNotification) -> None:
         # Need this to avoid ASYNC910
