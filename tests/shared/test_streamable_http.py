@@ -2283,3 +2283,106 @@ async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
     assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
     assert "Error in standalone SSE writer" not in caplog.text
     assert "Error in standalone SSE response" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_standalone_transport_pre_session_get_returns_405() -> None:
+    """A stateful transport (mcp_session_id set) rejects a GET without session ID with 405.
+
+    This tests the transport-level defensive check that prevents pre-session GETs from
+    establishing an SSE stream. When used via the session manager, the manager rejects
+    these requests first; this check ensures the transport is also safe for standalone use.
+    """
+    # Create a transport with a session ID (stateful mode)
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="test-session-id",
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+    # Set up the read stream writer so handle_request doesn't fail
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
+
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+
+    async def asgi_receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    # Send a GET request without a session ID header
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [(b"accept", b"text/event-stream")],
+    }
+
+    async with read_stream_writer, read_stream:
+        await transport.handle_request(scope, asgi_receive, asgi_send)
+
+    # Verify 405 Method Not Allowed response
+    response_start = sent[0]
+    assert response_start["type"] == "http.response.start"
+    assert response_start["status"] == 405
+
+    # Verify Allow header
+    headers = dict(response_start.get("headers", []))
+    assert headers.get(b"allow") == b"GET, POST, DELETE"
+
+    # Verify response body contains the error message
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    assert b"Method Not Allowed" in body
+    assert b"GET requires an established session" in body
+
+
+@pytest.mark.anyio
+async def test_standalone_transport_get_with_wrong_session_returns_404() -> None:
+    """A stateful transport rejects a GET with a mismatched session ID with 404.
+
+    This tests the transport-level session validation for standalone transport use.
+    When used via the session manager, the manager validates session IDs first.
+    """
+    # Create a transport with a specific session ID
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id="correct-session-id",
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+    # Set up the read stream writer so handle_request doesn't fail
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
+
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+
+    async def asgi_receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    # Send a GET request with a WRONG session ID header
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"text/event-stream"),
+            (b"mcp-session-id", b"wrong-session-id"),
+        ],
+    }
+
+    async with read_stream_writer, read_stream:
+        await transport.handle_request(scope, asgi_receive, asgi_send)
+
+    # Verify 404 Not Found response (session validation failed)
+    response_start = sent[0]
+    assert response_start["type"] == "http.response.start"
+    assert response_start["status"] == 404
+
+    # Verify response body contains the error message
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    assert b"Invalid or expired session ID" in body

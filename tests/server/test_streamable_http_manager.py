@@ -746,3 +746,49 @@ async def test_anonymous_session_accepts_anonymous_requests(
     session_id = await _open_session(manager, None)
 
     assert await _request_session(manager, session_id, None) != 404
+
+
+@pytest.mark.anyio
+async def test_pre_session_get_rejected_without_creating_transport() -> None:
+    """A GET without a session ID returns 405 before any transport or session is created."""
+    app = Server("test-pre-session-get")
+    manager = StreamableHTTPSessionManager(app=app)
+
+    async with manager.run():
+        sent_messages: list[Message] = []
+        response_body = b""
+
+        async def mock_send(message: Message) -> None:
+            nonlocal response_body
+            sent_messages.append(message)
+            if message["type"] == "http.response.body":
+                response_body += message.get("body", b"")
+
+        scope: Scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/mcp",
+            "headers": [(b"accept", b"text/event-stream")],
+        }
+
+        async def mock_receive() -> Message:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        # Should return 405 Method Not Allowed
+        response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+        assert response_start["status"] == 405
+
+        # Verify Allow header is present
+        headers = dict(response_start.get("headers", []))
+        assert headers.get(b"allow") == b"GET, POST, DELETE"
+
+        # Verify JSON-RPC error format
+        error_data = json.loads(response_body)
+        assert error_data["jsonrpc"] == "2.0"
+        assert error_data["id"] is None
+        assert "Method Not Allowed" in error_data["error"]["message"]
+
+        # Most importantly: no session was created
+        assert manager._server_instances == {}

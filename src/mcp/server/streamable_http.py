@@ -860,7 +860,7 @@ class StreamableHTTPServerTransport:
             return False
 
         # If session ID doesn't match, return error
-        if request_session_id != self.mcp_session_id:  # pragma: no cover
+        if request_session_id != self.mcp_session_id:
             response = self._create_error_response(
                 "Not Found: Invalid or expired session ID",
                 HTTPStatus.NOT_FOUND,
