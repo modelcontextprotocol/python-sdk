@@ -9,11 +9,15 @@ it.
 
 The fix snapshots the recorded warnings and logs them after leaving the
 ``catch_warnings`` block, so handler-emitted warnings can no longer extend the
-iteration. This test drives ``_handle_message`` with a request that records one
-warning and a logging handler that itself warns on every record; the handler
-must be invoked exactly once. The handler stops re-warning after a cap so that
-the pre-fix infinite loop terminates and fails the assertion instead of hanging
-the test session.
+iteration.
+
+The test records two warnings during handling and attaches a logging handler
+that itself warns on the first record only. After the fix each recorded warning
+is logged exactly once, so the handler is invoked twice (once per recorded
+warning) and no extra records appear. Before the fix, the handler's warning fed
+back into the iterated list and the handler was invoked a third time. Warning
+on only the first record keeps the handler from feeding the loop unboundedly, so
+a regressed build terminates and fails the assertion instead of hanging.
 """
 
 import logging
@@ -29,11 +33,10 @@ from mcp.shared.session import RequestResponder
 
 
 class _WarningEmittingHandler(logging.Handler):
-    """A logging handler whose emit() raises a warning, mimicking e.g. a
-    timestamp formatter that calls a deprecated API on every record. It stops
-    after ``cap`` records so a regressed (looping) build still terminates."""
+    """A logging handler whose emit() raises a warning for the first ``cap``
+    records, mimicking e.g. a timestamp formatter that warns per record."""
 
-    def __init__(self, cap: int = 100) -> None:
+    def __init__(self, cap: int = 1) -> None:
         super().__init__()
         self.emit_count = 0
         self._cap = cap
@@ -45,14 +48,15 @@ class _WarningEmittingHandler(logging.Handler):
 
 
 @pytest.mark.anyio
-async def test_handle_message_logs_each_warning_once_when_handler_warns():
+async def test_handle_message_logs_each_recorded_warning_once() -> None:
     server = Server("test-server")
 
     session = Mock(spec=ServerSession)
     session.send_log_message = AsyncMock()
 
     async def _handle_request_that_warns(*args: object, **kwargs: object) -> None:
-        warnings.warn("warning raised while handling the request", stacklevel=1)
+        warnings.warn("first warning raised while handling the request", stacklevel=1)
+        warnings.warn("second warning raised while handling the request", stacklevel=1)
 
     server._handle_request = _handle_request_that_warns  # type: ignore[assignment]
 
@@ -75,4 +79,7 @@ async def test_handle_message_logs_each_warning_once_when_handler_warns():
         server_logger.removeHandler(handler)
         server_logger.setLevel(previous_level)
 
-    assert handler.emit_count == 1
+    # Two warnings were recorded during handling, so the handler is invoked
+    # exactly twice. A regressed build re-appends the handler's own warning and
+    # invokes it a third time.
+    assert handler.emit_count == 2
