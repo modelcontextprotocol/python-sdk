@@ -11,7 +11,6 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 import httpx2
-from pydantic import AnyHttpUrl
 
 from mcp.server.auth.provider import (
     AccessToken,
