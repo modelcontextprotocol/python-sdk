@@ -127,9 +127,7 @@ async def test_pre_session_get_returns_405() -> None:
     assert "Method Not Allowed" in response_wildcard.json()["error"]["message"]
     assert response_wildcard.json()["error"]["code"] == -32600  # INVALID_REQUEST
 
-    assert (response_json.status_code, response_json.headers.get("allow")) == snapshot(
-        (405, "GET, POST, DELETE")
-    )
+    assert (response_json.status_code, response_json.headers.get("allow")) == snapshot((405, "GET, POST, DELETE"))
     assert "Method Not Allowed" in response_json.json()["error"]["message"]
 
     assert (response_no_accept.status_code, response_no_accept.headers.get("allow")) == snapshot(
@@ -137,9 +135,7 @@ async def test_pre_session_get_returns_405() -> None:
     )
     assert "Method Not Allowed" in response_no_accept.json()["error"]["message"]
 
-    assert (response_sse.status_code, response_sse.headers.get("allow")) == snapshot(
-        (405, "GET, POST, DELETE")
-    )
+    assert (response_sse.status_code, response_sse.headers.get("allow")) == snapshot((405, "GET, POST, DELETE"))
     assert "Method Not Allowed" in response_sse.json()["error"]["message"]
 
 
