@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-import httpx
+import httpx2
 import pytest
 from starlette.applications import Starlette
 
@@ -61,15 +61,15 @@ def test_build_server_card_requires_description() -> None:
         build_server_card(server, name="example/no-desc")
 
 
-async def _get(app: Starlette, path: str, headers: dict[str, str] | None = None) -> httpx.Response:
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
+async def _get(app: Starlette, path: str, headers: dict[str, str] | None = None) -> httpx2.Response:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
         return await client.get(path, headers=headers)
 
 
-async def _head(app: Starlette, path: str) -> httpx.Response:
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
+async def _head(app: Starlette, path: str) -> httpx2.Response:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
         return await client.head(path)
 
 
@@ -121,7 +121,7 @@ async def test_mount_server_card_on_existing_app_and_client_fetch() -> None:
     app = Starlette()
     mount_server_card(app, card, path=CARD_PATH)
 
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
         fetched = await fetch_server_card(f"https://dice.example.com{CARD_PATH}", http_client=client)
     assert fetched == card

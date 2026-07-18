@@ -6,7 +6,7 @@ import functools
 import json
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from pydantic import ValidationError
 from starlette.applications import Starlette
@@ -39,8 +39,8 @@ def make_discovery_app(*entries: CatalogEntry, catalog_path: str | None = None) 
 
 
 async def test_fetch_server_card_from_url() -> None:
-    transport = httpx.ASGITransport(app=make_discovery_app())
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=make_discovery_app())
+    async with httpx2.AsyncClient(transport=transport) as client:
         card = await fetch_server_card(CARD_URL, http_client=client)
     assert card == CARD
 
@@ -48,11 +48,11 @@ async def test_fetch_server_card_from_url() -> None:
 async def test_fetch_server_card_with_default_client(monkeypatch: pytest.MonkeyPatch) -> None:
     # Cover the branch that creates its own client, without touching the
     # network: bind the module's client factory to an in-memory ASGI transport.
-    transport = httpx.ASGITransport(app=make_discovery_app())
+    transport = httpx2.ASGITransport(app=make_discovery_app())
     monkeypatch.setattr(
         client_module,
         "create_mcp_http_client",
-        functools.partial(httpx.AsyncClient, transport=transport, follow_redirects=True),
+        functools.partial(httpx2.AsyncClient, transport=transport, follow_redirects=True),
     )
     assert await fetch_server_card(CARD_URL) == CARD
 
@@ -62,23 +62,23 @@ async def test_fetch_invalid_card_raises_validation_error() -> None:
         return JSONResponse({"name": "missing-required-fields"})
 
     app = Starlette(routes=[Route(CARD_PATH, bad, methods=["GET"])])
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
         with pytest.raises(ValidationError):
             await fetch_server_card(CARD_URL, http_client=client)
 
 
 async def test_fetch_raises_for_http_error() -> None:
     app = Starlette(routes=[])  # nothing at the card URL -> 404
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(httpx.HTTPStatusError):
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
+        with pytest.raises(httpx2.HTTPStatusError):
             await fetch_server_card(CARD_URL, http_client=client)
 
 
 async def test_discover_server_cards_via_well_known_catalog() -> None:
-    transport = httpx.ASGITransport(app=make_discovery_app())
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=make_discovery_app())
+    async with httpx2.AsyncClient(transport=transport) as client:
         cards = await discover_server_cards("https://example.com", http_client=client)
     assert cards == [CARD]
 
@@ -86,19 +86,19 @@ async def test_discover_server_cards_via_well_known_catalog() -> None:
 async def test_discover_server_cards_with_default_client(monkeypatch: pytest.MonkeyPatch) -> None:
     # Cover the branch that creates its own client, without touching the
     # network: bind the module's client factory to an in-memory ASGI transport.
-    transport = httpx.ASGITransport(app=make_discovery_app())
+    transport = httpx2.ASGITransport(app=make_discovery_app())
     monkeypatch.setattr(
         client_module,
         "create_mcp_http_client",
-        functools.partial(httpx.AsyncClient, transport=transport, follow_redirects=True),
+        functools.partial(httpx2.AsyncClient, transport=transport, follow_redirects=True),
     )
     assert await discover_server_cards("https://example.com") == [CARD]
 
 
 async def test_discover_server_cards_resolves_relative_entry_url() -> None:
     entry = server_card_entry(CARD, CARD_PATH)  # relative to the catalog location
-    transport = httpx.ASGITransport(app=make_discovery_app(entry))
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=make_discovery_app(entry))
+    async with httpx2.AsyncClient(transport=transport) as client:
         cards = await discover_server_cards("https://example.com/mcp", http_client=client)
     assert cards == [CARD]
 
@@ -110,8 +110,8 @@ async def test_discover_server_cards_reads_inline_data_entries() -> None:
         media_type="application/mcp-server-card+json",
         data=CARD.model_dump(mode="json", by_alias=True, exclude_none=True),
     )
-    transport = httpx.ASGITransport(app=make_discovery_app(entry))
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=make_discovery_app(entry))
+    async with httpx2.AsyncClient(transport=transport) as client:
         cards = await discover_server_cards("https://example.com", http_client=client)
     assert cards == [CARD]
 
@@ -125,8 +125,8 @@ async def test_discover_server_cards_ignores_non_card_entries() -> None:
         url="https://example.com/agent.json",
     )
     app = make_discovery_app(server_card_entry(CARD, CARD_URL), other)
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
         cards = await discover_server_cards("https://example.com", http_client=client)
     assert cards == [CARD]
 
@@ -134,8 +134,8 @@ async def test_discover_server_cards_ignores_non_card_entries() -> None:
 async def test_discover_server_cards_rejects_non_http_card_url() -> None:
     """A hostile catalog must not steer the client to non-http(s) schemes."""
     entry = server_card_entry(CARD, CARD_URL).model_copy(update={"url": "file:///etc/passwd"})
-    transport = httpx.ASGITransport(app=make_discovery_app(entry))
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=make_discovery_app(entry))
+    async with httpx2.AsyncClient(transport=transport) as client:
         with pytest.raises(ValueError, match="non-http"):
             await discover_server_cards("https://example.com", http_client=client)
 
@@ -147,25 +147,25 @@ async def test_discover_server_cards_ignores_non_mcp_entries() -> None:
         media_type="application/a2a-agent-card+json",
         url="https://agents.example.com/researchAssistant",
     )
-    transport = httpx.ASGITransport(app=make_discovery_app(agent_entry, server_card_entry(CARD, CARD_URL)))
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=make_discovery_app(agent_entry, server_card_entry(CARD, CARD_URL)))
+    async with httpx2.AsyncClient(transport=transport) as client:
         cards = await discover_server_cards("https://example.com", http_client=client)
     assert cards == [CARD]
 
 
 async def test_discover_server_cards_falls_back_to_mcp_catalog_path() -> None:
     app = make_discovery_app(catalog_path=MCP_CATALOG_WELL_KNOWN_PATH)  # no /.well-known/ai-catalog.json
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
         cards = await discover_server_cards("https://example.com", http_client=client)
     assert cards == [CARD]
 
 
 async def test_discover_server_cards_raises_when_no_catalog_exists() -> None:
     app = Starlette(routes=[])  # 404 on both well-known paths
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(httpx.HTTPStatusError):
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
+        with pytest.raises(httpx2.HTTPStatusError):
             await discover_server_cards("https://example.com", http_client=client)
 
 
@@ -174,9 +174,9 @@ async def test_discover_server_cards_propagates_non_404_catalog_errors() -> None
         return Response(status_code=500)
 
     app = Starlette(routes=[Route("/.well-known/ai-catalog.json", error, methods=["GET"])])
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport) as client:
+        with pytest.raises(httpx2.HTTPStatusError) as excinfo:
             await discover_server_cards("https://example.com", http_client=client)
     assert excinfo.value.response.status_code == 500
 

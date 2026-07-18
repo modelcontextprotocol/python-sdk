@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-import httpx
+import httpx2
 import pytest
 from starlette.applications import Starlette
 
@@ -41,15 +41,15 @@ def test_server_card_entry_falls_back_to_card_name_without_title() -> None:
     assert server_card_entry(make_card(), CARD_URL).display_name == "example/dice"
 
 
-async def _get(app: Starlette, path: str, headers: dict[str, str] | None = None) -> httpx.Response:
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
+async def _get(app: Starlette, path: str, headers: dict[str, str] | None = None) -> httpx2.Response:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
         return await client.get(path, headers=headers)
 
 
-async def _head(app: Starlette, path: str) -> httpx.Response:
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
+async def _head(app: Starlette, path: str) -> httpx2.Response:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
         return await client.head(path)
 
 
