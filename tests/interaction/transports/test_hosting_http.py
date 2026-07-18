@@ -95,6 +95,54 @@ async def test_unsupported_http_methods_return_405() -> None:
     assert (patch.status_code, patch.headers.get("allow")) == snapshot((405, "GET, POST, DELETE"))
 
 
+@requirement("hosting:http:pre-session-get-405")
+async def test_pre_session_get_returns_405() -> None:
+    """A GET without a session ID in stateful mode returns 405 Method Not Allowed.
+
+    Per MCP spec: "The server MUST either return Content-Type: text/event-stream in response
+    to this HTTP GET, or else return HTTP 405 Method Not Allowed." A pre-session GET cannot
+    establish an SSE stream, so 405 is the spec-mandated response.
+
+    See: https://github.com/modelcontextprotocol/python-sdk/issues/3102
+    """
+    async with mounted_app(_server()) as (http, _):
+        # Test with various Accept headers - all should return 405 for pre-session GET
+        # Accept: */* (wildcard)
+        response_wildcard = await http.get("/mcp", headers={"accept": "*/*", "mcp-protocol-version": "2025-11-25"})
+        # Accept: application/json (no SSE)
+        response_json = await http.get(
+            "/mcp", headers={"accept": "application/json", "mcp-protocol-version": "2025-11-25"}
+        )
+        # No Accept header at all
+        response_no_accept = await http.get("/mcp", headers={"mcp-protocol-version": "2025-11-25"})
+        # Accept: text/event-stream (correct, but still no session)
+        response_sse = await http.get(
+            "/mcp", headers={"accept": "text/event-stream", "mcp-protocol-version": "2025-11-25"}
+        )
+
+    # All pre-session GETs must return 405 with Allow header listing supported methods
+    assert (response_wildcard.status_code, response_wildcard.headers.get("allow")) == snapshot(
+        (405, "GET, POST, DELETE")
+    )
+    assert "Method Not Allowed" in response_wildcard.json()["error"]["message"]
+    assert response_wildcard.json()["error"]["code"] == -32600  # INVALID_REQUEST
+
+    assert (response_json.status_code, response_json.headers.get("allow")) == snapshot(
+        (405, "GET, POST, DELETE")
+    )
+    assert "Method Not Allowed" in response_json.json()["error"]["message"]
+
+    assert (response_no_accept.status_code, response_no_accept.headers.get("allow")) == snapshot(
+        (405, "GET, POST, DELETE")
+    )
+    assert "Method Not Allowed" in response_no_accept.json()["error"]["message"]
+
+    assert (response_sse.status_code, response_sse.headers.get("allow")) == snapshot(
+        (405, "GET, POST, DELETE")
+    )
+    assert "Method Not Allowed" in response_sse.json()["error"]["message"]
+
+
 @requirement("hosting:http:accept-406")
 async def test_missing_accept_media_types_return_406() -> None:
     """A POST whose Accept header lacks both required types, or a GET lacking text/event-stream, returns 406."""
