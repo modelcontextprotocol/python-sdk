@@ -774,10 +774,18 @@ class StreamableHTTPServerTransport:
         """Terminate the current session, closing all streams.
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
+
+        Active SSE writers are closed first so EventSourceResponse / ASGI callables can
+        complete instead of hanging until the task group is cancelled (see #2150).
         """
 
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
+
+        # Close SSE stream writers first so long-lived GET/POST SSE responses finish.
+        # Copy keys: close_sse_stream mutates the dict (includes GET_STREAM_KEY).
+        for request_id in list(self._sse_stream_writers.keys()):
+            self.close_sse_stream(request_id)
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())
