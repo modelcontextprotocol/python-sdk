@@ -794,3 +794,38 @@ async def test_manager_shutdown_terminates_active_sessions():
     assert transport.is_terminated
     assert transport.mcp_session_id not in manager._server_instances
     assert not manager._server_instances
+
+
+@pytest.mark.anyio
+async def test_terminate_closes_standalone_get_sse_writer_when_registered():
+    """GET standalone SSE writers must be registered so terminate can close them (#2150/cubic)."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="get-session-2150")
+    send_stream, receive_stream = anyio.create_memory_object_stream[object](1)
+    # Simulate standalone GET registration under GET_STREAM_KEY
+    from mcp.server.streamable_http import GET_STREAM_KEY
+
+    transport._sse_stream_writers[GET_STREAM_KEY] = send_stream  # type: ignore[assignment]
+
+    await transport.terminate()
+
+    assert transport.is_terminated
+    assert GET_STREAM_KEY not in transport._sse_stream_writers
+    with pytest.raises(anyio.ClosedResourceError):
+        await send_stream.send(object())  # type: ignore[arg-type]
+    await receive_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_terminate_closes_provisional_replay_sse_writer():
+    """Replay writers registered under provisional keys must close on terminate."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="replay-session-2150")
+    send_stream, receive_stream = anyio.create_memory_object_stream[object](1)
+    key = "_replay:evt-1:123"
+    transport._sse_stream_writers[key] = send_stream  # type: ignore[assignment]
+
+    await transport.terminate()
+
+    assert key not in transport._sse_stream_writers
+    with pytest.raises(anyio.ClosedResourceError):
+        await send_stream.send(object())  # type: ignore[arg-type]
+    await receive_stream.aclose()
