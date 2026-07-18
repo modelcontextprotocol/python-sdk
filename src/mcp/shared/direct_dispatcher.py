@@ -250,14 +250,18 @@ class DirectDispatcher:
                     in_flight_key = coerce_request_id(request_id)
                     if in_flight_key in self._in_flight_ids:
                         raise ValueError(f"request id {request_id!r} is already in flight")
+                    # Advance the mint counter past the supplied key: ids are
+                    # single-use within a session, so a minted id may not
+                    # revisit this key even after the request completes.
+                    if isinstance(in_flight_key, int):
+                        self._next_id = max(self._next_id, in_flight_key)
                 else:
                     # Synthesize an id (the DispatchContext contract reserves None
-                    # for notifications), minting past any key a supplied id
-                    # occupies: the collision error is reserved for the caller
-                    # who actually chose the id.
+                    # for notifications). Cannot collide: the counter is past
+                    # every supplied integer key (advanced above) and every
+                    # previously minted id; the collision error is reserved for
+                    # the caller who actually chose the id.
                     self._next_id += 1
-                    while self._next_id in self._in_flight_ids:
-                        self._next_id += 1
                     request_id = self._next_id
                     in_flight_key = request_id
                 self._in_flight_ids.add(in_flight_key)
