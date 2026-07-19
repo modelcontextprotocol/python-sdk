@@ -2007,8 +2007,15 @@ class TestWWWAuthenticate:
             ('Bearer realm="api", scope=basic', "scope", "basic"),
             # Decoy parameter name before the real field
             ('Bearer error_scope="decoy", scope="read write"', "scope", "read write"),
+            ('Bearer error_description="missing scope=wrong", scope="read write"', "scope", "read write"),
             (
                 'Bearer x_resource_metadata="https://decoy.example.com", '
+                'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+                "resource_metadata",
+                "https://api.example.com/.well-known/oauth-protected-resource",
+            ),
+            (
+                'Bearer error_description="missing resource_metadata=https://decoy.example.com", '
                 'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
                 "resource_metadata",
                 "https://api.example.com/.well-known/oauth-protected-resource",
@@ -2056,10 +2063,16 @@ class TestWWWAuthenticate:
             ('Bearer realm="api", error="insufficient_scope"', "scope", "no scope parameter"),
             ('Bearer realm="api", scope="read write"', "resource_metadata", "no resource_metadata parameter"),
             ('Bearer custom_scope="leaked"', "scope", "substring param name should not match scope"),
+            ('Bearer error_description="missing scope=wrong"', "scope", "field-like text in quoted value"),
             (
                 'Bearer x_resource_metadata="https://decoy.example.com"',
                 "resource_metadata",
                 "substring param name should not match resource_metadata",
+            ),
+            (
+                'Bearer error_description="missing resource_metadata=https://decoy.example.com"',
+                "resource_metadata",
+                "field-like text in quoted value",
             ),
             # Malformed field (empty value)
             ("Bearer scope=", "scope", "malformed scope parameter"),
