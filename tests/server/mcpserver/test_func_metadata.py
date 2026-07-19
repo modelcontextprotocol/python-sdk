@@ -738,6 +738,42 @@ def test_structured_output_generic_types():
     }
 
 
+def test_structured_output_pep604_union_return():
+    """Regression test for #2591.
+
+    A tool whose return annotation is a multi-member PEP 604 union mixing
+    container and scalar types (``dict | list | str``) must not crash at
+    registration time. ``dict | list | str`` is a ``types.UnionType`` -- neither
+    a ``types.GenericAlias`` nor a ``type`` -- so it falls through to the
+    catch-all branch in ``_try_create_model_and_schema`` and is wrapped under
+    ``{"result": ...}`` rather than being passed to ``create_model()`` as a
+    bare field value (which previously raised ``PydanticUserError``).
+    """
+
+    # Intentionally bare (unparametrized) generics in the union: this is the exact
+    # signature from the issue report. The previously-closed fixes switched to typed
+    # generics to satisfy the type checker, which masked the reported case.
+    def func_pep604_union() -> dict | list | str:  # type: ignore[type-arg]  # pragma: no cover
+        return {"key": "value"}  # type: ignore[return-value]
+
+    meta = func_metadata(func_pep604_union, structured_output=True)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "result": {
+                "title": "Result",
+                "anyOf": [
+                    {"additionalProperties": True, "type": "object"},
+                    {"items": {}, "type": "array"},
+                    {"type": "string"},
+                ],
+            }
+        },
+        "required": ["result"],
+        "title": "func_pep604_unionOutput",
+    }
+
+
 def test_structured_output_dataclass():
     """Test structured output with dataclass return types"""
 
