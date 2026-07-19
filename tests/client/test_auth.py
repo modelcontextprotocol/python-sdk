@@ -2005,12 +2005,30 @@ class TestWWWAuthenticate:
             ),
             # Multiple parameters with unquoted value
             ('Bearer realm="api", scope=basic', "scope", "basic"),
+            ("Bearer scope=   read", "scope", "read"),
+            ('Bearer =bad, scope="read"', "scope", "read"),
+            # Decoy parameter name before the real field
+            ('Bearer error_scope="decoy", scope="read write"', "scope", "read write"),
+            ('Bearer error_description="missing scope=wrong", scope="read write"', "scope", "read write"),
+            (
+                'Bearer x_resource_metadata="https://decoy.example.com", '
+                'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+                "resource_metadata",
+                "https://api.example.com/.well-known/oauth-protected-resource",
+            ),
+            (
+                'Bearer error_description="missing resource_metadata=https://decoy.example.com", '
+                'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+                "resource_metadata",
+                "https://api.example.com/.well-known/oauth-protected-resource",
+            ),
             # Values with special characters
             (
                 'Bearer scope="resource:read resource:write user_profile"',
                 "scope",
                 "resource:read resource:write user_profile",
             ),
+            ('Bearer scope="say \\"hi\\""', "scope", 'say "hi"'),
             (
                 'Bearer resource_metadata="https://api.example.com/auth/metadata?version=1"',
                 "resource_metadata",
@@ -2047,8 +2065,23 @@ class TestWWWAuthenticate:
             # Header without requested field
             ('Bearer realm="api", error="insufficient_scope"', "scope", "no scope parameter"),
             ('Bearer realm="api", scope="read write"', "resource_metadata", "no resource_metadata parameter"),
+            ('Bearer custom_scope="leaked"', "scope", "substring param name should not match scope"),
+            ('Bearer error_description="missing scope=wrong"', "scope", "field-like text in quoted value"),
+            (
+                'Bearer x_resource_metadata="https://decoy.example.com"',
+                "resource_metadata",
+                "substring param name should not match resource_metadata",
+            ),
+            (
+                'Bearer error_description="missing resource_metadata=https://decoy.example.com"',
+                "resource_metadata",
+                "field-like text in quoted value",
+            ),
             # Malformed field (empty value)
             ("Bearer scope=", "scope", "malformed scope parameter"),
+            ("Bearer scope=   ", "scope", "malformed scope parameter with only whitespace"),
+            ("Bearer scope=,", "scope", "malformed scope parameter with delimiter"),
+            ('Bearer scope="unterminated', "scope", "unterminated quoted scope parameter"),
             ("Bearer resource_metadata=", "resource_metadata", "malformed resource_metadata parameter"),
         ],
     )
@@ -2069,6 +2102,18 @@ class TestWWWAuthenticate:
 
         result = extract_field_from_www_auth(init_response, field_name)
         assert result is None, f"Should return None for {description}"
+
+    def test_extract_resource_metadata_from_www_auth_ignores_substring_param_name(self):
+        """Test resource_metadata extraction ignores auth-params with longer names."""
+        init_response = httpx2.Response(
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer x_resource_metadata="https://decoy.example.com"'},
+            request=httpx2.Request("GET", "https://api.example.com/test"),
+        )
+
+        result = extract_resource_metadata_from_www_auth(init_response)
+
+        assert result is None
 
 
 class TestCIMD:

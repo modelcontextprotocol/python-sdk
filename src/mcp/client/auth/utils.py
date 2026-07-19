@@ -1,4 +1,4 @@
-import re
+from collections.abc import Iterator
 from urllib.parse import urljoin, urlparse
 
 from httpx2 import Request, Response
@@ -16,6 +16,76 @@ from mcp.shared.auth import (
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
+def _read_quoted_www_auth_value(header: str, value_start: int) -> tuple[str | None, int]:
+    value_chars: list[str] = []
+    escaped = False
+    index = value_start + 1
+
+    while index < len(header):
+        char = header[index]
+        if escaped:
+            value_chars.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            value = "".join(value_chars)
+            return (value or None), index + 1
+        else:
+            value_chars.append(char)
+        index += 1
+
+    return None, len(header)
+
+
+def _read_www_auth_value(header: str, value_start: int) -> tuple[str | None, int]:
+    while value_start < len(header) and header[value_start] in " \t":
+        value_start += 1
+
+    if value_start >= len(header):
+        return None, value_start
+
+    if header[value_start] == '"':
+        return _read_quoted_www_auth_value(header, value_start)
+
+    value_end = value_start
+    while value_end < len(header) and header[value_end] not in " \t,":
+        value_end += 1
+
+    if value_end == value_start:
+        return None, value_end
+
+    return header[value_start:value_end], value_end
+
+
+def _iter_www_auth_params(header: str) -> Iterator[tuple[str, str]]:
+    index = 0
+    while index < len(header):
+        while index < len(header) and header[index] in " \t,":
+            index += 1
+
+        name_start = index
+        while index < len(header) and header[index] not in " \t=,":
+            index += 1
+
+        if index == name_start:
+            index += 1
+            continue
+
+        name = header[name_start:index]
+        value_start = index
+        while value_start < len(header) and header[value_start] in " \t":
+            value_start += 1
+
+        if value_start >= len(header) or header[value_start] != "=":
+            index = value_start
+            continue
+
+        value, index = _read_www_auth_value(header, value_start + 1)
+        if value is not None:
+            yield name, value
+
+
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
     """Extract field from WWW-Authenticate header.
 
@@ -26,13 +96,9 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
-    # Pattern matches: field_name="value" or field_name=value (unquoted)
-    pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
-
-    if match:
-        # Return quoted value if present, otherwise unquoted value
-        return match.group(1) or match.group(2)
+    for name, value in _iter_www_auth_params(www_auth_header):
+        if name == field_name:
+            return value
 
     return None
 
