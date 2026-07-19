@@ -40,6 +40,14 @@ def test_resource_url_from_server_url_lowercase_scheme_and_host():
     assert resource_url_from_server_url("Http://Example.Com:8080/") == "http://example.com:8080/"
 
 
+def test_resource_url_from_server_url_preserves_userinfo_case():
+    """Only the scheme and host are canonicalized; userinfo is preserved byte-for-byte."""
+    assert (
+        resource_url_from_server_url("HTTPS://User:PaSs@EXAMPLE.COM/path#fragment")
+        == "https://User:PaSs@example.com/path"
+    )
+
+
 def test_resource_url_from_server_url_handles_pydantic_urls():
     """Should handle Pydantic URL types."""
     url = HttpUrl("https://example.com/path")

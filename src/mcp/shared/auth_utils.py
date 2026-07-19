@@ -6,6 +6,19 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 from pydantic import AnyUrl, HttpUrl
 
 
+def _lowercase_host(netloc: str) -> str:
+    userinfo, separator, hostport = netloc.rpartition("@")
+    prefix = f"{userinfo}{separator}" if separator else ""
+
+    if hostport.startswith("["):
+        end = hostport.find("]")
+        if end != -1:
+            return f"{prefix}{hostport[: end + 1].lower()}{hostport[end + 1 :]}"
+
+    host, separator, port = hostport.partition(":")
+    return f"{prefix}{host.lower()}{separator}{port}"
+
+
 def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
     """Convert server URL to canonical resource URL per RFC 8707.
 
@@ -23,7 +36,13 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
 
     # Parse the URL and remove fragment, create canonical form
     parsed = urlsplit(url_str)
-    canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment=""))
+    canonical = urlunsplit(
+        parsed._replace(
+            scheme=parsed.scheme.lower(),
+            netloc=_lowercase_host(parsed.netloc),
+            fragment="",
+        )
+    )
 
     return canonical
 
