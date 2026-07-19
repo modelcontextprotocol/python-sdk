@@ -20,6 +20,7 @@ import httpx
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
+from pydantic import ValidationError
 from typing_extensions import deprecated
 
 from mcp.shared._httpx_utils import (
@@ -28,6 +29,7 @@ from mcp.shared._httpx_utils import (
 )
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    INTERNAL_ERROR,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -347,15 +349,14 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:  # pragma: no branch
+            if response.status_code >= 400:
+                # Raising here would only throw into this POST's background task, where nothing
+                # catches it: the waiting caller would never be told, and would sit until its
+                # read timeout fired. Answer it instead, on the id it is waiting for.
                 if isinstance(message.root, JSONRPCRequest):
-                    await self._send_session_terminated_error(  # pragma: no cover
-                        ctx.read_stream_writer,  # pragma: no cover
-                        message.root.id,  # pragma: no cover
-                    )  # pragma: no cover
-                return  # pragma: no cover
+                    await self._send_http_status_error(response, ctx.read_stream_writer, message.root.id)
+                return
 
-            response.raise_for_status()
             if is_initialization:
                 self._maybe_extract_session_id_from_response(response)
 
@@ -507,19 +508,50 @@ class StreamableHTTPTransport:
         logger.error(error_msg)  # pragma: no cover
         await read_stream_writer.send(ValueError(error_msg))  # pragma: no cover
 
-    async def _send_session_terminated_error(
+    async def _send_http_status_error(
         self,
+        response: httpx.Response,
         read_stream_writer: StreamWriter,
         request_id: RequestId,
     ) -> None:
-        """Send a session terminated error response."""
-        jsonrpc_error = JSONRPCError(
-            jsonrpc="2.0",
-            id=request_id,
-            error=ErrorData(code=32600, message="Session terminated"),
-        )
-        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
-        await read_stream_writer.send(session_message)
+        """Surface a non-2xx response to the caller that is waiting on `request_id`.
+
+        The error is routed as a `JSONRPCError` stamped with the original request's id, because
+        that id is what the session correlates a reply against; a bare exception carries none and
+        so can never resolve the caller.
+        """
+        if response.status_code == 404:
+            # Answered ahead of the body, unlike every other status: a terminated session 404s
+            # *with* a JSON-RPC error body, and preferring it would rewrite the message and code
+            # this release line already reports. Callers match on both, so 404 stays verbatim.
+            error_data = ErrorData(code=32600, message="Session terminated")
+            await read_stream_writer.send(
+                SessionMessage(JSONRPCMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data)))
+            )
+            return
+
+        # A spec-correct server may put the JSON-RPC error in the body of a non-2xx (e.g. 400 for
+        # INVALID_PARAMS). Prefer it: the server's account of why it refused beats our stand-in.
+        if response.headers.get(CONTENT_TYPE, "").lower().startswith(JSON):
+            try:
+                body = await response.aread()
+                parsed = JSONRPCMessage.model_validate_json(body)
+                if isinstance(parsed.root, JSONRPCError):
+                    # Re-stamped with this request's id rather than trusting the body's: a server
+                    # echoing someone else's id would otherwise resolve the wrong caller.
+                    reply = JSONRPCError(jsonrpc="2.0", id=request_id, error=parsed.root.error)
+                    await read_stream_writer.send(SessionMessage(JSONRPCMessage(reply)))
+                    return
+            # `httpx.HTTPError` covers reading the body as much as parsing it: a stalled or
+            # truncated error body raises `ReadTimeout`/`RemoteProtocolError` here, and letting
+            # that escape would strand the caller exactly as the bug this method exists to fix.
+            # `StreamError` is not one of its subclasses (it derives from `RuntimeError`).
+            except (httpx.HTTPError, httpx.StreamError, ValidationError):
+                logger.debug("Could not read a JSON-RPC error from the non-2xx body; using the fallback")
+
+        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+        jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data)
+        await read_stream_writer.send(SessionMessage(JSONRPCMessage(jsonrpc_error)))
 
     async def post_writer(
         self,
