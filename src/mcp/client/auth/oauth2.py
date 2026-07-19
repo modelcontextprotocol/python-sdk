@@ -51,6 +51,7 @@ from mcp.shared.auth import (
 )
 from mcp.shared.auth_utils import (
     calculate_token_expiry,
+    calculate_token_refresh_time,
     check_resource_allowed,
     resource_url_from_server_url,
 )
@@ -118,6 +119,9 @@ class OAuthContext:
     # Token management
     current_tokens: OAuthToken | None = None
     token_expiry_time: float | None = None
+    # Jittered point (before hard expiry) at which to proactively refresh, so a fleet
+    # of connectors does not all refresh in the same window. See should_refresh_token.
+    token_refresh_time: float | None = None
 
     # State
     lock: anyio.Lock = field(default_factory=anyio.Lock)
@@ -128,11 +132,12 @@ class OAuthContext:
         return f"{parsed.scheme}://{parsed.netloc}"
 
     def update_token_expiry(self, token: OAuthToken) -> None:
-        """Update token expiry time using shared util function."""
+        """Update token expiry and proactive-refresh times using shared util functions."""
         self.token_expiry_time = calculate_token_expiry(token.expires_in)
+        self.token_refresh_time = calculate_token_refresh_time(token.expires_in)
 
     def is_token_valid(self) -> bool:
-        """Check if current token is valid."""
+        """Check if current token is valid (i.e. usable, not past hard expiry)."""
         return bool(
             self.current_tokens
             and self.current_tokens.access_token
@@ -143,10 +148,28 @@ class OAuthContext:
         """Check if token can be refreshed."""
         return bool(self.current_tokens and self.current_tokens.refresh_token and self.client_info)
 
+    def should_refresh_token(self) -> bool:
+        """Check if the token should be *proactively* refreshed.
+
+        Returns True when we hold refreshable tokens and have passed the jittered
+        proactive-refresh point (``token_refresh_time``), even if the token is still
+        technically valid. Refreshing slightly early -- and at a per-connector jittered
+        moment -- spreads a fleet's refreshes out instead of bunching them into the
+        same expiry window. Returns False when no refresh time is known (no expiry
+        info) so behavior degrades to the existing reactive path.
+        """
+        return bool(
+            self.current_tokens
+            and self.can_refresh_token()
+            and self.token_refresh_time is not None
+            and time.time() >= self.token_refresh_time
+        )
+
     def clear_tokens(self) -> None:
         """Clear current tokens."""
         self.current_tokens = None
         self.token_expiry_time = None
+        self.token_refresh_time = None
 
     def get_resource_url(self) -> str:
         """Get resource URL for RFC 8707.
@@ -536,7 +559,11 @@ class OAuthClientProvider(httpx2.Auth):
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
+            if (
+                not self.context.is_token_valid() or self.context.should_refresh_token()
+            ) and self.context.can_refresh_token():
+                # Refresh either reactively (token already invalid) or proactively
+                # (past the jittered refresh point, before hard expiry).
                 # Try to refresh token
                 refresh_request = await self._refresh_token()
                 refresh_response = yield refresh_request
