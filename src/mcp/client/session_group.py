@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Literal, TypeAlias, overload
+from typing import Any, Literal, TypeAlias, cast, overload
 
 import anyio
 import httpx2
@@ -371,6 +371,8 @@ class ClientSessionGroup:
     async def _aggregate_components(self, server_info: types.Implementation, session: mcp.ClientSession) -> None:
         """Aggregates prompts, resources, and tools from a given session."""
 
+        capabilities = cast(types.ServerCapabilities, session.server_capabilities)
+
         # Create a reverse index so we can find all prompts, resources, and
         # tools belonging to this session. Used for removing components from
         # the session group via self.disconnect_from_server.
@@ -384,35 +386,38 @@ class ClientSessionGroup:
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
 
         # Query the server for its prompts and aggregate to list.
-        try:
-            prompts = (await session.list_prompts()).prompts
-            for prompt in prompts:
-                name = self._component_name(prompt.name, server_info)
-                prompts_temp[name] = prompt
-                component_names.prompts.add(name)
-        except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch prompts: {err}")
+        if capabilities.prompts is not None:
+            try:
+                prompts = (await session.list_prompts()).prompts
+                for prompt in prompts:
+                    name = self._component_name(prompt.name, server_info)
+                    prompts_temp[name] = prompt
+                    component_names.prompts.add(name)
+            except MCPError as err:  # pragma: no cover
+                logging.warning(f"Could not fetch prompts: {err}")
 
         # Query the server for its resources and aggregate to list.
-        try:
-            resources = (await session.list_resources()).resources
-            for resource in resources:
-                name = self._component_name(resource.name, server_info)
-                resources_temp[name] = resource
-                component_names.resources.add(name)
-        except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch resources: {err}")
+        if capabilities.resources is not None:
+            try:
+                resources = (await session.list_resources()).resources
+                for resource in resources:
+                    name = self._component_name(resource.name, server_info)
+                    resources_temp[name] = resource
+                    component_names.resources.add(name)
+            except MCPError as err:  # pragma: no cover
+                logging.warning(f"Could not fetch resources: {err}")
 
         # Query the server for its tools and aggregate to list.
-        try:
-            tools = (await session.list_tools()).tools
-            for tool in tools:
-                name = self._component_name(tool.name, server_info)
-                tools_temp[name] = tool
-                tool_to_session_temp[name] = session
-                component_names.tools.add(name)
-        except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch tools: {err}")
+        if capabilities.tools is not None:
+            try:
+                tools = (await session.list_tools()).tools
+                for tool in tools:
+                    name = self._component_name(tool.name, server_info)
+                    tools_temp[name] = tool
+                    tool_to_session_temp[name] = session
+                    component_names.tools.add(name)
+            except MCPError as err:  # pragma: no cover
+                logging.warning(f"Could not fetch tools: {err}")
 
         # Clean up exit stack for session if we couldn't retrieve anything
         # from the server.
