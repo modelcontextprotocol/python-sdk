@@ -6,6 +6,7 @@ that don't follow SDK conventions.
 
 import json
 
+import anyio
 import httpx2
 import mcp_types as types
 import pytest
@@ -143,7 +144,8 @@ async def test_initialize_does_not_hang_on_unexpected_content_type() -> None:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 with pytest.raises(MCPError, match="Unexpected content type: text/plain"):  # pragma: no branch
-                    await session.initialize()
+                    with anyio.fail_after(5):
+                        await session.initialize()
 
 
 def _create_http_error_app(error_status: int, *, error_on_notifications: bool = False) -> Starlette:
