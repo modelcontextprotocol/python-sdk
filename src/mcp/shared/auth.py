@@ -117,8 +117,10 @@ class OAuthClientMetadata(BaseModel):
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
-            # Validate redirect_uri against client's registered redirect URIs
-            if self.redirect_uris is None or redirect_uri not in self.redirect_uris:
+            # Validate redirect_uri against client's registered redirect URIs.
+            # Pydantic URL equality is type-strict across AnyUrl subclasses, so
+            # compare canonical serialized values instead of object identity.
+            if self.redirect_uris is None or str(redirect_uri) not in {str(uri) for uri in self.redirect_uris}:
                 raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
             return redirect_uri
         elif self.redirect_uris is not None and len(self.redirect_uris) == 1:

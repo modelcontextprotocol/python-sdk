@@ -1,9 +1,14 @@
 """Tests for OAuth 2.0 shared code."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, ValidationError
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import (
+    InvalidRedirectUriError,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+)
 
 
 def test_oauth():
@@ -138,3 +143,25 @@ def test_invalid_non_empty_url_still_rejected():
     }
     with pytest.raises(ValidationError):
         OAuthClientMetadata.model_validate(data)
+
+
+def test_redirect_uri_validation_accepts_equivalent_pydantic_url_types():
+    """Pydantic URL subclasses with the same serialized URI should match."""
+    client_info = OAuthClientInformationFull(
+        client_id="client-1",
+        redirect_uris=[AnyHttpUrl("https://example.com/callback")],
+    )
+
+    redirect_uri = client_info.validate_redirect_uri(AnyUrl("https://example.com/callback"))
+
+    assert str(redirect_uri) == "https://example.com/callback"
+
+
+def test_redirect_uri_validation_rejects_unregistered_equivalent_type():
+    client_info = OAuthClientInformationFull(
+        client_id="client-1",
+        redirect_uris=[AnyHttpUrl("https://example.com/callback")],
+    )
+
+    with pytest.raises(InvalidRedirectUriError):
+        client_info.validate_redirect_uri(AnyUrl("https://evil.example/callback"))
