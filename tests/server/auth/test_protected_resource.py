@@ -9,6 +9,7 @@ from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
 from mcp.server.auth.routes import build_resource_metadata_url, create_protected_resource_routes
+from mcp.shared.auth import ProtectedResourceMetadata
 
 
 @pytest.fixture
@@ -98,13 +99,22 @@ async def test_metadata_endpoint_without_path(root_resource_client: httpx2.Async
     assert response.status_code == 200
     assert response.json() == snapshot(
         {
-            "resource": "https://example.com/",
+            "resource": "https://example.com",
             "authorization_servers": ["https://auth.example.com/"],
             "scopes_supported": ["read"],
             "resource_name": "Root Resource",
             "bearer_methods_supported": ["header"],
         }
     )
+
+
+def test_root_resource_serializes_without_trailing_slash():
+    metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://example.com"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    assert metadata.model_dump(mode="json")["resource"] == "https://example.com"
 
 
 # Tests for URL construction utility function
