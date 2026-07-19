@@ -2,7 +2,7 @@
 
 import inspect
 
-import httpx
+import httpx2
 import pytest
 from mcp_types import TextContent
 from starlette.applications import Starlette
@@ -43,6 +43,7 @@ async def test_streamable_http_app_takes_runs_options_except_port() -> None:
         "stateless_http",
         "event_store",
         "retry_interval",
+        "max_request_body_size",
         "transport_security",
         "host",
     }
@@ -50,10 +51,21 @@ async def test_streamable_http_app_takes_runs_options_except_port() -> None:
 
 async def test_a_request_before_the_session_manager_runs_is_rejected() -> None:
     """The `!!! check`: nothing starts the session manager except its lifespan."""
-    transport = httpx.ASGITransport(app=tutorial001.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
+    transport = httpx2.ASGITransport(app=tutorial001.app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         with pytest.raises(RuntimeError, match=r"Task group is not initialized\. Make sure to use run\(\)\."):
             await http.post("/mcp")
+
+
+async def test_streamable_http_app_applies_the_configured_request_body_limit() -> None:
+    """The documented `max_request_body_size` option rejects larger requests with HTTP 413."""
+    server = MCPServer("Notes")
+    app = server.streamable_http_app(max_request_body_size=8)
+    transport = httpx2.ASGITransport(app=app)
+    async with server.session_manager.run():
+        async with httpx2.AsyncClient(transport=transport, base_url="http://localhost") as http:
+            response = await http.post("/mcp", content=b"123456789")
+    assert response.status_code == 413
 
 
 async def test_mounting_at_the_root_keeps_the_default_path() -> None:
@@ -76,12 +88,12 @@ async def test_a_root_mount_swallows_routes_listed_after_it() -> None:
     listed_after = Starlette(routes=[Mount("/", app=mcp_app), Route("/about", about)])
     listed_before = Starlette(routes=[Route("/about", about), Mount("/", app=mcp_app)])
 
-    transport = httpx.ASGITransport(app=listed_after)
-    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
+    transport = httpx2.ASGITransport(app=listed_after)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         assert (await http.get("/about")).status_code == 404
 
-    transport = httpx.ASGITransport(app=listed_before)
-    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
+    transport = httpx2.ASGITransport(app=listed_before)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         assert (await http.get("/about")).status_code == 200
 
 
@@ -127,8 +139,8 @@ async def test_cors_exposes_the_session_id_header() -> None:
     """tutorial005: the browser origin gets the three MCP methods and can read `Mcp-Session-Id`."""
     (middleware,) = tutorial005.app.user_middleware
     assert middleware.cls is CORSMiddleware
-    transport = httpx.ASGITransport(app=tutorial005.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
+    transport = httpx2.ASGITransport(app=tutorial005.app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         preflight = await http.options(
             "/mcp",
             headers={"Origin": "https://app.example.com", "Access-Control-Request-Method": "POST"},
@@ -152,8 +164,8 @@ async def test_custom_route_lands_next_to_the_mcp_endpoint() -> None:
 
 async def test_the_health_check_answers_outside_the_protocol() -> None:
     """tutorial006: `GET /health` is ordinary HTTP, with no session manager and no MCP."""
-    transport = httpx.ASGITransport(app=tutorial006.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
+    transport = httpx2.ASGITransport(app=tutorial006.app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
         response = await http.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -174,11 +186,11 @@ async def test_the_default_app_is_localhost_only() -> None:
     before any MCP code runs."""
     bare = MCPServer("Notes")
     app = bare.streamable_http_app()
-    transport = httpx.ASGITransport(app=app)
+    transport = httpx2.ASGITransport(app=app)
     async with bare.session_manager.run():
-        async with httpx.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
+        async with httpx2.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
             wrong_host = await http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
-        async with httpx.AsyncClient(transport=transport, base_url="http://localhost:8000") as http:
+        async with httpx2.AsyncClient(transport=transport, base_url="http://localhost:8000") as http:
             wrong_origin = await http.post(
                 "/mcp", json=INITIALIZE, headers={**MCP_HEADERS, "Origin": "https://app.example.com"}
             )
@@ -189,9 +201,9 @@ async def test_the_default_app_is_localhost_only() -> None:
 async def test_the_documented_browser_origin_works_end_to_end() -> None:
     """tutorial005: the page's scenario for real. The public hostname, the browser origin, a
     realistic preflight naming the `Mcp-*` headers, then the actual request."""
-    transport = httpx.ASGITransport(app=tutorial005.app)
+    transport = httpx2.ASGITransport(app=tutorial005.app)
     async with tutorial005.lifespan(tutorial005.app):
-        async with httpx.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
+        async with httpx2.AsyncClient(transport=transport, base_url="https://mcp.example.com") as http:
             preflight = await http.options(
                 "/mcp",
                 headers={

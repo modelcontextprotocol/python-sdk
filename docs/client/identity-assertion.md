@@ -19,7 +19,7 @@ Everything below is the second request: the client that sends it and the authori
 
 ## The client
 
-**`IdentityAssertionOAuthProvider`** lives in `mcp.client.auth.extensions.identity_assertion`. Like every provider in **[OAuth clients](oauth-clients.md)** it is an `httpx.Auth`: construct one, put it on `auth=`, hand the `httpx.AsyncClient` to the transport.
+**`IdentityAssertionOAuthProvider`** lives in `mcp.client.auth.extensions.identity_assertion`. Like every provider in **[OAuth clients](oauth-clients.md)** it is an `httpx2.Auth`: construct one, put it on `auth=`, hand the `httpx2.AsyncClient` to the transport.
 
 ```python title="client.py" hl_lines="49-50 53-61"
 --8<-- "docs_src/identity_assertion/tutorial001.py"
@@ -139,7 +139,7 @@ And notice what the returned `OAuthToken` does not carry: a refresh token. The I
 
 * [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) lets the enterprise identity provider, not the end user, decide which MCP servers a client may reach. The IdP signs that decision into an **ID-JAG**.
 * Obtaining the ID-JAG is an [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693) token exchange against *your IdP*, and the SDK does not make it. Presenting it to the MCP authorization server is the [RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) `jwt-bearer` grant, and the SDK does both sides of that.
-* `IdentityAssertionOAuthProvider` is another `httpx.Auth`: a pre-registered confidential client, a pinned `issuer`, and one `assertion_provider(audience, resource)` callback. No browser, no registration, no refresh token.
+* `IdentityAssertionOAuthProvider` is another `httpx2.Auth`: a pre-registered confidential client, a pinned `issuer`, and one `assertion_provider(audience, resource)` callback. No browser, no registration, no refresh token.
 * The authorization server is never discovered from the resource server. Configure `issuer` to exactly the string its metadata document serves; the comparison is character for character.
 * Server side, `identity_assertion_enabled=True` plus `exchange_identity_assertion`. The SDK authenticates the client and gates the grant; validating the ID-JAG is entirely yours, and the issued token is bound to the ID-JAG's `resource`, not the request's.
 

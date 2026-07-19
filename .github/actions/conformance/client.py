@@ -38,7 +38,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2
 import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import AnyUrl
@@ -151,7 +151,7 @@ class ConformanceOAuthCallbackHandler:
         """Fetch the authorization URL and extract the auth code from the redirect."""
         logger.debug(f"Fetching authorization URL: {authorization_url}")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx2.AsyncClient() as client:
             response = await client.get(
                 authorization_url,
                 follow_redirects=False,
@@ -486,13 +486,13 @@ async def run_enterprise_managed_authorization(server_url: str) -> None:
     # learn it from the harness's PRM document (RFC 9728); production
     # deployments would supply it as static configuration instead.
     prm_url = build_protected_resource_metadata_discovery_urls(None, server_url)[0]
-    async with httpx.AsyncClient(timeout=30.0) as http:
+    async with httpx2.AsyncClient(timeout=30.0) as http:
         prm = (await http.get(prm_url)).raise_for_status().json()
     as_issuer = prm["authorization_servers"][0]
 
     async def fetch_id_jag(audience: str, resource: str) -> str:
         """Leg 1 - RFC 8693 token-exchange at the enterprise IdP."""
-        async with httpx.AsyncClient(timeout=30.0) as http:
+        async with httpx2.AsyncClient(timeout=30.0) as http:
             resp = await http.post(
                 idp_token_endpoint,
                 data={
@@ -563,9 +563,9 @@ async def run_auth_code_client(server_url: str) -> None:
     await _run_auth_session(server_url, oauth_auth)
 
 
-async def _run_auth_session(server_url: str, oauth_auth: httpx.Auth) -> None:
+async def _run_auth_session(server_url: str, oauth_auth: httpx2.Auth) -> None:
     """Common session logic for all OAuth flows."""
-    http_client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
+    http_client = httpx2.AsyncClient(auth=oauth_auth, timeout=30.0)
     transport = streamable_http_client(url=server_url, http_client=http_client)
     async with Client(transport, mode=client_mode(), elicitation_callback=default_elicitation_callback) as client:
         logger.debug("Initialized successfully")

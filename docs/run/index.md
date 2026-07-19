@@ -41,6 +41,30 @@ Nothing prints, and it doesn't return. It is waiting on stdin for a host to spea
 
 That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../handlers/logging.md)**.
 
+On Windows, the same rule applies to child processes your tools start. A child
+that inherits the stdio server's stdin can block behind the server's protocol
+reader. If your tool starts a subprocess and you do not intend to feed it input,
+redirect the child's stdin:
+
+```python
+import asyncio
+import subprocess
+import sys
+
+
+async def run_script() -> tuple[bytes, bytes]:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "script.py",
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return await process.communicate()
+```
+
+The matching troubleshooting entry is **[My stdio tool hangs when it starts a subprocess on Windows](../troubleshooting.md#my-stdio-tool-hangs-when-it-starts-a-subprocess-on-windows)**.
+
 ### Try it
 
 ```console
@@ -67,6 +91,9 @@ Each transport has its own keyword arguments, all on `run()`:
 * `streamable_http_path`: where the MCP endpoint lives. Default `/mcp`.
 * `json_response=True`: answer with plain JSON instead of an SSE stream.
 * `stateless_http=True`: a fresh transport per request, no session tracking.
+* `max_request_body_size`: largest accepted POST body in bytes. Defaults to 4 MiB; larger requests
+  receive HTTP 413 before parsing or session creation. Raise it only when legitimate MCP messages
+  exceed that size.
 * `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[Deploy & scale](deploy.md)** covers `transport_security`.
 
 !!! warning

@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -81,12 +81,12 @@ def _asgi_client(
     *,
     json_response: bool = True,
     accept: str = "application/json, text/event-stream",
-) -> httpx.AsyncClient:
+) -> httpx2.AsyncClient:
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
         async with server.lifespan(server) as lifespan_state:
             await handle_modern_request(server, security_settings, json_response, lifespan_state, scope, receive, send)
 
-    return httpx.AsyncClient(
+    return httpx2.AsyncClient(
         transport=StreamingASGITransport(app),
         base_url="http://testserver",
         headers={
@@ -894,8 +894,8 @@ async def test_modern_tools_call_leaves_mis_shaped_name_and_arguments_to_dispatc
 
 async def test_modern_tools_call_rejects_a_duplicated_mcp_param_header() -> None:
     """A duplicated recognized header is rejected even if one copy matches: readers may disagree on which wins."""
-    # An httpx header list with a repeated name reaches the ASGI scope as two raw header lines.
-    duplicated = httpx.Headers(
+    # An httpx2 header list with a repeated name reaches the ASGI scope as two raw header lines.
+    duplicated = httpx2.Headers(
         [*_TOOL_CALL_HEADERS.items(), ("mcp-param-region", "spoofed"), ("mcp-param-region", "eu")]
     )
     async with _asgi_client(_x_mcp_server()) as http:
@@ -928,7 +928,7 @@ async def test_modern_synthetic_listing_does_not_replay_caller_meta_extras() -> 
 
 async def test_modern_post_rejects_a_duplicated_routing_header() -> None:
     """A duplicated routing header (`Mcp-Name`) is unverifiable and rejected before the validation ladder runs."""
-    duplicated = httpx.Headers(
+    duplicated = httpx2.Headers(
         [(MCP_METHOD_HEADER, "tools/call"), (MCP_NAME_HEADER, "search"), (MCP_NAME_HEADER, "admin-tool")]
     )
     async with _asgi_client(_x_mcp_server()) as http:
@@ -1066,7 +1066,7 @@ async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
     server = Server("test", on_subscriptions_listen=handler)
     body = _listen_body()
 
-    responses: list[httpx.Response] = []
+    responses: list[httpx2.Response] = []
     async with _asgi_client(server, json_response=True) as http:
         async with anyio.create_task_group() as tg:
 

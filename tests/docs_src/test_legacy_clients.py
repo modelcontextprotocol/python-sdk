@@ -2,7 +2,7 @@
 
 import inspect
 
-import httpx
+import httpx2
 import pytest
 from mcp_types import INVALID_REQUEST, ResourceUpdatedNotification, TextContent
 
@@ -52,6 +52,7 @@ def test_streamable_http_app_has_no_era_knob() -> None:
         "stateless_http",
         "event_store",
         "retry_interval",
+        "max_request_body_size",
         "transport_security",
         "host",
     }
@@ -64,8 +65,8 @@ async def test_a_legacy_session_is_minted_in_process_and_a_stray_session_id_is_a
     app = MCPServer("Bookshop").streamable_http_app()
     async with (
         app.router.lifespan_context(app),
-        httpx.ASGITransport(app) as transport,
-        httpx.AsyncClient(transport=transport, base_url="http://localhost:8000") as http,
+        httpx2.ASGITransport(app) as transport,
+        httpx2.AsyncClient(transport=transport, base_url="http://localhost:8000") as http,
     ):
         opened = await http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
         assert opened.status_code == 200
@@ -80,8 +81,8 @@ async def test_stateless_http_never_mints_a_session() -> None:
     app = MCPServer("Bookshop").streamable_http_app(stateless_http=True)
     async with (
         app.router.lifespan_context(app),
-        httpx.ASGITransport(app) as transport,
-        httpx.AsyncClient(transport=transport, base_url="http://localhost:8000") as http,
+        httpx2.ASGITransport(app) as transport,
+        httpx2.AsyncClient(transport=transport, base_url="http://localhost:8000") as http,
     ):
         opened = await http.post("/mcp", json=INITIALIZE, headers=MCP_HEADERS)
     assert opened.status_code == 200
@@ -93,8 +94,8 @@ async def test_stateless_http_kills_the_legacy_back_channel_and_only_the_legacy_
     the legacy client's call fails as the top-level `MCPError` the `!!! check` quotes."""
     async with (
         tutorial002.app.router.lifespan_context(tutorial002.app),
-        httpx.ASGITransport(tutorial002.app) as transport,
-        httpx.AsyncClient(transport=transport) as http,
+        httpx2.ASGITransport(tutorial002.app) as transport,
+        httpx2.AsyncClient(transport=transport) as http,
     ):
         modern_target = streamable_http_client(URL, http_client=http)
         async with Client(modern_target, elicitation_callback=tutorial001.answer) as modern:

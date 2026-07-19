@@ -92,8 +92,8 @@ def main(url: str, items: int, checkpoint_every: int, log_level: str) -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     # Suppress noisy HTTP client logging
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
+    logging.getLogger("httpcore2").setLevel(logging.WARNING)
 
     asyncio.run(run_demo(url, items, checkpoint_every))
 

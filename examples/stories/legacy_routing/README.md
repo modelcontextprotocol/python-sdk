@@ -68,7 +68,7 @@ async def mcp_endpoint(scope, receive, send):
         case "legacy":
             await my_existing_v1_manager.handle_request(scope, replay, send)
         case "modern":
-            await modern_manager.handle_request(scope, replay, send)
+            await modern_manager.asgi_app(scope, replay, send)
         case rejection:
             await send_jsonrpc_error(send, rejection)  # map via ERROR_CODE_HTTP_STATUS
 ```
@@ -92,7 +92,7 @@ eras need different auth, rate limits, or scaling.
 - `ctx.request_context.protocol_version` is the interim 2-hop reach; a later
   release will shorten it.
 - DNS-rebinding protection is on by default; the harness disables it
-  (`NO_DNS_REBIND`) because the in-process httpx client sends no `Origin`.
+  (`NO_DNS_REBIND`) because the in-process httpx2 client sends no `Origin`.
   Drop the kwarg for a real deployment.
 - `mcp.shared.inbound` is a deep import path — a shorter re-export is planned
   before beta.

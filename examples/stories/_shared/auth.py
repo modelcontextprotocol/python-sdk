@@ -10,7 +10,7 @@ import secrets
 import time
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
+import httpx2
 from pydantic import AnyHttpUrl
 
 from mcp.server.auth.provider import (
@@ -49,14 +49,14 @@ class InMemoryTokenStorage:
 
 
 class HeadlessOAuth:
-    """Completes the authorize redirect in-process via the bound ``httpx`` client."""
+    """Completes the authorize redirect in-process via the bound ``httpx2`` client."""
 
     def __init__(self) -> None:
         self.authorize_url: str | None = None
-        self._http: httpx.AsyncClient | None = None
+        self._http: httpx2.AsyncClient | None = None
         self._result = AuthorizationCodeResult(code="", state=None)
 
-    def bind(self, http_client: httpx.AsyncClient) -> None:
+    def bind(self, http_client: httpx2.AsyncClient) -> None:
         self._http = http_client
 
     async def redirect_handler(self, authorization_url: str) -> None:
