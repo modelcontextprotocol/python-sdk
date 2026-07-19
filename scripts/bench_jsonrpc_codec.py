@@ -51,15 +51,22 @@ LARGE_RESULT = json.dumps(
 REPEATS = 5
 
 
-def bench(fn: Callable[[], Any], iterations: int) -> float:
-    """Return best-of-REPEATS per-call time in microseconds."""
-    best = float("inf")
-    for _ in range(REPEATS):
-        start = time.perf_counter()
-        for _ in range(iterations):
-            fn()
-        best = min(best, time.perf_counter() - start)
-    return best / iterations * 1e6
+def bench_pair(old_fn: Callable[[], Any], new_fn: Callable[[], Any], iterations: int) -> tuple[float, float]:
+    """Return best per-call time in microseconds for each adapter over 2*REPEATS rounds.
+
+    Run order alternates each round so warm-up and CPU-state effects are not
+    attributed to either adapter.
+    """
+    fns = (old_fn, new_fn)
+    best = [float("inf"), float("inf")]
+    for round_index in range(2 * REPEATS):
+        order = (0, 1) if round_index % 2 == 0 else (1, 0)
+        for key in order:
+            start = time.perf_counter()
+            for _ in range(iterations):
+                fns[key]()
+            best[key] = min(best[key], time.perf_counter() - start)
+    return best[0] / iterations * 1e6, best[1] / iterations * 1e6
 
 
 def _decode_validate_json(adapter: TypeAdapter[Any], body: bytes) -> Any:
@@ -88,8 +95,11 @@ def main() -> None:
     print(f"{'payload':<20} {'path':<14} {'smart union':>12} {'discriminator':>14} {'speedup':>8}")
     for label, body, iterations in payloads:
         for path_label, decode in decoders:
-            old = bench(lambda: decode(bare_union_adapter, body), iterations)
-            new = bench(lambda: decode(jsonrpc_message_adapter, body), iterations)
+            old, new = bench_pair(
+                lambda: decode(bare_union_adapter, body),
+                lambda: decode(jsonrpc_message_adapter, body),
+                iterations,
+            )
             print(f"{label:<20} {path_label:<14} {old:>10.2f}us {new:>12.2f}us {old / new:>7.2f}x")
 
 

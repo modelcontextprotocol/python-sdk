@@ -68,6 +68,37 @@ def test_error_wins_over_result() -> None:
 
 
 @pytest.mark.parametrize(
+    ("request_id", "expected_type"),
+    [
+        (1, JSONRPCRequest),
+        (None, JSONRPCNotification),
+    ],
+)
+def test_method_wins_over_error(request_id: object, expected_type: type) -> None:
+    """A spec-invalid {method, error} hybrid classifies as a call, deliberately diverging from smart union.
+
+    Smart-union scoring preferred `JSONRPCError` here (more matching fields),
+    which let a malformed frame masquerade as an error response to a pending
+    request. The `method` key now deterministically makes the message a call.
+    """
+    wire: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": "m", "error": {"code": -1, "message": "x"}}
+    message = jsonrpc_message_adapter.validate_python(wire, by_name=False)
+    assert type(message) is expected_type
+
+
+def test_non_string_method_with_result_is_rejected() -> None:
+    """A `method` key selects the call arm even when its value is invalid, deliberately diverging from smart union.
+
+    Smart union previously fell through to `JSONRPCResponse` for
+    {method: 123, result: {}}; the call arm now rejects the non-string method.
+    """
+    wire: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": 123, "result": {}}
+    with pytest.raises(ValidationError) as exc_info:
+        jsonrpc_message_adapter.validate_python(wire, by_name=False)
+    assert exc_info.value.errors()[0]["loc"] == ("request", "method")
+
+
+@pytest.mark.parametrize(
     "unclassifiable",
     [
         b'{"foo": 1}',

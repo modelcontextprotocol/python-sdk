@@ -127,10 +127,14 @@ def _discriminate_jsonrpc_message(value: Any) -> str | None:
     """Tag a wire object by key presence per JSON-RPC 2.0.
 
     Selects exactly one union branch to validate instead of letting smart-union
-    mode score all four on every message. Mirrors the smart-union outcomes
-    exactly, including the rule that a ``method`` member with a missing, null,
-    or non-int/str ``id`` classifies as a notification, and that ``error`` wins
-    over ``result`` when both are present.
+    mode score all four on every message. Classification matches the previous
+    smart-union outcome for every spec-valid message: a ``method`` member with
+    a missing, null, or non-int/str ``id`` classifies as a notification
+    (mirroring ``RequestId``), and ``error`` wins over ``result`` when both are
+    present. For spec-invalid hybrids that combine ``method`` with ``result``/
+    ``error`` members, the ``method`` key deterministically makes the message a
+    call; smart-union scoring previously preferred whichever branch matched
+    more fields, which let a malformed frame classify as an error response.
     """
     if isinstance(value, dict):
         wire = cast("dict[str, Any]", value)
