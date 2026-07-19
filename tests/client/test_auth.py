@@ -2099,10 +2099,10 @@ class TestWWWAuthenticate:
 
     def test_extract_resource_metadata_from_www_auth_ignores_substring_param_name(self):
         """Test resource_metadata extraction ignores auth-params with longer names."""
-        init_response = httpx.Response(
+        init_response = httpx2.Response(
             status_code=401,
             headers={"WWW-Authenticate": 'Bearer x_resource_metadata="https://decoy.example.com"'},
-            request=httpx.Request("GET", "https://api.example.com/test"),
+            request=httpx2.Request("GET", "https://api.example.com/test"),
         )
 
         result = extract_resource_metadata_from_www_auth(init_response)
