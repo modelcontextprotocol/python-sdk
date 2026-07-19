@@ -758,11 +758,16 @@ async def test_terminate_closes_active_sse_stream_writers():
     transport = StreamableHTTPServerTransport(mcp_session_id="test-session-2150")
     send_stream, receive_stream = anyio.create_memory_object_stream[object](1)
     transport._sse_stream_writers["req-1"] = send_stream  # type: ignore[assignment]
+    # Orphaned request stream with a key NOT also in _sse_stream_writers: close_sse_stream
+    # only pops matching request streams, so terminate's remaining-keys loop must run.
+    req_send, req_recv = anyio.create_memory_object_stream[object](1)
+    transport._request_streams["req-orphan"] = (req_send, req_recv)  # type: ignore[assignment]
 
     await transport.terminate()
 
     assert transport.is_terminated
     assert "req-1" not in transport._sse_stream_writers
+    assert not transport._request_streams
     with pytest.raises(anyio.ClosedResourceError):
         await send_stream.send(object())  # type: ignore[arg-type]
     await receive_stream.aclose()

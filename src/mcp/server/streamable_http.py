@@ -934,7 +934,9 @@ class StreamableHTTPServerTransport:
 
                                         await sse_stream_writer.send(event_data)
                             finally:
-                                if registered_stream_id is not None:
+                                # registered_stream_id is set immediately on try entry; keep the
+                                # guard for defensive cleanup if re-key is later reordered.
+                                if registered_stream_id is not None:  # pragma: no branch
                                     self._sse_stream_writers.pop(registered_stream_id, None)
                                 await self._clean_up_memory_streams(stream_id)
                 except anyio.ClosedResourceError:  # pragma: lax no cover
