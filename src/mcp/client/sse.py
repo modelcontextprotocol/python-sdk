@@ -11,6 +11,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import SSEError, aconnect_sse
 
 import mcp.types as types
+from mcp.client.auth import OAuthClientProvider
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
@@ -65,10 +66,19 @@ async def sse_client(
             async with httpx_client_factory(
                 headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
             ) as client:
+                sse_request_kwargs: dict[str, Any] = {}
+                if isinstance(auth, OAuthClientProvider):
+                    sse_request = httpx.Request("GET", url, headers=headers)
+                    await auth.prepare_request_with_refresh(client, sse_request)
+                    if "Authorization" in sse_request.headers:
+                        sse_request_kwargs["headers"] = dict(sse_request.headers)
+                        sse_request_kwargs["auth"] = None
+
                 async with aconnect_sse(
                     client,
                     "GET",
                     url,
+                    **sse_request_kwargs,
                 ) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
