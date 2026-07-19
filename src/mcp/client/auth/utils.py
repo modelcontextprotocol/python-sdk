@@ -16,6 +16,88 @@ from mcp.shared.auth import (
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
+def _split_www_authenticate_segments(header_value: str) -> list[str]:
+    """Split a WWW-Authenticate header on top-level commas."""
+    segments: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    escaped = False
+
+    for char in header_value:
+        if escaped:
+            escaped = False
+        elif char == "\\" and in_quotes:
+            escaped = True
+        elif char == '"':
+            in_quotes = not in_quotes
+        if char == "," and not in_quotes:
+            segment = "".join(current).strip()
+            if segment:
+                segments.append(segment)
+            current = []
+            continue
+        current.append(char)
+
+    tail = "".join(current).strip()
+    if tail:
+        segments.append(tail)
+    return segments
+
+
+def _extract_bearer_auth_params(www_auth_header: str) -> str | None:
+    """Return the auth-param portion of the first Bearer challenge."""
+    segments = _split_www_authenticate_segments(www_auth_header)
+    collecting = False
+    auth_params: list[str] = []
+
+    for segment in segments:
+        scheme, separator, remainder = segment.partition(" ")
+        if scheme.lower() == "bearer" and separator:
+            if collecting:
+                break
+            collecting = True
+            auth_params = [remainder.strip()]
+            continue
+
+        if collecting:
+            if separator and "=" not in scheme and not remainder.lstrip().startswith("="):
+                break
+            auth_params.append(segment)
+
+    if not auth_params:
+        return None
+    return ", ".join(part for part in auth_params if part)
+
+
+_AUTH_PARAM_PATTERN = re.compile(
+    r"(?:^|,\s*)(?P<name>[A-Za-z][A-Za-z0-9_-]*)\s*=\s*"
+    r'(?:"(?P<quoted>(?:\\.|[^"\\])*)"|(?P<unquoted>[^,\s]+))'
+)
+
+
+def _extract_auth_param(auth_params: str, field_name: str) -> str | None:
+    """Extract an auth-param from a comma-delimited parameter string."""
+    for match in _AUTH_PARAM_PATTERN.finditer(auth_params):
+        if match.group("name") != field_name:
+            continue
+        quoted = match.group("quoted")
+        value = quoted if quoted is not None else match.group("unquoted")
+        if not value:
+            return None
+        return re.sub(r"\\(.)", r"\1", value) if quoted is not None else value
+    return None
+
+
+def _extract_field_from_bearer_challenge(response: Response, field_name: str) -> str | None:
+    """Extract an auth-param from the first Bearer challenge."""
+    www_auth_header = response.headers.get("WWW-Authenticate")
+    if not www_auth_header:
+        return None
+
+    auth_params = _extract_bearer_auth_params(www_auth_header)
+    return _extract_auth_param(auth_params, field_name) if auth_params is not None else None
+
+
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
     """Extract field from WWW-Authenticate header.
 
@@ -26,13 +108,11 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
-    # Pattern matches: field_name="value" or field_name=value (unquoted)
-    pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
-
-    if match:
-        # Return quoted value if present, otherwise unquoted value
-        return match.group(1) or match.group(2)
+    for segment in _split_www_authenticate_segments(www_auth_header):
+        scheme, separator, remainder = segment.partition(" ")
+        auth_params = remainder.strip() if separator and "=" not in scheme else segment
+        if value := _extract_auth_param(auth_params, field_name):
+            return value
 
     return None
 
@@ -43,7 +123,7 @@ def extract_scope_from_www_auth(response: Response) -> str | None:
     Returns:
         Scope string if found in WWW-Authenticate header, None otherwise
     """
-    return extract_field_from_www_auth(response, "scope")
+    return _extract_field_from_bearer_challenge(response, "scope")
 
 
 def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
@@ -55,7 +135,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
     if not response or response.status_code != 401:
         return None  # pragma: no cover
 
-    return extract_field_from_www_auth(response, "resource_metadata")
+    return _extract_field_from_bearer_challenge(response, "resource_metadata")
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:

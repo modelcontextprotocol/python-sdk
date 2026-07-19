@@ -181,6 +181,91 @@ class TestPKCEParameters:
         assert pkce1.code_challenge != pkce2.code_challenge
 
 
+def test_scope_uses_first_bearer_challenge_when_multiple_are_present():
+    """RFC 6750 fields come from the first Bearer challenge, not another scheme or later challenge."""
+    response = httpx2.Response(
+        401,
+        headers={
+            "WWW-Authenticate": (
+                'Basic scope="legacy", Bearer scope="read", error="insufficient_scope", Bearer scope="write"'
+            )
+        },
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+
+    assert extract_scope_from_www_auth(response) == "read"
+
+
+def test_bearer_fields_support_optional_whitespace_around_equals():
+    """Bearer auth-params allow optional whitespace around the equals sign."""
+    response = httpx2.Response(
+        401,
+        headers={
+            "WWW-Authenticate": (
+                'Bearer error="insufficient_scope", scope = "read write", '
+                'resource_metadata = "https://example.com/.well-known/oauth-protected-resource"'
+            )
+        },
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+
+    assert extract_scope_from_www_auth(response) == "read write"
+    assert (
+        extract_resource_metadata_from_www_auth(response) == "https://example.com/.well-known/oauth-protected-resource"
+    )
+
+
+def test_generic_field_lookup_preserves_non_bearer_challenges():
+    """The generic helper keeps its pre-existing ability to read fields from other auth schemes."""
+    response = httpx2.Response(
+        401,
+        headers={"WWW-Authenticate": 'Newauth realm="apps"'},
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+
+    assert extract_field_from_www_auth(response, "realm") == "apps"
+    assert extract_scope_from_www_auth(response) is None
+
+
+def test_quoted_auth_params_handle_escaped_quotes_and_commas():
+    """RFC quoted-pairs do not terminate a quoted value or split its embedded comma."""
+    response = httpx2.Response(
+        401,
+        headers={
+            "WWW-Authenticate": (
+                'Newauth realm="apps \\"beta\\", east", '
+                'Bearer error_description="try \\"again\\", later", scope="read write"'
+            )
+        },
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+
+    assert extract_field_from_www_auth(response, "realm") == 'apps "beta", east'
+    assert extract_scope_from_www_auth(response) == "read write"
+
+
+def test_bearer_parser_ignores_empty_segments_and_stops_at_next_challenge():
+    """The first Bearer challenge ends when another authentication scheme begins."""
+    response = httpx2.Response(
+        401,
+        headers={"WWW-Authenticate": ', Bearer scope="read", Basic realm="legacy",'},
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+
+    assert extract_scope_from_www_auth(response) == "read"
+
+
+def test_empty_quoted_auth_param_returns_none():
+    """An empty quoted auth-param has the same missing-value result as an unquoted empty parameter."""
+    response = httpx2.Response(
+        401,
+        headers={"WWW-Authenticate": 'Bearer scope=""'},
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+
+    assert extract_scope_from_www_auth(response) is None
+
+
 class TestOAuthContext:
     """Test OAuth context functionality."""
 
@@ -2016,6 +2101,17 @@ class TestWWWAuthenticate:
                 "resource_metadata",
                 "https://api.example.com/auth/metadata?version=1",
             ),
+            ('Bearer error_scope="decoy", scope="read write"', "scope", "read write"),
+            (
+                'Bearer error_description="missing scope=write permission", scope="read write"',
+                "scope",
+                "read write",
+            ),
+            (
+                'Basic realm="legacy", Bearer scope="read write", error="insufficient_scope"',
+                "scope",
+                "read write",
+            ),
         ],
     )
     def test_extract_field_from_www_auth_valid_cases(
@@ -2047,6 +2143,12 @@ class TestWWWAuthenticate:
             # Header without requested field
             ('Bearer realm="api", error="insufficient_scope"', "scope", "no scope parameter"),
             ('Bearer realm="api", scope="read write"', "resource_metadata", "no resource_metadata parameter"),
+            ('Bearer custom_scope="leaked"', "scope", "field name appears only as a substring"),
+            (
+                'Bearer x_resource_metadata="https://decoy.example.com"',
+                "resource_metadata",
+                "field name appears only as a substring",
+            ),
             # Malformed field (empty value)
             ("Bearer scope=", "scope", "malformed scope parameter"),
             ("Bearer resource_metadata=", "resource_metadata", "malformed resource_metadata parameter"),
