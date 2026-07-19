@@ -183,14 +183,14 @@ class TestPKCEParameters:
 
 def test_scope_uses_first_bearer_challenge_when_multiple_are_present():
     """RFC 6750 fields come from the first Bearer challenge, not another scheme or later challenge."""
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         headers={
             "WWW-Authenticate": (
                 'Basic scope="legacy", Bearer scope="read", error="insufficient_scope", Bearer scope="write"'
             )
         },
-        request=httpx.Request("GET", "https://example.com"),
+        request=httpx2.Request("GET", "https://example.com"),
     )
 
     assert extract_scope_from_www_auth(response) == "read"
@@ -198,7 +198,7 @@ def test_scope_uses_first_bearer_challenge_when_multiple_are_present():
 
 def test_bearer_fields_support_optional_whitespace_around_equals():
     """Bearer auth-params allow optional whitespace around the equals sign."""
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         headers={
             "WWW-Authenticate": (
@@ -206,7 +206,7 @@ def test_bearer_fields_support_optional_whitespace_around_equals():
                 'resource_metadata = "https://example.com/.well-known/oauth-protected-resource"'
             )
         },
-        request=httpx.Request("GET", "https://example.com"),
+        request=httpx2.Request("GET", "https://example.com"),
     )
 
     assert extract_scope_from_www_auth(response) == "read write"
@@ -217,10 +217,10 @@ def test_bearer_fields_support_optional_whitespace_around_equals():
 
 def test_generic_field_lookup_preserves_non_bearer_challenges():
     """The generic helper keeps its pre-existing ability to read fields from other auth schemes."""
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         headers={"WWW-Authenticate": 'Newauth realm="apps"'},
-        request=httpx.Request("GET", "https://example.com"),
+        request=httpx2.Request("GET", "https://example.com"),
     )
 
     assert extract_field_from_www_auth(response, "realm") == "apps"
@@ -229,7 +229,7 @@ def test_generic_field_lookup_preserves_non_bearer_challenges():
 
 def test_quoted_auth_params_handle_escaped_quotes_and_commas():
     """RFC quoted-pairs do not terminate a quoted value or split its embedded comma."""
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         headers={
             "WWW-Authenticate": (
@@ -237,7 +237,7 @@ def test_quoted_auth_params_handle_escaped_quotes_and_commas():
                 'Bearer error_description="try \\"again\\", later", scope="read write"'
             )
         },
-        request=httpx.Request("GET", "https://example.com"),
+        request=httpx2.Request("GET", "https://example.com"),
     )
 
     assert extract_field_from_www_auth(response, "realm") == 'apps "beta", east'
@@ -246,10 +246,10 @@ def test_quoted_auth_params_handle_escaped_quotes_and_commas():
 
 def test_bearer_parser_ignores_empty_segments_and_stops_at_next_challenge():
     """The first Bearer challenge ends when another authentication scheme begins."""
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         headers={"WWW-Authenticate": ', Bearer scope="read", Basic realm="legacy",'},
-        request=httpx.Request("GET", "https://example.com"),
+        request=httpx2.Request("GET", "https://example.com"),
     )
 
     assert extract_scope_from_www_auth(response) == "read"
@@ -257,10 +257,10 @@ def test_bearer_parser_ignores_empty_segments_and_stops_at_next_challenge():
 
 def test_empty_quoted_auth_param_returns_none():
     """An empty quoted auth-param has the same missing-value result as an unquoted empty parameter."""
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         headers={"WWW-Authenticate": 'Bearer scope=""'},
-        request=httpx.Request("GET", "https://example.com"),
+        request=httpx2.Request("GET", "https://example.com"),
     )
 
     assert extract_scope_from_www_auth(response) is None
