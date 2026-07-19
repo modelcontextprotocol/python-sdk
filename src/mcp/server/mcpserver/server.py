@@ -71,7 +71,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
@@ -409,7 +409,12 @@ class MCPServer(Generic[LifespanResultT]):
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
-        except Exception as e:
+        except ToolError as e:
+            # Tool execution failures surface as `ToolError` (the tool layer wraps
+            # any non-`MCPError` exception). Use the content the tool attached, if
+            # any, otherwise fall back to the error message as text.
+            if e.content is not None:
+                return CallToolResult(content=e.content, is_error=True)
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
 
     async def _handle_list_resources(
