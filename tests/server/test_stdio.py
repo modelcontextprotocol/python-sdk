@@ -1,7 +1,8 @@
 import io
 import sys
+import tempfile
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 
@@ -76,7 +77,35 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
 
 
 @pytest.mark.anyio
-async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stdio_server_supports_fileno_less_standard_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default path supports in-memory stdio replacements without fileno()."""
+    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    raw_stdin = io.BytesIO(request.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    raw_stdout = io.BytesIO()
+
+    test_stdin = TextIOWrapper(raw_stdin, encoding="utf-8")
+    test_stdout = TextIOWrapper(raw_stdout, encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", test_stdin)
+    monkeypatch.setattr(sys, "stdout", test_stdout)
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            async with read_stream:  # pragma: no branch
+                message = await read_stream.receive()
+                assert isinstance(message, SessionMessage)
+                assert message.message == request
+
+    assert not test_stdin.closed
+    assert not test_stdout.closed
+    test_stdin.seek(0)
+    assert test_stdin.readline() == request.model_dump_json(by_alias=True, exclude_none=True) + "\n"
+    test_stdout.write("stdio still open")
+    test_stdout.flush()
+
+
+@pytest.mark.anyio
+async def test_stdio_server_invalid_utf8() -> None:
     """Non-UTF-8 stdin bytes surface as an in-stream exception without killing the stream.
 
     Invalid bytes are replaced with U+FFFD, fail JSON parsing, and arrive as an in-stream
@@ -84,25 +113,43 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
     """
     # \xff\xfe are invalid UTF-8 start bytes.
     valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
-    raw_stdin = io.BytesIO(b"\xff\xfe\n" + valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    raw_stdin = tempfile.TemporaryFile()
+    raw_stdin.write(b"\xff\xfe\n" + valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    raw_stdin.seek(0)
+    raw_stdout = tempfile.TemporaryFile()
 
-    # Replace sys.stdin with a wrapper whose .buffer is our raw bytes, so that
-    # stdio_server()'s default path wraps it with errors='replace'.
-    monkeypatch.setattr(sys, "stdin", TextIOWrapper(raw_stdin, encoding="utf-8"))
-    monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+    # Replace sys.stdin/stdout with wrappers backed by real file descriptors so
+    # stdio_server()'s default path can duplicate them without closing the
+    # original process-level streams.
+    original_stdin = sys.stdin
+    original_stdout = sys.stdout
+    test_stdin = TextIOWrapper(raw_stdin, encoding="utf-8")
+    test_stdout = TextIOWrapper(raw_stdout, encoding="utf-8")
+    sys.stdin = test_stdin
+    sys.stdout = test_stdout
 
-    with anyio.fail_after(5):
-        async with stdio_server() as (read_stream, write_stream):
-            await write_stream.aclose()
-            async with read_stream:  # pragma: no branch
-                # First line: \xff\xfe -> U+FFFD U+FFFD -> JSON parse fails -> exception in stream
-                first = await read_stream.receive()
-                assert isinstance(first, Exception)
+    try:
+        with anyio.fail_after(5):
+            async with stdio_server() as (read_stream, write_stream):
+                await write_stream.aclose()
+                async with read_stream:  # pragma: no branch
+                    # First line: \xff\xfe -> U+FFFD U+FFFD -> JSON parse fails -> exception in stream
+                    first = await read_stream.receive()
+                    assert isinstance(first, Exception)
 
-                # Second line: valid message still comes through
-                second = await read_stream.receive()
-                assert isinstance(second, SessionMessage)
-                assert second.message == valid
+                    # Second line: valid message still comes through
+                    second = await read_stream.receive()
+                    assert isinstance(second, SessionMessage)
+                    assert second.message == valid
+
+        assert not sys.stdin.closed
+        assert not sys.stdout.closed
+        sys.stdout.write("stdio still open")
+    finally:
+        sys.stdin = original_stdin
+        sys.stdout = original_stdout
+        test_stdin.close()
+        test_stdout.close()
 
 
 class _GatedStdin(io.RawIOBase):
@@ -232,7 +279,7 @@ def test_mcpserver_run_stdio_runs_lifespan_cleanup_after_stdin_closes(monkeypatc
     events: list[str] = []
 
     @asynccontextmanager
-    async def lifespan(server: MCPServer) -> AsyncIterator[None]:
+    async def lifespan(server: MCPServer) -> AsyncGenerator[None, None]:
         events.append("setup")
         try:
             yield
