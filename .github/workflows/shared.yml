@@ -17,10 +17,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      # setup-uv's manifest fetch is a single request with a hard 5s timeout
+      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
+      - name: Install uv
+        id: setup-uv
+        continue-on-error: true
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           version: 0.9.5
+
+      - name: Install uv (retry)
+        if: steps.setup-uv.outcome == 'failure'
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          version: 0.9.5
+
       - name: Install dependencies
         run: uv sync --frozen --all-extras --python 3.10
 
@@ -44,8 +57,8 @@ jobs:
     name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
-    continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         dep-resolution:
@@ -60,7 +73,18 @@ jobs:
         with:
           persist-credentials: false
 
+      # setup-uv's manifest fetch is a single request with a hard 5s timeout
+      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
       - name: Install uv
+        id: setup-uv
+        continue-on-error: true
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          version: 0.9.5
+
+      - name: Install uv (retry)
+        if: steps.setup-uv.outcome == 'failure'
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
@@ -92,7 +116,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      # setup-uv's manifest fetch is a single request with a hard 5s timeout
+      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
+      - name: Install uv
+        id: setup-uv
+        continue-on-error: true
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          version: 0.9.5
+
+      - name: Install uv (retry)
+        if: steps.setup-uv.outcome == 'failure'
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           version: 0.9.5
@@ -103,11 +139,16 @@ jobs:
       - name: Check README snippets are up to date
         run: uv run --frozen scripts/update_readme_snippets.py --check
 
-  # `mkdocs.yml` sets `strict: true` and `pymdownx.snippets: check_paths: true`,
-  # but until this job existed the docs were only ever built post-merge by
-  # `deploy-docs.yml`, so a broken link, a missing nav target, or a deleted
-  # `docs_src/` include went green on the PR and broke the next deploy of main.
-  # This is the check path; `deploy-docs.yml` stays the deploy path.
+  # `scripts/docs/build.sh` is the whole gauntlet: build_config.py fails on
+  # nav entries without a page and pages without a nav entry, `zensical build
+  # --strict` fails on broken .md links, `pymdownx.snippets: check_paths:
+  # true` fails on a deleted `docs_src/` include, and the post-build steps
+  # fail on order-dependent API rendering, unresolved cross-references,
+  # inventory download failures, and broken non-markdown link targets.
+  # Until this job existed the docs were only ever built post-merge by
+  # `deploy-docs.yml`, so those failures went green on the PR and broke the next
+  # deploy of main. This is the check path; `deploy-docs.yml` stays the deploy
+  # path.
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -115,13 +156,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      # setup-uv's manifest fetch is a single request with a hard 5s timeout
+      # (astral-sh/setup-uv#869); retry once. Drop when upstream adds a retry.
+      - name: Install uv
+        id: setup-uv
+        continue-on-error: true
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           version: 0.9.5
 
-      - name: Install dependencies
-        run: uv sync --frozen --all-extras --python 3.10
+      - name: Install uv (retry)
+        if: steps.setup-uv.outcome == 'failure'
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          version: 0.9.5
 
       - name: Build the docs in strict mode
-        run: uv run --frozen --no-sync mkdocs build --strict
+        run: bash scripts/docs/build.sh

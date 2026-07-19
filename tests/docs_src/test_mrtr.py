@@ -1,4 +1,4 @@
-"""`docs/advanced/multi-round-trip.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/handlers/multi-round-trip.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot

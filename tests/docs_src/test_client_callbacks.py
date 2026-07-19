@@ -107,7 +107,7 @@ async def test_each_callback_declares_its_own_capability() -> None:
 async def test_the_modern_in_memory_path_has_no_back_channel() -> None:
     """The `!!! info`: under the default mode the negotiated path has no back-channel for `elicitation/create`."""
     async with Client(tutorial001.mcp, elicitation_callback=tutorial002.handle_elicitation) as client:
-        with pytest.raises(MCPError, match="Method not found"):
+        with pytest.raises(MCPError, match="no back-channel"):
             await client.call_tool("issue_card")
 
 

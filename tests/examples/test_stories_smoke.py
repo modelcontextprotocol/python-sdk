@@ -32,7 +32,7 @@ pytestmark = [
 ]
 
 _REPO_ROOT = Path(__file__).parents[2]
-# httpx in the spawned client honours these and tries to mount a SOCKS transport even for
+# httpx2 in the spawned client honours these and tries to mount a SOCKS transport even for
 # 127.0.0.1; strip them so the smoke run is hermetic regardless of the caller's shell.
 _PROXY_VARS = {v for base in ("all_proxy", "http_proxy", "https_proxy", "ftp_proxy") for v in (base, base.upper())}
 _ENV = {k: v for k, v in os.environ.items() if k not in _PROXY_VARS}

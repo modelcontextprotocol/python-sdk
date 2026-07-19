@@ -32,7 +32,7 @@ the client and server side.
 
 - `client.py` `main` — opens with `async with Client(target, mode=mode) as
   client:` and that's the whole program. `target` is a transport that already
-  carries the OAuth `httpx.Auth`; the body never touches a token.
+  carries the OAuth `httpx2.Auth`; the body never touches a token.
 - `client.py` `build_auth` — five lines of `ClientCredentialsOAuthProvider`
   config is all the caller writes; the SDK does RFC 9728 PRM →
   RFC 8414 AS-metadata discovery and token exchange on the first 401.
@@ -50,13 +50,13 @@ the client and server side.
 
 - `Client(url, auth=build_auth(http))` is the ergonomic the SDK is missing —
   `Client(url)` has no `auth=` passthrough. Until it lands, the authed
-  `httpx.AsyncClient` → `streamable_http_client(url, http_client=hc)` chain has
+  `httpx2.AsyncClient` → `streamable_http_client(url, http_client=hc)` chain has
   to be built *outside* `main` and handed in as `target`; both `run_client`
   (the standalone `--http` run) and the test harness do that from the
   `build_auth` export.
 - `transport_security=NO_DNS_REBIND` — DNS-rebinding protection is on by
   default for localhost binds; the harness disables it because the in-process
-  httpx client sends no `Origin` header. Drop the kwarg for a real deployment.
+  httpx2 client sends no `Origin` header. Drop the kwarg for a real deployment.
 - `OAuthMetadata.authorization_endpoint` is a required field even though a
   `client_credentials`-only AS has no authorize endpoint; the server sets a
   dummy URL.

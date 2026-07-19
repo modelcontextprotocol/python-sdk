@@ -1,4 +1,4 @@
-"""`docs/tutorial/resources.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/servers/resources.md`: every claim the page makes, proved against the real SDK."""
 
 import base64
 

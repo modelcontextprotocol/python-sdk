@@ -1,12 +1,12 @@
-"""`docs/tutorial/dependencies.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/handlers/dependencies.md`: every claim the page makes, proved against the real SDK."""
 
 from typing import Literal
 
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import ElicitRequestParams, ElicitResult, TextContent
+from mcp_types import CreateMessageRequestParams, CreateMessageResult, ElicitRequestParams, ElicitResult, TextContent
 
-from docs_src.dependencies import tutorial001, tutorial002, tutorial003
+from docs_src.dependencies import tutorial001, tutorial002, tutorial003, tutorial004
 from mcp import Client
 from mcp.client import ClientRequestContext
 
@@ -138,3 +138,21 @@ async def test_declining_an_unwrapped_dependency_aborts_the_call(mode: Literal["
     assert result.content[0].text == (
         "Error executing tool order_book: Resolver for parameter 'backorder' could not resolve: elicitation was decline"
     )
+
+
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+async def test_a_resolver_can_sample_the_clients_llm(mode: Literal["legacy", "auto"]) -> None:
+    """tutorial004: `suggest_title` runs through the client's sampling callback on both eras."""
+    prompts: list[str] = []
+
+    async def sampler(context: ClientRequestContext, params: CreateMessageRequestParams) -> CreateMessageResult:
+        content = params.messages[0].content
+        assert isinstance(content, TextContent)
+        prompts.append(content.text)
+        return CreateMessageResult(role="assistant", content=TextContent(type="text", text="Dune"), model="m")
+
+    async with Client(tutorial004.mcp, mode=mode, sampling_callback=sampler) as client:
+        result = await client.call_tool("recommend_book", {"genre": "sci-fi"})
+
+    assert result.content == [TextContent(type="text", text="Today's sci-fi pick: Dune")]
+    assert prompts == ["Suggest one sci-fi book title. Answer with the title only."]

@@ -144,6 +144,8 @@ def test_parse_rejects_operator_without_variable():
         # RFC §2.3: dots only between varchars, not consecutive or trailing
         "foo..bar",
         "foo.",
+        # a single trailing newline slipped past `$` with re.match
+        "foo\n",
     ],
 )
 def test_parse_rejects_invalid_varname(name: str):

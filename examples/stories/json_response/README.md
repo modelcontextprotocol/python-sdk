@@ -34,7 +34,7 @@ kill "$SERVER_PID"
 
 - `client.py` `main` — `async with Client(target, mode=mode) as client:` is an
   ordinary high-level client; nothing about JSON mode is visible from this side.
-  The same `main` also takes the raw `httpx.AsyncClient` so it can prove what
+  The same `main` also takes the raw `httpx2.AsyncClient` so it can prove what
   the wire looks like underneath.
 - `client.py` `RAW_ENVELOPE_BODY` / `MODERN_HEADERS` — the exact 2026 wire
   shape: three `io.modelcontextprotocol/*` `_meta` keys replace the initialize
@@ -52,7 +52,7 @@ kill "$SERVER_PID"
 ## Caveats
 
 - DNS-rebinding protection is on by default; the harness disables it via
-  `NO_DNS_REBIND` because the in-process httpx client sends no `Origin` header.
+  `NO_DNS_REBIND` because the in-process httpx2 client sends no `Origin` header.
 - The `streamable_http_app()` call shape here will move when the free-function
   entry lands (see `_hosting.py`).
 - `Mcp-Name` is omitted for `tools/list` because the SDK only emits it on

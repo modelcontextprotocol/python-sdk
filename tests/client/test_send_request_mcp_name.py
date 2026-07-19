@@ -22,7 +22,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 
 from mcp.client.session import ClientSession
-from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest
+from mcp.shared.dispatcher import CallOptions, OnNotify, OnNotifyIntercept, OnRequest
 from mcp.shared.inbound import MCP_NAME_HEADER, MCP_PROTOCOL_VERSION_HEADER, encode_header_value
 
 
@@ -36,6 +36,7 @@ class _RecordingDispatcher:
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:

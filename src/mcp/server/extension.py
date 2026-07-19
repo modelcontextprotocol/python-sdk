@@ -7,7 +7,7 @@ contribution kinds: tools, resources, new request methods, and one `tools/call`
 interceptor. The server never hands itself to an extension; the extension
 declares what it adds, and the server consumes it.
 
-The shape follows the HTTPX `Transport`/`Auth` pattern: a narrow base class whose
+The shape follows the httpx2 `Transport`/`Auth` pattern: a narrow base class whose
 methods have sensible defaults, so an extension overrides only what it needs. A
 purely additive extension (Apps) overrides `tools`/`resources`; an interceptive
 one overrides `methods`/`intercept_tool_call`.

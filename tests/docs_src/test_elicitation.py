@@ -1,4 +1,4 @@
-"""`docs/tutorial/elicitation.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/handlers/elicitation.md`: every claim the page makes, proved against the real SDK."""
 
 from typing import Literal
 

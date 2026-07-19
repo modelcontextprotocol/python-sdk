@@ -5,7 +5,7 @@ the legacy initialize handshake, the modern `server/discover` probe, or nothing 
 that a modern-negotiated session stamps the three-key `io.modelcontextprotocol/*` `_meta`
 envelope on every subsequent request. Each test drives the highest public surface (`Client`)
 and observes traffic at a recording seam: `RecordingTransport` for the legacy stream pair, and
-`mounted_app`'s httpx event hook for the in-process streamable-HTTP transport.
+`mounted_app`'s httpx2 event hook for the in-process streamable-HTTP transport.
 
 The fallback test alone hand-plays the server's side of the wire, because no real `Server`
 answers `server/discover` with -32601.
@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from mcp_types import (
@@ -64,11 +64,11 @@ def _tools_server(name: str = "negotiator") -> Server:
     return Server(name, on_list_tools=list_tools)
 
 
-def _request_recorder() -> tuple[list[httpx.Request], Callable[[httpx.Request], Awaitable[None]]]:
-    """Return a list and an `on_request` hook that appends each outgoing httpx request to it."""
-    captured: list[httpx.Request] = []
+def _request_recorder() -> tuple[list[httpx2.Request], Callable[[httpx2.Request], Awaitable[None]]]:
+    """Return a list and an `on_request` hook that appends each outgoing httpx2 request to it."""
+    captured: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         captured.append(request)
 
     return captured, on_request
@@ -100,7 +100,7 @@ async def test_pinned_mode_sends_no_connect_time_traffic() -> None:
 
     Requirement `lifecycle:mode:pin-never-handshakes` (sdk-defined): a version pin adopts a
     synthesized DiscoverResult locally, so no `initialize` and no `server/discover` ever cross
-    the wire. Asserted at the in-process streamable-HTTP seam via the httpx event hook.
+    the wire. Asserted at the in-process streamable-HTTP seam via the httpx2 event hook.
     """
     requests, on_request = _request_recorder()
 
@@ -223,21 +223,21 @@ async def test_auto_mode_propagates_a_network_error_from_discover_without_initia
     Requirement `lifecycle:discover:network-error-raises` (sdk-defined): under the denylist policy
     every server-sent rpc-error and every transport-layer 4xx falls back to `initialize()`; the
     only probe failures that reach the caller are real outages — network errors, anyio resource
-    errors, and the disjoint-modern -32022 case. Exercised here as an `httpx.ConnectError` from
+    errors, and the disjoint-modern -32022 case. Exercised here as an `httpx2.ConnectError` from
     the underlying transport, which the policy must not classify as an era verdict. The error
     reaches the test wrapped in the streamable-http transport's task-group teardown, so
     `pytest.RaisesGroup` flattens before matching. The probe POST is recorded before the
     transport raises, so the `initialize` fallback observably did not happen.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        raise httpx.ConnectError("connection refused")
+        raise httpx2.ConnectError("connection refused")
 
     with anyio.fail_after(5):
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-            with pytest.RaisesGroup(httpx.ConnectError, flatten_subgroups=True):  # pragma: no branch
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
+            with pytest.RaisesGroup(httpx2.ConnectError, flatten_subgroups=True):  # pragma: no branch
                 async with Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto"):
                     raise NotImplementedError("entering the Client should have raised")  # pragma: no cover
 

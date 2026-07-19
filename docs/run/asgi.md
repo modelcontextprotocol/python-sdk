@@ -1,4 +1,4 @@
-# ASGI
+# Add to an existing app
 
 `mcp.run("streamable-http")` starts a web server for you. Sometimes you don't want that: your MCP server is one piece of a larger web application, or you already have an ASGI deployment.
 
@@ -30,51 +30,20 @@ Run the app on its own (`uvicorn server:app`) and you never think about either.
 !!! tip
     `streamable_http_app()` takes the same keyword arguments as `mcp.run("streamable-http", ...)`,
     minus `port`: the port belongs to whatever serves the app. `host` is still accepted but binds
-    nothing here; the next section is what it actually controls. **[Running your server](index.md)** covers the
-    options themselves.
+    nothing here; **[Deploy & scale](deploy.md)** explains what it actually controls.
+    **[Running your server](index.md)** covers the options themselves.
 
 `mcp.sse_app()` does the same for the superseded SSE transport.
 
 ## Localhost only, until you say otherwise
 
-`streamable_http_app()` cannot know which hostname it will be served behind, so it assumes the
-safest answer: localhost. With no `transport_security=`, the app switches on **DNS-rebinding
-protection** and accepts a request only if its `Host` header is `127.0.0.1:<port>`,
-`localhost:<port>`, or `[::1]:<port>`, and only if its `Origin` header, when there is one, is the
-`http://` form of the same. For `uvicorn server:app` on your machine that is exactly what you want:
-it stops a malicious web page from driving your local server through a DNS name it rebound to
-`127.0.0.1`.
-
-It also means that **deployed behind a real hostname, the app rejects every request until you
-configure it**. The check runs before MCP does, the client sees only a generic transport error, and
-the reason is a single warning in the *server's* log:
-
-```text
-421 Misdirected Request    Invalid Host header      the Host is not in the allowlist
-403 Forbidden              Invalid Origin header    the Origin is not in the allowlist
-```
-
-`transport_security=` is how you configure it. Allowlist what you actually serve:
-
-```python
-from mcp.server.transport_security import TransportSecuritySettings
-
-security = TransportSecuritySettings(
-    allowed_hosts=["mcp.example.com", "mcp.example.com:*"],
-    allowed_origins=["https://app.example.com"],
-)
-app = mcp.streamable_http_app(transport_security=security)
-```
-
-* `allowed_hosts` entries are exact strings: `"mcp.example.com"` matches a bare `Host` header and
-  `"mcp.example.com:*"` matches any port. List both.
-* `allowed_origins` only matters for browsers (nothing else sends `Origin`). It is the server-side
-  twin of the CORS configuration below.
-* Behind a reverse proxy that already controls the `Host` header, switching the check off is the
-  honest configuration: `TransportSecuritySettings(enable_dns_rebinding_protection=False)`.
-* Passing a non-localhost `host=` (for example `host="mcp.example.com"`) does **not** allowlist that
-  hostname. It only stops the localhost default from arming the protection, which leaves every Host
-  and Origin accepted. Say what you mean with `transport_security=` instead.
+Out of the box the app answers **only** requests addressed to localhost. `streamable_http_app()`
+cannot know which hostname it will be served behind, so it arms DNS-rebinding protection with the
+safest possible allowlist; on your machine that is exactly right. Deployed behind a real hostname,
+it means **every request is rejected with `421 Misdirected Request`** until you pass
+`transport_security=` an allowlist of what you actually serve. Nothing you built is even
+consulted first. That allowlist, and everything else between a working app and a real hostname,
+is **[Deploy & scale](deploy.md)**.
 
 ## Mounting it
 
@@ -88,7 +57,7 @@ The moment the MCP server is *part* of a bigger application, you put the app ins
 * The `lifespan` function enters `mcp.session_manager.run()` for the lifetime of the **host** app. This is the line everyone forgets.
 * `mcp.session_manager` only exists *after* `streamable_http_app()` has been called. That is why the routes are built at module level and the manager is only touched inside the lifespan.
 
-Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change, and neither does the transport-security one. A `Host("mcp.example.com", ...)` route only ever receives requests addressed to that hostname, so without `allowed_hosts=["mcp.example.com", "mcp.example.com:*"]` it answers every one of them with a `421`.
+Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("mcp.example.com", ...)` to route by hostname instead of by path. The lifespan rule does not change, and neither does the transport-security one. A `Host("mcp.example.com", ...)` route only ever receives requests addressed to that hostname, but the transport's own Host allowlist (**[Deploy & scale](deploy.md)**) still runs first. Without `"mcp.example.com"` in it, that route answers every one of them with a `421`.
 
 !!! warning "The host app owns the lifespan"
     `streamable_http_app()` wires `session_manager.run()` into the lifespan of the Starlette it
@@ -150,7 +119,7 @@ A browser-based client needs two permissions from you: to **send** its MCP reque
 
 * The handler is plain Starlette: an `async` function from `Request` to `Response`.
 * `streamable_http_app()` picks up every custom route. `app.routes` is now `/mcp` and `/health`.
-* `GET /health` answers `{"status": "ok"}` with no MCP in sight: no session, no handshake.
+* `GET /health` answers `{"status": "ok"}` with no MCP in sight.
 
 !!! warning
     Custom routes are **never authenticated**, even when the rest of the server is. That is
@@ -160,7 +129,7 @@ A browser-based client needs two permissions from you: to **send** its MCP reque
 ## Recap
 
 * `mcp.streamable_http_app()` returns a Starlette app with one route, `/mcp`. Any ASGI server can run it.
-* Out of the box the app answers only requests addressed to localhost. Deploying behind a real hostname means passing `transport_security=TransportSecuritySettings(...)`.
+* Out of the box the app answers only requests addressed to localhost, and behind a real hostname it rejects everything with a `421` until you pass `transport_security=` an allowlist. **[Deploy & scale](deploy.md)** owns that, and the rest of the road to production.
 * `Mount` (or `Host`) puts it inside a bigger Starlette or FastAPI app.
 * **Mounting disables the built-in lifespan.** The host app's lifespan must enter `mcp.session_manager.run()`, or the first request fails.
 * Several servers in one app means several mounts and one lifespan that enters every session manager.

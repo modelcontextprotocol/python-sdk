@@ -18,7 +18,7 @@ No subprocess, no port, no bytes on a wire. The client and the server are two ob
 
 That makes it two things at once:
 
-* **A test harness.** Every example in this documentation is exercised this way, and the **[Testing](../tutorial/testing.md)** chapter builds the whole pattern around it.
+* **A test harness.** Every example in this documentation is exercised this way, and the **[Testing](../get-started/testing.md)** page builds the whole pattern around it.
 * **An embedding API.** An application that constructs the server doesn't need a network hop to call its tools.
 
 ## Streamable HTTP
@@ -29,7 +29,7 @@ Pass a URL string and you get **Streamable HTTP**, the transport you deploy behi
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx.AsyncClient` configured the way MCP needs: `follow_redirects=True`, a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open.
+That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx2.AsyncClient` configured the way MCP needs: `follow_redirects=True`, a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open.
 
 !!! check
     A `Client` you have constructed is **not** connected. Construction only picks the transport;
@@ -41,9 +41,9 @@ That is the whole production client. `Client` wraps the URL in `streamable_http_
 
     Nothing was resolved, fetched or spawned when you wrote `Client("http://...")`. That line is free.
 
-### Bring your own `httpx.AsyncClient`
+### Bring your own `httpx2.AsyncClient`
 
-The moment you need an `Authorization` header, a cookie, a proxy, mTLS, or a different timeout, build the `httpx.AsyncClient` yourself and hand it to `streamable_http_client`:
+The moment you need an `Authorization` header, a cookie, a proxy, mTLS, or a different timeout, build the `httpx2.AsyncClient` yourself and hand it to `streamable_http_client`:
 
 ```python title="client.py" hl_lines="8-14"
 --8<-- "docs_src/client_transports/tutorial003.py"
@@ -51,8 +51,15 @@ The moment you need an `Authorization` header, a cookie, a proxy, mTLS, or a dif
 
 Two things to notice:
 
-* You own the `httpx.AsyncClient`, so **you** enter and exit it. The SDK never closes a client it didn't create.
+* You own the `httpx2.AsyncClient`, so **you** enter and exit it. The SDK never closes a client it didn't create.
 * `streamable_http_client(url, http_client=...)` returns a transport, and `Client(transport)` accepts it like anything else.
+
+One TLS note: `httpx2` verifies certificates against the operating system trust store (via
+[`truststore`](https://pypi.org/project/truststore/)), not a bundled CA list. In an environment with
+no usable system CA store (some minimal containers), set the standard `SSL_CERT_FILE`/`SSL_CERT_DIR`
+environment variables or pass an explicit `verify=ssl_context` to your `httpx2.AsyncClient`
+(background in
+[`httpx` and `httpx-sse` replaced by `httpx2`](../migration.md#httpx-and-httpx-sse-replaced-by-httpx2)).
 
 !!! warning
     `streamable_http_client` used to take `headers=` and `timeout=` directly. It does not any more:
@@ -63,16 +70,17 @@ Two things to notice:
     TypeError: streamable_http_client() got an unexpected keyword argument 'headers'
     ```
 
-    Everything HTTP-shaped now lives on the one `httpx.AsyncClient` you pass in.
+    Everything HTTP-shaped now lives on the one `httpx2.AsyncClient` you pass in.
 
 !!! info
-    If you know `httpx`, you already know how to do auth, proxies, event hooks, retries and connection
-    limits here. The SDK adds nothing on top and takes nothing away. It is also where OAuth plugs in:
-    `httpx.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](../advanced/oauth-clients.md)**.
+    `httpx2` keeps the familiar `httpx` API, so if you know `httpx` you already know how to do auth,
+    proxies, event hooks, retries and connection limits here. The SDK adds nothing on top and takes
+    nothing away. It is also where OAuth plugs in:
+    `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](oauth-clients.md)**.
 
 ## stdio
 
-A **stdio** server is a subprocess. The client launches it, writes JSON-RPC to its stdin and reads JSON-RPC from its stdout. It is how a desktop host runs a server on your machine.
+A **stdio** server is a subprocess. The client launches it, writes JSON-RPC to its stdin and reads JSON-RPC from its stdout. It is how a desktop host runs a server on your machine: a host *is* this code plus a UI, and **[Connect to a real host](../get-started/real-host.md)** is the same relationship seen from the host's side, as a config file.
 
 Describe the process with `StdioServerParameters`, turn it into a transport with `stdio_client`, and hand *that* to `Client`:
 
@@ -106,10 +114,10 @@ A **transport** is any async context manager that yields a `(read, write)` pair 
 
 * `Client(mcp)` (the server object) connects in memory. Use it for tests and for embedding.
 * `Client("http://.../mcp")` (a URL) connects over Streamable HTTP, the production transport.
-* Headers, auth, proxies and timeouts belong on an `httpx.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
+* Headers, auth, proxies and timeouts belong on an `httpx2.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
 * stdio is `Client(stdio_client(StdioServerParameters(...)))`, never the parameters object alone.
 * The subprocess gets an allow-listed environment, not yours; `env=` adds to it.
 * A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object or a URL straight to that protocol.
 * Constructing a `Client` picks the transport. `async with` opens it.
 
-Once the transport is open the two sides have to agree on a protocol version. You normally never think about it; when you do, **[Protocol versions](protocol-versions.md)** is the page.
+Once the transport is open the two sides have to agree on a protocol version. You normally never think about it; when you do, **[Protocol versions](../protocol-versions.md)** is the page.

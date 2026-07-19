@@ -1,4 +1,4 @@
-"""`docs/tutorial/first-steps.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/get-started/first-steps.md`: every claim the page makes, proved against the real SDK."""
 
 import pytest
 from inline_snapshot import snapshot

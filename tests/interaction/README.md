@@ -27,7 +27,10 @@ flows — with a single subprocess test for stdio.
   the constants in `mcp_types`; error *message strings* are pinned only where they are the
   SDK's own deliberate output.
 - **No sleeps, no real I/O.** Concurrency is coordinated with `anyio.Event`; every wait that
-  could hang is bounded by `anyio.fail_after(5)`. The HTTP and OAuth tests drive the Starlette
+  could hang is bounded by `anyio.fail_after(5)`. A test that must let in-flight deliveries
+  settle before teardown (an abandoned request's late error response, say) may use
+  `anyio.wait_all_tasks_blocked()`: the whole suite is single-loop and task-driven, so
+  quiescence is deterministic. The HTTP and OAuth tests drive the Starlette
   app in-process through the suite's streaming ASGI bridge (`transports/_bridge.py`), which
   delivers each response chunk as the server produces it — full duplex, but still no sockets,
   threads, or subprocesses anywhere outside the one stdio test.
@@ -67,7 +70,7 @@ real-clock timeout tests (the timeout machinery is transport-independent and mus
 transport latency), and everything under `transports/`, which pins behaviour only observable on
 that transport.
 
-A transport conformance test in `transports/` speaks raw `httpx` against the mounted ASGI app
+A transport conformance test in `transports/` speaks raw `httpx2` against the mounted ASGI app
 **only** when its assertion is about HTTP semantics that `Client` cannot observe — status codes,
 response headers, SSE event fields, which stream a message travels on. Any other behaviour is
 asserted through a `Client`, connected to the mounted app via `client_via_http(http)` so several

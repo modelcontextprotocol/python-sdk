@@ -16,11 +16,11 @@ from unittest.mock import MagicMock
 from urllib.parse import urlparse
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import ServerSentEvent
+from httpx2 import ServerSentEvent
 from mcp_types import (
     DEFAULT_NEGOTIATED_VERSION,
     INVALID_PARAMS,
@@ -85,7 +85,7 @@ BASE_URL = "http://127.0.0.1:8000"
 
 
 # Helper functions
-def first_sse_data(response: httpx.Response) -> dict[str, Any]:
+def first_sse_data(response: httpx2.Response) -> dict[str, Any]:
     """Return the first SSE `data:` payload of a response, parsed as JSON."""
     assert response.headers.get("Content-Type") == "text/event-stream"
     for line in response.text.splitlines():
@@ -94,7 +94,7 @@ def first_sse_data(response: httpx.Response) -> dict[str, Any]:
     raise ValueError("No data event in SSE response")  # pragma: no cover
 
 
-def extract_protocol_version_from_sse(response: httpx.Response) -> str:
+def extract_protocol_version_from_sse(response: httpx2.Response) -> str:
     """Extract the negotiated protocol version from an SSE initialization response."""
     return first_sse_data(response)["result"]["protocolVersion"]
 
@@ -356,13 +356,13 @@ async def running_app(
         yield app
 
 
-def make_client(app: Starlette, headers: dict[str, str] | None = None) -> httpx.AsyncClient:
-    """An httpx client served in process by `app`, with create_mcp_http_client's redirect default.
+def make_client(app: Starlette, headers: dict[str, str] | None = None) -> httpx2.AsyncClient:
+    """An httpx2 client served in process by `app`, with create_mcp_http_client's redirect default.
 
     (Starlette's Mount 307-redirects the bare /mcp path to /mcp/, which the SDK's own client
     factory follows.)
     """
-    return httpx.AsyncClient(
+    return httpx2.AsyncClient(
         transport=StreamingASGITransport(app), base_url=BASE_URL, headers=headers, follow_redirects=True
     )
 
@@ -400,7 +400,7 @@ async def event_app(event_store: SimpleEventStore) -> AsyncIterator[tuple[Simple
 async def test_accept_header_validation(basic_app: Starlette) -> None:
     """A POST without an Accept header is rejected with 406."""
     async with make_client(basic_app) as client:
-        # Suppress the httpx client default Accept: */* header
+        # Suppress the httpx2 client default Accept: */* header
         del client.headers["accept"]
         response = await client.post(
             "/mcp",
@@ -716,7 +716,7 @@ async def test_json_response_accept_json_only(json_app: Starlette) -> None:
 async def test_json_response_missing_accept_header(json_app: Starlette) -> None:
     """JSON response mode still rejects requests without an Accept header."""
     async with make_client(json_app) as client:
-        # Suppress the httpx client default Accept: */* header
+        # Suppress the httpx2 client default Accept: */* header
         del client.headers["accept"]
         response = await client.post(
             "/mcp",
@@ -829,7 +829,7 @@ async def test_get_validation(basic_app: Starlette) -> None:
         assert session_id is not None
         negotiated_version = extract_protocol_version_from_sse(init_response)
 
-        # Test without Accept header (suppress the httpx client default Accept: */*)
+        # Test without Accept header (suppress the httpx2 client default Accept: */*)
         del client.headers["accept"]
         response = await client.get(
             "/mcp",
@@ -999,16 +999,16 @@ async def test_streamable_http_client_get_stream(basic_app: Starlette) -> None:
         assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
 
 
-def create_session_id_capturing_client(app: Starlette) -> tuple[httpx.AsyncClient, list[str]]:
-    """Create an in-process httpx client that captures the session ID from responses."""
+def create_session_id_capturing_client(app: Starlette) -> tuple[httpx2.AsyncClient, list[str]]:
+    """Create an in-process httpx2 client that captures the session ID from responses."""
     captured_ids: list[str] = []
 
-    async def capture_session_id(response: httpx.Response) -> None:
+    async def capture_session_id(response: httpx2.Response) -> None:
         session_id = response.headers.get(MCP_SESSION_ID_HEADER)
         if session_id:
             captured_ids.append(session_id)
 
-    client = httpx.AsyncClient(
+    client = httpx2.AsyncClient(
         transport=StreamingASGITransport(app),
         base_url=BASE_URL,
         follow_redirects=True,
@@ -1020,7 +1020,7 @@ def create_session_id_capturing_client(app: Starlette) -> tuple[httpx.AsyncClien
 @pytest.mark.anyio
 async def test_streamable_http_client_session_termination(basic_app: Starlette) -> None:
     """After the client terminates its session on close, a new connection with that session ID fails."""
-    # Use httpx client with event hooks to capture session ID
+    # Use httpx2 client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(basic_app)
 
     async with httpx_client:
@@ -1060,19 +1060,19 @@ async def test_streamable_http_client_session_termination_204(
 ) -> None:
     """Session termination also succeeds when the server answers the DELETE with 204.
 
-    This test patches the httpx client to return a 204 response for DELETEs.
+    This test patches the httpx2 client to return a 204 response for DELETEs.
     """
 
     # Save the original delete method to restore later
-    original_delete = httpx.AsyncClient.delete
+    original_delete = httpx2.AsyncClient.delete
 
     # Mock the client's delete method to return a 204
-    async def mock_delete(self: httpx.AsyncClient, *args: Any, **kwargs: Any) -> httpx.Response:
+    async def mock_delete(self: httpx2.AsyncClient, *args: Any, **kwargs: Any) -> httpx2.Response:
         # Call the original method to get the real response
         response = await original_delete(self, *args, **kwargs)
 
         # Create a new response with 204 status code but same headers
-        mocked_response = httpx.Response(
+        mocked_response = httpx2.Response(
             204,
             headers=response.headers,
             content=response.content,
@@ -1080,10 +1080,10 @@ async def test_streamable_http_client_session_termination_204(
         )
         return mocked_response
 
-    # Apply the patch to the httpx client
-    monkeypatch.setattr(httpx.AsyncClient, "delete", mock_delete)
+    # Apply the patch to the httpx2 client
+    monkeypatch.setattr(httpx2.AsyncClient, "delete", mock_delete)
 
-    # Use httpx client with event hooks to capture session ID
+    # Use httpx2 client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(basic_app)
 
     async with httpx_client:
@@ -1143,7 +1143,7 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
         captured_resumption_token = token
         resumption_token_received.set()
 
-    # Use httpx client with event hooks to capture session ID
+    # Use httpx2 client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(app)
 
     # First, start the client session and begin the tool that waits on lock
@@ -1614,7 +1614,7 @@ async def test_handle_sse_event_skips_empty_data() -> None:
     transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
 
     # Create a mock SSE event with empty data (keep-alive ping)
-    mock_sse = ServerSentEvent(event="message", data="", id=None, retry=None)
+    mock_sse = ServerSentEvent(event="message", data="")
 
     # Create a context-aware stream writer (matches StreamWriter type alias)
     write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
@@ -2081,7 +2081,7 @@ async def test_standalone_get_stream_reconnection(event_app: tuple[SimpleEventSt
 
 @pytest.mark.anyio
 async def test_streamable_http_client_does_not_mutate_provided_client(basic_app: Starlette) -> None:
-    """streamable_http_client does not mutate the provided httpx client's headers."""
+    """streamable_http_client does not mutate the provided httpx2 client's headers."""
     # Create a client with custom headers
     original_headers = {
         "X-Custom-Header": "custom-value",
@@ -2099,7 +2099,7 @@ async def test_streamable_http_client_does_not_mutate_provided_client(basic_app:
                 assert isinstance(result, InitializeResult)
 
         # Verify client headers were not mutated with MCP protocol headers
-        # If accept header exists, it should still be httpx default, not MCP's
+        # If accept header exists, it should still be httpx2 default, not MCP's
         if "accept" in custom_client.headers:  # pragma: no branch
             assert custom_client.headers.get("accept") == "*/*"
         # MCP content-type should not have been added
@@ -2112,8 +2112,8 @@ async def test_streamable_http_client_does_not_mutate_provided_client(basic_app:
 
 @pytest.mark.anyio
 async def test_streamable_http_client_mcp_headers_override_defaults(context_app: Starlette) -> None:
-    """MCP protocol headers override the httpx client's default headers in actual requests."""
-    # httpx.AsyncClient has default "accept: */*" header
+    """MCP protocol headers override the httpx2 client's default headers in actual requests."""
+    # httpx2.AsyncClient has default "accept: */*" header
     # We need to verify that our MCP accept header overrides it in actual requests
 
     async with make_client(context_app) as client:
@@ -2130,7 +2130,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults(context_app:
                 assert isinstance(tool_result.content[0], TextContent)
                 headers_data = json.loads(tool_result.content[0].text)
 
-                # Verify MCP protocol headers were sent (not httpx defaults)
+                # Verify MCP protocol headers were sent (not httpx2 defaults)
                 assert "accept" in headers_data
                 assert "application/json" in headers_data["accept"]
                 assert "text/event-stream" in headers_data["accept"]

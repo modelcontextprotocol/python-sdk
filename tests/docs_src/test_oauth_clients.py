@@ -1,8 +1,8 @@
-"""`docs/advanced/oauth-clients.md`: every claim the page makes, proved against the real SDK."""
+"""`docs/client/oauth-clients.md`: every claim the page makes, proved against the real SDK."""
 
 import inspect
 
-import httpx
+import httpx2
 import pytest
 from pydantic import AnyUrl, ValidationError
 
@@ -42,8 +42,8 @@ async def test_storage_round_trips_tokens_and_client_info() -> None:
 
 
 async def test_the_provider_is_an_httpx_auth() -> None:
-    """tutorial001: `OAuthClientProvider` plugs into httpx, not into MCP."""
-    assert isinstance(tutorial001.oauth, httpx.Auth)
+    """tutorial001: `OAuthClientProvider` plugs into httpx2, not into MCP."""
+    assert isinstance(tutorial001.oauth, httpx2.Auth)
 
 
 async def test_the_metadata_defaults_are_the_authorization_code_flow() -> None:
@@ -66,9 +66,9 @@ async def test_the_redirect_handler_receives_the_authorization_url(capsys: pytes
 
 
 async def test_client_credentials_provider_has_no_human_in_the_loop() -> None:
-    """tutorial002: `ClientCredentialsOAuthProvider` is the same `httpx.Auth`, minus the handlers."""
+    """tutorial002: `ClientCredentialsOAuthProvider` is the same `httpx2.Auth`, minus the handlers."""
     assert isinstance(tutorial002.oauth, OAuthClientProvider)
-    assert isinstance(tutorial002.oauth, httpx.Auth)
+    assert isinstance(tutorial002.oauth, httpx2.Auth)
     assert tutorial002.oauth.context.redirect_handler is None
     assert tutorial002.oauth.context.callback_handler is None
 
@@ -92,7 +92,7 @@ async def test_the_three_remaining_keyword_arguments_have_defaults() -> None:
 
 
 async def test_the_one_more_provider_is_private_key_jwt() -> None:
-    """The `!!! info`: `PrivateKeyJWTOAuthProvider` is the same `httpx.Auth`, built the same way."""
+    """The `!!! info`: `PrivateKeyJWTOAuthProvider` is the same `httpx2.Auth`, built the same way."""
     provider = PrivateKeyJWTOAuthProvider(
         server_url="http://localhost:8001/mcp",
         storage=tutorial002.InMemoryTokenStorage(),
@@ -100,7 +100,7 @@ async def test_the_one_more_provider_is_private_key_jwt() -> None:
         assertion_provider=static_assertion_provider("a.prebuilt.jwt"),
     )
     assert isinstance(provider, OAuthClientProvider)
-    assert isinstance(provider, httpx.Auth)
+    assert isinstance(provider, httpx2.Auth)
     assert provider.context.client_metadata.token_endpoint_auth_method == "private_key_jwt"
 
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from mcp_types import (
@@ -24,6 +24,7 @@ from mcp_types import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
+    REQUEST_TIMEOUT,
     UNSUPPORTED_PROTOCOL_VERSION,
     Implementation,
     ServerCapabilities,
@@ -45,12 +46,16 @@ class _StubSession:
     """Minimal stand-in for `ClientSession` exposing only what `negotiate_auto` touches.
 
     `send_discover` plays back a script (raise an exception, or return a dict);
-    `initialize` and `adopt` just record that they were called.
+    `initialize` raises the next entry of an optional `handshake` exception
+    script (succeeding once it is exhausted) and records its calls; `adopt`
+    just records.
     """
 
-    def __init__(self, *script: dict[str, Any] | Exception) -> None:
+    def __init__(self, *script: dict[str, Any] | Exception, handshake: list[Exception] | None = None) -> None:
         self._script: list[dict[str, Any] | Exception] = list(script)
+        self._handshake: list[Exception] = list(handshake or [])
         self.probed_at: list[str] = []
+        self.initialize_calls: int = 0
         self.initialized: bool = False
         self.adopted: types.DiscoverResult | None = None
 
@@ -62,6 +67,9 @@ class _StubSession:
         return step
 
     async def initialize(self) -> None:
+        self.initialize_calls += 1
+        if self._handshake:
+            raise self._handshake.pop(0)
         self.initialized = True
 
     def adopt(self, result: types.DiscoverResult) -> None:
@@ -201,13 +209,84 @@ async def test_a_second_unsupported_version_after_the_corrective_retry_does_not_
     assert session.adopted is None
 
 
+# --- -32022 from the fallback handshake: modern evidence, one re-probe ---
+
+
+async def test_handshake_unsupported_after_a_timed_out_probe_reprobes_and_adopts() -> None:
+    """A probe that times out client-side but succeeds on a slow-starting
+    server locks the connection modern, so the fallback handshake answers
+    -32022. That code is itself modern evidence: re-probe once at a version
+    the server names and adopt - the connect must not fail."""
+    session = _StubSession(
+        MCPError(code=REQUEST_TIMEOUT, message="Request 'server/discover' timed out"),
+        _discover_dict(),
+        handshake=[_err_32022(list(MODERN_PROTOCOL_VERSIONS))],
+    )
+    await _negotiate(session)
+    assert session.probed_at == [LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS[-1]]
+    assert session.adopted is not None
+    assert session.initialize_calls == 1
+    assert not session.initialized
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param({"supported": ["2099-01-01"], "requested": LATEST_MODERN_VERSION}, id="disjoint"),
+        pytest.param(None, id="no-data"),
+    ],
+)
+async def test_handshake_unsupported_without_a_mutual_version_reraises(data: Any) -> None:
+    """-32022 from the handshake naming no version we speak (or nothing
+    parseable) leaves nothing to retry with - the error propagates."""
+    session = _StubSession(
+        MCPError(code=METHOD_NOT_FOUND, message="nope"),
+        handshake=[MCPError(code=UNSUPPORTED_PROTOCOL_VERSION, message="already modern", data=data)],
+    )
+    with pytest.raises(MCPError) as exc_info:
+        await _negotiate(session)
+    assert exc_info.value.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert session.adopted is None
+    assert not session.initialized
+
+
+async def test_handshake_unsupported_reprobes_at_most_once() -> None:
+    """The handshake-driven re-probe is bounded: if the second attempt also
+    ends in a timed-out probe and a -32022 handshake, the -32022 propagates
+    instead of looping."""
+    timeout = MCPError(code=REQUEST_TIMEOUT, message="Request 'server/discover' timed out")
+    session = _StubSession(
+        timeout,
+        timeout,
+        handshake=[_err_32022(list(MODERN_PROTOCOL_VERSIONS)), _err_32022(list(MODERN_PROTOCOL_VERSIONS))],
+    )
+    with pytest.raises(MCPError) as exc_info:
+        await _negotiate(session)
+    assert exc_info.value.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert session.probed_at == [LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS[-1]]
+    assert session.initialize_calls == 2
+
+
+async def test_any_other_handshake_error_propagates_unchanged() -> None:
+    """A non--32022 error from the fallback handshake is a real handshake
+    failure, not era evidence - it propagates without a re-probe."""
+    session = _StubSession(
+        MCPError(code=METHOD_NOT_FOUND, message="nope"),
+        handshake=[MCPError(code=INTERNAL_ERROR, message="handshake broke")],
+    )
+    with pytest.raises(MCPError) as exc_info:
+        await _negotiate(session)
+    assert exc_info.value.code == INTERNAL_ERROR
+    assert session.probed_at == [LATEST_MODERN_VERSION]
+
+
 # --- non-MCP errors propagate ---
 
 
 @pytest.mark.parametrize(
     "exc",
     [
-        pytest.param(httpx.ConnectError("connection refused"), id="httpx-connect-error"),
+        pytest.param(httpx2.ConnectError("connection refused"), id="httpx2-connect-error"),
         pytest.param(anyio.ClosedResourceError(), id="anyio-closed-resource"),
     ],
 )

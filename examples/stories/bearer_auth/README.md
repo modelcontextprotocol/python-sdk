@@ -31,7 +31,7 @@ uv run python -m stories.bearer_auth.client --http http://127.0.0.1:8000/mcp
 `Client(url)` has no `auth=` passthrough, so a target built from a bare URL
 can't carry the token. Both runners close that gap the same way: `run_client`
 (above) and the pytest harness thread the module's `build_auth` export onto the
-`httpx.AsyncClient` underneath the transport and hand `main` a target that is
+`httpx2.AsyncClient` underneath the transport and hand `main` a target that is
 already routed through it.
 
 ## Try it without the SDK client
@@ -56,9 +56,9 @@ kill "$SERVER_PID"
   transport that already carries the bearer token; nothing in the body knows
   auth exists.
 - `client.py` `build_auth` / `StaticBearerAuth` — bearer auth client-side is
-  five lines of `httpx.Auth`. `Client(url, auth=...)` is the ergonomic the SDK
+  five lines of `httpx2.Auth`. `Client(url, auth=...)` is the ergonomic the SDK
   is missing; until it lands, the auth has to be threaded onto the
-  `httpx.AsyncClient` underneath the transport, outside `main`.
+  `httpx2.AsyncClient` underneath the transport, outside `main`.
 - `server.py` — `MCPServer(token_verifier=..., auth=AuthSettings(...))` is the
   whole recipe; `streamable_http_app()` reads those constructor kwargs and
   mounts the bearer gate + PRM route.
@@ -73,7 +73,7 @@ kill "$SERVER_PID"
 ## Caveats
 
 - `transport_security=NO_DNS_REBIND` — DNS-rebinding protection is on by default
-  for localhost binds; the harness disables it because the in-process httpx
+  for localhost binds; the harness disables it because the in-process httpx2
   client sends no `Origin` header. Drop the kwarg for a real deployment.
 - `RESOURCE_URL` is hard-coded to port 8000 (the harness's in-process origin).
   If you change `--port`, edit `RESOURCE_URL` to match or the PRM document's

@@ -64,7 +64,11 @@ from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestCon
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    StreamableHTTPASGIApp,
+    StreamableHTTPSessionManager,
+)
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
@@ -691,8 +695,8 @@ class Server(Generic[LifespanResultT]):
 
         Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
         then drives the loop, serving the legacy handshake era and the modern
-        per-request-envelope era (the first era-distinctive message locks the
-        connection). Transports with their own lifespan owner (the
+        per-request-envelope era (the first era-distinctive message to succeed
+        locks the connection). Transports with their own lifespan owner (the
         streamable-HTTP manager) call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:
@@ -713,6 +717,7 @@ class Server(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
@@ -737,6 +742,7 @@ class Server(Generic[LifespanResultT]):
             json_response=json_response,
             stateless=stateless_http,
             security_settings=transport_security,
+            max_request_body_size=max_request_body_size,
         )
         self._session_manager = session_manager
 

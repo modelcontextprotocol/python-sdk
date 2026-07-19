@@ -39,7 +39,31 @@ python server.py
 
 Nothing prints, and it doesn't return. It is waiting on stdin for a host to speak first.
 
-That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../tutorial/logging.md)**.
+That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../handlers/logging.md)**.
+
+On Windows, the same rule applies to child processes your tools start. A child
+that inherits the stdio server's stdin can block behind the server's protocol
+reader. If your tool starts a subprocess and you do not intend to feed it input,
+redirect the child's stdin:
+
+```python
+import asyncio
+import subprocess
+import sys
+
+
+async def run_script() -> tuple[bytes, bytes]:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "script.py",
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return await process.communicate()
+```
+
+The matching troubleshooting entry is **[My stdio tool hangs when it starts a subprocess on Windows](../troubleshooting.md#my-stdio-tool-hangs-when-it-starts-a-subprocess-on-windows)**.
 
 ### Try it
 
@@ -67,7 +91,10 @@ Each transport has its own keyword arguments, all on `run()`:
 * `streamable_http_path`: where the MCP endpoint lives. Default `/mcp`.
 * `json_response=True`: answer with plain JSON instead of an SSE stream.
 * `stateless_http=True`: a fresh transport per request, no session tracking.
-* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[ASGI](asgi.md)** covers `transport_security`.
+* `max_request_body_size`: largest accepted POST body in bytes. Defaults to 4 MiB; larger requests
+  receive HTTP 413 before parsing or session creation. Raise it only when legitimate MCP messages
+  exceed that size.
+* `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[Deploy & scale](deploy.md)** covers `transport_security`.
 
 !!! warning
     Transport options go to `run()`, **not** to `MCPServer(...)`. The constructor describes what
@@ -78,7 +105,7 @@ Each transport has its own keyword arguments, all on `run()`:
     TypeError: MCPServer.__init__() got an unexpected keyword argument 'port'
     ```
 
-`run()` is the short road. The moment you need more (your server mounted inside an existing app, two servers in one process, CORS for browser clients), you build the ASGI app yourself and hand it to any ASGI host. That is **[ASGI](asgi.md)**.
+`run()` is the short road. The moment you need more (your server mounted inside an existing app, two servers in one process, CORS for browser clients), you build the ASGI app yourself and hand it to any ASGI host. That is **[Add to an existing app](asgi.md)**.
 
 ## Server settings
 
@@ -127,6 +154,8 @@ uv run mcp install server.py -v API_KEY=abc123 -f .env
 
 `-v KEY=VALUE` and `-f .env` record environment variables in that entry. Claude Desktop starts your server in its own process. Your shell's environment is not there.
 
+Claude Desktop is the only host `mcp install` knows. Every other host (Claude Code, Cursor, VS Code) takes the same launch command in its own config file, and **[Connect to a real host](../get-started/real-host.md)** has each one.
+
 `mcp version` prints the installed SDK version.
 
 !!! tip
@@ -143,4 +172,4 @@ uv run mcp install server.py -v API_KEY=abc123 -f .env
 * `mcp dev` for the Inspector, `mcp run` to execute a file, `mcp install` for Claude Desktop, `mcp version` for the version.
 * The transport never changes what your server *is*: all three files on this page expose the identical tool.
 
-When `run()` itself is the limit (your server inside an app that already exists), the next step is **[ASGI](asgi.md)**.
+When `run()` itself is the limit (your server inside an app that already exists), it is **[Add to an existing app](asgi.md)**. A real hostname and more than one worker is **[Deploy & scale](deploy.md)**. And if some of your clients are still on spec version 2025-11-25 or earlier, **[Serving legacy clients](legacy-clients.md)** is the good news.

@@ -5,7 +5,7 @@ sends — this is the only story that shows it. ``main`` posts that body by hand
 asserts the response is a single ``application/json`` body with no session id.
 """
 
-import httpx
+import httpx2
 from mcp_types import TextContent
 from mcp_types.version import LATEST_MODERN_VERSION
 
@@ -37,7 +37,7 @@ MODERN_HEADERS: dict[str, str] = {
 }
 
 
-async def main(target: Target, *, mode: str = "auto", http: httpx.AsyncClient) -> None:
+async def main(target: Target, *, mode: str = "auto", http: httpx2.AsyncClient) -> None:
     async with Client(target, mode=mode) as client:
         assert client.protocol_version == LATEST_MODERN_VERSION
 
