@@ -17,9 +17,10 @@ Example:
     ```
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
-from io import TextIOWrapper
+from io import TextIOWrapper, UnsupportedOperation
 
 import anyio
 import anyio.lowlevel
@@ -34,14 +35,24 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
-    # Purposely not using context managers for these, as we don't want to close
-    # standard process handles. Encoding of stdin/stdout as text streams on
-    # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    # Duplicate the underlying file descriptors so that closing the async
+    # wrappers does not close the real stdio, which would break subsequent
+    # operations (e.g. print) after the server exits. When the stream does
+    # not have a real fd (e.g. in tests), fall back to the original stream.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        try:
+            stdin_fd = os.dup(sys.stdin.fileno())
+            stdin_bin = os.fdopen(stdin_fd, "rb", closefd=True)
+            stdin = anyio.wrap_file(TextIOWrapper(stdin_bin, encoding="utf-8", errors="replace"))
+        except (OSError, UnsupportedOperation):
+            stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        try:
+            stdout_fd = os.dup(sys.stdout.fileno())
+            stdout_bin = os.fdopen(stdout_fd, "wb", closefd=True)
+            stdout = anyio.wrap_file(TextIOWrapper(stdout_bin, encoding="utf-8"))
+        except (OSError, UnsupportedOperation):
+            stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
