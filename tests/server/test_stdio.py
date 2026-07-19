@@ -105,6 +105,37 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> Non
                 assert second.message == valid
 
 
+@pytest.mark.anyio
+async def test_stdio_server_default_stdout_writes_bare_lf(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default-wrapped stdout frames messages with bare "\\n", never "\\r\\n".
+
+    Regression lock for issue #2433: without newline="" the stdout wrapper
+    translates "\\n" to os.linesep on write, so Windows emitted "\\r\\n" and
+    corrupted the newline-delimited JSON framing. Asserted on the raw bytes so
+    the platform's newline translation, not the parsed result, is under test.
+    """
+
+    class _NonClosingBytesIO(io.BytesIO):
+        """Survives the wrapper's close-on-gc so the bytes stay inspectable."""
+
+        def close(self) -> None:
+            pass
+
+    raw_stdout = _NonClosingBytesIO()
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(raw_stdout, encoding="utf-8"))
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={})))
+            await write_stream.aclose()
+            await read_stream.aclose()
+
+    data = raw_stdout.getvalue()
+    assert data.endswith(b"}\n"), f"expected a bare-LF-terminated frame, got {data!r}"
+    assert b"\r" not in data, f"CR byte in stdout frame (Windows newline translation): {data!r}"
+
+
 class _GatedStdin(io.RawIOBase):
     """Raw stdin double: serves its frames, then blocks until released before EOF.
 
