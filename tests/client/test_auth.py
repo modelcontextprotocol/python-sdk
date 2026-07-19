@@ -2005,6 +2005,8 @@ class TestWWWAuthenticate:
             ),
             # Multiple parameters with unquoted value
             ('Bearer realm="api", scope=basic', "scope", "basic"),
+            ("Bearer scope=   read", "scope", "read"),
+            ('Bearer =bad, scope="read"', "scope", "read"),
             # Decoy parameter name before the real field
             ('Bearer error_scope="decoy", scope="read write"', "scope", "read write"),
             ('Bearer error_description="missing scope=wrong", scope="read write"', "scope", "read write"),
@@ -2026,6 +2028,7 @@ class TestWWWAuthenticate:
                 "scope",
                 "resource:read resource:write user_profile",
             ),
+            ('Bearer scope="say \\"hi\\""', "scope", 'say "hi"'),
             (
                 'Bearer resource_metadata="https://api.example.com/auth/metadata?version=1"',
                 "resource_metadata",
@@ -2076,6 +2079,9 @@ class TestWWWAuthenticate:
             ),
             # Malformed field (empty value)
             ("Bearer scope=", "scope", "malformed scope parameter"),
+            ("Bearer scope=   ", "scope", "malformed scope parameter with only whitespace"),
+            ("Bearer scope=,", "scope", "malformed scope parameter with delimiter"),
+            ('Bearer scope="unterminated', "scope", "unterminated quoted scope parameter"),
             ("Bearer resource_metadata=", "resource_metadata", "malformed resource_metadata parameter"),
         ],
     )
