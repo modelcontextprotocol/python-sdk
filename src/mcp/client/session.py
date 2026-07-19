@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import reduce
 from operator import or_
 from types import TracebackType
-from typing import Annotated, Any, Final, Literal, Protocol, cast, overload
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, cast, overload
 
 import anyio
 import anyio.abc
@@ -55,6 +55,11 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY, event_from_wire
 from mcp.shared.transport_context import TransportContext
+
+if TYPE_CHECKING:
+    # `jsonschema` is imported lazily inside `validate_tool_result`: pulling it (and its
+    # `attrs`/`referencing` tree) in at module scope costs every client that never validates.
+    from jsonschema.protocols import Validator
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 DISCOVER_TIMEOUT_SECONDS = 10.0
@@ -357,6 +362,9 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        # Compiled output-schema validators, each paired with the schema object it was built
+        # from so a re-listed tool can't be served a validator for its previous schema.
+        self._tool_output_validators: dict[str, tuple[dict[str, Any], Validator]] = {}
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
@@ -1032,16 +1040,51 @@ class ClientSession:
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
-            from jsonschema import SchemaError, ValidationError, validate
+            from jsonschema import exceptions as jsonschema_exceptions
 
             if result.structured_content is None:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
-            try:
-                validate(result.structured_content, output_schema)
-            except ValidationError as e:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
-            except SchemaError as e:  # pragma: no cover
-                raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
+            validator = self._output_schema_validator(name, output_schema)
+            # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
+            # so the message a caller sees is unchanged. It is untyped upstream.
+            errors = validator.iter_errors(result.structured_content)
+            error = cast(
+                "Exception | None",
+                jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
+            )
+            if error is not None:
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {error}")
+
+    def _output_schema_validator(self, name: str, output_schema: dict[str, Any]) -> Validator:
+        """Compiled validator for `output_schema`, built once and reused across calls.
+
+        Compiling is ~60x the cost of validating, so a one-shot `jsonschema.validate()` per
+        result dominates `call_tool`. The cache holds the schema object it compiled alongside
+        the validator and only reuses it on an identity match: `_absorb_tool_listing` assigns a
+        freshly parsed schema object on every listing, so a server that changes a tool's schema
+        forces a rebuild rather than reusing the stale validator. Holding the reference also
+        keeps the allocator from recycling that identity behind our back.
+
+        Raises:
+            RuntimeError: The schema is not a valid JSON Schema. Raised on every call, since a
+                failed compile is never cached.
+        """
+        from jsonschema import SchemaError
+        from jsonschema.validators import validator_for
+
+        cached = self._tool_output_validators.get(name)
+        if cached is not None and cached[0] is output_schema:
+            return cached[1]
+
+        validator_cls = validator_for(output_schema)
+        try:
+            validator_cls.check_schema(output_schema)
+        except SchemaError as e:
+            raise RuntimeError(f"Invalid schema for tool {name}: {e}")
+        # The `Validator` protocol declares `registry` without a default; concrete classes have one.
+        validator = cast("Callable[[dict[str, Any]], Validator]", validator_cls)(output_schema)
+        self._tool_output_validators[name] = (output_schema, validator)
+        return validator
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.
