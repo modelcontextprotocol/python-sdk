@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final, Literal, cast
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Discriminator, Field, Tag, TypeAdapter
 
 RequestId = Annotated[int, Field(strict=True)] | str
 """The ID of a JSON-RPC request."""
@@ -122,4 +122,54 @@ class JSONRPCError(BaseModel):
 JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
 """Any JSON-RPC envelope that can be decoded off the wire or encoded to be sent."""
 
-jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(JSONRPCMessage)
+
+def _discriminate_jsonrpc_message(value: Any) -> str | None:
+    """Tag a wire object by key presence per JSON-RPC 2.0.
+
+    Selects exactly one union branch to validate instead of letting smart-union
+    mode score all four on every message. Mirrors the smart-union outcomes
+    exactly, including the rule that a ``method`` member with a missing, null,
+    or non-int/str ``id`` classifies as a notification, and that ``error`` wins
+    over ``result`` when both are present.
+    """
+    if isinstance(value, dict):
+        wire = cast("dict[str, Any]", value)
+        if "method" in wire:
+            request_id: Any = wire.get("id")
+            # Mirror `RequestId` (strict int | str): bool/float/None ids do not
+            # make a request; smart union classified those as notifications.
+            if isinstance(request_id, str) or (isinstance(request_id, int) and not isinstance(request_id, bool)):
+                return "request"
+            return "notification"
+        if "error" in wire:
+            return "error"
+        if "result" in wire:
+            return "response"
+        return None
+    # Revalidation / serialization of already-constructed models.
+    if isinstance(value, JSONRPCRequest):
+        return "request"
+    if isinstance(value, JSONRPCNotification):
+        return "notification"
+    if isinstance(value, JSONRPCError):
+        return "error"
+    if isinstance(value, JSONRPCResponse):
+        return "response"
+    return None
+
+
+jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(
+    Annotated[
+        Annotated[JSONRPCRequest, Tag("request")]
+        | Annotated[JSONRPCNotification, Tag("notification")]
+        | Annotated[JSONRPCResponse, Tag("response")]
+        | Annotated[JSONRPCError, Tag("error")],
+        Discriminator(
+            _discriminate_jsonrpc_message,
+            custom_error_type="jsonrpc_message_invalid",
+            custom_error_message=(
+                "Not a valid JSON-RPC message: expected an object with a 'method', 'result', or 'error' member"
+            ),
+        ),
+    ]
+)
