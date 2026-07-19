@@ -50,6 +50,7 @@ from mcp_types.version import (
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
+from mcp.server.auth.middleware.auth_context import pop_auth_context, push_auth_context_from_request
 from mcp.server.caching import apply_cache_hint
 from mcp.server.connection import Connection, NotifyOnlyOutbound
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
@@ -225,7 +226,11 @@ class ServerRunner(Generic[LifespanT]):
         call = self._compose_server_middleware(_inner)
         # `_inner` already produced the wire dict; a middleware that short-circuited
         # without `call_next` is trusted to return its own well-formed result.
-        result = _dump_result(await call(ctx))
+        auth_token = push_auth_context_from_request(ctx.request)
+        try:
+            result = _dump_result(await call(ctx))
+        finally:
+            pop_auth_context(auth_token)
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
