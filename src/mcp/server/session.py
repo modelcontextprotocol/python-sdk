@@ -202,7 +202,40 @@ class ServerSession(
                 pass
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError("Received request before initialization was complete")
+                    # Answer the request directly with a self-describing error
+                    # instead of raising. A bare exception here would propagate
+                    # to BaseSession._receive_loop's blanket except-Exception
+                    # handler, which discards the exception's message entirely
+                    # and always responds with the generic, misleading
+                    # ErrorData(code=INVALID_PARAMS, message="Invalid request
+                    # parameters") -- indistinguishable from an actually
+                    # malformed request. INVALID_REQUEST (not INVALID_PARAMS)
+                    # is used because the request's parameters aren't the
+                    # problem; the session's state is -- matching the existing
+                    # "Session not found" usage in streamable_http_manager.py
+                    # for the same class of session-validity condition.
+                    #
+                    # The message states the fact (an initialize handshake is
+                    # required) without asserting *why* this particular
+                    # session never completed one -- this branch can't tell a
+                    # genuinely uninitialized session (e.g. a client bug) from
+                    # a stream that reconnected without reinitializing, so it
+                    # doesn't claim either.
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_REQUEST,
+                                message=(
+                                    "MCP session not initialized: an 'initialize' "
+                                    "request must complete successfully before "
+                                    "other requests are handled. If this session "
+                                    "was previously initialized, its stream may "
+                                    "have been reconnected without a fresh "
+                                    "handshake."
+                                ),
+                                data="session_not_initialized",
+                            )
+                        )
 
     async def _received_notification(self, notification: types.ClientNotification) -> None:
         # Need this to avoid ASYNC910
