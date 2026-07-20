@@ -34,14 +34,11 @@ else:
 def rebind_std_handle_to_fd(fd: int) -> None:
     """Points the Win32 standard-handle slot for fd 0, 1, or 2 at fd's current OS handle.
 
-    os.dup2 updates only the C runtime's descriptor table; anything that resolves
-    GetStdHandle — subprocess standard-handle inheritance, native code — reads the
-    Win32 slot, so after retargeting a standard descriptor the slot must be
-    repointed too.
+    os.dup2 updates only the CRT descriptor table; subprocess handle inheritance
+    reads the Win32 slot, so it must be repointed too.
 
     Raises:
-        OSError: The slot could not be set; callers treat descriptor
-            rearrangement as best-effort and fall back on failure.
+        OSError: The slot could not be set.
     """
     if sys.platform != "win32" or not win32api or not win32file or not pywintypes:
         return

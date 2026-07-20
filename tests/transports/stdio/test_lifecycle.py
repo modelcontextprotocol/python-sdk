@@ -283,12 +283,8 @@ async def test_fallback_process_wait_is_cancellable_while_the_child_lives() -> N
 async def test_a_tool_spawned_childs_stdout_writes_never_reach_the_wire(tmp_path: Path) -> None:
     """A child writing to its inherited stdout pollutes the server's stderr, never the protocol.
 
-    Regression for the stdout half of `stdio_server`'s descriptor isolation:
-    pre-isolation, a tool-spawned child that printed to its inherited stdout
-    wrote straight into the JSON-RPC stream ahead of the tool response. The
-    junk line arriving on the server's stderr is the whole assertion: fd 1 has
-    exactly one target, so stderr delivery proves the wire never saw it (the
-    byte-level wire-purity twin is in tests/server/test_stdio.py).
+    Pre-isolation the junk line landed in the JSON-RPC stream (fails on base);
+    fd 1 has exactly one target, so stderr delivery proves the wire never saw it.
     """
     server = dedent(
         """
@@ -309,9 +305,7 @@ async def test_a_tool_spawned_childs_stdout_writes_never_reach_the_wire(tmp_path
 
     with (tmp_path / "server-stderr.txt").open("w+") as errlog:
         transport = stdio_client(StdioServerParameters(command=sys.executable, args=["-c", server]), errlog=errlog)
-        # Three interpreter cold starts (the server also imports the SDK) on a
-        # loaded runner; a regressed Windows leg hangs rather than corrupts, so
-        # the bound only has to beat "never".
+        # Bound covers three interpreter cold starts; a regressed Windows leg hangs rather than corrupts.
         with anyio.fail_after(40):
             async with Client(transport) as client:
                 result = await client.call_tool("run_noisy_child")
@@ -321,5 +315,4 @@ async def test_a_tool_spawned_childs_stdout_writes_never_reach_the_wire(tmp_path
     content = result.content[0]
     assert isinstance(content, TextContent)
     assert content.text == "0"
-    # Diverted to the server's stderr instead of landing on the wire.
     assert "this is not json" in server_stderr
