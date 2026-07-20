@@ -5,6 +5,7 @@ import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from uuid import uuid4
 
 import anyio
 import httpx
@@ -174,6 +175,24 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
         # Add timeout to prevent test from hanging if it fails
         with anyio.fail_after(3):
             await connection_test()
+
+
+@pytest.mark.anyio
+async def test_post_message_unknown_session_returns_self_describing_error(http_client: httpx.AsyncClient) -> None:
+    """A POST for a session_id the server has no record of (e.g. because the
+    process restarted since the client's SSE stream was opened) should
+    explain the cause and remedy, not a bare "Could not find session" -- the
+    same misleading-error problem #19 fixed for the uninitialized-session
+    case, one layer down where no ServerSession exists to answer through."""
+    unknown_session_id = uuid4().hex
+    response = await http_client.post(
+        f"/messages/?session_id={unknown_session_id}",
+        json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+    )
+    assert response.status_code == 404
+    body = response.text
+    assert "restart" in body.lower()
+    assert "reconnect" in body.lower() and "initialize" in body.lower()
 
 
 @pytest.mark.anyio
