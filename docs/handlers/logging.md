@@ -35,7 +35,7 @@ The standard library already does the right thing: log output goes to `sys.stder
 !!! tip
     Don't `print()` in a stdio server. `print` writes to **stdout**, and stdout belongs to the protocol:
     while serving, the SDK diverts stray stdout to stderr so it can't corrupt the wire, but that leaves
-    your line interleaved raw among the log output -- no level, no logger name, no way to filter it.
+    your line interleaved raw among the log output, with no level, no logger name, and no way to filter it.
 
     `logger.debug("got here")` is the same one line of effort and goes to the right place.
 
@@ -73,7 +73,7 @@ went to standard error: the terminal, not the wire.
 * The MCP protocol's logging capability is deprecated by the 2026-07-28 spec and not replaced. Don't build on it.
 * `logger = logging.getLogger(__name__)` at module level, `logger.info(...)` in the tool. That's the whole pattern.
 * Log output never reaches the model. Only the value you `return` does.
-* Standard error is yours; stdout belongs to the protocol. The SDK diverts a stray `print()` to stderr while serving, but it arrives unlabeled -- use `logging`.
+* Standard error is yours; stdout belongs to the protocol. The SDK diverts a stray `print()` to stderr while serving, but it arrives unlabeled; use `logging`.
 * `MCPServer(..., log_level="DEBUG")` sets the level, and a logging configuration you made first is left alone.
 
 Telling connected clients that something on your server changed (the tool list, a resource) is **[Subscriptions](subscriptions.md)**.

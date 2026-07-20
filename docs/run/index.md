@@ -39,7 +39,7 @@ python server.py
 
 Nothing prints, and it doesn't return. It is waiting on stdin for a host to speak first.
 
-That also means stdout **is the wire**. While serving, the SDK moves the wire to a private descriptor and diverts stray output -- a `print()`, a subprocess writing to its inherited stdout -- to stderr, where it can't corrupt the stream. Output that reaches stdout *before* serving begins (a wrapper script echoing, an unbuffered import-time print) still lands on the wire. For output you actually want, the `logging` module is the right tool. That story is in **[Logging](../handlers/logging.md)**.
+That also means stdout **is the wire**. While serving, the SDK moves the wire to a private descriptor and diverts stray output (a `print()`, or a subprocess writing to its inherited stdout) to stderr, where it can't corrupt the stream. Output that reaches stdout *before* serving begins (a wrapper script echoing, an unbuffered import-time print) still lands on the wire. For output you actually want, the `logging` module is the right tool. That story is in **[Logging](../handlers/logging.md)**.
 
 ### Try it
 

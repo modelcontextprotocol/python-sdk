@@ -115,9 +115,10 @@ def _restore_fd(fd: int, private_fd: int) -> None:
 async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Serve MCP over the process's stdin and stdout.
 
-    While serving, fd 0 points at the null device and fd 1 at stderr — handlers
-    and children read EOF and stray output misses the wire — both restored on exit.
-    Explicit streams skip the claim; a second concurrent stdio_server() raises RuntimeError.
+    While serving, fd 0 points at the null device and fd 1 at stderr, so handlers
+    and children read EOF and their stray output misses the wire; both descriptors
+    are restored on exit. Explicit streams skip the claim, and a second concurrent
+    stdio_server() raises RuntimeError.
     """
     # Re-wrap the binary buffers as UTF-8 text; the std handles' platform encodings are unreliable.
     restore_stdin: Callable[[], None] | None = None
