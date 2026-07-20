@@ -245,13 +245,8 @@ async def test_a_native_server_emitting_crlf_line_endings_round_trips_messages()
 async def test_a_tool_spawned_python_child_with_default_stdin_completes_promptly() -> None:  # pragma: no cover
     """A tool that runs a Python subprocess without redirecting stdin returns promptly.
 
-    Regression for #671 (SDK-defined isolation behavior): before `stdio_server`
-    pointed fd 0 at the null device, such a child inherited the protocol stdin
-    pipe and blocked inside interpreter startup behind the transport's pending
-    read (CPython gh-78961) until the next inbound message arrived - so these
-    calls, with no follow-up traffic, hung until the timeout. Covers both
-    reported shapes: output piped with stdin defaulted, and no redirection at
-    all (the console subsystem still propagates the standard handles).
+    Regression for #671: pre-isolation the child inherited the protocol stdin pipe
+    and hung in interpreter startup (CPython gh-78961) until the next inbound message.
     """
     server = dedent(
         """
@@ -267,10 +262,7 @@ async def test_a_tool_spawned_python_child_with_default_stdin_completes_promptly
 
         @mcp.tool()
         def run_child_bare() -> str:
-            # No redirection at all: Windows still hands a console child the
-            # parent's standard handles, so pre-isolation this hung too. The
-            # child prints nothing, keeping this test pinned on the hang; the
-            # noisy-child shape is owned by test_lifecycle.py.
+            # Even without redirection the console subsystem hands the child the standard handles.
             proc = subprocess.run([sys.executable, "-c", "pass"], timeout=20)
             return str(proc.returncode)
 
@@ -279,9 +271,7 @@ async def test_a_tool_spawned_python_child_with_default_stdin_completes_promptly
     )
     transport = stdio_client(StdioServerParameters(command=sys.executable, args=["-c", server]))
 
-    # Four interpreter cold starts on a loaded runner (the server also imports
-    # the SDK); healthy runs take ~3s. A regression hangs forever, so the bound
-    # only has to beat "never".
+    # A regression hangs forever, so the bound only has to beat "never".
     with anyio.fail_after(40.0):
         async with Client(transport) as client:
             result = await client.call_tool("run_child")

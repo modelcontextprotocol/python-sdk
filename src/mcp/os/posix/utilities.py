@@ -1,30 +1,14 @@
-"""POSIX-specific functionality for stdio transport operations."""
+"""POSIX-specific functionality for stdio client operations."""
 
 import logging
 import os
 import signal
-import sys
 from contextlib import suppress
 
 import anyio
 from anyio.abc import Process
 
 logger = logging.getLogger(__name__)
-
-
-def same_open_file(fd_a: int, fd_b: int) -> bool:
-    """Whether two descriptors refer to the same open file.
-
-    False on Windows - anonymous pipe handles carry no identity to compare -
-    and False when either descriptor cannot be interrogated.
-    """
-    if sys.platform == "win32":
-        return False
-    try:
-        return os.path.sameopenfile(fd_a, fd_b)
-    except OSError:
-        return False
-
 
 # How often to probe for surviving group members between SIGTERM and SIGKILL.
 _GROUP_POLL_INTERVAL = 0.01

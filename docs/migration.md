@@ -1855,41 +1855,6 @@ group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
 per-process terminate/kill fallback are gone. The win32 utilities logger is now
 named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
-### `stdio_server` keeps the protocol streams on private descriptors
-
-While serving on the process's real stdin and stdout, the stdio server transport now
-duplicates each protocol pipe to a private descriptor and points the standard
-descriptors — with their Windows standard handles — away from the wire, restoring
-both when the transport exits: fd 0 reads the null device, and fd 1 writes to stderr
-(the null device if stderr is unusable). Subprocesses started by handler code
-therefore inherit the diversions instead of the protocol pipes, and a stray
-`print()` lands on stderr rather than the wire. (The claim is best-effort: in the
-rare process whose descriptor table cannot be rearranged, the transport serves in
-place, exactly as v1 did.)
-
-In v1 a child inheriting the pipes could consume protocol bytes or corrupt the
-outgoing stream with its own output, and on Windows it hung inside interpreter
-startup — behind the transport's pending read on the shared pipe
-([CPython gh-78961](https://github.com/python/cpython/issues/78961)) — until
-the next request arrived: the
-[#671](https://github.com/modelcontextprotocol/python-sdk/issues/671) hang, for
-which passing `stdin=subprocess.DEVNULL` on every spawn (and capturing the child's
-stdout) was the required workaround. On v2 the workaround is no longer needed, for
-any spawn API, redirected or not.
-
-To migrate: nothing, unless handler code used the standard streams directly during a
-stdio session. Reading `sys.stdin` (or calling `input()`) now sees end-of-file
-instead of racing the transport for protocol bytes; there was never a meaningful
-value to read there. `print()` and other `sys.stdout` writes reach stderr instead of
-corrupting the wire — code that deliberately wrote protocol frames to `sys.stdout`
-must send them through the transport's write stream instead. A child that streams
-a lot of output to its inherited stdout now streams it into the client's stderr
-channel; capture output you don't want in the client's logs. Likewise, anything
-that read ahead from `sys.stdin` before the server started keeps those bytes; they
-no longer reach the transport (they never reliably did). Passing an explicit `stdin=`/`stdout=` stream to
-`stdio_server(...)` skips the descriptor changes for that stream, as does any
-environment where the sys stream is not backed by the process's real descriptor.
-
 ### WebSocket transport removed
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.

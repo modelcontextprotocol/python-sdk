@@ -3919,9 +3919,9 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "While serving, stdio_server moves the wire to private descriptors and diverts fd 0/1, so "
                 "handler code and its child processes can neither read protocol bytes nor write into the "
                 "stream (pinned by tests/server/test_stdio.py). Remaining gaps: output flushed to stdout "
-                "before the transport enters can still precede the first frame; the claim is best-effort "
-                "and skipped for explicitly injected streams; and a stderr merged into stdout (2>&1) is "
-                "detected and neutralized only on POSIX - Windows pipe handles carry no identity."
+                "before the transport enters can still precede the first frame, and the claim is "
+                "best-effort - skipped for explicitly injected streams and for processes without "
+                "normal standard descriptors."
             ),
         ),
     ),
