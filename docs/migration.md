@@ -1855,6 +1855,20 @@ group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
 per-process terminate/kill fallback are gone. The win32 utilities logger is now
 named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
+### `stdio_server` keeps the protocol streams on private descriptors
+
+While serving, the stdio transport moves the wire to private descriptors and points
+fd 0 at the null device and fd 1 at stderr, restoring both on exit. Subprocesses and
+handler code can no longer read protocol bytes or write into the stream (the
+[#671](https://github.com/modelcontextprotocol/python-sdk/issues/671) fix). Ordinary
+servers have nothing to do, and code that inspects or manipulates fd 0/1 directly
+during a session now sees the diversions, not the wire.
+
+One pattern needs migrating: a watchdog thread that `poll()`s fd 0 for `POLLHUP` to
+detect a vanished client will no longer fire, because the null device never reports
+it. Watch the parent process instead (for example, exit when `os.getppid()`
+changes); that works on both v1 and v2 and does not depend on descriptor layout.
+
 ### WebSocket transport removed
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.
