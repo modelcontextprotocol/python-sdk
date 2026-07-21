@@ -32,5 +32,5 @@ app = server.streamable_http_app()
 mount_server_card(app, card, path="/mcp/server-card")
 
 card_url = "https://dice.example.com/mcp/server-card"
-catalog = AICatalog(entries=[server_card_entry(card, card_url)])
+catalog = AICatalog(spec_version="1.0", entries=[server_card_entry(card, card_url)])
 mount_ai_catalog(app, catalog)

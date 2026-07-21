@@ -1,7 +1,5 @@
 """Tests for server-side Server Card generation and serving."""
 
-from __future__ import annotations
-
 import re
 
 import httpx2
@@ -51,14 +49,16 @@ def test_build_server_card_from_server_identity() -> None:
 
 def test_build_server_card_requires_version() -> None:
     server = Server("no-version", description="desc")  # version defaults to None
-    with pytest.raises(ValueError, match="version"):
+    with pytest.raises(ValueError) as excinfo:
         build_server_card(server, name="example/no-version")
+    assert str(excinfo.value) == "server.version must be set to build a Server Card"
 
 
 def test_build_server_card_requires_description() -> None:
     server = Server("no-desc", version="1.0.0")  # description defaults to None
-    with pytest.raises(ValueError, match="description"):
+    with pytest.raises(ValueError) as excinfo:
         build_server_card(server, name="example/no-desc")
+    assert str(excinfo.value) == "server.description must be set to build a Server Card"
 
 
 async def _get(app: Starlette, path: str, headers: dict[str, str] | None = None) -> httpx2.Response:

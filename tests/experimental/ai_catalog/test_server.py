@@ -1,7 +1,5 @@
 """Tests for server-side AI Catalog generation and serving."""
 
-from __future__ import annotations
-
 import re
 
 import httpx2
@@ -21,24 +19,19 @@ def make_card(title: str | None = None) -> ServerCard:
     return ServerCard(name="example/dice", version="1.0.0", description="Rolls dice.", title=title)
 
 
-def test_server_card_entry_derives_identifier_and_metadata_from_card() -> None:
+def test_server_card_entry_emits_minimal_mcp_entry() -> None:
     entry = server_card_entry(make_card(title="Dice Roller"), CARD_URL)
-    assert entry.identifier == "urn:air:example:dice"
-    assert entry.display_name == "Dice Roller"
-    assert entry.media_type == "application/mcp-server-card+json"
-    assert entry.url == CARD_URL
-    assert entry.description == "Rolls dice."
-    assert entry.version == "1.0.0"
+    assert entry.model_dump(mode="json", by_alias=True, exclude_none=True) == {
+        "identifier": "urn:air:example:mcp:dice",
+        "type": "application/mcp-server-card+json",
+        "url": CARD_URL,
+    }
 
 
 def test_server_card_entry_reverses_namespace_to_publisher_domain() -> None:
     """The identifier is anchored on the publisher's forward-DNS domain."""
     card = ServerCard(name="com.example/weather", version="1.0.0", description="Weather.")
-    assert server_card_entry(card, CARD_URL).identifier == "urn:air:example.com:weather"
-
-
-def test_server_card_entry_falls_back_to_card_name_without_title() -> None:
-    assert server_card_entry(make_card(), CARD_URL).display_name == "example/dice"
+    assert server_card_entry(card, CARD_URL).identifier == "urn:air:example.com:mcp:weather"
 
 
 async def _get(app: Starlette, path: str, headers: dict[str, str] | None = None) -> httpx2.Response:
@@ -54,7 +47,7 @@ async def _head(app: Starlette, path: str) -> httpx2.Response:
 
 
 async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
-    catalog = AICatalog(entries=[server_card_entry(make_card(), CARD_URL)])
+    catalog = AICatalog(spec_version="1.0", entries=[server_card_entry(make_card(), CARD_URL)])
     app = Starlette(routes=[ai_catalog_route(catalog)])
     response = await _get(app, "/.well-known/ai-catalog.json")
     assert response.status_code == 200
@@ -73,6 +66,9 @@ async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
     not_modified = await _get(app, "/.well-known/ai-catalog.json", headers={"If-None-Match": etag})
     assert not_modified.status_code == 304
     assert not_modified.headers["etag"] == etag
+    assert not_modified.headers["access-control-allow-origin"] == "*"
+    assert not_modified.headers["access-control-allow-methods"] == "GET"
+    assert not_modified.headers["access-control-allow-headers"] == "Content-Type"
     assert not_modified.headers["cache-control"] == "public, max-age=3600"
     assert not_modified.content == b""
 
@@ -93,14 +89,14 @@ async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
 
 async def test_mount_ai_catalog_on_existing_app() -> None:
     app = Starlette()
-    mount_ai_catalog(app, AICatalog(entries=[]))
+    mount_ai_catalog(app, AICatalog(spec_version="1.0", entries=[]))
     response = await _get(app, "/.well-known/ai-catalog.json")
     assert response.status_code == 200
-    assert AICatalog.model_validate(response.json()) == AICatalog(entries=[])
+    assert AICatalog.model_validate(response.json()) == AICatalog(spec_version="1.0", entries=[])
 
 
 async def test_mount_ai_catalog_custom_path() -> None:
     app = Starlette()
-    mount_ai_catalog(app, AICatalog(entries=[]), path="/.well-known/mcp/catalog.json")
-    response = await _get(app, "/.well-known/mcp/catalog.json")
+    mount_ai_catalog(app, AICatalog(spec_version="1.0", entries=[]), path="/catalog.json")
+    response = await _get(app, "/catalog.json")
     assert response.status_code == 200

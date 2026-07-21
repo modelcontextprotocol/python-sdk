@@ -1,7 +1,5 @@
 """Tests for client-side AI Catalog ingestion."""
 
-from __future__ import annotations
-
 import functools
 
 import httpx2
@@ -14,11 +12,11 @@ from starlette.routing import Route
 import mcp.client.experimental.ai_catalog as client_module
 from mcp.client.experimental.ai_catalog import fetch_ai_catalog, well_known_ai_catalog_url
 from mcp.server.experimental.ai_catalog import ai_catalog_route
-from mcp.shared.experimental.ai_catalog import MCP_CATALOG_WELL_KNOWN_PATH, AICatalog
+from mcp.shared.experimental.ai_catalog import AICatalog
 
 pytestmark = pytest.mark.anyio
 
-CATALOG = AICatalog(entries=[])
+CATALOG = AICatalog(spec_version="1.0", entries=[])
 
 
 def test_well_known_ai_catalog_url_from_origin() -> None:
@@ -31,20 +29,16 @@ def test_well_known_ai_catalog_url_from_endpoint_url() -> None:
     )
 
 
-def test_well_known_ai_catalog_url_custom_path() -> None:
-    assert well_known_ai_catalog_url("https://example.com", well_known_path=MCP_CATALOG_WELL_KNOWN_PATH) == (
-        "https://example.com/.well-known/mcp/catalog.json"
-    )
-
-
 def test_well_known_ai_catalog_url_rejects_relative() -> None:
-    with pytest.raises(ValueError, match="absolute"):
+    with pytest.raises(ValueError) as excinfo:
         well_known_ai_catalog_url("example.com/mcp")
+    assert str(excinfo.value) == "Expected an absolute http(s) URL, got 'example.com/mcp'"
 
 
 def test_well_known_ai_catalog_url_rejects_non_http_scheme() -> None:
-    with pytest.raises(ValueError, match="http"):
+    with pytest.raises(ValueError) as excinfo:
         well_known_ai_catalog_url("ftp://example.com")
+    assert str(excinfo.value) == "Expected an absolute http(s) URL, got 'ftp://example.com'"
 
 
 async def test_fetch_with_provided_client() -> None:

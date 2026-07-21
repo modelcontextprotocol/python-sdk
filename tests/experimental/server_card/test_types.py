@@ -1,7 +1,5 @@
 """Tests for Server Card models."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import pytest
@@ -72,8 +70,12 @@ def test_fields_settable_by_python_name_and_serialize_camelcase() -> None:
     "version", ["^1.2.3", "~1.2.3", ">=1.2.3", "1.x", "1.2.X", "1.*", "x", "*", "1.0.0 - 2.0.0", "1.0.0 || 2.0.0"]
 )
 def test_version_ranges_rejected(version: str) -> None:
-    with pytest.raises(ValidationError, match="exact version"):
+    with pytest.raises(ValidationError) as excinfo:
         ServerCard(name="a/b", version=version, description="d")
+    # Pydantic wraps the SDK validator error, so assert only its stable prefix.
+    error = excinfo.value.errors()[0]
+    assert "ctx" in error
+    assert str(error["ctx"]["error"]).startswith("version must be an exact version")
 
 
 @pytest.mark.parametrize("version", ["1.0.0", "1.0.0-x", "1.0.0-X.1", "1.0.0-rc.x", "2024-01-05"])
