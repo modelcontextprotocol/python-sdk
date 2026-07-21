@@ -1,9 +1,10 @@
 """Hardened HTTP core for discovery fetches. Private module.
 
 Every network fetch (including every redirect hop and every nested catalog
-follow) is re-admitted under the same rules: http(s) scheme only, plain http
-only to loopback hosts, an SSRF address guard checked before the request,
-bounded redirects, a streamed response size cap, and a media type check.
+follow) is re-admitted under the same rules: http(s) scheme only, no userinfo,
+plain http only under `allow_private_addresses`, an SSRF address guard checked
+before the request, bounded redirects, a streamed response size cap, and a
+media type check.
 """
 
 import ipaddress
@@ -15,7 +16,6 @@ import anyio
 import httpx2
 
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.experimental._base import is_loopback_host
 from mcp.shared.experimental.ai_catalog import MAX_CATALOG_NESTING_DEPTH
 
 DiscoveryErrorReason = Literal[
@@ -27,6 +27,7 @@ DiscoveryErrorReason = Literal[
     "insecure_transport",
     "invalid_entry",
     "catalog_depth",
+    "probe_budget",
 ]
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
@@ -44,12 +45,21 @@ class DiscoveryPolicy:
     The address guard resolves DNS before the request and re-checks every
     redirect hop, but the HTTP client re-resolves when it connects, so a
     DNS rebinding race remains possible between the check and the connect.
+
+    `max_catalog_entries` caps one catalog document and `max_catalog_depth`
+    caps nesting, but neither bounds their product, so `max_probe_entries` is
+    the aggregate budget: the total card and nested-catalog entries one
+    discovery probe will process across every catalog it walks. A probe that
+    exhausts it records a single `probe_budget` failure and returns what it
+    has, which also bounds the probe's total fetches and worst-case duration
+    (`max_probe_entries * timeout_seconds`).
     """
 
     max_response_bytes: int = 1_048_576
     max_redirects: int = 3
     max_catalog_entries: int = 100
     max_catalog_depth: int = MAX_CATALOG_NESTING_DEPTH
+    max_probe_entries: int = 500
     allow_private_addresses: bool = False
     timeout_seconds: float = 10.0
 
@@ -69,6 +79,16 @@ class DiscoveryError(Exception):
         super().__init__(message)
         self.url = url
         self.reason = reason
+
+
+def accept_header(media_type: str) -> str:
+    """The Accept header for one discovery media type.
+
+    The canonical type is preferred, with plain `application/json` at a lower
+    quality because static hosts and CDNs commonly serve it. This is the one
+    place the lenience is written down; `check_media_type` mirrors it.
+    """
+    return f"{media_type}, application/json;q=0.5"
 
 
 def check_status(response: httpx2.Response, url: str) -> None:
@@ -111,6 +131,11 @@ async def _host_addresses(host: str) -> list[ipaddress.IPv4Address | ipaddress.I
 
 def _is_blocked_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """Whether `address` is off-limits for discovery: anything not publicly routable."""
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        # Judge `::ffff:a.b.c.d` by its embedded IPv4 rules. Relying on the v6
+        # properties would miss CGNAT everywhere and, before the gh-113171
+        # ipaddress fix, the private v4 ranges too.
+        address = address.ipv4_mapped
     if address.version == 4 and address in _CGNAT_NETWORK:
         return True
     # is_private covers loopback, RFC 1918, ULA and the unspecified address.
@@ -121,9 +146,10 @@ async def _admit_url(url: str, policy: DiscoveryPolicy) -> None:
     """Apply the scheme rule and the SSRF address guard to one fetch target.
 
     Raises:
-        DiscoveryError: `reason="insecure_transport"` for a non-http(s) URL or
-            plain http to a non-loopback host, `reason="blocked_address"` when
-            the host is (or resolves to) a non-public address.
+        DiscoveryError: `reason="insecure_transport"` for a non-http(s) URL, a
+            URL carrying userinfo, or plain http under the hardened policy,
+            `reason="blocked_address"` when the host is (or resolves to) a
+            non-public address.
     """
     parts = urlsplit(url)
     host = parts.hostname
@@ -131,11 +157,22 @@ async def _admit_url(url: str, policy: DiscoveryPolicy) -> None:
         raise DiscoveryError(
             f"discovery requires an absolute http(s) URL, got {url!r}", url=url, reason="insecure_transport"
         )
+    if "@" in parts.netloc:
+        # Discovery never sends credentials, and `user@host` URLs exist mainly
+        # to make a hostile target read as a trusted brand in consent UI.
+        raise DiscoveryError(
+            f"discovery URLs must not carry userinfo, got {url!r}", url=url, reason="insecure_transport"
+        )
     if policy.allow_private_addresses:
         return
-    if parts.scheme == "http" and not is_loopback_host(host):
+    if parts.scheme == "http":
+        # Under the hardened policy loopback targets are blocked by the
+        # address guard anyway, so plain http (loopback included) never
+        # survives it; local development opts in via allow_private_addresses.
         raise DiscoveryError(
-            f"plain http is only allowed for loopback hosts, got {url!r}", url=url, reason="insecure_transport"
+            f"plain http is only allowed with allow_private_addresses=True, got {url!r}",
+            url=url,
+            reason="insecure_transport",
         )
     for address in await _host_addresses(host):
         if _is_blocked_address(address):
@@ -162,7 +199,7 @@ async def _fetch(client: httpx2.AsyncClient, url: str, media_type: str, policy: 
         current = url
         for _ in range(policy.max_redirects + 1):
             await _admit_url(current, policy)
-            headers = {"Accept": f"{media_type}, application/json;q=0.5"}
+            headers = {"Accept": accept_header(media_type)}
             request = client.build_request("GET", current, headers=headers)
             response = await client.send(request, stream=True, follow_redirects=False)
             try:

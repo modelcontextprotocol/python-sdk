@@ -43,6 +43,10 @@ The card routes are appended to the app after `streamable_http_app()` builds it.
 them outside any auth middleware. Discovery is unauthenticated by design, and a card or
 catalog must never contain credentials, internal topology or private endpoints.
 
+`public_url` is the externally visible base URL at which the app's root is served,
+typically just the origin. Only include a path prefix when a reverse proxy really serves
+the app under it, since the catalog entry advertises `public_url` plus the card path.
+
 If you need only one of the two endpoints, or different paths, use the smaller pieces:
 `create_server_card_routes` / `mount_server_card` for the card and
 `create_ai_catalog_routes` / `mount_ai_catalog` for the catalog. For fully custom
@@ -116,9 +120,11 @@ Cards are unverified, advisory input. The rules that keep discovery safe:
   "always"), decline memory and enterprise allowlists are host application policy. The
   SDK exposes the data and stays out of the decision.
 - **Hardened fetching.** Every fetch, redirect hop and nested catalog follow is checked
-  under `DiscoveryPolicy`: https only (plain http is loopback-only), an SSRF guard that
-  rejects private, loopback, link-local and metadata addresses (checked again after DNS
-  resolution), bounded redirects, response size and entry count caps, and no cookies or
-  ambient credentials. If you pass your own `http_client`, keep it credential-free. The
-  guard resolves DNS before the request while the client re-resolves on connect, so a
-  DNS rebinding race remains possible between the two.
+  under `DiscoveryPolicy`: https only (plain http needs `allow_private_addresses=True`),
+  no userinfo in URLs, an SSRF guard that rejects private, loopback, link-local and
+  metadata addresses (checked again after DNS resolution), bounded redirects, response
+  size and entry count caps, a whole-probe entry budget with already-visited catalogs
+  never refetched, and no cookies or ambient credentials. If you pass your own
+  `http_client`, keep it credential-free. The guard resolves DNS before the request
+  while the client re-resolves on connect, so a DNS rebinding race remains possible
+  between the two.

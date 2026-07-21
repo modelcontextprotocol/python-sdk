@@ -21,11 +21,14 @@ from mcp_types import Implementation
 
 from mcp.client.experimental._discovery_http import (
     DiscoveryError,
+    DiscoveryErrorReason,
     DiscoveryPolicy,
+    accept_header,
     check_media_type,
     check_status,
     fetch_discovery_document,
 )
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.experimental.ai_catalog import (
     AI_CATALOG_MEDIA_TYPE,
     AI_CATALOG_WELL_KNOWN_PATH,
@@ -37,6 +40,7 @@ from mcp.shared.experimental.server_card import RESERVED_SERVER_CARD_SUFFIX, SER
 __all__ = [
     "DiscoveryPolicy",
     "DiscoveryError",
+    "DiscoveryErrorReason",
     "CardListing",
     "DiscoveryFailure",
     "DiscoveryResult",
@@ -54,8 +58,21 @@ __all__ = [
     "reconcile_server_card",
 ]
 
-_SERVER_CARD_ACCEPT = f"{SERVER_CARD_MEDIA_TYPE}, application/json;q=0.5"
-_AI_CATALOG_ACCEPT = f"{AI_CATALOG_MEDIA_TYPE}, application/json;q=0.5"
+_SERVER_CARD_ACCEPT = accept_header(SERVER_CARD_MEDIA_TYPE)
+_AI_CATALOG_ACCEPT = accept_header(AI_CATALOG_MEDIA_TYPE)
+
+
+def _display_host(url: str) -> str:
+    """The host (plus `:port` when present) of `url`, never its userinfo.
+
+    `netloc` would include a `user@` prefix, which a hostile catalog can use
+    to make `github.com@evil.example` read as a trusted brand in consent UI.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if ":" in host:  # bare IPv6 from .hostname; re-bracket so the port reads unambiguously
+        host = f"[{host}]"
+    return f"{host}:{parts.port}" if parts.port is not None else host
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,13 +90,13 @@ class CardListing:
 
     @property
     def listing_domain(self) -> str:
-        """Host of the catalog that listed the card."""
-        return urlsplit(self.catalog_url).netloc
+        """Host (plus `:port` when present) of the catalog that listed the card."""
+        return _display_host(self.catalog_url)
 
     @property
     def hosting_domain(self) -> str | None:
         """Host the card was fetched from, or None for an inline `data` entry."""
-        return urlsplit(self.card_url).netloc if self.card_url is not None else None
+        return _display_host(self.card_url) if self.card_url is not None else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +183,9 @@ async def fetch_server_card(
             redirects, blocked address, insecure transport).
         pydantic.ValidationError: If the document is not a valid card.
         httpx2.HTTPError: For raw connection failures.
+        OSError: When DNS resolution fails (an unresolvable host raises
+            `socket.gaierror` from the address guard, before any request).
+        TimeoutError: When the fetch exceeds `policy.timeout_seconds`.
     """
     body = await fetch_discovery_document(url, SERVER_CARD_MEDIA_TYPE, http_client=http_client, policy=policy)
     return ServerCard.model_validate_json(body)
@@ -183,13 +203,51 @@ async def fetch_ai_catalog(
         DiscoveryError: When a policy rule fails.
         pydantic.ValidationError: If the document is not a valid catalog.
         httpx2.HTTPError: For raw connection failures.
+        OSError: When DNS resolution fails (an unresolvable host raises
+            `socket.gaierror` from the address guard, before any request).
+        TimeoutError: When the fetch exceeds `policy.timeout_seconds`.
     """
     body = await fetch_discovery_document(url, AI_CATALOG_MEDIA_TYPE, http_client=http_client, policy=policy)
     return AICatalog.model_validate_json(body)
 
 
+@dataclass(slots=True)
+class _ProbeState:
+    """Mutable per-probe budget shared by every catalog one probe walks.
+
+    `max_catalog_entries` and `max_catalog_depth` cap one document and the
+    nesting, but their product is multiplicative, so a hostile catalog tree
+    could otherwise amplify one probe into ~`entries**depth` fetches. The
+    aggregate entry budget and the visited set bound the whole walk.
+    """
+
+    entries_remaining: int
+    visited_catalog_urls: set[str]
+    exhausted: bool = False
+
+    def take_entry(self, catalog_url: str, policy: DiscoveryPolicy, failures: list[DiscoveryFailure]) -> bool:
+        """Consume one unit of budget, recording a single failure when it runs out."""
+        if self.entries_remaining > 0:
+            self.entries_remaining -= 1
+            return True
+        self.exhausted = True
+        error = DiscoveryError(
+            f"probe exceeded the budget of {policy.max_probe_entries} catalog entries",
+            url=catalog_url,
+            reason="probe_budget",
+        )
+        failures.append(DiscoveryFailure(url=catalog_url, entry_identifier=None, error=error))
+        return False
+
+
+# The per-entry safety net: one hostile or broken entry becomes a failure, never
+# a probe-killer. OSError subsumes socket.gaierror (the address guard resolves
+# DNS itself) and TimeoutError (the per-fetch deadline).
+_PER_ENTRY_ERRORS = (DiscoveryError, httpx2.HTTPError, OSError, pydantic.ValidationError)
+
+
 async def _collect_card(
-    client: httpx2.AsyncClient | None,
+    client: httpx2.AsyncClient,
     entry: CatalogEntry,
     catalog_url: str,
     policy: DiscoveryPolicy,
@@ -204,22 +262,25 @@ async def _collect_card(
         else:
             card = ServerCard.model_validate(entry.data)
             card_url = None
-    except (DiscoveryError, httpx2.HTTPError, pydantic.ValidationError) as error:
+    except _PER_ENTRY_ERRORS as error:
         failures.append(DiscoveryFailure(url=entry.url, entry_identifier=entry.identifier, error=error))
         return
     listings.append(CardListing(card=card, entry=entry, catalog_url=catalog_url, card_url=card_url))
 
 
 async def _collect_nested_catalog(
-    client: httpx2.AsyncClient | None,
+    client: httpx2.AsyncClient,
     entry: CatalogEntry,
     catalog_url: str,
     depth: int,
     policy: DiscoveryPolicy,
+    state: _ProbeState,
     listings: list[CardListing],
     failures: list[DiscoveryFailure],
 ) -> None:
     """Follow one nested catalog entry, or record why it could not be."""
+    if entry.url is not None and entry.url in state.visited_catalog_urls:
+        return  # already walked: a legitimate duplicate adds nothing, a cycle never terminates
     if depth > policy.max_catalog_depth:
         error = DiscoveryError(
             f"nested catalog exceeds the depth cap of {policy.max_catalog_depth}",
@@ -230,23 +291,25 @@ async def _collect_nested_catalog(
         return
     try:
         if entry.url is not None:
+            state.visited_catalog_urls.add(entry.url)
             nested = await fetch_ai_catalog(entry.url, http_client=client, policy=policy)
             nested_url = entry.url
         else:
             nested = AICatalog.model_validate(entry.data)
             nested_url = catalog_url
-    except (DiscoveryError, httpx2.HTTPError, pydantic.ValidationError) as error:
+    except _PER_ENTRY_ERRORS as error:
         failures.append(DiscoveryFailure(url=entry.url, entry_identifier=entry.identifier, error=error))
         return
-    await _walk_catalog(client, nested, nested_url, depth, policy, listings, failures)
+    await _walk_catalog(client, nested, nested_url, depth, policy, state, listings, failures)
 
 
 async def _walk_catalog(
-    client: httpx2.AsyncClient | None,
+    client: httpx2.AsyncClient,
     catalog: AICatalog,
     catalog_url: str,
     depth: int,
     policy: DiscoveryPolicy,
+    state: _ProbeState,
     listings: list[CardListing],
     failures: list[DiscoveryFailure],
 ) -> None:
@@ -261,11 +324,30 @@ async def _walk_catalog(
         failures.append(DiscoveryFailure(url=catalog_url, entry_identifier=None, error=error))
         entries = entries[: policy.max_catalog_entries]
     for entry in entries:
+        if entry.type not in (SERVER_CARD_MEDIA_TYPE, AI_CATALOG_MEDIA_TYPE):
+            continue  # Other artifact types are not failures. Catalogs legitimately advertise them.
+        if state.exhausted:
+            return  # a nested walk already recorded the budget failure; add no more noise
+        if not state.take_entry(catalog_url, policy, failures):
+            return
         if entry.type == SERVER_CARD_MEDIA_TYPE:
             await _collect_card(client, entry, catalog_url, policy, listings, failures)
-        elif entry.type == AI_CATALOG_MEDIA_TYPE:
-            await _collect_nested_catalog(client, entry, catalog_url, depth + 1, policy, listings, failures)
-        # Other artifact types are not failures. Catalogs legitimately advertise them.
+        else:
+            await _collect_nested_catalog(client, entry, catalog_url, depth + 1, policy, state, listings, failures)
+
+
+async def _probe(
+    client: httpx2.AsyncClient,
+    catalog_url: str,
+    policy: DiscoveryPolicy,
+) -> DiscoveryResult:
+    """Fetch the top-level catalog and walk it under one shared budget."""
+    catalog = await fetch_ai_catalog(catalog_url, http_client=client, policy=policy)
+    state = _ProbeState(entries_remaining=policy.max_probe_entries, visited_catalog_urls={catalog_url})
+    listings: list[CardListing] = []
+    failures: list[DiscoveryFailure] = []
+    await _walk_catalog(client, catalog, catalog_url, 1, policy, state, listings, failures)
+    return DiscoveryResult(listings=listings, failures=failures)
 
 
 async def discover_server_cards(
@@ -279,9 +361,12 @@ async def discover_server_cards(
     Any user-entered URL works. Only its origin is used. The probe fetches
     the catalog, follows card entries (by URL or inline `data`) and nested
     catalogs up to `policy.max_catalog_depth`, and collects per-entry
-    failures instead of raising them. Nothing is deduplicated, connected to
-    or persisted. Enterprise controls (disabling or allowlisting discovery)
-    stay trivial because the probe only runs when the host calls it.
+    failures instead of raising them. Already-visited catalog URLs are never
+    refetched, and `policy.max_probe_entries` bounds the whole walk, so a
+    hostile catalog tree cannot amplify one probe into unbounded fetches.
+    Nothing is deduplicated across listings, connected to or persisted.
+    Enterprise controls (disabling or allowlisting discovery) stay trivial
+    because the probe only runs when the host calls it.
 
     Raises:
         ValueError: If `url` is not absolute http(s).
@@ -289,14 +374,18 @@ async def discover_server_cards(
             policy rule. Per-entry failures are collected, never raised.
         pydantic.ValidationError: If the top-level catalog is malformed.
         httpx2.HTTPError: For raw connection failures on the top-level fetch.
+        OSError: When DNS resolution fails for the top-level catalog host
+            (an unresolvable host raises `socket.gaierror`).
+        TimeoutError: When the top-level fetch exceeds `policy.timeout_seconds`.
     """
     resolved_policy = policy if policy is not None else DiscoveryPolicy()
     catalog_url = well_known_ai_catalog_url(url)
-    catalog = await fetch_ai_catalog(catalog_url, http_client=http_client, policy=resolved_policy)
-    listings: list[CardListing] = []
-    failures: list[DiscoveryFailure] = []
-    await _walk_catalog(http_client, catalog, catalog_url, 1, resolved_policy, listings, failures)
-    return DiscoveryResult(listings=listings, failures=failures)
+    if http_client is None:
+        # One fresh credential-free client for the whole walk, so a large
+        # catalog reuses connections instead of a TLS handshake per entry.
+        async with create_mcp_http_client() as own_client:
+            return await _probe(own_client, catalog_url, resolved_policy)
+    return await _probe(http_client, catalog_url, resolved_policy)
 
 
 def create_server_card_request(url: str, *, if_none_match: str | None = None) -> httpx2.Request:

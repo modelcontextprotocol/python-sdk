@@ -2,10 +2,12 @@
 
 import ipaddress
 import json
-from collections.abc import Callable
+import socket
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
+import anyio
 import httpx2
 import pytest
 from inline_snapshot import snapshot
@@ -16,8 +18,11 @@ from starlette.applications import Starlette
 from mcp import Client
 from mcp.client.experimental import _discovery_http
 from mcp.client.experimental.server_card import (
+    CardListing,
     DiscoveryError,
+    DiscoveryErrorReason,
     DiscoveryPolicy,
+    DiscoveryResult,
     create_ai_catalog_request,
     create_server_card_request,
     discover_server_cards,
@@ -32,7 +37,7 @@ from mcp.client.experimental.server_card import (
 )
 from mcp.server import MCPServer
 from mcp.server.experimental.server_card import build_server_card, mount_discovery
-from mcp.shared.experimental.ai_catalog import AICatalog
+from mcp.shared.experimental.ai_catalog import AICatalog, CatalogEntry
 from mcp.shared.experimental.server_card import Remote, ServerCard
 
 pytestmark = pytest.mark.anyio
@@ -58,7 +63,10 @@ def _catalog_bytes(entries: list[dict[str, Any]]) -> bytes:
     return json.dumps({"specVersion": "1.0", "entries": entries}).encode()
 
 
-def _mock_client(handler: Callable[[httpx2.Request], httpx2.Response]) -> httpx2.AsyncClient:
+def _mock_client(
+    handler: Callable[[httpx2.Request], httpx2.Response]
+    | Callable[[httpx2.Request], Coroutine[None, None, httpx2.Response]],
+) -> httpx2.AsyncClient:
     return httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
 
 
@@ -252,12 +260,14 @@ async def test_each_redirect_hop_is_revalidated(public_dns: None) -> None:
         "https://[::1]/mcp/server-card",
         "https://[fc00::1]/mcp/server-card",
         "https://[fe80::1]/mcp/server-card",
+        "https://[::ffff:10.0.0.1]/mcp/server-card",
+        "https://[::ffff:100.64.0.1]/mcp/server-card",
     ],
 )
 async def test_ip_literal_targets_off_the_public_internet_are_blocked(url: str) -> None:
     """SDK-defined (best practices): loopback, link-local (including the cloud metadata
-    endpoint), private, CGNAT, multicast, reserved and unspecified literals never get a
-    request. The handler proves it by refusing to answer."""
+    endpoint), private, CGNAT, multicast, reserved, unspecified and IPv4-mapped IPv6
+    literals never get a request. The handler proves it by refusing to answer."""
     async with _mock_client(_refuse_all) as client:
         with pytest.raises(DiscoveryError) as exc_info:
             await fetch_server_card(url, http_client=client)
@@ -287,11 +297,24 @@ async def test_localhost_is_blocked_under_the_default_policy() -> None:
     assert exc_info.value.reason == "blocked_address"
 
 
-async def test_plain_http_to_a_public_host_raises_insecure_transport(public_dns: None) -> None:
-    """Spec-mandated: HTTPS is a MUST in production. Plain http is loopback-only."""
+@pytest.mark.parametrize("url", ["http://example.com/mcp/server-card", "http://127.0.0.1/mcp/server-card"])
+async def test_plain_http_raises_insecure_transport_under_the_default_policy(url: str) -> None:
+    """Spec-mandated: HTTPS is a MUST in production. Under the hardened policy even a
+    loopback http target is refused up front (its address would be blocked anyway);
+    local development opts in with `allow_private_addresses=True`."""
     async with _mock_client(_refuse_all) as client:
         with pytest.raises(DiscoveryError) as exc_info:
-            await fetch_server_card("http://example.com/mcp/server-card", http_client=client)
+            await fetch_server_card(url, http_client=client)
+    assert exc_info.value.reason == "insecure_transport"
+
+
+async def test_a_url_carrying_userinfo_is_rejected_before_any_request() -> None:
+    """SDK-defined hardening: `https://github.com@evil.example/...` reads as a trusted
+    brand but names `evil.example`. Discovery never sends credentials, so userinfo URLs
+    never get a request. The handler proves it by refusing to answer."""
+    async with _mock_client(_refuse_all) as client:
+        with pytest.raises(DiscoveryError) as exc_info:
+            await fetch_server_card("https://github.com@evil.example/mcp/server-card", http_client=client)
     assert exc_info.value.reason == "insecure_transport"
 
 
@@ -509,6 +532,170 @@ async def test_discover_caps_the_entry_count_and_records_the_excess(public_dns: 
     assert failure.entry_identifier is None
     assert isinstance(failure.error, DiscoveryError)
     assert failure.error.reason == "invalid_entry"
+
+
+async def test_discover_keeps_other_listings_when_an_entry_host_does_not_resolve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SDK-defined (best practices): the address guard resolves DNS itself, so an
+    unresolvable entry host raises `socket.gaierror`, the most likely hostile or broken
+    entry shape. It becomes a failure while the good entries still list."""
+
+    async def resolve(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+        if host == "gone.invalid":
+            raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        return [ipaddress.ip_address("93.184.216.34")]
+
+    monkeypatch.setattr(_discovery_http, "_host_addresses", resolve)
+    entries = [
+        {"identifier": "urn:air:example.com:mcp:good", "type": CARD_MEDIA_TYPE, "data": json.loads(_card_bytes())},
+        {"identifier": "urn:air:example.com:mcp:gone", "type": CARD_MEDIA_TYPE, "url": "https://gone.invalid/card"},
+    ]
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, content=_catalog_bytes(entries), headers={"Content-Type": CATALOG_MEDIA_TYPE})
+
+    async with _mock_client(handler) as client:
+        result = await discover_server_cards("https://example.com", http_client=client)
+    assert [listing.entry.identifier for listing in result.listings] == ["urn:air:example.com:mcp:good"]
+    (failure,) = result.failures
+    assert failure.entry_identifier == "urn:air:example.com:mcp:gone"
+    assert isinstance(failure.error, socket.gaierror)
+
+
+async def test_discover_keeps_other_listings_when_an_entry_times_out(public_dns: None) -> None:
+    """SDK-defined (best practices): a tar-pit entry hits the per-fetch deadline
+    (`TimeoutError`) and becomes a failure while the good entries still list. The sleep
+    is the thing under test here (the deadline is a time-based feature), and the probe
+    runs in a child task because the deadline's cancellation stops coverage tracing in
+    every frame still suspended on the awaited call."""
+    entries = [
+        {"identifier": "urn:air:example.com:mcp:good", "type": CARD_MEDIA_TYPE, "data": json.loads(_card_bytes())},
+        {"identifier": "urn:air:example.com:mcp:slow", "type": CARD_MEDIA_TYPE, "url": "https://example.com/tar-pit"},
+    ]
+
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/.well-known/ai-catalog.json":
+            return httpx2.Response(200, content=_catalog_bytes(entries), headers={"Content-Type": CATALOG_MEDIA_TYPE})
+        await anyio.sleep(3600)  # cancelled by the per-fetch deadline
+        raise NotImplementedError
+
+    results: list[DiscoveryResult] = []
+
+    async def probe() -> None:
+        async with _mock_client(handler) as client:
+            results.append(
+                await discover_server_cards(
+                    "https://example.com", http_client=client, policy=DiscoveryPolicy(timeout_seconds=0.05)
+                )
+            )
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(probe)
+    (result,) = results
+    assert [listing.entry.identifier for listing in result.listings] == ["urn:air:example.com:mcp:good"]
+    (failure,) = result.failures
+    assert failure.entry_identifier == "urn:air:example.com:mcp:slow"
+    assert isinstance(failure.error, TimeoutError)
+
+
+async def test_discover_never_refetches_an_already_visited_catalog(public_dns: None) -> None:
+    """SDK-defined (best practices): a nested entry pointing back at an already-walked
+    catalog URL (here the well-known catalog itself) is skipped, not refetched, so a
+    self-referential catalog terminates after one fetch with no failure."""
+    entries = [
+        {
+            "identifier": "urn:air:example.com:catalog:self",
+            "type": CATALOG_MEDIA_TYPE,
+            "url": "https://example.com/.well-known/ai-catalog.json",
+        },
+        {"identifier": "urn:air:example.com:mcp:good", "type": CARD_MEDIA_TYPE, "data": json.loads(_card_bytes())},
+    ]
+    seen_paths: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen_paths.append(request.url.path)
+        return httpx2.Response(200, content=_catalog_bytes(entries), headers={"Content-Type": CATALOG_MEDIA_TYPE})
+
+    async with _mock_client(handler) as client:
+        result = await discover_server_cards("https://example.com", http_client=client)
+    assert seen_paths == ["/.well-known/ai-catalog.json"]
+    assert [listing.entry.identifier for listing in result.listings] == ["urn:air:example.com:mcp:good"]
+    assert result.failures == []
+
+
+async def test_discover_stops_at_the_probe_budget_with_a_single_failure(public_dns: None) -> None:
+    """SDK-defined (best practices): the per-catalog entry cap and the depth cap are
+    multiplicative, so a hostile catalog tree could amplify one probe into
+    `entries**depth` fetches. `max_probe_entries` bounds the aggregate walk: everything
+    past the budget is dropped after one `probe_budget` failure, never one per entry."""
+
+    def card_entry(number: int) -> dict[str, Any]:
+        return {
+            "identifier": f"urn:air:example.com:mcp:c{number}",
+            "type": CARD_MEDIA_TYPE,
+            "url": f"https://example.com/card/{number}",
+        }
+
+    def nested_entry(number: int) -> dict[str, Any]:
+        return {
+            "identifier": f"urn:air:example.com:catalog:n{number}",
+            "type": CATALOG_MEDIA_TYPE,
+            "url": f"https://example.com/nested/{number}",
+        }
+
+    seen_paths: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path == "/.well-known/ai-catalog.json":
+            body = _catalog_bytes([card_entry(1), card_entry(2), nested_entry(1), nested_entry(2)])
+        elif request.url.path.startswith("/nested/"):
+            body = _catalog_bytes([card_entry(3)])
+        else:
+            return httpx2.Response(200, content=_card_bytes(), headers={"Content-Type": CARD_MEDIA_TYPE})
+        return httpx2.Response(200, content=body, headers={"Content-Type": CATALOG_MEDIA_TYPE})
+
+    async with _mock_client(handler) as client:
+        result = await discover_server_cards(
+            "https://example.com", http_client=client, policy=DiscoveryPolicy(max_probe_entries=3)
+        )
+    # Budget of 3: card 1, card 2, then nested catalog 1. Its own card entry finds the
+    # budget spent (one failure), and nested catalog 2 is dropped without another.
+    assert seen_paths == ["/.well-known/ai-catalog.json", "/card/1", "/card/2", "/nested/1"]
+    assert [listing.entry.identifier for listing in result.listings] == [
+        "urn:air:example.com:mcp:c1",
+        "urn:air:example.com:mcp:c2",
+    ]
+    (failure,) = result.failures
+    assert failure.entry_identifier is None
+    assert isinstance(failure.error, DiscoveryError)
+    expected_reason: DiscoveryErrorReason = "probe_budget"
+    assert failure.error.reason == expected_reason
+
+
+def test_listing_domains_are_host_and_port_never_userinfo() -> None:
+    """SDK-defined hardening: the consent-UI domain properties show host[:port] only, so
+    a `user@host` URL in a hand-built listing cannot lead with a trusted brand; IPv6
+    hosts keep their brackets and a URL with no host shows as empty."""
+
+    def listing_for(url: str) -> CardListing:
+        entry = CatalogEntry(identifier="urn:air:example.com:mcp:weather", type=CARD_MEDIA_TYPE, url=url)
+        return CardListing(card=_card(), entry=entry, catalog_url=url, card_url=url)
+
+    assert listing_for("https://github.com@evil.example/card").listing_domain == "evil.example"
+    assert listing_for("https://user:pass@example.com:8443/card").hosting_domain == "example.com:8443"
+    assert listing_for("https://[2001:db8::1]:8443/card").listing_domain == "[2001:db8::1]:8443"
+    assert listing_for("https:///card").listing_domain == ""
+
+
+async def test_discover_with_the_default_client_applies_the_same_guards() -> None:
+    """SDK-defined: with no `http_client`, one fresh credential-free client serves the
+    whole probe, and a blocked target still fails before any request."""
+    with pytest.raises(DiscoveryError) as exc_info:
+        await discover_server_cards("https://10.0.0.1/docs")
+    assert exc_info.value.reason == "blocked_address"
 
 
 async def test_discover_raises_when_the_catalog_itself_fails(public_dns: None) -> None:

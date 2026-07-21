@@ -164,11 +164,18 @@ def _if_none_match_matches(header_value: str | None, etag: str) -> bool:
 
 
 def _cors_endpoint(handler: Callable[[Request], Awaitable[Response]]) -> ASGIApp:
-    """Wrap a handler with `CORSMiddleware`, belt and braces over the explicit headers."""
+    """Wrap a handler with `CORSMiddleware`, belt and braces over the explicit headers.
+
+    The middleware short-circuits real browser preflights (OPTIONS with an
+    `Origin` and a requested method), answering with `GET` as the only allowed
+    method; Starlette also advertises the CORS-safelisted request headers
+    beside `Content-Type` there, a valid superset of the spec's example. A
+    bare OPTIONS still reaches `discovery_response`.
+    """
     return CORSMiddleware(
         app=request_response(handler),
         allow_origins=["*"],
-        allow_methods=["GET", "OPTIONS"],
+        allow_methods=["GET"],
         allow_headers=["Content-Type"],
     )
 
@@ -297,6 +304,13 @@ def mount_discovery(
     single-entry AI Catalog at the well-known path. The catalog entry's URL is
     absolute (catalogs are fetched cross-domain) and the entry's URN publisher
     is the host of `public_url`.
+
+    `public_url` is the externally visible base URL at which `app`'s root is
+    served, typically just the origin (`https://mcp.example.com`). Include a
+    path only when a reverse proxy really serves the app under that prefix,
+    because the catalog entry's URL is `public_url` plus the card path while
+    the routes themselves are mounted at the app root; a `public_url` carrying
+    a path that the proxy does not strip advertises a card URL that 404s.
 
     Per the best-practices guidance, the catalog belongs on the domain users
     associate with the service, which may not be the API app. In that case use

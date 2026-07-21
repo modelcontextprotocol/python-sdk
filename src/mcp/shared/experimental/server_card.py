@@ -90,11 +90,12 @@ class Remote(_CardModel):
 
     @property
     def required_variables(self) -> frozenset[str]:
-        """Template variable names a host must prompt the user for.
+        """The input names a host must prompt the user for.
 
-        Covers the URL variables and each header's nested variables, keeping
-        the ones declared `isRequired` with no `default` and no pre-set
-        `value`.
+        Covers the URL variables, each header's nested variables, and required
+        headers themselves (keyed by header name, exactly as `resolve_remote`
+        accepts values for them), keeping the ones declared `isRequired` with
+        no `default` and no pre-set `value`.
         """
         names: set[str] = set()
         header_variables = [header.variables for header in self.headers or []]
@@ -102,6 +103,9 @@ class Remote(_CardModel):
             for name, spec in (variables or {}).items():
                 if spec.is_required and spec.default is None and spec.value is None:
                     names.add(name)
+        for header in self.headers or []:
+            if header.is_required and header.default is None and header.value is None:
+                names.add(header.name)
         return frozenset(names)
 
 

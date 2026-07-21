@@ -142,6 +142,30 @@ def test_vendor_fields_and_meta_survive_a_round_trip() -> None:
     assert json.loads(card.model_dump_json(by_alias=True, exclude_none=True)) == data
 
 
+def test_icons_and_repository_round_trip_with_their_wire_names() -> None:
+    """Spec-mandated: `icons[]` (camelCase `mimeType`, `sizes`) and `repository`
+    survive parse and re-serialize byte-for-byte equivalent."""
+    data = _minimal_card_data(
+        icons=[{"src": "https://example.com/icon.png", "mimeType": "image/png", "sizes": ["48x48", "96x96"]}],
+        repository={"url": "https://github.com/example/weather", "source": "github", "subfolder": "servers/weather"},
+    )
+    card = ServerCard.model_validate(data)
+    assert card.icons is not None
+    assert (card.icons[0].mime_type, card.icons[0].sizes) == ("image/png", ["48x48", "96x96"])
+    assert card.repository is not None
+    assert (card.repository.url, card.repository.source) == ("https://github.com/example/weather", "github")
+    assert json.loads(card.model_dump_json(by_alias=True, exclude_none=True)) == data
+
+
+@pytest.mark.parametrize("missing", ["url", "source"])
+def test_repository_missing_a_required_field_is_rejected(missing: str) -> None:
+    """Spec-mandated: `repository.url` and `repository.source` are both required."""
+    repository = {"url": "https://github.com/example/weather", "source": "github"}
+    del repository[missing]
+    with pytest.raises(ValidationError):
+        ServerCard.model_validate(_minimal_card_data(repository=repository))
+
+
 def test_fields_populate_by_python_name_and_serialize_camel_case() -> None:
     """SDK-defined: models accept snake_case constructor names and always write the
     spec's camelCase wire names."""
@@ -196,6 +220,25 @@ def test_required_variables_keeps_only_unresolvable_required_inputs() -> None:
         ],
     )
     assert remote.required_variables == frozenset({"tenant", "token"})
+
+
+def test_required_variables_includes_required_headers_without_a_value() -> None:
+    """SDK-defined: a header that is itself `isRequired` with no pre-set `value` and no
+    `default` is an input the host must prompt for, keyed by its header name, so a bare
+    `resolve_remote` demands exactly what `required_variables` listed up front."""
+    remote = Remote(
+        type="streamable-http",
+        url="https://example.com/mcp",
+        headers=[
+            KeyValueInput(name="X-API-Key", is_required=True),
+            KeyValueInput(name="X-Region", is_required=True, default="eu"),
+            KeyValueInput(name="X-Trace"),
+        ],
+    )
+    assert remote.required_variables == frozenset({"X-API-Key"})
+    with pytest.raises(ValueError) as exc_info:
+        resolve_remote(remote)
+    assert str(exc_info.value) == snapshot("missing required variables: X-API-Key")
 
 
 def test_required_variables_is_empty_without_declared_variables() -> None:
