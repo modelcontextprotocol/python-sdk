@@ -62,7 +62,7 @@ That loop is the same one in every client that pages, so `Client` ships it. The 
 * `iter_all_resources()` yields one resource at a time and only fetches the next page when you ask for it, so you can stop early without dragging down the whole catalog. Same four: `iter_all_tools`, `iter_all_prompts`, and so on.
 * The single-page `list_*` methods are unchanged. Use them when you want one page and the cursor; use the drains when you want everything and don't want to own the loop.
 
-`ClientSessionGroup` aggregation drains the same way, so a group fronting several servers reports the full collection instead of each server's first page. That aggregator is **[Session groups](session-groups.md)**.
+`ClientSessionGroup` aggregation drains the same way, so a group fronting several servers reports the full collection instead of each server's first page. That aggregator is **[Session groups](../client/session-groups.md)**.
 
 !!! warning
     A drain trusts the server to advance the cursor. A server that keeps returning the same
