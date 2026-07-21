@@ -444,3 +444,24 @@ async def test_client_session_group_aggregates_paginated_tools(
     second_call_kwargs = mock_session.list_tools.await_args_list[1].kwargs
     assert second_call_kwargs["params"] is not None
     assert second_call_kwargs["params"].cursor == "page-2"
+
+
+@pytest.mark.anyio
+async def test_client_session_group_rejects_non_advancing_cursor(
+    mock_exit_stack: contextlib.AsyncExitStack,
+):
+    """A server that keeps returning the cursor it was handed must fail loudly, not page forever."""
+    mock_server_info = mock.Mock(spec=types.Implementation)
+    mock_server_info.name = "StuckCursorServer"
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+
+    stuck_tool = mock.Mock(spec=types.Tool)
+    stuck_tool.name = "tool_a"
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[stuck_tool], next_cursor="page-2")
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[], next_cursor=None)
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[], next_cursor=None)
+
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+    with mock.patch.object(group, "_establish_session", return_value=(mock_server_info, mock_session)):
+        with pytest.raises(RuntimeError, match="did not advance"):
+            await group.connect_to_server(StdioServerParameters(command="test"))
