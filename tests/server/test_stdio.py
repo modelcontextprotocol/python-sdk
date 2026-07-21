@@ -256,6 +256,10 @@ async def test_stdio_server_reads_stdin_in_place_when_descriptor_isolation_fails
                 async with read_stream:  # pragma: no branch
                     # Isolation was skipped: fd 0 is still the protocol pipe.
                     assert os.path.sameopenfile(0, in_r)
+                    # In-place transports still own the stream: a second one is refused.
+                    with pytest.raises(RuntimeError, match="already claimed fd 0"):
+                        async with stdio_server():
+                            pytest.fail("unreachable")  # pragma: no cover
                     # The spent injector passes calls through untouched.
                     os.close(os.dup(0))
                     received = await read_stream.receive()
