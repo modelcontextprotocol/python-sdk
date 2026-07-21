@@ -272,11 +272,14 @@ async def test_stdio_server_reads_stdin_in_place_when_descriptor_isolation_fails
 async def test_stdio_server_exits_cleanly_when_the_stdin_restore_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failed fd 0 restore on exit is swallowed, not raised.
+    """A failed fd 0 restore on exit is swallowed, not raised, and the fd stays claimed.
 
-    SDK-defined behavior: the restore in the finally must never mask what ended the transport.
+    SDK-defined behavior: the restore must never mask what ended the transport, and a
+    still-diverted fd must refuse later transports rather than serve them the diversion.
     """
     request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    fresh_claims: set[int] = set()
+    monkeypatch.setattr("mcp.server.stdio._claimed", fresh_claims)  # this test leaves fd 0 claimed
     with _pipe_planted_on_fd0(monkeypatch) as (_, in_w):
         os.write(in_w, _frame(request))
         os.close(in_w)
@@ -309,6 +312,12 @@ async def test_stdio_server_exits_cleanly_when_the_stdin_restore_fails(
             assert os.path.sameopenfile(0, devnull_probe)
         finally:
             os.close(devnull_probe)
+
+        # The still-diverted fd stays claimed: a later transport is refused,
+        # not handed the null device as its wire.
+        with pytest.raises(RuntimeError, match="already claimed fd 0"):
+            async with stdio_server():
+                pytest.fail("unreachable")  # pragma: no cover
 
 
 @pytest.mark.anyio

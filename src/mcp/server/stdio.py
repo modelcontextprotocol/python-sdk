@@ -101,18 +101,23 @@ def _claim_fd(
         # Drain text buffered during the claim (a stray print) to the diversion.
         with suppress(OSError, ValueError):
             stream.flush()
-        _restore_fd(fd, private_fd)
-        unclaim()
+        # A failed restore leaves fd diverted; keep it claimed so later transports are refused.
+        if _restore_fd(fd, private_fd):
+            unclaim()
 
     # closefd=False: a blocked worker thread may still read this descriptor after exit.
     return os.fdopen(private_fd, mode, closefd=False), restore
 
 
-def _restore_fd(fd: int, private_fd: int) -> None:
-    with suppress(OSError):
+def _restore_fd(fd: int, private_fd: int) -> bool:
+    """Point fd back at the protocol pipe; a failure never masks the transport's exit."""
+    try:
         os.dup2(private_fd, fd)
         if sys.platform == "win32":  # pragma: no cover
             rebind_std_handle_to_fd(fd)
+    except OSError:
+        return False
+    return True
 
 
 @asynccontextmanager
