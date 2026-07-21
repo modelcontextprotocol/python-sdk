@@ -78,9 +78,11 @@ async def _drain_paginated(
     the list attribute on the result (e.g. `"tools"`, `"prompts"`).
 
     Raises:
-        RuntimeError: The server returned a pagination cursor that did not advance.
+        RuntimeError: The server returned a pagination cursor it already
+            returned, which would page forever.
     """
     items: list[Any] = []
+    seen_cursors: set[str] = set()
     cursor: str | None = None
     while True:
         params = types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None
@@ -89,8 +91,9 @@ async def _drain_paginated(
         next_cursor = getattr(result, "next_cursor", None)
         if next_cursor is None:
             return items
-        if next_cursor == cursor:
-            raise RuntimeError("Server returned a pagination cursor that did not advance; refusing to page forever.")
+        if next_cursor in seen_cursors:
+            raise RuntimeError("Server returned a pagination cursor it already returned; refusing to page forever.")
+        seen_cursors.add(next_cursor)
         cursor = next_cursor
 
 

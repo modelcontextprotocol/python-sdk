@@ -463,5 +463,5 @@ async def test_client_session_group_rejects_non_advancing_cursor(
 
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
     with mock.patch.object(group, "_establish_session", return_value=(mock_server_info, mock_session)):
-        with pytest.raises(RuntimeError, match="did not advance"):
+        with pytest.raises(RuntimeError, match="already returned"):
             await group.connect_to_server(StdioServerParameters(command="test"))
