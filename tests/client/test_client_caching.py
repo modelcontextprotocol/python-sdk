@@ -24,7 +24,6 @@ from mcp_types import (
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
-    Implementation,
     InputRequiredResult,
     ListPromptsResult,
     ListResourcesResult,
@@ -845,7 +844,6 @@ async def test_a_cache_hit_listing_still_mirrors_x_mcp_headers_on_tools_call() -
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
 
     with anyio.fail_after(5):

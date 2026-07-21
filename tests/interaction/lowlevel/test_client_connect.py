@@ -25,6 +25,7 @@ from mcp_types import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
     DiscoverResult,
     Implementation,
@@ -123,13 +124,13 @@ async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -
     """`Client(..., mode=<pin>, prior_discover=...)` sends nothing on entry and exposes the prior server_info.
 
     Requirement `lifecycle:mode:prior-discover-zero-rtt` (sdk-defined): a previously-obtained
-    DiscoverResult is installed via `adopt()` so server_info and capabilities are available
-    immediately with zero round trips.
+    DiscoverResult is installed via `adopt()` so server_info (read from the result's `_meta`
+    serverInfo stamp) and capabilities are available immediately with zero round trips.
     """
     prior = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(tools=ToolsCapability(list_changed=False)),
-        server_info=Implementation(name="cached-server", version="9.9.9"),
+        _meta={SERVER_INFO_META_KEY: {"name": "cached-server", "version": "9.9.9"}},
     )
     requests, on_request = _request_recorder()
 
@@ -156,7 +157,8 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
 
     Requirement `lifecycle:discover:basic` (spec basic/lifecycle#discover): the probe is a
     single `server/discover` request whose result carries supported versions, capabilities,
-    server_info and the cache-hint fields, after which the session is modern-negotiated.
+    the cache-hint fields, and the `_meta` serverInfo stamp, after which the session is
+    modern-negotiated.
     """
     requests, on_request = _request_recorder()
     server = _tools_server("discoverable")
@@ -167,6 +169,7 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
             Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
         ):
             assert client.protocol_version == LATEST_MODERN_VERSION
+            assert client.server_info is not None
             assert client.server_info.name == "discoverable"
             await client.list_tools()
 
@@ -198,7 +201,6 @@ async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version()
         return DiscoverResult(
             supported_versions=list(MODERN_PROTOCOL_VERSIONS),
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="picky", version="1.0.0"),
         )
 
     server = _tools_server("picky")
@@ -309,6 +311,7 @@ async def test_auto_mode_falls_back_to_initialize_on_a_legacy_probe_rejection(
     with anyio.fail_after(5):
         async with Client(scripted_transport(), mode="auto") as client:
             assert client.protocol_version == LATEST_HANDSHAKE_VERSION
+            assert client.server_info is not None
             assert client.server_info.name == "legacy-only"
 
     assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]

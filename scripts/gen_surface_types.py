@@ -25,6 +25,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "schema"
 TYPES_DIR = REPO_ROOT / "src" / "mcp-types" / "mcp_types"
 
+# The result-meta serverInfo stamp: every `$defs` entry carrying this property
+# gets its typed `$ref` stripped by `make_server_info_opaque` below.
+SERVER_INFO_META_PROPERTY = "io.modelcontextprotocol/serverInfo"
+
 # schema.ts -> schema.json renders TypeScript `number` as JSON Schema
 # `integer` at these sites; patch the JSON before codegen so floats validate.
 # Patched to `["integer", "number"]` (not bare `"number"`) so codegen emits
@@ -129,15 +133,37 @@ def load_pinned() -> list[dict[str, str]]:
 
 
 def patch_schema(schema: dict[str, Any], patches: list[tuple[str, Any, Any]]) -> None:
-    """Apply `(path, old, new)` JSON-pointer-ish patches in place, asserting the old value."""
+    """Apply `(path, old, new)` JSON-pointer-ish patches in place, asserting the old value.
+
+    Path segments use JSON-pointer escaping (`~1` for `/`, `~0` for `~`) so keys
+    that themselves contain a slash (the reserved `io.modelcontextprotocol/*`
+    `_meta` keys) are addressable.
+    """
     for path, old, new in patches:
-        *parts, leaf = path.split("/")
+        *parts, leaf = (part.replace("~1", "/").replace("~0", "~") for part in path.split("/"))
         node: Any = schema
         for part in parts:
             node = node[int(part) if part.isdigit() else part]
         if node[leaf] != old:
             raise SystemExit(f"schema patch {path}: expected {old!r}, found {node[leaf]!r}")
         node[leaf] = new
+
+
+def make_server_info_opaque(schema: dict[str, Any]) -> None:
+    """Strip the typed `$ref` from every result-meta serverInfo property.
+
+    The stamp is display-only: the spec forbids acting on it, so a malformed
+    value must never fail a whole response (clients validate every inbound
+    result against this surface). Walking every `$defs` entry keeps future
+    result-meta definitions lenient by construction instead of relying on an
+    enumerated list; the typed, lenient parse happens at the read edge
+    (`ClientSession.server_info`). typescript-sdk does the same with a
+    schema-level catch-to-undefined.
+    """
+    for definition in schema.get("$defs", {}).values():
+        prop = definition.get("properties", {}).get(SERVER_INFO_META_PROPERTY)
+        if prop is not None and "$ref" in prop:
+            del prop["$ref"]
 
 
 def run_codegen(schema_path: Path, output_path: Path) -> None:
@@ -197,6 +223,7 @@ def build(entry: dict[str, str]) -> str:
     version = entry["protocol_version"]
     schema = json.loads((SCHEMA_DIR / f"{version}.json").read_text())
     patch_schema(schema, SCHEMA_PATCHES.get(version, []))
+    make_server_info_opaque(schema)
 
     with tempfile.TemporaryDirectory() as tmp:
         patched = Path(tmp) / "schema.json"

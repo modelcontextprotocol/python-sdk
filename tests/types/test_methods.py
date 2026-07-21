@@ -399,7 +399,6 @@ RESULT_BODY_FIXTURES: dict[type[BaseModel] | UnionType, dict[str, Any]] = {
     v2026.DiscoverResult: {
         "supportedVersions": ["2026-07-28"],
         "capabilities": {},
-        "serverInfo": {"name": "server", "version": "1.0"},
         "resultType": "complete",
         "ttlMs": 0,
         "cacheScope": "private",
@@ -871,7 +870,6 @@ MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
     "server/discover": types.DiscoverResult(
         supported_versions=["2026-07-28"],
         capabilities=types.ServerCapabilities(),
-        server_info=types.Implementation(name="server", version="1.0"),
         ttl_ms=0,
         cache_scope="private",
     ),
@@ -935,6 +933,24 @@ def test_serialize_server_result_preserves_open_type_extras():
     sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
     assert sieved["tools"][0]["inputSchema"] == input_schema
     assert sieved["tools"][0]["_meta"] == nested_meta
+
+
+def test_serialize_server_result_drops_top_level_server_info_on_discover_but_keeps_the_meta_stamp():
+    """Server identity moved from the discover body to result `_meta` (spec PR #3002):
+    the sieve drops the removed body key and preserves the `_meta` stamp."""
+    stamp = {"name": "server", "version": "1.0"}
+    dumped: dict[str, Any] = {
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {},
+        "serverInfo": stamp,
+        "_meta": {types.SERVER_INFO_META_KEY: stamp},
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    sieved = methods.serialize_server_result("server/discover", "2026-07-28", dumped)
+    assert "serverInfo" not in sieved
+    assert sieved["_meta"] == {types.SERVER_INFO_META_KEY: stamp}
 
 
 def test_serialize_server_result_drops_an_unknown_nested_tool_field():

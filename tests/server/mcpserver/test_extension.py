@@ -141,7 +141,7 @@ async def test_additive_extension_registers_its_tool_and_resource() -> None:
     through `MCPServer`'s normal `list_tools`/`list_resources`, and the tool's
     `_meta` round-trips equal to the exact dict the binding carried (identity can't
     hold - the value is JSON-serialized over the transport)."""
-    server = MCPServer("test", extensions=[_AdditiveExt()])
+    server = MCPServer("test", extensions=[_AdditiveExt()], include_server_info=False)
 
     async with Client(server) as client:
         tools = await client.list_tools()
@@ -189,7 +189,7 @@ def test_duplicate_extension_identifier_raises() -> None:
 async def test_extension_method_reachable_via_session_send_request() -> None:
     """SDK-defined: an `Extension` overriding `methods()` wires a new request verb
     onto the low-level server, reachable through `client.session.send_request`."""
-    server = MCPServer("test", extensions=[_MethodExt()])
+    server = MCPServer("test", extensions=[_MethodExt()], include_server_info=False)
 
     async with Client(server) as client:
         request = _PingRequest(params=_PingParams())
@@ -201,7 +201,7 @@ async def test_extension_method_reachable_via_session_send_request() -> None:
 async def test_pass_through_interceptor_leaves_tool_result_unchanged() -> None:
     """SDK-defined: an extension whose `intercept_tool_call` delegates to
     `call_next` does not alter the underlying tool's `CallToolResult`."""
-    server = MCPServer("test", extensions=[_PassThroughExt()])
+    server = MCPServer("test", extensions=[_PassThroughExt()], include_server_info=False)
     server.tool(name="echo")(_echo)
 
     async with Client(server) as client:
@@ -213,7 +213,7 @@ async def test_pass_through_interceptor_leaves_tool_result_unchanged() -> None:
 async def test_short_circuiting_interceptor_replaces_tool_result() -> None:
     """SDK-defined: an extension that returns from `intercept_tool_call` without
     calling `call_next` replaces the tool's result wholesale (the tool never runs)."""
-    server = MCPServer("test", extensions=[_ReplacingExt()])
+    server = MCPServer("test", extensions=[_ReplacingExt()], include_server_info=False)
     server.tool(name="echo", structured_output=False)(_echo)
 
     async with Client(server) as client:
@@ -245,7 +245,7 @@ async def test_default_interceptor_passes_through_alongside_an_overriding_one() 
     """SDK-defined: an extension that does not override `intercept_tool_call` runs the
     base-class default (pass through) when another extension forces the composed
     middleware to exist, leaving the tool result untouched."""
-    server = MCPServer("test", extensions=[_DefaultExt(), _PassThroughExt()])
+    server = MCPServer("test", extensions=[_DefaultExt(), _PassThroughExt()], include_server_info=False)
     server.tool(name="echo")(_echo)
 
     async with Client(server) as client:
@@ -339,7 +339,7 @@ class _VersionPinnedExt(Extension):
 async def test_version_pinned_method_is_served_at_an_allowed_version() -> None:
     """SDK-defined: a `MethodBinding` with `protocol_versions` serves the method at a version
     in the set."""
-    server = MCPServer("test", extensions=[_VersionPinnedExt()])
+    server = MCPServer("test", extensions=[_VersionPinnedExt()], include_server_info=False)
 
     async with Client(server, mode="2026-07-28") as client:
         request = _VersionPinnedRequest(params=_VersionPinnedParams())
@@ -420,7 +420,7 @@ class _RequiresExt(Extension):
 
 async def test_require_client_extension_passes_when_client_declared_it() -> None:
     """SDK-defined: `require_client_extension` is a no-op when the client advertised the id."""
-    server = MCPServer("test", extensions=[_RequiresExt()])
+    server = MCPServer("test", extensions=[_RequiresExt()], include_server_info=False)
 
     async with Client(server, extensions=[advertise(_NEEDS_EXT)]) as client:
         result = await client.call_tool("guarded", {})

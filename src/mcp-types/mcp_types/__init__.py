@@ -12,6 +12,7 @@ from mcp_types._types import (
     DEFAULT_NEGOTIATED_VERSION,
     LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     Annotations,
     AudioContent,
     BaseMetadata,
@@ -231,6 +232,8 @@ __all__ = [
     "CLIENT_INFO_META_KEY",
     "CLIENT_CAPABILITIES_META_KEY",
     "LOG_LEVEL_META_KEY",
+    # Reserved result _meta keys
+    "SERVER_INFO_META_KEY",
     # Type aliases and variables
     "CORE_RESULT_TYPES",
     "ContentBlock",

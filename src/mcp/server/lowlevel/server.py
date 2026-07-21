@@ -41,6 +41,7 @@ import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from functools import cached_property
 from importlib.metadata import version as importlib_version
 from typing import Any, Generic, overload
 
@@ -146,6 +147,7 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        include_server_info: bool = True,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -229,6 +231,7 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        include_server_info: bool = True,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -321,6 +324,7 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        include_server_info: bool = True,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -428,6 +432,10 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
+        # Spec 2026-07-28: servers SHOULD stamp `serverInfo` into every result's
+        # `_meta` "unless specifically configured not to do so" - this is that
+        # configuration. Consumed at the single stamping site in `ServerRunner`.
+        self.include_server_info = include_server_info
         # Per-method `ttl_ms`/`cache_scope` fills, applied by `ServerRunner`
         # after the handler returns; fields the handler set explicitly win.
         self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
@@ -648,6 +656,15 @@ class Server(Generic[LifespanResultT]):
             icons=self.icons,
         )
 
+    @cached_property
+    def server_info_stamp(self) -> dict[str, Any]:
+        """The wire dump of `server_info`, computed once per server.
+
+        Identity is fixed at construction, so the per-result `_meta` stamping
+        site (`ServerRunner`) reads this instead of re-dumping per request.
+        """
+        return self.server_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+
     async def _handle_discover(
         self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None
     ) -> types.DiscoverResult:
@@ -662,7 +679,6 @@ class Server(Generic[LifespanResultT]):
         return types.DiscoverResult(
             supported_versions=list(MODERN_PROTOCOL_VERSIONS),
             capabilities=self.get_capabilities(protocol_version=ctx.protocol_version),
-            server_info=self.server_info,
             instructions=self.instructions,
         )
 

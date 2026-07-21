@@ -34,7 +34,7 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
     completion_order: list[str] = []
     results: dict[str, CallToolResult] = {}
 
-    server = MCPServer("parking")
+    server = MCPServer("parking", include_server_info=False)
 
     @server.tool()
     async def park(tag: str) -> str:

@@ -29,6 +29,7 @@ from mcp_types import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
     CacheableResult,
     ErrorData,
@@ -226,6 +227,21 @@ class ServerRunner(Generic[LifespanT]):
         # `_inner` already produced the wire dict; a middleware that short-circuited
         # without `call_next` is trusted to return its own well-formed result.
         result = _dump_result(await call(ctx))
+        # Spec 2026-07-28 (#3002): stamp `serverInfo` into every modern result's
+        # `_meta`. This runs after the middleware chain - the one exit every
+        # result takes, including middleware short-circuits - so coverage holds
+        # by construction. Custom-method and short-circuit results pass through
+        # by reference, so stamping builds a shallow copy rather than mutating a
+        # dict the handler may retain. A handler-authored value wins; a
+        # non-mapping `_meta` is the handler's to own, not ours to clobber.
+        if self.server.include_server_info and version in MODERN_PROTOCOL_VERSIONS:
+            raw_meta = result.get("_meta")
+            if raw_meta is None:
+                result = {**result, "_meta": {SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}}
+            elif isinstance(raw_meta, dict):
+                meta = cast("dict[str, Any]", raw_meta)
+                if meta.get(SERVER_INFO_META_KEY) is None:
+                    result = {**result, "_meta": {**meta, SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}}
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.

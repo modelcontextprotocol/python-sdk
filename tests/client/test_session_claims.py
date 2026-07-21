@@ -107,7 +107,6 @@ def _adopt_modern(session: ClientSession) -> None:
         types.DiscoverResult(
             supported_versions=[LATEST_MODERN_VERSION],
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="stub", version="0"),
         )
     )
 

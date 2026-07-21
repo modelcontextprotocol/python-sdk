@@ -25,8 +25,10 @@ from mcp_types import (
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
     ClientCapabilities,
+    EmptyResult,
     ErrorData,
     Implementation,
     InitializeRequestParams,
@@ -953,7 +955,12 @@ async def test_on_request_dispatches_custom_method_registered_via_add_request_ha
     born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
         result = await client.send_raw_request("myorg/echo", None)
-    assert result == {"echoed": True}
+    # Custom-method results served at a modern version carry the serverInfo
+    # `_meta` stamp like any other result (spec 2026-07-28, #3002).
+    assert result == {
+        "echoed": True,
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
 
 
 @pytest.mark.anyio
@@ -985,6 +992,90 @@ async def test_runner_custom_method_result_is_not_surface_validated(server: SrvT
     async with connected_runner(server) as (client, _):
         result = await client.send_raw_request("custom/greet", None)
     assert result == {"anything": "goes"}
+
+
+@pytest.mark.anyio
+async def test_modern_short_circuit_middleware_result_still_carries_the_server_info_stamp(server: SrvT):
+    """SDK-defined: the serverInfo stamp is applied at the runner's single exit,
+    after the middleware chain, so even a middleware that answers without
+    calling `call_next` produces an identified result (spec 2026-07-28, #3002)."""
+
+    async def short_circuit(ctx: Ctx, call_next: Any) -> Any:
+        return {"ok": True}
+
+    server.middleware.append(short_circuit)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/anything", None)
+    assert result == {
+        "ok": True,
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
+
+
+@pytest.mark.anyio
+async def test_a_handler_authored_server_info_stamp_is_not_overwritten(server: SrvT):
+    """SDK-defined: a handler that stamps its own serverInfo `_meta` value owns
+    it; the runner fills the key only when it is absent (spec 2026-07-28, #3002)."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"ok": True, "_meta": {SERVER_INFO_META_KEY: {"name": "authored", "version": "9"}}}
+
+    server.add_request_handler("myorg/authored", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/authored", None)
+    assert result["_meta"][SERVER_INFO_META_KEY] == {"name": "authored", "version": "9"}
+
+
+@pytest.mark.anyio
+async def test_a_non_mapping_custom_result_meta_is_left_alone(server: SrvT):
+    """SDK-defined: a custom-method handler that returns a non-mapping `_meta`
+    owns that shape; the stamp neither clobbers it nor fails the request."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"_meta": "not-a-mapping"}
+
+    server.add_request_handler("myorg/odd-meta", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/odd-meta", None)
+    assert result == {"_meta": "not-a-mapping"}
+
+
+@pytest.mark.anyio
+async def test_stamping_never_mutates_a_handler_retained_result_dict(server: SrvT):
+    """SDK-defined: the stamp lands on a shallow copy at the runner's exit, so
+    a dict the handler retains (module-level, cached, shared) is never mutated
+    underneath it."""
+
+    retained: dict[str, Any] = {"ok": True}
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return retained
+
+    server.add_request_handler("myorg/cached", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/cached", None)
+    assert result["_meta"][SERVER_INFO_META_KEY] == {"name": "test-server", "version": "0.0.1"}
+    assert retained == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_an_empty_result_on_the_modern_path_carries_only_the_stamp(server: SrvT):
+    """Spec-mandated (2026-07-28, #3002): serverInfo is stamped into every
+    result, including empty ones — a result that dumps as `{}` goes on the
+    modern wire as just the identity `_meta`."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> EmptyResult:
+        return EmptyResult()
+
+    server.add_request_handler("myorg/empty", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/empty", None)
+    assert result == {"_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}}}
 
 
 @pytest.mark.anyio
@@ -1720,7 +1811,7 @@ async def test_dual_era_loop_custom_method_with_mis_shaped_envelope_values_still
         seen.append(ctx.session.client_params)
         return {"ok": True}
 
-    greeter = Server(name="greeter-server", version="0.0.1")
+    greeter = Server(name="greeter-server", version="0.0.1", include_server_info=False)
     greeter.add_request_handler("custom/greet", RequestParams, greet)
     params = _modern_params()
     params["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"

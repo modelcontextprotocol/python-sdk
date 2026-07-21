@@ -162,7 +162,7 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
     if cfg["era"] == "dual-in-body":
         # The story pins its connection modes inside ``main`` itself, so hand it "auto"
         # (the ``Client`` default) and let those in-body pins decide. A hard version pin
-        # here would skip the discover probe and leave ``server_info`` blank.
+        # here would skip the discover probe and leave `server_info` None.
         era = "in-body"
     mode = {"modern": LATEST_MODERN_VERSION, "legacy": "legacy", "in-body": "auto"}[era]
 

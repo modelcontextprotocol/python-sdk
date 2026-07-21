@@ -13,7 +13,11 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
     # The version/info/capabilities accessors are era-neutral.
     async with Client(targets(), mode=mode) as modern:
         assert modern.protocol_version == LATEST_MODERN_VERSION
-        assert modern.server_info.name == "dual-era-example"
+        # On the 2026 era, server identity is an optional serverInfo stamp in the
+        # result _meta (None for an anonymous server); this server stamps it.
+        info = modern.server_info
+        assert info is not None, "the server stamps serverInfo into its results"
+        assert info.name == "dual-era-example"
         assert modern.server_capabilities.tools is not None
 
         listed = await modern.list_tools()
@@ -28,7 +32,9 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
     # The same accessors are populated identically — here by ``initialize``.
     async with Client(targets(), mode="legacy") as legacy:
         assert legacy.protocol_version == LATEST_HANDSHAKE_VERSION
-        assert legacy.server_info.name == "dual-era-example"
+        info = legacy.server_info
+        assert info is not None, "initialize always carries serverInfo"
+        assert info.name == "dual-era-example"
         assert legacy.server_capabilities.tools is not None
 
         result = await legacy.call_tool("greet", {"name": "2025 client"})

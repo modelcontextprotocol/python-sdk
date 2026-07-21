@@ -979,7 +979,7 @@ class TestServerResourceTemplates:
 
     async def test_resource_template_includes_mime_type(self):
         """Test that list resource templates includes the correct mimeType."""
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.resource("resource://{user}/csv", mime_type="text/csv")
         def get_csv(user: str) -> str:
@@ -1055,7 +1055,7 @@ class TestServerResourceMetadata:
     async def test_read_resource_returns_meta(self):
         """Test that read_resource includes meta in response."""
         # Tests end-to-end: Resource.meta -> ReadResourceContents.meta -> protocol _meta (lowlevel/server.py:341,371)
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.resource("resource://data", meta={"version": "1.0", "category": "config"})
         def get_data() -> str:
@@ -1217,7 +1217,7 @@ class TestContextInjection:
 
     async def test_resource_without_context(self):
         """Test that resources without context work normally."""
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.resource("resource://nocontext/{name}")
         def resource_no_context(name: str) -> str:
@@ -1244,7 +1244,7 @@ class TestContextInjection:
 
     async def test_resource_context_custom_name(self):
         """Test resource context with custom parameter name."""
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.resource("resource://custom/{id}")
         def resource_custom_ctx(id: str, my_ctx: Context) -> str:
@@ -1385,7 +1385,7 @@ class TestServerPrompts:
 
     async def test_list_prompts(self):
         """Test listing prompts through MCP protocol."""
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.prompt()
         def fn(name: str, optional: str = "default") -> str: ...  # pragma: no branch
@@ -1409,7 +1409,7 @@ class TestServerPrompts:
 
     async def test_get_prompt(self):
         """Test getting a prompt through MCP protocol."""
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.prompt()
         def fn(name: str) -> str:
@@ -1438,7 +1438,7 @@ class TestServerPrompts:
 
     async def test_get_prompt_with_docstring_description(self):
         """Test prompt uses docstring as description when not explicitly provided."""
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.prompt()
         def fn(name: str) -> str:
@@ -1456,7 +1456,7 @@ class TestServerPrompts:
 
     async def test_get_prompt_with_resource(self):
         """Test getting a prompt that returns resource content."""
-        mcp = MCPServer()
+        mcp = MCPServer(include_server_info=False)
 
         @mcp.prompt()
         def fn() -> Message:

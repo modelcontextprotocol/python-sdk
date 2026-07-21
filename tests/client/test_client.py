@@ -82,13 +82,14 @@ def simple_server() -> Server:
         on_unsubscribe_resource=handle_unsubscribe_resource,
         on_set_logging_level=handle_set_logging_level,
         on_completion=handle_completion,
+        include_server_info=False,
     )
 
 
 @pytest.fixture
 def app() -> MCPServer:
     """Create an MCPServer server for testing."""
-    server = MCPServer("test")
+    server = MCPServer("test", include_server_info=False)
 
     @server.tool()
     def greet(name: str) -> str:
@@ -119,6 +120,7 @@ async def test_client_is_initialized(app: MCPServer):
                 tools=ToolsCapability(list_changed=False),
             )
         )
+        assert client.server_info is not None
         assert client.server_info.name == "test"
 
 
@@ -573,6 +575,7 @@ async def test_client_auto_mode_falls_back_to_initialize_on_legacy_signal(code: 
     with anyio.fail_after(5):
         async with Client(scripted_transport(), mode="auto") as client:
             assert client.protocol_version == LATEST_HANDSHAKE_VERSION
+            assert client.server_info is not None
             assert client.server_info.name == "legacy-only"
     assert methods_seen == ["server/discover", "initialize", "notifications/initialized"]
 
@@ -728,7 +731,7 @@ async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_res
     """When the server returns `InputRequiredResult` carrying an elicitation,
     `Client.call_tool` routes it to `elicitation_callback` and retries
     automatically — the caller sees only the terminal `CallToolResult`."""
-    server = MCPServer("test")
+    server = MCPServer("test", include_server_info=False)
 
     @server.tool()
     async def greet(ctx: Context) -> str | types.InputRequiredResult:
@@ -765,7 +768,7 @@ async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_res
 async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result() -> None:
     """`InputRequiredResult` with an embedded `CreateMessageRequest` is routed
     to `sampling_callback` and the call retried with the model's reply."""
-    server = MCPServer("test")
+    server = MCPServer("test", include_server_info=False)
 
     @server.tool()
     async def ask(ctx: Context) -> str | types.InputRequiredResult:
@@ -810,7 +813,7 @@ async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result
 async def test_call_tool_auto_loop_dispatches_list_roots_then_returns_final_result() -> None:
     """`InputRequiredResult` with an embedded `ListRootsRequest` is routed to
     `list_roots_callback` and the call retried with the returned roots."""
-    server = MCPServer("test")
+    server = MCPServer("test", include_server_info=False)
 
     @server.tool()
     async def count_roots(ctx: Context) -> str | types.InputRequiredResult:
@@ -906,7 +909,7 @@ async def test_get_prompt_auto_loop_resolves_input_required_via_callbacks() -> N
             return GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="ok"))])
         return types.InputRequiredResult(input_requests={"ask": _name_elicitation()})
 
-    server = Server("test")
+    server = Server("test", include_server_info=False)
     server.add_request_handler("prompts/get", types.GetPromptRequestParams, handler)
 
     async def elicitation_callback(
@@ -932,7 +935,7 @@ async def test_read_resource_auto_loop_resolves_input_required_via_callbacks() -
             return ReadResourceResult(contents=[TextResourceContents(uri="memory://gated", text="unlocked")])
         return types.InputRequiredResult(input_requests={"ask": _name_elicitation()})
 
-    server = Server("test")
+    server = Server("test", include_server_info=False)
     server.add_request_handler("resources/read", types.ReadResourceRequestParams, handler)
 
     async def elicitation_callback(

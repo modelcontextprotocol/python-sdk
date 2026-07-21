@@ -25,10 +25,12 @@ async def test_server_name_title_description_version():
 
     # Start server and connect client
     async with Client(mcp) as client:
-        assert client.server_info.name == "TestServer"
-        assert client.server_info.title == "Test Server Title"
-        assert client.server_info.description == "This is a test server description."
-        assert client.server_info.version == "1.0"
+        server_info = client.server_info
+        assert server_info is not None
+        assert server_info.name == "TestServer"
+        assert server_info.title == "Test Server Title"
+        assert server_info.description == "This is a test server description."
+        assert server_info.version == "1.0"
 
 
 @pytest.mark.anyio

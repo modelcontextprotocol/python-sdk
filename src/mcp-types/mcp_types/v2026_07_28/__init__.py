@@ -743,9 +743,7 @@ class ResultMetaObject(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    io_modelcontextprotocol_server_info: Annotated[
-        Implementation | None, Field(alias="io.modelcontextprotocol/serverInfo")
-    ] = None
+    io_modelcontextprotocol_server_info: Annotated[Any | None, Field(alias="io.modelcontextprotocol/serverInfo")] = None
     """
     Identifies the server software producing the response. Servers SHOULD
     include this field on every response unless specifically configured not
@@ -901,9 +899,7 @@ class SubscriptionsListenResultMeta(WireModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    io_modelcontextprotocol_server_info: Annotated[
-        Implementation | None, Field(alias="io.modelcontextprotocol/serverInfo")
-    ] = None
+    io_modelcontextprotocol_server_info: Annotated[Any | None, Field(alias="io.modelcontextprotocol/serverInfo")] = None
     """
     Identifies the server software producing the response. Servers SHOULD
     include this field on every response unless specifically configured not

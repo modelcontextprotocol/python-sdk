@@ -139,7 +139,11 @@ async def test_an_input_required_shaped_dict_is_never_stamped() -> None:
     async def read_resource(ctx: ServerRequestContext[Any], params: ReadResourceRequestParams) -> dict[str, Any]:
         return {"resultType": "input_required", "requestState": "s1"}
 
-    server = Server("srv", cache_hints={"resources/read": CacheHint(ttl_ms=60_000, scope="public")})
+    server = Server(
+        "srv",
+        cache_hints={"resources/read": CacheHint(ttl_ms=60_000, scope="public")},
+        include_server_info=False,
+    )
     server.add_request_handler("resources/read", ReadResourceRequestParams, read_resource)
     async with Client(server) as client:
         result = await client.session.read_resource("res://x", allow_input_required=True)

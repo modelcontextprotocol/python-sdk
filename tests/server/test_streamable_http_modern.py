@@ -24,6 +24,7 @@ from mcp_types import (
     METHOD_NOT_FOUND,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     CallToolRequestParams,
     CallToolResult,
     ClientCapabilities,
@@ -204,7 +205,7 @@ async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info
         seen.append(ctx.session.client_params)
         return {"ok": True}
 
-    server: Server[Any] = Server("test")
+    server: Server[Any] = Server("test", include_server_info=False)
     server.add_request_handler("custom/greet", PaginatedRequestParams, greet)
 
     body = _list_tools_body()
@@ -1112,7 +1113,7 @@ async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
     the SSE path, acks first, and ends with the stamped result on close()."""
     bus = _OpenSignalBus()
     handler = ListenHandler(bus)
-    server = Server("test", on_subscriptions_listen=handler)
+    server = Server("test", version="1.2.3", on_subscriptions_listen=handler)
     body = _listen_body()
 
     responses: list[httpx2.Response] = []
@@ -1135,4 +1136,9 @@ async def test_json_response_mode_still_streams_subscriptions_listen() -> None:
     events = _sse_payloads(response.text)
     assert events[0]["method"] == "notifications/subscriptions/acknowledged"
     assert events[1]["id"] == 9
-    assert events[1]["result"]["_meta"] == {"io.modelcontextprotocol/subscriptionId": 9}
+    # The terminal listen result is a modern-era result like any other, so it
+    # carries the serverInfo stamp alongside the subscription id.
+    assert events[1]["result"]["_meta"] == {
+        "io.modelcontextprotocol/subscriptionId": 9,
+        SERVER_INFO_META_KEY: {"name": "test", "version": "1.2.3"},
+    }

@@ -42,7 +42,7 @@ def _clock_server() -> MCPServer:
         return "2026-06-26T00:00:00Z"
 
     apps.add_html_resource("ui://clock/app.html", "<title>Clock</title>", title="Clock")
-    return MCPServer("clock", extensions=[apps])
+    return MCPServer("clock", extensions=[apps], include_server_info=False)
 
 
 async def test_apps_tool_stamps_ui_resource_uri_on_tool_meta() -> None:

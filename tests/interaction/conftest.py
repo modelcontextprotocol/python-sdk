@@ -6,10 +6,14 @@ the (transport, spec_version) cells via :func:`compute_cells`, applying arm excl
 bounds, and known-failure xfails declaratively.
 """
 
-from functools import partial
+from contextlib import AbstractAsyncContextManager
+from typing import Any
 
 import pytest
 
+from mcp.client.client import Client
+from mcp.server import Server
+from mcp.server.mcpserver import MCPServer
 from tests.interaction._connect import (
     Connect,
     connect_in_memory,
@@ -45,4 +49,15 @@ def connect(request: pytest.FixtureRequest) -> Connect:
     transport, spec_version = request.param
     assert isinstance(transport, str)
     assert isinstance(spec_version, str)
-    return partial(_FACTORIES[transport], spec_version=spec_version)
+    factory = _FACTORIES[transport]
+
+    def _connect(server: Server | MCPServer, **kwargs: Any) -> AbstractAsyncContextManager[Client]:
+        # The matrix compares exact result payloads, and the (default-on) 2026-era
+        # serverInfo `_meta` stamp would bake the commit-dependent package version
+        # into every snapshot. The matrix therefore runs with stamping off;
+        # stamping itself has dedicated coverage in tests/server/.
+        lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
+        lowlevel.include_server_info = False
+        return factory(server, spec_version=spec_version, **kwargs)
+
+    return _connect
