@@ -10,7 +10,24 @@
 # scenarios start passing and MUST be removed from this list (the runner fails
 # on stale entries), so the baseline burns down per milestone.
 
-client: []
+client:
+  # SEP-1932 (DPoP): the SDK's OAuth client does not implement DPoP proofs.
+  # These scenarios are new in the da56f663 referee pin. The entries are
+  # per-check (conformance #406) because both scenarios pass their
+  # non-DPoP checks (discovery, token acquisition, request flow) live.
+  - auth/dpop:sep-1932-client-token-request-proof
+  - auth/dpop:sep-1932-client-dpop-auth-scheme
+  - auth/dpop:sep-1932-client-fresh-proof
+  - auth/dpop-nonce:sep-1932-client-token-request-proof
+  - auth/dpop-nonce:sep-1932-client-dpop-auth-scheme
+  - auth/dpop-nonce:sep-1932-client-fresh-proof
+  - auth/dpop-nonce:sep-1932-client-as-nonce
+  - auth/dpop-nonce:sep-1932-client-rs-nonce
+  # Workload identity federation: the OAuth client does not implement the
+  # urn:ietf:params:oauth:grant-type:jwt-bearer grant (it answers with
+  # authorization_code). Also new in the da56f663 referee pin; per-check for
+  # the same reason.
+  - auth/wif-jwt-bearer:wif-grant-type
 
 server:
   # SEP-2663 (io.modelcontextprotocol/tasks): the SDK does not implement the

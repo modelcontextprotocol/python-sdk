@@ -19,17 +19,19 @@ env:
   # Bump deliberately and reconcile both
   # .github/actions/conformance/expected-failures*.yml files in the same change.
   #
-  # Temporarily pinned to the pkg.pr.new build of conformance main@4944b268
-  # (0.2.0-alpha.8, which includes #372: fail checks whose prerequisite is
-  # missing instead of skipping them) — alpha.8 is not published to npm yet.
-  # Pinned by commit SHA so the tarball cannot move under us;
+  # Temporarily pinned to the pkg.pr.new build of conformance main@da56f663,
+  # which includes #403 (sep-2575 checks flipped to the post-spec-#3002 shape:
+  # clientInfo optional on requests, serverInfo in result _meta instead of the
+  # discover body) and #406 (per-check expected-failures granularity) — the
+  # last published npm release (0.2.0-alpha.9) still enforces the pre-#3002
+  # shape. Pinned by commit SHA so the tarball cannot move under us;
   # CONFORMANCE_PKG_SHA256 pins the bytes and the fetch-and-verify step below
   # downloads, checks the digest, and repoints CONFORMANCE_PKG at the
   # verified local copy. Repin to the next published @modelcontextprotocol/
-  # conformance release (>=0.2.0-alpha.8) once it ships, then drop
+  # conformance release (>=0.2.0-alpha.10) once it ships, then drop
   # CONFORMANCE_PKG_SHA256 and the fetch-and-verify steps.
-  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@4944b268"
-  CONFORMANCE_PKG_SHA256: "0f70c035782d319d72ab427653c5275db5c50429d59fae0241a645b33aeda1a7"
+  CONFORMANCE_PKG: "https://pkg.pr.new/@modelcontextprotocol/conformance@da56f663"
+  CONFORMANCE_PKG_SHA256: "bbc94678033071df4bc9851ce2054f9dff918f4501661d1d60e2d09d8c515e6d"
 
 jobs:
   server-conformance:

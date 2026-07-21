@@ -357,13 +357,13 @@ async def test_missing_capability(ctx: Context) -> str:
     ``CallToolResult.isError``) so the conformance harness observes a protocol-level
     error response with ``data.requiredCapabilities``.
     """
-    client_params = ctx.session.client_params
-    sampling_declared = client_params is not None and client_params.capabilities.sampling is not None
+    capabilities = ctx.session.client_capabilities
+    sampling_declared = capabilities is not None and capabilities.sampling is not None
     if not sampling_declared:
         raise MCPError(
             code=MISSING_REQUIRED_CLIENT_CAPABILITY,
             message="This tool requires the client 'sampling' capability",
-            data={"requiredCapabilities": ["sampling"]},
+            data={"requiredCapabilities": {"sampling": {}}},
         )
     return "Client declared sampling capability; proceeding."
 
