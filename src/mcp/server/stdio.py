@@ -29,7 +29,7 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 if sys.platform != "win32":  # pragma: no branch
-    import fcntl
+    import fcntl  # pragma: lax no cover - POSIX-only line, uncovered on Windows runners
 
 # Stream-claim contract (design and attack log in PR #3117):
 # - _claims is the single authority for who owns fd 0/1; mutated only under the
@@ -64,7 +64,7 @@ def _dup_above_std(fd: int) -> int:
             os.close(duplicate)
             raise OSError(f"duplicate of fd {fd} landed in the standard range")
         return duplicate
-    return fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)
+    return fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)  # pragma: lax no cover - POSIX-only
 
 
 def _open_stdin_diversion() -> int:
