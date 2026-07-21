@@ -955,8 +955,10 @@ class Client:
         materializing the full list in memory.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
+        seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
             result = await self.list_tools(cursor=cursor, meta=meta)
@@ -964,10 +966,9 @@ class Client:
                 yield tool
             if result.next_cursor is None:
                 return
-            if result.next_cursor == cursor:
-                raise RuntimeError(
-                    "Server returned a pagination cursor that did not advance; refusing to page forever."
-                )
+            if result.next_cursor in seen_cursors:
+                raise RuntimeError("Server returned a pagination cursor it already returned; refusing to page forever.")
+            seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
     async def list_all_tools(self, *, meta: RequestParamsMeta | None = None) -> list[Tool]:
@@ -978,7 +979,8 @@ class Client:
         list.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
         return [tool async for tool in self.iter_all_tools(meta=meta)]
 
@@ -986,8 +988,10 @@ class Client:
         """Yield every prompt from the server, paging through `next_cursor`.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
+        seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
             result = await self.list_prompts(cursor=cursor, meta=meta)
@@ -995,17 +999,17 @@ class Client:
                 yield prompt
             if result.next_cursor is None:
                 return
-            if result.next_cursor == cursor:
-                raise RuntimeError(
-                    "Server returned a pagination cursor that did not advance; refusing to page forever."
-                )
+            if result.next_cursor in seen_cursors:
+                raise RuntimeError("Server returned a pagination cursor it already returned; refusing to page forever.")
+            seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
     async def list_all_prompts(self, *, meta: RequestParamsMeta | None = None) -> list[Prompt]:
         """List every prompt from the server, draining `next_cursor` across pages.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
         return [prompt async for prompt in self.iter_all_prompts(meta=meta)]
 
@@ -1013,8 +1017,10 @@ class Client:
         """Yield every resource from the server, paging through `next_cursor`.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
+        seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
             result = await self.list_resources(cursor=cursor, meta=meta)
@@ -1022,17 +1028,17 @@ class Client:
                 yield resource
             if result.next_cursor is None:
                 return
-            if result.next_cursor == cursor:
-                raise RuntimeError(
-                    "Server returned a pagination cursor that did not advance; refusing to page forever."
-                )
+            if result.next_cursor in seen_cursors:
+                raise RuntimeError("Server returned a pagination cursor it already returned; refusing to page forever.")
+            seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
     async def list_all_resources(self, *, meta: RequestParamsMeta | None = None) -> list[Resource]:
         """List every resource from the server, draining `next_cursor` across pages.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
         return [resource async for resource in self.iter_all_resources(meta=meta)]
 
@@ -1042,8 +1048,10 @@ class Client:
         """Yield every resource template from the server, paging through `next_cursor`.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
+        seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
             result = await self.list_resource_templates(cursor=cursor, meta=meta)
@@ -1051,17 +1059,17 @@ class Client:
                 yield template
             if result.next_cursor is None:
                 return
-            if result.next_cursor == cursor:
-                raise RuntimeError(
-                    "Server returned a pagination cursor that did not advance; refusing to page forever."
-                )
+            if result.next_cursor in seen_cursors:
+                raise RuntimeError("Server returned a pagination cursor it already returned; refusing to page forever.")
+            seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
     async def list_all_resource_templates(self, *, meta: RequestParamsMeta | None = None) -> list[ResourceTemplate]:
         """List every resource template from the server, draining `next_cursor` across pages.
 
         Raises:
-            RuntimeError: The server returned a pagination cursor that did not advance.
+            RuntimeError: The server returned a pagination cursor it already
+                returned, which would page forever.
         """
         return [template async for template in self.iter_all_resource_templates(meta=meta)]
 

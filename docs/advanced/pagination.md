@@ -65,10 +65,11 @@ That loop is the same one in every client that pages, so `Client` ships it. The 
 `ClientSessionGroup` aggregation drains the same way, so a group fronting several servers reports the full collection instead of each server's first page. That aggregator is **[Session groups](../client/session-groups.md)**.
 
 !!! warning
-    A drain trusts the server to advance the cursor. A server that keeps returning the same
-    `next_cursor` it was handed would page forever, so the drains stop and raise `RuntimeError`
-    the moment a cursor fails to move. A page that does not advance is a broken server, and a
-    loud failure beats a silent hang or a half-read list.
+    A drain trusts the server to advance the cursor. A server that echoes back the
+    `next_cursor` it was handed, or cycles through a longer loop of them, would page forever,
+    so the drains remember every cursor they have seen and raise `RuntimeError` the moment one
+    repeats. A repeated cursor is a broken server, and a loud failure beats a silent hang or a
+    half-read list.
 
 ## The three rules
 

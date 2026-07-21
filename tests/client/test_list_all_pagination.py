@@ -70,6 +70,25 @@ def _stuck_cursor_handler(
     return handler
 
 
+def _cycling_cursor_handler(
+    make_item: Callable[[str], ItemT],
+    result_cls: Callable[..., ResultT],
+    items_field: str,
+) -> Callable[[ServerRequestContext, types.PaginatedRequestParams | None], Awaitable[ResultT]]:
+    """Build a malformed handler that alternates between two cursors forever.
+
+    The cursor always advances relative to the previous page, so a guard that
+    only compares against the immediately preceding cursor would page forever.
+    """
+
+    async def handler(_ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ResultT:
+        cursor = params.cursor if params else None
+        next_cursor = "b" if cursor == "a" else "a"
+        return result_cls(**{items_field: [make_item("x")]}, next_cursor=next_cursor)
+
+    return handler
+
+
 def _make_tool(name: str) -> types.Tool:
     return types.Tool(name=name, input_schema={"type": "object"})
 
@@ -269,5 +288,21 @@ async def test_drain_raises_when_cursor_does_not_advance(
     server = build_server()
 
     async with Client(server) as client:
-        with pytest.raises(RuntimeError, match="did not advance"):
+        with pytest.raises(RuntimeError, match="already returned"):
             await getattr(client, client_method)()
+
+
+async def test_drain_raises_when_cursors_cycle():
+    """A server whose cursors cycle (a, b, a, ...) must fail loudly, not loop forever.
+
+    Each cursor differs from the one before it, so this specifically exercises
+    the seen-set guard rather than the simpler stuck-cursor case above.
+    """
+    server = Server(
+        "cycling-tools",
+        on_list_tools=_cycling_cursor_handler(_make_tool, types.ListToolsResult, "tools"),
+    )
+
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError, match="already returned"):
+            await client.list_all_tools()
