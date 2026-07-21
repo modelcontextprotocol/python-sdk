@@ -303,7 +303,7 @@ async def test_a_tool_spawned_childs_stdout_writes_never_reach_the_wire(tmp_path
         """
     )
 
-    with (tmp_path / "server-stderr.txt").open("w+") as errlog:
+    with (tmp_path / "server-stderr.txt").open("w+", encoding="utf-8") as errlog:
         transport = stdio_client(StdioServerParameters(command=sys.executable, args=["-c", server]), errlog=errlog)
         # Bound covers three interpreter cold starts; a regressed Windows leg hangs rather than corrupts.
         with anyio.fail_after(40):
