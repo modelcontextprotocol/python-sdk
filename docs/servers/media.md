@@ -97,9 +97,10 @@ The same `icons=[...]` keyword is accepted by `MCPServer(...)`, `@mcp.tool()`, `
 
 ### Where a client sees them
 
-Icons travel with whatever they decorate. The server's arrive when the client connects, on `client.server_info`:
+Icons travel with whatever they decorate. The server's arrive when the client connects, on `client.server_info` (optional on 2026-era connections, so narrow it first):
 
 ```python
+assert client.server_info is not None  # python-sdk servers identify themselves by default
 client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_type="image/png", sizes=["48x48"])]
 ```
 

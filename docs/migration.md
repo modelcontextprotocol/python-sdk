@@ -468,6 +468,38 @@ now a plain `dict[str, Any]`: pass a dict when constructing params
 and read extras with dictionary access (`params.meta["traceparent"]`) instead of
 attribute access. The JSON wire format is unchanged.
 
+### Server identity moved from the `server/discover` result body to result `_meta`
+
+The 2026-07-28 draft changed how identity travels
+([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)):
+`serverInfo` is no longer a field of the `server/discover` result. Servers now
+report who they are by stamping `io.modelcontextprotocol/serverInfo` into the
+`_meta` of every 2026-era result, and the request-side `clientInfo` `_meta` key
+became optional (`protocolVersion` and `clientCapabilities` remain required).
+
+What changed in the SDK:
+
+- `DiscoverResult` no longer has a `server_info` field. Read or write identity
+  through result `_meta`; the key is exported as `mcp_types.SERVER_INFO_META_KEY`.
+- Servers stamp `serverInfo` into every 2026-era result's `_meta` by default,
+  built from the constructor identity fields (`name`, `version`, `title`, and
+  so on). Pass `include_server_info=False` to `Server(...)` or `MCPServer(...)`
+  to turn it off. A `serverInfo` value your handler already set in `_meta` is
+  never overwritten. Handshake-era responses are unchanged, and notifications
+  and error responses are never stamped.
+- `client.server_info` and `session.server_info` are `Implementation | None`
+  on 2026-era connections: identity is optional on the wire, so a server that
+  does not stamp it reads as `None`. Handshake-era connections still always
+  have it. A pinned `Client(target, mode="2026-07-28")` without
+  `prior_discover=` now reports `None` instead of an `Implementation` with
+  empty strings. The stamp is display-only in the spec, so a malformed value
+  from a misbehaving server also reads as `None` rather than failing the call.
+- Requests that omit `clientInfo` are now accepted. On the server,
+  `ctx.session.client_params` is `None` for such requests; capability checks
+  should use `ctx.session.client_capabilities` (or `ctx.client_capabilities`
+  in `MCPServer` handlers), which is recorded whether or not the client
+  identified itself.
+
 ### `SUPPORTED_PROTOCOL_VERSIONS` deprecated; `LATEST_PROTOCOL_VERSION` changed meaning
 
 `SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`. Named scalars derived from these tuples are now exported alongside them — `LATEST_HANDSHAKE_VERSION`, `LATEST_MODERN_VERSION`, `OLDEST_SUPPORTED_VERSION` — so prefer those over indexing the tuples directly. All of these live in `mcp_types.version` (previously `mcp.shared.version`): `from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS`.
@@ -1498,7 +1530,7 @@ version = session.protocol_version
 
 The raw handshake result is also retained: `session.initialize_result` is set after `initialize()` (≤2025-11-25 servers — including `stateless_http=True` servers, which still answer `initialize`); `session.discover_result` is set after `discover()` (2026-07-28+ servers). At most one is non-`None`.
 
-On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
+On the high-level `Client`, `client.server_capabilities` and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it, and `client.server_info` is `Implementation | None`: on 2026-era connections identity is optional wire metadata, so a server that does not report it reads as `None` (see [Server identity moved to result `_meta`](#server-identity-moved-from-the-serverdiscover-result-body-to-result-_meta)). (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
 
 ### `cursor` parameter removed from `ClientSession` list methods
 
