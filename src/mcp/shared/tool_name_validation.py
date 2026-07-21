@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,22 @@ TOOL_NAME_REGEX = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 # SEP reference URL for warning messages
 SEP_986_URL = "https://modelcontextprotocol.io/specification/2025-11-25/server/tools#tool-names"
+
+# Bidirectional formatting characters that can be used to obfuscate tool names
+BIDIRECTIONAL_FORMATTING_CHARS = {
+    "‎",  # LEFT-TO-RIGHT MARK
+    "‏",  # RIGHT-TO-LEFT MARK
+    "‪",  # LEFT-TO-RIGHT EMBEDDING
+    "‫",  # RIGHT-TO-LEFT EMBEDDING
+    "‬",  # POP DIRECTIONAL FORMATTING
+    "‭",  # LEFT-TO-RIGHT OVERRIDE
+    "‮",  # RIGHT-TO-LEFT OVERRIDE
+    "⁦",  # LEFT-TO-RIGHT ISOLATE
+    "⁧",  # RIGHT-TO-LEFT ISOLATE
+    "⁨",  # FIRST STRONG ISOLATE
+    "⁩",  # POP DIRECTIONAL ISOLATE
+    "؜",  # ARABIC LETTER MARK
+}
 
 
 @dataclass
@@ -61,6 +78,28 @@ def validate_tool_name(name: str) -> ToolNameValidationResult:
             is_valid=False,
             warnings=[f"Tool name exceeds maximum length of 128 characters (current: {len(name)})"],
         )
+
+    # Check for bidirectional formatting characters (invisible obfuscation)
+    for char in name:
+        if char in BIDIRECTIONAL_FORMATTING_CHARS:
+            warnings.append(
+                f"Tool name contains bidirectional formatting character ({repr(char)}). "
+                "This could be used to obfuscate the tool name's visual representation."
+            )
+            return ToolNameValidationResult(is_valid=False, warnings=warnings)
+
+    # Check for Unicode normalization issues (homoglyphs and confusable characters)
+    # NFKC is the compatibility normalization form that converts:
+    # - Fullwidth characters to ASCII (ａ → a)
+    # - Composed characters to canonical form
+    normalized = unicodedata.normalize("NFKC", name)
+    if normalized != name:
+        warnings.append(
+            f"Tool name contains Unicode characters that normalize to a different form. "
+            f"This may indicate use of homoglyphs or confusable characters. "
+            f"Original: {repr(name)}, Normalized: {repr(normalized)}"
+        )
+        return ToolNameValidationResult(is_valid=False, warnings=warnings)
 
     # Check for problematic patterns (warnings, not validation failures)
     if " " in name:
