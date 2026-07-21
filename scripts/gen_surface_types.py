@@ -89,6 +89,7 @@ OPEN_CLASSES: dict[str, frozenset[str]] = {
             "MetaObject",
             "NotificationMetaObject",
             "RequestMetaObject",
+            "ResultMetaObject",
             "SubscriptionsListenResultMeta",
             "InputSchema",
             "OutputSchema",
