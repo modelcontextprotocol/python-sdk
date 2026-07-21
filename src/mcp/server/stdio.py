@@ -27,6 +27,7 @@ from mcp.os.win32.utilities import rebind_std_handle_to_fd
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
+# fds whose real stream a serving transport owns, whether diverted or served in place.
 _claimed: set[int] = set()
 _claimed_lock = threading.Lock()
 
@@ -67,12 +68,19 @@ def _claim_fd(
     Raises:
         RuntimeError: fd is already claimed by another transport in this process.
     """
-    if not _is_backed_by_fd(stream, fd) or not _std_descriptors_open():
+    if not _is_backed_by_fd(stream, fd):
         return stream.buffer, None
     with _claimed_lock:
         if fd in _claimed:
             raise RuntimeError(f"another stdio_server() in this process has already claimed fd {fd}")
         _claimed.add(fd)
+
+    def unclaim() -> None:
+        with _claimed_lock:
+            _claimed.discard(fd)
+
+    if not _std_descriptors_open():
+        return stream.buffer, unclaim
     private_fd = None
     try:
         private_fd = os.dup(fd)
@@ -84,21 +92,17 @@ def _claim_fd(
         if sys.platform == "win32":  # pragma: no cover
             rebind_std_handle_to_fd(fd)
     except OSError:
-        # Undo before unclaiming: fd stays claimed for as long as it is diverted.
         if private_fd is not None:
             _restore_fd(fd, private_fd)
             os.close(private_fd)
-        with _claimed_lock:
-            _claimed.discard(fd)
-        return stream.buffer, None
+        return stream.buffer, unclaim
 
     def restore() -> None:
         # Drain text buffered during the claim (a stray print) to the diversion.
         with suppress(OSError, ValueError):
             stream.flush()
         _restore_fd(fd, private_fd)
-        with _claimed_lock:
-            _claimed.discard(fd)
+        unclaim()
 
     # closefd=False: a blocked worker thread may still read this descriptor after exit.
     return os.fdopen(private_fd, mode, closefd=False), restore
