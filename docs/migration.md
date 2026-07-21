@@ -1866,8 +1866,10 @@ during a session now sees the diversions, not the wire.
 
 One pattern needs migrating: a watchdog thread that `poll()`s fd 0 for `POLLHUP` to
 detect a vanished client will no longer fire, because the null device never reports
-it. Watch the parent process instead (for example, exit when `os.getppid()`
-changes); that works on both v1 and v2 and does not depend on descriptor layout.
+it (a POSIX-specific pattern; `select.poll` does not exist on Windows). Watch the
+parent process instead: on POSIX, exit when `os.getppid()` changes, which happens
+when the client dies because orphaned processes are reparented. That works on both
+v1 and v2 and does not depend on descriptor layout.
 
 ### WebSocket transport removed
 
