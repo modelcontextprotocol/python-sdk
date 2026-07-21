@@ -76,6 +76,9 @@ async def _drain_paginated(
     `fetch_page` is one of the ClientSession `list_*` methods that takes a
     `params=PaginatedRequestParams(...)` keyword. `attribute` is the name of
     the list attribute on the result (e.g. `"tools"`, `"prompts"`).
+
+    Raises:
+        RuntimeError: The server returned a pagination cursor that did not advance.
     """
     items: list[Any] = []
     cursor: str | None = None
@@ -86,6 +89,8 @@ async def _drain_paginated(
         next_cursor = getattr(result, "next_cursor", None)
         if next_cursor is None:
             return items
+        if next_cursor == cursor:
+            raise RuntimeError("Server returned a pagination cursor that did not advance; refusing to page forever.")
         cursor = next_cursor
 
 
@@ -435,8 +440,8 @@ class ClientSessionGroup:
                 tools_temp[name] = tool
                 tool_to_session_temp[name] = session
                 component_names.tools.add(name)
-        except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch tools: {err}")
+        except MCPError as err:
+            logging.warning(f"Could not fetch tools: {err}")  # pragma: no cover
 
         # Clean up exit stack for session if we couldn't retrieve anything
         # from the server.
