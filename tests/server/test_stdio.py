@@ -476,6 +476,65 @@ async def test_stdio_server_serves_in_place_when_the_standard_descriptors_are_in
             os.close(saved2)
 
 
+@pytest.mark.anyio
+async def test_a_claim_that_cannot_roll_back_serves_the_wire_from_the_private_duplicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mid-claim failure whose rollback also fails rolls forward instead of unclaiming.
+
+    SDK-defined behavior: with fd 0 stuck on the diversion, the transport keeps the
+    claim and serves the protocol from the private duplicate; the restore at exit
+    still runs and puts fd 0 back on the pipe.
+    """
+    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    with _pipe_planted_on_fd0(monkeypatch) as (in_r, in_w):
+        monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+
+        # The first close (the diversion fd) and the second dup2 (the rollback)
+        # fail: the claim can neither complete nor be undone. One-shot and
+        # call-counted injectors, as elsewhere in this file.
+        real_close = os.close
+        close_armed = [True]
+
+        def failing_first_close(fd: int) -> None:
+            if close_armed[0]:
+                close_armed[0] = False
+                raise OSError("injected close failure")
+            real_close(fd)
+
+        real_dup2 = os.dup2
+        dup2_calls: list[int] = []
+
+        def flaky_dup2(fd: int, fd2: int, inheritable: bool = True) -> int:
+            dup2_calls.append(fd)
+            if len(dup2_calls) == 2:
+                raise OSError("injected rollback failure")
+            return real_dup2(fd, fd2, inheritable)
+
+        monkeypatch.setattr(os, "close", failing_first_close)
+        monkeypatch.setattr(os, "dup2", flaky_dup2)
+
+        with anyio.fail_after(5):
+            async with stdio_server() as (read_stream, write_stream):
+                async with read_stream:  # pragma: no branch
+                    # fd 0 is stuck on the null device, yet the wire still flows.
+                    devnull_probe = os.open(os.devnull, os.O_RDONLY)
+                    try:
+                        assert os.path.sameopenfile(0, devnull_probe)
+                    finally:
+                        os.close(devnull_probe)
+
+                    os.write(in_w, _frame(request))
+                    received = await read_stream.receive()
+                    assert isinstance(received, SessionMessage)
+                    assert received.message == request
+                    os.close(in_w)
+                    await write_stream.aclose()
+
+        # The exit restore (third dup2) succeeded: fd 0 is back on the pipe.
+        assert os.path.sameopenfile(0, in_r)
+
+
 class _GatedStdin(io.RawIOBase):
     """Raw stdin double: serves its frames, then blocks until released before EOF.
 
