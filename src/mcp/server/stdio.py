@@ -92,10 +92,14 @@ def _claim_fd(
         if sys.platform == "win32":  # pragma: no cover
             rebind_std_handle_to_fd(fd)
     except OSError:
-        if private_fd is not None:
-            _restore_fd(fd, private_fd)
-            os.close(private_fd)
-        return stream.buffer, unclaim
+        # Roll back and serve in place; if the rollback itself fails, fall
+        # through and roll forward instead: fd is stuck on the diversion, but
+        # the private duplicate still holds the wire, so serve from it with
+        # the claim held (the restore at exit gets another chance).
+        if private_fd is None or _restore_fd(fd, private_fd):
+            if private_fd is not None:
+                os.close(private_fd)
+            return stream.buffer, unclaim
 
     def restore() -> None:
         # Drain text buffered during the claim (a stray print) to the diversion.
