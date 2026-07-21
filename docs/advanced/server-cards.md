@@ -6,7 +6,7 @@ speaks — so a client can learn all of that *before* it connects. An **AI
 Catalog** is the index that lists a host's cards at a well-known URL, so a client
 that knows only a domain can discover the servers behind it.
 
-This is the SDK's implementation of [SEP-2127](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/community/sep-guidelines.md)
+This is the SDK's implementation of [SEP-2127](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2127)
 and the companion AI Catalog discovery extension.
 
 !!! warning "Experimental"
@@ -29,7 +29,7 @@ sequenceDiagram
     participant C as Client
     participant H as Host (example.com)
     C->>H: GET /.well-known/ai-catalog.json
-    H-->>C: AI Catalog { entries: [ { url, media_type } ] }
+    H-->>C: AI Catalog { entries: [ { url, type } ] }
     C->>H: GET the card URL from a catalog entry
     H-->>C: Server Card { name, version, remotes[] }
     C->>H: connect to remotes[].url (streamable-http / sse)
@@ -89,8 +89,8 @@ so you can serialize them and serve the JSON from any web server or CDN:
 --8<-- "docs_src/server_cards/tutorial002.py"
 ```
 
-Serialize with `by_alias=True` so the wire names (`$schema`, `_meta`) are emitted,
-and `exclude_none=True` so unset optional fields are dropped.
+Serialize with `by_alias=True` so the wire names (`$schema`, `_meta`, `type`) are
+emitted, and `exclude_none=True` so unset optional fields are dropped.
 
 ## Discovery HTTP semantics
 
@@ -118,9 +118,8 @@ If-None-Match: "6b86b273ff34fce19d6b804eff5a3f57…"
 304 Not Modified
 ```
 
-The catalog is served from the well-known path `/.well-known/ai-catalog.json`.
-Clients probe there first and fall back to the MCP-scoped
-`/.well-known/mcp/catalog.json` on a 404, so either location is discoverable.
+The catalog is served from the well-known path
+`/.well-known/ai-catalog.json`.
 
 ## Discovering servers from a client
 
@@ -131,10 +130,10 @@ every MCP server the host advertises:
 --8<-- "docs_src/server_cards/tutorial003.py"
 ```
 
-`discover_server_cards` resolves the well-known catalog (with the
-`/.well-known/mcp/catalog.json` fallback), then fetches and validates each
-referenced card. Malformed documents raise `pydantic.ValidationError`; a card
-that omits `$schema` is tolerated and defaulted to the current v1 schema URL.
+`discover_server_cards` resolves the well-known catalog, then fetches and
+validates each referenced card. Malformed documents raise
+`pydantic.ValidationError`; a card that omits `$schema` is tolerated and
+defaulted to the current v1 schema URL.
 
 If you want to inspect the catalog before fetching cards, compose the lower-level
 helpers — `well_known_ai_catalog_url`, `fetch_ai_catalog`, and
@@ -162,9 +161,9 @@ suffix appended:
 
 | Card `name` | Catalog identifier |
 | --- | --- |
-| `com.example/weather` | `urn:air:example.com:weather` |
-| `example/dice` | `urn:air:example:dice` |
+| `com.example/weather` | `urn:air:example.com:mcp:weather` |
+| `example/dice` | `urn:air:example:mcp:dice` |
 
-`server_card_entry` computes this for you, and fills the entry's display name,
-description, and version from the card — so a catalog stays consistent with the
-cards it points at.
+`server_card_entry` computes this for you and emits only the identifier, type,
+and card URL. Human-readable fields remain on the card so the catalog cannot
+drift from it.

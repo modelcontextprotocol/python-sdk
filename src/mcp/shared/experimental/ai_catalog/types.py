@@ -4,16 +4,14 @@ WARNING: These APIs are experimental and may change without notice.
 
 An AI Catalog is a typed, nestable JSON container for discovering
 heterogeneous AI artifacts (MCP servers, A2A agents, skills, nested
-catalogs, ...). Each entry declares its artifact type via a media type and
-either references the artifact by URL or embeds it inline. Hosts advertise a
-catalog at ``/.well-known/ai-catalog.json`` so clients can discover artifacts
-— for MCP, the Server Cards in ``mcp.shared.experimental.server_card`` —
-without prior configuration.
+catalogs, ...). Each entry declares its artifact type via a type identifier
+and either references the artifact by URL or embeds it inline. Hosts advertise
+a catalog at ``/.well-known/ai-catalog.json`` so clients can discover
+artifacts — for MCP, the Server Cards in
+``mcp.shared.experimental.server_card`` — without prior configuration.
 
 The models mirror the normative CDDL schema of the AI Catalog specification,
-including the optional Trust Manifest extension. The MCP Catalog defined by
-the MCP discovery extension is a structural subset of an AI Catalog, so these
-models ingest both document flavours.
+including the optional Trust Manifest extension.
 
 See https://github.com/Agent-Card/ai-catalog and
 https://github.com/modelcontextprotocol/experimental-ext-server-card/blob/main/docs/discovery.md.
@@ -34,12 +32,10 @@ AI_CATALOG_MEDIA_TYPE = "application/ai-catalog+json"
 MCP_SERVER_CARD_MEDIA_TYPE = "application/mcp-server-card+json"
 #: Well-known path an AI Catalog is published at, relative to the host root.
 AI_CATALOG_WELL_KNOWN_PATH = "/.well-known/ai-catalog.json"
-#: Well-known path of the MCP-scoped catalog defined by the MCP discovery
-#: extension. A structural subset of an AI Catalog, so it parses with these models.
-MCP_CATALOG_WELL_KNOWN_PATH = "/.well-known/mcp/catalog.json"
 #: URN prefix for AI Catalog entry identifiers. MCP server entries use
-#: ``urn:air:{publisher}:{name}`` where ``publisher`` is the forward-DNS form of
-#: the card name's namespace (``com.example/weather`` -> ``urn:air:example.com:weather``).
+#: ``urn:air:{publisher}:mcp:{name}`` where ``publisher`` is the forward-DNS
+#: form of the card name's namespace
+#: (``com.example/weather`` -> ``urn:air:example.com:mcp:weather``).
 AI_CATALOG_URN_PREFIX = "urn:air:"
 
 
@@ -135,7 +131,11 @@ class TrustManifest(MCPModel):
     """Detached JWS signature computed over the Trust Manifest content."""
 
     metadata: dict[str, Any] | None = None
-    """Open map for custom or non-standard trust metadata."""
+    """Open map for custom trust data.
+
+    This field is unstable and may be replaced by structured extensions before
+    AI Catalog v1.
+    """
 
 
 class Publisher(MCPModel):
@@ -185,17 +185,17 @@ class CatalogEntry(MCPModel):
     is its name suffix.
     """
 
-    display_name: str
+    display_name: str | None = None
     """Human-readable name for the artifact."""
 
-    media_type: str
-    """Media type identifying the artifact type (e.g. ``"application/mcp-server-card+json"``)."""
+    media_type: str = Field(validation_alias="type", serialization_alias="type")
+    """The serialized ``type`` identifier (e.g. ``"application/mcp-server-card+json"``)."""
 
     url: str | None = None
     """URL where the full artifact document can be retrieved."""
 
     data: Any = None
-    """The complete artifact document inline; its structure is determined by ``media_type``."""
+    """The complete artifact document inline; its structure is determined by ``type``."""
 
     version: str | None = None
     """Version of the artifact. Semantic versioning is recommended."""
@@ -216,7 +216,11 @@ class CatalogEntry(MCPModel):
     """When this entry was last modified."""
 
     metadata: dict[str, Any] | None = None
-    """Open map for custom or non-standard metadata."""
+    """Open map for custom data.
+
+    This field is unstable and may be replaced by structured extensions before
+    AI Catalog v1.
+    """
 
     @model_validator(mode="after")
     def _check_content_and_trust(self) -> CatalogEntry:
@@ -235,16 +239,13 @@ class CatalogEntry(MCPModel):
 class AICatalog(MCPModel):
     """A catalog of AI artifacts, served as ``application/ai-catalog+json``.
 
-    A minimal catalog is just ``entries`` — names, media types and URLs. A
+    A minimal catalog is just ``specVersion`` and ``entries``. A
     catalog may be served from any URL; hosts that want automated discovery
     publish one at ``/.well-known/ai-catalog.json``.
     """
 
-    spec_version: str = "1.0"
-    """The AI Catalog specification version, in ``"Major.Minor"`` format.
-
-    Required by the specification; defaulted here for documents that omit it.
-    """
+    spec_version: str
+    """The AI Catalog specification version, in ``"Major.Minor"`` format."""
 
     entries: list[CatalogEntry]
     """The cataloged artifacts. May be empty."""
@@ -253,4 +254,8 @@ class AICatalog(MCPModel):
     """The operator of this catalog."""
 
     metadata: dict[str, Any] | None = None
-    """Open map for custom or non-standard metadata."""
+    """Open map for custom data.
+
+    This field is unstable and may be replaced by structured extensions before
+    AI Catalog v1.
+    """

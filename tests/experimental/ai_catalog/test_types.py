@@ -1,7 +1,5 @@
 """Tests for AI Catalog models."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import pytest
@@ -13,9 +11,8 @@ from mcp.shared.experimental.ai_catalog import (
 )
 
 MINIMAL_ENTRY = {
-    "identifier": "urn:air:example.com:weather",
-    "displayName": "Weather Service",
-    "mediaType": "application/mcp-server-card+json",
+    "identifier": "urn:air:example.com:mcp:weather",
+    "type": "application/mcp-server-card+json",
     "url": "https://example.com/server-card.json",
 }
 
@@ -32,7 +29,7 @@ FULL_CATALOG = {
             "identifier": "urn:acme:agent:finance",
             "displayName": "Acme Finance Agent",
             "version": "2.1.0",
-            "mediaType": "application/a2a-agent-card+json",
+            "type": "application/a2a-agent-card+json",
             "url": "https://api.acme-corp.com/agents/finance/v2.1.json",
             "updatedAt": "2026-03-15T10:00:00Z",
             "tags": ["finance", "agent"],
@@ -78,41 +75,39 @@ FULL_CATALOG = {
             "metadata": {"com.acme.deploymentRegion": "eu-west-1"},
         },
         {
-            "identifier": "urn:air:acme.com:weather",
-            "displayName": "Weather Service",
-            "mediaType": "application/mcp-server-card+json",
+            "identifier": "urn:air:acme.com:mcp:weather",
+            "type": "application/mcp-server-card+json",
             "data": {"name": "com.acme/weather", "version": "1.0.0", "description": "Weather lookups."},
         },
     ],
     "metadata": {"com.acme.catalogOwner": "platform-team"},
 }
 
-# The MCP Catalog from the MCP discovery extension is a structural subset of
-# an AI Catalog and must parse with the same models.
-MCP_CATALOG = {
-    "specVersion": "draft",
+MCP_SERVER_CATALOG = {
+    "specVersion": "1.0",
     "entries": [
         {
-            "identifier": "urn:air:example.com:weather",
-            "displayName": "Weather Service",
-            "mediaType": "application/mcp-server-card+json",
-            "url": "https://example.com/.well-known/mcp-server-card",
+            "identifier": "urn:air:example.com:mcp:weather",
+            "type": "application/mcp-server-card+json",
+            "url": "https://example.com/mcp/server-card",
         }
     ],
 }
 
 
-@pytest.mark.parametrize("doc", [FULL_CATALOG, MCP_CATALOG])
+@pytest.mark.parametrize("doc", [FULL_CATALOG, MCP_SERVER_CATALOG])
 def test_catalog_round_trips(doc: dict[str, Any]) -> None:
     """A catalog document survives validate -> dump unchanged."""
     catalog = AICatalog.model_validate(doc)
     assert catalog.model_dump(mode="json", by_alias=True, exclude_none=True) == doc
 
 
-def test_spec_version_defaults_when_omitted() -> None:
-    """Ingestion is lenient: a catalog without specVersion gets the current default."""
-    catalog = AICatalog.model_validate({"entries": []})
-    assert catalog.spec_version == "1.0"
+def test_catalog_requires_spec_version() -> None:
+    """The AI Catalog specification requires an explicit `specVersion`."""
+    with pytest.raises(ValidationError) as excinfo:
+        AICatalog.model_validate({"entries": []})
+    assert excinfo.value.errors()[0]["loc"] == ("specVersion",)
+    assert excinfo.value.errors()[0]["type"] == "missing"
 
 
 def test_entry_requires_url_or_data() -> None:

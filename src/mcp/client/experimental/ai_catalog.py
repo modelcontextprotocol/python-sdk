@@ -32,7 +32,7 @@ from mcp.shared.experimental.ai_catalog.types import (
 __all__ = ["well_known_ai_catalog_url", "fetch_ai_catalog"]
 
 
-def well_known_ai_catalog_url(url: str, *, well_known_path: str = AI_CATALOG_WELL_KNOWN_PATH) -> str:
+def well_known_ai_catalog_url(url: str) -> str:
     """Resolve the well-known AI Catalog URL for a server's origin.
 
     Accepts either a bare origin (``https://example.com``) or any URL on the
@@ -44,7 +44,7 @@ def well_known_ai_catalog_url(url: str, *, well_known_path: str = AI_CATALOG_WEL
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.netloc:
         raise ValueError(f"Expected an absolute http(s) URL, got {url!r}")
-    return urljoin(f"{parts.scheme}://{parts.netloc}", well_known_path)
+    return urljoin(f"{parts.scheme}://{parts.netloc}", AI_CATALOG_WELL_KNOWN_PATH)
 
 
 async def fetch_ai_catalog(url: str, *, http_client: httpx2.AsyncClient | None = None) -> AICatalog:

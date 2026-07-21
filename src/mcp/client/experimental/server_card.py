@@ -26,10 +26,7 @@ import httpx2
 
 from mcp.client.experimental.ai_catalog import fetch_ai_catalog, well_known_ai_catalog_url
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.experimental.ai_catalog.types import (
-    MCP_CATALOG_WELL_KNOWN_PATH,
-    MCP_SERVER_CARD_MEDIA_TYPE,
-)
+from mcp.shared.experimental.ai_catalog.types import MCP_SERVER_CARD_MEDIA_TYPE
 from mcp.shared.experimental.server_card.types import ServerCard
 
 __all__ = ["fetch_server_card", "load_server_card", "discover_server_cards"]
@@ -57,11 +54,10 @@ async def fetch_server_card(url: str, *, http_client: httpx2.AsyncClient | None 
 async def discover_server_cards(url: str, *, http_client: httpx2.AsyncClient | None = None) -> list[ServerCard]:
     """Discover the MCP servers advertised by the host of ``url``.
 
-    Fetches the host's AI Catalog from ``/.well-known/ai-catalog.json``
-    (falling back to the MCP-scoped ``/.well-known/mcp/catalog.json`` on a
-    404), then validates the Server Card of every MCP server entry — fetched
-    from the entry's ``url`` or read from its inline ``data``. Entries with
-    other media types are ignored.
+    Fetches the host's AI Catalog from ``/.well-known/ai-catalog.json``, then
+    validates the Server Card of every MCP server entry — fetched from the
+    entry's ``url`` or read from its inline ``data``. Entries with other types
+    are ignored.
 
     Card URLs are taken from the fetched catalog and may point anywhere,
     including other domains. Non-http(s) card URLs are rejected; beyond that,
@@ -81,13 +77,7 @@ async def discover_server_cards(url: str, *, http_client: httpx2.AsyncClient | N
             return await discover_server_cards(url, http_client=client)
 
     catalog_url = well_known_ai_catalog_url(url)
-    try:
-        catalog = await fetch_ai_catalog(catalog_url, http_client=http_client)
-    except httpx2.HTTPStatusError as exc:
-        if exc.response.status_code != 404:
-            raise
-        catalog_url = well_known_ai_catalog_url(url, well_known_path=MCP_CATALOG_WELL_KNOWN_PATH)
-        catalog = await fetch_ai_catalog(catalog_url, http_client=http_client)
+    catalog = await fetch_ai_catalog(catalog_url, http_client=http_client)
 
     cards: list[ServerCard] = []
     for entry in catalog.entries:

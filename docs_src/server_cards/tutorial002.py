@@ -13,10 +13,13 @@ card = ServerCard(
     title="Dice Roller",
     remotes=[Remote(type="streamable-http", url="https://dice.example.com/mcp")],
 )
-catalog = AICatalog(entries=[server_card_entry(card, "https://dice.example.com/server-card.json")])
+catalog = AICatalog(
+    spec_version="1.0",
+    entries=[server_card_entry(card, "https://dice.example.com/server-card.json")],
+)
 
-# `by_alias=True` emits the wire names (`$schema`, `_meta`); `exclude_none=True`
-# drops unset optional fields.
+# `by_alias=True` emits the wire names (`$schema`, `_meta`, `type`);
+# `exclude_none=True` drops unset optional fields.
 card_json = card.model_dump_json(by_alias=True, exclude_none=True)
 catalog_json = catalog.model_dump_json(by_alias=True, exclude_none=True)
 

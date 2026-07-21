@@ -11,7 +11,7 @@ match the MCP endpoint (e.g. ``/mcp/server-card`` when the server is mounted at
     mount_server_card(server.streamable_http_app(), card, path="/mcp/server-card")
 
 Clients learn the card's URL from a catalog entry, so any reachable path works;
-the convention only matters for fallback probing.
+the convention gives publishers a predictable default.
 
 A hosted card is only discoverable once it is registered in an AI Catalog (see
 ``mcp.server.experimental.ai_catalog``); clients learn a card's URL from a
