@@ -16,6 +16,7 @@ import sys
 import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from io import TextIOWrapper
 from typing import BinaryIO, Literal, TextIO
 
@@ -27,9 +28,25 @@ from mcp.os.win32.utilities import rebind_std_handle_to_fd
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
-# fds whose real stream a serving transport owns, whether diverted or served in place.
-_claimed: set[int] = set()
-_claimed_lock = threading.Lock()
+if sys.platform != "win32":  # pragma: no branch
+    import fcntl
+
+# Stream-claim contract (design and attack log in PR #3117):
+# - _claims is the single authority for who owns fd 0/1; mutated only under the
+#   lock, only by acquire's insert and release's deregister.
+# - private_fd is recorded the instant the wire duplicate exists, before fd is
+#   ever moved, and is never closed while the claim is registered.
+# - Release deregisters only after dup2(private_fd, fd) restores the wire; a
+#   failed release keeps the claim, so successors are refused, never fed a
+#   diverted descriptor. Every failure lands on that safe side.
+_claims: dict[int, "_StreamClaim"] = {}
+_claims_lock = threading.Lock()
+
+
+@dataclass
+class _StreamClaim:
+    fd: int
+    private_fd: int | None = None
 
 
 def _is_backed_by_fd(stream: TextIO, fd: int) -> bool:
@@ -39,14 +56,15 @@ def _is_backed_by_fd(stream: TextIO, fd: int) -> bool:
         return False
 
 
-def _std_descriptors_open() -> bool:
-    """Whether fds 0-2 are all open, so a dup cannot land in the standard range."""
-    try:
-        for fd in (0, 1, 2):
-            os.fstat(fd)
-    except OSError:
-        return False
-    return True
+def _dup_above_std(fd: int) -> int:
+    """Duplicate fd onto a descriptor that cannot land in the standard range."""
+    if sys.platform == "win32":  # pragma: no cover
+        duplicate = os.dup(fd)
+        if duplicate <= 2:
+            os.close(duplicate)
+            raise OSError(f"duplicate of fd {fd} landed in the standard range")
+        return duplicate
+    return fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)
 
 
 def _open_stdin_diversion() -> int:
@@ -60,68 +78,69 @@ def _open_stdout_diversion() -> int:
         return os.open(os.devnull, os.O_WRONLY)
 
 
+def _restore_fd(fd: int, private_fd: int) -> bool:
+    """Point fd back at the wire; the Windows handle rebind never affects the outcome."""
+    try:
+        os.dup2(private_fd, fd)
+    except OSError:
+        return False
+    if sys.platform == "win32":  # pragma: no cover
+        with suppress(OSError):
+            rebind_std_handle_to_fd(fd)
+    return True
+
+
 def _claim_fd(
     fd: int, stream: TextIO, mode: Literal["rb", "wb"], open_diversion: Callable[[], int]
 ) -> tuple[BinaryIO, Callable[[], None] | None]:
-    """Move the protocol pipe to a private descriptor and divert fd while serving.
+    """Claim a standard stream: divert fd and serve the wire from a private duplicate.
+
+    Best-effort: when descriptors cannot be duplicated or diverted, serves the
+    sys stream's buffer in place, exactly as v1 did, with the claim held.
 
     Raises:
         RuntimeError: fd is already claimed by another transport in this process.
     """
     if not _is_backed_by_fd(stream, fd):
         return stream.buffer, None
-    with _claimed_lock:
-        if fd in _claimed:
+    claim = _StreamClaim(fd)
+    with _claims_lock:
+        if fd in _claims:
             raise RuntimeError(f"another stdio_server() in this process has already claimed fd {fd}")
-        _claimed.add(fd)
+        _claims[fd] = claim
 
-    def unclaim() -> None:
-        with _claimed_lock:
-            _claimed.discard(fd)
+    def release() -> None:
+        if claim.private_fd is None or _restore_fd(fd, claim.private_fd):
+            with _claims_lock:
+                del _claims[fd]
 
-    if not _std_descriptors_open():
-        return stream.buffer, unclaim
-    private_fd = None
     try:
-        private_fd = os.dup(fd)
+        private_fd = _dup_above_std(fd)
+    except OSError:
+        return stream.buffer, release
+    claim.private_fd = private_fd
+
+    try:
         diversion_fd = open_diversion()
-        try:
-            os.dup2(diversion_fd, fd)
-        finally:
-            os.close(diversion_fd)
-        if sys.platform == "win32":  # pragma: no cover
-            rebind_std_handle_to_fd(fd)
     except OSError:
-        # Roll back and serve in place; if the rollback itself fails, fall
-        # through and roll forward instead: fd is stuck on the diversion, but
-        # the private duplicate still holds the wire, so serve from it with
-        # the claim held (the restore at exit gets another chance).
-        if private_fd is None or _restore_fd(fd, private_fd):
-            if private_fd is not None:
-                os.close(private_fd)
-            return stream.buffer, unclaim
-
-    def restore() -> None:
-        # Drain text buffered during the claim (a stray print) to the diversion.
-        with suppress(OSError, ValueError):
-            stream.flush()
-        # A failed restore leaves fd diverted; keep it claimed so later transports are refused.
-        if _restore_fd(fd, private_fd):
-            unclaim()
-
-    # closefd=False: a blocked worker thread may still read this descriptor after exit.
-    return os.fdopen(private_fd, mode, closefd=False), restore
-
-
-def _restore_fd(fd: int, private_fd: int) -> bool:
-    """Point fd back at the protocol pipe; a failure never masks the transport's exit."""
+        return stream.buffer, release
     try:
-        os.dup2(private_fd, fd)
-        if sys.platform == "win32":  # pragma: no cover
-            rebind_std_handle_to_fd(fd)
+        os.dup2(diversion_fd, fd)
     except OSError:
-        return False
-    return True
+        # The divert did not land; fd still carries the wire, so serve it in
+        # place through the shared buffer (two writers on one pipe tear frames).
+        with suppress(OSError):
+            os.close(diversion_fd)
+        return stream.buffer, release
+    with suppress(OSError):
+        os.close(diversion_fd)
+    if sys.platform == "win32":  # pragma: no cover
+        with suppress(OSError):
+            rebind_std_handle_to_fd(fd)
+
+    # closefd=False: a worker thread can still block on this descriptor after
+    # the transport exits, so it must never be closed and recycled under it.
+    return os.fdopen(private_fd, mode, closefd=False), release
 
 
 @asynccontextmanager
