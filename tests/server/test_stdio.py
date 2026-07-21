@@ -216,9 +216,10 @@ async def test_stdio_server_takes_stdin_off_the_descriptor_table_while_serving(
 async def test_stdio_server_reads_stdin_in_place_when_descriptor_isolation_fails(
     failing_call: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A descriptor-table failure while claiming stdin degrades to reading sys.stdin in place.
+    """A descriptor failure while claiming stdin degrades to reading sys.stdin in place.
 
-    SDK-defined behavior: isolation is best-effort; the dup2 variant fails after the private duplicate exists.
+    SDK-defined behavior: isolation is best-effort; when duplicating fd 0 or diverting
+    it fails, the transport serves over the original stdin exactly as v1 did.
     """
     request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     with _pipe_planted_on_fd0(monkeypatch) as (in_r, in_w):
@@ -226,20 +227,15 @@ async def test_stdio_server_reads_stdin_in_place_when_descriptor_isolation_fails
         os.close(in_w)
         monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
 
-        # Injectors fire once, then pass through: pytest capture also calls os.dup/os.dup2,
-        # and a still-armed injector detonating there corrupts every later test's capture.
         if failing_call == "dup":
-            real_dup = os.dup
-            armed = [True]
 
-            def failing_dup(fd: int) -> int:
-                if fd == 0 and armed[0]:
-                    armed[0] = False
-                    raise OSError("injected descriptor failure")
-                return real_dup(fd)
+            def failing_dup_above_std(fd: int) -> int:
+                raise OSError("injected descriptor failure")
 
-            monkeypatch.setattr(os, "dup", failing_dup)
+            monkeypatch.setattr("mcp.server.stdio._dup_above_std", failing_dup_above_std)
         else:
+            # Fires once at the divert, then passes through: pytest's capture
+            # machinery also calls os.dup2 at phase transitions.
             real_dup2 = os.dup2
             armed = [True]
 
@@ -256,12 +252,6 @@ async def test_stdio_server_reads_stdin_in_place_when_descriptor_isolation_fails
                 async with read_stream:  # pragma: no branch
                     # Isolation was skipped: fd 0 is still the protocol pipe.
                     assert os.path.sameopenfile(0, in_r)
-                    # In-place transports still own the stream: a second one is refused.
-                    with pytest.raises(RuntimeError, match="already claimed fd 0"):
-                        async with stdio_server():
-                            pytest.fail("unreachable")  # pragma: no cover
-                    # The spent injector passes calls through untouched.
-                    os.close(os.dup(0))
                     received = await read_stream.receive()
                     assert isinstance(received, SessionMessage)
                     assert received.message == request
@@ -278,8 +268,7 @@ async def test_stdio_server_exits_cleanly_when_the_stdin_restore_fails(
     still-diverted fd must refuse later transports rather than serve them the diversion.
     """
     request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
-    fresh_claims: set[int] = set()
-    monkeypatch.setattr("mcp.server.stdio._claimed", fresh_claims)  # this test leaves fd 0 claimed
+    monkeypatch.setattr("mcp.server.stdio._claims", {})  # this test leaves fd 0 claimed
     with _pipe_planted_on_fd0(monkeypatch) as (_, in_w):
         os.write(in_w, _frame(request))
         os.close(in_w)
@@ -374,6 +363,8 @@ async def test_stdio_server_diverts_stdout_to_the_null_device_when_stderr_is_unu
         with anyio.fail_after(5):
             async with stdio_server(stdin=anyio.AsyncFile(io.StringIO())) as (read_stream, write_stream):
                 read_stream.close()
+                # The spent injector passes later duplications through untouched.
+                os.close(os.dup(0))
                 devnull_probe = os.open(os.devnull, os.O_WRONLY)
                 try:
                     assert os.path.sameopenfile(1, devnull_probe)
@@ -443,12 +434,14 @@ async def test_a_refused_claim_releases_the_stream_it_already_took(
 
 
 @pytest.mark.anyio
-async def test_stdio_server_serves_in_place_when_the_standard_descriptors_are_incomplete(
+async def test_the_claim_engages_even_when_stderr_is_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A process missing a standard descriptor is served in place, without surgery.
+    """A process missing fd 2 still gets full isolation.
 
-    With fd 2 closed, a duplicate could land in the standard range: the transport must not touch the table.
+    SDK-defined behavior: the wire duplicate is allocated above the standard range
+    atomically, so a hole in the descriptor table cannot capture it; the stdout
+    diversion falls back to the null device.
     """
     request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
@@ -459,8 +452,12 @@ async def test_stdio_server_serves_in_place_when_the_standard_descriptors_are_in
             with anyio.fail_after(5):
                 async with stdio_server() as (read_stream, write_stream):
                     async with read_stream:  # pragma: no branch
-                        assert os.path.sameopenfile(0, in_r)
-                        assert os.path.sameopenfile(1, out_w)
+                        # Claimed: fd 0 reads the null device, not the pipe.
+                        devnull_probe = os.open(os.devnull, os.O_RDONLY)
+                        try:
+                            assert os.path.sameopenfile(0, devnull_probe)
+                        finally:
+                            os.close(devnull_probe)
 
                         os.write(in_w, _frame(request))
                         received = await read_stream.receive()
@@ -471,68 +468,38 @@ async def test_stdio_server_serves_in_place_when_the_standard_descriptors_are_in
                         assert jsonrpc_message_adapter.validate_json(line.decode().strip()) == response
                         os.close(in_w)
                         await write_stream.aclose()
+
+            assert os.path.sameopenfile(0, in_r)
+            assert os.path.sameopenfile(1, out_w)
         finally:
             os.dup2(saved2, 2)
             os.close(saved2)
 
 
 @pytest.mark.anyio
-async def test_a_claim_that_cannot_roll_back_serves_the_wire_from_the_private_duplicate(
+async def test_stdio_server_serves_in_place_when_the_diversion_cannot_be_opened(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A mid-claim failure whose rollback also fails rolls forward instead of unclaiming.
-
-    SDK-defined behavior: with fd 0 stuck on the diversion, the transport keeps the
-    claim and serves the protocol from the private duplicate; the restore at exit
-    still runs and puts fd 0 back on the pipe.
-    """
+    """A diversion that cannot be opened leaves fd 0 untouched and serves in place."""
     request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     with _pipe_planted_on_fd0(monkeypatch) as (in_r, in_w):
+        os.write(in_w, _frame(request))
+        os.close(in_w)
         monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
 
-        # The first close (the diversion fd) and the second dup2 (the rollback)
-        # fail: the claim can neither complete nor be undone. One-shot and
-        # call-counted injectors, as elsewhere in this file.
-        real_close = os.close
-        close_armed = [True]
+        def failing_diversion() -> int:
+            raise OSError("injected diversion failure")
 
-        def failing_first_close(fd: int) -> None:
-            if close_armed[0]:
-                close_armed[0] = False
-                raise OSError("injected close failure")
-            real_close(fd)
-
-        real_dup2 = os.dup2
-        dup2_calls: list[int] = []
-
-        def flaky_dup2(fd: int, fd2: int, inheritable: bool = True) -> int:
-            dup2_calls.append(fd)
-            if len(dup2_calls) == 2:
-                raise OSError("injected rollback failure")
-            return real_dup2(fd, fd2, inheritable)
-
-        monkeypatch.setattr(os, "close", failing_first_close)
-        monkeypatch.setattr(os, "dup2", flaky_dup2)
+        monkeypatch.setattr("mcp.server.stdio._open_stdin_diversion", failing_diversion)
 
         with anyio.fail_after(5):
-            async with stdio_server() as (read_stream, write_stream):
+            async with stdio_server() as (read_stream, write_stream):  # pragma: no branch
                 async with read_stream:  # pragma: no branch
-                    # fd 0 is stuck on the null device, yet the wire still flows.
-                    devnull_probe = os.open(os.devnull, os.O_RDONLY)
-                    try:
-                        assert os.path.sameopenfile(0, devnull_probe)
-                    finally:
-                        os.close(devnull_probe)
-
-                    os.write(in_w, _frame(request))
+                    assert os.path.sameopenfile(0, in_r)
                     received = await read_stream.receive()
                     assert isinstance(received, SessionMessage)
                     assert received.message == request
-                    os.close(in_w)
                     await write_stream.aclose()
-
-        # The exit restore (third dup2) succeeded: fd 0 is back on the pipe.
-        assert os.path.sameopenfile(0, in_r)
 
 
 class _GatedStdin(io.RawIOBase):
