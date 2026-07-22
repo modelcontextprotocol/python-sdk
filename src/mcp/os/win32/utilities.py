@@ -17,16 +17,17 @@ logger = logging.getLogger(__name__)
 
 # Windows-specific imports for Job Objects
 if sys.platform == "win32":
+    import msvcrt
+
     import pywintypes
     import win32api
     import win32con
-    import win32file
     import win32job
 else:
     # Type stubs for non-Windows platforms
     win32api = None
     win32con = None
-    win32file = None
+    msvcrt = None
     win32job = None
     pywintypes = None
 
@@ -40,11 +41,11 @@ def rebind_std_handle_to_fd(fd: int) -> None:
     Raises:
         OSError: The slot could not be set.
     """
-    if sys.platform != "win32" or not win32api or not win32file or not pywintypes:
+    if sys.platform != "win32" or not win32api or not msvcrt or not pywintypes:
         return
     std_ids = {0: win32api.STD_INPUT_HANDLE, 1: win32api.STD_OUTPUT_HANDLE, 2: win32api.STD_ERROR_HANDLE}
     try:
-        win32api.SetStdHandle(std_ids[fd], win32file._get_osfhandle(fd))
+        win32api.SetStdHandle(std_ids[fd], msvcrt.get_osfhandle(fd))
     except pywintypes.error as exc:
         # Normalized so callers' OSError-based best-effort handling covers it.
         raise OSError(f"SetStdHandle failed for fd {fd}") from exc
