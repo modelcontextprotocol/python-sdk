@@ -5,6 +5,7 @@ resources, request methods, and the single `tools/call` interceptor - through
 the highest-level public surface (in-memory `Client`).
 """
 
+from dataclasses import replace
 from importlib.metadata import version
 from typing import Any, Literal
 
@@ -31,6 +32,7 @@ from mcp.server.extension import (
 from mcp.server.mcpserver import Context, MCPServer, require_client_extension
 from mcp.server.mcpserver.resources import TextResource
 from mcp.shared.exceptions import MCPError
+from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -141,7 +143,7 @@ async def test_additive_extension_registers_its_tool_and_resource() -> None:
     through `MCPServer`'s normal `list_tools`/`list_resources`, and the tool's
     `_meta` round-trips equal to the exact dict the binding carried (identity can't
     hold - the value is JSON-serialized over the transport)."""
-    server = MCPServer("test", extensions=[_AdditiveExt()], include_server_info=False)
+    server = MCPServer("test", extensions=[_AdditiveExt()])
 
     async with Client(server) as client:
         tools = await client.list_tools()
@@ -150,8 +152,10 @@ async def test_additive_extension_registers_its_tool_and_resource() -> None:
 
     assert [t.name for t in tools.tools] == ["ping"]
     assert tools.tools[0].meta == _TOOL_META
-    assert called == snapshot(CallToolResult(content=[TextContent(text="pong")], structured_content={"result": "pong"}))
-    assert resources == snapshot(
+    assert unstamped(called) == snapshot(
+        CallToolResult(content=[TextContent(text="pong")], structured_content={"result": "pong"})
+    )
+    assert unstamped(resources) == snapshot(
         types.ListResourcesResult(
             resources=[types.Resource(name="greeting", uri="ext://greeting", mime_type="text/plain")]
         )
@@ -189,37 +193,39 @@ def test_duplicate_extension_identifier_raises() -> None:
 async def test_extension_method_reachable_via_session_send_request() -> None:
     """SDK-defined: an `Extension` overriding `methods()` wires a new request verb
     onto the low-level server, reachable through `client.session.send_request`."""
-    server = MCPServer("test", extensions=[_MethodExt()], include_server_info=False)
+    server = MCPServer("test", extensions=[_MethodExt()])
 
     async with Client(server) as client:
         request = _PingRequest(params=_PingParams())
         result = await client.session.send_request(request, _PingResult)
 
-    assert result == snapshot(_PingResult(pong=True))
+    assert unstamped(result) == snapshot(_PingResult(pong=True))
 
 
 async def test_pass_through_interceptor_leaves_tool_result_unchanged() -> None:
     """SDK-defined: an extension whose `intercept_tool_call` delegates to
     `call_next` does not alter the underlying tool's `CallToolResult`."""
-    server = MCPServer("test", extensions=[_PassThroughExt()], include_server_info=False)
+    server = MCPServer("test", extensions=[_PassThroughExt()])
     server.tool(name="echo")(_echo)
 
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"})
+    )
 
 
 async def test_short_circuiting_interceptor_replaces_tool_result() -> None:
     """SDK-defined: an extension that returns from `intercept_tool_call` without
     calling `call_next` replaces the tool's result wholesale (the tool never runs)."""
-    server = MCPServer("test", extensions=[_ReplacingExt()], include_server_info=False)
+    server = MCPServer("test", extensions=[_ReplacingExt()])
     server.tool(name="echo", structured_output=False)(_echo)
 
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="intercepted")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="intercepted")]))
 
 
 def test_plain_extension_leaves_the_tool_call_handler_bare() -> None:
@@ -250,13 +256,15 @@ async def test_default_interceptor_passes_through_alongside_an_overriding_one() 
     """SDK-defined: an extension that does not override `intercept_tool_call` runs the
     base-class default (pass through) when another extension forces the composed
     middleware to exist, leaving the tool result untouched."""
-    server = MCPServer("test", extensions=[_DefaultExt(), _PassThroughExt()], include_server_info=False)
+    server = MCPServer("test", extensions=[_DefaultExt(), _PassThroughExt()])
     server.tool(name="echo")(_echo)
 
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"})
+    )
 
 
 async def test_interceptors_run_in_registration_order_with_threaded_params() -> None:
@@ -274,6 +282,32 @@ async def test_interceptors_run_in_registration_order_with_threaded_params() -> 
         await client.call_tool("echo", {"value": "hi"})
 
     assert log == [("com.example/first", "echo"), ("com.example/second", "echo")]
+
+
+async def test_an_interceptor_context_rewrite_does_not_change_the_tool_invocation() -> None:
+    """SDK-defined: the validated `params` argument is authoritative - an
+    interceptor passing a rewritten context through `call_next` adjusts what
+    the handler observes on `ctx`, not which tool call runs. Wire-level
+    request rewriting belongs to `Server.middleware`, above params validation."""
+
+    class _RewritingExt(Extension):
+        identifier = "com.example/rewriting"
+
+        async def intercept_tool_call(
+            self, params: types.CallToolRequestParams, ctx: ServerRequestContext[Any, Any], call_next: CallNext
+        ) -> HandlerResult:
+            rewritten = {**(ctx.params or {}), "arguments": {"value": "rewritten"}}
+            return await call_next(replace(ctx, params=rewritten))
+
+    server = MCPServer("test", extensions=[_RewritingExt()])
+    server.tool(name="echo")(_echo)
+
+    async with Client(server) as client:
+        result = await client.call_tool("echo", {"value": "original"})
+
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="original")], structured_content={"result": "original"})
+    )
 
 
 async def test_short_circuited_interceptor_result_carries_the_server_info_stamp() -> None:
@@ -336,13 +370,13 @@ class _VersionPinnedExt(Extension):
 async def test_version_pinned_method_is_served_at_an_allowed_version() -> None:
     """SDK-defined: a `MethodBinding` with `protocol_versions` serves the method at a version
     in the set."""
-    server = MCPServer("test", extensions=[_VersionPinnedExt()], include_server_info=False)
+    server = MCPServer("test", extensions=[_VersionPinnedExt()])
 
     async with Client(server, mode="2026-07-28") as client:
         request = _VersionPinnedRequest(params=_VersionPinnedParams())
         result = await client.session.send_request(request, _VersionPinnedResult)
 
-    assert result == snapshot(_VersionPinnedResult(ok=True))
+    assert unstamped(result) == snapshot(_VersionPinnedResult(ok=True))
 
 
 async def test_version_pinned_method_is_method_not_found_at_a_disallowed_version() -> None:
@@ -417,12 +451,14 @@ class _RequiresExt(Extension):
 
 async def test_require_client_extension_passes_when_client_declared_it() -> None:
     """SDK-defined: `require_client_extension` is a no-op when the client advertised the id."""
-    server = MCPServer("test", extensions=[_RequiresExt()], include_server_info=False)
+    server = MCPServer("test", extensions=[_RequiresExt()])
 
     async with Client(server, extensions=[advertise(_NEEDS_EXT)]) as client:
         result = await client.call_tool("guarded", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"})
+    )
 
 
 async def test_require_client_extension_raises_minus_32021_when_client_did_not_declare_it() -> None:

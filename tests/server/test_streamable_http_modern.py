@@ -205,7 +205,7 @@ async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info
         seen.append(ctx.session.client_params)
         return {"ok": True}
 
-    server: Server[Any] = Server("test", include_server_info=False)
+    server: Server[Any] = Server("test")
     server.add_request_handler("custom/greet", PaginatedRequestParams, greet)
 
     body = _list_tools_body()
@@ -214,7 +214,10 @@ async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info
     async with _asgi_client(server) as http:
         response = await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "custom/greet"})
     assert response.status_code == 200
-    assert response.json()["result"] == {"ok": True}
+    result = response.json()["result"]
+    stamp = result["_meta"].pop(SERVER_INFO_META_KEY)
+    assert "name" in stamp and "version" in stamp
+    assert result == {"_meta": {}, "ok": True}
     assert seen == [None]
 
 

@@ -20,6 +20,7 @@ from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -88,7 +89,7 @@ async def test_context_report_progress_sends_progress_notifications(connect: Con
     async with connect(mcp) as client:
         result = await client.call_tool("crunch", {}, progress_callback=on_progress)
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="crunched")], structured_content={"result": "crunched"})
     )
     assert received == snapshot([(1.0, 3.0, None), (2.0, 3.0, "halfway there")])
@@ -145,7 +146,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     async with connect(mcp, message_handler=collect) as client:
         result = await client.call_tool("mill", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="milled")], structured_content={"result": "milled"})
     )
     assert received == snapshot(
@@ -228,7 +229,7 @@ async def test_context_read_resource_reads_registered_resource(connect: Connect)
     async with connect(mcp) as client:
         result = await client.call_tool("show_config", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="text/plain: 'theme = dark'")],
             structured_content={"result": "text/plain: 'theme = dark'"},

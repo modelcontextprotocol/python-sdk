@@ -14,6 +14,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server.mcpserver import MCPServer
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -33,7 +34,7 @@ async def test_read_static_resource(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.read_resource("config://app")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="theme = dark")]
         )
@@ -63,7 +64,7 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
         resources = await client.list_resources()
         templates = await client.list_resource_templates()
 
-    assert resources == snapshot(
+    assert unstamped(resources) == snapshot(
         ListResourcesResult(
             resources=[
                 Resource(
@@ -75,7 +76,7 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
             ]
         )
     )
-    assert templates == snapshot(
+    assert unstamped(templates) == snapshot(
         ListResourceTemplatesResult(
             resource_templates=[
                 ResourceTemplate(
@@ -103,7 +104,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.read_resource("users://42/profile")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[TextResourceContents(uri="users://42/profile", mime_type="text/plain", text="profile for 42")]
         )
@@ -178,6 +179,6 @@ async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(co
 
     assert [resource.uri for resource in listed.resources] == ["config://app"]
     assert listed.resources[0].name == "config_first"
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="first")])
     )

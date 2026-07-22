@@ -31,6 +31,7 @@ from mcp_types import (
     ClientCapabilities,
     EmptyResult,
     ErrorData,
+    Icon,
     Implementation,
     InitializeRequestParams,
     JSONRPCRequest,
@@ -1061,6 +1062,48 @@ async def test_stamping_never_mutates_a_handler_retained_result_dict(server: Srv
 
 
 @pytest.mark.anyio
+async def test_mutating_a_stamped_response_never_corrupts_later_stamps():
+    """SDK-defined: every response gets a fresh stamp dict, nested values
+    included - a caller mutating one stamped response (a middleware, or an
+    application holding an in-memory result) cannot corrupt the identity
+    stamped into later responses."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {}
+
+    server: SrvT = Server(name="test-server", version="0.0.1", icons=[Icon(src="https://example.com/icon.png")])
+    server.add_request_handler("myorg/empty", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        first = await client.send_raw_request("myorg/empty", None)
+        first["_meta"][SERVER_INFO_META_KEY]["icons"][0]["src"] = "https://evil.example/pwned.png"
+        second = await client.send_raw_request("myorg/empty", None)
+    assert second["_meta"][SERVER_INFO_META_KEY] == {
+        "name": "test-server",
+        "version": "0.0.1",
+        "icons": [{"src": "https://example.com/icon.png"}],
+    }
+
+
+@pytest.mark.anyio
+async def test_a_claimed_result_type_on_a_legacy_session_is_sieved_not_leaked(server: SrvT):
+    """SDK-defined: claimed extension shapes are 2026-era vocabulary, so on a
+    handshake-era session the per-version sieve still applies - a claimed
+    shape (not a valid legacy result) surfaces as INTERNAL_ERROR instead of
+    leaking a shape the client cannot resolve."""
+
+    async def custom(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
+        return {"resultType": "voucher", "voucherCode": "v-42"}
+
+    server.add_request_handler("tools/call", CallToolRequestParams, custom)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/call", {"name": "issue"})
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Handler returned an invalid result"
+
+
+@pytest.mark.anyio
 async def test_a_claimed_extension_result_type_bypasses_the_sieve_and_is_stamped(server: SrvT):
     """SDK-defined: a spec-method result carrying an extension `resultType` is a
     claimed shape the extension owns - the per-version sieve would strip its
@@ -1830,13 +1873,13 @@ async def test_dual_era_loop_custom_method_with_mis_shaped_envelope_values_still
         seen.append(ctx.session.client_params)
         return {"ok": True}
 
-    greeter = Server(name="greeter-server", version="0.0.1", include_server_info=False)
+    greeter = Server(name="greeter-server", version="0.0.1")
     greeter.add_request_handler("custom/greet", RequestParams, greet)
     params = _modern_params()
     params["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
     async with dual_era_client(greeter) as (client, _):
         result = await client.send_raw_request("custom/greet", params)
-    assert result == {"ok": True}
+    assert result == {"ok": True, "_meta": {SERVER_INFO_META_KEY: {"name": "greeter-server", "version": "0.0.1"}}}
     assert seen == [None]
 
 

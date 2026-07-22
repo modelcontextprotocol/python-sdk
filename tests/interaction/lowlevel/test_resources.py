@@ -27,6 +27,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -71,7 +72,7 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
     async with connect(server) as client:
         result = await client.list_resources()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListResourcesResult(
             resources=[
                 Resource(uri="memo://minimal", name="minimal"),
@@ -106,7 +107,7 @@ async def test_read_resource_text(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.read_resource("file:///greeting.txt")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[TextResourceContents(uri="file:///greeting.txt", mime_type="text/plain", text="Hello, world!")]
         )
@@ -133,7 +134,7 @@ async def test_read_resource_binary(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.read_resource("file:///pixel.png")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[BlobResourceContents(uri="file:///pixel.png", mime_type="image/png", blob="iVBORw==")]
         )
@@ -186,7 +187,7 @@ async def test_list_resource_templates_returns_registered_templates(connect: Con
     async with connect(server) as client:
         result = await client.list_resource_templates()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListResourceTemplatesResult(
             resource_templates=[
                 ResourceTemplate(uri_template="users://{user_id}", name="user"),

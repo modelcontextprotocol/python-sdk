@@ -21,6 +21,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -52,7 +53,7 @@ async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None
     async with connect(server) as client:
         result = await client.list_prompts()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListPromptsResult(
             prompts=[
                 Prompt(
@@ -87,7 +88,7 @@ async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.get_prompt("greet", {"name": "Ada"})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             description="A personalised greeting.",
             messages=[PromptMessage(role="user", content=TextContent(text="Hello, Ada!"))],
@@ -114,7 +115,7 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
     async with connect(server) as client:
         result = await client.get_prompt("geography_quiz")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             messages=[
                 PromptMessage(role="user", content=TextContent(text="What is the capital of France?")),
@@ -139,7 +140,7 @@ async def test_get_prompt_without_arguments_returns_the_messages(connect: Connec
     async with connect(server) as client:
         result = await client.get_prompt("static")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="Say hello."))])
     )
 
@@ -175,7 +176,7 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) ->
     async with connect(server) as client:
         result = await client.get_prompt("media", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             messages=[
                 PromptMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png")),

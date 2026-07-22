@@ -147,7 +147,11 @@ class Extension:
         `call_next(ctx)` runs the rest of the chain and the real handler, and
         returns the handler's domain result. Interceptors run at the handler
         layer: whatever they return is serialized like any handler result,
-        including the 2026-era `serverInfo` `_meta` stamp.
+        including the 2026-era `serverInfo` `_meta` stamp. The `params` this
+        interceptor received is what the wrapped handler is invoked with -
+        passing a rewritten context through `call_next` adjusts what the
+        handler observes on `ctx`, not the tool invocation. Wire-level request
+        rewriting belongs to `Server.middleware`, above params validation.
         """
         return await call_next(ctx)
 

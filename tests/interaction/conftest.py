@@ -52,12 +52,13 @@ def connect(request: pytest.FixtureRequest) -> Connect:
     factory = _FACTORIES[transport]
 
     def _connect(server: Server | MCPServer, **kwargs: Any) -> AbstractAsyncContextManager[Client]:
-        # The matrix compares exact result payloads, and the (default-on) 2026-era
-        # serverInfo `_meta` stamp would bake the commit-dependent package version
-        # into every snapshot. The matrix therefore runs with stamping off;
-        # stamping itself has dedicated coverage in tests/server/.
+        # The matrix compares exact result payloads, and the 2026-era serverInfo
+        # `_meta` stamp carries the server version, which defaults to the
+        # commit-dependent installed package version. Pin it so expected
+        # payloads stay deterministic across commits.
         lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
-        lowlevel.include_server_info = False
+        if lowlevel.version is None:
+            lowlevel.version = "1.0.0"
         return factory(server, spec_version=spec_version, **kwargs)
 
     return _connect

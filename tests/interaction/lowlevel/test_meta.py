@@ -2,7 +2,8 @@
 
 Meta is opaque pass-through data, so these tests assert identity against the value that was sent
 rather than snapshotting a literal: the expected value and the sent value are the same variable,
-which also proves the SDK injected nothing alongside it.
+which also proves the SDK injected nothing alongside it beyond the 2026-era serverInfo stamp,
+stripped via `unstamped` before comparison.
 """
 
 import mcp_types as types
@@ -10,6 +11,7 @@ import pytest
 from mcp_types import CallToolResult, RequestParamsMeta, TextContent
 
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -60,4 +62,4 @@ async def test_result_meta_reaches_client(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("metered", {})
 
-    assert result == CallToolResult(content=[TextContent(text="done")], _meta=result_meta)
+    assert unstamped(result) == CallToolResult(content=[TextContent(text="done")], _meta=result_meta)

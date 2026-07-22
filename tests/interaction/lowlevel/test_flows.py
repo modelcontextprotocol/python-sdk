@@ -32,6 +32,7 @@ from mcp import MCPError, UrlElicitationRequiredError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
 from mcp.server.session import ServerSession
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -78,8 +79,10 @@ async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(conn
         assert isinstance(link, ResourceLink)
         read = await client.read_resource(link.uri)
 
-    assert called == snapshot(CallToolResult(content=[ResourceLink(name="report", uri="file:///report.txt")]))
-    assert read == snapshot(
+    assert unstamped(called) == snapshot(
+        CallToolResult(content=[ResourceLink(name="report", uri="file:///report.txt")])
+    )
+    assert unstamped(read) == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="file:///report.txt", text="generated")])
     )
 

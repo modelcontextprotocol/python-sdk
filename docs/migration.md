@@ -481,13 +481,14 @@ What changed in the SDK:
 
 - `DiscoverResult` no longer has a `server_info` field. Read or write identity
   through result `_meta`; the key is exported as `mcp_types.SERVER_INFO_META_KEY`.
-- Servers stamp `serverInfo` into every 2026-era result's `_meta` by default,
-  built from the constructor identity fields (`name`, `version`, `title`, and
-  so on). Pass `include_server_info=False` to `Server(...)` or `MCPServer(...)`
-  to turn it off. A `serverInfo` value your handler already set in `_meta` is
-  never overwritten. Handshake-era responses are unchanged, and notifications
-  and error responses are never stamped. A middleware that answers a request
-  itself (without `call_next`) owns its result envelope, stamp included.
+- Servers stamp `serverInfo` into every 2026-era result's `_meta`, built from
+  the constructor identity fields (`name`, `version`, `title`, and so on). A
+  `serverInfo` value your handler already set in `_meta` is never overwritten.
+  Handshake-era responses are unchanged, and notifications and error responses
+  are never stamped. A middleware that answers a request itself (without
+  `call_next`) owns its result envelope, stamp included; a server that must
+  not identify itself can strip the key the same way, with a middleware that
+  removes it from the results it passes along.
 - `client.server_info` and `session.server_info` are `Implementation | None`
   on 2026-era connections: identity is optional on the wire, so a server that
   does not stamp it reads as `None`. Handshake-era connections still always

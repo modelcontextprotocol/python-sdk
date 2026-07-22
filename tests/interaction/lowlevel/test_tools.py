@@ -22,6 +22,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -49,7 +50,7 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="5")]))
 
 
 @requirement("tools:call:is-error")
@@ -69,7 +70,7 @@ async def test_call_tool_execution_error_is_returned_as_result(connect: Connect)
     async with connect(server) as client:
         result = await client.call_tool("flux", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="the flux capacitor is offline")], is_error=True)
     )
 
@@ -141,7 +142,7 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.list_tools()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListToolsResult(
             tools=[
                 Tool(
@@ -202,7 +203,7 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
         called = await client.call_tool("typed", {"count": 3, "options": {"verbose": True}})
 
     assert listed.tools[0].input_schema == schema
-    assert called == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+    assert unstamped(called) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
 
 
 @requirement("tools:list:metadata")
@@ -228,7 +229,7 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.list_tools()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListToolsResult(
             tools=[
                 Tool(
@@ -280,7 +281,7 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("render", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[
                 TextContent(text="all five content block types"),
@@ -311,7 +312,9 @@ async def test_call_tool_structured_content(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("sum", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5})
+    )
 
 
 @requirement("tools:call:concurrent")
@@ -347,7 +350,7 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
             async with anyio.create_task_group() as task_group:  # pragma: no branch
 
                 async def call_and_record(tag: str) -> None:
-                    results[tag] = await client.call_tool("echo", {"tag": tag})
+                    results[tag] = unstamped(await client.call_tool("echo", {"tag": tag}))
 
                 task_group.start_soon(call_and_record, "first")
                 task_group.start_soon(call_and_record, "second")
@@ -437,7 +440,7 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
         await client.list_tools()
         result = await client.call_tool("forecast", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="boom")], structured_content={"temperature": "warm"}, is_error=True)
     )
 
@@ -509,5 +512,7 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
         second = await client.call_tool("forecast", {})
 
     assert list_calls == ["called"]
-    assert first == snapshot(CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21}))
-    assert second == first
+    assert unstamped(first) == snapshot(
+        CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21})
+    )
+    assert unstamped(second) == first

@@ -20,6 +20,7 @@ from mcp import MCPError
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared.exceptions import UrlElicitationRequiredError
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -43,7 +44,9 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"})
+    )
 
 
 @requirement("mcpserver:tool:schema-variants")
@@ -67,7 +70,7 @@ async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool
     async with connect(mcp) as client:
         result = await client.call_tool("place", {"mode": "fast", "point": {"x": "3", "y": 4}, "count": 5})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="fast at (3, 4) x5")], structured_content={"result": "fast at (3, 4) x5"}
         )
@@ -92,7 +95,7 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
     async with connect(mcp) as client:
         result = await client.call_tool("explode", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="Error executing tool explode: boom")], is_error=True)
     )
 
@@ -109,7 +112,7 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> No
     async with connect(mcp) as client:
         result = await client.call_tool("flux", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="Error executing tool flux: flux capacitor offline")], is_error=True)
     )
 
@@ -130,7 +133,9 @@ async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> 
     async with connect(mcp) as client:
         result = await client.call_tool("nope", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True)
+    )
 
 
 @requirement("mcpserver:tool:output-schema:model")
@@ -164,7 +169,7 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
             "type": "object",
         }
     )
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[
                 TextContent(
@@ -204,7 +209,7 @@ async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) 
             "type": "object",
         }
     )
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="2"), TextContent(text="3"), TextContent(text="5")],
             structured_content={"result": [2, 3, 5]},
@@ -304,7 +309,7 @@ async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(conne
         result = await client.call_tool("echo", {})
 
     assert [tool.name for tool in listed.tools] == ["echo"]
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="first")], structured_content={"result": "first"})
     )
 
@@ -340,7 +345,9 @@ async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_re
         result = await client.call_tool("bad name!", {})
 
     assert [tool.name for tool in listed.tools] == ["bad name!"]
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"})
+    )
 
 
 @requirement("mcpserver:tool:url-elicitation-error")

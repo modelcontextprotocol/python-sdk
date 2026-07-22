@@ -14,6 +14,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server.mcpserver import MCPServer
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -36,7 +37,7 @@ async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -
     async with connect(mcp) as client:
         result = await client.list_prompts()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListPromptsResult(
             prompts=[
                 Prompt(
@@ -65,7 +66,7 @@ async def test_get_prompt_renders_function_return(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.get_prompt("greet", {"name": "Ada"})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             description="A personalised greeting.",
             messages=[PromptMessage(role="user", content=TextContent(text="Say hello to Ada."))],
@@ -153,7 +154,7 @@ async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(con
     async with connect(mcp) as client:
         result = await client.get_prompt("review", {"code": "x = 1"})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             description="Review a snippet of code against a style guide.",
             messages=[PromptMessage(role="user", content=TextContent(text="Review x = 1 per pep8."))],
@@ -187,7 +188,7 @@ async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(con
         result = await client.get_prompt("greet")
 
     assert [prompt.name for prompt in listed.prompts] == ["greet"]
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             description="The first registration; this is the one that wins.",
             messages=[PromptMessage(role="user", content=TextContent(text="first"))],

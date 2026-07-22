@@ -183,7 +183,6 @@ class MCPServer(Generic[LifespanResultT]):
         resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        include_server_info: bool = True,
         subscriptions: SubscriptionBus | None = None,
     ):
         self._resource_security = resource_security
@@ -217,7 +216,6 @@ class MCPServer(Generic[LifespanResultT]):
             icons=icons,
             version=version,
             cache_hints=cache_hints,
-            include_server_info=include_server_info,
             on_list_tools=self._handle_list_tools,
             on_call_tool=self._handle_call_tool,
             on_list_resources=self._handle_list_resources,

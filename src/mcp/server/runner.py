@@ -354,14 +354,21 @@ class ServerRunner(Generic[LifespanT]):
                 # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
                 result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
         dumped = _dump_result(result)
-        # An extension `resultType` (outside the core vocabulary) marks a claimed
-        # shape owned by the extension that defined it: the per-version surface
-        # doesn't describe it, so the sieve applies to core results only.
+        # A modern-era extension `resultType` (outside the core vocabulary) marks
+        # a claimed shape owned by the extension that defined it: the per-version
+        # surface doesn't describe it, so the sieve applies to core results only.
+        # Legacy connections sieve everything - claimed shapes are 2026-era
+        # vocabulary and cannot be delivered on a legacy wire (mirrors the
+        # client-side ResultClaim rule).
         # TODO(L56): reject extension resultType values unless the corresponding
         # extension is in this request's _meta clientCapabilities.extensions; the
         # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
         result_type = dumped.get("resultType")
-        core_shape = not isinstance(result_type, str) or result_type in CORE_RESULT_TYPES
+        core_shape = (
+            version not in MODERN_PROTOCOL_VERSIONS
+            or not isinstance(result_type, str)
+            or result_type in CORE_RESULT_TYPES
+        )
         if method in _methods.SPEC_CLIENT_METHODS and core_shape:
             try:
                 dumped = _methods.serialize_server_result(method, version, dumped)
@@ -379,17 +386,18 @@ class ServerRunner(Generic[LifespanT]):
         to own, and handshake-era results are never stamped. `result` is
         pipeline-owned (`_dump_result` copies dicts; the spec-method sieve
         re-dumps), but `_meta` may still be the handler's object, so the stamp
-        replaces it rather than writing into it.
+        replaces it rather than writing into it. `server_info_stamp` is a
+        fresh dict per access, so the response never aliases server state.
         """
-        if not self.server.include_server_info or version not in MODERN_PROTOCOL_VERSIONS:
+        if version not in MODERN_PROTOCOL_VERSIONS:
             return result
         raw_meta = result.get("_meta")
         if raw_meta is None:
-            result["_meta"] = {SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}
+            result["_meta"] = {SERVER_INFO_META_KEY: self.server.server_info_stamp}
         elif isinstance(raw_meta, dict):
             meta = cast("dict[str, Any]", raw_meta)
             if meta.get(SERVER_INFO_META_KEY) is None:
-                result["_meta"] = {**meta, SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}
+                result["_meta"] = {**meta, SERVER_INFO_META_KEY: self.server.server_info_stamp}
         return result
 
     @staticmethod

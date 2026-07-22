@@ -107,7 +107,7 @@ Call it and the result carries both representations:
 }
 ```
 
-The `_meta` block is the server's identity stamp: the SDK adds it to every 2026-era result, with the `version` taken from the constructor or the installed package. Pass `include_server_info=False` to the server to turn it off.
+The `_meta` block is the server's identity stamp: the SDK adds it to every 2026-era result, with the `version` taken from the constructor or the installed package. A server that must not identify itself can strip the key with a middleware, which owns the results it returns.
 
 The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
 

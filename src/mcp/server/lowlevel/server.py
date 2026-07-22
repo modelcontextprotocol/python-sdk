@@ -36,6 +36,7 @@ handler callables by method string.
 
 from __future__ import annotations
 
+import copy
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -147,7 +148,6 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        include_server_info: bool = True,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -231,7 +231,6 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        include_server_info: bool = True,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -324,7 +323,6 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        include_server_info: bool = True,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -432,10 +430,6 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
-        # Spec 2026-07-28: servers SHOULD stamp `serverInfo` into every result's
-        # `_meta` "unless specifically configured not to do so" - this is that
-        # configuration. Consumed at the single stamping site in `ServerRunner`.
-        self.include_server_info = include_server_info
         # Per-method `ttl_ms`/`cache_scope` fills, applied by `ServerRunner`
         # after the handler returns; fields the handler set explicitly win.
         self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
@@ -657,13 +651,21 @@ class Server(Generic[LifespanResultT]):
         )
 
     @cached_property
-    def server_info_stamp(self) -> dict[str, Any]:
-        """The wire dump of `server_info`, computed once per server.
-
-        Identity is fixed at construction, so the per-result `_meta` stamping
-        site (`ServerRunner`) reads this instead of re-dumping per request.
-        """
+    def _server_info_stamp_source(self) -> dict[str, Any]:
+        # Identity is fixed at construction, so the dump is computed once per
+        # server instead of per request. Never handed out directly: nested
+        # values (`icons`) would alias the cache into stamped responses.
         return self.server_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+    @property
+    def server_info_stamp(self) -> dict[str, Any]:
+        """A fresh wire dump of `server_info`; callers own the returned dict.
+
+        Each access materializes a deep copy of the once-per-server dump, so
+        a caller mutating a stamped response can never corrupt the identity
+        stamped into later responses.
+        """
+        return copy.deepcopy(self._server_info_stamp_source)
 
     async def _handle_discover(
         self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None

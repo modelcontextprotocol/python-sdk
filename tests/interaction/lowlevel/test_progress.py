@@ -18,6 +18,7 @@ from mcp_types import CallToolResult, ProgressNotification, ProgressNotification
 from mcp.server import Server, ServerRequestContext
 from mcp.server.session import ServerSession
 from mcp.shared.session import ProgressFnT
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -51,7 +52,7 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
     async with connect(server) as client:
         result = await client.call_tool("download", {}, progress_callback=collect)
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="downloaded")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="downloaded")]))
     assert received == snapshot([(1.0, 3.0, "first chunk"), (2.0, 3.0, "second chunk"), (3.0, 3.0, "done")])
 
 
@@ -105,7 +106,7 @@ async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("inspect", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="None")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="None")]))
 
 
 @requirement("protocol:progress:client-to-server")

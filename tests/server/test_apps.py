@@ -28,6 +28,7 @@ from mcp.server.apps import (
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.resources import TextResource
+from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -42,7 +43,7 @@ def _clock_server() -> MCPServer:
         return "2026-06-26T00:00:00Z"
 
     apps.add_html_resource("ui://clock/app.html", "<title>Clock</title>", title="Clock")
-    return MCPServer("clock", extensions=[apps], include_server_info=False)
+    return MCPServer("clock", extensions=[apps])
 
 
 async def test_apps_tool_stamps_ui_resource_uri_on_tool_meta() -> None:
@@ -60,7 +61,7 @@ async def test_add_html_resource_serves_ui_resource_at_app_mime_type() -> None:
     `text/html;profile=mcp-app`, observed through `read_resource`."""
     async with Client(_clock_server()) as client:
         result = await client.read_resource("ui://clock/app.html")
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[
                 TextResourceContents(

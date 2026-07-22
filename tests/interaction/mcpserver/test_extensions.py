@@ -15,6 +15,7 @@ from mcp.client import ClaimContext, ClientExtension, ResultClaim, advertise
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import Context, MCPServer, require_client_extension
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -92,7 +93,7 @@ async def test_claimed_result_is_finished_by_the_owning_extensions_resolver(conn
         result = await client.call_tool("buy", {"item": "lamp"})
 
     assert [claimed.receipt_token for claimed in received] == ["r-117"]
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="goods for r-117")], structured_content={"result": "goods for r-117"})
     )
 

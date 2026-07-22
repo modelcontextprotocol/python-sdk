@@ -14,6 +14,7 @@ from mcp_types import (
 from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
+from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -34,7 +35,7 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
     completion_order: list[str] = []
     results: dict[str, CallToolResult] = {}
 
-    server = MCPServer("parking", include_server_info=False)
+    server = MCPServer("parking")
 
     @server.tool()
     async def park(tag: str) -> str:
@@ -66,7 +67,7 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
                     await done[tag].wait()
 
     assert completion_order == ["c", "b", "a"]
-    assert results == snapshot(
+    assert {tag: unstamped(result) for tag, result in results.items()} == snapshot(
         {
             "c": CallToolResult(content=[TextContent(text="result:c")], structured_content={"result": "result:c"}),
             "b": CallToolResult(content=[TextContent(text="result:b")], structured_content={"result": "result:b"}),

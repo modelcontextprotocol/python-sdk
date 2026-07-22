@@ -33,6 +33,7 @@ from mcp.client import ClientRequestContext, ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -157,7 +158,7 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
         )
         result = await client.call_tool("echo", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="unbothered")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="unbothered")]))
 
 
 @requirement("protocol:cancel:server-to-client")
@@ -397,7 +398,7 @@ async def test_abandoning_a_call_stops_the_server_handler(connect: Connect) -> N
         # dropped while the client is still open, so teardown never races its delivery.
         await anyio.wait_all_tasks_blocked()
         result = await client.call_tool("echo", {})
-        assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+        assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
 
 
 @requirement("protocol:cancel:abort-scoped")
@@ -464,4 +465,6 @@ async def test_abandoning_one_call_leaves_a_concurrent_call_running(connect: Con
         # dropped while the client is still open, so teardown never races its delivery.
         await anyio.wait_all_tasks_blocked()
 
-    assert results == snapshot([CallToolResult(content=[TextContent(text="survived")])])
+    assert [unstamped(result) for result in results] == snapshot(
+        [CallToolResult(content=[TextContent(text="survived")])]
+    )

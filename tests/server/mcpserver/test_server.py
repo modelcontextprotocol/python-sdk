@@ -62,6 +62,7 @@ from mcp.server.subscriptions import (
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import InvalidUriTemplate
+from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -979,7 +980,7 @@ class TestServerResourceTemplates:
 
     async def test_resource_template_includes_mime_type(self):
         """Test that list resource templates includes the correct mimeType."""
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.resource("resource://{user}/csv", mime_type="text/csv")
         def get_csv(user: str) -> str:
@@ -996,7 +997,7 @@ class TestServerResourceTemplates:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://bob/csv")
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 ReadResourceResult(
                     contents=[TextResourceContents(uri="resource://bob/csv", mime_type="text/csv", text="csv for bob")]
                 )
@@ -1055,7 +1056,7 @@ class TestServerResourceMetadata:
     async def test_read_resource_returns_meta(self):
         """Test that read_resource includes meta in response."""
         # Tests end-to-end: Resource.meta -> ReadResourceContents.meta -> protocol _meta (lowlevel/server.py:341,371)
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.resource("resource://data", meta={"version": "1.0", "category": "config"})
         def get_data() -> str:
@@ -1063,7 +1064,7 @@ class TestServerResourceMetadata:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://data")
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 ReadResourceResult(
                     contents=[
                         TextResourceContents(
@@ -1217,7 +1218,7 @@ class TestContextInjection:
 
     async def test_resource_without_context(self):
         """Test that resources without context work normally."""
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.resource("resource://nocontext/{name}")
         def resource_no_context(name: str) -> str:
@@ -1232,7 +1233,7 @@ class TestContextInjection:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://nocontext/test")
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 ReadResourceResult(
                     contents=[
                         TextResourceContents(
@@ -1244,7 +1245,7 @@ class TestContextInjection:
 
     async def test_resource_context_custom_name(self):
         """Test resource context with custom parameter name."""
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.resource("resource://custom/{id}")
         def resource_custom_ctx(id: str, my_ctx: Context) -> str:
@@ -1260,7 +1261,7 @@ class TestContextInjection:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://custom/123")
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 ReadResourceResult(
                     contents=[
                         TextResourceContents(
@@ -1385,14 +1386,14 @@ class TestServerPrompts:
 
     async def test_list_prompts(self):
         """Test listing prompts through MCP protocol."""
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.prompt()
         def fn(name: str, optional: str = "default") -> str: ...  # pragma: no branch
 
         async with Client(mcp) as client:
             result = await client.list_prompts()
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 ListPromptsResult(
                     prompts=[
                         Prompt(
@@ -1409,7 +1410,7 @@ class TestServerPrompts:
 
     async def test_get_prompt(self):
         """Test getting a prompt through MCP protocol."""
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.prompt()
         def fn(name: str) -> str:
@@ -1417,7 +1418,7 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 GetPromptResult(
                     description="",
                     messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
@@ -1438,7 +1439,7 @@ class TestServerPrompts:
 
     async def test_get_prompt_with_docstring_description(self):
         """Test prompt uses docstring as description when not explicitly provided."""
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.prompt()
         def fn(name: str) -> str:
@@ -1447,7 +1448,7 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 GetPromptResult(
                     description="This is the function docstring.",
                     messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
@@ -1456,7 +1457,7 @@ class TestServerPrompts:
 
     async def test_get_prompt_with_resource(self):
         """Test getting a prompt that returns resource content."""
-        mcp = MCPServer(include_server_info=False)
+        mcp = MCPServer()
 
         @mcp.prompt()
         def fn() -> Message:
@@ -1469,7 +1470,7 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn")
-            assert result == snapshot(
+            assert unstamped(result) == snapshot(
                 GetPromptResult(
                     description="",
                     messages=[

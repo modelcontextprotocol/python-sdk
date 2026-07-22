@@ -11,6 +11,7 @@ from inline_snapshot import snapshot
 from mcp_types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import unstamped
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -83,7 +84,7 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
     async with connect(server, logging_callback=collect) as client:
         result = await client.call_tool("chatty", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="done")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="done")]))
     assert received == snapshot(
         [
             LoggingMessageNotificationParams(level="info", logger="app.lifecycle", data="starting up"),
