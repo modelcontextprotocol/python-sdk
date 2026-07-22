@@ -49,6 +49,19 @@ class _StreamClaim:
     private_fd: int | None = None
 
 
+class _UnownedTextWrapper(TextIOWrapper):
+    """Text layer whose close never closes the underlying buffer.
+
+    The buffer is not the transport's to close: in the in-place paths it is the
+    sys stream's own buffer, and closing it at garbage collection destroyed
+    sys.stdout for the rest of the process (issue #1933).
+    """
+
+    def close(self) -> None:
+        with suppress(ValueError):
+            self.detach()
+
+
 def _is_backed_by_fd(stream: TextIO, fd: int) -> bool:
     try:
         return stream.buffer.fileno() == fd
@@ -158,10 +171,10 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     try:
         if not stdin:
             stdin_buffer, restore_stdin = _claim_fd(0, sys.stdin, "rb", _open_stdin_diversion)
-            stdin = anyio.wrap_file(TextIOWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
+            stdin = anyio.wrap_file(_UnownedTextWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
         if not stdout:
             stdout_buffer, restore_stdout = _claim_fd(1, sys.stdout, "wb", _open_stdout_diversion)
-            stdout = anyio.wrap_file(TextIOWrapper(stdout_buffer, encoding="utf-8"))
+            stdout = anyio.wrap_file(_UnownedTextWrapper(stdout_buffer, encoding="utf-8"))
 
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
         write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
