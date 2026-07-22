@@ -118,7 +118,7 @@ async def test_meta_reaches_the_client_application() -> None:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         assert result.meta is not None
         # The server identity stamp shares `_meta` with the handler's keys without clobbering
-        # them. Remove it before the exact compares: its `version` tracks the installed package.
+        # them. Remove it before the exact compares: the page's fence leaves the stamp out.
         del result.meta[SERVER_INFO_META_KEY]
         assert result.meta == {"bookshop/record_ids": ["bk_17", "bk_42", "bk_99"]}
         assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(

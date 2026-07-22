@@ -5,7 +5,6 @@
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false
 
-from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -19,12 +18,11 @@ from mcp import Client
 def strip_server_info(result: CallToolResult, server_name: str) -> CallToolResult:
     """Assert the 2026-era serverInfo stamp, then drop it from the result's meta.
 
-    The example servers set no explicit version, so the stamp's version is the
-    installed mcp package version; keeping it in the inline snapshots would make
-    them commit-dependent.
+    The example servers set no explicit version, so the stamp's version is
+    empty; the snapshots stay about the behavior under test, not identity.
     """
     assert result.meta is not None
-    assert result.meta[SERVER_INFO_META_KEY] == {"name": server_name, "version": version("mcp")}
+    assert result.meta[SERVER_INFO_META_KEY] == {"name": server_name, "version": ""}
     remaining = {k: v for k, v in result.meta.items() if k != SERVER_INFO_META_KEY}
     return result.model_copy(update={"meta": remaining or None})
 

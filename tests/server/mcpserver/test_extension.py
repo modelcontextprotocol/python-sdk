@@ -6,7 +6,6 @@ the highest-level public surface (in-memory `Client`).
 """
 
 from dataclasses import replace
-from importlib.metadata import version
 from typing import Any, Literal
 
 import mcp_types as types
@@ -32,7 +31,6 @@ from mcp.server.extension import (
 from mcp.server.mcpserver import Context, MCPServer, require_client_extension
 from mcp.server.mcpserver.resources import TextResource
 from mcp.shared.exceptions import MCPError
-from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -152,12 +150,17 @@ async def test_additive_extension_registers_its_tool_and_resource() -> None:
 
     assert [t.name for t in tools.tools] == ["ping"]
     assert tools.tools[0].meta == _TOOL_META
-    assert unstamped(called) == snapshot(
-        CallToolResult(content=[TextContent(text="pong")], structured_content={"result": "pong"})
+    assert called == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="pong")],
+            structured_content={"result": "pong"},
+        )
     )
-    assert unstamped(resources) == snapshot(
+    assert resources == snapshot(
         types.ListResourcesResult(
-            resources=[types.Resource(name="greeting", uri="ext://greeting", mime_type="text/plain")]
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            resources=[types.Resource(name="greeting", uri="ext://greeting", mime_type="text/plain")],
         )
     )
 
@@ -199,7 +202,9 @@ async def test_extension_method_reachable_via_session_send_request() -> None:
         request = _PingRequest(params=_PingParams())
         result = await client.session.send_request(request, _PingResult)
 
-    assert unstamped(result) == snapshot(_PingResult(pong=True))
+    assert result == snapshot(
+        _PingResult(_meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}}, pong=True)
+    )
 
 
 async def test_pass_through_interceptor_leaves_tool_result_unchanged() -> None:
@@ -211,8 +216,12 @@ async def test_pass_through_interceptor_leaves_tool_result_unchanged() -> None:
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"})
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="hi")],
+            structured_content={"result": "hi"},
+        )
     )
 
 
@@ -225,7 +234,12 @@ async def test_short_circuiting_interceptor_replaces_tool_result() -> None:
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="intercepted")]))
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="intercepted")],
+        )
+    )
 
 
 def test_plain_extension_leaves_the_tool_call_handler_bare() -> None:
@@ -262,8 +276,12 @@ async def test_default_interceptor_passes_through_alongside_an_overriding_one() 
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"})
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="hi")],
+            structured_content={"result": "hi"},
+        )
     )
 
 
@@ -305,8 +323,12 @@ async def test_an_interceptor_context_rewrite_does_not_change_the_tool_invocatio
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "original"})
 
-    assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="original")], structured_content={"result": "original"})
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="original")],
+            structured_content={"result": "original"},
+        )
     )
 
 
@@ -321,7 +343,7 @@ async def test_short_circuited_interceptor_result_carries_the_server_info_stamp(
         result = await client.call_tool("echo", {"value": "hi"})
 
     assert result.content == [TextContent(text="intercepted")]
-    assert result.meta == {SERVER_INFO_META_KEY: {"name": "test", "version": version("mcp")}}
+    assert result.meta == {SERVER_INFO_META_KEY: {"name": "test", "version": ""}}
 
 
 def test_extension_subclass_without_prefixed_identifier_is_rejected_at_definition() -> None:
@@ -376,7 +398,9 @@ async def test_version_pinned_method_is_served_at_an_allowed_version() -> None:
         request = _VersionPinnedRequest(params=_VersionPinnedParams())
         result = await client.session.send_request(request, _VersionPinnedResult)
 
-    assert unstamped(result) == snapshot(_VersionPinnedResult(ok=True))
+    assert result == snapshot(
+        _VersionPinnedResult(_meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}}, ok=True)
+    )
 
 
 async def test_version_pinned_method_is_method_not_found_at_a_disallowed_version() -> None:
@@ -456,8 +480,12 @@ async def test_require_client_extension_passes_when_client_declared_it() -> None
     async with Client(server, extensions=[advertise(_NEEDS_EXT)]) as client:
         result = await client.call_tool("guarded", {})
 
-    assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"})
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="ok")],
+            structured_content={"result": "ok"},
+        )
     )
 
 

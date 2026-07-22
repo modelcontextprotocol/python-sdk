@@ -215,9 +215,7 @@ async def test_handle_modern_request_routes_with_mis_shaped_envelope_client_info
         response = await http.post("/mcp", json=body, headers={MCP_METHOD_HEADER: "custom/greet"})
     assert response.status_code == 200
     result = response.json()["result"]
-    stamp = result["_meta"].pop(SERVER_INFO_META_KEY)
-    assert "name" in stamp and "version" in stamp
-    assert result == {"_meta": {}, "ok": True}
+    assert result == {"_meta": {SERVER_INFO_META_KEY: {"name": "test", "version": ""}}, "ok": True}
     assert seen == [None]
 
 

@@ -18,7 +18,6 @@ from mcp_types import (
 from mcp import Client
 from mcp.server import CacheHint, MCPServer, Server, ServerRequestContext
 from mcp.server.caching import apply_cache_hint
-from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -148,8 +147,12 @@ async def test_an_input_required_shaped_dict_never_gets_cache_hints() -> None:
     async with Client(server) as client:
         result = await client.session.read_resource("res://x", allow_input_required=True)
     assert isinstance(result, InputRequiredResult)
-    assert unstamped(result).model_dump(by_alias=True, exclude_none=True) == snapshot(
-        {"resultType": "input_required", "requestState": "s1"}
+    assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
+        {
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "srv", "version": ""}},
+            "resultType": "input_required",
+            "requestState": "s1",
+        }
     )
 
 

@@ -8,7 +8,6 @@ runner (spec 2026-07-28, #3002), not the handler, so those two drive one
 request through `serve_one` to observe it.
 """
 
-import importlib.metadata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -132,11 +131,12 @@ async def test_server_info_reflects_constructor_fields() -> None:
 
 
 @pytest.mark.anyio
-async def test_server_info_version_falls_back_to_package() -> None:
+async def test_an_unversioned_server_reports_an_empty_version() -> None:
     """SDK-defined: when no explicit version is supplied, the stamped
-    `serverInfo` version falls back to the installed `mcp` package version."""
+    `serverInfo` version is an empty string - the SDK never substitutes its
+    own package version for the server's."""
     result = await _discover_over_runner(Server("unversioned"))
-    assert result["_meta"][types.SERVER_INFO_META_KEY]["version"] == importlib.metadata.version("mcp")
+    assert result["_meta"][types.SERVER_INFO_META_KEY] == {"name": "unversioned", "version": ""}
 
 
 @pytest.mark.anyio

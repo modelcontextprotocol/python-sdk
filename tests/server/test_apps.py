@@ -28,7 +28,6 @@ from mcp.server.apps import (
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.resources import TextResource
-from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -61,15 +60,16 @@ async def test_add_html_resource_serves_ui_resource_at_app_mime_type() -> None:
     `text/html;profile=mcp-app`, observed through `read_resource`."""
     async with Client(_clock_server()) as client:
         result = await client.read_resource("ui://clock/app.html")
-    assert unstamped(result) == snapshot(
+    assert result == snapshot(
         ReadResourceResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "clock", "version": ""}},
             contents=[
                 TextResourceContents(
                     uri="ui://clock/app.html",
                     mime_type="text/html;profile=mcp-app",
                     text="<title>Clock</title>",
                 )
-            ]
+            ],
         )
     )
     assert isinstance(result.contents[0], TextResourceContents)

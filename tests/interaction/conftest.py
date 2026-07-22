@@ -55,13 +55,6 @@ class CellConnect:
         self.spec_version = spec_version
 
     def __call__(self, server: Server | MCPServer, **kwargs: Any) -> AbstractAsyncContextManager[Client]:
-        # The matrix compares exact result payloads, and the 2026-era serverInfo
-        # `_meta` stamp carries the server version, which defaults to the
-        # commit-dependent installed package version. Pin it so expected
-        # payloads stay deterministic across commits.
-        lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
-        if lowlevel.version is None:
-            lowlevel.version = "1.0.0"
         return self._factory(server, spec_version=self.spec_version, **kwargs)
 
 

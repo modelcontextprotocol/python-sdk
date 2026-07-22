@@ -1,11 +1,10 @@
 """Shared helper: strip the 2026-era serverInfo `_meta` stamp from a result.
 
 Servers stamp `io.modelcontextprotocol/serverInfo` into every 2026-era
-result's `_meta` and never into handshake-era ones, and the stamp's `version`
-defaults to the installed package version. Suites whose expected payloads
-should stay identity-free strip the stamp before exact comparison - and the
-strip is strict, so a modern result that lost its stamp fails the test
-instead of passing silently.
+result's `_meta` and never into handshake-era ones. Suites whose expected
+payloads should stay identity-free strip the stamp before exact comparison -
+and the strip is strict, so a modern result that lost its stamp fails the
+test instead of passing silently.
 
 The interaction matrix does not use this function directly: its `unstamped`
 fixture (tests/interaction/conftest.py) resolves per cell to this strict

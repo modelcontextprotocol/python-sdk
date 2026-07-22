@@ -606,6 +606,14 @@ mcp = MCPServer("Demo", instructions="You answer questions about the weather.")
 
 Keep `name` positional and pass everything else by keyword.
 
+### Unversioned servers report an empty version
+
+In v1, a server constructed without a `version` reported the installed `mcp`
+package's version as its own in the `initialize` result's `serverInfo`. In v2
+it reports an empty string instead: the SDK's version is not your server's
+version. Pass `version="..."` to `Server(...)` or `MCPServer(...)` to identify
+your server properly. The field is display-only; nothing breaks either way.
+
 ### `mount_path` parameter removed from MCPServer
 
 The `mount_path` parameter has been removed from `MCPServer.__init__()`, `MCPServer.run()`, `MCPServer.run_sse_async()`, and `MCPServer.sse_app()`. It was also removed from the `Settings` class.

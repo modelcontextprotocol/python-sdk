@@ -62,7 +62,6 @@ from mcp.server.subscriptions import (
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import InvalidUriTemplate
-from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -997,9 +996,10 @@ class TestServerResourceTemplates:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://bob/csv")
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 ReadResourceResult(
-                    contents=[TextResourceContents(uri="resource://bob/csv", mime_type="text/csv", text="csv for bob")]
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
+                    contents=[TextResourceContents(uri="resource://bob/csv", mime_type="text/csv", text="csv for bob")],
                 )
             )
 
@@ -1064,8 +1064,9 @@ class TestServerResourceMetadata:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://data")
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 ReadResourceResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     contents=[
                         TextResourceContents(
                             uri="resource://data",
@@ -1073,7 +1074,7 @@ class TestServerResourceMetadata:
                             meta={"version": "1.0", "category": "config"},  # type: ignore[reportUnknownMemberType]
                             text="test data",
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1233,13 +1234,14 @@ class TestContextInjection:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://nocontext/test")
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 ReadResourceResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     contents=[
                         TextResourceContents(
                             uri="resource://nocontext/test", mime_type="text/plain", text="Resource test works"
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1261,13 +1263,14 @@ class TestContextInjection:
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://custom/123")
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 ReadResourceResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     contents=[
                         TextResourceContents(
                             uri="resource://custom/123", mime_type="text/plain", text="Resource 123 with context"
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1393,8 +1396,9 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.list_prompts()
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 ListPromptsResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     prompts=[
                         Prompt(
                             name="fn",
@@ -1404,7 +1408,7 @@ class TestServerPrompts:
                                 PromptArgument(name="optional", required=False),
                             ],
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1418,8 +1422,9 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 GetPromptResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     description="",
                     messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
                 )
@@ -1448,8 +1453,9 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 GetPromptResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     description="This is the function docstring.",
                     messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
                 )
@@ -1470,8 +1476,9 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn")
-            assert unstamped(result) == snapshot(
+            assert result == snapshot(
                 GetPromptResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     description="",
                     messages=[
                         PromptMessage(

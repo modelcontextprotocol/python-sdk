@@ -43,7 +43,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from functools import cached_property
-from importlib.metadata import version as importlib_version
 from typing import Any, Generic, overload
 
 import mcp_types as types
@@ -124,15 +123,6 @@ async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
 
 async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestParams | None) -> types.EmptyResult:
     return types.EmptyResult()
-
-
-def _package_version(package: str) -> str:
-    try:
-        return importlib_version(package)
-    except Exception:  # pragma: no cover
-        pass
-
-    return "unknown"  # pragma: no cover
 
 
 class Server(Generic[LifespanResultT]):
@@ -549,7 +539,7 @@ class Server(Generic[LifespanResultT]):
         """
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else _package_version("mcp"),
+            server_version=self.version or "",
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
@@ -643,7 +633,7 @@ class Server(Generic[LifespanResultT]):
         """
         return types.Implementation(
             name=self.name,
-            version=self.version if self.version else _package_version("mcp"),
+            version=self.version or "",
             title=self.title,
             description=self.description,
             website_url=self.website_url,

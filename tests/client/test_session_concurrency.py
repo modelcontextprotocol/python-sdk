@@ -14,7 +14,6 @@ from mcp_types import (
 from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import Context, MCPServer
-from tests._stamp import unstamped
 
 pytestmark = pytest.mark.anyio
 
@@ -67,11 +66,23 @@ async def test_concurrent_tool_calls_resolve_out_of_order_to_their_own_callers()
                     await done[tag].wait()
 
     assert completion_order == ["c", "b", "a"]
-    assert {tag: unstamped(result) for tag, result in results.items()} == snapshot(
+    assert results == snapshot(
         {
-            "c": CallToolResult(content=[TextContent(text="result:c")], structured_content={"result": "result:c"}),
-            "b": CallToolResult(content=[TextContent(text="result:b")], structured_content={"result": "result:b"}),
-            "a": CallToolResult(content=[TextContent(text="result:a")], structured_content={"result": "result:a"}),
+            "c": CallToolResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "parking", "version": ""}},
+                content=[TextContent(text="result:c")],
+                structured_content={"result": "result:c"},
+            ),
+            "b": CallToolResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "parking", "version": ""}},
+                content=[TextContent(text="result:b")],
+                structured_content={"result": "result:b"},
+            ),
+            "a": CallToolResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "parking", "version": ""}},
+                content=[TextContent(text="result:a")],
+                structured_content={"result": "result:a"},
+            ),
         }
     )
 

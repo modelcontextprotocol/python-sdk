@@ -45,7 +45,6 @@ from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
-from tests._stamp import unstamped
 from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
@@ -134,9 +133,10 @@ async def test_client_with_simple_server(simple_server: Server):
     """Test that from_server works with a basic Server instance."""
     async with Client(simple_server) as client:
         resources = await client.list_resources()
-        assert unstamped(resources) == snapshot(
+        assert resources == snapshot(
             ListResourcesResult(
-                resources=[Resource(name="Test Resource", uri="memory://test", description="A test resource")]
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test_server", "version": ""}},
+                resources=[Resource(name="Test Resource", uri="memory://test", description="A test resource")],
             )
         )
 
@@ -150,8 +150,9 @@ async def test_client_send_ping(app: MCPServer):
 async def test_client_list_tools(app: MCPServer):
     async with Client(app) as client:
         result = await client.list_tools()
-        assert unstamped(result) == snapshot(
+        assert result == snapshot(
             ListToolsResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
                 tools=[
                     Tool(
                         name="greet",
@@ -169,7 +170,7 @@ async def test_client_list_tools(app: MCPServer):
                             "type": "object",
                         },
                     )
-                ]
+                ],
             )
         )
 
@@ -177,8 +178,9 @@ async def test_client_list_tools(app: MCPServer):
 async def test_client_call_tool(app: MCPServer):
     async with Client(app) as client:
         result = await client.call_tool("greet", {"name": "World"})
-        assert unstamped(result) == snapshot(
+        assert result == snapshot(
             CallToolResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
                 content=[TextContent(text="Hello, World!")],
                 structured_content={"result": "Hello, World!"},
             )
@@ -189,9 +191,10 @@ async def test_read_resource(app: MCPServer):
     """Test reading a resource."""
     async with Client(app) as client:
         result = await client.read_resource("test://resource")
-        assert unstamped(result) == snapshot(
+        assert result == snapshot(
             ReadResourceResult(
-                contents=[TextResourceContents(uri="test://resource", mime_type="text/plain", text="Test content")]
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+                contents=[TextResourceContents(uri="test://resource", mime_type="text/plain", text="Test content")],
             )
         )
 
@@ -269,8 +272,9 @@ async def test_get_prompt(app: MCPServer):
     """Test getting a prompt."""
     async with Client(app) as client:
         result = await client.get_prompt("greeting_prompt", {"name": "Alice"})
-        assert unstamped(result) == snapshot(
+        assert result == snapshot(
             GetPromptResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
                 description="A greeting prompt.",
                 messages=[PromptMessage(role="user", content=TextContent(text="Please greet Alice warmly."))],
             )
@@ -335,8 +339,9 @@ async def test_client_list_resources_with_params(app: MCPServer):
     """Test listing resources with params parameter."""
     async with Client(app) as client:
         result = await client.list_resources()
-        assert unstamped(result) == snapshot(
+        assert result == snapshot(
             ListResourcesResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
                 resources=[
                     Resource(
                         name="test_resource",
@@ -344,7 +349,7 @@ async def test_client_list_resources_with_params(app: MCPServer):
                         description="A test resource.",
                         mime_type="text/plain",
                     )
-                ]
+                ],
             )
         )
 
@@ -353,22 +358,27 @@ async def test_client_list_resource_templates(app: MCPServer):
     """Test listing resource templates with params parameter."""
     async with Client(app) as client:
         result = await client.list_resource_templates()
-        assert unstamped(result) == snapshot(ListResourceTemplatesResult(resource_templates=[]))
+        assert result == snapshot(
+            ListResourceTemplatesResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}}, resource_templates=[]
+            )
+        )
 
 
 async def test_list_prompts(app: MCPServer):
     """Test listing prompts with params parameter."""
     async with Client(app) as client:
         result = await client.list_prompts()
-        assert unstamped(result) == snapshot(
+        assert result == snapshot(
             ListPromptsResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
                 prompts=[
                     Prompt(
                         name="greeting_prompt",
                         description="A greeting prompt.",
                         arguments=[PromptArgument(name="name", required=True)],
                     )
-                ]
+                ],
             )
         )
 
@@ -378,7 +388,12 @@ async def test_complete_with_prompt_reference(simple_server: Server):
     async with Client(simple_server) as client:
         ref = types.PromptReference(type="ref/prompt", name="test_prompt")
         result = await client.complete(ref=ref, argument={"name": "arg", "value": "test"})
-        assert unstamped(result) == snapshot(types.CompleteResult(completion=types.Completion(values=[])))
+        assert result == snapshot(
+            types.CompleteResult(
+                _meta={"io.modelcontextprotocol/serverInfo": {"name": "test_server", "version": ""}},
+                completion=types.Completion(values=[]),
+            )
+        )
 
 
 def test_client_with_url_initializes_streamable_http_transport():
@@ -756,8 +771,12 @@ async def test_call_tool_auto_loop_dispatches_elicitation_then_returns_final_res
         async with Client(server, elicitation_callback=elicitation_callback) as client:
             result = await client.call_tool("greet")
 
-    assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="Hello, Ada!")], structured_content={"result": "Hello, Ada!"})
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="Hello, Ada!")],
+            structured_content={"result": "Hello, Ada!"},
+        )
     )
     assert len(callback_params) == 1
     assert isinstance(callback_params[0], types.ElicitRequestFormParams)
@@ -801,9 +820,11 @@ async def test_call_tool_auto_loop_dispatches_sampling_then_returns_final_result
         async with Client(server, sampling_callback=sampling_callback) as client:
             result = await client.call_tool("ask")
 
-    assert unstamped(result) == snapshot(
+    assert result == snapshot(
         CallToolResult(
-            content=[TextContent(text="Model said: Paris")], structured_content={"result": "Model said: Paris"}
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="Model said: Paris")],
+            structured_content={"result": "Model said: Paris"},
         )
     )
     assert len(callback_params) == 1
@@ -834,8 +855,9 @@ async def test_call_tool_auto_loop_dispatches_list_roots_then_returns_final_resu
         async with Client(server, list_roots_callback=list_roots_callback) as client:
             result = await client.call_tool("count_roots")
 
-    assert unstamped(result) == snapshot(
+    assert result == snapshot(
         CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
             content=[TextContent(text="Client exposed 1 root(s).")],
             structured_content={"result": "Client exposed 1 root(s)."},
         )
@@ -920,8 +942,11 @@ async def test_get_prompt_auto_loop_resolves_input_required_via_callbacks() -> N
     with anyio.fail_after(5):
         async with Client(server, mode="2026-07-28", elicitation_callback=elicitation_callback) as client:
             result = await client.get_prompt("summary")
-    assert unstamped(result) == snapshot(
-        GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="ok"))])
+    assert result == snapshot(
+        GetPromptResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            messages=[PromptMessage(role="user", content=TextContent(text="ok"))],
+        )
     )
 
 
@@ -948,6 +973,9 @@ async def test_read_resource_auto_loop_resolves_input_required_via_callbacks() -
     with anyio.fail_after(5):
         async with Client(server, mode="2026-07-28", elicitation_callback=elicitation_callback) as client:
             result = await client.read_resource("memory://gated")
-    assert unstamped(result) == snapshot(
-        ReadResourceResult(contents=[TextResourceContents(uri="memory://gated", text="unlocked")])
+    assert result == snapshot(
+        ReadResourceResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            contents=[TextResourceContents(uri="memory://gated", text="unlocked")],
+        )
     )
