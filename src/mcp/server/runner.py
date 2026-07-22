@@ -24,6 +24,7 @@ import anyio.abc
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CORE_RESULT_TYPES,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
@@ -335,9 +336,10 @@ class ServerRunner(Generic[LifespanT]):
         of the inbound classification ladder.
 
         One pass owns the whole response envelope, in order: cache hints fill
-        `ttlMs`/`cacheScope` the handler left unset, spec-method results are
-        validated and sieved by the per-version surface, and 2026-era results
-        get the `serverInfo` `_meta` stamp (spec #3002). Runs inside the
+        `ttlMs`/`cacheScope` the handler left unset, core-vocabulary spec-method
+        results are validated and sieved by the per-version surface (a claimed
+        extension `resultType` shape is the extension's to own), and 2026-era
+        results get the `serverInfo` `_meta` stamp (spec #3002). Runs inside the
         middleware chain so the OpenTelemetry span observes a failing return
         shape (unsupported type, malformed spec result) as an error rather
         than closing on a request that the client sees fail - and so a
@@ -352,10 +354,15 @@ class ServerRunner(Generic[LifespanT]):
                 # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
                 result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
         dumped = _dump_result(result)
-        # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
-        # corresponding extension is in this request's _meta clientCapabilities.extensions; the
+        # An extension `resultType` (outside the core vocabulary) marks a claimed
+        # shape owned by the extension that defined it: the per-version surface
+        # doesn't describe it, so the sieve applies to core results only.
+        # TODO(L56): reject extension resultType values unless the corresponding
+        # extension is in this request's _meta clientCapabilities.extensions; the
         # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
-        if method in _methods.SPEC_CLIENT_METHODS:
+        result_type = dumped.get("resultType")
+        core_shape = not isinstance(result_type, str) or result_type in CORE_RESULT_TYPES
+        if method in _methods.SPEC_CLIENT_METHODS and core_shape:
             try:
                 dumped = _methods.serialize_server_result(method, version, dumped)
             except ValidationError:

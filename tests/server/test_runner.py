@@ -27,6 +27,7 @@ from mcp_types import (
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
+    CallToolRequestParams,
     ClientCapabilities,
     EmptyResult,
     ErrorData,
@@ -1057,6 +1058,27 @@ async def test_stamping_never_mutates_a_handler_retained_result_dict(server: Srv
         result = await client.send_raw_request("myorg/cached", None)
     assert result["_meta"][SERVER_INFO_META_KEY] == {"name": "test-server", "version": "0.0.1"}
     assert retained == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_a_claimed_extension_result_type_bypasses_the_sieve_and_is_stamped(server: SrvT):
+    """SDK-defined: a spec-method result carrying an extension `resultType` is a
+    claimed shape the extension owns - the per-version sieve would strip its
+    vendor fields, so it applies to core-vocabulary results only. The identity
+    stamp still lands: claimed shapes are results like any other."""
+
+    async def custom(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
+        return {"resultType": "voucher", "voucherCode": "v-42"}
+
+    server.add_request_handler("tools/call", CallToolRequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("tools/call", _modern_params(name="issue"))
+    assert result == {
+        "resultType": "voucher",
+        "voucherCode": "v-42",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
 
 
 @pytest.mark.anyio
