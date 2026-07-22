@@ -234,11 +234,25 @@ There is one way to end up unstructured without asking for it: return a class th
     Need full control (building the `CallToolResult` yourself, or attaching `_meta` that the
     application can see but the model can't)? That's **[The low-level Server](../advanced/low-level-server.md)**.
 
+## Skip the text copy
+
+By default a structured tool fills **both** channels: `structured_content` for the application, and a serialized copy in `content` for the model. That copy is the spec's recommendation (a SHOULD, not a MUST) so an old client that only reads `content` still sees the value. When the payload is large, or the host routes `structured_content` to the model itself, the copy is wasted — the same data crosses the wire twice.
+
+Pass `mirror_structured_content=False` to return `structured_content` only, with empty `content`:
+
+```python
+@mcp.tool(mirror_structured_content=False)
+def list_accounts(segment: str) -> list[Account]:
+    return query_accounts(segment)  # only structured_content is sent
+```
+
+The default is `True`, so nothing changes unless you opt out. A tool with no `output_schema` is unaffected — its `content` is the only representation and is always sent. If you want a *smaller* model-facing rendering rather than none, build the `CallToolResult` yourself and set `content` to a summary.
+
 ## Recap
 
 * The **return type annotation** is the output schema. It's published in `tools/list` as `output_schema`.
 * Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes and `dict[str, ...]` are objects already and stay as they are.
-* Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
+* Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application) — unless you pass `mirror_structured_content=False`, which sends `structured_content` only.
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
 * `structured_output=False` opts a tool out. A class without type hints opts out silently; watch for it.
 

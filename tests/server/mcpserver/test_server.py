@@ -537,6 +537,27 @@ class TestServerTools:
             assert isinstance(result.content[0], TextContent)
             assert '"name": "John Doe"' in result.content[0].text
 
+    async def test_tool_mirror_structured_content_false_omits_text_block(self):
+        """mirror_structured_content=False returns structuredContent only, with empty content."""
+
+        class UserOutput(BaseModel):
+            name: str
+            age: int
+
+        mcp = MCPServer()
+
+        @mcp.tool(mirror_structured_content=False)
+        def get_user(user_id: int) -> UserOutput:
+            """Get user by ID"""
+            return UserOutput(name="John Doe", age=30)
+
+        async with Client(mcp) as client:
+            result = await client.call_tool("get_user", {"user_id": 123})
+            assert result.is_error is False
+            assert result.structured_content == {"name": "John Doe", "age": 30}
+            # The serialised text mirror is suppressed; structuredContent is the sole representation.
+            assert result.content == []
+
     async def test_tool_structured_output_primitive(self):
         """Test tool with structured output returning primitive type"""
 

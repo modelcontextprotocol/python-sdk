@@ -107,19 +107,23 @@ class FuncMetadata(BaseModel):
         else:
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
-    def convert_result(self, result: Any) -> CallToolResult | InputRequiredResult:
+    def convert_result(
+        self, result: Any, *, mirror_structured_content: bool = True
+    ) -> CallToolResult | InputRequiredResult:
         """Convert a function call result into a `CallToolResult`.
 
         An `InputRequiredResult` is passed through unchanged so the multi-round
         flow surfaces on the wire as `resultType: "input_required"` rather than
         being JSON-dumped into a text block.
 
-        Note: we build unstructured content here **even though the lowlevel server
-        tool call handler provides generic backwards compatibility serialization of
-        structured content**. This is for MCPServer backwards compatibility: we need to
-        retain MCPServer's ad hoc conversion logic for constructing unstructured output
-        from function return values, whereas the lowlevel server simply serializes
-        the structured output.
+        For a tool with an output schema, structured output is returned as
+        `structuredContent`. By default it is *also* serialised into a `content`
+        text block, so a client that reads only `content` still sees the value --
+        the spec's SHOULD. When ``mirror_structured_content`` is False the
+        serialised copy is omitted and `structuredContent` becomes the sole
+        representation; a host that routes `structuredContent` to the model itself
+        then no longer receives the payload twice. Because the serialised-text
+        guidance is a SHOULD (not a MUST), opting out stays conformant.
         """
         if isinstance(result, InputRequiredResult):
             return result
@@ -129,10 +133,10 @@ class FuncMetadata(BaseModel):
                 self.output_model.model_validate(result.structured_content)
             return result
 
-        unstructured_content = _convert_to_content(result)
-
         if self.output_schema is None:
-            return CallToolResult(content=unstructured_content)
+            return CallToolResult(content=_convert_to_content(result))
+
+        content: list[ContentBlock] = _convert_to_content(result) if mirror_structured_content else []
 
         if self.wrap_output:
             result = {"result": result}
@@ -141,7 +145,7 @@ class FuncMetadata(BaseModel):
         validated = self.output_model.model_validate(result)
         structured_content = validated.model_dump(mode="json", by_alias=True)
 
-        return CallToolResult(content=unstructured_content, structured_content=structured_content)
+        return CallToolResult(content=content, structured_content=structured_content)
 
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Pre-parse data from JSON.
