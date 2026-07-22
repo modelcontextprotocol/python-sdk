@@ -382,8 +382,11 @@ class ServerRunner(Generic[LifespanT]):
     def _stamp_server_info(self, version: str, result: dict[str, Any]) -> dict[str, Any]:
         """Fill the `serverInfo` `_meta` stamp on a 2026-era result (spec #3002).
 
-        A handler-authored value wins, a non-mapping `_meta` is the handler's
-        to own, and handshake-era results are never stamped. `result` is
+        A handler-authored value wins; an explicit `null` reads as absent and
+        is stamped over, mirroring the request-side `clientInfo` posture (a
+        `null` is not a valid `Implementation`, so presence means a value). A
+        non-mapping `_meta` is the handler's to own, and handshake-era results
+        are never stamped. `result` is
         pipeline-owned (`_dump_result` copies dicts; the spec-method sieve
         re-dumps), but `_meta` may still be the handler's object, so the stamp
         replaces it rather than writing into it. `server_info_stamp` is a

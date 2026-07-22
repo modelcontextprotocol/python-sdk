@@ -80,9 +80,8 @@ def _meta_envelope() -> dict[str, object]:
 def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Server:
     """A low-level server with one `add` tool for the raw-httpx2 tests below.
 
-    The explicit version pins the `_meta` serverInfo stamp every 2026 result carries, so
-    wire-level snapshots stay deterministic (the default falls back to the installed package
-    version).
+    The explicit version gives the `_meta` serverInfo stamp every 2026 result
+    carries a non-empty value for the wire-level snapshots.
     """
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:

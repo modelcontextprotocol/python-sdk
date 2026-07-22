@@ -628,8 +628,8 @@ class Server(Generic[LifespanResultT]):
     def server_info(self) -> types.Implementation:
         """The `serverInfo` block describing this implementation.
 
-        Derived from the constructor's identity fields. `version` falls back to
-        the installed `mcp` package version when not supplied explicitly.
+        Derived from the constructor's identity fields. An unversioned server
+        reports an empty `version`; the SDK never substitutes its own.
         """
         return types.Implementation(
             name=self.name,
