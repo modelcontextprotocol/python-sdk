@@ -27,7 +27,7 @@ from mcp_types import CallToolRequestParams
 from mcp_types.methods import SPEC_CLIENT_METHODS
 from pydantic import BaseModel
 
-from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 
 # Re-exported from `mcp.shared.extension` (shared with the client surface) for existing importers.
 from mcp.shared.extension import validate_extension_identifier as validate_extension_identifier
@@ -144,30 +144,34 @@ class Extension:
 
         Override to short-circuit (return a result without calling `call_next`)
         or to observe the call. `params` is the validated `tools/call` params;
-        `call_next(ctx)` runs the rest of the chain and the real handler.
+        `call_next(ctx)` runs the rest of the chain and the real handler, and
+        returns the handler's domain result. Interceptors run at the handler
+        layer: whatever they return is serialized like any handler result,
+        including the 2026-era `serverInfo` `_meta` stamp.
         """
         return await call_next(ctx)
 
 
-def compose_tool_call_interceptor(extensions: Sequence[Extension]) -> ServerMiddleware[Any]:
-    """Fold every extension's `intercept_tool_call` into one `ServerMiddleware`.
+def compose_tool_call_handler(extensions: Sequence[Extension], handler: RequestHandler) -> RequestHandler:
+    """Fold every extension's `intercept_tool_call` around the `tools/call` handler.
 
-    The returned middleware nests the interceptors (first extension outermost)
-    and is a no-op for any method other than `tools/call`. It validates the
-    `tools/call` params once and threads them to each interceptor.
+    The returned handler nests the interceptors (first extension outermost) and
+    replaces the plain `tools/call` registration. Interception happens at the
+    handler layer, below the runner's outbound envelope pass, so a
+    short-circuiting interceptor's result is sieved and stamped exactly like
+    the wrapped handler's would be.
     """
 
-    async def middleware(ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
-        if ctx.method != "tools/call":
-            return await call_next(ctx)
-        params = CallToolRequestParams.model_validate({} if ctx.params is None else ctx.params, by_name=False)
+    async def wrapped(ctx: ServerRequestContext[Any, Any], params: CallToolRequestParams) -> HandlerResult:
+        async def innermost(inner_ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
+            return await handler(inner_ctx, params)
 
-        chain = call_next
+        chain: CallNext = innermost
         for extension in reversed(extensions):
             chain = _bind_interceptor(extension, params, chain)
         return await chain(ctx)
 
-    return middleware
+    return wrapped
 
 
 def _bind_interceptor(extension: Extension, params: CallToolRequestParams, call_next: CallNext) -> CallNext:

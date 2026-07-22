@@ -64,7 +64,7 @@ from mcp.server.extension import (
     Extension,
     MethodBinding,
     RequestHandler,
-    compose_tool_call_interceptor,
+    compose_tool_call_handler,
     validate_extension_identifier,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -230,8 +230,9 @@ class MCPServer(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        # Ordering: inside OpenTelemetry (spans record the sealed wire form),
-        # outside extension interceptors (extensions see plaintext).
+        # Ordering: inside OpenTelemetry (spans record the sealed wire form).
+        # Extension interceptors run at the handler layer, inside this
+        # boundary, so they see plaintext.
         if request_state_security is None:
             security = RequestStateSecurity.ephemeral()
         else:
@@ -336,13 +337,20 @@ class MCPServer(Generic[LifespanResultT]):
         self._lowlevel_server.extensions[extension.identifier] = extension.settings()
 
     def _install_extension_interceptor(self) -> None:
-        """Compose every extension's `tools/call` interceptor into one middleware.
+        """Wrap the `tools/call` handler with every extension's interceptor.
 
         Installed only when at least one extension overrides `intercept_tool_call`,
-        so a server with purely additive extensions adds no middleware.
+        so a server with purely additive extensions keeps the bare handler. The
+        chain wraps the handler itself, below the runner's outbound envelope
+        pass, so a short-circuiting interceptor's result is sieved and stamped
+        exactly like a handler result.
         """
         if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
-            self._lowlevel_server.middleware.append(compose_tool_call_interceptor(self._extensions))
+            self._lowlevel_server.add_request_handler(
+                "tools/call",
+                CallToolRequestParams,
+                compose_tool_call_handler(self._extensions, self._handle_call_tool),
+            )
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...

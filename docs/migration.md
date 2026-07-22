@@ -486,7 +486,8 @@ What changed in the SDK:
   so on). Pass `include_server_info=False` to `Server(...)` or `MCPServer(...)`
   to turn it off. A `serverInfo` value your handler already set in `_meta` is
   never overwritten. Handshake-era responses are unchanged, and notifications
-  and error responses are never stamped.
+  and error responses are never stamped. A middleware that answers a request
+  itself (without `call_next`) owns its result envelope, stamp included.
 - `client.server_info` and `session.server_info` are `Implementation | None`
   on 2026-era connections: identity is optional on the wire, so a server that
   does not stamp it reads as `None`. Handshake-era connections still always

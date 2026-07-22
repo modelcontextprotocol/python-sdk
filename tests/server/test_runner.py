@@ -1042,9 +1042,9 @@ async def test_a_non_mapping_custom_result_meta_is_left_alone(server: SrvT):
 
 @pytest.mark.anyio
 async def test_stamping_never_mutates_a_handler_retained_result_dict(server: SrvT):
-    """SDK-defined: the stamp lands on a shallow copy at the runner's exit, so
-    a dict the handler retains (module-level, cached, shared) is never mutated
-    underneath it."""
+    """SDK-defined: the outbound pass dumps the handler's dict to a copy
+    (`_dump_result`) and the stamp writes into that copy, so a dict the handler
+    retains (module-level, cached, shared) is never mutated underneath it."""
 
     retained: dict[str, Any] = {"ok": True}
 

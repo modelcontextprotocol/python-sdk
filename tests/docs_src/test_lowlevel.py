@@ -87,8 +87,17 @@ async def test_output_schema_and_structured_content_are_both_yours_to_build() ->
             }
         )
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
-        assert result.content == [TextContent(type="text", text="Found 3 books matching 'dune'.")]
-        assert result.structured_content == {"matches": 3, "query": "dune"}
+        # The page shows this exact payload; tutorial003 pins `version="2.0.0"` so
+        # the identity stamp is deterministic and the fence is proved verbatim.
+        assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
+            {
+                "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Bookshop", "version": "2.0.0"}},
+                "content": [{"type": "text", "text": "Found 3 books matching 'dune'."}],
+                "structuredContent": {"matches": 3, "query": "dune"},
+                "isError": False,
+                "resultType": "complete",
+            }
+        )
 
 
 async def test_the_client_checks_the_schema_you_promised() -> None:

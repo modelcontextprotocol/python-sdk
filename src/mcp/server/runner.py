@@ -370,8 +370,9 @@ class ServerRunner(Generic[LifespanT]):
 
         A handler-authored value wins, a non-mapping `_meta` is the handler's
         to own, and handshake-era results are never stamped. `result` is
-        pipeline-owned (`_dump_result` copies), but `_meta` may still be the
-        handler's object, so the stamp replaces it rather than writing into it.
+        pipeline-owned (`_dump_result` copies dicts; the spec-method sieve
+        re-dumps), but `_meta` may still be the handler's object, so the stamp
+        replaces it rather than writing into it.
         """
         if not self.server.include_server_info or version not in MODERN_PROTOCOL_VERSIONS:
             return result
