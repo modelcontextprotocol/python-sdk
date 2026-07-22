@@ -22,7 +22,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -30,7 +30,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content(connect: Connect) -> None:
+async def test_call_tool_returns_text_content(connect: Connect, unstamped: Unstamp) -> None:
     """Arguments reach the tool handler; its content comes back as the call result."""
 
     async def list_tools(
@@ -54,7 +54,7 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
 
 
 @requirement("tools:call:is-error")
-async def test_call_tool_execution_error_is_returned_as_result(connect: Connect) -> None:
+async def test_call_tool_execution_error_is_returned_as_result(connect: Connect, unstamped: Unstamp) -> None:
     """A tool reporting its own failure with is_error=True reaches the client as a result, not an exception.
 
     Tool execution errors are part of the result so the caller (typically a model) can see
@@ -118,7 +118,7 @@ async def test_call_tool_uncaught_exception_becomes_error_response(connect: Conn
 
 
 @requirement("tools:list:basic")
-async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
+async def test_list_tools_returns_registered_tools(connect: Connect, unstamped: Unstamp) -> None:
     """The tools advertised by the server's list handler arrive at the client unchanged."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -164,7 +164,7 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
 @requirement("tools:input-schema:preserve-additional-properties")
 @requirement("tools:input-schema:preserve-defs")
 @requirement("tools:input-schema:preserve-schema-dialect")
-async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Connect) -> None:
+async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Connect, unstamped: Unstamp) -> None:
     """A rich JSON Schema 2020-12 inputSchema reaches the client unchanged and the tool is callable.
 
     The single identity assertion below proves all four pass-through behaviours at once: the same
@@ -207,7 +207,7 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
 
 
 @requirement("tools:list:metadata")
-async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
+async def test_list_tools_optional_fields_round_trip(connect: Connect, unstamped: Unstamp) -> None:
     """Every optional Tool field the server supplies reaches the client unchanged."""
 
     tool = Tool(
@@ -252,7 +252,7 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
 @requirement("tools:call:content:audio")
 @requirement("tools:call:content:resource-link")
 @requirement("tools:call:content:embedded-resource")
-async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
+async def test_call_tool_multiple_content_block_types(connect: Connect, unstamped: Unstamp) -> None:
     """A tool result can mix every content block type; all of them arrive in order.
 
     The payloads are tiny fixed base64 strings ("aW1n" is b"img", "YXVk" is b"aud") so the
@@ -297,7 +297,7 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
 
 
 @requirement("tools:call:structured-content")
-async def test_call_tool_structured_content(connect: Connect) -> None:
+async def test_call_tool_structured_content(connect: Connect, unstamped: Unstamp) -> None:
     """A tool result carrying structured content alongside content delivers both to the client."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -318,7 +318,7 @@ async def test_call_tool_structured_content(connect: Connect) -> None:
 
 
 @requirement("tools:call:concurrent")
-async def test_concurrent_tool_calls_complete_independently(connect: Connect) -> None:
+async def test_concurrent_tool_calls_complete_independently(connect: Connect, unstamped: Unstamp) -> None:
     """Two tool calls in flight at once run concurrently and each caller gets its own answer.
 
     Both handlers are held on a shared event after signalling that they have started, and the test
@@ -406,7 +406,7 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
 
 
 @requirement("client:output-schema:skip-on-error")
-async def test_is_error_result_bypasses_client_output_schema_validation(connect: Connect) -> None:
+async def test_is_error_result_bypasses_client_output_schema_validation(connect: Connect, unstamped: Unstamp) -> None:
     """A tool result with isError true is returned as-is even when its structured content violates the schema.
 
     The schema is cached up front so the client could validate, proving the bypass is specifically the
@@ -478,7 +478,9 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
 
 
 @requirement("client:output-schema:auto-list")
-async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools_list(connect: Connect) -> None:
+async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools_list(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Calling a tool whose schema is not cached issues exactly one implicit tools/list to populate it.
 
     The first call_tool of an uncached tool triggers a tools/list the caller never asked for; the

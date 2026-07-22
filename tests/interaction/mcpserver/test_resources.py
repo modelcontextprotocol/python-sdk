@@ -14,7 +14,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server.mcpserver import MCPServer
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -22,7 +22,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("mcpserver:resource:static")
-async def test_read_static_resource(connect: Connect) -> None:
+async def test_read_static_resource(connect: Connect, unstamped: Unstamp) -> None:
     """A function registered for a fixed URI is served at that URI with its return value as text."""
     mcp = MCPServer("library")
 
@@ -42,7 +42,7 @@ async def test_read_static_resource(connect: Connect) -> None:
 
 
 @requirement("mcpserver:resource:static")
-async def test_list_static_and_templated_resources(connect: Connect) -> None:
+async def test_list_static_and_templated_resources(connect: Connect, unstamped: Unstamp) -> None:
     """Statically-registered resources appear in resources/list; templated ones only in templates/list.
 
     The name and description are derived from the function name and docstring; the MIME type
@@ -92,7 +92,7 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
 
 @requirement("mcpserver:resource:template")
 @requirement("resources:read:template-vars")
-async def test_read_templated_resource(connect: Connect) -> None:
+async def test_read_templated_resource(connect: Connect, unstamped: Unstamp) -> None:
     """Reading a URI that matches a registered template invokes the function with the extracted parameters."""
     mcp = MCPServer("library")
 
@@ -153,7 +153,9 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
 
 
 @requirement("mcpserver:resource:duplicate-name")
-async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(connect: Connect) -> None:
+async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Registering a second static resource at an already-used URI keeps the first registration.
 
     The intended behaviour is rejection at registration time; MCPServer instead logs a warning

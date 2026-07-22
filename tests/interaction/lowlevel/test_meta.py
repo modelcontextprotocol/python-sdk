@@ -11,7 +11,7 @@ import pytest
 from mcp_types import CallToolResult, RequestParamsMeta, TextContent
 
 from mcp.server import Server, ServerRequestContext
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -44,7 +44,7 @@ async def test_request_meta_reaches_handler(connect: Connect) -> None:
 
 
 @requirement("meta:result-to-client")
-async def test_result_meta_reaches_client(connect: Connect) -> None:
+async def test_result_meta_reaches_client(connect: Connect, unstamped: Unstamp) -> None:
     """The _meta object a handler attaches to its result is delivered to the client unchanged."""
     result_meta = {"example.com/cost": 3}
 

@@ -14,7 +14,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server.mcpserver import MCPServer
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -22,7 +22,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("mcpserver:prompt:decorated")
-async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -> None:
+async def test_list_prompts_derives_arguments_from_signature(connect: Connect, unstamped: Unstamp) -> None:
     """A decorated prompt is listed with arguments derived from the function signature.
 
     Parameters without a default are required; the description comes from the docstring.
@@ -54,7 +54,7 @@ async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -
 
 
 @requirement("mcpserver:prompt:decorated")
-async def test_get_prompt_renders_function_return(connect: Connect) -> None:
+async def test_get_prompt_renders_function_return(connect: Connect, unstamped: Unstamp) -> None:
     """The decorated function's string return value is rendered as a single user message."""
     mcp = MCPServer("prompter")
 
@@ -142,7 +142,9 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
 
 
 @requirement("mcpserver:prompt:optional-args")
-async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(connect: Connect) -> None:
+async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A prompt rendered without one of its optional arguments uses that parameter's default value."""
     mcp = MCPServer("prompter")
 
@@ -163,7 +165,9 @@ async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(con
 
 
 @requirement("mcpserver:prompt:duplicate-name")
-async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(connect: Connect) -> None:
+async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Registering a second prompt with an already-used name keeps the first registration.
 
     The intended behaviour is rejection at registration time; MCPServer instead logs a warning

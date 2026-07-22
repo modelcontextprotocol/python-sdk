@@ -21,7 +21,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("prompts:list:basic")
-async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None:
+async def test_list_prompts_returns_registered_prompts(connect: Connect, unstamped: Unstamp) -> None:
     """The prompts returned by the handler reach the client with their argument declarations intact."""
 
     async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
@@ -72,7 +72,7 @@ async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None
 
 
 @requirement("prompts:get:with-args")
-async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
+async def test_get_prompt_substitutes_arguments(connect: Connect, unstamped: Unstamp) -> None:
     """Arguments supplied by the client reach the prompt handler; the templated message comes back."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
@@ -97,7 +97,7 @@ async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
 
 
 @requirement("prompts:get:multi-message")
-async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Connect) -> None:
+async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Connect, unstamped: Unstamp) -> None:
     """A prompt returning a user/assistant conversation reaches the client with roles and order intact."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
@@ -127,7 +127,7 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
 
 
 @requirement("prompts:get:no-args")
-async def test_get_prompt_without_arguments_returns_the_messages(connect: Connect) -> None:
+async def test_get_prompt_without_arguments_returns_the_messages(connect: Connect, unstamped: Unstamp) -> None:
     """A prompt fetched with no arguments delivers None as the handler's arguments and returns its messages."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
@@ -148,7 +148,7 @@ async def test_get_prompt_without_arguments_returns_the_messages(connect: Connec
 @requirement("prompts:get:content:image")
 @requirement("prompts:get:content:audio")
 @requirement("prompts:get:content:embedded-resource")
-async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) -> None:
+async def test_get_prompt_with_non_text_content_round_trips(connect: Connect, unstamped: Unstamp) -> None:
     """Prompt messages can carry image, audio, and embedded-resource content; all reach the client.
 
     A single full-result snapshot proves all three content types round-trip: each block in the result

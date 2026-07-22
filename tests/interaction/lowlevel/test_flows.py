@@ -32,7 +32,7 @@ from mcp import MCPError, UrlElicitationRequiredError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
 from mcp.server.session import ServerSession
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -54,7 +54,9 @@ def _list_tools(*names: str) -> ListToolsHandler:
 
 
 @requirement("flow:tool-result:resource-link-follow")
-async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(connect: Connect) -> None:
+async def test_a_resource_link_returned_by_a_tool_can_be_followed_with_read(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A tool returns a resource_link; reading that link's URI returns the referenced contents.
 
     Steps: (1) call the tool, (2) extract the link from its content, (3) read_resource on the

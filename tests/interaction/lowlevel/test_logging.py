@@ -11,7 +11,7 @@ from inline_snapshot import snapshot
 from mcp_types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
 
 from mcp.server import Server, ServerRequestContext
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -47,7 +47,7 @@ async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
 
 @requirement("logging:message:fields")
 @requirement("tools:call:logging-mid-execution")
-async def test_log_messages_reach_logging_callback_in_order(connect: Connect) -> None:
+async def test_log_messages_reach_logging_callback_in_order(connect: Connect, unstamped: Unstamp) -> None:
     """Log messages sent during a tool call arrive at the logging callback, in order, before the call returns.
 
     The two messages pin the full notification shape: severity, optional logger name, and both

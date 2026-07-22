@@ -20,7 +20,7 @@ from mcp import MCPError
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared.exceptions import UrlElicitationRequiredError
-from tests._stamp import unstamped
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content(connect: Connect) -> None:
+async def test_call_tool_returns_text_content(connect: Connect, unstamped: Unstamp) -> None:
     """Arguments reach the tool function; its return value comes back as text content.
 
     MCPServer also derives an output schema from the return annotation and attaches the
@@ -50,7 +50,9 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
 
 
 @requirement("mcpserver:tool:schema-variants")
-async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool_runs(connect: Connect) -> None:
+async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool_runs(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Literal, nested-model, and constrained parameters are validated and coerced from the wire arguments.
 
     The string "3" is coerced to `int` and the `point` dict to a `Point` instance before the function
@@ -79,7 +81,7 @@ async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool
 
 @requirement("mcpserver:tool:handler-throws")
 @requirement("mcpserver:output-schema:skip-on-error")
-async def test_call_tool_function_exception_becomes_error_result(connect: Connect) -> None:
+async def test_call_tool_function_exception_becomes_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """An exception raised by a tool function is returned as an is_error result, not a JSON-RPC error.
 
     The function's `-> str` annotation gives the tool a derived output schema, but the error
@@ -101,7 +103,7 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
 
 
 @requirement("mcpserver:tool:handler-throws")
-async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> None:
+async def test_call_tool_tool_error_becomes_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """A ToolError raised by a tool function is returned as an is_error result, not a JSON-RPC error."""
     mcp = MCPServer("errors")
 
@@ -118,7 +120,7 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> No
 
 
 @requirement("mcpserver:tool:unknown-name")
-async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> None:
+async def test_call_tool_unknown_name_returns_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """Calling a tool name that was never registered is reported as an is_error result.
 
     The spec classifies unknown tools as a protocol error; see the divergence note on the
@@ -140,7 +142,7 @@ async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> 
 
 @requirement("mcpserver:tool:output-schema:model")
 @requirement("tools:call:structured-content:text-mirror")
-async def test_call_tool_model_return_becomes_structured_content(connect: Connect) -> None:
+async def test_call_tool_model_return_becomes_structured_content(connect: Connect, unstamped: Unstamp) -> None:
     """A tool returning a pydantic model advertises the model's schema as the tool's output schema
     and returns the model's fields as structured content alongside a serialised text block.
     """
@@ -187,7 +189,7 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
 
 
 @requirement("mcpserver:tool:output-schema:wrapped")
-async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) -> None:
+async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect, unstamped: Unstamp) -> None:
     """A tool returning a list wraps the value under a "result" key in both the generated output
     schema and the structured content.
     """
@@ -284,7 +286,9 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
 
 
 @requirement("mcpserver:tool:duplicate-name")
-async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(connect: Connect) -> None:
+async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Registering a second tool with an already-used name keeps the first registration.
 
     The intended behaviour is rejection at registration time; MCPServer instead logs a warning
@@ -316,7 +320,7 @@ async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(conne
 
 @requirement("mcpserver:tool:naming-validation")
 async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_reject(
-    connect: Connect, caplog: pytest.LogCaptureFixture
+    connect: Connect, caplog: pytest.LogCaptureFixture, unstamped: Unstamp
 ) -> None:
     """A tool name that violates the SEP-986 rules logs a warning at registration but is still registered.
 
