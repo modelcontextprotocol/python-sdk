@@ -1,3 +1,4 @@
+import gc
 import io
 import os
 import sys
@@ -500,6 +501,34 @@ async def test_stdio_server_serves_in_place_when_the_diversion_cannot_be_opened(
                     assert isinstance(received, SessionMessage)
                     assert received.message == request
                     await write_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_a_degraded_session_does_not_close_the_sys_stream_it_served(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The transport's text layer never closes a buffer it does not own.
+
+    Regression for the issue #1933 class: in the in-place paths the transport wraps
+    the sys stream's own buffer, and wrapper garbage collection must not close it.
+    """
+    with _pipe_planted_on_fd0(monkeypatch) as (_, in_w):
+        os.close(in_w)
+        monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+
+        def failing_dup_above_std(fd: int) -> int:
+            raise OSError("forced degrade")
+
+        monkeypatch.setattr("mcp.server.stdio._dup_above_std", failing_dup_above_std)
+
+        with anyio.fail_after(5):
+            async with stdio_server() as (read_stream, write_stream):
+                read_stream.close()
+                await write_stream.aclose()
+
+        gc.collect()
+        assert not sys.stdin.buffer.closed
+        assert not sys.stdout.buffer.closed
 
 
 class _GatedStdin(io.RawIOBase):

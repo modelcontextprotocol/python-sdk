@@ -1864,12 +1864,21 @@ handler code can no longer read protocol bytes or write into the stream (the
 servers have nothing to do, and code that inspects or manipulates fd 0/1 directly
 during a session now sees the diversions, not the wire.
 
-One pattern needs migrating: a watchdog thread that `poll()`s fd 0 for `POLLHUP` to
-detect a vanished client will no longer fire, because the null device never reports
-it (a POSIX-specific pattern; `select.poll` does not exist on Windows). Watch the
-parent process instead: on POSIX, exit when `os.getppid()` changes, which happens
-when the client dies because orphaned processes are reparented. That works on both
-v1 and v2 and does not depend on descriptor layout.
+One pattern needs migrating: watchdog threads that watch fd 0 to detect a vanished
+client (a POSIX-specific pattern; `select.poll` does not exist on Windows). The null
+device does not behave like the old pipe: it never reports `POLLHUP`, and it reports
+readable immediately and permanently (`POLLIN|POLLERR` from `poll()` on Linux, ready
+from `select()`, and macOS can report `POLLNVAL` for devices). A watcher waiting for
+`POLLHUP` is silently disarmed; a watcher that treats any event as "client gone" now
+fires at startup instead of never. Watch the parent process instead: on POSIX, exit
+when `os.getppid()` changes, which happens when the client dies because orphaned
+processes are reparented. That works on both v1 and v2 and does not depend on
+descriptor layout.
+
+Also worth knowing: a child process that streams large output to its inherited
+stdout now streams it into the client's stderr channel. Capture output you do not
+want in the client's logs, and be aware that a client which never drains its stderr
+pipe applies back-pressure to the server (true of stderr logging on v1 as well).
 
 ### WebSocket transport removed
 
