@@ -165,7 +165,7 @@ class MCPServer(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
-        version: str | None = None,
+        version: str = "",
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         *,
@@ -290,7 +290,7 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.icons
 
     @property
-    def version(self) -> str | None:
+    def version(self) -> str:
         return self._lowlevel_server.version
 
     @property

@@ -131,7 +131,7 @@ class Server(Generic[LifespanResultT]):
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -214,7 +214,7 @@ class Server(Generic[LifespanResultT]):
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -306,7 +306,7 @@ class Server(Generic[LifespanResultT]):
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -539,7 +539,7 @@ class Server(Generic[LifespanResultT]):
         """
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version or "",
+            server_version=self.version,
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
@@ -633,7 +633,7 @@ class Server(Generic[LifespanResultT]):
         """
         return types.Implementation(
             name=self.name,
-            version=self.version or "",
+            version=self.version,
             title=self.title,
             description=self.description,
             website_url=self.website_url,
