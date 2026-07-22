@@ -102,6 +102,7 @@ _REQUEST_STATE_KEY = b"everything-server-fixture-request-state-key"
 
 mcp = MCPServer(
     name="mcp-conformance-test-server",
+    version="0.1.0",
     request_state_security=RequestStateSecurity(keys=[_REQUEST_STATE_KEY]),
 )
 
