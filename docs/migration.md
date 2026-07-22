@@ -1866,14 +1866,19 @@ during a session now sees the diversions, not the wire.
 
 One pattern needs migrating: watchdog threads that watch fd 0 to detect a vanished
 client (a POSIX-specific pattern; `select.poll` does not exist on Windows). The null
-device does not behave like the old pipe: it never reports `POLLHUP`, and it reports
-readable immediately and permanently (`POLLIN|POLLERR` from `poll()` on Linux, ready
-from `select()`, and macOS can report `POLLNVAL` for devices). A watcher waiting for
-`POLLHUP` is silently disarmed; a watcher that treats any event as "client gone" now
-fires at startup instead of never. Watch the parent process instead: on POSIX, exit
+device does not behave like the old pipe: it never reports `POLLHUP` or `POLLERR`,
+and it reports readable immediately and permanently (`POLLIN` from `poll()` on Linux,
+plus `POLLOUT` under the default event mask; ready from `select()`; and macOS can
+report `POLLNVAL` for devices). A watcher waiting for `POLLHUP` or `POLLERR` is
+silently disarmed; a watcher that treats any event as "client gone" now fires at
+startup instead of never. Watch the parent process instead: on POSIX, exit
 when `os.getppid()` changes, which happens when the client dies because orphaned
 processes are reparented. That works on both v1 and v2 and does not depend on
 descriptor layout.
+
+Also new: a second concurrent `stdio_server()` on the process's default streams now
+raises `RuntimeError` instead of silently contending for stdin, a configuration that
+never worked (there is one stdin).
 
 Also worth knowing: a child process that streams large output to its inherited
 stdout now streams it into the client's stderr channel. Capture output you do not
