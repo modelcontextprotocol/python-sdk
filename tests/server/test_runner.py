@@ -995,10 +995,10 @@ async def test_runner_custom_method_result_is_not_surface_validated(server: SrvT
 
 
 @pytest.mark.anyio
-async def test_modern_short_circuit_middleware_result_still_carries_the_server_info_stamp(server: SrvT):
-    """SDK-defined: the serverInfo stamp is applied at the runner's single exit,
-    after the middleware chain, so even a middleware that answers without
-    calling `call_next` produces an identified result (spec 2026-07-28, #3002)."""
+async def test_modern_short_circuit_middleware_owns_its_result_envelope(server: SrvT):
+    """SDK-defined: a middleware that answers without calling `call_next` is
+    trusted to return its own well-formed result, response envelope included -
+    the outbound pipeline (and its serverInfo stamp) never patches it up."""
 
     async def short_circuit(ctx: Ctx, call_next: Any) -> Any:
         return {"ok": True}
@@ -1007,10 +1007,7 @@ async def test_modern_short_circuit_middleware_result_still_carries_the_server_i
     born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
         result = await client.send_raw_request("myorg/anything", None)
-    assert result == {
-        "ok": True,
-        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
-    }
+    assert result == {"ok": True}
 
 
 @pytest.mark.anyio

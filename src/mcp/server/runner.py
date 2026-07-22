@@ -112,7 +112,10 @@ def _dump_result(result: Any) -> dict[str, Any]:
     if isinstance(result, BaseModel):
         return result.model_dump(by_alias=True, mode="json", exclude_none=True)
     if isinstance(result, dict):
-        return cast(dict[str, Any], result)
+        # Copied so callers own the returned dict: handlers and middleware may
+        # retain the object they returned, and the outbound pipeline shapes the
+        # wire form without reaching into anything the handler still holds.
+        return dict(cast(dict[str, Any], result))
     raise TypeError(f"handler returned {type(result).__name__}; expected BaseModel, dict, or None")
 
 
@@ -210,38 +213,16 @@ class ServerRunner(Generic[LifespanT]):
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
-            # Fill cache hints on the handler result, before the serialize sieve
-            # decides whether the negotiated version carries the fields at all.
-            # MRTR carve-out: `input_required` interim results, typed or mapping, never get hints.
-            if (hint := self.server.cache_hints.get(method)) is not None:
-                if isinstance(result, CacheableResult):
-                    result = apply_cache_hint(result, hint)
-                elif isinstance(result, Mapping) and not _methods.is_input_required(result):
-                    # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
-                    result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
-            # Dump and serialize inside the chain so the OpenTelemetry span (the
+            # Shape for the wire inside the chain so the OpenTelemetry span (the
             # outermost middleware) records a failing handler return shape too.
             return self._serialize(method, version, result)
 
         call = self._compose_server_middleware(_inner)
         # `_inner` already produced the wire dict; a middleware that short-circuited
-        # without `call_next` is trusted to return its own well-formed result.
+        # without `call_next` is trusted to return its own well-formed result -
+        # including its response envelope. The pipeline never patches it up after
+        # the fact.
         result = _dump_result(await call(ctx))
-        # Spec 2026-07-28 (#3002): stamp `serverInfo` into every modern result's
-        # `_meta`. This runs after the middleware chain - the one exit every
-        # result takes, including middleware short-circuits - so coverage holds
-        # by construction. Custom-method and short-circuit results pass through
-        # by reference, so stamping builds a shallow copy rather than mutating a
-        # dict the handler may retain. A handler-authored value wins; a
-        # non-mapping `_meta` is the handler's to own, not ours to clobber.
-        if self.server.include_server_info and version in MODERN_PROTOCOL_VERSIONS:
-            raw_meta = result.get("_meta")
-            if raw_meta is None:
-                result = {**result, "_meta": {SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}}
-            elif isinstance(raw_meta, dict):
-                meta = cast("dict[str, Any]", raw_meta)
-                if meta.get(SERVER_INFO_META_KEY) is None:
-                    result = {**result, "_meta": {**meta, SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}}
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
@@ -349,27 +330,59 @@ class ServerRunner(Generic[LifespanT]):
             close_standalone_sse_stream=close_standalone_sse_stream,
         )
 
-    @staticmethod
-    def _serialize(method: str, version: str, result: HandlerResult) -> dict[str, Any]:
-        """Dump a handler result to the wire dict, serializing spec methods.
+    def _serialize(self, method: str, version: str, result: HandlerResult) -> dict[str, Any]:
+        """Shape a handler result into its wire form: the outbound counterpart
+        of the inbound classification ladder.
 
-        Runs inside the middleware chain so the OpenTelemetry span observes a
-        failing return shape (unsupported type, malformed spec result) as an
-        error rather than closing on a request that the client sees fail.
+        One pass owns the whole response envelope, in order: cache hints fill
+        `ttlMs`/`cacheScope` the handler left unset, spec-method results are
+        validated and sieved by the per-version surface, and 2026-era results
+        get the `serverInfo` `_meta` stamp (spec #3002). Runs inside the
+        middleware chain so the OpenTelemetry span observes a failing return
+        shape (unsupported type, malformed spec result) as an error rather
+        than closing on a request that the client sees fail - and so a
+        middleware that short-circuits without `call_next` owns its result,
+        envelope included.
         """
+        # MRTR carve-out: `input_required` interim results, typed or mapping, never get hints.
+        if (hint := self.server.cache_hints.get(method)) is not None:
+            if isinstance(result, CacheableResult):
+                result = apply_cache_hint(result, hint)
+            elif isinstance(result, Mapping) and not _methods.is_input_required(result):
+                # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
+                result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
         dumped = _dump_result(result)
         # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
         # corresponding extension is in this request's _meta clientCapabilities.extensions; the
         # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
-        if method not in _methods.SPEC_CLIENT_METHODS:
-            return dumped
-        try:
-            return _methods.serialize_server_result(method, version, dumped)
-        except ValidationError:
-            # Server bug, not client fault. Detail stays in the server log:
-            # pydantic messages echo the result body.
-            logger.exception("handler for %r returned an invalid result", method)
-            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
+        if method in _methods.SPEC_CLIENT_METHODS:
+            try:
+                dumped = _methods.serialize_server_result(method, version, dumped)
+            except ValidationError:
+                # Server bug, not client fault. Detail stays in the server log:
+                # pydantic messages echo the result body.
+                logger.exception("handler for %r returned an invalid result", method)
+                raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
+        return self._stamp_server_info(version, dumped)
+
+    def _stamp_server_info(self, version: str, result: dict[str, Any]) -> dict[str, Any]:
+        """Fill the `serverInfo` `_meta` stamp on a 2026-era result (spec #3002).
+
+        A handler-authored value wins, a non-mapping `_meta` is the handler's
+        to own, and handshake-era results are never stamped. `result` is
+        pipeline-owned (`_dump_result` copies), but `_meta` may still be the
+        handler's object, so the stamp replaces it rather than writing into it.
+        """
+        if not self.server.include_server_info or version not in MODERN_PROTOCOL_VERSIONS:
+            return result
+        raw_meta = result.get("_meta")
+        if raw_meta is None:
+            result["_meta"] = {SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}
+        elif isinstance(raw_meta, dict):
+            meta = cast("dict[str, Any]", raw_meta)
+            if meta.get(SERVER_INFO_META_KEY) is None:
+                result["_meta"] = {**meta, SERVER_INFO_META_KEY: dict(self.server.server_info_stamp)}
+        return result
 
     @staticmethod
     def _negotiate_initialize(params: Mapping[str, Any] | None) -> tuple[InitializeRequestParams, str]:
