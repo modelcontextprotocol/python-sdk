@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import InvalidScopeError, OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
 
 
 def test_oauth():
@@ -138,3 +138,43 @@ def test_invalid_non_empty_url_still_rejected():
     }
     with pytest.raises(ValidationError):
         OAuthClientMetadata.model_validate(data)
+
+
+def test_validate_scope_returns_none_when_no_scope_requested():
+    client = OAuthClientInformationFull(
+        client_id="client",
+        redirect_uris=["https://example.com/callback"],
+        scope="read write",
+    )
+
+    assert client.validate_scope(None) is None
+
+
+def test_validate_scope_allows_registered_scopes():
+    client = OAuthClientInformationFull(
+        client_id="client",
+        redirect_uris=["https://example.com/callback"],
+        scope="read write",
+    )
+
+    assert client.validate_scope("read write") == ["read", "write"]
+
+
+def test_validate_scope_rejects_unregistered_scopes():
+    client = OAuthClientInformationFull(
+        client_id="client",
+        redirect_uris=["https://example.com/callback"],
+        scope="read",
+    )
+
+    with pytest.raises(InvalidScopeError, match="Client was not registered with scope write"):
+        client.validate_scope("write")
+
+
+def test_validate_scope_allows_requested_scopes_when_registered_scope_omitted():
+    client = OAuthClientInformationFull(
+        client_id="client",
+        redirect_uris=["https://example.com/callback"],
+    )
+
+    assert client.validate_scope("read write") == ["read", "write"]
