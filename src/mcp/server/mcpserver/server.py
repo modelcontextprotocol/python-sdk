@@ -594,9 +594,9 @@ class MCPServer(Generic[LifespanResultT]):
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
             mirror_structured_content: Whether structured output is also serialised into a
-                `content` text block (the spec's SHOULD, default True). Set False to return
-                `structuredContent` only -- useful when the host routes structured content to
-                the model itself and the serialised copy would double the payload.
+                `content` text block alongside `structuredContent` (the spec's SHOULD,
+                default True). Set False to send `structuredContent` only, without the
+                duplicate serialised copy on the wire.
         """
         self._tool_manager.add_tool(
             fn,
@@ -650,9 +650,9 @@ class MCPServer(Generic[LifespanResultT]):
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
             mirror_structured_content: Whether structured output is also serialised into a
-                `content` text block (the spec's SHOULD, default True). Set False to return
-                `structuredContent` only -- useful when the host routes structured content to
-                the model itself and the serialised copy would double the payload.
+                `content` text block alongside `structuredContent` (the spec's SHOULD,
+                default True). Set False to send `structuredContent` only, without the
+                duplicate serialised copy on the wire.
 
         Example:
             ```python

@@ -236,9 +236,9 @@ There is one way to end up unstructured without asking for it: return a class th
 
 ## Skip the text copy
 
-By default a structured tool fills **both** channels: `structured_content` for the application, and a serialized copy in `content` for the model. That copy is the spec's recommendation (a SHOULD, not a MUST) so an old client that only reads `content` still sees the value. When the payload is large, or the host routes `structured_content` to the model itself, the copy is wasted — the same data crosses the wire twice.
+By default a structured tool sends the value twice: as `structured_content`, and as a serialized copy of it in a `content` text block. That copy is the spec's recommendation (a SHOULD, not a MUST): it keeps the value available to a client that consumes `content`. When the payload is large it is pure duplication — the same data crosses the wire twice. Which field a client actually forwards to a model is the client's choice; this flag only controls whether the serialized copy is emitted.
 
-Pass `mirror_structured_content=False` to return `structured_content` only, with empty `content`:
+Pass `mirror_structured_content=False` to send `structured_content` only, with empty `content`:
 
 ```python
 @mcp.tool(mirror_structured_content=False)
@@ -246,7 +246,7 @@ def list_accounts(segment: str) -> list[Account]:
     return query_accounts(segment)  # only structured_content is sent
 ```
 
-The default is `True`, so nothing changes unless you opt out. A tool with no `output_schema` is unaffected — its `content` is the only representation and is always sent. If you want a *smaller* model-facing rendering rather than none, build the `CallToolResult` yourself and set `content` to a summary.
+The default is `True`, so nothing changes unless you opt out. A tool with no `output_schema` is unaffected — its `content` is the only representation and is always sent. If you want a *smaller* `content` rendering rather than none, build the `CallToolResult` yourself and set `content` to a summary.
 
 ## Recap
 

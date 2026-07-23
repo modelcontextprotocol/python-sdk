@@ -116,14 +116,15 @@ class FuncMetadata(BaseModel):
         flow surfaces on the wire as `resultType: "input_required"` rather than
         being JSON-dumped into a text block.
 
-        For a tool with an output schema, structured output is returned as
+        For a tool with an output schema, the structured output is returned as
         `structuredContent`. By default it is *also* serialised into a `content`
-        text block, so a client that reads only `content` still sees the value --
-        the spec's SHOULD. When ``mirror_structured_content`` is False the
-        serialised copy is omitted and `structuredContent` becomes the sole
-        representation; a host that routes `structuredContent` to the model itself
-        then no longer receives the payload twice. Because the serialised-text
-        guidance is a SHOULD (not a MUST), opting out stays conformant.
+        text block -- the spec's SHOULD, which keeps the value available to a
+        client that consumes `content`. When ``mirror_structured_content`` is
+        False that serialised copy is omitted and `structuredContent` is the only
+        representation on the wire, so the same payload is not sent twice. Because
+        the serialised-text guidance is a SHOULD (not a MUST), opting out stays
+        conformant. The SDK makes no assumption about which field a client routes
+        to a model versus elsewhere; that is the client's choice.
         """
         if isinstance(result, InputRequiredResult):
             return result
