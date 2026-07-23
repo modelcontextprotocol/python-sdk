@@ -1,4 +1,4 @@
-"""Same four tools via lowlevel.Server — inputSchema is hand-written JSON Schema."""
+"""Same five tools via lowlevel.Server — inputSchema is hand-written JSON Schema."""
 
 from typing import Any
 
@@ -21,7 +21,7 @@ TOOLS = [
         description=f"Greet ({variant} input shape)",
         input_schema={"type": "object", "properties": {"who": PERSON_SCHEMA}, "required": ["who"]},
     )
-    for variant in ("pydantic", "typeddict", "dataclass")
+    for variant in ("pydantic", "typeddict", "dataclass", "dynamic")
 ]
 TOOLS.append(
     types.Tool(

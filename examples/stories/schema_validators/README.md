@@ -1,9 +1,10 @@
 # schema-validators
 
-Four ways to type a tool parameter so `MCPServer` derives the JSON-Schema
+Five ways to type a tool parameter so `MCPServer` derives the JSON-Schema
 `inputSchema` and validates arguments before your handler runs: a pydantic
-`BaseModel`, a `TypedDict`, a `@dataclass`, and a bare `dict[str, Any]`. The
-client lists the tools, resolves each `who` schema, and round-trips a call.
+`BaseModel`, a `TypedDict`, a `@dataclass`, a bare `dict[str, Any]`, and a
+pydantic model built at runtime with `create_model`. The client lists the
+tools, resolves each `who` schema, and round-trips a call.
 
 ## Run it
 
@@ -25,6 +26,13 @@ uv run python -m stories.schema_validators.client --http --server server_lowleve
 - `server.py` — `who.name` vs `who["name"]`: pydantic and dataclass parameters
   arrive as **instances** (attribute access); TypedDict and `dict[str, Any]`
   arrive as plain dicts.
+- `server.py` `greet_dynamic` — the parameter type is not written in the source
+  at all: `create_model` builds it at runtime from a JSON Schema dict (the shape
+  you'd get from OpenAPI, a config file, or a DB row), then hands it to
+  `@mcp.tool()` like any `BaseModel`; the published schema is identical to the
+  `greet_pydantic` variant. A `create_model` result is opaque to static type
+  checkers, so a `TYPE_CHECKING` branch aliases it to a declared model of the
+  same shape — the runtime still uses the dynamic class.
 - `client.py` — the listed `inputSchema` for the three typed variants nests a
   `$defs`/`$ref` object with a `name` property; `greet_dict` publishes only
   `{"type": "object", "additionalProperties": true}` — no field validation.

@@ -10,9 +10,17 @@ async def main(target: Target, *, mode: str = "auto") -> None:
     async with Client(target, mode=mode) as client:
         listed = await client.list_tools()
         by_name = {t.name: t for t in listed.tools}
-        assert set(by_name) == {"greet_pydantic", "greet_typeddict", "greet_dataclass", "greet_dict"}
+        assert set(by_name) == {
+            "greet_pydantic",
+            "greet_typeddict",
+            "greet_dataclass",
+            "greet_dict",
+            "greet_dynamic",
+        }
 
-        for name in ("greet_pydantic", "greet_typeddict", "greet_dataclass"):
+        # greet_dynamic's parameter is a runtime create_model() class, but MCPServer
+        # reflects over it exactly like the hand-written BaseModel — same $defs/$ref shape.
+        for name in ("greet_pydantic", "greet_typeddict", "greet_dataclass", "greet_dynamic"):
             schema = by_name[name].input_schema
             assert schema["required"] == ["who"], schema
             # MCPServer emits a $defs/$ref pair; lowlevel inlines. Resolve either.
