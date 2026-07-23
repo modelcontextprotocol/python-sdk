@@ -435,14 +435,18 @@ async def test_a_refused_claim_releases_the_stream_it_already_took(
 
 
 @pytest.mark.anyio
-async def test_the_claim_engages_even_when_stderr_is_closed(
+@pytest.mark.skipif(sys.platform == "win32", reason="atomic above-range dup is POSIX-only (F_DUPFD)")
+async def test_the_claim_engages_even_when_stderr_is_closed(  # pragma: lax no cover
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A process missing fd 2 still gets full isolation.
+    """A process missing fd 2 still gets full isolation on POSIX.
 
-    SDK-defined behavior: the wire duplicate is allocated above the standard range
-    atomically, so a hole in the descriptor table cannot capture it; the stdout
-    diversion falls back to the null device.
+    F_DUPFD allocates the wire duplicate above the standard range atomically, so
+    the hole in slot 2 cannot capture it; the stdout diversion falls back to the
+    null device. Windows has no atomic minfd dup: the duplicate can land in the
+    hole and the transport degrades to serving in place (a documented residue),
+    which is safe but not this test's isolation contract, and this test's blocking
+    read of the still-piped fd 0 would then never return.
     """
     request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
