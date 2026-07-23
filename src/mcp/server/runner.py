@@ -643,31 +643,31 @@ async def serve_dual_era_loop(
         await write_stream.aclose()
 
 
-_OPENING_PEEK_LIMIT: int = 32
-"""How many frames may precede the client's first request before the loop
-stops looking for one. Every legitimate client opens with a request, so this
-only bounds a peer that streams other frames without ever sending one."""
+_PRE_REQUEST_REPLAY_LIMIT: int = 8
+"""How many frames arriving ahead of the client's first request are kept
+for the chosen era's loop (a bare `notifications/initialized` is the one that
+matters); further ones are dropped and never decide the era."""
 
 
 def _sender_context(stream: ReadStream[Any]) -> contextvars.Context:
     """The per-message sender context a context-aware stream carries, else the current one."""
-    return getattr(stream, "last_context", None) or contextvars.copy_context()
+    ctx = getattr(stream, "last_context", None)
+    return ctx if ctx is not None else contextvars.copy_context()
 
 
 @asynccontextmanager
 async def _replay_from_opening_request(
     read_stream: ReadStream[SessionMessage | Exception],
 ) -> AsyncIterator[tuple[JSONRPCRequest | None, ReadStream[SessionMessage | Exception]]]:
-    """Peek at the client's first request without consuming anything.
+    """Peek at the client's first request without consuming it.
 
-    Reads frames until the first JSON-RPC request arrives, then yields that
-    request together with a stream that replays every frame read so far and
-    relays the rest of `read_stream` behind it, sender contexts included. The
-    request is `None` if the channel closes - or `_OPENING_PEEK_LIMIT` frames
-    pass - before any request appears.
+    Yields that request together with a stream that replays it - preceded by
+    up to `_PRE_REQUEST_REPLAY_LIMIT` earlier frames - and relays the rest of
+    `read_stream` behind it, sender contexts included. The request is `None`
+    if the channel closes before one arrives.
     """
-    peeked: list[tuple[contextvars.Context, SessionMessage | Exception]] = []
-    opening: JSONRPCRequest | None = None
+    lead: list[tuple[contextvars.Context, SessionMessage | Exception]] = []
+    opening_request: JSONRPCRequest | None = None
     replay_send, replay_receive = anyio.create_memory_object_stream[
         tuple[contextvars.Context, SessionMessage | Exception]
     ]()
@@ -675,7 +675,7 @@ async def _replay_from_opening_request(
 
     async def replay_then_relay() -> None:
         async with replay_send:
-            for envelope in peeked:
+            for envelope in lead:
                 await replay_send.send(envelope)
             async for item in read_stream:
                 await replay_send.send((_sender_context(read_stream), item))
@@ -685,15 +685,17 @@ async def _replay_from_opening_request(
     # closes it and the replay channel.
     try:
         async for item in read_stream:
-            peeked.append((_sender_context(read_stream), item))
             if isinstance(item, SessionMessage) and isinstance(item.message, JSONRPCRequest):
-                opening = item.message
-                break
-            if len(peeked) >= _OPENING_PEEK_LIMIT:
+                opening_request = item.message
+            elif len(lead) >= _PRE_REQUEST_REPLAY_LIMIT:
+                logger.debug("dropped a frame received before the first request: %r", item)
+                continue
+            lead.append((_sender_context(read_stream), item))
+            if opening_request is not None:
                 break
         async with anyio.create_task_group() as tg:
             tg.start_soon(replay_then_relay)
-            yield opening, replayed
+            yield opening_request, replayed
             tg.cancel_scope.cancel()
     finally:
         await read_stream.aclose()
@@ -728,8 +730,8 @@ async def _serve_legacy_stream(
         if method != "initialize" and _has_modern_envelope(params):
             raise MCPError(
                 code=INVALID_REQUEST,
-                message="connection was opened with the initialize handshake; "
-                "2026-07-28 envelope requests are not accepted on it",
+                message="this connection's first request carried no 2026-07-28 envelope, so it "
+                "serves the handshake era; enveloped requests are not accepted on it",
             )
         return await runner.on_request(dctx, method, params)
 

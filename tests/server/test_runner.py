@@ -58,7 +58,6 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import (
-    _OPENING_PEEK_LIMIT,
     ServerRunner,
     _extract_meta,
     _has_modern_envelope,
@@ -1545,7 +1544,7 @@ async def test_dual_era_loop_initialize_locks_legacy_and_rejects_modern_traffic(
         assert result["tools"][0]["name"] == "t"
     assert discover_exc.value.error.code == INVALID_REQUEST
     assert envelope_exc.value.error.code == INVALID_REQUEST
-    assert "opened with the initialize handshake" in envelope_exc.value.error.message
+    assert "carried no 2026-07-28 envelope" in envelope_exc.value.error.message
 
 
 @pytest.mark.anyio
@@ -1725,9 +1724,9 @@ async def test_dual_era_loop_initialize_with_envelope_takes_the_handshake_path(s
 
 
 @pytest.mark.anyio
-async def test_dual_era_loop_modern_notification_dispatches_at_locked_version(server: SrvT):
-    """Notifications carry no envelope, so on a modern-locked connection they
-    dispatch with the locked protocol version."""
+async def test_dual_era_loop_modern_notification_dispatches_at_the_served_version(server: SrvT):
+    """Notifications carry no envelope, so on a 2026 connection they dispatch
+    at the modern version the server serves."""
     seen_versions: list[str] = []
     handled = anyio.Event()
 
@@ -2008,16 +2007,16 @@ async def test_dual_era_loop_carries_the_sender_context_through_the_replay():
 
 
 @pytest.mark.anyio
-async def test_dual_era_loop_stops_peeking_after_a_flood_of_pre_request_frames(server: SrvT):
-    """A peer that streams notifications and never opens with a request only
-    gets the first `_OPENING_PEEK_LIMIT` frames buffered: past that the loop
-    stops looking for an opening request and serves the rest as an ordinary
-    handshake connection, so the handshake that follows still lands."""
+async def test_dual_era_loop_leading_notifications_never_decide_the_era(server: SrvT):
+    """Frames a peer sends ahead of its first request never decide the era: a
+    stream of leading notifications well past the retained lead is followed by
+    an enveloped request, which still opens a 2026 connection and serves. The
+    lead is bounded, so the flood cannot grow the loop's buffer either."""
     async with dual_era_client(server) as (client, _):
-        for _ in range(_OPENING_PEEK_LIMIT + 5):
-            await client.notify("notifications/flood", None)
-        init = await client.send_raw_request("initialize", _initialize_params())
-        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+        for _ in range(50):
+            await client.notify("notifications/lead", None)
+        result = await client.send_raw_request("tools/list", _modern_params())
+        assert result["tools"][0]["name"] == "t"
 
 
 @pytest.mark.anyio
