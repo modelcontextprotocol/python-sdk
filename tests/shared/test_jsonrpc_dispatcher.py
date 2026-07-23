@@ -257,6 +257,79 @@ async def test_send_raw_request_raises_connection_closed_when_read_stream_eofs_m
 
 
 @pytest.mark.anyio
+async def test_opt_in_read_eof_drains_accepted_inbound_request_response():
+    """Read EOF must not cancel a request that was already accepted.
+
+    This covers redirected-stdin stdio servers: EOF can arrive immediately after
+    the final JSON-RPC request is read, while the tool handler still has an
+    await point before its response write.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send, drain_inbound_on_read_eof=True)
+    handler_started = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        handler_started.set()
+        await anyio.sleep(0.05)
+        return {"ok": True}
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, echo_handlers(Recorder())[1])
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
+            await handler_started.wait()
+
+            # Simulate stdin EOF after the request has been accepted but before
+            # the handler has finished and written its response.
+            c2s_send.close()
+
+            with anyio.fail_after(5):
+                response = await s2c_recv.receive()
+            assert response.message == JSONRPCResponse(jsonrpc="2.0", id=1, result={"ok": True})
+            tg.cancel_scope.cancel()
+    finally:
+        for stream in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            stream.close()
+
+
+@pytest.mark.anyio
+async def test_opt_in_read_eof_drains_transport_builder_rejection_response():
+    """The stdio EOF drain also covers spawned rejection writes before a handler exists."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage](32)
+
+    def reject(_metadata: MessageMetadata) -> TransportContext:
+        raise RuntimeError("no context")
+
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        c2s_recv,
+        s2c_send,
+        transport_builder=reject,
+        drain_inbound_on_read_eof=True,
+    )
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        raise NotImplementedError
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, echo_handlers(Recorder())[1])
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
+            c2s_send.close()
+
+            with anyio.fail_after(5):
+                response = await s2c_recv.receive()
+            assert isinstance(response.message, JSONRPCError)
+            assert response.message.id == 1
+            assert response.message.error.code == INTERNAL_ERROR
+            tg.cancel_scope.cancel()
+    finally:
+        for stream in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            stream.close()
+
+
+@pytest.mark.anyio
 async def test_run_returns_cleanly_when_read_stream_receive_end_is_closed():
     """Iterating a closed receive end is EOF, not a crash (stateless SHTTP closes it during teardown)."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)

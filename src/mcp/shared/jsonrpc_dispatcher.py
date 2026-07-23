@@ -76,6 +76,12 @@ arm shields its write, so a wedged transport would otherwise hang it uncancellab
 _SHUTDOWN_WRITE_TIMEOUT: float = 1
 """Tighter bound for the shutdown-arm error write so a wedged transport can't hold session close."""
 
+_DRAIN_INBOUND_ON_EOF_TIMEOUT: float = 5
+"""Bound for letting already-accepted inbound requests write responses after read EOF."""
+
+_DRAIN_INBOUND_ON_EOF_POLL_INTERVAL: float = 0.01
+"""Polling interval while waiting for accepted inbound requests to finish."""
+
 TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
 
 PeerCancelMode = Literal["interrupt", "signal"]
@@ -262,6 +268,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
         on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
+        drain_inbound_on_read_eof: bool = False,
     ) -> None:
         """Wire a dispatcher over a transport's `SessionMessage` stream pair.
 
@@ -276,6 +283,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             on_stream_exception: Observer for `Exception` items on the read
                 stream; without it they are debug-logged and dropped. Awaited
                 inline in the read loop, so a slow observer stalls dispatch.
+            drain_inbound_on_read_eof: Let already-accepted inbound request
+                response writes finish after read EOF before cancelling the run
+                task group. Intended for stdio EOF after redirected input;
+                default transport-close semantics remain immediate cancellation.
         """
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -292,10 +303,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """Observer for ``Exception`` items on the read stream. Mutable so a session can
         bind it after the dispatcher is built (e.g. ``ClientSession`` routing into
         ``message_handler``); only consulted inside ``run()`` so pre-enter assignment is safe."""
+        self._drain_inbound_on_read_eof = drain_inbound_on_read_eof
 
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
+        self._active_inbound_requests = 0
         self._on_notify_intercept: OnNotifyIntercept | None = None
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
@@ -500,6 +513,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                         self._running = False
                         self._closed = True
                         self._fan_out_closed()
+                        if self._drain_inbound_on_read_eof:
+                            await self._drain_active_inbound_requests()
                     finally:
                         # Cancel in-flight handlers; otherwise the task-group join
                         # waits on handlers whose callers are already gone.
@@ -554,17 +569,24 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         sender_ctx: contextvars.Context | None,
     ) -> None:
         progress_token = progress_token_from_params(req.params)
+        self._active_inbound_requests += 1
         try:
             transport_ctx = self._transport_builder(metadata)
         except Exception:
             # A raising builder must cost only this message, not the connection.
+            # Track its spawned error response so stdio EOF drain waits for this
+            # already-accepted request outcome too.
             logger.exception("transport_builder raised; rejecting request %r", req.id)
-            self._spawn(
-                self._write_error,
-                req.id,
-                ErrorData(code=INTERNAL_ERROR, message="transport context unavailable"),
-                sender_ctx=sender_ctx,
-            )
+
+            async def _reject_builder_failure() -> None:
+                try:
+                    await self._write_error(
+                        req.id, ErrorData(code=INTERNAL_ERROR, message="transport context unavailable")
+                    )
+                finally:
+                    self._active_inbound_requests = max(0, self._active_inbound_requests - 1)
+
+            self._spawn(_reject_builder_failure, sender_ctx=sender_ctx)
             return
         dctx = _JSONRPCDispatchContext(
             transport=transport_ctx,
@@ -687,6 +709,24 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 pass
         self._pending.clear()
 
+    async def _drain_active_inbound_requests(self) -> None:
+        """Let accepted inbound requests finish response writes after read EOF.
+
+        A redirected-stdin stdio transport can reach EOF immediately after the last
+        request is accepted. Treating EOF as immediate shutdown cancels handlers
+        before their JSON-RPC responses reach stdout. Keep the write side open
+        briefly so already-accepted requests can produce responses, then let the
+        caller cancel any stragglers.
+        """
+        with anyio.move_on_after(_DRAIN_INBOUND_ON_EOF_TIMEOUT) as scope:
+            while self._active_inbound_requests:
+                await anyio.sleep(_DRAIN_INBOUND_ON_EOF_POLL_INTERVAL)
+        if scope.cancelled_caught:  # pragma: no cover
+            logger.warning(
+                "timed out waiting for %d inbound request(s) to finish after read EOF",
+                self._active_inbound_requests,
+            )
+
     async def _handle_request(
         self,
         req: JSONRPCRequest,
@@ -750,6 +790,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 await self._write_error(req.id, ErrorData(code=0, message=str(e)))
                 if self._raise_handler_exceptions:
                     raise
+        finally:
+            self._active_inbound_requests = max(0, self._active_inbound_requests - 1)
         # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
 
     def _allocate_id(self) -> int:

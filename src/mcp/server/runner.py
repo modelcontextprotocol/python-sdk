@@ -487,6 +487,7 @@ async def serve_loop(
         # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized
         # state instead of failing the init-gate.
         inline_methods=frozenset({"initialize"}),
+        drain_inbound_on_read_eof=getattr(read_stream, "drain_inbound_on_read_eof", False),
     )
     connection = Connection.for_loop(dispatcher, session_id=session_id)
     await serve_connection(
@@ -652,6 +653,7 @@ async def serve_dual_era_loop(
         # `server/discover` inline so the modern era lock commits before the
         # next pipelined message is read.
         inline_methods=frozenset({"initialize", "server/discover"}),
+        drain_inbound_on_read_eof=getattr(read_stream, "drain_inbound_on_read_eof", False),
     )
     loop_connection = Connection.for_loop(dispatcher, session_id=session_id)
     loop_runner = ServerRunner(server, loop_connection, lifespan_state, init_options=init_options)

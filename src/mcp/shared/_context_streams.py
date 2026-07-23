@@ -61,11 +61,12 @@ class ContextSendStream(Generic[T]):
 class ContextReceiveStream(Generic[T]):
     """Receive-side wrapper that yields ``T`` and stores the sender's context in ``last_context``."""
 
-    __slots__ = ("_inner", "last_context")
+    __slots__ = ("_inner", "last_context", "drain_inbound_on_read_eof")
 
     def __init__(self, inner: MemoryObjectReceiveStream[_Envelope[T]]) -> None:
         self._inner = inner
         self.last_context: contextvars.Context | None = None
+        self.drain_inbound_on_read_eof = False
 
     async def receive(self) -> T:
         ctx, item = await self._inner.receive()
