@@ -213,14 +213,15 @@ async def test_stdio_server_takes_stdin_off_the_descriptor_table_while_serving(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("failing_call", ["dup", "dup2"])
+@pytest.mark.parametrize("failing_call", ["dup", "dup2", "dup2_destroys_target"])
 async def test_stdio_server_reads_stdin_in_place_when_descriptor_isolation_fails(
     failing_call: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A descriptor failure while claiming stdin degrades to reading sys.stdin in place.
 
     SDK-defined behavior: isolation is best-effort; when duplicating fd 0 or diverting
-    it fails, the transport serves over the original stdin exactly as v1 did.
+    it fails, the transport serves over the original stdin exactly as v1 did. A dup2
+    that closes its target before failing (Windows UCRT) still leaves fd 0 on the wire.
     """
     request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     with _pipe_planted_on_fd0(monkeypatch) as (in_r, in_w):
@@ -236,13 +237,16 @@ async def test_stdio_server_reads_stdin_in_place_when_descriptor_isolation_fails
             monkeypatch.setattr("mcp.server.stdio._dup_above_std", failing_dup_above_std)
         else:
             # Fires once at the divert, then passes through: pytest's capture
-            # machinery also calls os.dup2 at phase transitions.
+            # machinery also calls os.dup2 at phase transitions. The destroying
+            # variant closes the target first, as Windows UCRT dup2 does.
             real_dup2 = os.dup2
             armed = [True]
 
             def failing_dup2(fd: int, fd2: int, inheritable: bool = True) -> int:
                 if armed[0]:
                     armed[0] = False
+                    if failing_call == "dup2_destroys_target":
+                        os.close(fd2)
                     raise OSError("injected descriptor failure")
                 return real_dup2(fd, fd2, inheritable)
 

@@ -140,10 +140,12 @@ def _claim_fd(
     try:
         os.dup2(diversion_fd, fd)
     except OSError:
-        # The divert did not land; fd still carries the wire, so serve it in
-        # place through the shared buffer (two writers on one pipe tear frames).
+        # The divert did not land; ensure fd carries the wire (a Windows dup2 can
+        # close its target before failing), then serve it in place through the
+        # shared buffer, since two writers on one pipe would tear frames.
         with suppress(OSError):
             os.close(diversion_fd)
+        _restore_fd(fd, private_fd)
         return stream.buffer, release
     with suppress(OSError):
         os.close(diversion_fd)
