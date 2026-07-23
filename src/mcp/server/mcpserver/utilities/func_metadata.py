@@ -397,9 +397,9 @@ def _try_create_model_and_schema(
         if origin is dict:
             args = get_args(type_expr)
             if len(args) == 2 and args[0] is str:
-                # TODO: should we use the original annotation? We are losing any potential `Annotated`
-                # metadata for Pydantic here:
-                model = _create_dict_model(func_name, type_expr)
+                # Use the original annotation (which may be `Annotated[dict[str, T], Field(...)]`)
+                # so that any Annotated metadata (e.g. Field description) is preserved in the schema.
+                model = _create_dict_model(func_name, original_annotation)
             else:
                 # dict with non-str keys needs wrapping
                 model = _create_wrapped_model(func_name, original_annotation)
