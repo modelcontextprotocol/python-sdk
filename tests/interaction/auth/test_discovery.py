@@ -11,6 +11,7 @@ assertions are the metadata response bodies and headers, which `Client` does not
 """
 
 import json
+from typing import cast
 
 import anyio
 import mcp_types as types
@@ -54,7 +55,7 @@ def discovery_gets(recorded: list[RecordedRequest]) -> list[str]:
 def real_asm() -> OAuthMetadata:
     """Build an authorization-server metadata document pointing at the real co-hosted endpoints."""
     return OAuthMetadata(
-        issuer=AnyHttpUrl(BASE_URL),
+        issuer=cast(AnyHttpUrl, BASE_URL),
         authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
         token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
         registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),
@@ -100,7 +101,7 @@ async def test_prm_discovery_falls_back_from_path_well_known_to_root_on_404() ->
     server = Server("guarded", on_list_tools=list_tools)
 
     prm = ProtectedResourceMetadata(
-        resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[AnyHttpUrl(BASE_URL)]
+        resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[cast(AnyHttpUrl, BASE_URL)]
     )
     app_shim = shim(
         not_found=frozenset({PRM_PATH_SUFFIXED}),
@@ -188,7 +189,7 @@ async def test_prm_with_a_mismatched_resource_aborts_the_flow_before_authorize()
     server = Server("guarded", on_list_tools=list_tools)
 
     prm = ProtectedResourceMetadata(
-        resource=AnyHttpUrl(f"{BASE_URL}/other"), authorization_servers=[AnyHttpUrl(BASE_URL)]
+        resource=AnyHttpUrl(f"{BASE_URL}/other"), authorization_servers=[cast(AnyHttpUrl, BASE_URL)]
     )
     app_shim = shim(serve={PRM_PATH_SUFFIXED: metadata_body(prm)})
 
