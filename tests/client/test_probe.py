@@ -121,6 +121,16 @@ async def test_an_unparseable_discover_result_falls_back_to_initialize() -> None
     assert session.adopted is None
 
 
+async def test_a_discover_result_advertising_only_legacy_versions_falls_back_to_initialize() -> None:
+    """A server that answers the probe but lists no modern version has made an
+    explicit legacy advertisement (go-sdk's default stateful streamable server
+    does this), so the policy runs the handshake instead of raising on adopt."""
+    session = _StubSession(_discover_dict(list(HANDSHAKE_PROTOCOL_VERSIONS)))
+    await _negotiate(session)
+    assert session.initialized
+    assert session.adopted is None
+
+
 # --- the denylist: every JSON-RPC error code falls back ---
 
 
