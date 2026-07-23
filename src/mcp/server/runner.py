@@ -13,6 +13,7 @@ the entry constructs the `Connection`, the driver tears it down.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 from collections.abc import AsyncIterator, Awaitable, Mapping
 from contextlib import asynccontextmanager
@@ -59,6 +60,7 @@ from mcp.server.connection import Connection, NotifyOnlyOutbound
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared._context_streams import ContextReceiveStream
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -499,15 +501,12 @@ async def serve_loop(
 def _has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
     """Whether `params._meta` carries the reserved protocol-version key.
 
-    Era evidence is the client's explicit version declaration: the
-    `io.modelcontextprotocol/protocolVersion` key exists only in 2026-07-28+
-    envelopes, and the `io.modelcontextprotocol/` prefix is spec-reserved, so
-    legacy traffic never mints it (bare `_meta` is NOT evidence - legacy
-    requests carry `progressToken` there). Presence of the version key alone
-    is the rule, not the full required pair, so a half-built envelope
-    (version present, capabilities missing) still routes modern and gets the
-    classifier's INVALID_PARAMS naming the missing key instead of the legacy
-    path's generic one - and, like every failed classification, locks no era.
+    The `io.modelcontextprotocol/protocolVersion` key exists only in
+    2026-07-28+ envelopes and its prefix is spec-reserved, so legacy traffic
+    never mints it (a bare `_meta` is not evidence - legacy requests carry
+    `progressToken` there). The version key alone is the signal, not the full
+    required pair, so a half-built envelope still routes modern and gets the
+    classifier's INVALID_PARAMS naming the missing key.
     """
     if not params:
         return False
@@ -644,6 +643,17 @@ async def serve_dual_era_loop(
         await write_stream.aclose()
 
 
+_OPENING_PEEK_LIMIT: int = 32
+"""How many frames may precede the client's first request before the loop
+stops looking for one. Every legitimate client opens with a request, so this
+only bounds a peer that streams other frames without ever sending one."""
+
+
+def _sender_context(stream: ReadStream[Any]) -> contextvars.Context:
+    """The per-message sender context a context-aware stream carries, else the current one."""
+    return getattr(stream, "last_context", None) or contextvars.copy_context()
+
+
 @asynccontextmanager
 async def _replay_from_opening_request(
     read_stream: ReadStream[SessionMessage | Exception],
@@ -652,28 +662,34 @@ async def _replay_from_opening_request(
 
     Reads frames until the first JSON-RPC request arrives, then yields that
     request together with a stream that replays every frame read so far and
-    relays the rest of `read_stream` behind it. The request is `None` if the
-    client closed the channel before sending any request.
+    relays the rest of `read_stream` behind it, sender contexts included. The
+    request is `None` if the channel closes - or `_OPENING_PEEK_LIMIT` frames
+    pass - before any request appears.
     """
-    peeked: list[SessionMessage | Exception] = []
+    peeked: list[tuple[contextvars.Context, SessionMessage | Exception]] = []
     opening: JSONRPCRequest | None = None
-    replay_send, replayed = anyio.create_memory_object_stream[SessionMessage | Exception]()
+    replay_send, replay_receive = anyio.create_memory_object_stream[
+        tuple[contextvars.Context, SessionMessage | Exception]
+    ]()
+    replayed = ContextReceiveStream(replay_receive)
 
     async def replay_then_relay() -> None:
         async with replay_send:
-            for item in peeked:
-                await replay_send.send(item)
+            for envelope in peeked:
+                await replay_send.send(envelope)
             async for item in read_stream:
-                await replay_send.send(item)
+                await replay_send.send((_sender_context(read_stream), item))
 
     # This helper takes ownership of `read_stream` from the serving loop, so
     # every exit - including cancellation while awaiting the first request -
     # closes it and the replay channel.
     try:
         async for item in read_stream:
-            peeked.append(item)
+            peeked.append((_sender_context(read_stream), item))
             if isinstance(item, SessionMessage) and isinstance(item.message, JSONRPCRequest):
                 opening = item.message
+                break
+            if len(peeked) >= _OPENING_PEEK_LIMIT:
                 break
         async with anyio.create_task_group() as tg:
             tg.start_soon(replay_then_relay)
@@ -682,7 +698,7 @@ async def _replay_from_opening_request(
     finally:
         await read_stream.aclose()
         replay_send.close()
-        replayed.close()
+        replay_receive.close()
 
 
 async def _serve_legacy_stream(

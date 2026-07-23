@@ -7,6 +7,7 @@ behaviour under test. Driver tests (`serve_connection`, `serve_one`,
 `aclose_shielded`) follow at the bottom.
 """
 
+import contextvars
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -57,6 +58,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import (
+    _OPENING_PEEK_LIMIT,
     ServerRunner,
     _extract_meta,
     _has_modern_envelope,
@@ -69,6 +71,7 @@ from mcp.server.runner import (
 )
 from mcp.server.session import ServerSession
 from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, InMemorySubscriptionBus, ListenHandler
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
@@ -1356,6 +1359,8 @@ async def _append_async(dst: list[int], v: int) -> None:
 
 _LIFESPAN: dict[str, Any] = {}
 
+_SENDER_VAR: contextvars.ContextVar[str] = contextvars.ContextVar("dual_era_sender_var", default="unset")
+
 
 @pytest.mark.anyio
 async def test_serve_one_runs_handler_and_returns_result_dict(server: SrvT):
@@ -1970,6 +1975,49 @@ async def test_notify_only_outbound_forwards_notifications_and_refuses_requests(
     assert inner.notifies == ["notifications/tools/list_changed"]
     with pytest.raises(NoBackChannelError):
         await outbound.send_raw_request("ping", None)
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_carries_the_sender_context_through_the_replay():
+    """A context-aware read stream's per-message sender context still reaches
+    handlers over the dual-era loop (the SSE transport delivers requests this
+    way): the opening-request replay forwards each frame's captured context."""
+    seen: list[str] = []
+
+    async def probe(ctx: Ctx, params: RequestParams | None) -> dict[str, Any]:
+        seen.append(_SENDER_VAR.get())
+        return {}
+
+    server = Server(name="ctx-server", version="0.0.1")
+    server.add_request_handler("x/probe", RequestParams, probe)
+    c2s_send, c2s_recv = create_context_streams[SessionMessage | Exception](8)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](8)
+    frame = JSONRPCRequest(jsonrpc="2.0", id=1, method="x/probe", params=_modern_params())
+    async with anyio.create_task_group() as tg, s2c_recv:
+        tg.start_soon(partial(serve_dual_era_loop, server, c2s_recv, s2c_send, lifespan_state=_LIFESPAN))
+        token = _SENDER_VAR.set("from-the-sender")
+        try:
+            await c2s_send.send(SessionMessage(message=frame))
+        finally:
+            _SENDER_VAR.reset(token)
+        with anyio.fail_after(5):
+            await s2c_recv.receive()
+        tg.cancel_scope.cancel()
+        await c2s_send.aclose()
+    assert seen == ["from-the-sender"]
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_stops_peeking_after_a_flood_of_pre_request_frames(server: SrvT):
+    """A peer that streams notifications and never opens with a request only
+    gets the first `_OPENING_PEEK_LIMIT` frames buffered: past that the loop
+    stops looking for an opening request and serves the rest as an ordinary
+    handshake connection, so the handshake that follows still lands."""
+    async with dual_era_client(server) as (client, _):
+        for _ in range(_OPENING_PEEK_LIMIT + 5):
+            await client.notify("notifications/flood", None)
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
 
 
 @pytest.mark.anyio
