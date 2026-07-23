@@ -464,10 +464,7 @@ class StreamableHTTPServerTransport:
         content_type = request.headers.get("content-type", "")
 
         # Only normalize the media type (drop parameters) and compare
-        media_types = [
-            part.strip().lower()
-            for part in content_type.split(";", 1)[0].split(",")
-        ]
+        media_types = [part.strip().lower() for part in content_type.split(";", 1)[0].split(",")]
 
         return CONTENT_TYPE_JSON in media_types
 
