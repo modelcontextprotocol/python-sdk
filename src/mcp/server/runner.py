@@ -377,6 +377,13 @@ class ServerRunner(Generic[LifespanT]):
                 # pydantic messages echo the result body.
                 logger.exception("handler for %r returned an invalid result", method)
                 raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
+        if version in MODERN_PROTOCOL_VERSIONS and dumped.get("resultType") is None:
+            # Spec 2026-07-28: `Result.resultType` is required - servers MUST
+            # include it (the absent-means-complete bridge is for clients of
+            # older servers only). The sieve guarantees it for core methods;
+            # this covers everything else: custom methods, extension methods,
+            # and empty results.
+            dumped["resultType"] = "complete"
         return self._stamp_server_info(version, dumped)
 
     def _stamp_server_info(self, version: str, result: dict[str, Any]) -> dict[str, Any]:

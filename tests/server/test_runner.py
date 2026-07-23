@@ -957,10 +957,12 @@ async def test_on_request_dispatches_custom_method_registered_via_add_request_ha
     born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
         result = await client.send_raw_request("myorg/echo", None)
-    # Custom-method results served at a modern version carry the serverInfo
-    # `_meta` stamp like any other result (spec 2026-07-28, #3002).
+    # Custom-method results served at a modern version carry the required
+    # `resultType` discriminator and the serverInfo `_meta` stamp like any
+    # other result (spec 2026-07-28, #3002).
     assert result == {
         "echoed": True,
+        "resultType": "complete",
         "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
     }
 
@@ -1039,7 +1041,7 @@ async def test_a_non_mapping_custom_result_meta_is_left_alone(server: SrvT):
     born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
         result = await client.send_raw_request("myorg/odd-meta", None)
-    assert result == {"_meta": "not-a-mapping"}
+    assert result == {"_meta": "not-a-mapping", "resultType": "complete"}
 
 
 @pytest.mark.anyio
@@ -1104,6 +1106,40 @@ async def test_a_claimed_result_type_on_a_legacy_session_is_sieved_not_leaked(se
 
 
 @pytest.mark.anyio
+async def test_a_handshake_era_custom_result_gains_no_discriminator(server: SrvT):
+    """The `resultType` fill is modern-only: handshake-era results keep the
+    handler's exact shape (the field does not exist pre-2026)."""
+
+    async def echo(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"echoed": True}
+
+    server.add_request_handler("myorg/echo", RequestParams, echo)
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("myorg/echo", None)
+    assert result == {"echoed": True}
+
+
+@pytest.mark.anyio
+async def test_an_explicit_null_result_type_is_filled_on_the_modern_path(server: SrvT):
+    """A handler-authored `"resultType": null` reads as absent (null is not a
+    valid discriminator) and is filled, mirroring the null posture of the
+    identity stamp."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"echoed": True, "resultType": None}
+
+    server.add_request_handler("myorg/echo", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/echo", None)
+    assert result == {
+        "echoed": True,
+        "resultType": "complete",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
+
+
+@pytest.mark.anyio
 async def test_a_claimed_extension_result_type_bypasses_the_sieve_and_is_stamped(server: SrvT):
     """SDK-defined: a spec-method result carrying an extension `resultType` is a
     claimed shape the extension owns - the per-version sieve would strip its
@@ -1125,10 +1161,11 @@ async def test_a_claimed_extension_result_type_bypasses_the_sieve_and_is_stamped
 
 
 @pytest.mark.anyio
-async def test_an_empty_result_on_the_modern_path_carries_only_the_stamp(server: SrvT):
-    """Spec-mandated (2026-07-28, #3002): serverInfo is stamped into every
-    result, including empty ones — a result that dumps as `{}` goes on the
-    modern wire as just the identity `_meta`."""
+async def test_an_empty_result_on_the_modern_path_carries_the_discriminator_and_stamp(server: SrvT):
+    """Spec-mandated (2026-07-28): `resultType` is required on every result a
+    modern server sends (the absent-means-complete bridge is for clients of
+    older servers only), and serverInfo is stamped into every result too - so
+    a result that dumps as `{}` goes on the modern wire with both."""
 
     async def custom(ctx: Ctx, params: RequestParams) -> EmptyResult:
         return EmptyResult()
@@ -1137,7 +1174,10 @@ async def test_an_empty_result_on_the_modern_path_carries_only_the_stamp(server:
     born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
         result = await client.send_raw_request("myorg/empty", None)
-    assert result == {"_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}}}
+    assert result == {
+        "resultType": "complete",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
 
 
 @pytest.mark.anyio
@@ -1879,7 +1919,11 @@ async def test_dual_era_loop_custom_method_with_mis_shaped_envelope_values_still
     params["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
     async with dual_era_client(greeter) as (client, _):
         result = await client.send_raw_request("custom/greet", params)
-    assert result == {"ok": True, "_meta": {SERVER_INFO_META_KEY: {"name": "greeter-server", "version": "0.0.1"}}}
+    assert result == {
+        "ok": True,
+        "resultType": "complete",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "greeter-server", "version": "0.0.1"}},
+    }
     assert seen == [None]
 
 
