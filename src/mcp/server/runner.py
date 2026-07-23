@@ -24,11 +24,13 @@ import anyio.abc
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CORE_RESULT_TYPES,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
     CacheableResult,
     ErrorData,
@@ -111,7 +113,10 @@ def _dump_result(result: Any) -> dict[str, Any]:
     if isinstance(result, BaseModel):
         return result.model_dump(by_alias=True, mode="json", exclude_none=True)
     if isinstance(result, dict):
-        return cast(dict[str, Any], result)
+        # Copied so callers own the returned dict: handlers and middleware may
+        # retain the object they returned, and the outbound pipeline shapes the
+        # wire form without reaching into anything the handler still holds.
+        return dict(cast(dict[str, Any], result))
     raise TypeError(f"handler returned {type(result).__name__}; expected BaseModel, dict, or None")
 
 
@@ -209,22 +214,15 @@ class ServerRunner(Generic[LifespanT]):
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
-            # Fill cache hints on the handler result, before the serialize sieve
-            # decides whether the negotiated version carries the fields at all.
-            # MRTR carve-out: `input_required` interim results, typed or mapping, never get hints.
-            if (hint := self.server.cache_hints.get(method)) is not None:
-                if isinstance(result, CacheableResult):
-                    result = apply_cache_hint(result, hint)
-                elif isinstance(result, Mapping) and not _methods.is_input_required(result):
-                    # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
-                    result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
-            # Dump and serialize inside the chain so the OpenTelemetry span (the
+            # Shape for the wire inside the chain so the OpenTelemetry span (the
             # outermost middleware) records a failing handler return shape too.
             return self._serialize(method, version, result)
 
         call = self._compose_server_middleware(_inner)
         # `_inner` already produced the wire dict; a middleware that short-circuited
-        # without `call_next` is trusted to return its own well-formed result.
+        # without `call_next` is trusted to return its own well-formed result -
+        # including its response envelope. The pipeline never patches it up after
+        # the fact.
         result = _dump_result(await call(ctx))
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
@@ -333,27 +331,84 @@ class ServerRunner(Generic[LifespanT]):
             close_standalone_sse_stream=close_standalone_sse_stream,
         )
 
-    @staticmethod
-    def _serialize(method: str, version: str, result: HandlerResult) -> dict[str, Any]:
-        """Dump a handler result to the wire dict, serializing spec methods.
+    def _serialize(self, method: str, version: str, result: HandlerResult) -> dict[str, Any]:
+        """Shape a handler result into its wire form: the outbound counterpart
+        of the inbound classification ladder.
 
-        Runs inside the middleware chain so the OpenTelemetry span observes a
-        failing return shape (unsupported type, malformed spec result) as an
-        error rather than closing on a request that the client sees fail.
+        One pass owns the whole response envelope, in order: cache hints fill
+        `ttlMs`/`cacheScope` the handler left unset, core-vocabulary spec-method
+        results are validated and sieved by the per-version surface (a claimed
+        extension `resultType` shape is the extension's to own), and 2026-era
+        results get the `serverInfo` `_meta` stamp (spec #3002). Runs inside the
+        middleware chain so the OpenTelemetry span observes a failing return
+        shape (unsupported type, malformed spec result) as an error rather
+        than closing on a request that the client sees fail - and so a
+        middleware that short-circuits without `call_next` owns its result,
+        envelope included.
         """
+        # MRTR carve-out: `input_required` interim results, typed or mapping, never get hints.
+        if (hint := self.server.cache_hints.get(method)) is not None:
+            if isinstance(result, CacheableResult):
+                result = apply_cache_hint(result, hint)
+            elif isinstance(result, Mapping) and not _methods.is_input_required(result):
+                # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
+                result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
         dumped = _dump_result(result)
-        # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
-        # corresponding extension is in this request's _meta clientCapabilities.extensions; the
+        # A modern-era extension `resultType` (outside the core vocabulary) marks
+        # a claimed shape owned by the extension that defined it: the per-version
+        # surface doesn't describe it, so the sieve applies to core results only.
+        # Legacy connections sieve everything - claimed shapes are 2026-era
+        # vocabulary and cannot be delivered on a legacy wire (mirrors the
+        # client-side ResultClaim rule).
+        # TODO(L56): reject extension resultType values unless the corresponding
+        # extension is in this request's _meta clientCapabilities.extensions; the
         # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
-        if method not in _methods.SPEC_CLIENT_METHODS:
-            return dumped
-        try:
-            return _methods.serialize_server_result(method, version, dumped)
-        except ValidationError:
-            # Server bug, not client fault. Detail stays in the server log:
-            # pydantic messages echo the result body.
-            logger.exception("handler for %r returned an invalid result", method)
-            raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
+        result_type = dumped.get("resultType")
+        core_shape = (
+            version not in MODERN_PROTOCOL_VERSIONS
+            or not isinstance(result_type, str)
+            or result_type in CORE_RESULT_TYPES
+        )
+        if method in _methods.SPEC_CLIENT_METHODS and core_shape:
+            try:
+                dumped = _methods.serialize_server_result(method, version, dumped)
+            except ValidationError:
+                # Server bug, not client fault. Detail stays in the server log:
+                # pydantic messages echo the result body.
+                logger.exception("handler for %r returned an invalid result", method)
+                raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
+        if version in MODERN_PROTOCOL_VERSIONS and dumped.get("resultType") is None:
+            # Spec 2026-07-28: `Result.resultType` is required - servers MUST
+            # include it (the absent-means-complete bridge is for clients of
+            # older servers only). The sieve guarantees it for core methods;
+            # this covers everything else: custom methods, extension methods,
+            # and empty results.
+            dumped["resultType"] = "complete"
+        return self._stamp_server_info(version, dumped)
+
+    def _stamp_server_info(self, version: str, result: dict[str, Any]) -> dict[str, Any]:
+        """Fill the `serverInfo` `_meta` stamp on a 2026-era result (spec #3002).
+
+        A handler-authored value wins; an explicit `null` reads as absent and
+        is stamped over, mirroring the request-side `clientInfo` posture (a
+        `null` is not a valid `Implementation`, so presence means a value). A
+        non-mapping `_meta` is the handler's to own, and handshake-era results
+        are never stamped. `result` is
+        pipeline-owned (`_dump_result` copies dicts; the spec-method sieve
+        re-dumps), but `_meta` may still be the handler's object, so the stamp
+        replaces it rather than writing into it. `server_info_stamp` is a
+        fresh dict per access, so the response never aliases server state.
+        """
+        if version not in MODERN_PROTOCOL_VERSIONS:
+            return result
+        raw_meta = result.get("_meta")
+        if raw_meta is None:
+            result["_meta"] = {SERVER_INFO_META_KEY: self.server.server_info_stamp}
+        elif isinstance(raw_meta, dict):
+            meta = cast("dict[str, Any]", raw_meta)
+            if meta.get(SERVER_INFO_META_KEY) is None:
+                result["_meta"] = {**meta, SERVER_INFO_META_KEY: self.server.server_info_stamp}
+        return result
 
     @staticmethod
     def _negotiate_initialize(params: Mapping[str, Any] | None) -> tuple[InitializeRequestParams, str]:
@@ -439,19 +494,23 @@ async def serve_loop(
     )
 
 
-_MODERN_ENVELOPE_KEYS = (PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY)
-
-
 def _has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
-    """Whether `params._meta` carries every reserved modern-envelope key.
+    """Whether `params._meta` carries the reserved protocol-version key.
 
-    Era evidence is the FULL key triple - bare `_meta` is not (legacy traffic
-    carries `progressToken` there).
+    Era evidence is the client's explicit version declaration: the
+    `io.modelcontextprotocol/protocolVersion` key exists only in 2026-07-28+
+    envelopes, and the `io.modelcontextprotocol/` prefix is spec-reserved, so
+    legacy traffic never mints it (bare `_meta` is NOT evidence - legacy
+    requests carry `progressToken` there). Presence of the version key alone
+    is the rule, not the full required pair, so a half-built envelope
+    (version present, capabilities missing) still routes modern and gets the
+    classifier's INVALID_PARAMS naming the missing key instead of the legacy
+    path's generic one - and, like every failed classification, locks no era.
     """
     if not params:
         return False
     meta = params.get("_meta")
-    return isinstance(meta, Mapping) and all(key in meta for key in _MODERN_ENVELOPE_KEYS)
+    return isinstance(meta, Mapping) and PROTOCOL_VERSION_META_KEY in meta
 
 
 def _initialize_after_modern_data(params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -557,8 +616,8 @@ async def serve_dual_era_loop(
       like `serve_loop` for its lifetime, and modern envelope traffic is then
       rejected with INVALID_REQUEST. `initialize` never routes modern - the
       method is legacy-distinctive by definition - even when a confused
-      client stamps the envelope triple on it.
-    - A request carrying the modern `_meta` envelope triple - or
+      client stamps the envelope keys on it.
+    - A request whose `_meta` declares the modern protocol version - or
       `server/discover`, a modern-only method - is classified
       (`classify_inbound_request`) and served single-exchange via `serve_one`
       with a born-ready per-request `Connection`, the same dispatch model as
@@ -676,7 +735,7 @@ async def serve_dual_era_loop(
             return await serve_modern(dctx, method, params)
         # Unlocked. `initialize` is legacy-distinctive by definition (the
         # method does not exist at modern versions), so it takes the handshake
-        # path even when the envelope triple is stamped on it.
+        # path even when the envelope keys are stamped on it.
         if method != "initialize" and (method == "server/discover" or _has_modern_envelope(params)):
             return await serve_modern(dctx, method, params)
         result = await loop_runner.on_request(dctx, method, params)

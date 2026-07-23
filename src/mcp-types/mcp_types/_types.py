@@ -69,6 +69,13 @@ Deprecated (with the rest of logging) by SEP-2577 in the same revision that
 introduces it. If absent, the server must not send log notifications.
 """
 
+SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
+"""Reserved result `_meta` key: the server `Implementation` (2026-07-28). SDK-managed.
+
+Servers SHOULD stamp it on every result. The value is self-reported and
+unverified - display, logging, and debugging only; never behavior or security.
+"""
+
 
 class RequestParamsMeta(TypedDict, extra_items=Any):
     """The `_meta` object on request params (schema name: `RequestMetaObject`).
@@ -590,8 +597,6 @@ class DiscoverResult(CacheableResult):
     """MCP protocol versions this server supports; the client should pick one for subsequent requests."""
 
     capabilities: ServerCapabilities
-
-    server_info: Implementation
 
     instructions: str | None = None
     """Natural-language guidance describing the server and its features, e.g. for

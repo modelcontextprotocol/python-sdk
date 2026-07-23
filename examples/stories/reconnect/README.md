@@ -35,7 +35,7 @@ uv run python -m stories.reconnect.client --http --server server_lowlevel
 ## Caveats
 
 - `mode=<version-pin>` *without* `prior_discover=` synthesizes a placeholder
-  whose `server_info` is `Implementation(name="", version="")`. Pass the cached
+  with no `serverInfo` stamp, so `server_info` reads `None`. Pass the cached
   result to get real identity on reconnect. Whether `Client` should expose a
   public synthesizer (or refuse the bare pin) is open.
 - `client.session.discover_result` is a one-hop reach into the mechanics layer;

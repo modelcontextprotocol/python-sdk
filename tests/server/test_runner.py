@@ -25,9 +25,13 @@ from mcp_types import (
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
+    CallToolRequestParams,
     ClientCapabilities,
+    EmptyResult,
     ErrorData,
+    Icon,
     Implementation,
     InitializeRequestParams,
     JSONRPCRequest,
@@ -953,7 +957,14 @@ async def test_on_request_dispatches_custom_method_registered_via_add_request_ha
     born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
     async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
         result = await client.send_raw_request("myorg/echo", None)
-    assert result == {"echoed": True}
+    # Custom-method results served at a modern version carry the required
+    # `resultType` discriminator and the serverInfo `_meta` stamp like any
+    # other result (spec 2026-07-28, #3002).
+    assert result == {
+        "echoed": True,
+        "resultType": "complete",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
 
 
 @pytest.mark.anyio
@@ -985,6 +996,188 @@ async def test_runner_custom_method_result_is_not_surface_validated(server: SrvT
     async with connected_runner(server) as (client, _):
         result = await client.send_raw_request("custom/greet", None)
     assert result == {"anything": "goes"}
+
+
+@pytest.mark.anyio
+async def test_modern_short_circuit_middleware_owns_its_result_envelope(server: SrvT):
+    """SDK-defined: a middleware that answers without calling `call_next` is
+    trusted to return its own well-formed result, response envelope included -
+    the outbound pipeline (and its serverInfo stamp) never patches it up."""
+
+    async def short_circuit(ctx: Ctx, call_next: Any) -> Any:
+        return {"ok": True}
+
+    server.middleware.append(short_circuit)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/anything", None)
+    assert result == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_a_handler_authored_server_info_stamp_is_not_overwritten(server: SrvT):
+    """SDK-defined: a handler that stamps its own serverInfo `_meta` value owns
+    it; the runner fills the key only when it is absent (spec 2026-07-28, #3002)."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"ok": True, "_meta": {SERVER_INFO_META_KEY: {"name": "authored", "version": "9"}}}
+
+    server.add_request_handler("myorg/authored", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/authored", None)
+    assert result["_meta"][SERVER_INFO_META_KEY] == {"name": "authored", "version": "9"}
+
+
+@pytest.mark.anyio
+async def test_a_non_mapping_custom_result_meta_is_left_alone(server: SrvT):
+    """SDK-defined: a custom-method handler that returns a non-mapping `_meta`
+    owns that shape; the stamp neither clobbers it nor fails the request."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"_meta": "not-a-mapping"}
+
+    server.add_request_handler("myorg/odd-meta", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/odd-meta", None)
+    assert result == {"_meta": "not-a-mapping", "resultType": "complete"}
+
+
+@pytest.mark.anyio
+async def test_stamping_never_mutates_a_handler_retained_result_dict(server: SrvT):
+    """SDK-defined: the outbound pass dumps the handler's dict to a copy
+    (`_dump_result`) and the stamp writes into that copy, so a dict the handler
+    retains (module-level, cached, shared) is never mutated underneath it."""
+
+    retained: dict[str, Any] = {"ok": True}
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return retained
+
+    server.add_request_handler("myorg/cached", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/cached", None)
+    assert result["_meta"][SERVER_INFO_META_KEY] == {"name": "test-server", "version": "0.0.1"}
+    assert retained == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_mutating_a_stamped_response_never_corrupts_later_stamps():
+    """SDK-defined: every response gets a fresh stamp dict, nested values
+    included - a caller mutating one stamped response (a middleware, or an
+    application holding an in-memory result) cannot corrupt the identity
+    stamped into later responses."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {}
+
+    server: SrvT = Server(name="test-server", version="0.0.1", icons=[Icon(src="https://example.com/icon.png")])
+    server.add_request_handler("myorg/empty", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        first = await client.send_raw_request("myorg/empty", None)
+        first["_meta"][SERVER_INFO_META_KEY]["icons"][0]["src"] = "https://evil.example/pwned.png"
+        second = await client.send_raw_request("myorg/empty", None)
+    assert second["_meta"][SERVER_INFO_META_KEY] == {
+        "name": "test-server",
+        "version": "0.0.1",
+        "icons": [{"src": "https://example.com/icon.png"}],
+    }
+
+
+@pytest.mark.anyio
+async def test_a_claimed_result_type_on_a_legacy_session_is_sieved_not_leaked(server: SrvT):
+    """SDK-defined: claimed extension shapes are 2026-era vocabulary, so on a
+    handshake-era session the per-version sieve still applies - a claimed
+    shape (not a valid legacy result) surfaces as INTERNAL_ERROR instead of
+    leaking a shape the client cannot resolve."""
+
+    async def custom(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
+        return {"resultType": "voucher", "voucherCode": "v-42"}
+
+    server.add_request_handler("tools/call", CallToolRequestParams, custom)
+    async with connected_runner(server) as (client, _):
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/call", {"name": "issue"})
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert exc.value.error.message == "Handler returned an invalid result"
+
+
+@pytest.mark.anyio
+async def test_a_handshake_era_custom_result_gains_no_discriminator(server: SrvT):
+    """The `resultType` fill is modern-only: handshake-era results keep the
+    handler's exact shape (the field does not exist pre-2026)."""
+
+    async def echo(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"echoed": True}
+
+    server.add_request_handler("myorg/echo", RequestParams, echo)
+    async with connected_runner(server) as (client, _):
+        result = await client.send_raw_request("myorg/echo", None)
+    assert result == {"echoed": True}
+
+
+@pytest.mark.anyio
+async def test_an_explicit_null_result_type_is_filled_on_the_modern_path(server: SrvT):
+    """A handler-authored `"resultType": null` reads as absent (null is not a
+    valid discriminator) and is filled, mirroring the null posture of the
+    identity stamp."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> dict[str, Any]:
+        return {"echoed": True, "resultType": None}
+
+    server.add_request_handler("myorg/echo", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/echo", None)
+    assert result == {
+        "echoed": True,
+        "resultType": "complete",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
+
+
+@pytest.mark.anyio
+async def test_a_claimed_extension_result_type_bypasses_the_sieve_and_is_stamped(server: SrvT):
+    """SDK-defined: a spec-method result carrying an extension `resultType` is a
+    claimed shape the extension owns - the per-version sieve would strip its
+    vendor fields, so it applies to core-vocabulary results only. The identity
+    stamp still lands: claimed shapes are results like any other."""
+
+    async def custom(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
+        return {"resultType": "voucher", "voucherCode": "v-42"}
+
+    server.add_request_handler("tools/call", CallToolRequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("tools/call", _modern_params(name="issue"))
+    assert result == {
+        "resultType": "voucher",
+        "voucherCode": "v-42",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
+
+
+@pytest.mark.anyio
+async def test_an_empty_result_on_the_modern_path_carries_the_discriminator_and_stamp(server: SrvT):
+    """Spec-mandated (2026-07-28): `resultType` is required on every result a
+    modern server sends (the absent-means-complete bridge is for clients of
+    older servers only), and serverInfo is stamped into every result too - so
+    a result that dumps as `{}` goes on the modern wire with both."""
+
+    async def custom(ctx: Ctx, params: RequestParams) -> EmptyResult:
+        return EmptyResult()
+
+    server.add_request_handler("myorg/empty", RequestParams, custom)
+    born_ready = Connection.from_envelope(LATEST_MODERN_VERSION, None, None)
+    async with connected_runner(server, initialized=False, connection=born_ready) as (client, _):
+        result = await client.send_raw_request("myorg/empty", None)
+    assert result == {
+        "resultType": "complete",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "test-server", "version": "0.0.1"}},
+    }
 
 
 @pytest.mark.anyio
@@ -1448,6 +1641,44 @@ async def test_dual_era_loop_malformed_envelope_content_never_locks(server: SrvT
 
 
 @pytest.mark.anyio
+async def test_dual_era_loop_pair_only_envelope_serves_modern_and_locks(server: SrvT):
+    """Spec-mandated (spec PR #3002): the required envelope pair (protocol version
+    + client capabilities) without the optional clientInfo is a complete
+    modern request - it is served, records the declared capabilities without
+    client params, locks the era modern, and a later legacy `initialize` is
+    rejected with -32022."""
+    params = _modern_params()
+    del params["_meta"][CLIENT_INFO_META_KEY]
+    async with dual_era_client(server) as (client, _):
+        result = await client.send_raw_request("tools/list", params)
+        assert result["tools"][0]["name"] == "t"
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("initialize", _initialize_params())
+    assert exc_info.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
+    ctx = _seen_ctx[-1]
+    assert ctx.session.client_params is None
+    assert ctx.session.client_capabilities == ClientCapabilities()
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_version_without_capabilities_rejects_naming_the_key_and_never_locks(server: SrvT):
+    """A `_meta` declaring the protocol version but missing the required
+    client-capabilities key routes modern - never the legacy path with its
+    generic 'Invalid request parameters' - and is rejected INVALID_PARAMS
+    naming the missing key; like every failed classification it locks no era,
+    so the legacy handshake stays available."""
+    params = _modern_params()
+    del params["_meta"][CLIENT_CAPABILITIES_META_KEY]
+    async with dual_era_client(server) as (client, _):
+        with pytest.raises(MCPError) as exc_info:
+            await client.send_raw_request("tools/list", params)
+        init = await client.send_raw_request("initialize", _initialize_params())
+        assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert CLIENT_CAPABILITIES_META_KEY in exc_info.value.error.message
+
+
+@pytest.mark.anyio
 async def test_dual_era_loop_failed_modern_request_never_locks(server: SrvT):
     """A well-formed modern request for an unknown method fails without
     locking; the next modern request locks on its own success."""
@@ -1688,17 +1919,27 @@ async def test_dual_era_loop_custom_method_with_mis_shaped_envelope_values_still
     params["_meta"][CLIENT_INFO_META_KEY] = "not-an-object"
     async with dual_era_client(greeter) as (client, _):
         result = await client.send_raw_request("custom/greet", params)
-    assert result == {"ok": True}
+    assert result == {
+        "ok": True,
+        "resultType": "complete",
+        "_meta": {SERVER_INFO_META_KEY: {"name": "greeter-server", "version": "0.0.1"}},
+    }
     assert seen == [None]
 
 
-def test_has_modern_envelope_requires_the_full_key_triple():
+def test_has_modern_envelope_keys_on_the_protocol_version_key():
+    """Era evidence is the reserved protocol-version `_meta` key: legacy traffic
+    never mints it (bare `_meta` / `progressToken` is not evidence), and a
+    half-built envelope still routes modern so the classifier - not the legacy
+    path - names its missing required key."""
     assert not _has_modern_envelope(None)
     assert not _has_modern_envelope({})
     assert not _has_modern_envelope({"_meta": None})
     assert not _has_modern_envelope({"_meta": {"progressToken": 1}})
-    partial_meta = {k: v for k, v in _modern_envelope().items() if k != CLIENT_CAPABILITIES_META_KEY}
-    assert not _has_modern_envelope({"_meta": partial_meta})
+    version_only = {PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION}
+    assert _has_modern_envelope({"_meta": version_only})
+    pair_only = {k: v for k, v in _modern_envelope().items() if k != CLIENT_INFO_META_KEY}
+    assert _has_modern_envelope({"_meta": pair_only})
     assert _has_modern_envelope(_modern_params())
 
 

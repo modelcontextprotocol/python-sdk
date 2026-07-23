@@ -63,6 +63,10 @@ In increasing order of how much you should hesitate:
   `initialize`: the result the client gets back is built from your rewritten params, but the
   server commits its connection state from the original wire params. The two sides can finish
   the handshake disagreeing about what they negotiated.
+* **Answer.** Return a result without calling `call_next(ctx)` and it goes to the client as
+  your response. `call_next` hands you the finished wire form, and the pipeline never patches
+  what you return, so the whole envelope is yours: on a 2026-era connection that includes the
+  `serverInfo` `_meta` stamp, which the SDK adds to handler results but not to yours.
 
 !!! check
     `initialize` is one of the things middleware wraps, and it is the *only* hook you get

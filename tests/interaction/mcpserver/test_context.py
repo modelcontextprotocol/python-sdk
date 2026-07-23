@@ -20,6 +20,7 @@ from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -68,7 +69,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
 
 
 @requirement("mcpserver:context:progress")
-async def test_context_report_progress_sends_progress_notifications(connect: Connect) -> None:
+async def test_context_report_progress_sends_progress_notifications(connect: Connect, unstamped: Unstamp) -> None:
     """Context.report_progress sends progress notifications correlated to the calling request.
 
     The caller's progress callback receives each report, in order, before the tool call returns.
@@ -88,7 +89,7 @@ async def test_context_report_progress_sends_progress_notifications(connect: Con
     async with connect(mcp) as client:
         result = await client.call_tool("crunch", {}, progress_callback=on_progress)
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="crunched")], structured_content={"result": "crunched"})
     )
     assert received == snapshot([(1.0, 3.0, None), (2.0, 3.0, "halfway there")])
@@ -123,7 +124,7 @@ async def test_context_exposes_request_id_and_client_info_to_a_tool(connect: Con
 
 @requirement("mcpserver:context:logging")
 @requirement("protocol:progress:no-token")
-async def test_report_progress_without_a_progress_token_sends_nothing(connect: Connect) -> None:
+async def test_report_progress_without_a_progress_token_sends_nothing(connect: Connect, unstamped: Unstamp) -> None:
     """When the caller supplied no progress callback, Context.report_progress is a silent no-op.
 
     The tool also emits one log message as a sentinel: the message handler receives only that,
@@ -145,7 +146,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     async with connect(mcp, message_handler=collect) as client:
         result = await client.call_tool("mill", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="milled")], structured_content={"result": "milled"})
     )
     assert received == snapshot(
@@ -207,7 +208,7 @@ async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
 
 
 @requirement("mcpserver:context:read-resource")
-async def test_context_read_resource_reads_registered_resource(connect: Connect) -> None:
+async def test_context_read_resource_reads_registered_resource(connect: Connect, unstamped: Unstamp) -> None:
     """Context.read_resource lets a tool read a resource registered on the same server.
 
     The tool reports the MIME type and content it read, proving the resource function ran and its
@@ -228,7 +229,7 @@ async def test_context_read_resource_reads_registered_resource(connect: Connect)
     async with connect(mcp) as client:
         result = await client.call_tool("show_config", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="text/plain: 'theme = dark'")],
             structured_content={"result": "text/plain: 'theme = dark'"},

@@ -38,4 +38,4 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     )
 
 
-server = Server("Bookshop", on_list_tools=list_tools, on_call_tool=call_tool)
+server = Server("Bookshop", version="2.0.0", on_list_tools=list_tools, on_call_tool=call_tool)

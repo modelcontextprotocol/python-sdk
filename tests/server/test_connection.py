@@ -22,6 +22,7 @@ from mcp_types import (
     ElicitationCapability,
     EmptyResult,
     Implementation,
+    InitializeRequestParams,
     ListRootsRequest,
     ListRootsResult,
     PingRequest,
@@ -321,13 +322,40 @@ async def test_connection_send_tool_list_changed_with_meta_includes_meta_only_pa
 # --- check_capability ----------------------------------------------------------
 
 
-def test_connection_check_capability_false_when_no_client_params_recorded():
-    """SDK-defined: `check_capability` returns False when no `client_params`
+def test_connection_check_capability_false_when_no_capabilities_recorded():
+    """SDK-defined: `check_capability` returns False when no capabilities
     were recorded, regardless of which factory built the connection."""
     conn = Connection.for_loop(StubOutbound())
     assert conn.check_capability(ClientCapabilities(sampling=SamplingCapability())) is False
     # Same for a born-ready connection that supplied neither info nor caps.
     assert Connection.from_envelope(LATEST_MODERN_VERSION, None, None).check_capability(ClientCapabilities()) is False
+
+
+def test_from_envelope_records_capabilities_without_client_info():
+    """Spec-mandated (spec PR #3002): the envelope requires capabilities but not
+    client info, so a pair-only request still gets working capability checks -
+    `client_capabilities` is recorded on its own while `client_params` stays
+    `None`."""
+    caps = ClientCapabilities(sampling=SamplingCapability())
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, caps)
+    assert conn.client_params is None
+    assert conn.client_capabilities == caps
+    assert conn.check_capability(ClientCapabilities(sampling=SamplingCapability())) is True
+
+
+def test_client_params_assignment_keeps_capabilities_in_lockstep():
+    """SDK-defined: recording `client_params` (the loop path's handshake
+    commit) is the sync point that also records `client_capabilities`, so the
+    two facts cannot drift."""
+    conn = Connection.for_loop(StubOutbound())
+    assert conn.client_capabilities is None
+    conn.client_params = InitializeRequestParams(
+        protocol_version=LATEST_HANDSHAKE_VERSION,
+        capabilities=ClientCapabilities(roots=RootsCapability()),
+        client_info=Implementation(name="c", version="0"),
+    )
+    assert conn.client_capabilities == ClientCapabilities(roots=RootsCapability())
+    assert conn.check_capability(ClientCapabilities(roots=RootsCapability())) is True
 
 
 @pytest.mark.parametrize(

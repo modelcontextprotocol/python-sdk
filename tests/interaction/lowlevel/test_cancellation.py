@@ -33,6 +33,7 @@ from mcp.client import ClientRequestContext, ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -137,7 +138,7 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
 
 
 @requirement("protocol:cancel:unknown-id-ignored")
-async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> None:
+async def test_cancellation_for_unknown_request_is_ignored(connect: Connect, unstamped: Unstamp) -> None:
     """A cancellation referencing a request id that is not in flight is ignored without error."""
 
     async def list_tools(
@@ -157,7 +158,7 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
         )
         result = await client.call_tool("echo", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="unbothered")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="unbothered")]))
 
 
 @requirement("protocol:cancel:server-to-client")
@@ -350,7 +351,7 @@ async def test_timed_out_initialize_sends_no_cancellation() -> None:
 
 
 @requirement("protocol:cancel:abort-signal")
-async def test_abandoning_a_call_stops_the_server_handler(connect: Connect) -> None:
+async def test_abandoning_a_call_stops_the_server_handler(connect: Connect, unstamped: Unstamp) -> None:
     """Cancelling the task that awaits a call cancels the request itself, not just the local wait:
     the server-side handler is interrupted, and the session serves later requests normally.
 
@@ -397,11 +398,11 @@ async def test_abandoning_a_call_stops_the_server_handler(connect: Connect) -> N
         # dropped while the client is still open, so teardown never races its delivery.
         await anyio.wait_all_tasks_blocked()
         result = await client.call_tool("echo", {})
-        assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+        assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
 
 
 @requirement("protocol:cancel:abort-scoped")
-async def test_abandoning_one_call_leaves_a_concurrent_call_running(connect: Connect) -> None:
+async def test_abandoning_one_call_leaves_a_concurrent_call_running(connect: Connect, unstamped: Unstamp) -> None:
     """Cancellation is scoped to the request it names: with two calls genuinely in flight,
     abandoning the first interrupts only its handler and the second returns its result.
 
@@ -464,4 +465,6 @@ async def test_abandoning_one_call_leaves_a_concurrent_call_running(connect: Con
         # dropped while the client is still open, so teardown never races its delivery.
         await anyio.wait_all_tasks_blocked()
 
-    assert results == snapshot([CallToolResult(content=[TextContent(text="survived")])])
+    assert [unstamped(result) for result in results] == snapshot(
+        [CallToolResult(content=[TextContent(text="survived")])]
+    )

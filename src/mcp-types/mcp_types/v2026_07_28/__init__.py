@@ -1,7 +1,7 @@
 """Internal wire-shape models for protocol 2026-07-28. Generated; do not edit.
 
 Regenerate with `scripts/gen_surface_types.py` from `schema/2026-07-28.json`
-(sha256 `e00f675287e8cf078688c26c8a89d283ff2613da3b76d5cd15aff9d189df639c`)."""
+(sha256 `6293cdfe015c14bd36eda4b1331ce37bda377609e58ed6d09d16f28e7d3c7ad4`)."""
 # pyright: reportIncompatibleVariableOverride=false, reportGeneralTypeIssues=false
 
 from __future__ import annotations
@@ -602,28 +602,6 @@ class NumberSchema(WireModel):
     type: Literal["integer", "number"]
 
 
-class PaginatedResult(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    An opaque token representing the pagination position after the last returned result.
-    If present, there may be more results available.
-    """
-    result_type: Annotated[str, Field(alias="resultType")]
-    """
-    Indicates the type of the result, which allows the client to determine
-    how to parse the result object.
-
-    Servers implementing this protocol version MUST include this field.
-    For backward compatibility, when a client receives a result from a
-    server implementing an earlier protocol version (which does not include
-    `resultType`), the client MUST treat the absent field as `"complete"`.
-    """
-
-
 class ParseError(WireModel):
     """
     A JSON-RPC error indicating that invalid JSON was received by the server. This error is returned when the server cannot parse the JSON text of a message.
@@ -757,24 +735,27 @@ class ResourceTemplateReference(WireModel):
     """
 
 
-class Result(WireModel):
+class ResultMetaObject(WireModel):
     """
-    Common result fields.
+    Extends {@link MetaObject} with additional result-specific fields. All key naming rules from `MetaObject` apply.
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-    result_type: Annotated[str, Field(alias="resultType")]
+    io_modelcontextprotocol_server_info: Annotated[Any | None, Field(alias="io.modelcontextprotocol/serverInfo")] = None
     """
-    Indicates the type of the result, which allows the client to determine
-    how to parse the result object.
+    Identifies the server software producing the response. Servers SHOULD
+    include this field on every response unless specifically configured not
+    to do so.
 
-    Servers implementing this protocol version MUST include this field.
-    For backward compatibility, when a client receives a result from a
-    server implementing an earlier protocol version (which does not include
-    `resultType`), the client MUST treat the absent field as `"complete"`.
+    The {@link Implementation} schema requires `name` and `version`; other
+    fields are optional.
+
+    The value is self-reported by the server and is not verified by the
+    protocol. It is intended for display, logging, and debugging. Clients
+    SHOULD NOT use it to change their behavior, and SHOULD NOT rely on it for
+    security decisions.
     """
 
 
@@ -911,13 +892,27 @@ class SubscriptionFilter(WireModel):
 
 class SubscriptionsListenResultMeta(WireModel):
     """
-    Extends {@link MetaObject} with the subscription-stream identifier carried by a
+    Extends {@link ResultMetaObject} with the subscription-stream identifier carried by a
     {@link SubscriptionsListenResult}. All key naming rules from `MetaObject` apply.
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
+    io_modelcontextprotocol_server_info: Annotated[Any | None, Field(alias="io.modelcontextprotocol/serverInfo")] = None
+    """
+    Identifies the server software producing the response. Servers SHOULD
+    include this field on every response unless specifically configured not
+    to do so.
+
+    The {@link Implementation} schema requires `name` and `version`; other
+    fields are optional.
+
+    The value is self-reported by the server and is not verified by the
+    protocol. It is intended for display, logging, and debugging. Clients
+    SHOULD NOT use it to change their behavior, and SHOULD NOT rely on it for
+    security decisions.
+    """
     io_modelcontextprotocol_subscription_id: Annotated[RequestId, Field(alias="io.modelcontextprotocol/subscriptionId")]
     """
     Identifies the subscription stream this response closes, so the client can
@@ -1401,7 +1396,7 @@ class CacheableResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
     """
     Indicates the intended scope of the cached response, analogous to HTTP
@@ -1438,13 +1433,6 @@ class CacheableResult(WireModel):
     """
 
 
-class ClientResult(RootModel[Result]):
-    root: Result
-    """
-    Common result fields.
-    """
-
-
 class CompleteResult(WireModel):
     """
     The result returned by the server for a {@link CompleteRequestcompletion/complete} request.
@@ -1453,7 +1441,7 @@ class CompleteResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     completion: Completion
     result_type: Annotated[str, Field(alias="resultType")]
     """
@@ -1505,13 +1493,6 @@ class EmbeddedResource(WireModel):
     """
     resource: TextResourceContents | BlobResourceContents
     type: Literal["resource"]
-
-
-class EmptyResult(RootModel[Result]):
-    root: Result
-    """
-    Common result fields.
-    """
 
 
 class EnumSchema(
@@ -1599,19 +1580,6 @@ class JSONRPCRequest(WireModel):
     params: dict[str, Any] | None = None
 
 
-class JSONRPCResultResponse(WireModel):
-    """
-    A successful (non-error) response to a request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    result: Result
-
-
 class Params(WireModel):
     model_config = ConfigDict(
         extra="ignore",
@@ -1688,6 +1656,28 @@ class NotificationParams(WireModel):
         extra="ignore",
     )
     meta: Annotated[NotificationMetaObject | None, Field(alias="_meta")] = None
+
+
+class PaginatedResult(WireModel):
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    An opaque token representing the pagination position after the last returned result.
+    If present, there may be more results available.
+    """
+    result_type: Annotated[str, Field(alias="resultType")]
+    """
+    Indicates the type of the result, which allows the client to determine
+    how to parse the result object.
+
+    Servers implementing this protocol version MUST include this field.
+    For backward compatibility, when a client receives a result from a
+    server implementing an earlier protocol version (which does not include
+    `resultType`), the client MUST treat the absent field as `"complete"`.
+    """
 
 
 class PrimitiveSchemaDefinition(
@@ -1810,7 +1800,7 @@ class ReadResourceResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
     """
     Indicates the intended scope of the cached response, analogous to HTTP
@@ -2053,6 +2043,27 @@ class ResourceUpdatedNotificationParams(WireModel):
     """
 
 
+class Result(WireModel):
+    """
+    Common result fields.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
+    result_type: Annotated[str, Field(alias="resultType")]
+    """
+    Indicates the type of the result, which allows the client to determine
+    how to parse the result object.
+
+    Servers implementing this protocol version MUST include this field.
+    For backward compatibility, when a client receives a result from a
+    server implementing an earlier protocol version (which does not include
+    `resultType`), the client MUST treat the absent field as `"complete"`.
+    """
+
+
 class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
     root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
@@ -2245,6 +2256,13 @@ class ClientNotification(WireModel):
     params: CancelledNotificationParams
 
 
+class ClientResult(RootModel[Result]):
+    root: Result
+    """
+    Common result fields.
+    """
+
+
 class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
     root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 
@@ -2261,18 +2279,24 @@ class ElicitRequest(WireModel):
     params: ElicitRequestParams
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
-    root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
+class EmptyResult(RootModel[Result]):
+    root: Result
     """
-    Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
+    Common result fields.
     """
 
 
-class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
-    root: JSONRPCResultResponse | JSONRPCErrorResponse
+class JSONRPCResultResponse(WireModel):
     """
-    A response to a request, containing either the result or error.
+    A successful (non-error) response to a request.
     """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    result: Result
 
 
 class ListPromptsResult(WireModel):
@@ -2283,7 +2307,7 @@ class ListPromptsResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
     """
     Indicates the intended scope of the cached response, analogous to HTTP
@@ -2347,7 +2371,7 @@ class ListResourceTemplatesResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
     """
     Indicates the intended scope of the cached response, analogous to HTTP
@@ -2411,7 +2435,7 @@ class ListResourcesResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
     """
     Indicates the intended scope of the cached response, analogous to HTTP
@@ -2475,7 +2499,7 @@ class ListToolsResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
     """
     Indicates the intended scope of the cached response, analogous to HTTP
@@ -2597,10 +2621,16 @@ class ResourceUpdatedNotification(WireModel):
 
 class SubscriptionsAcknowledgedNotification(WireModel):
     """
-    Sent by the server as the first message on a
-    {@link SubscriptionsListenRequestsubscriptions/listen} stream to acknowledge
-    that the subscription has been established and to report which notification
-    types it agreed to honor.
+    Sent by the server to acknowledge that a
+    {@link SubscriptionsListenRequestsubscriptions/listen} subscription has been
+    established and to report which notification types it agreed to honor.
+
+    This notification MUST be the first message the server sends carrying the
+    subscription's ID in `io.modelcontextprotocol/subscriptionId`. The server MUST
+    NOT send any notification on the subscription before acknowledging it. On
+    stdio, where every subscription shares one channel, this ordering is defined
+    per subscription ID and not per channel: messages belonging to other
+    subscriptions MAY be interleaved before it.
     """
 
     model_config = ConfigDict(
@@ -2662,7 +2692,7 @@ class CallToolResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     content: list[ContentBlock]
     """
     A list of content objects that represent the unstructured result of the tool call.
@@ -2728,7 +2758,7 @@ class GetPromptResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     description: str | None = None
     """
     An optional description for the prompt.
@@ -2743,6 +2773,20 @@ class GetPromptResult(WireModel):
     For backward compatibility, when a client receives a result from a
     server implementing an earlier protocol version (which does not include
     `resultType`), the client MUST treat the absent field as `"complete"`.
+    """
+
+
+class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
+    root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
+    """
+    Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
+    """
+
+
+class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
+    root: JSONRPCResultResponse | JSONRPCErrorResponse
+    """
+    A response to a request, containing either the result or error.
     """
 
 
@@ -3100,7 +3144,7 @@ class DiscoverResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
     """
     Indicates the intended scope of the cached response, analogous to HTTP
@@ -3136,10 +3180,6 @@ class DiscoverResult(WireModel):
     For backward compatibility, when a client receives a result from a
     server implementing an earlier protocol version (which does not include
     `resultType`), the client MUST treat the absent field as `"complete"`.
-    """
-    server_info: Annotated[Implementation, Field(alias="serverInfo")]
-    """
-    Information about the server software implementation.
     """
     supported_versions: Annotated[list[str], Field(alias="supportedVersions")]
     """
@@ -3231,7 +3271,7 @@ class InputRequiredResult(WireModel):
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
     input_requests: Annotated[InputRequests | None, Field(alias="inputRequests")] = None
     request_state: Annotated[str | None, Field(alias="requestState")] = None
     result_type: Annotated[str, Field(alias="resultType")]
@@ -3442,12 +3482,21 @@ class RequestMetaObject(WireModel):
     an empty object means the client supports no optional capabilities.
     Servers MUST NOT infer capabilities from prior requests.
     """
-    io_modelcontextprotocol_client_info: Annotated[Implementation, Field(alias="io.modelcontextprotocol/clientInfo")]
+    io_modelcontextprotocol_client_info: Annotated[
+        Implementation | None, Field(alias="io.modelcontextprotocol/clientInfo")
+    ] = None
     """
-    Identifies the client software making the request. Required.
+    Identifies the client software making the request. Clients SHOULD
+    include this field on every request unless specifically configured not
+    to do so.
 
     The {@link Implementation} schema requires `name` and `version`; other
     fields are optional.
+
+    The value is self-reported by the client and is not verified by the
+    protocol. It is intended for display, logging, and debugging. Servers
+    SHOULD NOT use it to change their behavior, and SHOULD NOT rely on it for
+    security decisions.
     """
     io_modelcontextprotocol_log_level: Annotated[
         LoggingLevel | None, Field(alias="io.modelcontextprotocol/logLevel")

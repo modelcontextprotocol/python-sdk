@@ -27,6 +27,7 @@ async def test_every_client_program_on_the_page_runs(capsys: pytest.CaptureFixtu
 async def test_connected_properties_are_populated_inside_the_block() -> None:
     """tutorial001: server_info, server_capabilities, protocol_version and instructions are just there."""
     async with Client(tutorial001.mcp) as client:
+        assert client.server_info is not None
         assert client.server_info.name == "Bookshop"
         assert client.protocol_version == "2026-07-28"
         assert client.instructions == "Search the catalog before recommending a book."
@@ -38,6 +39,7 @@ async def test_a_client_is_not_reusable_after_the_block_ends() -> None:
     """tutorial001: `async with` is the whole lifecycle. Construct a new Client per connection."""
     client = Client(tutorial001.mcp)
     async with client:
+        assert client.server_info is not None
         assert client.server_info.name == "Bookshop"
     with pytest.raises(RuntimeError, match="cannot reenter"):
         await client.__aenter__()

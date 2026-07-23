@@ -18,6 +18,7 @@ from mcp_types import CallToolResult, ProgressNotification, ProgressNotification
 from mcp.server import Server, ServerRequestContext
 from mcp.server.session import ServerSession
 from mcp.shared.session import ProgressFnT
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -27,7 +28,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("protocol:progress:callback")
 @requirement("tools:call:progress")
-async def test_progress_during_tool_call_reaches_callback_in_order(connect: Connect) -> None:
+async def test_progress_during_tool_call_reaches_callback_in_order(connect: Connect, unstamped: Unstamp) -> None:
     """Progress notifications emitted by a tool handler reach the caller's progress callback in order."""
     received: list[tuple[float, float | None, str | None]] = []
 
@@ -51,7 +52,7 @@ async def test_progress_during_tool_call_reaches_callback_in_order(connect: Conn
     async with connect(server) as client:
         result = await client.call_tool("download", {}, progress_callback=collect)
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="downloaded")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="downloaded")]))
     assert received == snapshot([(1.0, 3.0, "first chunk"), (2.0, 3.0, "second chunk"), (3.0, 3.0, "done")])
 
 
@@ -83,7 +84,7 @@ async def test_progress_token_visible_to_handler(connect: Connect) -> None:
 
 
 @requirement("protocol:progress:no-token")
-async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
+async def test_no_progress_callback_means_no_token(connect: Connect, unstamped: Unstamp) -> None:
     """Without a progress callback the request carries no progress token.
 
     The low-level API has no way to report request-scoped progress without a token, so a handler
@@ -105,7 +106,7 @@ async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("inspect", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="None")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="None")]))
 
 
 @requirement("protocol:progress:client-to-server")

@@ -36,12 +36,13 @@ handler callables by method string.
 
 from __future__ import annotations
 
+import copy
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from importlib.metadata import version as importlib_version
+from functools import cached_property
 from typing import Any, Generic, overload
 
 import mcp_types as types
@@ -124,22 +125,13 @@ async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestPar
     return types.EmptyResult()
 
 
-def _package_version(package: str) -> str:
-    try:
-        return importlib_version(package)
-    except Exception:  # pragma: no cover
-        pass
-
-    return "unknown"  # pragma: no cover
-
-
 class Server(Generic[LifespanResultT]):
     @overload
     def __init__(
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -222,7 +214,7 @@ class Server(Generic[LifespanResultT]):
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -314,7 +306,7 @@ class Server(Generic[LifespanResultT]):
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -547,7 +539,7 @@ class Server(Generic[LifespanResultT]):
         """
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else _package_version("mcp"),
+            server_version=self.version,
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
@@ -636,17 +628,34 @@ class Server(Generic[LifespanResultT]):
     def server_info(self) -> types.Implementation:
         """The `serverInfo` block describing this implementation.
 
-        Derived from the constructor's identity fields. `version` falls back to
-        the installed `mcp` package version when not supplied explicitly.
+        Derived from the constructor's identity fields. An unversioned server
+        reports an empty `version`; the SDK never substitutes its own.
         """
         return types.Implementation(
             name=self.name,
-            version=self.version if self.version else _package_version("mcp"),
+            version=self.version,
             title=self.title,
             description=self.description,
             website_url=self.website_url,
             icons=self.icons,
         )
+
+    @cached_property
+    def _server_info_stamp_source(self) -> dict[str, Any]:
+        # Identity is fixed at construction, so the dump is computed once per
+        # server instead of per request. Never handed out directly: nested
+        # values (`icons`) would alias the cache into stamped responses.
+        return self.server_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+    @property
+    def server_info_stamp(self) -> dict[str, Any]:
+        """A fresh wire dump of `server_info`; callers own the returned dict.
+
+        Each access materializes a deep copy of the once-per-server dump, so
+        a caller mutating a stamped response can never corrupt the identity
+        stamped into later responses.
+        """
+        return copy.deepcopy(self._server_info_stamp_source)
 
     async def _handle_discover(
         self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None
@@ -662,7 +671,6 @@ class Server(Generic[LifespanResultT]):
         return types.DiscoverResult(
             supported_versions=list(MODERN_PROTOCOL_VERSIONS),
             capabilities=self.get_capabilities(protocol_version=ctx.protocol_version),
-            server_info=self.server_info,
             instructions=self.instructions,
         )
 

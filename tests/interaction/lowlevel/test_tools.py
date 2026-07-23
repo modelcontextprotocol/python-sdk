@@ -22,6 +22,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -29,7 +30,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content(connect: Connect) -> None:
+async def test_call_tool_returns_text_content(connect: Connect, unstamped: Unstamp) -> None:
     """Arguments reach the tool handler; its content comes back as the call result."""
 
     async def list_tools(
@@ -49,11 +50,11 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="5")]))
 
 
 @requirement("tools:call:is-error")
-async def test_call_tool_execution_error_is_returned_as_result(connect: Connect) -> None:
+async def test_call_tool_execution_error_is_returned_as_result(connect: Connect, unstamped: Unstamp) -> None:
     """A tool reporting its own failure with is_error=True reaches the client as a result, not an exception.
 
     Tool execution errors are part of the result so the caller (typically a model) can see
@@ -69,7 +70,7 @@ async def test_call_tool_execution_error_is_returned_as_result(connect: Connect)
     async with connect(server) as client:
         result = await client.call_tool("flux", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="the flux capacitor is offline")], is_error=True)
     )
 
@@ -117,7 +118,7 @@ async def test_call_tool_uncaught_exception_becomes_error_response(connect: Conn
 
 
 @requirement("tools:list:basic")
-async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
+async def test_list_tools_returns_registered_tools(connect: Connect, unstamped: Unstamp) -> None:
     """The tools advertised by the server's list handler arrive at the client unchanged."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -141,7 +142,7 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.list_tools()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListToolsResult(
             tools=[
                 Tool(
@@ -163,7 +164,7 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
 @requirement("tools:input-schema:preserve-additional-properties")
 @requirement("tools:input-schema:preserve-defs")
 @requirement("tools:input-schema:preserve-schema-dialect")
-async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Connect) -> None:
+async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Connect, unstamped: Unstamp) -> None:
     """A rich JSON Schema 2020-12 inputSchema reaches the client unchanged and the tool is callable.
 
     The single identity assertion below proves all four pass-through behaviours at once: the same
@@ -202,11 +203,11 @@ async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Con
         called = await client.call_tool("typed", {"count": 3, "options": {"verbose": True}})
 
     assert listed.tools[0].input_schema == schema
-    assert called == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+    assert unstamped(called) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
 
 
 @requirement("tools:list:metadata")
-async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
+async def test_list_tools_optional_fields_round_trip(connect: Connect, unstamped: Unstamp) -> None:
     """Every optional Tool field the server supplies reaches the client unchanged."""
 
     tool = Tool(
@@ -228,7 +229,7 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.list_tools()
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ListToolsResult(
             tools=[
                 Tool(
@@ -251,7 +252,7 @@ async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
 @requirement("tools:call:content:audio")
 @requirement("tools:call:content:resource-link")
 @requirement("tools:call:content:embedded-resource")
-async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
+async def test_call_tool_multiple_content_block_types(connect: Connect, unstamped: Unstamp) -> None:
     """A tool result can mix every content block type; all of them arrive in order.
 
     The payloads are tiny fixed base64 strings ("aW1n" is b"img", "YXVk" is b"aud") so the
@@ -280,7 +281,7 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("render", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[
                 TextContent(text="all five content block types"),
@@ -296,7 +297,7 @@ async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
 
 
 @requirement("tools:call:structured-content")
-async def test_call_tool_structured_content(connect: Connect) -> None:
+async def test_call_tool_structured_content(connect: Connect, unstamped: Unstamp) -> None:
     """A tool result carrying structured content alongside content delivers both to the client."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -311,11 +312,13 @@ async def test_call_tool_structured_content(connect: Connect) -> None:
     async with connect(server) as client:
         result = await client.call_tool("sum", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5})
+    )
 
 
 @requirement("tools:call:concurrent")
-async def test_concurrent_tool_calls_complete_independently(connect: Connect) -> None:
+async def test_concurrent_tool_calls_complete_independently(connect: Connect, unstamped: Unstamp) -> None:
     """Two tool calls in flight at once run concurrently and each caller gets its own answer.
 
     Both handlers are held on a shared event after signalling that they have started, and the test
@@ -347,7 +350,7 @@ async def test_concurrent_tool_calls_complete_independently(connect: Connect) ->
             async with anyio.create_task_group() as task_group:  # pragma: no branch
 
                 async def call_and_record(tag: str) -> None:
-                    results[tag] = await client.call_tool("echo", {"tag": tag})
+                    results[tag] = unstamped(await client.call_tool("echo", {"tag": tag}))
 
                 task_group.start_soon(call_and_record, "first")
                 task_group.start_soon(call_and_record, "second")
@@ -403,7 +406,7 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
 
 
 @requirement("client:output-schema:skip-on-error")
-async def test_is_error_result_bypasses_client_output_schema_validation(connect: Connect) -> None:
+async def test_is_error_result_bypasses_client_output_schema_validation(connect: Connect, unstamped: Unstamp) -> None:
     """A tool result with isError true is returned as-is even when its structured content violates the schema.
 
     The schema is cached up front so the client could validate, proving the bypass is specifically the
@@ -437,7 +440,7 @@ async def test_is_error_result_bypasses_client_output_schema_validation(connect:
         await client.list_tools()
         result = await client.call_tool("forecast", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="boom")], structured_content={"temperature": "warm"}, is_error=True)
     )
 
@@ -475,7 +478,9 @@ async def test_declared_output_schema_with_no_structured_content_is_rejected_by_
 
 
 @requirement("client:output-schema:auto-list")
-async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools_list(connect: Connect) -> None:
+async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools_list(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Calling a tool whose schema is not cached issues exactly one implicit tools/list to populate it.
 
     The first call_tool of an uncached tool triggers a tools/list the caller never asked for; the
@@ -509,5 +514,7 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
         second = await client.call_tool("forecast", {})
 
     assert list_calls == ["called"]
-    assert first == snapshot(CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21}))
-    assert second == first
+    assert unstamped(first) == snapshot(
+        CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21})
+    )
+    assert unstamped(second) == first

@@ -46,6 +46,16 @@ class ServerSession:
         return self._connection.client_params
 
     @property
+    def client_capabilities(self) -> types.ClientCapabilities | None:
+        """The capabilities the client declared; `None` when none were declared.
+
+        Prefer this over `client_params.capabilities`: on 2026-07-28+ the
+        request envelope declares capabilities while client info stays
+        optional, so capabilities can be present without `client_params`.
+        """
+        return self._connection.client_capabilities
+
+    @property
     def can_send_request(self) -> bool:
         """Whether this request's channel can currently deliver a server-initiated request."""
         return self._request_outbound.can_send_request
@@ -236,8 +246,7 @@ class ServerSession:
             NoBackChannelError: The connection has no back-channel for
                 server-initiated requests.
         """
-        client_caps = self.client_params.capabilities if self.client_params else None
-        validate_sampling_tools(client_caps, tools, tool_choice)
+        validate_sampling_tools(self.client_capabilities, tools, tool_choice)
         validate_tool_use_result_messages(messages)
 
         request = types.CreateMessageRequest(

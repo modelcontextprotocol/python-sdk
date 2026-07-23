@@ -326,11 +326,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def client_capabilities(self) -> ClientCapabilities | None:
         """The client's declared capabilities for this connection.
 
-        `None` when the client supplied no client info (e.g. an anonymous
-        stateless request without the reserved `_meta` keys).
+        `None` when the client declared none (e.g. an anonymous stateless
+        request without the reserved `_meta` keys). Client info is not
+        required for capabilities to be recorded.
         """
-        client_params = self.request_context.session.client_params
-        return client_params.capabilities if client_params else None
+        return self.request_context.session.client_capabilities
 
     @property
     def session(self):

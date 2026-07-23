@@ -8,7 +8,7 @@
   {
     "protocol_version": "2026-07-28",
     "source_path_in_spec_repo": "schema/draft/schema.json",
-    "spec_commit": "ead35b59b4fda8b32e276810025d8f92bdcec1b6",
-    "sha256": "e00f675287e8cf078688c26c8a89d283ff2613da3b76d5cd15aff9d189df639c"
+    "spec_commit": "71e306956a4959c9655e5036be215d41986596e6",
+    "sha256": "6293cdfe015c14bd36eda4b1331ce37bda377609e58ed6d09d16f28e7d3c7ad4"
   }
 ]
