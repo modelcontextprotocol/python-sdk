@@ -677,22 +677,30 @@ async def _replay_from_opening_request(
         async with replay_send:
             for envelope in lead:
                 await replay_send.send(envelope)
-            async for item in read_stream:
-                await replay_send.send((_sender_context(read_stream), item))
+            try:
+                async for item in read_stream:
+                    await replay_send.send((_sender_context(read_stream), item))
+            except anyio.ClosedResourceError:
+                # Receive end closed under us (stateless SHTTP teardown); same as EOF.
+                logger.debug("read stream closed by transport; treating as EOF")
 
     # This helper takes ownership of `read_stream` from the serving loop, so
     # every exit - including cancellation while awaiting the first request -
     # closes it and the replay channel.
     try:
-        async for item in read_stream:
-            if isinstance(item, SessionMessage) and isinstance(item.message, JSONRPCRequest):
-                opening_request = item.message
-            elif len(lead) >= _PRE_REQUEST_REPLAY_LIMIT:
-                logger.debug("dropped a frame received before the first request: %r", item)
-                continue
-            lead.append((_sender_context(read_stream), item))
-            if opening_request is not None:
-                break
+        try:
+            async for item in read_stream:
+                if isinstance(item, SessionMessage) and isinstance(item.message, JSONRPCRequest):
+                    opening_request = item.message
+                elif len(lead) >= _PRE_REQUEST_REPLAY_LIMIT:
+                    logger.debug("dropped a frame received before the first request: %r", item)
+                    continue
+                lead.append((_sender_context(read_stream), item))
+                if opening_request is not None:
+                    break
+        except anyio.ClosedResourceError:
+            # Receive end closed under us (stateless SHTTP teardown); same as EOF.
+            logger.debug("read stream closed by transport; treating as EOF")
         async with anyio.create_task_group() as tg:
             tg.start_soon(replay_then_relay)
             yield opening_request, replayed
@@ -730,8 +738,8 @@ async def _serve_legacy_stream(
         if method != "initialize" and _has_modern_envelope(params):
             raise MCPError(
                 code=INVALID_REQUEST,
-                message="this connection's first request carried no 2026-07-28 envelope, so it "
-                "serves the handshake era; enveloped requests are not accepted on it",
+                message="this connection serves the handshake protocol era; "
+                "requests carrying the 2026-07-28 envelope are not accepted on it",
             )
         return await runner.on_request(dctx, method, params)
 

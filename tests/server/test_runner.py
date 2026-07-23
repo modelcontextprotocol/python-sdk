@@ -16,6 +16,7 @@ from typing import Any, cast
 
 import anyio
 import anyio.abc
+import anyio.lowlevel
 import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -1544,7 +1545,7 @@ async def test_dual_era_loop_initialize_locks_legacy_and_rejects_modern_traffic(
         assert result["tools"][0]["name"] == "t"
     assert discover_exc.value.error.code == INVALID_REQUEST
     assert envelope_exc.value.error.code == INVALID_REQUEST
-    assert "carried no 2026-07-28 envelope" in envelope_exc.value.error.message
+    assert "serves the handshake protocol era" in envelope_exc.value.error.message
 
 
 @pytest.mark.anyio
@@ -2017,6 +2018,36 @@ async def test_dual_era_loop_leading_notifications_never_decide_the_era(server: 
             await client.notify("notifications/lead", None)
         result = await client.send_raw_request("tools/list", _modern_params())
         assert result["tools"][0]["name"] == "t"
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_treats_a_read_stream_closed_before_the_first_request_as_end_of_input(server: SrvT):
+    """A transport closing the read stream's receive end (the stateless teardown
+    pattern) ends the loop like end-of-input rather than surfacing a
+    closed-resource error - here before the client has sent anything."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](8)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](8)
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg, c2s_send, s2c_recv:
+            tg.start_soon(partial(serve_dual_era_loop, server, c2s_recv, s2c_send, lifespan_state=_LIFESPAN))
+            await anyio.lowlevel.checkpoint()
+            c2s_recv.close()  # the transport tears down under the waiting loop
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_treats_a_read_stream_closed_mid_connection_as_end_of_input(server: SrvT):
+    """The same teardown after the connection is open ends the era loop
+    cleanly: the relay behind the opening request treats the closed receive
+    end as end-of-input."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](8)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](8)
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params=None)
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg, c2s_send, s2c_recv:
+            tg.start_soon(partial(serve_dual_era_loop, server, c2s_recv, s2c_send, lifespan_state=_LIFESPAN))
+            await c2s_send.send(SessionMessage(message=ping))
+            await s2c_recv.receive()  # the connection is open and answered
+            c2s_recv.close()
 
 
 @pytest.mark.anyio
