@@ -50,6 +50,27 @@ Run its `main()` and it prints `100 resources`: ten pages of ten, stitched toget
 
 This is the same loop **[The Client](../client/index.md)** shows for every `list_*` verb, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
 
+## Draining in one call
+
+That loop is the same one in every client that pages, so `Client` ships it. The server here is the bookshop from before; only the client changed:
+
+```python title="client.py" hl_lines="27 31"
+--8<-- "docs_src/pagination/tutorial003.py"
+```
+
+* `list_all_resources()` walks `next_cursor` for you and hands back every page stitched into one list. There is one per pageable list: `list_all_tools`, `list_all_prompts`, `list_all_resources`, `list_all_resource_templates`.
+* `iter_all_resources()` yields one resource at a time and only fetches the next page when you ask for it, so you can stop early without dragging down the whole catalog. Same four: `iter_all_tools`, `iter_all_prompts`, and so on.
+* The single-page `list_*` methods are unchanged. Use them when you want one page and the cursor; use the drains when you want everything and don't want to own the loop.
+
+`ClientSessionGroup` aggregation drains the same way, so a group fronting several servers reports the full collection instead of each server's first page. That aggregator is **[Session groups](../client/session-groups.md)**.
+
+!!! warning
+    A drain trusts the server to advance the cursor. A server that echoes back the
+    `next_cursor` it was handed, or cycles through a longer loop of them, would page forever,
+    so the drains remember every cursor they have seen and raise `RuntimeError` the moment one
+    repeats. A repeated cursor is a broken server, and a loud failure beats a silent hang or a
+    half-read list.
+
 ## The three rules
 
 **Cursors are opaque.** A client must never parse, build, or guess one. The only legal source of a cursor is the previous page's `next_cursor`, verbatim.
