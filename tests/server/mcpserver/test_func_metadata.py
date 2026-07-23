@@ -1198,6 +1198,31 @@ async def test_basemodel_reserved_names_validation():
     assert dumped["normal_param"] == "test"
 
 
+@pytest.mark.anyio
+async def test_call_with_aliased_parameter():
+    """A parameter with an explicit Field alias is advertised under the alias in the
+    input schema but forwarded to the function under its real parameter name."""
+
+    def func_with_aliased_param(city: Annotated[str, Field(alias="location")]) -> str:
+        return f"weather in {city}"
+
+    meta = func_metadata(func_with_aliased_param)
+
+    # The input schema advertises the alias, not the parameter name.
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+    assert "location" in schema["properties"]
+    assert "city" not in schema["properties"]
+
+    # A client sends the alias; the function must still be called with `city=`.
+    result = await meta.call_fn_with_arg_validation(
+        func_with_aliased_param,
+        fn_is_async=False,
+        arguments_to_validate={"location": "Paris"},
+        arguments_to_pass_directly=None,
+    )
+    assert result == "weather in Paris"
+
+
 def test_basemodel_reserved_names_with_json_preparsing():
     """Test that pre_parse_json works correctly with reserved parameter names"""
 
