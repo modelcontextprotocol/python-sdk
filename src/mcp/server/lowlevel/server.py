@@ -19,16 +19,12 @@ Usage:
        on_call_tool=my_call_tool,
    )
 
-3. Run the server:
+3. Run the server (stdio here; any duplex stream pair works the same way):
    async def main():
        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-           await server.run(
-               read_stream,
-               write_stream,
-               server.create_initialization_options(),
-           )
+           await server.run(read_stream, write_stream)
 
-   asyncio.run(main())
+   anyio.run(main)
 
 The Server class dispatches incoming requests and notifications to registered
 handler callables by method string.
@@ -63,13 +59,14 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.runner import serve_dual_era_loop
+from mcp.server.serving import Posture, serve_stream
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_REQUEST_BODY_SIZE,
     StreamableHTTPASGIApp,
     StreamableHTTPSessionManager,
 )
+from mcp.server.subscriptions import ListenHandler
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
@@ -138,6 +135,7 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        posture: Posture = Posture.DUAL,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -221,6 +219,7 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        posture: Posture = Posture.DUAL,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -313,6 +312,7 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        posture: Posture = Posture.DUAL,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -420,10 +420,12 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
+        # Which protocol eras this server offers, on every transport.
+        self.posture: Posture = posture
         # Per-method `ttl_ms`/`cache_scope` fills, applied by `ServerRunner`
         # after the handler returns; fields the handler set explicitly win.
         self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
-        self.lifespan = lifespan
+        self._lifespan_factory = lifespan
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -468,6 +470,15 @@ class Server(Generic[LifespanResultT]):
         self._notification_handlers.update(
             {m: HandlerEntry(pt, h) for m, pt, h in _spec_notifications if h is not None}
         )
+
+    def lifespan(self) -> AbstractAsyncContextManager[LifespanResultT]:
+        """Enter the server's lifespan: `async with server.lifespan() as state:`.
+
+        `Server.run` and `serve_listener` enter it for you; call it yourself
+        only when several connections share it, passing `state` to
+        `serve_stream(lifespan_state=)`.
+        """
+        return self._lifespan_factory(self)
 
     def add_request_handler(
         self,
@@ -518,6 +529,17 @@ class Server(Generic[LifespanResultT]):
     def get_notification_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
         """Return the registered entry for a notification method, or `None`."""
         return self._notification_handlers.get(method)
+
+    def close_subscriptions(self) -> None:
+        """Gracefully close every open `subscriptions/listen` stream this server serves.
+
+        Streams drain and end with the listen request's own result while the
+        connection carries on; returns before they finish flushing. On a
+        `Server` shared across connections this ends every connection's streams.
+        """
+        entry = self._request_handlers.get("subscriptions/listen")
+        if entry is not None and isinstance(entry.handler, ListenHandler):
+            entry.handler.close()
 
     # TODO(L53): Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
@@ -692,30 +714,28 @@ class Server(Generic[LifespanResultT]):
         self,
         read_stream: ReadStream[SessionMessage | Exception],
         write_stream: WriteStream[SessionMessage],
-        initialization_options: InitializationOptions,
+        initialization_options: InitializationOptions | None = None,
         # When False, exceptions are returned as messages to the client.
         # When True, exceptions are raised, which will cause the server to shut down
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
     ) -> None:
-        """Serve a single connection over the given streams until the read side closes.
+        """Serve one connection over a duplex message stream until the read side closes.
 
-        Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
-        then drives the loop, serving the legacy handshake era and the modern
-        per-request-envelope era (the first era-distinctive message to succeed
-        locks the connection). Transports with their own lifespan owner (the
-        streamable-HTTP manager) call `serve_loop` directly instead.
+        Enters the server's lifespan, lets the client's opening message pick
+        the connection's protocol era (subject to `self.posture`), and serves
+        that era until EOF; `initialization_options` defaults to
+        `create_initialization_options()`. For a socket host use `serve_listener`;
+        for connections sharing a lifespan, `serve_stream(..., lifespan_state=)`.
         """
-        async with self.lifespan(self) as lifespan_context:
-            await serve_dual_era_loop(
-                self,
-                read_stream,
-                write_stream,
-                lifespan_state=lifespan_context,
-                init_options=initialization_options,
-                raise_exceptions=raise_exceptions,
-            )
+        await serve_stream(
+            self,
+            read_stream,
+            write_stream,
+            initialization_options=initialization_options,
+            raise_exceptions=raise_exceptions,
+        )
 
     def streamable_http_app(
         self,

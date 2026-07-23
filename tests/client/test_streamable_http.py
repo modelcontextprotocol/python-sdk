@@ -467,7 +467,7 @@ async def test_scope_cancel_aborts_a_modern_listen_post_end_to_end() -> None:
     server = Server("test", on_subscriptions_listen=ListenHandler(bus))
 
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        async with server.lifespan(server) as lifespan_state:
+        async with server.lifespan() as lifespan_state:
             await handle_modern_request(server, None, False, lifespan_state, scope, receive, send)
 
     posted_methods: list[str] = []

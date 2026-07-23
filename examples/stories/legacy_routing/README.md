@@ -41,12 +41,15 @@ kill "$SERVER_PID"
   SDK's built-in router; the predicate itself is exercised as a pure
   function — see the user-land composition recipe below for wiring it into
   your own ingress.
-- `server.py` `classify_era` — the tri-state wrapper. `InboundModernRoute` →
-  `"modern"`; rung-1 `INVALID_PARAMS` (no envelope keys) → `"legacy"`; any
-  other `InboundLadderRejection` is a malformed-modern request to **reject**,
-  not route to legacy. When headers are supplied, both `Mcp-Protocol-Version`
-  and `Mcp-Method` must mirror the body — a disagreement (or an unsupported
-  version) is what produces that third arm; `client.py` shows both.
+- `server.py` `classify_era` — the tri-state wrapper. A body with no envelope
+  claim (`parse_envelope()` returns `None`: `initialize` and other claim-less
+  requests) → `"legacy"`; a body that claims the modern era runs the full
+  ladder, so `InboundModernRoute` → `"modern"` and any `InboundLadderRejection`
+  is a malformed-modern request to **reject**, not route to legacy (a present
+  claim is never silently downgraded). When headers are supplied, both
+  `Mcp-Protocol-Version` and `Mcp-Method` must mirror the body — a disagreement
+  (or an unsupported version) is what produces that third arm; `client.py`
+  shows both.
 - `server.py` `build_app` — `streamable_http_app()` + `CORSMiddleware`. The
   `which_arm` tool reads `ctx.request_context.protocol_version` to prove which
   path the built-in router took.

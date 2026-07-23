@@ -3,6 +3,7 @@
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    INVALID_PARAMS,
     ErrorData,
     GetPromptResult,
     ListPromptsResult,
@@ -76,10 +77,11 @@ async def test_get_prompt_renders_function_return(connect: Connect, unstamped: U
 
 @requirement("mcpserver:prompt:unknown-name")
 async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
-    """Getting a prompt name that was never registered fails with a JSON-RPC error.
+    """Getting a prompt name that was never registered fails with the spec's -32602 Invalid params.
 
-    The spec reserves -32602 for this case; the SDK reports code 0 (see the divergence note on
-    the requirement).
+    MCPServer's prompt errors are typed protocol errors: this is the precondition that let the
+    unmapped-exception catch-all become opaque (-32603, generic message), so a regression to a
+    bare exception here would surface as 'Internal server error'.
     """
     mcp = MCPServer("prompter")
 
@@ -92,16 +94,17 @@ async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("nope")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown prompt: nope"))
+    assert exc_info.value.error == snapshot(ErrorData(code=INVALID_PARAMS, message="Unknown prompt: nope"))
 
 
 @requirement("prompts:get:missing-required-args")
 async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: Connect) -> None:
     """Getting a prompt without one of its required arguments fails with a JSON-RPC error.
 
-    The missing argument is detected before the prompt function is called, but the spec's -32602
-    Invalid params is reported as error code 0 with the bare exception text (see the divergence
-    note on the requirement).
+    The missing argument is detected before the prompt function is called and reported as the
+    spec's -32602 Invalid params, carrying MCPServer's own message. This typed error is the
+    precondition on the opaque -32603 catch-all: prompt errors reach the wire because they are
+    protocol errors, not because handler exceptions leak.
     """
     mcp = MCPServer("prompter")
 
@@ -114,7 +117,9 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: 
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("greet")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Missing required arguments: {'name'}"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=INVALID_PARAMS, message="Missing required arguments: {'name'}")
+    )
 
 
 @requirement("mcpserver:prompt:args-validation")
@@ -137,7 +142,7 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("repeat", {"phrase": "hi", "count": "many"})
 
-    assert exc_info.value.error.code == 0
+    assert exc_info.value.error.code == INVALID_PARAMS
     assert exc_info.value.error.message.startswith("Error rendering prompt repeat: 1 validation error")
 
 

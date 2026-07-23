@@ -28,6 +28,7 @@ from mcp_types import (
     ErrorData,
     JSONRPCError,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
@@ -44,6 +45,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
+from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -390,6 +392,16 @@ class StreamableHTTPServerTransport:
 
         return event_data
 
+    def _end_cancelled_request_stream(self, message: JSONRPCMessage) -> None:
+        """End the response stream of a request the peer just cancelled, if any. Closes
+        only the writer side, so an already-buffered answer is still read out first."""
+        if not isinstance(message, JSONRPCNotification) or message.method != "notifications/cancelled":
+            return
+        request_id = cancelled_request_id_from_params(message.params)
+        streams = self._request_streams.get(str(request_id)) if request_id is not None else None
+        if streams is not None:
+            streams[0].close()
+
     async def _clean_up_memory_streams(self, request_id: RequestId) -> None:
         """Clean up memory streams for a given request ID."""
         if request_id in self._request_streams:  # pragma: no branch
@@ -535,6 +547,9 @@ class StreamableHTTPServerTransport:
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
+                # A peer cancel is the request's last word: end its response stream so the
+                # waiting POST (or SSE writer) completes; a buffered answer is still delivered.
+                self._end_cancelled_request_stream(message)
 
                 return
 
@@ -578,13 +593,10 @@ class StreamableHTTPServerTransport:
                         # Create JSON response
                         response = self._create_json_response(response_message)
                         await response(scope, receive, send)
-                    else:  # pragma: no cover
-                        # This shouldn't happen in normal operation
-                        logger.error("No response message received before stream closed")
-                        response = self._create_error_response(
-                            "Error processing request: No response received",
-                            HTTPStatus.INTERNAL_SERVER_ERROR,
-                        )
+                    else:
+                        # The stream ended with no response (the peer cancelled the request):
+                        # complete the POST with an empty 202 Accepted rather than leaving it pending.
+                        response = self._create_json_response(None, HTTPStatus.ACCEPTED)
                         await response(scope, receive, send)
                 except Exception:  # pragma: no cover
                     logger.exception("Error processing JSON response")
@@ -1012,8 +1024,9 @@ class StreamableHTTPServerTransport:
                             try:
                                 # Send both the message and the event ID
                                 await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
-                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
-                                # Stream might be closed, remove from registry
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                # The stream was ended (peer cancel or response
+                                # already sent): drop the frame and the entry.
                                 self._request_streams.pop(request_stream_id, None)
                         else:
                             logger.debug(

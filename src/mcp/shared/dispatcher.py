@@ -18,6 +18,7 @@ embedding a server in-process.
 
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 
 import anyio
@@ -30,6 +31,8 @@ from mcp.shared.transport_context import TransportContext
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "Admission",
+    "Admit",
     "CallOptions",
     "DispatchContext",
     "Dispatcher",
@@ -54,11 +57,8 @@ def as_request_id(value: object) -> RequestId | None:
 
 
 def coerce_request_id(request_id: RequestId) -> RequestId:
-    """Coerce a stringified int request id back to int so a peer-echoed id still correlates (matches the TS SDK).
-
-    This is the collision/correlation domain dispatchers share: "7" and 7 are one
-    id for correlation purposes, even where the wire carries the verbatim value.
-    """
+    """Coerce a stringified int request id back to int so "7" and 7 correlate as one id
+    (matches the TS SDK); the wire still carries the verbatim value."""
     if isinstance(request_id, str):
         try:
             return int(request_id)
@@ -82,13 +82,8 @@ class CallOptions(TypedDict, total=False):
     request_id: RequestId
     """Send the request under this caller-supplied id instead of a dispatcher-minted one.
 
-    The peer sees the value verbatim ("7" stays a string). A value that collides
-    with one of the sender's own in-flight request ids raises `ValueError`.
-    Callers that need to know a request's id before its result arrives (a
-    `subscriptions/listen` stream is demultiplexed by it) mint their own ids
-    here; string ids that don't parse as integers can never collide with the
-    dispatcher's minted sequence. Per the class contract, dispatchers that
-    predate this key ignore it and mint as usual.
+    The peer sees the value verbatim ("7" stays a string); a collision with one of
+    the sender's in-flight request ids raises `ValueError`.
     """
 
     timeout: float
@@ -97,32 +92,19 @@ class CallOptions(TypedDict, total=False):
     cancel_on_abandon: bool
     """Whether abandoning this request (timeout or caller cancellation) sends `notifications/cancelled`.
 
-    Defaults to `True`. Set `False` for requests the protocol forbids cancelling, such as `initialize`.
-    Also suppressed when resumption hints reach the transport, or when the request was never written.
+    Defaults to `True`; set `False` for requests the protocol forbids cancelling, such as `initialize`.
     """
 
     on_progress: ProgressFnT
     """Receive `notifications/progress` updates for this request."""
 
     resumption_token: str
-    """Opaque token to resume a previously interrupted request.
-
-    Client-side, streamable-HTTP only. Ignored by server dispatchers and other
-    transports, and also ignored (with a debug log) for requests sent from a
-    `DispatchContext`, where routing onto the inbound request's stream takes
-    precedence. Supports protocol version 2025-11-25 and earlier; SSE-stream
-    resumption is removed in the next protocol revision.
-    """
+    """Opaque token to resume an interrupted request (client-side, streamable HTTP,
+    protocol 2025-11-25 and earlier); ignored elsewhere and from a `DispatchContext`."""
 
     on_resumption_token: Callable[[str], Awaitable[None]]
-    """Receive a resumption token when the transport issues one for this request.
-
-    Client-side, streamable-HTTP only. Ignored by server dispatchers and other
-    transports, and also ignored (with a debug log) for requests sent from a
-    `DispatchContext`, where routing onto the inbound request's stream takes
-    precedence. Supports protocol version 2025-11-25 and earlier; SSE-stream
-    resumption is removed in the next protocol revision.
-    """
+    """Receive a resumption token when the transport issues one for this request;
+    same scope as `resumption_token`."""
 
     headers: dict[str, str]
     """Transport-layer hint: HTTP transports merge these onto the outgoing request; non-HTTP transports ignore."""
@@ -219,17 +201,45 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
 
 
 OnRequest = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[dict[str, Any]]]
-"""Handler for inbound requests: `(ctx, method, params) -> result`. Raise `MCPError` to send an error response."""
+"""Handler for one inbound request: `(ctx, method, params) -> awaitable result`.
+
+Invoked synchronously in receive order; the awaitable it returns is the request
+body and runs in its own task. Raise `MCPError` from the body to send an error
+response.
+"""
 
 OnNotify = Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Awaitable[None]]
-"""Handler for inbound notifications: `(ctx, method, params)`."""
+"""Handler for one inbound notification: `(ctx, method, params) -> awaitable`;
+same admission contract as `OnRequest`."""
+
+
+@dataclass(frozen=True, slots=True)
+class Admission:
+    """The receive-order verdict for one inbound request.
+
+    `handler` serves it; when `hold` is true the receive loop parks until the
+    request finishes answering, so its body must not await the peer.
+    """
+
+    handler: OnRequest
+    hold: bool = False
+
+
+Admit = Callable[[str, Mapping[str, Any] | None], Admission]
+"""Synchronous receive-order gate for inbound requests: `(method, params) -> Admission`.
+
+Invoked in the receive loop before the request's transport context is built;
+must not block or talk to the peer. The request-side sibling of
+`OnNotifyIntercept`; a concrete dispatcher feature, not part of the minimal
+`Dispatcher` Protocol.
+"""
 
 OnNotifyIntercept = Callable[[str, Mapping[str, Any] | None], bool]
 """Synchronous receive-order intercept for inbound notifications: `(method, params) -> consumed`.
 
-Runs before `on_notify` is scheduled so correlation state advances in wire order
-relative to response resolution (the client's listen demux depends on this).
-Returning True consumes the notification. Must not block the receive path.
+Runs before `on_notify` is scheduled, in wire order relative to response
+resolution. Returning True consumes the notification. Must not block the
+receive path.
 """
 
 
@@ -263,14 +273,10 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     ) -> None:
         """Drive the receive loop until the underlying channel closes.
 
-        Each inbound request is dispatched to `on_request` in its own task;
-        the returned dict (or raised `MCPError`) is sent back as the response.
-        Implementations MUST offer every inbound notification to
-        `on_notify_intercept` synchronously in receive order (via
-        `run_notify_intercept`), handing only unconsumed ones to `on_notify`.
-
-        `task_status.started()` is called once the dispatcher is ready to
-        accept `send_request`/`notify` calls, so callers can use
-        `await tg.start(dispatcher.run, on_request, on_notify)`.
+        `on_request` / `on_notify` are invoked synchronously in receive order
+        (see `OnRequest`); a request's result (or raised `MCPError`) is sent
+        back as its response. Every notification is offered to
+        `on_notify_intercept` first, in receive order. `task_status.started()`
+        is called once the dispatcher can accept `send_request`/`notify`.
         """
         ...

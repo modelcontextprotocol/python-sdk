@@ -67,7 +67,7 @@ async def _serve_stdio(server: AnyServer) -> None:
         await server.run_stdio_async()  # becomes await serve_stdio(server)
     else:
         async with stdio_server() as (read, write):  # becomes await serve_stdio(server)
-            await server.run(read, write, server.create_initialization_options())
+            await server.run(read, write)
 
 
 async def _serve_http(server: AnyServer, port: int, path: str) -> None:

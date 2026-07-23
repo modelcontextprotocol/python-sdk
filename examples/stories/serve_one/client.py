@@ -21,7 +21,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
             types.CLIENT_CAPABILITIES_META_KEY: {},
         },
     }
-    async with server.lifespan(server) as lifespan_state:
+    async with server.lifespan() as lifespan_state:
         raw = await handle_one(server, "tools/call", params, lifespan_state=lifespan_state)
     assert raw["structuredContent"] == {"result": 5}, raw
     assert raw["content"][0] == {"type": "text", "text": "5"}, raw

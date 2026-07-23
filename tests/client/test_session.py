@@ -959,8 +959,9 @@ async def test_send_request_skips_the_surface_gate_when_method_absent_at_version
 
 
 @pytest.mark.anyio
-async def test_raising_sampling_callback_answers_with_code_zero():
-    """A raising sampling callback is answered with code 0 and `str(exc)` (SDK-defined).
+async def test_raising_sampling_callback_answers_with_generic_internal_error():
+    """A raising sampling callback is answered with a generic INTERNAL_ERROR: the callback's
+    exception text stays in the client's log and never crosses the wire (SDK-defined).
     Raw streams because the assertion is the outbound `JSONRPCError` envelope itself."""
 
     async def boom(ctx: object, params: object) -> types.CreateMessageResult:
@@ -976,7 +977,7 @@ async def test_raising_sampling_callback_answers_with_code_zero():
         )
         out = await from_client.receive()
     assert isinstance(out.message, JSONRPCError)
-    assert out.message.error == types.ErrorData(code=0, message="sampling boom")
+    assert out.message.error == types.ErrorData(code=types.INTERNAL_ERROR, message="Internal server error")
 
 
 @pytest.mark.anyio

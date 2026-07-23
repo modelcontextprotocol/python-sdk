@@ -252,9 +252,9 @@ async def running_manager():
 async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, _app = running_manager
 
-    # The manager's `run_server` task drives `serve_loop` directly (the manager
-    # owns lifespan); patch that seam so the loop returns immediately and we
-    # can observe the cleanup that follows.
+    # The manager's `run_server` task drives `serve_legacy_stream` directly (the
+    # manager owns lifespan and has already routed the era); patch that seam so
+    # the loop returns immediately and we can observe the cleanup that follows.
     mock_serve = AsyncMock(return_value=None)
 
     sent_messages: list[Message] = []
@@ -273,7 +273,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
-    with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
+    with patch("mcp.server.streamable_http_manager.serve_legacy_stream", mock_serve):
         await manager.handle_request(scope, mock_receive, mock_send)
 
     # Extract session ID from response headers
@@ -331,7 +331,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
-    with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
+    with patch("mcp.server.streamable_http_manager.serve_legacy_stream", mock_serve):
         await manager.handle_request(scope, mock_receive, mock_send)
 
     session_id = None

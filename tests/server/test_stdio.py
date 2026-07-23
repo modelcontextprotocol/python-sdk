@@ -4,9 +4,12 @@ import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
+from pathlib import Path
 
 import anyio
+import anyio.abc
 import pytest
+from anyio.streams.buffered import BufferedByteReceiveStream
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -19,9 +22,53 @@ from mcp_types import (
 )
 from typing_extensions import Buffer
 
+from mcp.server import serve_stream
 from mcp.server.mcpserver import MCPServer
-from mcp.server.stdio import stdio_server
+from mcp.server.stdio import newline_json_transport, stdio_server
 from mcp.shared.message import SessionMessage
+
+
+@pytest.fixture(params=["asyncio", "trio"])
+def anyio_backend(request: pytest.FixtureRequest) -> str:
+    """Run every async test in this module on both anyio backends; the sync
+    `run("stdio")` tests drive their own loop in a worker thread and take neither."""
+    return request.param
+
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
+
+
+class _ByteStreamDouble(anyio.abc.ByteStream):
+    """A minimal `ByteStream` over an inbound memory stream, recording what the framer writes.
+
+    `broken=True` makes every send fail the way a peer that vanished does, so the
+    framer's writer can be shown to end quietly instead of crashing the connection.
+    """
+
+    def __init__(self, inbound: anyio.abc.ObjectReceiveStream[bytes], *, broken: bool = False) -> None:
+        self._inbound = inbound
+        self._broken = broken
+        self.sent: list[bytes] = []
+        self.closed = False
+
+    async def receive(self, max_bytes: int = 65536) -> bytes:
+        try:
+            return await self._inbound.receive()
+        except (anyio.EndOfStream, anyio.ClosedResourceError):
+            raise anyio.EndOfStream from None
+
+    async def send(self, item: bytes) -> None:
+        if self._broken:
+            raise anyio.BrokenResourceError
+        self.sent.append(item)
+
+    async def send_eof(self) -> None:
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.anyio
@@ -278,3 +325,134 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # request was served at the discovered version, not the handshake era.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+# --- newline_json_transport: the stdio framing over any byte stream --------------
+
+
+@pytest.mark.anyio
+async def test_custom_transport_over_a_unix_socket_needs_only_framing_plus_serve_stream(tmp_path: Path) -> None:
+    """The whole custom-transport story: frame a real Unix socket with
+    `newline_json_transport` and hand the streams to `serve_stream` - a raw
+    JSON-RPC client on the other end gets a served answer, one frame per line."""
+    server = MCPServer(name="socket-server")
+
+    @server.tool()
+    def add(a: int, b: int) -> str:
+        """Add two numbers."""
+        return str(a + b)
+
+    socket_path = tmp_path / "mcp.sock"
+    listener = await anyio.create_unix_listener(socket_path)
+    connection_served = anyio.Event()
+
+    async def handle(stream: anyio.abc.SocketStream) -> None:
+        async with stream, newline_json_transport(stream) as (read_stream, write_stream):
+            await serve_stream(server._lowlevel_server, read_stream, write_stream)  # pyright: ignore[reportPrivateUsage]
+        connection_served.set()  # the driver returned once the client closed its end
+
+    envelope = {
+        PROTOCOL_VERSION_META_KEY: "2026-07-28",
+        CLIENT_INFO_META_KEY: {"name": "socket-client", "version": "1.0"},
+        CLIENT_CAPABILITIES_META_KEY: {},
+    }
+    call = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="tools/call",
+        params={"name": "add", "arguments": {"a": 3, "b": 4}, "_meta": envelope},
+    )
+    line = b""
+    async with listener, anyio.create_task_group() as tg:
+        tg.start_soon(listener.serve, handle)
+        with anyio.fail_after(5):
+            async with await anyio.connect_unix(socket_path) as client:
+                await client.send(call.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8") + b"\n")
+                line = await BufferedByteReceiveStream(client).receive_until(b"\n", 1_000_000)
+            # The client closed its socket: the driver sees EOF and ends the connection.
+            await connection_served.wait()
+        tg.cancel_scope.cancel()
+
+    answer = jsonrpc_message_adapter.validate_json(line, by_name=False)
+    assert isinstance(answer, JSONRPCResponse) and answer.id == 1
+    assert answer.result["content"][0]["text"] == "7"
+
+
+@pytest.mark.anyio
+async def test_newline_json_transport_frames_lines_both_ways_and_survives_a_malformed_line() -> None:
+    """One JSON-RPC message per line in both directions: a line that is not JSON-RPC
+    reaches the read stream as an exception item and the frame after it is still delivered
+    (one bad line costs one line, not the connection), outbound messages are written as
+    exactly one line each, and closing the byte stream stays the caller's job."""
+    peer_send, transport_side = anyio.create_memory_object_stream[bytes](8)
+    good = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    reply = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+    stream = _ByteStreamDouble(transport_side)
+
+    async with (
+        peer_send,
+        transport_side,
+        newline_json_transport(stream) as (read_stream, write_stream),
+        read_stream,  # the driver's ends: a driver would own and close these
+        write_stream,
+    ):
+        await peer_send.send(b"this is not json\n")
+        await peer_send.send(good.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8") + b"\n")
+        with anyio.fail_after(5):
+            first = await read_stream.receive()
+            second = await read_stream.receive()
+            await write_stream.send(SessionMessage(reply))
+            await anyio.wait_all_tasks_blocked()  # let the writer flush onto the byte stream
+        peer_send.close()  # peer EOF: the framer ends its inbound stream
+        with anyio.fail_after(5):
+            assert [item async for item in read_stream] == []
+
+    assert isinstance(first, Exception)
+    assert isinstance(second, SessionMessage) and second.message == good
+    assert stream.sent == [reply.model_dump_json(by_alias=True, exclude_unset=True).encode("utf-8") + b"\n"]
+    assert not stream.closed  # the framer never closes the byte stream itself
+    await stream.send_eof()
+    assert stream.closed
+
+
+@pytest.mark.anyio
+async def test_newline_json_transport_writer_ends_quietly_when_the_peer_is_gone() -> None:
+    """A write onto a byte stream whose peer has vanished ends the writer without an
+    error escaping: outbound frames after that are undeliverable, not a crash."""
+    peer_send, transport_side = anyio.create_memory_object_stream[bytes](8)
+    stream = _ByteStreamDouble(transport_side, broken=True)
+
+    async with (
+        peer_send,
+        transport_side,
+        newline_json_transport(stream) as (read_stream, write_stream),
+        read_stream,
+        write_stream,
+    ):
+        with anyio.fail_after(5):
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=1, result={})))
+            await anyio.wait_all_tasks_blocked()  # the writer hits the broken send and returns
+    assert stream.sent == []
+
+
+@pytest.mark.anyio
+async def test_newline_json_transport_ends_the_read_side_on_an_oversized_frame() -> None:
+    """A frame that overruns the bound cannot be resynchronised: the framer surfaces
+    the overrun as an exception item and then ends the inbound stream (EOF)."""
+    peer_send, transport_side = anyio.create_memory_object_stream[bytes](8)
+
+    async with (
+        peer_send,
+        transport_side,
+        newline_json_transport(_ByteStreamDouble(transport_side), max_frame_bytes=8) as (
+            read_stream,
+            write_stream,
+        ),
+        read_stream,  # the driver's ends: a driver would own and close these
+        write_stream,
+    ):
+        await peer_send.send(b"x" * 32)  # no newline within the 8-byte bound
+        with anyio.fail_after(5):
+            items = [item async for item in read_stream]
+
+    assert len(items) == 1 and isinstance(items[0], anyio.DelimiterNotFound)

@@ -153,7 +153,7 @@ Each of these is a section in the **[Migration Guide](migration.md)**:
 
 ## The protocol: 2025-11-25 to 2026-07-28
 
-v2 implements the 2026-07-28 revision, and it serves **both** revisions at once: the same `streamable_http_app()` (and the same stdio server) answers a 2025-era client's `initialize` and a 2026-era client's requests with nothing to configure, no flag to flip, and no separate deployment. Serving the new revision does not strand a client on the old one. What follows is what the new revision itself changes.
+v2 implements the 2026-07-28 revision, and it serves **both** revisions at once: the same `streamable_http_app()` (and the same stdio server) answers a 2025-era client's `initialize` and a 2026-era client's requests with nothing to configure, no flag to flip, and no separate deployment. Serving the new revision does not strand a client on the old one. If you want to serve only one revision, that is a single constructor property, `Server(posture=...)` / `MCPServer(posture=...)`, honoured by every transport; see [Serving one era only](run/legacy-clients.md#serving-one-era-only). What follows is what the new revision itself changes.
 
 ### No handshake, no session
 
@@ -191,7 +191,7 @@ That file is the pitch in one place: one server, one `Resolve`-backed tool, and 
 
 ### Change notifications become one stream
 
-At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), and multi-replica deployments plug in a shared `SubscriptionBus`. On the client (since `2.0.0b2`), `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver. One honest caveat: over stdio the server does not serve the stream yet.
+At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box, over streamable HTTP and stdio alike (a listen stream is just a request that stays in flight, so it rides any duplex stream); you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), and multi-replica deployments plug in a shared `SubscriptionBus`. On the client (since `2.0.0b2`), `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver.
 
 **[Subscriptions](handlers/subscriptions.md)** covers publishing and serving, **[its Clients twin](client/subscriptions.md)** the watching end, and **[Deploy & scale](run/deploy.md)** the bus.
 

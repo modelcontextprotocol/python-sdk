@@ -2,6 +2,7 @@
 
 import pytest
 from mcp_types import (
+    INVALID_PARAMS,
     CompleteRequestParams,
     CompleteResult,
     Completion,
@@ -9,7 +10,7 @@ from mcp_types import (
     ResourceTemplateReference,
 )
 
-from mcp import Client
+from mcp import Client, MCPError
 from mcp.server import Server, ServerRequestContext
 
 
@@ -129,7 +130,9 @@ async def test_completion_error_on_missing_context():
         assert params.argument.name == "table"
 
         if not params.context or not params.context.arguments or "database" not in params.context.arguments:
-            raise ValueError("Please select a database first to see available tables")
+            # A message the client should see travels as an MCPError; a bare
+            # exception would reach the wire only as an opaque internal error.
+            raise MCPError(code=INVALID_PARAMS, message="Please select a database first to see available tables")
 
         db = params.context.arguments.get("database")
         assert db == "test_db"

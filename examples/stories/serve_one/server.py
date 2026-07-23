@@ -75,7 +75,7 @@ async def handle_one(
 
     Reads the envelope from `params._meta` (the 2026 wire shape), builds a
     born-ready `Connection.from_envelope`, and drives `serve_one`. The transport
-    entry enters `server.lifespan(server)` once and threads `lifespan_state` to
+    entry enters `server.lifespan()` once and threads `lifespan_state` to
     every call — never enter the lifespan per-request.
     """
     meta = params.get("_meta", {})
@@ -97,11 +97,9 @@ async def handle_one(
 async def main() -> None:
     """Serve over stdio by building the dispatcher + Connection by hand (loop mode)."""
     server = build_server()
-    async with server.lifespan(server) as lifespan_state:
+    async with server.lifespan() as lifespan_state:
         async with stdio_server() as (read_stream, write_stream):
-            dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
-                read_stream, write_stream, inline_methods=frozenset({"initialize"})
-            )
+            dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(read_stream, write_stream)
             connection = Connection.for_loop(dispatcher)
             await serve_connection(server, dispatcher, connection=connection, lifespan_state=lifespan_state)
 

@@ -22,7 +22,6 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 
 
@@ -60,31 +59,27 @@ async def test_server_remains_functional_after_cancel():
     server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async with Client(server, mode="legacy") as client:
-        # First request (will be cancelled)
-        async def first_request():
-            try:
-                await client.session.send_request(
+        # First request: cancelled out of band. The receiver sends no response for
+        # a cancelled request, so the caller abandons its pending await via the scope.
+        with anyio.fail_after(10):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(
+                    client.session.send_request,
                     CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
                     CallToolResult,
                 )
-                pytest.fail("First request should have been cancelled")  # pragma: no cover
-            except MCPError:
-                pass  # Expected
 
-        # Start first request
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(first_request)
+                # Wait for it to start
+                await ev_first_call.wait()
 
-            # Wait for it to start
-            await ev_first_call.wait()
-
-            # Cancel it
-            assert first_request_id is not None
-            await client.session.send_notification(
-                CancelledNotification(
-                    params=CancelledNotificationParams(request_id=first_request_id, reason="Testing server recovery"),
+                # Cancel it
+                assert first_request_id is not None
+                await client.session.send_notification(
+                    CancelledNotification(
+                        params=CancelledNotificationParams(request_id=first_request_id, reason="Testing recovery"),
+                    )
                 )
-            )
+                tg.cancel_scope.cancel()
 
         # Second request (should work normally)
         result = await client.call_tool("test_tool", {})

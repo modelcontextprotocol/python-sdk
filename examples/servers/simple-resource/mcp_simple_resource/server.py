@@ -84,7 +84,7 @@ def main(port: int, transport: str) -> int:
 
         async def arun():
             async with stdio_server() as streams:
-                await app.run(streams[0], streams[1], app.create_initialization_options())
+                await app.run(streams[0], streams[1])
 
         anyio.run(arun)
 

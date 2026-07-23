@@ -84,6 +84,7 @@ from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
+from mcp.server.serving import Posture
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
@@ -184,6 +185,7 @@ class MCPServer(Generic[LifespanResultT]):
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         subscriptions: SubscriptionBus | None = None,
+        posture: Posture = Posture.DUAL,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -207,6 +209,7 @@ class MCPServer(Generic[LifespanResultT]):
         # in-process; pass an `SubscriptionBus` implementation over an external pub/sub
         # backend to fan events out across replicas.
         self._subscriptions: SubscriptionBus = subscriptions if subscriptions is not None else InMemorySubscriptionBus()
+        # The `subscriptions/listen` handler lives on the low-level server; `close_subscriptions()` reaches it there.
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -216,6 +219,7 @@ class MCPServer(Generic[LifespanResultT]):
             icons=icons,
             version=version,
             cache_hints=cache_hints,
+            posture=posture,
             on_list_tools=self._handle_list_tools,
             on_call_tool=self._handle_call_tool,
             on_list_resources=self._handle_list_resources,
@@ -292,6 +296,31 @@ class MCPServer(Generic[LifespanResultT]):
     @property
     def version(self) -> str:
         return self._lowlevel_server.version
+
+    @property
+    def lowlevel_server(self) -> Server[LifespanResultT]:
+        """The low-level `Server` this instance is built on.
+
+        Hand it to the stream drivers `run()` does not name:
+
+            listener = await anyio.create_unix_listener("/tmp/mcp.sock")
+            await serve_listener(mcp.lowlevel_server, listener)
+        """
+        return self._lowlevel_server
+
+    @property
+    def subscriptions(self) -> SubscriptionBus:
+        """The server's subscription bus; publish here to reach open listen streams:
+        `await mcp.subscriptions.publish(ToolsListChanged())`."""
+        return self._subscriptions
+
+    def close_subscriptions(self) -> None:
+        """Gracefully close every open `subscriptions/listen` stream (all connections).
+
+        Streams drain their pending events and end with the listen request's
+        result while the connection carries on; returns before they finish flushing.
+        """
+        self._lowlevel_server.close_subscriptions()
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -1015,11 +1044,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
         async with stdio_server() as (read_stream, write_stream):
-            await self._lowlevel_server.run(
-                read_stream,
-                write_stream,
-                self._lowlevel_server.create_initialization_options(),
-            )
+            await self._lowlevel_server.run(read_stream, write_stream)
 
     async def run_sse_async(  # pragma: no cover
         self,
@@ -1108,9 +1133,7 @@ class MCPServer(Generic[LifespanResultT]):
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(scope, receive, send) as streams:
-                await self._lowlevel_server.run(
-                    streams[0], streams[1], self._lowlevel_server.create_initialization_options()
-                )
+                await self._lowlevel_server.run(streams[0], streams[1])
             return Response()
 
         # Create routes
@@ -1290,8 +1313,10 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as e:
+            # An unknown prompt, missing argument or failed render is the client's
+            # request that could not be served: surface it as INVALID_PARAMS.
             logger.exception(f"Error getting prompt {name}")
-            raise ValueError(str(e)) from e
+            raise MCPError(code=INVALID_PARAMS, message=str(e)) from e
 
 
 def _version_gated(method: MethodBinding) -> RequestHandler:

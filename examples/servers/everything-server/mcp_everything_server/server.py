@@ -710,9 +710,7 @@ async def test_input_required_result_prompt(ctx: Context) -> list[UserMessage] |
     )
 
 
-# Custom request handlers
-# TODO(felix): Add public APIs to MCPServer for subscribe_resource, unsubscribe_resource,
-# and set_logging_level to avoid accessing protected _lowlevel_server attribute.
+# Custom request handlers, registered on the low-level Server underneath.
 async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
     """Handle logging level changes"""
     logger.info(f"Log level set to: {params.level}")
@@ -733,15 +731,9 @@ async def handle_unsubscribe(ctx: ServerRequestContext, params: UnsubscribeReque
     return EmptyResult()
 
 
-mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
-    "logging/setLevel", SetLevelRequestParams, handle_set_logging_level
-)
-mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
-    "resources/subscribe", SubscribeRequestParams, handle_subscribe
-)
-mcp._lowlevel_server.add_request_handler(  # pyright: ignore[reportPrivateUsage]
-    "resources/unsubscribe", UnsubscribeRequestParams, handle_unsubscribe
-)
+mcp.lowlevel_server.add_request_handler("logging/setLevel", SetLevelRequestParams, handle_set_logging_level)
+mcp.lowlevel_server.add_request_handler("resources/subscribe", SubscribeRequestParams, handle_subscribe)
+mcp.lowlevel_server.add_request_handler("resources/unsubscribe", UnsubscribeRequestParams, handle_unsubscribe)
 
 
 @mcp.completion()

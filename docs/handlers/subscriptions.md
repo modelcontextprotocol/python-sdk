@@ -52,12 +52,19 @@ Two things the stream is *not*:
     handler on the low-level `Server` and acknowledge a smaller filter than the client asked
     for; the acknowledgment is how the client learns what it actually got.
 
-!!! warning "Streamable HTTP only, for now"
-    `subscriptions/listen` needs a transport that can stream a request's response, which today
-    means streamable HTTP. Over stdio a 2026-07-28 connection rejects the method with
-    METHOD_NOT_FOUND, even though `server/discover` advertises the subscription capabilities
-    there. Serving it over stdio is planned; the open-stream semantics for that transport are
-    not built yet.
+!!! note "Same handler, every transport"
+    A subscription is a request that stays in flight, so `subscriptions/listen` is served the
+    same way over stdio (or any duplex stream) as over streamable HTTP: the acknowledgment is
+    the first frame, events follow, and closing the stream sends the empty result. On stdio a
+    client ends a subscription by sending `notifications/cancelled` for the listen request
+    id, and the server sends nothing further for that id.
+
+    That silence is this SDK's reading, and not every SDK reads it the same way: the Go and C#
+    listen handlers return the empty result once the client cancels, so a server built on
+    them may write the listen request's result as a final frame after your cancel. A client
+    written against this SDK never notices, because a result arriving for a request it
+    already ended is a late response and is dropped. If you hand-roll a client, expect that
+    trailing result from those servers and ignore it.
 
 ## The client end
 
@@ -109,18 +116,19 @@ mcp = MCPServer("Sprint Board", subscriptions=RedisSubscriptionBus(redis))
 
 The bus carries typed `ServerEvent` values, four small dataclasses, never JSON-RPC. Stamping, filtering, and stream lifecycles stay in the SDK, so a bus implementation cannot break the protocol. It can only move events between processes.
 
-To publish from outside a request, construct the bus yourself so you hold the reference. `MCPServer` builds one internally when you pass nothing, and does not expose it.
+To publish from outside a request, use the bus the server owns. `MCPServer` builds one when you pass nothing, and exposes it as `mcp.subscriptions`:
 
 ```python
-from mcp.server.subscriptions import InMemorySubscriptionBus, ToolsListChanged
+from mcp.server.subscriptions import ToolsListChanged
 
-bus = InMemorySubscriptionBus()
-mcp = MCPServer("Sprint Board", subscriptions=bus)
+mcp = MCPServer("Sprint Board")
 
 
 async def tools_reloaded() -> None:
-    await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
+    await mcp.subscriptions.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
+
+When you want the streams to end from your side (a clean shutdown, an event source going away), `mcp.close_subscriptions()` closes every open stream gracefully: each one drains what it had buffered and then receives the listen request's result as its final frame, which is the spec's way of saying the server ended the subscription deliberately, and the connection carries on. Without it, streams end when their client cancels them or disconnects.
 
 ## The low-level composition
 
@@ -132,7 +140,7 @@ Down on the low-level `Server` there is no pre-wired anything, and the same part
 
 * You own the bus, so you publish to it directly: `await bus.publish(ResourceUpdated(uri=...))`. Put it wherever your handlers can reach it: module scope here, the lifespan in a bigger app.
 * `ListenHandler(bus)` is the same handler `MCPServer` registers, and `on_subscriptions_listen=` is an ordinary handler slot. Put your own callable in that slot for different semantics, and the spec obligations move to you: acknowledge first, stamp every frame with the subscription id, deliver nothing outside the filter.
-* `ListenHandler.close()` ends every open stream gracefully. Each one receives the listen request's result as its final frame, which is the spec's way of saying the server ended the subscription deliberately. It returns before those streams finish flushing, so give them a moment before you tear the transport down. Without it, streams end when the client disconnects.
+* `ListenHandler.close()` ends every open stream gracefully, and `Server.close_subscriptions()` is the same verb on the server that registered the handler. Each stream drains its buffered events and then receives the listen request's result as its final frame, which is the spec's way of saying the server ended the subscription deliberately. The call returns before those streams finish flushing, so give them a moment before you tear the transport down yourself. Over stdio you rarely need to: when the client's input ends, the driver closes your open streams for you inside a short bounded window, in which each stream's final result is guaranteed to reach the departing peer and any events it still had buffered flush as time allows. Without any close, streams end when the client disconnects.
 
 ## Recap
 

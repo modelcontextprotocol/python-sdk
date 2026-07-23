@@ -1,20 +1,11 @@
 """`Connection` - per-client connection state and the standalone outbound channel.
 
-Always present on `Context` (never `None`), even in stateless deployments.
-Holds peer info, per-connection scratch `state` and an `exit_stack` for
-teardown, and an `Outbound` for the standalone stream (the SSE GET stream in
-streamable HTTP, or the single duplex stream in stdio).
-
-Construct via the factories: `Connection.from_envelope` for the 2026-era
-single-exchange path (born ready, no back-channel) and `Connection.for_loop`
-for the handshake-driven loop path. Both populate `protocol_version` so the
-kernel reads it as a fact.
-
-`notify` is best-effort: it never raises. If there's no standalone channel
-or the stream has been dropped, the notification is debug-logged and silently
-discarded - server-initiated notifications are inherently advisory.
-`send_raw_request` raises `NoBackChannelError` when there's no channel; `ping`
-is the only spec-sanctioned standalone request.
+Always present on `Context`, even in stateless deployments: peer info,
+per-connection `state`, an `exit_stack` for teardown, and an `Outbound` for
+the standalone stream. Construct via `Connection.from_envelope` (modern
+single-exchange path) or `Connection.for_loop` (handshake-driven loop path).
+`notify` is best-effort and never raises; `send_raw_request` raises
+`NoBackChannelError` when there is no channel.
 """
 
 from __future__ import annotations
@@ -55,11 +46,7 @@ logger = logging.getLogger(__name__)
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
-# Result types for the spec's server-to-client request set, used by
-# `Connection.send_request` to infer the result type. If the spec's request
-# set grows substantially, consider declaring the result mapping on the
-# request types themselves (a `__mcp_result__` ClassVar read via a structural
-# protocol) so this table and the overload ladder don't need maintaining.
+# Result types for the spec's server-to-client request set; `send_request` infers from this.
 _RESULT_FOR: dict[type[Request[Any, Any]], type[BaseModel]] = {
     CreateMessageRequest: CreateMessageResult,
     ElicitRequest: ElicitResult,
@@ -72,13 +59,7 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
 def _typed(model: type[_ModelT], raw: Any) -> _ModelT | None:
-    """Validate a raw envelope value into a typed model.
-
-    A missing, null or mis-shaped value falls through to `ValidationError`
-    and is treated as not supplied so the request still routes. Spec methods
-    are separately re-validated by the kernel's per-version params surface,
-    which types the reserved `_meta` keys strictly.
-    """
+    """Validate a raw envelope value into `model`; `None` when missing or mis-shaped, so the request still routes."""
     try:
         return model.model_validate(raw, by_name=False)
     except ValidationError:
@@ -94,13 +75,8 @@ def _notification_params(payload: dict[str, Any] | None, meta: Meta | None) -> d
 
 
 class _NoChannelOutbound:
-    """Connection-scoped `Outbound` for the no-back-channel case.
-
-    The structural answer to "this connection cannot push to its peer":
-    `send_raw_request` raises `NoBackChannelError`; `notify` drops with a
-    debug log. `Connection.from_envelope` installs this so the modern
-    single-exchange path never needs a mode flag - the channel itself says no.
-    """
+    """Connection-scoped `Outbound` for the no-back-channel case: `send_raw_request`
+    raises `NoBackChannelError`; `notify` drops with a debug log."""
 
     async def send_raw_request(
         self,
@@ -118,13 +94,8 @@ _NO_CHANNEL = _NoChannelOutbound()
 
 
 class NotifyOnlyOutbound(_NoChannelOutbound):
-    """Connection-scoped `Outbound` that forwards notifications and refuses requests.
-
-    Installed by `serve_dual_era_loop` for modern (2026-07-28+) connections
-    over duplex stream transports: the pipe is real, so server notifications
-    ride it, but the modern protocol forbids server-initiated JSON-RPC
-    requests, so `send_raw_request` (inherited) refuses by construction.
-    """
+    """Connection-scoped `Outbound` for modern (2026-07-28+) duplex-stream connections:
+    forwards notifications, refuses server-initiated requests (the protocol forbids them)."""
 
     def __init__(self, outbound: Outbound) -> None:
         self._outbound = outbound
@@ -136,10 +107,8 @@ class NotifyOnlyOutbound(_NoChannelOutbound):
 class Connection:
     """Per-client connection state and standalone-stream `Outbound`.
 
-    Construct via `from_envelope` (modern single-exchange: born ready, no
-    back-channel) or `for_loop` (handshake-driven: ready once the client's
-    `notifications/initialized` arrives). Either way `protocol_version` is
-    populated at construction.
+    Construct via `from_envelope` (born ready) or `for_loop` (handshake-driven);
+    `protocol_version` is populated at construction.
     """
 
     outbound: Outbound
@@ -218,20 +187,13 @@ class Connection:
     ) -> Connection:
         """A born-ready connection populated from a request's `_meta` envelope.
 
-        `protocol_version` must be an already-validated version string - the
-        inbound classification ladder owns rejecting non-string or unsupported
-        values. `client_info` and `client_capabilities` are the raw envelope
-        values: this constructor owns turning them into connection identity,
-        identically on every modern entry, so a mis-shaped value degrades to
-        not-supplied rather than failing the request. `initialized` is set,
-        well-formed capabilities are recorded as `client_capabilities` (client
-        info is optional per spec PR #3002, so capability checks never depend on
-        it), and the full `client_params` is additionally synthesized when
-        client info was supplied too. `outbound` defaults to the no-channel
-        sentinel for the single-exchange HTTP path; duplex modern transports
-        (e.g. stdio) pass a notify-only wrapper around the dispatcher so
-        server notifications ride the pipe while server-initiated requests
-        stay refused.
+        `protocol_version` must already be validated. Well-formed
+        `client_capabilities` are recorded as `client_capabilities` (client info
+        is optional per spec PR #3002, so capability checks never depend on it),
+        and the full `client_params` is additionally synthesized when
+        well-formed `client_info` was supplied too; mis-shaped values are
+        treated as not supplied. `outbound` defaults to the no-channel
+        sentinel; duplex modern transports pass a notify-only wrapper.
         """
         info = _typed(Implementation, client_info)
         capabilities = _typed(ClientCapabilities, client_capabilities)
@@ -255,13 +217,9 @@ class Connection:
         session_id: str | None = None,
         protocol_version_hint: str | None = None,
     ) -> Connection:
-        """A connection for the handshake-driven loop path.
-
-        Not born-ready: `initialized` is set later by the kernel when
-        `notifications/initialized` arrives. `protocol_version` is seeded from
-        the transport hint (or `LATEST_HANDSHAKE_VERSION`) so it's never `None`;
-        the handshake overwrites it once negotiated.
-        """
+        """A connection for the handshake-driven loop path: not born-ready;
+        `protocol_version` is seeded from the hint (or `LATEST_HANDSHAKE_VERSION`)
+        until the handshake overwrites it."""
         return cls(
             outbound,
             protocol_version=protocol_version_hint if protocol_version_hint is not None else LATEST_HANDSHAKE_VERSION,
@@ -270,14 +228,9 @@ class Connection:
 
     @property
     def has_standalone_channel(self) -> bool:
-        """Whether this connection has a real back-channel for server-initiated
-        messages. Derived from `outbound` - the no-channel sentinel is the only
-        case that doesn't.
-
-        Channel presence, not request permission: a modern (2026-07-28+)
-        duplex connection has a channel that carries notifications while
-        `send_raw_request` still refuses, because the protocol forbids
-        server-initiated requests."""
+        """Whether this connection has a real channel for server-initiated messages
+        (`False` only for the no-channel sentinel). Presence, not request permission:
+        a modern duplex connection has a channel yet refuses server-initiated requests."""
         return self.outbound is not _NO_CHANNEL
 
     @property
@@ -293,18 +246,12 @@ class Connection:
         params: Mapping[str, Any] | None,
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
-        """Send a raw request on the standalone stream.
-
-        Low-level `Outbound` channel. Prefer the typed `send_request` or the
-        convenience methods below; use this directly only for off-spec
-        messages. `opts` carries per-call `timeout` / `on_progress` /
-        resumption hints; see `CallOptions`.
+        """Send a raw request on the standalone stream (low-level `Outbound`; prefer `send_request`).
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: no back-channel for server-initiated requests -
-                `has_standalone_channel` is `False`, or a modern (2026-07-28+)
-                connection, where the protocol forbids them.
+            NoBackChannelError: No back-channel for server-initiated requests
+                (`has_standalone_channel` is `False`, or a modern connection).
         """
         return await self.outbound.send_raw_request(method, params, opts)
 
@@ -365,9 +312,8 @@ class Connection:
 
         Raises:
             MCPError: The peer responded with an error.
-            NoBackChannelError: no back-channel for server-initiated requests -
-                `has_standalone_channel` is `False`, or a modern (2026-07-28+)
-                connection, where the protocol forbids them.
+            NoBackChannelError: No back-channel for server-initiated requests
+                (`has_standalone_channel` is `False`, or a modern connection).
         """
         await self.send_raw_request("ping", dump_params(None, meta), opts)
 
@@ -422,10 +368,7 @@ class Connection:
                 if k not in have.experimental or have.experimental[k] != v:
                     return False
         if capability.extensions is not None:
-            # SEP-2133: an extension is supported when the client declares its
-            # identifier. Settings are negotiated per-extension (the client may
-            # advertise more than the server asks for), so presence - not value
-            # equality - is the meaningful check.
+            # SEP-2133: presence of the identifier, not value equality, is the check.
             if have.extensions is None:
                 return False
             for identifier in capability.extensions:

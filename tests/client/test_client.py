@@ -497,13 +497,14 @@ async def test_client_legacy_mode_still_handshakes_over_a_stream_loop(simple_ser
             assert (await client.list_resources()).resources[0].name == "Test Resource"
 
 
-async def test_client_auto_mode_recovers_from_a_timed_out_probe_over_a_stream_loop(
+async def test_client_auto_mode_timed_out_probe_falls_back_cleanly_over_a_stream_loop(
     simple_server: Server, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A probe that outlives the client's discover timeout still succeeds on the
-    (slow-starting) server and locks the connection modern; the fallback
-    handshake's -32022 is modern evidence, so one corrective re-probe completes
-    the connect instead of stranding `mode='auto'`."""
+    """A probe that outlives the client's discover timeout leaves the connection
+    open: `server/discover` never pins the era, so the fallback `initialize`
+    the client sends next opens the legacy handshake era on the first try and
+    `mode='auto'` lands at the handshake version - no corrective re-probe is
+    needed against this server."""
     monkeypatch.setattr("mcp.client.session.DISCOVER_TIMEOUT_SECONDS", 0.05)
     c2relay_send, c2relay_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     relay2s_send, relay2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
@@ -535,7 +536,7 @@ async def test_client_auto_mode_recovers_from_a_timed_out_probe_over_a_stream_lo
 
     with anyio.fail_after(10):
         async with Client(transport(), mode="auto") as client:
-            assert client.protocol_version == "2026-07-28"
+            assert client.protocol_version == LATEST_HANDSHAKE_VERSION
             assert (await client.list_resources()).resources[0].name == "Test Resource"
 
 

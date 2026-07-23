@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio
 import pytest
@@ -15,6 +16,7 @@ from mcp_types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ListToolsResult,
     TextContent,
 )
 from pydantic import TypeAdapter
@@ -153,12 +155,8 @@ async def test_mcpserver_server_lifespan():
     async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:
 
         async def run_server():
-            await server._lowlevel_server.run(
-                receive_stream1,
-                send_stream2,
-                server._lowlevel_server.create_initialization_options(),
-                raise_exceptions=True,
-            )
+            # `lowlevel_server` is how an MCPServer reaches the stream drivers.
+            await server.lowlevel_server.run(receive_stream1, send_stream2, raise_exceptions=True)
 
         tg.start_soon(run_server)
 
@@ -204,4 +202,67 @@ async def test_mcpserver_server_lifespan():
         assert response.result["content"][0]["text"] == "true"
 
         # Cancel server task
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_server_lifespan_is_the_bound_way_to_enter_the_constructor_lifespan():
+    """`server.lifespan()` enters the constructor's `lifespan=` and yields its state."""
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def tracked(server: Server[dict[str, str]]) -> AsyncIterator[dict[str, str]]:
+        events.append(f"enter:{server.name}")
+        try:
+            yield {"db": "connected"}
+        finally:
+            events.append("exit")
+
+    server: Server[dict[str, str]] = Server("bound", lifespan=tracked)
+
+    async with server.lifespan() as state:
+        assert state == {"db": "connected"}
+        assert events == ["enter:bound"]
+
+    assert events == ["enter:bound", "exit"]
+
+
+@pytest.mark.anyio
+async def test_server_run_without_initialization_options_derives_them_from_the_server():
+    """`server.run(read, write)` is complete: the handshake result carries the derived options."""
+
+    async def list_tools(ctx: ServerRequestContext[dict[str, bool]], params: Any) -> ListToolsResult:
+        raise NotImplementedError
+
+    server = Server[dict[str, bool]]("derived-options", version="9.9.9", on_list_tools=list_tools)
+
+    send_stream1, receive_stream1 = anyio.create_memory_object_stream[SessionMessage](100)
+    send_stream2, receive_stream2 = anyio.create_memory_object_stream[SessionMessage](100)
+
+    async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:
+        tg.start_soon(server.run, receive_stream1, send_stream2)
+
+        params = InitializeRequestParams(
+            protocol_version="2024-11-05",
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test-client", version="0.1.0"),
+        )
+        with anyio.fail_after(5):
+            await send_stream1.send(
+                SessionMessage(
+                    JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="initialize",
+                        params=params.model_dump(by_alias=True, exclude_none=True),
+                    )
+                )
+            )
+            handshake = (await receive_stream2.receive()).message
+
+        assert isinstance(handshake, JSONRPCResponse)
+        assert handshake.result["serverInfo"] == {"name": "derived-options", "version": "9.9.9"}
+        # The derived options describe this server: it registered a tools handler.
+        assert "tools" in handshake.result["capabilities"]
+
         tg.cancel_scope.cancel()

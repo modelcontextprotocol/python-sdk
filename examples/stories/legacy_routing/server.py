@@ -1,15 +1,14 @@
 """Exported era classifier: the body-primary predicate, the built-in dual-era app, and CORS — exports `build_app()`."""
 
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from mcp_types import INVALID_PARAMS
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.inbound import InboundLadderRejection, InboundModernRoute, classify_inbound_request
+from mcp.shared.inbound import InboundLadderRejection, InboundModernRoute, classify_inbound_request, parse_envelope
 from stories._hosting import NO_DNS_REBIND, run_app_from_args
 
 #: Response headers a browser-based MCP client must be able to read.
@@ -23,18 +22,21 @@ MCP_ALLOWED_METHODS = ["GET", "POST", "DELETE"]
 def classify_era(
     body: Mapping[str, Any], headers: Mapping[str, str]
 ) -> Literal["modern", "legacy"] | InboundLadderRejection:
-    """Tri-state era classifier built on the exported `classify_inbound_request` predicate.
+    """Tri-state era classifier built on the exported envelope primitives.
 
     Compose this in your own ASGI/ingress layer when the two eras need different
-    backends. Only a rung-1 ``INVALID_PARAMS`` rejection (no envelope keys) means
-    "treat as legacy"; other rejections are malformed-modern and should be refused.
+    backends. A body with no envelope claim (`parse_envelope` returns None) is
+    2025-era traffic - `initialize` and other claim-less requests - so route it to
+    the legacy backend; a body that claims the modern era is validated by the full
+    ladder, and anything the ladder rejects is malformed-modern and should be refused
+    (never silently downgraded to legacy).
     """
-    verdict = classify_inbound_request(body, headers=headers)
-    if isinstance(verdict, InboundModernRoute):
-        return "modern"
-    if verdict.code == INVALID_PARAMS:
-        return "legacy"
-    return verdict
+    raw_params = body.get("params")
+    params = cast(Mapping[str, Any], raw_params) if isinstance(raw_params, Mapping) else None
+    if body.get("method") != "initialize" and parse_envelope(params) is not None:
+        verdict = classify_inbound_request(body, headers=headers)
+        return "modern" if isinstance(verdict, InboundModernRoute) else verdict
+    return "legacy"
 
 
 def build_app() -> Starlette:

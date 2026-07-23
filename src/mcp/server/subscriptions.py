@@ -160,19 +160,13 @@ class ListenHandler:
     Register on a lowlevel `Server` via `on_subscriptions_listen=` (or
     `add_request_handler`); `MCPServer` does so automatically. Each call
     acknowledges the honored filter first, then forwards matching bus events
-    onto the request's response stream until the client disconnects (which
-    cancels the handler; the stream just ends, per the spec's abrupt-close
-    contract) or `close` ends all streams gracefully.
-
-    Requires a transport that can stream a request's response (streamable
-    HTTP's SSE mode).
+    onto the request's response channel until the client ends the stream
+    (which cancels the handler) or `close` ends all streams gracefully.
 
     `max_subscriptions` bounds concurrent streams (further listen requests are
     rejected with `INTERNAL_ERROR`, before the ack). `max_buffered_events`
-    bounds each stream's event backlog: a stream whose client has stopped
-    reading is ended at the cap (the client re-listens and refetches - there
-    is no replay, so ending the stream loses nothing the backlog wasn't
-    already losing).
+    bounds each stream's backlog: a stream whose client has stopped reading is
+    ended at the cap (there is no replay, so the client re-listens).
     """
 
     def __init__(self, bus: SubscriptionBus, *, max_subscriptions: int = 1024, max_buffered_events: int = 1024) -> None:

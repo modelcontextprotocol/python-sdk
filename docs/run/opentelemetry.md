@@ -83,8 +83,8 @@ emits no spans, take it off:
 ```python
 from mcp.server._otel import OpenTelemetryMiddleware
 
-mcp._lowlevel_server.middleware[:] = [
-    m for m in mcp._lowlevel_server.middleware if not isinstance(m, OpenTelemetryMiddleware)
+mcp.lowlevel_server.middleware[:] = [
+    m for m in mcp.lowlevel_server.middleware if not isinstance(m, OpenTelemetryMiddleware)
 ]
 ```
 

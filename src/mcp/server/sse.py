@@ -18,9 +18,7 @@ Example:
         async with sse.connect_sse(
             request.scope, request.receive, request._send
         ) as streams:
-            await app.run(
-                streams[0], streams[1], app.create_initialization_options()
-            )
+            await app.run(streams[0], streams[1])
         # Return empty response to avoid NoneType error
         return Response()
 

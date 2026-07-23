@@ -23,6 +23,7 @@ from mcp_types import (
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     SERVER_INFO_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     CallToolRequestParams,
     CallToolResult,
     DiscoverResult,
@@ -39,7 +40,7 @@ from mcp_types import (
     TextContent,
     Tool,
 )
-from mcp_types.version import LATEST_MODERN_VERSION
+from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from mcp import MCPError
 from mcp.client.client import Client
@@ -154,13 +155,12 @@ async def test_modern_response_carries_no_session_id_header() -> None:
 
 
 @requirement("hosting:http:modern:initialize-removed")
-async def test_modern_initialize_is_method_not_found() -> None:
-    """A 2026-07-28 initialize request that carries a valid envelope is answered METHOD_NOT_FOUND at HTTP 404.
+async def test_modern_initialize_is_answered_with_the_supported_versions() -> None:
+    """A 2026-07-28 initialize request is answered -32022 naming the modern versions, at HTTP 400.
 
-    Spec-mandated under the draft: initialize is not a defined method at 2026-07-28, so the kernel's
-    method/version gate rejects it before any handler runs. The body must carry the per-request
-    ``_meta`` envelope so the classifier ladder admits it as far as kernel dispatch -- without the
-    envelope the request is INVALID_PARAMS at rung 1, never METHOD_NOT_FOUND. Asserted at the wire
+    initialize is not a method at modern versions, and versioning asks a modern server to name
+    the versions it serves in any error it returns to initialize, on any transport - so the shared
+    ladder's rung 0 gives this answer before any handler or envelope check. Asserted at the wire
     because the SDK client at 2026-07-28 never sends initialize, so only a raw POST can drive the
     negative.
     """
@@ -168,8 +168,10 @@ async def test_modern_initialize_is_method_not_found() -> None:
     async with mounted_app(_server()) as (http, _):
         response = await http.post("/mcp", json=body, headers=_modern_headers(method="initialize"))
 
-    assert response.status_code == 404
-    assert JSONRPCError.model_validate(response.json()).error.code == METHOD_NOT_FOUND
+    assert response.status_code == 400
+    error = JSONRPCError.model_validate(response.json()).error
+    assert error.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert error.data["supported"] == list(MODERN_PROTOCOL_VERSIONS)
 
 
 @requirement("hosting:http:modern:legacy-fallthrough")

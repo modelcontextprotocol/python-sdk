@@ -2345,3 +2345,36 @@ def test_remove_prompt_removes_and_unknown_name_raises() -> None:
     assert mcp._prompt_manager.list_prompts() == []
     with pytest.raises(ValueError, match="Unknown prompt: greeting"):
         mcp.remove_prompt("greeting")
+
+
+def test_lowlevel_server_is_the_server_the_decorators_registered_on() -> None:
+    mcp = MCPServer("wrapped", version="1.2.3")
+
+    @mcp.tool()
+    def echo(text: str) -> str:  # pragma: no cover
+        return text
+
+    lowlevel = mcp.lowlevel_server
+    assert lowlevel is mcp.lowlevel_server  # one server underneath, not a copy per access
+    assert (lowlevel.name, lowlevel.version) == ("wrapped", "1.2.3")
+    assert lowlevel.get_request_handler("tools/list") is not None
+
+
+def test_subscriptions_exposes_the_bus_the_server_was_built_with() -> None:
+    bus = InMemorySubscriptionBus()
+    assert MCPServer("with-bus", subscriptions=bus).subscriptions is bus
+    assert isinstance(MCPServer("default-bus").subscriptions, InMemorySubscriptionBus)
+
+
+async def test_close_subscriptions_ends_open_listen_streams_gracefully_after_draining_events() -> None:
+    """`mcp.close_subscriptions()` is the server-side end: the stream delivers its pending
+    event, then ends cleanly (its listen result), with no ListenHandler reference held."""
+    mcp = MCPServer("closer")
+    events: list[object] = []
+    async with Client(mcp) as client:
+        with anyio.fail_after(5):
+            async with client.listen(tools_list_changed=True) as sub:  # pragma: no branch
+                await mcp.subscriptions.publish(ToolsListChanged())
+                mcp.close_subscriptions()
+                events.extend([event async for event in sub])
+    assert events == [ToolsListChanged()]

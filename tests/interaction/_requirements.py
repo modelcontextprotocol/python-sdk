@@ -539,14 +539,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
             "receiver does not send a response for the cancelled request."
         ),
-        divergence=Divergence(
-            note=(
-                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
-                "server for cancelled client requests, and the client for cancelled server-initiated "
-                "requests — which is what unblocks the sender's pending call."
-            ),
-        ),
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
             ArmExclusion(reason="requires-session", spec_version="2026-07-28"),
@@ -618,24 +610,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic#responses",
         behavior=(
             "An unhandled exception in a request handler is returned to the caller as JSON-RPC error "
-            "-32603 Internal error."
-        ),
-        divergence=Divergence(
-            note=(
-                "The low-level Server returns code 0 (not a defined JSON-RPC code) instead of -32603 and "
-                "leaks str(exc) as the error message."
-            ),
-        ),
-        arm_exclusions=(
-            ArmExclusion(
-                reason="modern-error-surface",
-                spec_version="2026-07-28",
-                note=(
-                    "The modern entry maps Exception->INTERNAL_ERROR (-32603) with an opaque message, so the "
-                    "2026 arm SATISFIES this requirement; the test pins the legacy code-0 divergence and "
-                    "needs an era-aware assertion before re-admission."
-                ),
-            ),
+            "-32603 Internal error, with a generic message rather than the exception's own text."
         ),
     ),
     "protocol:error:invalid-params": Requirement(
@@ -1353,13 +1328,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:get:missing-required-args": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get omitting a required argument returns JSON-RPC error -32602 (Invalid params).",
-        divergence=Divergence(
-            note=(
-                "MCPServer's prompt renderer raises a plain ValueError before the prompt function runs, "
-                "which the low-level server converts to error code 0 with the exception text as the message."
-            ),
-        ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "prompts:get:multi-message": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
@@ -1402,7 +1370,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:args-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#implementation-considerations",
         behavior="prompts/get arguments that fail the prompt's argument schema are rejected before the function runs.",
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     "mcpserver:prompt:decorated": Requirement(
         source="sdk",
@@ -1428,13 +1395,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get for a name that was never registered returns JSON-RPC error -32602 (Invalid params).",
-        divergence=Divergence(
-            note=(
-                "The spec's example uses -32602 Invalid params for unknown prompts; MCPServer raises "
-                "ValueError, which the low-level server converts to error code 0."
-            ),
-        ),
-        arm_exclusions=(ArmExclusion(reason="modern-error-surface", spec_version="2026-07-28"),),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion
@@ -3229,11 +3189,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over streamable HTTP: Mcp-Session-Id is a streamable-HTTP response header.",
     ),
     "hosting:http:modern:initialize-removed": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/index",
-        behavior="A 2026-07-28 initialize request is answered with METHOD_NOT_FOUND.",
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "A 2026-07-28 initialize request is answered with UNSUPPORTED_PROTOCOL_VERSION (-32022) naming "
+            "the modern protocol versions the server serves."
+        ),
         added_in="2026-07-28",
         transports=("streamable-http",),
-        note=("Only observable over streamable HTTP: the modern entry's method registry omits initialize."),
+        note=(
+            "initialize does not exist at modern versions, and versioning asks a modern server to name its "
+            "versions in any error it returns to initialize, on any transport; the shared ladder's rung 0 "
+            "gives every transport that one answer. Only observable over streamable HTTP here: the SDK "
+            "client at 2026-07-28 never sends initialize, so only a raw POST can drive the negative."
+        ),
     ),
     "hosting:http:modern:legacy-fallthrough": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/versioning",

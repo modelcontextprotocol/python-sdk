@@ -98,10 +98,10 @@ async def test_call_tool_unknown_tool_is_protocol_error(connect: Connect) -> Non
 
 @requirement("protocol:error:internal-error")
 async def test_call_tool_uncaught_exception_becomes_error_response(connect: Connect) -> None:
-    """An uncaught exception in the tool handler surfaces to the client as a JSON-RPC error.
+    """An uncaught exception in the tool handler surfaces to the client as JSON-RPC -32603.
 
-    The low-level server reports it with code 0 and the exception text as the message; see the
-    divergence note on the requirement.
+    The generic internal error carries no exception text: the handler's message stays in the
+    server log, and a handler that wants the client to see a message raises `MCPError` instead.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -114,7 +114,7 @@ async def test_call_tool_uncaught_exception_becomes_error_response(connect: Conn
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("explode", {})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="boom"))
+    assert exc_info.value.error == snapshot(ErrorData(code=types.INTERNAL_ERROR, message="Internal server error"))
 
 
 @requirement("tools:list:basic")

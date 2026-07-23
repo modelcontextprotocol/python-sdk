@@ -12,10 +12,10 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
+    CONNECTION_CLOSED,
     REQUEST_TIMEOUT,
     CallToolResult,
     EmptyResult,
-    ErrorData,
     Implementation,
     InitializeResult,
     JSONRPCNotification,
@@ -41,19 +41,25 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
+_CANCEL_SILENCE_WINDOW = 0.2
+"""Observation window for the receiver's MUST-NOT-respond rule: absence of a
+response can only be observed by waiting, so this is a bounded silence check."""
+
+
 @requirement("protocol:cancel:in-flight")
 @requirement("protocol:cancel:handler-abort-propagates")
 async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
-    """Cancelling an in-flight request interrupts its handler and fails the pending call.
+    """Cancelling an in-flight request interrupts its handler and the receiver sends
+    no response for it, so the caller's still-pending call neither resolves nor errors.
 
-    The server answers the cancelled request with an error response (the spec says it should
-    not respond at all; see the divergence note on the requirement), so the caller's pending
-    request raises rather than hanging.
+    The caller here keeps awaiting after cancelling out of band, which the spec leaves
+    to the caller ("SHOULD ignore any response that arrives afterward"); real callers
+    cancel through a scope and stop waiting, so the test cancels the pending await itself.
     """
     started = anyio.Event()
     handler_cancelled = anyio.Event()
     request_ids: list[types.RequestId] = []
-    errors: list[ErrorData] = []
+    outcomes: list[object] = []
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "block"
@@ -71,24 +77,31 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
 
     async with connect(server) as client:
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as task_group:
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
 
-                async def call_and_capture_error() -> None:
-                    with pytest.raises(MCPError) as exc_info:
-                        await client.call_tool("block", {})
-                    errors.append(exc_info.value.error)
+                async def call_and_record_outcome() -> None:
+                    try:
+                        outcomes.append(await client.call_tool("block", {}))
+                    except MCPError as exc:
+                        outcomes.append(f"error:{exc.error.code}")
 
-                task_group.start_soon(call_and_capture_error)
+                task_group.start_soon(call_and_record_outcome)
                 await started.wait()
                 await client.session.send_notification(
                     types.CancelledNotification(
                         params=types.CancelledNotificationParams(request_id=request_ids[0], reason="user aborted")
                     )
                 )
+                await handler_cancelled.wait()
+                await anyio.sleep(_CANCEL_SILENCE_WINDOW)
+                task_group.cancel_scope.cancel()  # stop the caller's own pending await
 
-            await handler_cancelled.wait()
-
-    assert errors == snapshot([ErrorData(code=0, message="Request cancelled")])
+    # The receiver must not respond to the cancelled request. Over the HTTP
+    # transports it also tears down the cancelled request's own response stream,
+    # and the client's transport then resolves the still-pending await locally
+    # with CONNECTION_CLOSED - a client-side synthesis, not a server frame - so the
+    # only outcome ever recorded is that local resolution; a served result never appears.
+    assert all(outcome == f"error:{CONNECTION_CLOSED}" for outcome in outcomes)
 
 
 @requirement("protocol:cancel:server-survives")
@@ -121,16 +134,14 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
     async with connect(server) as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:
-
-                async def call_and_swallow_cancellation_error() -> None:
-                    with pytest.raises(MCPError):
-                        await client.call_tool("block", {})
-
-                task_group.start_soon(call_and_swallow_cancellation_error)
+                block_args: dict[str, object] = {}
+                task_group.start_soon(client.call_tool, "block", block_args)
                 await started.wait()
                 await client.session.send_notification(
                     types.CancelledNotification(params=types.CancelledNotificationParams(request_id=request_ids[0]))
                 )
+                # No response follows the cancel; the caller abandons its pending await.
+                task_group.cancel_scope.cancel()
 
             result = await client.call_tool("echo", {})
 

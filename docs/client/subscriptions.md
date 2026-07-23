@@ -57,7 +57,7 @@ The order is the point. Nothing is replayed, so an event published before your s
 
 Requests run freely beside an open stream, from the watcher task or any other, on the same client. Because *duplicate* unconsumed events coalesce, a busy main flow may produce one refetch rather than three. Events that differ do not coalesce: a filter naming many URIs queues one pending event per URI.
 
-To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK cancels the listen request the way the transport expects: over streamable HTTP, by closing that request's stream. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
+To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK cancels the listen request the way the transport expects: over streamable HTTP by closing that request's stream, and over stdio (or any duplex stream) by sending `notifications/cancelled` for the listen request's id, after which a server built on this SDK writes nothing further for it. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
 
 ## Streams end
 

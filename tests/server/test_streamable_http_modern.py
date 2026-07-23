@@ -85,7 +85,7 @@ def _asgi_client(
     accept: str = "application/json, text/event-stream",
 ) -> httpx2.AsyncClient:
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        async with server.lifespan(server) as lifespan_state:
+        async with server.lifespan() as lifespan_state:
             await handle_modern_request(server, security_settings, json_response, lifespan_state, scope, receive, send)
 
     return httpx2.AsyncClient(
@@ -692,7 +692,7 @@ async def test_disconnect_cancels_handler_and_runs_exit_stack() -> None:
         pass
 
     with anyio.fail_after(5):
-        async with server.lifespan(server) as lifespan_state:
+        async with server.lifespan() as lifespan_state:
             await handle_modern_request(server, None, False, lifespan_state, scope, receive, send)
         await cleanup_ran.wait()
 

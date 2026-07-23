@@ -17,7 +17,7 @@ logger = logging.getLogger("server")
 async def main() -> None:
     server: Server[dict[str, object]] = Server("mcp")
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        await server.run(read_stream, write_stream)
 
 
 if __name__ == "__main__":

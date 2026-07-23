@@ -56,14 +56,14 @@ That is the entire life of a prompt: listed by name, rendered on demand, dropped
 
 !!! check
     `required` is enforced before your function runs. Render `review_code` without `code` and the
-    request itself fails with a JSON-RPC error (code `-32603`):
+    request itself fails with a JSON-RPC error (code `-32602`, Invalid params) that says why:
 
     ```text
-    mcp.shared.exceptions.MCPError: Internal server error
+    mcp.shared.exceptions.MCPError: Missing required arguments: {'code'}
     ```
 
     There is no tool-style error result to hand back to a model, because no model is in the loop:
-    the call raises. The reason (`Missing required arguments: {'code'}`) lands in your server's log.
+    the call raises, and the reason travels in the error itself.
 
 ### Try it
 

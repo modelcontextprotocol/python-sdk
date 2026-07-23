@@ -42,8 +42,7 @@ class InMemoryTransport:
         """Connect to the server and yield streams for communication."""
         # Unwrap MCPServer to get underlying Server
         if isinstance(self._server, MCPServer):
-            # TODO(Marcelo): Make `lowlevel_server` public.
-            actual_server: Server[Any] = self._server._lowlevel_server  # type: ignore[reportPrivateUsage]
+            actual_server: Server[Any] = self._server.lowlevel_server
         else:
             actual_server = self._server
 
@@ -55,12 +54,7 @@ class InMemoryTransport:
 
             async def _run_server() -> None:
                 try:
-                    await actual_server.run(
-                        server_read,
-                        server_write,
-                        actual_server.create_initialization_options(),
-                        raise_exceptions=self._raise_exceptions,
-                    )
+                    await actual_server.run(server_read, server_write, raise_exceptions=self._raise_exceptions)
                 finally:
                     server_done.set()
 

@@ -44,14 +44,18 @@ __all__ = [
     "MCP_NAME_HEADER",
     "MCP_PARAM_HEADER_PREFIX",
     "MCP_PROTOCOL_VERSION_HEADER",
+    "ModernEnvelope",
     "NAME_BEARING_METHODS",
     "X_MCP_HEADER_KEY",
+    "check_supported_version",
     "classify_inbound_request",
     "decode_header_value",
     "encode_header_value",
     "find_duplicated_routing_header",
     "find_invalid_x_mcp_header",
+    "has_envelope_intent",
     "mcp_param_headers",
+    "parse_envelope",
     "validate_mcp_param_headers",
     "x_mcp_header_map",
 ]
@@ -339,12 +343,111 @@ class InboundModernRoute:
 
 
 @dataclass(frozen=True)
+class ModernEnvelope:
+    """The per-request modern envelope parsed from `params._meta`: the required pair is present.
+
+    Values are raw (`protocol_version` is checked by :func:`check_supported_version`);
+    `client_info` is `None` when the client omitted it.
+    """
+
+    protocol_version: Any
+    client_info: Any
+    client_capabilities: Any
+
+
+@dataclass(frozen=True)
 class InboundLadderRejection:
     """The first ladder rung that failed, as JSON-RPC error fields."""
 
     code: int
     message: str
     data: Any = None
+
+
+_ENVELOPE_KEYS: Final = frozenset({PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY})
+"""The reserved `_meta` keys that make up the modern per-request envelope."""
+
+_ENVELOPE_REQUIRED_MESSAGE: Final = (
+    "params._meta must be an object carrying the required "
+    f"{PROTOCOL_VERSION_META_KEY!r} and {CLIENT_CAPABILITIES_META_KEY!r} envelope keys"
+)
+
+
+def has_envelope_intent(params: Mapping[str, Any] | None) -> bool:
+    """Whether `params._meta` carries any modern per-request envelope key: presence,
+    not validity (a bare `progressToken` is not envelope evidence)."""
+    if not params:
+        return False
+    meta = params.get("_meta")
+    return isinstance(meta, Mapping) and not _ENVELOPE_KEYS.isdisjoint(cast("Mapping[str, Any]", meta))
+
+
+def parse_envelope(params: Mapping[str, Any] | None) -> ModernEnvelope | InboundLadderRejection | None:
+    """Parse the per-request modern envelope out of `params._meta`.
+
+    `None` when `_meta` carries no envelope key; an INVALID_PARAMS rejection
+    naming the missing key(s) when a claim is present but the required pair
+    (protocol version, client capabilities) is incomplete; else the envelope
+    (unchecked). Client info is optional (SHOULD-include, spec PR #3002), so
+    absent reads as `None`.
+    """
+    if not has_envelope_intent(params):
+        return None
+    # `has_envelope_intent` proved `params._meta` is a mapping carrying a claim.
+    meta = cast("Mapping[str, Any]", (params or {})["_meta"])
+    if missing := [key for key in (PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY) if key not in meta]:
+        return InboundLadderRejection(
+            code=INVALID_PARAMS,
+            message=f"params._meta is missing the required envelope key(s): {', '.join(missing)}",
+        )
+    return ModernEnvelope(
+        protocol_version=meta[PROTOCOL_VERSION_META_KEY],
+        client_info=meta.get(CLIENT_INFO_META_KEY),
+        client_capabilities=meta[CLIENT_CAPABILITIES_META_KEY],
+    )
+
+
+def check_supported_version(
+    envelope: ModernEnvelope, supported_modern_versions: Sequence[str] = MODERN_PROTOCOL_VERSIONS
+) -> InboundModernRoute | InboundLadderRejection:
+    """Promote a parsed envelope to a route: non-string version → INVALID_PARAMS;
+    unserved → UNSUPPORTED_PROTOCOL_VERSION with `{"supported": [...], "requested": ...}`."""
+    if not isinstance(envelope.protocol_version, str):
+        return InboundLadderRejection(
+            code=INVALID_PARAMS, message="the protocol-version envelope value must be a string"
+        )
+    if envelope.protocol_version not in supported_modern_versions:
+        return InboundLadderRejection(
+            code=UNSUPPORTED_PROTOCOL_VERSION,
+            message="Unsupported protocol version",
+            data=UnsupportedProtocolVersionErrorData(
+                supported=list(supported_modern_versions), requested=envelope.protocol_version
+            ).model_dump(mode="json"),
+        )
+    return InboundModernRoute(
+        protocol_version=envelope.protocol_version,
+        client_info=envelope.client_info,
+        client_capabilities=envelope.client_capabilities,
+    )
+
+
+def _handshake_refusal(
+    params: Mapping[str, Any] | None, supported_modern_versions: Sequence[str]
+) -> InboundLadderRejection:
+    """The modern era's answer to `initialize`: -32022 naming the served versions,
+    with `requested` set when the handshake proposed a string version."""
+    requested = (params or {}).get("protocolVersion")
+    if isinstance(requested, str):
+        data: dict[str, Any] = UnsupportedProtocolVersionErrorData(
+            supported=list(supported_modern_versions), requested=requested
+        ).model_dump(mode="json")
+    else:
+        data = {"supported": list(supported_modern_versions)}
+    return InboundLadderRejection(
+        code=UNSUPPORTED_PROTOCOL_VERSION,
+        message="initialize is not served: this connection speaks a per-request-envelope protocol version",
+        data=data,
+    )
 
 
 _ROUTING_HEADER_NAMES: Final = frozenset({MCP_PROTOCOL_VERSION_HEADER, MCP_METHOD_HEADER, MCP_NAME_HEADER})
@@ -375,21 +478,22 @@ def classify_inbound_request(
 ) -> InboundModernRoute | InboundLadderRejection:
     """Run the modern-protocol validation ladder over a decoded JSON-RPC body.
 
-    Rungs, in order — first failure wins:
+    Rungs, in order; first failure wins:
 
-    1. `params._meta` is a mapping carrying the required envelope pair
-       (protocol version, client capabilities) → else
-       :data:`~mcp_types.jsonrpc.INVALID_PARAMS` naming the missing key(s)
+    0. `body.method` is not `initialize` → else
+       :data:`~mcp_types.jsonrpc.UNSUPPORTED_PROTOCOL_VERSION` naming the served
+       versions (:func:`_handshake_refusal`).
+    1. :func:`parse_envelope`: `params._meta` is a mapping carrying the required
+       envelope pair (protocol version, client capabilities) → else
+       :data:`~mcp_types.jsonrpc.INVALID_PARAMS`, naming the missing key(s)
        (basic/index.mdx "Per-request protocol fields"). Client info is
        optional (SHOULD-include, spec PR #3002); absent reads as `None`.
-    2. When `headers` is given, `MCP-Protocol-Version` equals the envelope's
-       protocol version, `Mcp-Method` equals `body.method`, and — for the
-       methods in :data:`NAME_BEARING_METHODS` — `Mcp-Name` equals the named
-       body param → else :data:`~mcp_types.jsonrpc.HEADER_MISMATCH`. Runs
-       before the supported-version rung so a client that disagrees with itself
-       is told so, rather than told the body's version is unsupported.
-    3. The envelope's protocol version is a string in
-       `supported_modern_versions` → non-string values are
+    2. When `headers` is given: `MCP-Protocol-Version`, `Mcp-Method`, and (for
+       :data:`NAME_BEARING_METHODS`) `Mcp-Name` agree with the body → else
+       :data:`~mcp_types.jsonrpc.HEADER_MISMATCH`. Runs before the
+       supported-version rung so a client that disagrees with itself is told
+       so, rather than told the body's version is unsupported.
+    3. :func:`check_supported_version` → non-string values are
        :data:`~mcp_types.jsonrpc.INVALID_PARAMS` (a shape defect, not a
        negotiation outcome), else
        :data:`~mcp_types.jsonrpc.UNSUPPORTED_PROTOCOL_VERSION` with
@@ -399,37 +503,26 @@ def classify_inbound_request(
     custom-registered methods route and the answer lives in one place.
 
     Args:
-        body: The decoded JSON-RPC request mapping. Envelope shape
-            (`jsonrpc` / `id`) is not checked here.
+        body: The decoded JSON-RPC request mapping.
         headers: Transport headers keyed by lowercase name, or `None` to
-            skip the header rung (non-HTTP callers).
+            skip the header rung.
         supported_modern_versions: Modern protocol revisions this server
             accepts on the per-request-envelope path.
     """
-    try:
-        meta_value = body["params"]["_meta"]
-    except (KeyError, TypeError):
-        meta_value = None
-    if not isinstance(meta_value, Mapping):
-        return InboundLadderRejection(
-            code=INVALID_PARAMS,
-            message="params._meta must be an object carrying the required "
-            f"{PROTOCOL_VERSION_META_KEY!r} and {CLIENT_CAPABILITIES_META_KEY!r} envelope keys",
-        )
-    meta = cast("Mapping[str, Any]", meta_value)
-    if missing := [key for key in (PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY) if key not in meta]:
-        return InboundLadderRejection(
-            code=INVALID_PARAMS,
-            message=f"params._meta is missing the required envelope key(s): {', '.join(missing)}",
-        )
-    protocol_version: Any = meta[PROTOCOL_VERSION_META_KEY]
-    client_info: Any = meta.get(CLIENT_INFO_META_KEY)
-    client_capabilities: Any = meta[CLIENT_CAPABILITIES_META_KEY]
+    raw_params = body.get("params")
+    params = cast("Mapping[str, Any]", raw_params) if isinstance(raw_params, Mapping) else None
+    if body.get("method") == "initialize":
+        return _handshake_refusal(params, supported_modern_versions)
+    envelope = parse_envelope(params)
+    if envelope is None:
+        return InboundLadderRejection(code=INVALID_PARAMS, message=_ENVELOPE_REQUIRED_MESSAGE)
+    if isinstance(envelope, InboundLadderRejection):
+        return envelope
     if headers is not None:
         version_header = headers.get(MCP_PROTOCOL_VERSION_HEADER)
         # Presence is checked explicitly: a null body version would otherwise
         # slip the equality check (None == None) and mask the absent header.
-        if version_header is None or version_header != protocol_version:
+        if version_header is None or version_header != envelope.protocol_version:
             return InboundLadderRejection(
                 code=HEADER_MISMATCH,
                 message=f"{MCP_PROTOCOL_VERSION_HEADER} header does not match the request envelope's protocol version",
@@ -441,43 +534,14 @@ def classify_inbound_request(
                 message=f"{MCP_METHOD_HEADER} header does not match the request body's method",
             )
         name_key = NAME_BEARING_METHODS.get(method)
-        if name_key is not None:
-            # Rung 1 already proved body["params"] is a mapping (its `_meta` is one).
-            body_value = cast("Mapping[str, Any]", body["params"]).get(name_key)
+        if name_key is not None and params is not None:
+            body_value = params.get(name_key)
             if body_value is not None and decode_header_value(headers.get(MCP_NAME_HEADER)) != body_value:
                 return InboundLadderRejection(
                     code=HEADER_MISMATCH,
                     message=f"{MCP_NAME_HEADER} header does not match the request body's {name_key!r} parameter",
                 )
-
-    if not isinstance(protocol_version, str):
-        # Rung 3's precondition: a shape defect, not a version-negotiation
-        # outcome - -32022 is the one code auto-negotiating clients do NOT
-        # fall back from, and the typed rung-3 payload itself requires a
-        # string `requested`. Sits after the header rung, which fires first
-        # for every header-bearing entry (an absent version header is a
-        # mismatch, and a present one is a string that can never equal a
-        # non-string body value) - so this rejection is reachable only on
-        # header-less transports.
-        return InboundLadderRejection(
-            code=INVALID_PARAMS,
-            message="the protocol-version envelope value must be a string",
-        )
-
-    if protocol_version not in supported_modern_versions:
-        return InboundLadderRejection(
-            code=UNSUPPORTED_PROTOCOL_VERSION,
-            message="Unsupported protocol version",
-            data=UnsupportedProtocolVersionErrorData(
-                supported=list(supported_modern_versions), requested=protocol_version
-            ).model_dump(mode="json"),
-        )
-
-    return InboundModernRoute(
-        protocol_version=protocol_version,
-        client_info=client_info,
-        client_capabilities=client_capabilities,
-    )
+    return check_supported_version(envelope, supported_modern_versions)
 
 
 # Header values eligible for the spec's numeric-comparison SHOULD; scientific

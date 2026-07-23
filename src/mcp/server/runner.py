@@ -1,23 +1,19 @@
 """`ServerRunner` - the per-connection handler kernel.
 
-`ServerRunner` bridges the dispatch layer (`on_request` / `on_notify`, untyped
-dicts) and the user's handler layer (typed `Context`, typed params). It is a
-pure kernel: it holds a pre-populated `Connection` and reads
-`connection.protocol_version` / `connection.outbound` as facts. Driving a
-dispatcher loop and tearing down the connection live in the free-function
-drivers (`serve_connection`, `serve_loop`, `serve_dual_era_loop`, `serve_one`);
-the entry constructs the `Connection`, the driver tears it down.
-
-`ServerRunner` holds a `Server` directly - `Server` is the registry.
+Bridges the dispatch layer (`on_request` / `on_notify`, untyped dicts) and
+the user's handler layer (typed `Context`, typed params). It holds a
+pre-populated `Connection` and a `Server` (the handler registry); the drivers
+(`serve_stream`, `serve_connection`, `serve_one`) construct the `Connection`
+and tear it down.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Mapping
-from dataclasses import KW_ONLY, dataclass, replace
+from dataclasses import KW_ONLY, dataclass
 from functools import cached_property, partial
-from typing import TYPE_CHECKING, Any, Generic, Literal, cast
+from typing import TYPE_CHECKING, Any, Generic, cast
 
 import anyio
 import anyio.abc
@@ -27,20 +23,16 @@ from mcp_types import (
     CORE_RESULT_TYPES,
     INTERNAL_ERROR,
     INVALID_PARAMS,
-    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
-    UNSUPPORTED_PROTOCOL_VERSION,
     CacheableResult,
     ErrorData,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
-    RequestId,
     RequestParams,
     RequestParamsMeta,
-    UnsupportedProtocolVersionErrorData,
 )
 from mcp_types import methods as _methods
 from mcp_types.version import (
@@ -53,16 +45,14 @@ from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
 from mcp.server.caching import apply_cache_hint
-from mcp.server.connection import Connection, NotifyOnlyOutbound
+from mcp.server.connection import Connection
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest
-from mcp.shared.exceptions import MCPError, NoBackChannelError
-from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request
+from mcp.shared.dispatcher import Admission, Admit, DispatchContext, OnNotify, OnRequest
+from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
@@ -75,8 +65,6 @@ __all__ = [
     "aclose_shielded",
     "modern_on_request",
     "serve_connection",
-    "serve_dual_era_loop",
-    "serve_loop",
     "serve_one",
 ]
 
@@ -437,329 +425,49 @@ class ServerRunner(Generic[LifespanT]):
         )
 
 
+def _legacy_admission(runner: ServerRunner[Any]) -> Admit:
+    """The receive-order admission for a handshake-driven connection: every request goes
+    to the kernel, and only `initialize` holds the read loop until it has answered."""
+
+    def admit(method: str, params: Mapping[str, Any] | None) -> Admission:
+        return Admission(runner.on_request, hold=method == "initialize")
+
+    return admit
+
+
 async def serve_connection(
     server: Server[LifespanT],
-    dispatcher: Dispatcher[Any],
+    dispatcher: JSONRPCDispatcher[Any],
     *,
     connection: Connection,
     lifespan_state: LifespanT,
     init_options: InitializationOptions | None = None,
     task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
 ) -> None:
-    """Drive ``dispatcher`` until the underlying channel closes.
+    """Drive `dispatcher` in handshake mode until the underlying channel closes.
 
-    The loop-mode driver: builds the kernel, hands `on_request`/`on_notify`
-    to `dispatcher.run()`, and tears down `connection.exit_stack` (shielded)
-    on the way out. The entry constructs the `Connection`; this only consumes
-    it.
+    The legacy loop driver over a caller-built dispatcher and `Connection`; tears
+    down `connection.exit_stack` (shielded) on the way out. Stream transports use
+    `serve_stream`; this is for entries that already own the connection's era.
     """
     runner = ServerRunner(server, connection, lifespan_state, init_options=init_options)
     try:
-        await dispatcher.run(runner.on_request, runner.on_notify, task_status=task_status)
+        await dispatcher.run(
+            runner.on_request, runner.on_notify, admit=_legacy_admission(runner), task_status=task_status
+        )
     finally:
         await aclose_shielded(connection)
 
 
-async def serve_loop(
-    server: Server[LifespanT],
-    read_stream: ReadStream[SessionMessage | Exception],
-    write_stream: WriteStream[SessionMessage],
-    *,
-    lifespan_state: LifespanT,
-    session_id: str | None = None,
-    init_options: InitializationOptions | None = None,
-    raise_exceptions: bool = False,
-) -> None:
-    """Drive ``server`` in handshake-only loop mode over a stream pair until the channel closes.
-
-    Builds the loop-mode `JSONRPCDispatcher` + `Connection` and hands them to
-    `serve_connection`. The streamable-HTTP manager (which owns its lifespan
-    and serves the modern era on the single-exchange entry instead) calls
-    this; `Server.run` drives `serve_dual_era_loop`, which extends the same
-    dispatcher recipe (notably the `inline_methods={"initialize"}` rule) with
-    era routing.
-    """
-    dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
-        read_stream,
-        write_stream,
-        raise_handler_exceptions=raise_exceptions,
-        # Handle `initialize` inline so a client that pipelines it with the
-        # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized
-        # state instead of failing the init-gate.
-        inline_methods=frozenset({"initialize"}),
-    )
-    connection = Connection.for_loop(dispatcher, session_id=session_id)
-    await serve_connection(
-        server, dispatcher, connection=connection, lifespan_state=lifespan_state, init_options=init_options
-    )
-
-
-def _has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
-    """Whether `params._meta` carries the reserved protocol-version key.
-
-    Era evidence is the client's explicit version declaration: the
-    `io.modelcontextprotocol/protocolVersion` key exists only in 2026-07-28+
-    envelopes, and the `io.modelcontextprotocol/` prefix is spec-reserved, so
-    legacy traffic never mints it (bare `_meta` is NOT evidence - legacy
-    requests carry `progressToken` there). Presence of the version key alone
-    is the rule, not the full required pair, so a half-built envelope
-    (version present, capabilities missing) still routes modern and gets the
-    classifier's INVALID_PARAMS naming the missing key instead of the legacy
-    path's generic one - and, like every failed classification, locks no era.
-    """
-    if not params:
-        return False
-    meta = params.get("_meta")
-    return isinstance(meta, Mapping) and PROTOCOL_VERSION_META_KEY in meta
-
-
-def _initialize_after_modern_data(params: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Error data for an `initialize` arriving on a modern-locked connection.
-
-    The typed -32022 payload when the client's proposed version is parseable;
-    otherwise just the supported list (the point is naming what we serve).
-    """
-    requested = (params or {}).get("protocolVersion")
-    if isinstance(requested, str):
-        return UnsupportedProtocolVersionErrorData(
-            supported=list(MODERN_PROTOCOL_VERSIONS), requested=requested
-        ).model_dump(mode="json")
-    return {"supported": list(MODERN_PROTOCOL_VERSIONS)}
-
-
 def modern_error_data(exc: Exception) -> ErrorData:
-    """Map a modern request's handler exception to its wire `ErrorData`.
-
-    The exception-to-wire fact shared by the modern entries (the
-    single-exchange HTTP path and the dual-era stream loop), so an identical
-    modern request fails identically on every transport: `MCPError` and
-    `ValidationError` map via the shared `handler_exception_to_error_data`
-    ladder; anything else is logged server-side and surfaced as a generic
-    INTERNAL_ERROR so handler internals never reach the wire.
-    """
+    """Map a modern request's handler exception to its wire `ErrorData` via the shared
+    `handler_exception_to_error_data` ladder; anything unmapped is logged and becomes a
+    generic INTERNAL_ERROR so handler internals never reach the wire."""
     error = handler_exception_to_error_data(exc)
     if error is not None:
         return error
     logger.exception("modern request handler raised")
     return ErrorData(code=INTERNAL_ERROR, message="Internal server error")
-
-
-@dataclass
-class _NoServerRequestsDispatchContext:
-    """Delegating `DispatchContext` that refuses server-initiated requests.
-
-    Wraps the loop dispatcher's per-message context for modern-era dispatch:
-    the modern protocol forbids server-initiated JSON-RPC requests, so
-    `send_raw_request` refuses while notifications and progress still ride
-    the duplex pipe.
-    """
-
-    _inner: DispatchContext[TransportContext]
-
-    @property
-    def transport(self) -> TransportContext:
-        # Mask the per-message flag so the transport metadata agrees with this
-        # wrapper's denial: the modern HTTP entry builds its context with
-        # can_send_request=False, while the loop's default builder says True.
-        transport = self._inner.transport
-        return replace(transport, can_send_request=False) if transport.can_send_request else transport
-
-    @property
-    def can_send_request(self) -> bool:
-        return False
-
-    @property
-    def request_id(self) -> RequestId | None:
-        return self._inner.request_id
-
-    @property
-    def message_metadata(self) -> MessageMetadata:
-        return self._inner.message_metadata
-
-    @property
-    def cancel_requested(self) -> anyio.Event:
-        return self._inner.cancel_requested
-
-    async def send_raw_request(
-        self,
-        method: str,
-        params: Mapping[str, Any] | None,
-        opts: CallOptions | None = None,
-    ) -> dict[str, Any]:
-        raise NoBackChannelError(method)
-
-    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
-        await self._inner.notify(method, params, opts)
-
-    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        await self._inner.progress(progress, total, message)
-
-
-async def serve_dual_era_loop(
-    server: Server[LifespanT],
-    read_stream: ReadStream[SessionMessage | Exception],
-    write_stream: WriteStream[SessionMessage],
-    *,
-    lifespan_state: LifespanT,
-    session_id: str | None = None,
-    init_options: InitializationOptions | None = None,
-    raise_exceptions: bool = False,
-) -> None:
-    """Drive `server` over a duplex stream pair, serving both protocol eras.
-
-    The stream-pair counterpart of the modern HTTP entry's era router. Era is
-    a property of the connection, decided by how the client opens it, and
-    mid-stream switching is undefined - so the first era-distinctive message
-    to SUCCEED locks the connection (matching the typescript-sdk):
-
-    - A successful `initialize` locks legacy: the connection behaves exactly
-      like `serve_loop` for its lifetime, and modern envelope traffic is then
-      rejected with INVALID_REQUEST. `initialize` never routes modern - the
-      method is legacy-distinctive by definition - even when a confused
-      client stamps the envelope keys on it.
-    - A request whose `_meta` declares the modern protocol version - or
-      `server/discover`, a modern-only method - is classified
-      (`classify_inbound_request`) and served single-exchange via `serve_one`
-      with a born-ready per-request `Connection`, the same dispatch model as
-      the modern HTTP entry. The first such request to succeed locks the
-      connection modern; a later `initialize` is then rejected with
-      UNSUPPORTED_PROTOCOL_VERSION naming the modern versions.
-
-    Modern connections push notifications over the duplex pipe but refuse
-    server-initiated requests on both channels (the modern protocol forbids
-    them). A request that fails - rejected classification, malformed envelope
-    content, unknown method - never locks either era, so a failed probe
-    leaves the legacy handshake available: released auto-negotiating clients
-    fall back on any error code except -32022, and that code is only emitted
-    for genuine version negotiation or for `initialize` on an
-    already-modern connection.
-
-    The era lock rides the request's own dispatch. For the inline methods
-    (`initialize`, `server/discover`) that completes before the next frame is
-    read, so the canonical probe-then-go flow is race-free; a pinned-modern
-    client that pipelines frames ahead of its first response should expect
-    envelope-less notifications sent in that window to be dropped. The lock
-    settles exactly once: a request from the other era that was already in
-    flight when the lock committed may still complete and its response
-    stands, but the era does not move; and a success the peer cancelled away
-    (it sees "Request cancelled", not the result) does not lock either.
-    """
-    dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
-        read_stream,
-        write_stream,
-        raise_handler_exceptions=raise_exceptions,
-        # `initialize` inline for the same pipelining reason as `serve_loop`;
-        # `server/discover` inline so the modern era lock commits before the
-        # next pipelined message is read.
-        inline_methods=frozenset({"initialize", "server/discover"}),
-    )
-    loop_connection = Connection.for_loop(dispatcher, session_id=session_id)
-    loop_runner = ServerRunner(server, loop_connection, lifespan_state, init_options=init_options)
-    standalone_outbound = NotifyOnlyOutbound(dispatcher)
-    era: Literal["unlocked", "legacy", "modern"] = "unlocked"
-    modern_version = LATEST_MODERN_VERSION
-
-    def era_settles(dctx: DispatchContext[TransportContext]) -> bool:
-        # The one definition of "this request may lock the era": it settled as
-        # a client-visible success on a still-unlocked connection. The lock is
-        # monotone - the first success wins, so a straggling request from the
-        # other era can never overwrite a committed lock. A pending peer
-        # cancel means the dispatcher is about to replace this response with
-        # "Request cancelled": the client never sees the success, no lock.
-        return era == "unlocked" and not dctx.cancel_requested.is_set()
-
-    async def serve_modern(
-        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
-    ) -> dict[str, Any]:
-        nonlocal era, modern_version
-        route = classify_inbound_request({"method": method, "params": params})
-        if isinstance(route, InboundLadderRejection):
-            raise MCPError(code=route.code, message=route.message, data=route.data)
-        if method == "subscriptions/listen":
-            # The registered listen handler assumes the HTTP entry's stream
-            # semantics; served over a stream pair it would wedge. Reject until
-            # this transport grows its own listen design.
-            raise MCPError(
-                code=METHOD_NOT_FOUND, message="subscriptions/listen is not served over this transport", data=method
-            )
-        connection = Connection.from_envelope(
-            route.protocol_version,
-            route.client_info,
-            route.client_capabilities,
-            outbound=standalone_outbound,
-        )
-        try:
-            result = await serve_one(
-                server,
-                _NoServerRequestsDispatchContext(dctx),
-                method,
-                params,
-                connection=connection,
-                lifespan_state=lifespan_state,
-            )
-        except (MCPError, ValidationError):
-            # The dispatcher's shared ladder maps these to the same wire error
-            # the modern HTTP entry produces.
-            raise
-        except Exception as exc:
-            if raise_exceptions:
-                raise
-            error = modern_error_data(exc)
-            raise MCPError(code=error.code, message=error.message, data=error.data) from exc
-        if era_settles(dctx):
-            era, modern_version = "modern", route.protocol_version
-        return result
-
-    async def on_request(
-        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
-    ) -> dict[str, Any]:
-        nonlocal era
-        if era == "legacy":
-            if _has_modern_envelope(params):
-                raise MCPError(
-                    code=INVALID_REQUEST,
-                    message="connection is locked to the legacy handshake era; "
-                    "modern envelope requests are not accepted",
-                )
-            # Bare modern-only methods (e.g. `server/discover`) fall through to
-            # the loop runner's per-version surface validation - the same
-            # METHOD_NOT_FOUND a handshake-only server produced, byte for byte.
-            return await loop_runner.on_request(dctx, method, params)
-        if era == "modern":
-            if method == "initialize":
-                raise MCPError(
-                    code=UNSUPPORTED_PROTOCOL_VERSION,
-                    message="connection already negotiated a modern protocol version",
-                    data=_initialize_after_modern_data(params),
-                )
-            return await serve_modern(dctx, method, params)
-        # Unlocked. `initialize` is legacy-distinctive by definition (the
-        # method does not exist at modern versions), so it takes the handshake
-        # path even when the envelope keys are stamped on it.
-        if method != "initialize" and (method == "server/discover" or _has_modern_envelope(params)):
-            return await serve_modern(dctx, method, params)
-        result = await loop_runner.on_request(dctx, method, params)
-        if method == "initialize" and era_settles(dctx):
-            # Lock only on success: a failed handshake leaves both eras open.
-            era = "legacy"
-        return result
-
-    async def on_notify(dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
-        if era != "modern":
-            return await loop_runner.on_notify(dctx, method, params)
-        # The envelope is request-only, so notifications inherit the
-        # connection's locked version.
-        connection = Connection.from_envelope(modern_version, None, None, outbound=standalone_outbound)
-        notify_runner = ServerRunner(server, connection, lifespan_state)
-        try:
-            await notify_runner.on_notify(_NoServerRequestsDispatchContext(dctx), method, params)
-        finally:
-            await aclose_shielded(connection)
-
-    try:
-        await dispatcher.run(on_request, on_notify)
-    finally:
-        await aclose_shielded(loop_connection)
 
 
 async def serve_one(
@@ -791,14 +499,10 @@ async def serve_one(
 def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> OnRequest:
     """Return an `OnRequest` callback that serves each call via `serve_one` with a fresh per-request `Connection`.
 
-    Wire this into the server side of a `DirectDispatcher` peer-pair to drive an
-    in-process server on the modern per-request-envelope path (each request
-    carries protocol version, client info, and capabilities in `params._meta`;
-    no `initialize` handshake). The dispatch context is wrapped in the
-    server-requests denial, so the modern prohibition on server-initiated
-    JSON-RPC requests holds on this entry like on the others. Like `serve_one`,
-    this raises whatever the handler chain raises - the dispatcher owns the
-    exception-to-error mapping.
+    Wire this into the server side of a `DirectDispatcher` peer-pair (built
+    with `can_send_request=False`) to drive an in-process server on the modern
+    per-request-envelope path. Like `serve_one`, raises whatever the handler
+    chain raises.
     """
 
     async def handle(
@@ -810,13 +514,6 @@ def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> O
             meta.get(CLIENT_INFO_META_KEY),
             meta.get(CLIENT_CAPABILITIES_META_KEY),
         )
-        return await serve_one(
-            server,
-            _NoServerRequestsDispatchContext(dctx),
-            method,
-            params,
-            connection=connection,
-            lifespan_state=lifespan_state,
-        )
+        return await serve_one(server, dctx, method, params, connection=connection, lifespan_state=lifespan_state)
 
     return handle

@@ -982,7 +982,7 @@ async def handle_set_logging_level(level: str) -> None:
 mcp._mcp_server.subscribe_resource()(handle_subscribe)  # pyright: ignore[reportPrivateUsage]
 ```
 
-In v2, the lowlevel `Server` supports arbitrary request handlers directly via `add_request_handler` (the decorator methods are gone; handlers are otherwise constructor-only). From `MCPServer`, access it via `_lowlevel_server`:
+In v2, the lowlevel `Server` supports arbitrary request handlers directly via `add_request_handler` (the decorator methods are gone; handlers are otherwise constructor-only). From `MCPServer`, reach it through the `lowlevel_server` property:
 
 **After (v2):**
 
@@ -1001,11 +1001,11 @@ async def handle_subscribe(ctx: ServerRequestContext, params: SubscribeRequestPa
     return EmptyResult()
 
 
-mcp._lowlevel_server.add_request_handler("logging/setLevel", SetLevelRequestParams, handle_set_logging_level)  # pyright: ignore[reportPrivateUsage]
-mcp._lowlevel_server.add_request_handler("resources/subscribe", SubscribeRequestParams, handle_subscribe)  # pyright: ignore[reportPrivateUsage]
+mcp.lowlevel_server.add_request_handler("logging/setLevel", SetLevelRequestParams, handle_set_logging_level)
+mcp.lowlevel_server.add_request_handler("resources/subscribe", SubscribeRequestParams, handle_subscribe)
 ```
 
-`_lowlevel_server` is private and may change. A public way to register these handlers on `MCPServer` is planned; until then, use this workaround or use the lowlevel `Server` directly.
+`lowlevel_server` is the low-level `Server` the `MCPServer` is built on; use it, or build a lowlevel `Server` directly.
 
 ## Lowlevel Server
 
@@ -1198,7 +1198,7 @@ If you prefer the convenience of automatic wrapping, use `MCPServer` which still
 
 ### Lowlevel `Server`: tool handler exceptions no longer become `CallToolResult(is_error=True)`
 
-The v1 `@server.call_tool()` decorator caught any exception raised by the handler and returned it to the client as an error-flagged tool result (`isError: true`), so the calling LLM saw the error text as a tool result and could self-correct. In v2, `on_call_tool` is registered with no exception wrapping: a non-`MCPError` exception propagates to the dispatcher and is answered as a top-level JSON-RPC **error response** with `code=0` and `message=str(exc)`. Typical clients (including the SDK's own) raise on a protocol error instead of returning a result, so the error text is no longer LLM-visible. The server also logs a `handler for 'tools/call' raised` traceback that v1 never emitted.
+The v1 `@server.call_tool()` decorator caught any exception raised by the handler and returned it to the client as an error-flagged tool result (`isError: true`), so the calling LLM saw the error text as a tool result and could self-correct. In v2, `on_call_tool` is registered with no exception wrapping: a non-`MCPError` exception propagates to the dispatcher and is answered as a top-level JSON-RPC **error response**, `-32603` with the fixed message `"Internal server error"` (the exception text goes to the server log, never the wire; see [Handler exceptions no longer leak their text](#handler-exceptions-no-longer-leak-their-text-raise-mcperror-to-say-something-to-the-client)). Typical clients (including the SDK's own) raise on a protocol error instead of returning a result, so the error is no longer LLM-visible. The server also logs a `handler for 'tools/call' raised` traceback that v1 never emitted.
 
 **Before (v1):**
 
@@ -1325,6 +1325,65 @@ Previously it also re-raised exceptions yielded by the transport onto the read s
 The `stateless: bool` parameter on the lowlevel `Server.run()` has been removed. Stateless serving is now a property of how the connection is constructed (the streamable-HTTP manager builds a born-ready `Connection` per request), not a flag the loop driver inspects.
 
 Server-initiated requests that have no channel to travel on now raise `NoBackChannelError` (an `MCPError` subclass) — the same exception regardless of why the channel is absent. In v1 there was no dedicated exception for this case: the transport silently dropped the outbound message and the awaiting call stalled.
+
+### `Server.run(read, write)` stands alone; `Server.lifespan()` replaces `server.lifespan(server)`
+
+The `initialization_options` argument to `Server.run` is now optional and defaults to `create_initialization_options()`, so the third argument every example carried is gone:
+
+```python
+# before
+await server.run(read_stream, write_stream, server.create_initialization_options())
+
+# after
+await server.run(read_stream, write_stream)
+```
+
+Passing `InitializationOptions` explicitly still works when you want to shape the handshake result by hand. `server.run(read_stream, write_stream)` is the one call that serves a single connection over any duplex stream pair (stdio, a framed socket, an in-memory pair in a test).
+
+`Server.lifespan` is now a bound method that enters the lifespan you passed to the constructor: `async with server.lifespan() as state:`. The old attribute held the raw callable, so callers wrote the self-referential `server.lifespan(server)`; that spelling is gone (calling the method with an argument is a `TypeError`).
+
+`MCPServer` also exposes the low-level `Server` it is built on as `mcp.lowlevel_server`, so the stream drivers (`Server.run`, `serve_listener`, `serve_stream`) and `add_request_handler` are reachable from a high-level server without private attribute access. The graceful listen-stream close lives on the low-level `Server` too: `Server.close_subscriptions()` ends every open `subscriptions/listen` stream the server's `ListenHandler` holds, and `MCPServer.close_subscriptions()` delegates to it.
+
+### `serve_loop` and `serve_dual_era_loop` replaced by `serve_stream`
+
+The two exported stream drivers in `mcp.server.runner` are replaced by one: `mcp.server.serve_stream(server, read_stream, write_stream)`. It enters the server lifespan for you (pass `lifespan_state=` if several connections share a lifespan you entered yourself) and decides the connection's protocol era from the client's opening message, then serves that era for the connection's lifetime. `Server.run(read_stream, write_stream)` is a thin wrapper over it, and `MCPServer.run("stdio")` is unchanged.
+
+If you drove a server over a custom transport with `serve_loop(...)` or `serve_dual_era_loop(...)`, a single connection is now the two-argument `Server.run`, and `serve_stream` is the rung under it for connections that share a lifespan you entered yourself:
+
+```python
+# before
+from mcp.server.runner import serve_dual_era_loop
+
+async with server.lifespan(server) as state:
+    await serve_dual_era_loop(server, read_stream, write_stream, lifespan_state=state)
+
+# after: one connection, lifespan entered for you
+await server.run(read_stream, write_stream)
+
+# after: several connections sharing one lifespan
+from mcp.server import serve_stream
+
+async with server.lifespan() as state:  # once
+    await serve_stream(server, read_stream, write_stream, lifespan_state=state)  # per connection
+```
+
+The concrete dispatcher's `inline_methods=` constructor keyword is also gone: the "hold the read loop for this method" rule now lives with the caller, as the `hold` field of the `Admission` its `admit=` gate returns (the SDK's own admissions state `hold=(method == "initialize")`; see [Implementing your own `Dispatcher`](#implementing-your-own-dispatcher-handlers-are-admitted-synchronously-in-receive-order)).
+
+`server/discover` no longer pins the connection to the modern era: it is a probe, answered with modern semantics, and the era is decided by the first non-probe message. A client whose discover probe was answered can therefore still fall back to `initialize` on the same connection, and `subscriptions/listen` is now served over stdio and every other duplex stream (previously refused with `-32601`).
+
+A stray leading notification (for example a client's `notifications/roots/list_changed`) no longer decides the era: only `initialize` (or a bare pre-handshake request) opens the legacy era, only `notifications/initialized` opens it among notifications, and any other early notification is ignored, so a 2026 client is never pinned to the legacy era by a courtesy frame it sent first. A legacy-committed connection also now refuses a request that carries the modern envelope with `-32600` instead of processing it under legacy semantics, and `initialize` is answered `-32022` (naming the modern versions the server serves) whenever it reaches the modern side, on every transport.
+
+The new `posture` constructor parameter on `Server` and `MCPServer` narrows which eras a server offers, on stream transports and streamable HTTP alike:
+
+```python
+from mcp.server import Posture, Server
+
+server = Server("app", posture=Posture.MODERN_ONLY)  # or Posture.LEGACY_ONLY; Posture.DUAL is the default
+```
+
+A `MODERN_ONLY` server answers a 2025 handshake with `-32022` and its supported versions (on stdio and streamable HTTP); a `LEGACY_ONLY` server refuses envelope-bearing requests in legacy vocabulary and never enters the modern era. Posture is the one place a server restricts its eras; the walkthrough is in [Serving one era only](run/legacy-clients.md#serving-one-era-only).
+
+At stdin EOF a stdio server now winds down gracefully: it gives in-flight requests a short bounded window to finish, ends every open `subscriptions/listen` stream with its empty `SubscriptionsListenResult` (the spec's graceful closure), and then writes nothing further onto a stdout nobody reads. In particular, an in-flight request no longer receives a `CONNECTION_CLOSED` error at EOF, since the peer that would read it is gone.
 
 ### Lowlevel `Server`: `request_context` property removed
 
@@ -1643,15 +1702,21 @@ except MCPError as e:
 
 Behavior changes:
 
-- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (the request is then answered with an error). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
+- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (no response is written for the cancelled request; see [A cancelled request receives no response](#a-cancelled-request-receives-no-response)). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
 - **Timeouts**: a timed-out or abandoned request is now followed by `notifications/cancelled`, so the server stops the handler instead of leaving it running.
-- **A raising request callback** is answered with `code=0` and the exception text; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
+- **A raising request callback** is answered with the generic internal error, code `-32603` and message `"Internal server error"`, with the exception's own text kept in the log rather than sent to the server; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
 - **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. After the connection has closed it raises `MCPError` (`CONNECTION_CLOSED`) instead. `send_notification` before entry still works.
 - **`send_notification` after the connection has closed is dropped with a debug log instead of raising.** In v1 the send raised `anyio.BrokenResourceError` (peer gone) or `anyio.ClosedResourceError` (session torn down), and this applied to the typed helpers (`send_roots_list_changed`, `send_progress_notification`) too. Code that used the exception as its disconnect signal should probe with a request instead (`send_request` still raises `MCPError` after close, see above) or scope the sending task to the session's lifetime.
 - **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected.
 - **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the `mcp.shared.context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession, Any]` become `ClientRequestContext` (details in [`RequestContext` type parameters simplified](#requestcontext-type-parameters-simplified)).
 
 `mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing. `RequestResponder.respond()` no longer exists, and neither do the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) or `BaseSession._in_flight`; inbound cancellation is handled by `JSONRPCDispatcher`.
+
+### Implementing your own `Dispatcher`: handlers are admitted synchronously, in receive order
+
+This only concerns code that implements the `mcp.shared.dispatcher.Dispatcher` protocol itself (a custom transport engine handed to `ClientSession(dispatcher=)` or driving a server seat), not code that merely uses one. The `run(on_request, on_notify, ...)` contract now states how the handlers are invoked: **synchronously, in receive order, one message at a time**, with the awaitable the handler returns being the request body that then runs concurrently in its own task. In other words your receive loop calls `on_request(ctx, method, params)` itself, in wire order, and only afterwards schedules the awaitable it got back; it must not spawn a task that makes the call for it. Everything a caller needs to decide per connection in message order (the stream driver deciding a connection's protocol era from its opening message is the motivating case) happens in that synchronous call, and the ordering guarantee rests on the receive loop being sequential rather than on any task-scheduler behaviour.
+
+Handlers you are *passed* need no change: an `async def` handler has no synchronous part beyond creating its coroutine, so calling it in the loop costs nothing and satisfies the contract. The obligation is on implementers, and it is a semantic one carried by the docstring rather than the signature: a handler that does slow synchronous work before returning its awaitable now stalls your read loop, not just its own task. This is not an MCP invention; JSON-RPC engines expose the same receive-order pre-dispatch seam, for example the `Preempter` hook in Go's `jsonrpc2` package, which handles a message on the connection before it is queued to the main handler and is where that stack's cancellation lives. The concrete `JSONRPCDispatcher` also grew an optional `admit=` gate (`mcp.shared.dispatcher.Admit`) on the same seam: it returns an `Admission(handler, hold)` before the request's task exists, and `hold=True` parks the read loop until that request has answered (the `initialize` handshake uses it), so a wrapper around the concrete dispatcher can pick a handler per request without touching the protocol.
 
 ### Experimental Tasks support removed
 
@@ -2072,6 +2137,55 @@ Results returned from server handlers are now validated against the negotiated p
 
 In v1, a request for a method the SDK didn't recognize failed request-union validation and was answered with `-32602` (`"Invalid request parameters"`, empty `data`). Any method the receiver doesn't serve — unrecognized on either side, or a spec method the server has no registered handler for — is now answered with the JSON-RPC-specified `-32601` (`"Method not found"`), with the method name in `data`, in every initialization state. Clients still decline sampling, elicitation, and roots requests with `-32600` when no callback is registered, as in v1. Update anything that matched on the old code for this case.
 
+### A cancelled request receives no response
+
+When a peer sends `notifications/cancelled` for an in-flight request, the receiving side interrupts the handler and now writes **no** response for that id. Previously it wrote an error `{"code": 0, "message": "Request cancelled"}`, which the spec forbids ("SHOULD NOT" respond in general; over stdio, "MUST NOT send any further messages"). This applies to both seats, since it lives in the shared dispatcher: a server whose client cancels a request, and a client whose server cancels a server-initiated request.
+
+Callers are unaffected in practice: cancelling through a cancel scope or a request timeout already stops waiting for the response and sends the courtesy `notifications/cancelled` itself. The one pattern that changes is a test or tool that sends `notifications/cancelled` by hand while a separate task keeps awaiting the same call; that await now never completes, so cancel the awaiting task rather than waiting for an error. Over the legacy streamable-HTTP transport, the server also ends the cancelled request's response stream, so a JSON-mode POST for a peer-cancelled request completes as an empty `202 Accepted` instead of lingering until the client disconnects, and the client's transport resolves a still-pending await locally with a synthesized error (`INVALID_REQUEST`, "server answered a request with 202 Accepted", on the JSON-mode path; `CONNECTION_CLOSED` when an SSE-mode stream ends without a response).
+
+A cancel that races an already-computed answer keeps the answer: once a handler has returned, its result is committed and written even if `notifications/cancelled` arrives while the write is pending, which the spec allows ("MAY ignore" a cancel whose processing has completed). The one exception is the legacy streamable-HTTP JSON-mode path just described, where the transport ends the request's response stream on the cancel; if that closure lands first, the committed answer has nowhere to go and the POST still completes as the empty `202`. Both outcomes are spec-legal, since the peer withdrew the request.
+
+### Handler exceptions no longer leak their text; raise `MCPError` to say something to the client
+
+An exception a request handler raises that the SDK has no mapping for (anything other than `MCPError`, or the `ValidationError` the params check raises) is now answered with the JSON-RPC internal error, code `-32603`, message `"Internal server error"`, on **both** eras and both seats; the exception's own text goes to the receiver's log and never reaches the wire. Previously the legacy path answered with the non-standard code `0` and `str(exc)` as the message.
+
+If your handler relied on that to send a message to the client, raise `MCPError` deliberately instead; its code and message pass through untouched:
+
+```python
+# before: leaked as {"code": 0, "message": "Please select a database first"}
+raise ValueError("Please select a database first")
+
+# after: the message travels as a proper protocol error
+from mcp import MCPError
+from mcp_types import INVALID_PARAMS
+
+raise MCPError(code=INVALID_PARAMS, message="Please select a database first")
+```
+
+`MCPServer` does this for you on its own prompt errors: an unknown prompt, a missing required argument, or a failed render is now answered `-32602` (Invalid params) carrying `MCPServer`'s message (`"Unknown prompt: nope"`, `"Missing required arguments: {'name'}"`, ...), where it previously came through as code `0`. The same change is visible in-process: `MCPServer.get_prompt()` now raises `MCPError` for these cases where it raised `ValueError`, so an `except ValueError` around a direct call must become `except MCPError` (the message is unchanged).
+
+### Custom transports over a socket: `newline_json_transport` and `serve_listener`
+
+If you drive a server over a raw byte channel (a Unix or TCP socket, an in-process pipe), you no longer need to hand-roll the newline-delimited framing. `mcp.server.stdio.newline_json_transport(byte_stream)` wraps any anyio byte stream in the stdio wire format and yields the `(read_stream, write_stream)` pair the drivers consume, and `mcp.server.serve_listener(server, listener)` serves every connection an anyio `Listener` accepts over that wire:
+
+```python
+import anyio
+from mcp.server import serve_listener
+
+listener = await anyio.create_unix_listener("/tmp/mcp.sock")
+await serve_listener(server, listener)
+```
+
+`serve_listener` enters the server lifespan once for all connections and closes the listener when cancelled. Use it (or `serve_stream(..., lifespan_state=)` over a lifespan you entered yourself) rather than calling `server.run(...)` per accepted connection, which would re-enter the lifespan for each one.
+
+One caveat when several connections share a `Server`: open `subscriptions/listen` streams are owned by the server's `ListenHandler`, not by a connection, so when one connection's input ends and the driver closes the handler's streams gracefully, the streams of every connection sharing that server end with it. It never bites on stdio (one connection per process). Behind a listener, if a departing peer must not close its neighbours' subscriptions, build a `Server` with its own `ListenHandler(bus)` per accepted connection and drive each with `serve_stream(..., lifespan_state=)` off one shared state; per-connection subscription ownership is the planned fix that retires this recipe.
+
+### Modern requests need only the required `_meta` envelope pair
+
+The per-request envelope now matches the spec: `io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities` are required, and `io.modelcontextprotocol/clientInfo` is optional. A modern request that omits `clientInfo` is classified and routed as modern instead of being mistaken for legacy traffic.
+
+Two caveats survive until the ecosystem catches up. First, the vendored 2026-07-28 params models still mark `clientInfo` as required until the schema is re-generated from the current specification, so a pair-only spec method is routed modern (the connection's era proves it) and then still fails the typed-validation step with `-32602`; custom methods with your own params model are unaffected. Second, the Go SDK still enforces the full triple on the servers it ships and answers a pair-only request with `-32602 missing or invalid _meta field "io.modelcontextprotocol/clientInfo"`, so keep sending `clientInfo` when a Go server may be on the other end. This SDK's `Client` always sends the triple, so both caveats only bite hand-built requests.
+
 ### Every outbound request now carries a `_meta` envelope; OpenTelemetry is on by default
 
 v2 sends `"_meta": {}` in the params of every request it emits, at every negotiated protocol version. Requests that had no params in v1, such as `ping` and `tools/list`, now carry `"params": {"_meta": {}}`; server-initiated requests get the same envelope. This is spec-valid and accepted by all peers, but wire traffic differs from v1 on every call, and no configuration restores the v1 wire shape. Update any test or tooling that asserts on raw outbound request bytes.
@@ -2129,7 +2243,7 @@ from mcp.shared.memory import create_client_server_memory_streams
 
 async with create_client_server_memory_streams() as (client_streams, server_streams):
     async with anyio.create_task_group() as tg:
-        tg.start_soon(lambda: server.run(*server_streams, server.create_initialization_options()))
+        tg.start_soon(lambda: server.run(*server_streams))
         async with ClientSession(*client_streams) as session:
             await session.initialize()
             ...

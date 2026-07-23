@@ -187,7 +187,51 @@ Each of these is one idea you now have the vocabulary for; each has its own page
 * `on_call_tool`, `on_get_prompt`, and `on_read_resource` may return an `InputRequiredResult` instead of their normal result to pause the call and ask the client for input; see **[Multi-round-trip requests](../handlers/multi-round-trip.md)**. True to this tier, nothing is installed for you: where `MCPServer` seals `requestState` by default, here the `request_state` you set crosses the wire exactly as written until you opt in with `server.middleware.append(RequestStateBoundary(RequestStateSecurity(keys=[...]), default_audience=server.name))`: one line (both names import from `mcp.server.request_state`) for the identical sealing and verification `MCPServer` performs (**[Protecting `requestState`](../handlers/multi-round-trip.md#protecting-requeststate)**).
 * `on_list_resources`, `on_read_resource`, `on_list_prompts`, `on_get_prompt`, `on_completion` are the same `(ctx, params) -> result` shape for the other primitives.
 * `on_subscriptions_listen` serves the 2026-07-28 `subscriptions/listen` stream. Pass a `ListenHandler` built over a `SubscriptionBus` and publish events to the bus from your other handlers; see **[Subscriptions](../handlers/subscriptions.md)** for the full composition.
-* `server.streamable_http_app()` returns the same Starlette app `MCPServer`'s does; deploy it the way **[Running your server](../run/index.md)** deploys any other ASGI app. There is no `server.run(transport=...)` down here: `server.run(read_stream, write_stream, server.create_initialization_options())` drives one connection over a pair of streams, and that one line is the whole story.
+* `server.streamable_http_app()` returns the same Starlette app `MCPServer`'s does; deploy it the way **[Running your server](../run/index.md)** deploys any other ASGI app. There is no `server.run(transport=...)` down here: `server.run(read_stream, write_stream)` drives one connection over a pair of duplex streams (stdio, a socket you framed, an in-memory pair in a test), and that one line is the whole story. Every other hosting shape is the next section.
+
+## Serving over your own transport
+
+`server.run(read_stream, write_stream)` takes any duplex message-stream pair, so a transport is just a source of those two streams. There are four rungs, from the shortest to the most explicit; take the highest one that fits your channel.
+
+**One connection over a stream pair: `server.run(read, write)`.** stdio is `stdio_server()`, an in-memory pair in a test is the same call. The lifespan is entered for you: one connection, one call.
+
+**Many connections from a byte-stream listener: `serve_listener(server, listener)`.** A whole Unix-socket server is:
+
+```python
+import anyio
+
+from mcp.server import serve_listener
+
+
+async def main() -> None:
+    listener = await anyio.create_unix_listener("/tmp/bookshop.sock")
+    await serve_listener(server, listener)
+```
+
+`serve_listener` enters the server's lifespan **once**, then frames and serves every connection the listener accepts, and closes the listener when it is cancelled. That is the difference from calling `server.run()` per accepted connection, which would open the lifespan (your database pool, your caches) again for each socket.
+
+One shared-server behaviour to know before you copy this: open `subscriptions/listen` streams belong to the server's `ListenHandler`, not to a connection, so when one connection's input ends its listen streams are closed gracefully together with those of **every** connection this server is serving; each affected client receives its listen request's result and re-listens. It never bites on stdio (one connection per process), but behind a listener it does. Until listen streams are owned per connection, a host whose departing peer must not touch its neighbours' subscriptions builds a `Server` per accepted connection, each with its own `ListenHandler(bus)`, all driven by `serve_stream(..., lifespan_state=state)` off one entered state (the last rung below); an `MCPServer`, whose one `ListenHandler` is shared, has no such workaround yet.
+
+**A byte stream you already hold: frame it, then `run`.** `newline_json_transport(byte_stream)` puts the same newline-delimited JSON-RPC wire over any byte stream and yields the pair `run` wants: `async with mcp.server.stdio.newline_json_transport(byte_stream) as (read, write):`, then `server.run(read, write)`. One connection, so the lifespan is again entered for you.
+
+**Connections that are not a byte-stream listener: enter the lifespan once, drive each one.** A WebSocket adapter that already yields messages, a broker, your own test loop: compose the same pieces yourself. The rule that bites here is the one `serve_listener` hides: enter `server.lifespan()` **once**, and hand its state to `serve_stream` for every connection, so a hundred sockets share one database pool instead of opening a hundred:
+
+```python
+from mcp.server import serve_stream
+
+async with server.lifespan() as state, anyio.create_task_group() as tg:
+    async for read_stream, write_stream in your_connections():
+        tg.start_soon(lambda r=read_stream, w=write_stream: serve_stream(server, r, w, lifespan_state=state))
+```
+
+The lifespan is entered **outside** the task group on purpose: on the way out the task group joins the still-running connection tasks first and only then does the lifespan tear down, so the shared pool outlives every connection using it (the other order tears the pool down while connections are still being served).
+
+Two things about the shared-`Server` shape that the single-connection rungs never surface:
+
+* Which protocol eras a server offers is `Server(posture=...)` (`Posture.DUAL` by default, `Posture.MODERN_ONLY`, `Posture.LEGACY_ONLY`); it rides along on the server object, so none of these drivers takes a posture argument you could forget.
+* The cross-connection listen behaviour called out under `serve_listener` above applies to any shared `Server`, including this rung; the per-connection-`Server` recipe there is how you sidestep it.
+
+An `MCPServer` reaches every one of these through `mcp.lowlevel_server`, and `mcp.close_subscriptions()` (or `Server.close_subscriptions()` down here) ends the open listen streams gracefully from the server's side.
 
 ## Recap
 

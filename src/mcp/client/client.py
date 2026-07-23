@@ -109,8 +109,12 @@ def _connect_inproc(server: Server[Any]) -> _Connector:
             transport = InMemoryTransport(server, raise_exceptions=raise_exceptions)
             read_stream, write_stream = await exit_stack.enter_async_context(transport)
             return JSONRPCDispatcher(read_stream, write_stream)
-        lifespan_state = await exit_stack.enter_async_context(server.lifespan(server))
-        client_disp, server_disp = create_direct_dispatcher_pair(raise_handler_exceptions=raise_exceptions)
+        lifespan_state = await exit_stack.enter_async_context(server.lifespan())
+        # No back-channel: the modern protocol forbids server-initiated requests,
+        # so the transport context (not a wrapper) carries the denial.
+        client_disp, server_disp = create_direct_dispatcher_pair(
+            can_send_request=False, raise_handler_exceptions=raise_exceptions
+        )
         tg = await exit_stack.enter_async_context(anyio.create_task_group())
         exit_stack.callback(server_disp.close)
         on_request = modern_on_request(server, lifespan_state)
@@ -380,7 +384,7 @@ class Client:
 
         srv = self.server
         if isinstance(srv, MCPServer):
-            srv = srv._lowlevel_server  # pyright: ignore[reportPrivateUsage]
+            srv = srv.lowlevel_server
         if isinstance(srv, Server):
             self._connect = _connect_inproc(srv)
         elif isinstance(srv, str):

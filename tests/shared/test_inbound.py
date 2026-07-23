@@ -42,6 +42,7 @@ from mcp.shared.inbound import (
     encode_header_value,
     find_duplicated_routing_header,
     find_invalid_x_mcp_header,
+    has_envelope_intent,
     mcp_param_headers,
     validate_mcp_param_headers,
     x_mcp_header_map,
@@ -94,7 +95,7 @@ def assert_rejected(result: object, code: int) -> InboundLadderRejection:
     return result
 
 
-# --- rung 1: envelope-three-keys -----------------------------------------------
+# --- rung 1: envelope-required-pair -------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -147,6 +148,30 @@ def test_envelope_rung_accepts_pair_only_envelope_without_client_info() -> None:
     assert result.protocol_version == LATEST_MODERN_VERSION
     assert result.client_info is None
     assert result.client_capabilities == CLIENT_CAPS
+
+
+def test_envelope_rung_accepts_the_pair_without_client_info() -> None:
+    """`clientInfo` is optional (spec index.mdx: clients SHOULD but need not send
+    it): the required pair alone is a valid modern envelope, and the absent
+    client info surfaces on the route as `None`."""
+    result = classify_inbound_request(envelope(drop=frozenset({CLIENT_INFO_META_KEY})))
+    assert isinstance(result, InboundModernRoute)
+    assert result.client_info is None
+    assert result.protocol_version == LATEST_MODERN_VERSION
+
+
+def test_has_envelope_intent_reads_key_presence_not_validity() -> None:
+    """Presence of any reserved envelope key marks modern intent; validity is the
+    ladder's separate concern, so an incomplete envelope still reads as intent."""
+    assert not has_envelope_intent(None)
+    assert not has_envelope_intent({})
+    assert not has_envelope_intent({"_meta": None})
+    # A bare progressToken is legacy-era `_meta`, not envelope evidence.
+    assert not has_envelope_intent({"_meta": {"progressToken": 1}})
+    # Any one reserved key is intent, even without the full required pair.
+    assert has_envelope_intent({"_meta": {PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION}})
+    assert has_envelope_intent({"_meta": {CLIENT_CAPABILITIES_META_KEY: {}}})
+    assert has_envelope_intent(envelope()["params"])
 
 
 @pytest.mark.parametrize(
@@ -331,12 +356,26 @@ def test_all_rungs_pass_yields_route() -> None:
     assert result.client_capabilities == CLIENT_CAPS
 
 
-@pytest.mark.parametrize("method", ["initialize", "myorg/custom", "does/not/exist"])
+@pytest.mark.parametrize("method", ["myorg/custom", "does/not/exist"])
 def test_classifier_passes_unknown_method_through_to_route(method: str) -> None:
     """SDK-defined: the classifier does not gate on method — kernel dispatch is the single owner of that decision."""
     body = envelope(method)
     result = classify_inbound_request(body, headers=matching_headers(body))
     assert isinstance(result, InboundModernRoute)
+
+
+def test_initialize_is_answered_by_rung_zero_naming_the_modern_versions() -> None:
+    """`initialize` does not exist at modern versions, so the modern entry answers it with
+    -32022 naming the versions it serves - on every transport, since the rung is shared -
+    echoing the handshake's proposed version as `requested` when it is a string."""
+    body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": LATEST_HANDSHAKE_VERSION}}
+    rejection = assert_rejected(classify_inbound_request(body), UNSUPPORTED_PROTOCOL_VERSION)
+    assert rejection.data == {"supported": list(MODERN_PROTOCOL_VERSIONS), "requested": LATEST_HANDSHAKE_VERSION}
+    # No string version proposed: the payload still names the supported versions.
+    bare = assert_rejected(
+        classify_inbound_request({"jsonrpc": "2.0", "id": 2, "method": "initialize"}), UNSUPPORTED_PROTOCOL_VERSION
+    )
+    assert bare.data == {"supported": list(MODERN_PROTOCOL_VERSIONS)}
 
 
 def test_ladder_first_failure_wins() -> None:
