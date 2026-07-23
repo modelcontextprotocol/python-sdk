@@ -22,7 +22,7 @@ from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.connection import Connection
 from mcp.server.runner import serve_connection
-from mcp.server.serving import Posture, serve_legacy_stream
+from mcp.server.serving import serve_legacy_stream
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, EventStore, StreamableHTTPServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
@@ -179,14 +179,9 @@ class StreamableHTTPSessionManager:
         # initialize-handshake versions; anything else (including unknown
         # values) goes to the modern entry so the classifier can validate it
         # and return a structured rejection. 2025 paths below remain unchanged.
-        # `Server.posture` routes: modern-only sends every request to the
-        # modern entry; legacy-only never does.
         header = MCP_PROTOCOL_VERSION_HEADER.encode("ascii")
         pv = next((v.decode("latin-1") for k, v in scope["headers"] if k == header), None)
-        posture = self.app.posture
-        if posture is Posture.MODERN_ONLY or (
-            posture is Posture.DUAL and pv is not None and pv not in HANDSHAKE_PROTOCOL_VERSIONS
-        ):
+        if pv is not None and pv not in HANDSHAKE_PROTOCOL_VERSIONS:
             await handle_modern_request(
                 self.app, self.security_settings, self.json_response, self._lifespan_state, scope, receive, send
             )

@@ -340,7 +340,7 @@ def test_keys_and_codec_together_are_rejected_at_policy_construction() -> None:
 
 
 def test_a_policy_with_neither_keys_nor_codec_is_rejected() -> None:
-    """SDK-defined: a policy must name its codec; an empty policy is a mistake, not a posture."""
+    """SDK-defined: a policy must name its codec; an empty policy is a mistake, not a stance."""
     with pytest.raises(ValueError) as exc:
         RequestStateSecurity()
     assert str(exc.value) == snapshot("RequestStateSecurity takes exactly one of keys= or codec=")

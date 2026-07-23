@@ -118,7 +118,7 @@ def _manual_server(
 ) -> tuple[MCPServer, list[str | None]]:
     """MCPServer with one manual MRTR tool: round 1 asks, the retry records the echoed `ctx.request_state`.
 
-    `security=None` exercises the default posture (process-local ephemeral sealing), not plaintext.
+    `security=None` exercises the default policy (process-local ephemeral sealing), not plaintext.
     """
     seen: list[str | None] = []
     mcp = MCPServer(name, request_state_security=security)
@@ -620,7 +620,7 @@ async def test_each_round_is_resealed_with_a_fresh_token_and_a_restamped_iat(
     assert (claims_one["iat"], claims_two["iat"]) == (int(_T0), int(_T0) + 5)
 
 
-# -- the default posture: every MCPServer seals under an ephemeral policy ---------------
+# -- the default policy: every MCPServer seals under an ephemeral policy ----------------
 
 
 async def test_an_mcpserver_seals_request_state_by_default() -> None:
@@ -1290,7 +1290,7 @@ def test_a_shared_key_policy_without_a_real_name_must_set_an_audience(name: str 
         MCPServer(name, request_state_security=RequestStateSecurity(keys=[_KEY]))
     assert str(excinfo.value) == _MISSING_AUDIENCE
 
-    # Every neighboring posture constructs: the default needs no name, and a real
+    # Every neighboring configuration constructs: the default needs no name, and a real
     # name or an explicit audience satisfies a shared-key policy.
     MCPServer(name)
     MCPServer(name, request_state_security=RequestStateSecurity(keys=[_KEY], audience="svc"))

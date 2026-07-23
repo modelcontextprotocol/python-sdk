@@ -746,7 +746,7 @@ def test_validate_mcp_param_headers_rejects_missing_header_for_present_argument(
 def test_validate_mcp_param_headers_rejects_orphan_header_for_absent_or_null_argument(
     arguments: dict[str, Any],
 ) -> None:
-    """SDK-defined posture on a spec gap: an orphan header is the routing-spoof case; go rejects too, ts skips."""
+    """SDK-defined stance on a spec gap: an orphan header is the routing-spoof case; go rejects too, ts skips."""
     rejection = assert_rejected(
         validate_mcp_param_headers(REGION_SCHEMA, arguments, {"Mcp-Param-Region": "eu"}), HEADER_MISMATCH
     )

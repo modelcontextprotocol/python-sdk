@@ -153,7 +153,7 @@ Each of these is a section in the **[Migration Guide](migration.md)**:
 
 ## The protocol: 2025-11-25 to 2026-07-28
 
-v2 implements the 2026-07-28 revision, and it serves **both** revisions at once: the same `streamable_http_app()` (and the same stdio server) answers a 2025-era client's `initialize` and a 2026-era client's requests with nothing to configure, no flag to flip, and no separate deployment. Serving the new revision does not strand a client on the old one. If you want to serve only one revision, that is a single constructor property, `Server(posture=...)` / `MCPServer(posture=...)`, honoured by every transport; see [Serving one era only](run/legacy-clients.md#serving-one-era-only). What follows is what the new revision itself changes.
+v2 implements the 2026-07-28 revision, and it serves **both** revisions at once: the same `streamable_http_app()` (and the same stdio server) answers a 2025-era client's `initialize` and a 2026-era client's requests with nothing to configure, no flag to flip, and no separate deployment. Serving the new revision does not strand a client on the old one. What follows is what the new revision itself changes.
 
 ### No handshake, no session
 

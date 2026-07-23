@@ -1,16 +1,14 @@
 """Serving a `Server` over a duplex message stream (stdio, SSE, custom sockets).
 
-`serve_stream` is the driver for stream transports. The client's opening
-messages decide the connection's protocol era, in receive order, among those
-`Server(posture=)` offers, and that era serves every later message; `Posture`
-names which eras a server offers at all.
+`serve_stream` is the driver for stream transports. A server offers both
+protocol eras on every connection; the client's opening messages decide the
+connection's era, in receive order, and that era serves every later message.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Mapping
-from enum import Enum
 from typing import TYPE_CHECKING, Any, Generic, Literal
 
 import anyio
@@ -34,7 +32,7 @@ from mcp.shared.transport_context import TransportContext
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
-__all__ = ["Posture", "serve_listener", "serve_stream"]
+__all__ = ["serve_listener", "serve_stream"]
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +43,6 @@ _EOF_DRAIN_WINDOW: float = 2
 
 _HANDSHAKE_NOTIFICATION = "notifications/initialized"
 """The one notification that completes a legacy handshake and so opens the legacy era."""
-
-
-class Posture(Enum):
-    """Which protocol eras a server offers on a connection; `DUAL` lets the opening message decide."""
-
-    DUAL = "dual"
-    """Both eras: the legacy `initialize` handshake and the modern per-request envelope."""
-
-    LEGACY_ONLY = "legacy-only"
-    """Only the legacy `initialize` handshake era."""
-
-    MODERN_ONLY = "modern-only"
-    """Only the modern per-request-envelope era (2026-07-28+)."""
 
 
 class _Unset:
@@ -159,8 +144,8 @@ async def _ignore_stray_notification() -> None:
 class _StreamConnection(Generic[LifespanT]):
     """One duplex stream connection: admits every message and routes it to the connection's era.
 
-    `_era` starts from the server's posture and, under `DUAL`, is decided once, in
-    receive order, by the first era-distinctive message the dispatcher admits.
+    `_era` starts undecided and is decided once, in receive order, by the first
+    era-distinctive message the dispatcher admits.
     """
 
     def __init__(
@@ -169,7 +154,6 @@ class _StreamConnection(Generic[LifespanT]):
         read_stream: ReadStream[SessionMessage | Exception],
         write_stream: WriteStream[SessionMessage],
         *,
-        posture: Posture,
         lifespan_state: LifespanT,
         init_options: InitializationOptions | None,
         session_id: str | None,
@@ -188,13 +172,7 @@ class _StreamConnection(Generic[LifespanT]):
             ServerRunner(server, loop_connection, lifespan_state, init_options=init_options)
         )
         self._modern: _ModernEra[LifespanT] = _ModernEra(server, lifespan_state, NotifyOnlyOutbound(self._dispatcher))
-        # Posture is consumed here, once: which eras exist for this connection.
-        starting_era: dict[Posture, _LegacyEra[LifespanT] | _ModernEra[LifespanT] | None] = {
-            Posture.DUAL: None,
-            Posture.LEGACY_ONLY: self._legacy,
-            Posture.MODERN_ONLY: self._modern,
-        }
-        self._era: _LegacyEra[LifespanT] | _ModernEra[LifespanT] | None = starting_era[posture]
+        self._era: _LegacyEra[LifespanT] | _ModernEra[LifespanT] | None = None
 
     def _transport_context(self, _metadata: MessageMetadata) -> TransportContext:
         # Admission has already decided this frame's era; only the legacy era
@@ -239,6 +217,11 @@ class _StreamConnection(Generic[LifespanT]):
             self._era = self._legacy
         return False
 
+    def open_legacy_era(self) -> None:
+        """Open the legacy era before any message: the transport routed this stream to
+        the handshake era ahead of its first frame (streamable HTTP's stateful sessions)."""
+        self._era = self._legacy
+
     def _on_request(
         self, dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> Awaitable[dict[str, Any]]:
@@ -274,8 +257,8 @@ async def serve_stream(
     """Serve `server` over a duplex message stream until the read side closes.
 
     The driver for stream transports: the client's opening messages decide the
-    connection's era among those `server.posture` offers. Enters
-    `server.lifespan()` unless `lifespan_state` is given.
+    connection's era. Enters `server.lifespan()` unless `lifespan_state` is
+    given.
 
     Args:
         initialization_options: The legacy handshake's `InitializeResult`
@@ -301,7 +284,6 @@ async def serve_stream(
         server,
         read_stream,
         write_stream,
-        posture=server.posture,
         lifespan_state=lifespan_state,
         init_options=initialization_options,
         session_id=None,
@@ -327,12 +309,12 @@ async def serve_legacy_stream(
         server,
         read_stream,
         write_stream,
-        posture=Posture.LEGACY_ONLY,
         lifespan_state=lifespan_state,
         init_options=None,
         session_id=session_id,
         raise_exceptions=False,
     )
+    connection.open_legacy_era()
     await connection.run()
 
 

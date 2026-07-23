@@ -127,7 +127,7 @@ class Probe:
 
 
 def make_server(probe: Probe) -> Server[dict[str, Any]]:
-    """A dual-era lowlevel server (default posture) with a fast `tools/list`, a `slow`
+    """A dual-era lowlevel server with a fast `tools/list`, a `slow`
     tool that parks on `probe.release`, and a handler for the suite's custom notification."""
 
     async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:

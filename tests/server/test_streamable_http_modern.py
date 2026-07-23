@@ -791,7 +791,7 @@ async def test_modern_tools_call_rejects_missing_mcp_param_header_for_present_ar
 
 
 async def test_modern_tools_call_rejects_orphan_mcp_param_header() -> None:
-    """SDK posture: a header for an absent argument is the routing-spoof case the gate exists to stop."""
+    """SDK stance: a header for an absent argument is the routing-spoof case the gate exists to stop."""
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post(
             "/mcp", json=_tool_call_body({}), headers=_TOOL_CALL_HEADERS | {"mcp-param-region": "eu"}

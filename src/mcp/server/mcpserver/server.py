@@ -84,7 +84,6 @@ from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
-from mcp.server.serving import Posture
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
@@ -185,7 +184,6 @@ class MCPServer(Generic[LifespanResultT]):
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         subscriptions: SubscriptionBus | None = None,
-        posture: Posture = Posture.DUAL,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -219,7 +217,6 @@ class MCPServer(Generic[LifespanResultT]):
             icons=icons,
             version=version,
             cache_hints=cache_hints,
-            posture=posture,
             on_list_tools=self._handle_list_tools,
             on_call_tool=self._handle_call_tool,
             on_list_resources=self._handle_list_resources,

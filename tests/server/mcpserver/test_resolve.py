@@ -2250,7 +2250,7 @@ async def test_recorded_answer_containing_a_lone_surrogate_survives_to_later_rou
 
 @pytest.mark.anyio
 async def test_resolver_elicitation_seals_and_completes_on_a_fully_default_server():
-    # The headline default-posture invariant: a resolver tool on a bare MCPServer() -
+    # The headline default invariant: a resolver tool on a bare MCPServer() -
     # no name, no security configuration - mints sealed state and completes the round.
     mcp = MCPServer()
 

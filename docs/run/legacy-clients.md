@@ -9,14 +9,11 @@ The SDK routes every request by its `MCP-Protocol-Version` header. A request nam
 So a legacy client is not something you build *for*. It is something that connects *to* the server you already wrote. You configure nothing.
 
 !!! note
-    Nothing on the transport, literally. There is no `legacy=` option and no version
-    allowlist on `streamable_http_app()`, `run()`, or the session manager; by default both
-    eras are always on, and the version header routes each request to the right one. The one
-    place a server can restrict eras is its own posture:
-    `MCPServer(name, posture=Posture.LEGACY_ONLY)` (or `MODERN_ONLY`) is a constructor
-    property every transport honours (see **[Serving one era only](#serving-one-era-only)**),
-    and the default `DUAL` is this page's assumption. The nearest thing to a per-request
-    switch in the HTTP signature is `stateless_http`, and it is most of this page.
+    Nothing on the transport, and nothing on the server either. There is no `legacy=` option
+    and no version allowlist on `MCPServer`, `Server`, `streamable_http_app()`, `run()`, or the
+    session manager; both eras are always on, and the version header routes each request to
+    the right one. The nearest thing to a per-request switch in the HTTP signature is
+    `stateless_http`, and it is most of this page.
 
 ## One handler, both eras
 
@@ -114,25 +111,9 @@ Over HTTP, neither call reaches the other era's clients. To tell everyone, call 
 
 Two lines, no `if`, no version check, and you are done. That is the entire list of things a handler does differently because a legacy client exists.
 
-## Serving one era only
-
-Everything above assumes the default: your server offers both eras. That default is a constructor property called the server's **posture**, and it is the one place you narrow it:
-
-```python
-from mcp.server import Posture
-from mcp.server.mcpserver import MCPServer
-
-mcp = MCPServer("Bookshop", posture=Posture.MODERN_ONLY)
-```
-
-`Posture.DUAL` is the default and the whole rest of this page. `Posture.MODERN_ONLY` retires the handshake era: a pre-2026 client's `initialize` is answered with a `-32022` error naming the modern versions the server does speak, so a well-behaved client learns to go modern rather than being silently dropped. `Posture.LEGACY_ONLY` is the mirror image, a server that speaks only the `initialize` handshake and refuses requests carrying the modern envelope. The low-level `Server` takes the same argument.
-
-Posture lives on the server object, not on any driver, so `run()`, `streamable_http_app()`, and the stream drivers all honour the same declaration and there is no per-transport switch to keep in step. Reach for it deliberately: `MODERN_ONLY` turns away every deployed pre-2026 client, and `LEGACY_ONLY` turns away 2026 ones, so `DUAL` is what you want unless you know exactly who connects.
-
 ## Recap
 
-* One `streamable_http_app()` serves both protocol eras. The SDK routes each request by its `MCP-Protocol-Version` header; there is nothing to configure on the transport and no per-request era knob to look for.
-* The one era switch is the server's posture: `MCPServer(name, posture=Posture.MODERN_ONLY)` or `LEGACY_ONLY`, a constructor property every transport honours. The default `DUAL` is what this whole page assumes.
+* One `streamable_http_app()` (and one stdio server) serves both protocol eras, always. The SDK routes each request by its `MCP-Protocol-Version` header, and a stream connection's era is decided by the client's opening message; there is nothing to configure on the transport or the server and no era switch to look for.
 * A legacy client costs you a session: an in-process `Mcp-Session-Id` record with no distributed store behind it. More than one worker means **sticky routing**, or the wrong worker answers `404 Session not found`. **[Deploy & scale](deploy.md)** has the multi-worker story.
 * `stateless_http=True` is the one knob, and it is **legacy-leg-only**. It buys free load balancing for legacy clients at the price of both server-to-client channels on that leg: server-initiated requests raise `NoBackChannelError` (a top-level error at the client, not an `is_error` result), and notifications are dropped.
 * A `2026-07-28` connection is sessionless either way. `stateless_http` never touches it.

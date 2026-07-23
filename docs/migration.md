@@ -1371,17 +1371,7 @@ The concrete dispatcher's `inline_methods=` constructor keyword is also gone: th
 
 `server/discover` no longer pins the connection to the modern era: it is a probe, answered with modern semantics, and the era is decided by the first non-probe message. A client whose discover probe was answered can therefore still fall back to `initialize` on the same connection, and `subscriptions/listen` is now served over stdio and every other duplex stream (previously refused with `-32601`).
 
-A stray leading notification (for example a client's `notifications/roots/list_changed`) no longer decides the era: only `initialize` (or a bare pre-handshake request) opens the legacy era, only `notifications/initialized` opens it among notifications, and any other early notification is ignored, so a 2026 client is never pinned to the legacy era by a courtesy frame it sent first. A legacy-committed connection also now refuses a request that carries the modern envelope with `-32600` instead of processing it under legacy semantics, and `initialize` is answered `-32022` (naming the modern versions the server serves) whenever it reaches the modern side, on every transport.
-
-The new `posture` constructor parameter on `Server` and `MCPServer` narrows which eras a server offers, on stream transports and streamable HTTP alike:
-
-```python
-from mcp.server import Posture, Server
-
-server = Server("app", posture=Posture.MODERN_ONLY)  # or Posture.LEGACY_ONLY; Posture.DUAL is the default
-```
-
-A `MODERN_ONLY` server answers a 2025 handshake with `-32022` and its supported versions (on stdio and streamable HTTP); a `LEGACY_ONLY` server refuses envelope-bearing requests in legacy vocabulary and never enters the modern era. Posture is the one place a server restricts its eras; the walkthrough is in [Serving one era only](run/legacy-clients.md#serving-one-era-only).
+A stray leading notification (for example a client's `notifications/roots/list_changed`) no longer decides the era: only `initialize` (or a bare pre-handshake request) opens the legacy era, only `notifications/initialized` opens it among notifications, and any other early notification is ignored, so a 2026 client is never pinned to the legacy era by a courtesy frame it sent first. A legacy-committed connection also now refuses a request that carries the modern envelope with `-32600` instead of processing it under legacy semantics, and `initialize` is answered `-32022` (naming the modern versions the server serves) whenever it reaches the modern side, on every transport. Every server offers both eras on every transport; there is no era switch on `Server` or `MCPServer`.
 
 At stdin EOF a stdio server now winds down gracefully: it gives in-flight requests a short bounded window to finish, ends every open `subscriptions/listen` stream with its empty `SubscriptionsListenResult` (the spec's graceful closure), and then writes nothing further onto a stdout nobody reads. In particular, an in-flight request no longer receives a `CONNECTION_CLOSED` error at EOF, since the peer that would read it is gone.
 

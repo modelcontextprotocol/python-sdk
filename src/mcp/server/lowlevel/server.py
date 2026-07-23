@@ -59,7 +59,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.serving import Posture, serve_stream
+from mcp.server.serving import serve_stream
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_REQUEST_BODY_SIZE,
@@ -135,7 +135,6 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        posture: Posture = Posture.DUAL,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -219,7 +218,6 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        posture: Posture = Posture.DUAL,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -312,7 +310,6 @@ class Server(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
-        posture: Posture = Posture.DUAL,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -420,8 +417,6 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
-        # Which protocol eras this server offers, on every transport.
-        self.posture: Posture = posture
         # Per-method `ttl_ms`/`cache_scope` fills, applied by `ServerRunner`
         # after the handler returns; fields the handler set explicitly win.
         self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
@@ -724,8 +719,8 @@ class Server(Generic[LifespanResultT]):
         """Serve one connection over a duplex message stream until the read side closes.
 
         Enters the server's lifespan, lets the client's opening message pick
-        the connection's protocol era (subject to `self.posture`), and serves
-        that era until EOF; `initialization_options` defaults to
+        the connection's protocol era, and serves that era until EOF;
+        `initialization_options` defaults to
         `create_initialization_options()`. For a socket host use `serve_listener`;
         for connections sharing a lifespan, `serve_stream(..., lifespan_state=)`.
         """

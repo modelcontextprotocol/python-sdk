@@ -3,9 +3,9 @@
 Each test speaks raw JSON-RPC frames to a `serve_stream` server through an
 in-memory `JSONRPCDispatcher` client, so the wire behaviour under test is the
 opening exchange: which era the connection opens in, what `server/discover`
-does (answered, never opening), and how each posture answers traffic from the
-other era. The ordering suite (`test_stdio_ordering.py`) covers pipelined
-ordering on both anyio backends; these are the seam-level companions.
+does (answered, never opening), and how each era answers traffic from the
+other. The ordering suite (`test_stdio_ordering.py`) covers pipelined ordering
+on both anyio backends; these are the seam-level companions.
 """
 
 from collections.abc import AsyncIterator
@@ -22,7 +22,6 @@ from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
-    METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
@@ -47,7 +46,7 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION, M
 from mcp.server.connection import NotifyOnlyOutbound
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import Server
-from mcp.server.serving import Posture, _opening_intent, serve_listener, serve_stream
+from mcp.server.serving import _opening_intent, serve_listener, serve_stream
 from mcp.server.stdio import newline_json_transport
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ToolsListChanged
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -99,11 +98,11 @@ def _initialize_params() -> dict[str, Any]:
     ).model_dump(by_alias=True, exclude_none=True)
 
 
-def _server(*, posture: Posture = Posture.DUAL, **handlers: Any) -> SrvT:
+def _server(**handlers: Any) -> SrvT:
     async def list_tools(ctx: Ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[_TOOL])
 
-    return Server(name="serve-stream-test", version="0.0.1", posture=posture, on_list_tools=list_tools, **handlers)
+    return Server(name="serve-stream-test", version="0.0.1", on_list_tools=list_tools, **handlers)
 
 
 @asynccontextmanager
@@ -153,9 +152,8 @@ async def test_raw_client_harness_relays_a_failing_body_exception_unwrapped() ->
 
 
 def test_opening_intent_is_read_off_the_opening_request_alone():
-    """The one place an undecided connection's request intent is read. Posture is
-    not an input here: it was consumed as the connection's starting era, so a
-    single-era connection never asks this question."""
+    """The one place an undecided connection's request intent is read: the method
+    and its params decide it; nothing else is an input."""
     envelope = {"_meta": _envelope()}
     assert _opening_intent("server/discover", envelope) == "probe"
     assert _opening_intent("initialize", envelope) == "legacy"  # legacy-distinctive even if stamped
@@ -165,7 +163,7 @@ def test_opening_intent_is_read_off_the_opening_request_alone():
     assert _opening_intent("server/discover", None) == "legacy"  # an envelope-less discover is no probe
 
 
-# --- dual-era posture --------------------------------------------------------
+# --- the era is decided by the opening message ---------------------------------
 
 
 async def test_modern_request_opens_the_modern_era_and_refuses_the_handshake():
@@ -462,48 +460,6 @@ async def test_modern_era_sanitizes_unmapped_handler_exceptions_to_internal_erro
             await client.send_raw_request("tools/call", _modern_params(name="t"))
     assert exc.value.error.code == INTERNAL_ERROR
     assert exc.value.error.message == "Internal server error"
-
-
-async def test_modern_only_posture_refuses_a_handshake_with_no_parseable_version():
-    """When `initialize` carries no parseable `protocolVersion`, the modern era's
-    refusal still names the versions it serves (there is nothing to echo back)."""
-    async with _raw_client(_server(posture=Posture.MODERN_ONLY)) as (client, _):
-        with pytest.raises(MCPError) as exc:
-            await client.send_raw_request("initialize", {"capabilities": {}})
-    assert exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
-    assert exc.value.error.data == {"supported": list(MODERN_PROTOCOL_VERSIONS)}
-
-
-# --- single-era postures -----------------------------------------------------
-
-
-async def test_modern_only_posture_refuses_the_handshake_naming_its_versions():
-    """A modern-only server answers `initialize` with -32022 listing the modern
-    versions (versioning.mdx: modern-only servers SHOULD name them), and serves
-    modern requests."""
-    async with _raw_client(_server(posture=Posture.MODERN_ONLY)) as (client, _):
-        with pytest.raises(MCPError) as exc:
-            await client.send_raw_request("initialize", _initialize_params())
-        assert exc.value.error.code == UNSUPPORTED_PROTOCOL_VERSION
-        assert exc.value.error.data["supported"] == list(MODERN_PROTOCOL_VERSIONS)
-        result = await client.send_raw_request("tools/list", _modern_params())
-    assert result["tools"][0]["name"] == "t"
-
-
-async def test_legacy_only_posture_serves_the_handshake_and_answers_probes_in_legacy_vocabulary():
-    """A legacy-only server is born a handshake connection: an enveloped probe is
-    a client mixing eras and is refused (-32600), a bare probe is answered with
-    the handshake era's own method-not-found - both trigger an auto client's
-    fallback, since fallback is not keyed to one code - and the handshake works."""
-    async with _raw_client(_server(posture=Posture.LEGACY_ONLY)) as (client, _):
-        with pytest.raises(MCPError) as enveloped:
-            await client.send_raw_request("server/discover", _modern_params())
-        with pytest.raises(MCPError) as bare:
-            await client.send_raw_request("server/discover", None)
-        init = await client.send_raw_request("initialize", _initialize_params())
-    assert enveloped.value.error.code == INVALID_REQUEST
-    assert bare.value.error.code == METHOD_NOT_FOUND
-    assert init["protocolVersion"] == LATEST_HANDSHAKE_VERSION
 
 
 # --- subscriptions/listen over a stream --------------------------------------

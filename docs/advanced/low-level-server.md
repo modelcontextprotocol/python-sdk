@@ -226,10 +226,7 @@ async with server.lifespan() as state, anyio.create_task_group() as tg:
 
 The lifespan is entered **outside** the task group on purpose: on the way out the task group joins the still-running connection tasks first and only then does the lifespan tear down, so the shared pool outlives every connection using it (the other order tears the pool down while connections are still being served).
 
-Two things about the shared-`Server` shape that the single-connection rungs never surface:
-
-* Which protocol eras a server offers is `Server(posture=...)` (`Posture.DUAL` by default, `Posture.MODERN_ONLY`, `Posture.LEGACY_ONLY`); it rides along on the server object, so none of these drivers takes a posture argument you could forget.
-* The cross-connection listen behaviour called out under `serve_listener` above applies to any shared `Server`, including this rung; the per-connection-`Server` recipe there is how you sidestep it.
+One thing about the shared-`Server` shape that the single-connection rungs never surface: the cross-connection listen behaviour called out under `serve_listener` above applies to any shared `Server`, including this rung; the per-connection-`Server` recipe there is how you sidestep it.
 
 An `MCPServer` reaches every one of these through `mcp.lowlevel_server`, and `mcp.close_subscriptions()` (or `Server.close_subscriptions()` down here) ends the open listen streams gracefully from the server's side.
 

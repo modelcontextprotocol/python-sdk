@@ -1883,7 +1883,7 @@ async def test_read_resource_template_not_found():
 
 
 async def test_tool_returning_input_required_result_reaches_client_sealed():
-    # Default posture: the wire carries an opaque sealed token, never the handler's plaintext.
+    # By default: the wire carries an opaque sealed token, never the handler's plaintext.
     mcp = MCPServer()
 
     @mcp.tool()
@@ -2017,7 +2017,7 @@ async def test_prompt_reads_input_responses_and_request_state_from_context_on_re
 
 async def test_prompt_input_required_result_on_legacy_session_is_a_serialization_error():
     """Pins the shared era gate: a pre-2026 session has no input_required vocabulary, so
-    the runner rejects the frame with -32603 — the same posture the tools path has."""
+    the runner rejects the frame with -32603 — the same stance the tools path has."""
     mcp = MCPServer()
 
     @mcp.prompt()
