@@ -462,6 +462,21 @@ async def test_accept_header_respects_q_zero(basic_app: Starlette, accept_header
 
 
 @pytest.mark.anyio
+async def test_accept_header_invalid_q_falls_back_to_default_weight(basic_app: Starlette) -> None:
+    """Malformed q parameters fall back to the default weight and still allow the media type."""
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json;foo=bar;q=not-a-number, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert response.status_code == 200
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "accept_header",
     [
