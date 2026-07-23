@@ -44,8 +44,11 @@ if TYPE_CHECKING:
     # `name`/`title`; at runtime the dynamic class below is what @mcp.tool() sees.
     PersonDynamic = PersonModel
 else:
+    # `required` is optional in JSON Schema — a schema of all-optional properties
+    # omits it — so default to an empty list rather than indexing it directly.
+    _required = PERSON_JSON_SCHEMA.get("required", [])
     _dynamic_fields: dict[str, Any] = {
-        field_name: (str, ... if field_name in PERSON_JSON_SCHEMA["required"] else field_schema.get("default"))
+        field_name: (str, ... if field_name in _required else field_schema.get("default"))
         for field_name, field_schema in PERSON_JSON_SCHEMA["properties"].items()
     }
     PersonDynamic = create_model("PersonDynamic", **_dynamic_fields)

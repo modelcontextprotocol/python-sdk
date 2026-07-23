@@ -33,7 +33,8 @@ uv run python -m stories.schema_validators.client --http --server server_lowleve
   `greet_pydantic` variant. A `create_model` result is opaque to static type
   checkers, so a `TYPE_CHECKING` branch aliases it to a declared model of the
   same shape — the runtime still uses the dynamic class.
-- `client.py` — the listed `inputSchema` for the three typed variants nests a
+- `client.py` — the listed `inputSchema` for the four typed variants (including
+  the runtime `create_model` one, whose schema matches `greet_pydantic`) nests a
   `$defs`/`$ref` object with a `name` property; `greet_dict` publishes only
   `{"type": "object", "additionalProperties": true}` — no field validation.
 - `server_lowlevel.py` — the same schemas written by hand. There is no
