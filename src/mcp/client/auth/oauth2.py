@@ -207,8 +207,11 @@ class OAuthContext:
             credentials = f"{encoded_id}:{encoded_secret}"
             encoded_credentials = base64.b64encode(credentials.encode()).decode()
             headers["Authorization"] = f"Basic {encoded_credentials}"
-            # Don't include client_secret in body for basic auth
-            data = {k: v for k, v in data.items() if k != "client_secret"}
+            # RFC 6749 §2.3: with HTTP Basic auth, client credentials must not also appear
+            # in the request body. Strict token endpoints (Keycloak, Okta in strict mode)
+            # reject a request that presents both the Authorization header and client_id
+            # in the body as two authentication methods at once.
+            data = {k: v for k, v in data.items() if k not in ("client_secret", "client_id")}
         elif auth_method == "client_secret_post" and self.client_info.client_id and self.client_info.client_secret:
             # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id
