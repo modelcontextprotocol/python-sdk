@@ -105,6 +105,9 @@ OPEN_CLASSES: dict[str, frozenset[str]] = {
 # Hand-written union aliases the wire-method maps reference by value; the schema
 # has no named definition for "everything tools/call may return", so name it here.
 EPILOGUES: dict[str, str] = {
+    # SEP-1686: a task-augmented tools/call answers with a CreateTaskResult, which the
+    # 2025-11-25 schema says in prose while leaving it out of its own ServerResult union.
+    "2025-11-25": "AnyCallToolResult = CallToolResult | CreateTaskResult\n",
     "2026-07-28": (
         "AnyCallToolResult = CallToolResult | InputRequiredResult\n"
         "AnyGetPromptResult = GetPromptResult | InputRequiredResult\n"
@@ -218,6 +221,62 @@ def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
     return source
 
 
+def nullable_required_classes(schema: dict[str, Any]) -> frozenset[str]:
+    """`$defs` entries with a required property whose value may be null.
+
+    `exclude_none=True` drops such a field, producing a body that fails its own schema, so
+    these classes take `KeepRequiredNullable` as a second base. Derived rather than listed,
+    so a new one in a future revision is covered by regenerating.
+
+    This reads each `$def`'s own `required` list; a class that inherits the field through
+    composition is covered because codegen renders the composition as a Python base. The
+    authority is `tests/types/test_parity.py`, which applies the same rule to the built
+    models, so anything this misses fails the suite rather than the wire.
+    """
+    return frozenset(
+        name
+        for name, definition in schema.get("$defs", {}).items()
+        for prop in definition.get("required", [])
+        if _admits_null(definition.get("properties", {}).get(prop, {}))
+    )
+
+
+def _admits_null(prop: dict[str, Any]) -> bool:
+    """Whether `prop` permits a null value: declared as such, composed with null, or unconstrained."""
+    declared = prop.get("type", ())
+    types = {declared} if isinstance(declared, str) else set(declared)
+    if "null" in types:
+        return True
+    # `anyOf: [{$ref: ...}, {type: null}]` is how a nullable reference renders.
+    if any(_admits_null(arm) for arm in (*prop.get("anyOf", ()), *prop.get("oneOf", ()))):
+        return True
+    # No type and no composition keyword at all means any JSON value, null included.
+    return not types and not any(key in prop for key in ("anyOf", "oneOf", "allOf", "$ref", "enum", "const"))
+
+
+def keep_required_nullable(source: str, classes: frozenset[str]) -> str:
+    """Append `KeepRequiredNullable` to each of `classes`'s base list.
+
+    Matches whatever bases codegen chose, since a `$def` that composes through `allOf` is
+    emitted with its composed bases rather than a bare `WireModel`.
+    """
+    for name in sorted(classes):
+        source, count = re.subn(
+            rf"^class {name}\((?P<bases>[^)]+)\):$",
+            rf"class {name}(\g<bases>, KeepRequiredNullable):",
+            source,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise SystemExit(f"expected one `class {name}(...)` to patch, found {count}")
+    if classes:
+        import_line = "from mcp_types._wire_base import WireModel"
+        if import_line not in source:
+            raise SystemExit(f"cannot import KeepRequiredNullable: {import_line!r} not found")
+        source = source.replace(import_line, "from mcp_types._wire_base import KeepRequiredNullable, WireModel")
+    return source
+
+
 def build(entry: dict[str, str]) -> str:
     """Generate, post-process, and format one version's surface module text."""
     version = entry["protocol_version"]
@@ -242,6 +301,7 @@ def build(entry: dict[str, str]) -> str:
     # strict mkdocs link validation.
     source = source.replace("](/", "](https://modelcontextprotocol.io/")
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
+    source = keep_required_nullable(source, nullable_required_classes(schema))
     if epilogue := EPILOGUES.get(version, ""):
         # Insert before the trailing model_rebuild() block: pyright's evaluation
         # order for the recursive RootModel block is sensitive to placement.

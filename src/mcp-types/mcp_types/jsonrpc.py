@@ -6,6 +6,8 @@ from typing import Annotated, Any, Final, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
+from mcp_types._wire_base import KeepRequiredNullable
+
 RequestId = Annotated[int, Field(strict=True)] | str
 """The ID of a JSON-RPC request."""
 
@@ -106,7 +108,7 @@ class ErrorData(BaseModel):
     """
 
 
-class JSONRPCError(BaseModel):
+class JSONRPCError(KeepRequiredNullable):
     """A response to a request that indicates an error occurred."""
 
     jsonrpc: Literal["2.0"]

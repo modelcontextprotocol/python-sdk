@@ -150,7 +150,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.InputRequiredResult],
+            Awaitable[types.CallToolResult | types.InputRequiredResult | types.CreateTaskResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -233,7 +233,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.InputRequiredResult],
+            Awaitable[types.CallToolResult | types.InputRequiredResult | types.CreateTaskResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -325,7 +325,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.InputRequiredResult],
+            Awaitable[types.CallToolResult | types.InputRequiredResult | types.CreateTaskResult],
         ]
         | None = None,
         on_list_resources: Callable[

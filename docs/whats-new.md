@@ -145,7 +145,7 @@ The renames announce themselves. These do not:
 Each of these is a section in the **[Migration Guide](migration.md)**:
 
 * The **WebSocket transport**, both sides, and the `mcp[ws]` extra. It was never part of the MCP specification.
-* The **experimental Tasks** API (`mcp.*.experimental`). 2026-07-28 moves tasks out of the core protocol and into an official extension ([SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663)), which this SDK does not implement yet.
+* The **experimental Tasks** runtime (`mcp.*.experimental`): the task store, the polling helper, and the automatic `tasks/*` routing. The task types stay, so a server can still answer a task-augmented `tools/call` on a handshake-era connection by bringing its own store; 2026-07-28 moves tasks out of the core protocol into an official extension ([SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663)), which this SDK does not implement yet.
 * `mcp.types`, `mcp.shared.version`, and `mcp.shared.progress` as import paths.
 * The deprecated `streamablehttp_client` spelling, and the `get_session_id` callback from `streamable_http_client` (which now yields exactly two streams).
 * `McpError`, renamed **`MCPError`** with a direct `(code, message, data)` constructor.

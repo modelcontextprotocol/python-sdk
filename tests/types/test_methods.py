@@ -259,7 +259,7 @@ EXPECTED_SERVER_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[Base
     ("resources/subscribe", "2025-11-25"): v2025.EmptyResult,
     ("resources/templates/list", "2025-11-25"): v2025.ListResourceTemplatesResult,
     ("resources/unsubscribe", "2025-11-25"): v2025.EmptyResult,
-    ("tools/call", "2025-11-25"): v2025.CallToolResult,
+    ("tools/call", "2025-11-25"): (v2025.CallToolResult, v2025.CreateTaskResult),
     ("tools/list", "2025-11-25"): v2025.ListToolsResult,
     ("completion/complete", "2026-07-28"): v2026.CompleteResult,
     ("prompts/get", "2026-07-28"): (v2026.GetPromptResult, v2026.InputRequiredResult),
@@ -392,6 +392,7 @@ RESULT_BODY_FIXTURES: dict[type[BaseModel] | UnionType, dict[str, Any]] = {
     v2025.ListRootsResult: {"roots": [{"uri": "file:///workspace"}]},
     v2025.ListToolsResult: {"tools": []},
     v2025.ReadResourceResult: {"contents": []},
+    v2025.AnyCallToolResult: {"content": []},
     v2026.AnyCallToolResult: {"content": [], "resultType": "complete"},
     v2026.AnyGetPromptResult: {"messages": [], "resultType": "complete"},
     v2026.AnyReadResourceResult: {"contents": [], "resultType": "complete", "ttlMs": 0, "cacheScope": "private"},
@@ -778,7 +779,9 @@ def test_input_required_unions_discriminate_identically_in_both_arm_orders():
     ]
     for method, complete_body in complete_bodies.items():
         row = methods.MONOLITH_RESULTS[method]
-        complete_arm, input_required_arm = get_args(row)
+        # tools/call carries a third arm (CreateTaskResult) that the other two do not; this
+        # test is about the complete-vs-input_required pair, which is always the first two.
+        complete_arm, input_required_arm = get_args(row)[:2]
         assert input_required_arm is types.InputRequiredResult
         bodies: list[dict[str, Any]] = [
             complete_body,
@@ -925,6 +928,25 @@ def test_serialize_server_result_preserves_arbitrary_meta_value_identically(vers
     assert sieved["_meta"] == meta
 
 
+@pytest.mark.parametrize("ttl", [None, 60_000])
+def test_serialize_server_result_keeps_a_required_nullable_task_ttl(ttl: int | None):
+    """`Task.ttl` is required and nullable, so the sieve must emit it even when it is null.
+
+    `exclude_none=True` would drop it, leaving a body that fails the very surface it
+    was sieved through; `KeepRequiredNullable` adds it back.
+    """
+    task = {
+        "taskId": "t1",
+        "status": "working",
+        "createdAt": "2026-07-24T00:00:00Z",
+        "lastUpdatedAt": "2026-07-24T00:00:00Z",
+        "ttl": ttl,
+    }
+    sieved = methods.serialize_server_result("tools/call", "2025-11-25", {"task": task})
+    assert sieved == {"task": task}
+    methods.validate_server_result("tools/call", "2025-11-25", sieved)
+
+
 def test_serialize_server_result_preserves_open_type_extras():
     """`inputSchema` and nested `_meta` are open key-value bags; the sieve must not strip them."""
     input_schema = {"type": "object", "title": "X", "additionalProperties": False, "$defs": {"Y": {"type": "string"}}}
@@ -978,3 +1000,16 @@ def test_importing_the_module_builds_no_adapters_and_identical_rows_share_one():
     # Identical row values at another version: no new adapters.
     fresh.parse_server_result("ping", "2024-11-05", {})
     assert fresh._adapter.cache_info().currsize == 2
+
+
+def test_a_tools_call_body_carrying_both_arms_resolves_to_the_task():
+    """A body with `content` and `task` is not a shape the spec defines, and the sieve keeps one.
+
+    Pinning current behaviour: the 2025 arms have no `resultType` to discriminate on, so an
+    ambiguous body resolves to `CreateTaskResult` and the tool output goes. Before the task arm
+    existed the same body lost `task` instead, so this is which half is dropped, not whether.
+    A handler answers a task-augmented call with one or the other, never both.
+    """
+    task = {"taskId": "t1", "status": "working", "createdAt": "x", "lastUpdatedAt": "y", "ttl": None}
+    both = {"content": [{"type": "text", "text": "hi"}], "task": task}
+    assert methods.serialize_server_result("tools/call", "2025-11-25", both) == {"task": task}
