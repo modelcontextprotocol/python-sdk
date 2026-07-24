@@ -64,3 +64,49 @@ async def test_validate_tool_result_raises_on_schema_mismatch() -> None:
         # Stable SDK prefix only: the message tail is jsonschema text that shifts with the dependency.
         with pytest.raises(RuntimeError, match="Invalid structured content returned by tool t"):
             await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": "no"}))
+
+
+@pytest.mark.anyio
+async def test_validate_tool_result_reuses_cached_validator() -> None:
+    """The compiled jsonschema validator is built once per tool and reused, not rebuilt on every call."""
+    server = _make_server({"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]})
+    async with Client(server) as client:
+        await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": 1}))
+        first = client.session._tool_output_validators["t"]  # pyright: ignore[reportPrivateUsage]
+
+        await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": 2}))
+        second = client.session._tool_output_validators["t"]  # pyright: ignore[reportPrivateUsage]
+
+        assert first is second
+
+
+@pytest.mark.anyio
+async def test_validate_tool_result_rebuilds_validator_when_schema_changes() -> None:
+    """A fresh `list_tools()` that reports a different output schema drops the stale cached validator."""
+    schema_holder: dict[str, dict[str, object]] = {
+        "t": {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]},
+    }
+
+    async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[Tool(name="t", input_schema={"type": "object"}, output_schema=schema_holder["t"])]
+        )
+
+    server = Server("test-server", on_list_tools=on_list_tools)
+    async with Client(server) as client:
+        await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": 1}))
+        stale_validator = client.session._tool_output_validators["t"]  # pyright: ignore[reportPrivateUsage]
+
+        # The tool's output schema now requires a string instead of an integer.
+        schema_holder["t"] = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
+        await client.session.list_tools()
+        assert "t" not in client.session._tool_output_validators  # pyright: ignore[reportPrivateUsage]
+
+        # The old value fails the new schema; a value matching the new schema passes,
+        # and rebuilds (rather than reuses) the cached validator.
+        with pytest.raises(RuntimeError, match="Invalid structured content returned by tool t"):
+            await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": 1}))
+        await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content={"x": "ok"}))
+
+        fresh_validator = client.session._tool_output_validators["t"]  # pyright: ignore[reportPrivateUsage]
+        assert fresh_validator is not stale_validator
