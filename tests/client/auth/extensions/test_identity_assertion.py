@@ -293,6 +293,8 @@ async def test_token_endpoint_error_surfaces_as_oauth_token_error() -> None:
 
 @pytest.mark.anyio
 async def test_client_secret_basic_sends_basic_header_not_body_secret() -> None:
+    """RFC 6749 §2.3: with Basic auth, neither client_secret nor client_id may also appear
+    in the body -- both are already presented via the Authorization header."""
     requests: list[httpx2.Request] = []
     auth = make_provider(token_endpoint_auth_method="client_secret_basic")
 
@@ -303,8 +305,28 @@ async def test_client_secret_basic_sends_basic_header_not_body_secret() -> None:
 
     [token_req] = [r for r in requests if r.url.path == "/token"]
     assert "client_secret" not in form(token_req)
+    assert "client_id" not in form(token_req)
     decoded = base64.b64decode(token_req.headers["Authorization"].removeprefix("Basic ")).decode()
     assert decoded == "test-client-id:test-client-secret"
+
+
+@pytest.mark.anyio
+async def test_client_secret_post_sends_client_id_and_secret_in_body() -> None:
+    """Sanity check / regression guard for the client_secret_basic fix above: the post method
+    is unaffected and still sends both client_id and client_secret in the body, not a header."""
+    requests: list[httpx2.Request] = []
+    auth = make_provider(token_endpoint_auth_method="client_secret_post")
+
+    async with httpx2.AsyncClient(
+        transport=mock_transport(requests, asm=asm_body(), token=token_body()), auth=auth
+    ) as http:
+        await http.post(f"{RS}/mcp")
+
+    [token_req] = [r for r in requests if r.url.path == "/token"]
+    assert "Authorization" not in token_req.headers
+    body = form(token_req)
+    assert body["client_id"] == "test-client-id"
+    assert body["client_secret"] == "test-client-secret"
 
 
 @pytest.mark.anyio

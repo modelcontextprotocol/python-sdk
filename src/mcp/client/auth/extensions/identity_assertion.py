@@ -143,7 +143,6 @@ class IdentityAssertionOAuthProvider(httpx2.Auth):
         data: dict[str, str] = {
             "grant_type": JWT_BEARER_GRANT_TYPE,
             "assertion": assertion,
-            "client_id": self._client.client_id,
             "resource": self._resource,
         }
         if scope:
@@ -155,7 +154,10 @@ class IdentityAssertionOAuthProvider(httpx2.Auth):
             encoded_secret = quote(self._client.client_secret, safe="")
             credentials = base64.b64encode(f"{encoded_id}:{encoded_secret}".encode()).decode()
             headers["Authorization"] = f"Basic {credentials}"
+            # RFC 6749 section 2.3: client_id must not also appear in the body when it's
+            # already presented via the Authorization header.
         else:
+            data["client_id"] = self._client.client_id
             data["client_secret"] = self._client.client_secret
         return httpx2.Request("POST", self._token_endpoint, data=data, headers=headers)
 
