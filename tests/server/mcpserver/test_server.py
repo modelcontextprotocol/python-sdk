@@ -2345,3 +2345,25 @@ def test_remove_prompt_removes_and_unknown_name_raises() -> None:
     assert mcp._prompt_manager.list_prompts() == []
     with pytest.raises(ValueError, match="Unknown prompt: greeting"):
         mcp.remove_prompt("greeting")
+
+
+async def test_tool_mirror_structured_content_false_omits_text_block():
+    """mirror_structured_content=False returns structuredContent only, with empty content."""
+
+    class UserOutput(BaseModel):
+        name: str
+        age: int
+
+    mcp = MCPServer()
+
+    @mcp.tool(mirror_structured_content=False)
+    def get_user(user_id: int) -> UserOutput:
+        """Get user by ID"""
+        return UserOutput(name="John Doe", age=30)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_user", {"user_id": 123})
+        assert result.is_error is False
+        assert result.structured_content == {"name": "John Doe", "age": 30}
+        # The serialized text mirror is suppressed; structuredContent is the sole representation.
+        assert result.content == []

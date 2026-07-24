@@ -49,6 +49,10 @@ class Tool(BaseModel):
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
+    mirror_structured_content: bool = Field(
+        default=True,
+        description="Whether structured output is also mirrored into a serialized text content block",
+    )
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -66,6 +70,7 @@ class Tool(BaseModel):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        mirror_structured_content: bool = True,
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
@@ -118,6 +123,7 @@ class Tool(BaseModel):
             annotations=annotations,
             icons=icons,
             meta=meta,
+            mirror_structured_content=mirror_structured_content,
         )
 
     async def run(
@@ -146,7 +152,13 @@ class Tool(BaseModel):
                 if isinstance(resolved, InputRequiredResult):
                     # A resolver still needs client input (>= 2026-07-28): surface the
                     # batched questions instead of running the tool body this round.
-                    return self.fn_metadata.convert_result(resolved) if convert_result else resolved
+                    return (
+                        self.fn_metadata.convert_result(
+                            resolved, mirror_structured_content=self.mirror_structured_content
+                        )
+                        if convert_result
+                        else resolved
+                    )
                 pass_directly |= resolved
 
             result = await self.fn_metadata.call_fn_with_arg_validation(
@@ -167,7 +179,9 @@ class Tool(BaseModel):
                 )
 
             if convert_result:
-                result = self.fn_metadata.convert_result(result)
+                result = self.fn_metadata.convert_result(
+                    result, mirror_structured_content=self.mirror_structured_content
+                )
 
             return result
         except MCPError:
