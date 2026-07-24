@@ -214,7 +214,11 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
 ```
 
 The handler receives validated params one at a time, in dispatch order. It observes; it cannot veto
-or reply.
+or reply. The emitting half needs no registration: the server side of your extension defines the
+notification as a `mcp_types.Notification` subclass and sends it with
+`ctx.session.send_notification(..., related_request_id=ctx.request_id)`, as shown in
+**[The low-level Server](low-level-server.md#a-method-of-your-own)**. A client without the binding
+drops the notification with a warning.
 
 Two quiet rules. Claims are active on 2026-07-28 connections only, and the capability
 ad follows them: on a legacy connection the claims dissolve and the identifier drops

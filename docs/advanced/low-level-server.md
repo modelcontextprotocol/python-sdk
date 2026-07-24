@@ -162,9 +162,32 @@ The constructor covers the methods MCP defines. `add_request_handler` covers eve
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* The first argument is the method string. Notifications have a twin, `add_notification_handler`.
+* The first argument is the method string.
 * `params_type` is the model the incoming `params` are validated against **before** your handler runs, so custom methods *do* get the validation tools don't. Subclass `RequestParams` so the `_meta` field parses like every other method's.
 * The handler returns a `BaseModel`, a `dict`, or `None`. The SDK serialises it into the JSON-RPC result.
+
+Notifications have a twin in each direction. Inbound, `add_notification_handler(method, params_type, handler)` registers `async (ctx, params) -> None`. Spec-defined notification methods are validated against the negotiated version's tables before dispatch, and one that does not exist at that version is dropped with a warning. Custom methods skip the version gate; your `params_type` is their validation, and a custom notification nobody registered a handler for is dropped with a warning.
+
+Outbound, `ctx.session.send_notification(...)` accepts any `mcp_types.Notification` subclass, not just the spec-defined union, so the notifying half of a vendor protocol is one model away:
+
+```python
+class ReindexProgressParams(NotificationParams):
+    percent: float
+
+
+class ReindexProgress(Notification[ReindexProgressParams, Literal["notifications/reindex/progress"]]):
+    method: Literal["notifications/reindex/progress"] = "notifications/reindex/progress"
+    params: ReindexProgressParams
+
+
+async def reindex(ctx: ServerRequestContext, params: ReindexParams) -> None:
+    await ctx.session.send_notification(
+        ReindexProgress(params=ReindexProgressParams(percent=40.0)),
+        related_request_id=ctx.request_id,
+    )
+```
+
+Pass `related_request_id` so the notification rides the originating request's stream; the 2026-07-28 wire gives standalone notifications no channel outside `subscriptions/listen`. A python-sdk client observes vendor methods with a `NotificationBinding` (**[Extensions](extensions.md)**) and warns about ones it has no binding for.
 
 One honest caveat: the high-level `Client` only has verbs for the methods MCP defines, so there is no `client.reindex()`. A vendor method is for a peer that already knows it exists: a client you also ship, or another service of yours speaking JSON-RPC.
 
@@ -196,7 +219,7 @@ Each of these is one idea you now have the vocabulary for; each has its own page
 * An exception in a handler is a `-32603` protocol error. A tool error the model can read is a `CallToolResult` with `is_error=True` that **you** return.
 * `_meta` on the result is addressed to the client application, not the model.
 * `Server[T]` is generic in what its lifespan yields; `ctx.lifespan_context` is a typed `T`.
-* `add_request_handler(method, params_type, handler)` serves any method. `initialize` is reserved.
+* `add_request_handler(method, params_type, handler)` serves any method. `initialize` is reserved. `add_notification_handler` and `ctx.session.send_notification` are the notification twins.
 * The capabilities a `Server` advertises are derived from which handlers you registered.
 
 `Client(server)` treated both servers identically because they *are* the same protocol, which is the whole point. The next layer down isn't a class at all: it's **[Middleware](middleware.md)**.
