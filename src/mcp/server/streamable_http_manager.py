@@ -253,6 +253,38 @@ class StreamableHTTPSessionManager:
         request = Request(scope, receive)
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
+        # Per MCP spec, a GET without a session ID cannot establish an SSE stream in
+        # stateful mode because no session exists yet. Reject with 405 BEFORE creating
+        # any transport or session to avoid leaking resources. Security validation
+        # (DNS rebinding protection) happens first so malformed/attack requests get
+        # their proper 421 response rather than our 405.
+        if request.method == "GET" and request_mcp_session_id is None:
+            # Run security validation first if enabled
+            if self.security_settings is not None:
+                from mcp.server.transport_security import TransportSecurityMiddleware
+
+                security = TransportSecurityMiddleware(self.security_settings)
+                error_response = await security.validate_request(request, is_post=False)
+                if error_response:
+                    await error_response(scope, receive, send)
+                    return
+
+            response = Response(
+                JSONRPCError(
+                    jsonrpc="2.0",
+                    id=None,
+                    error=ErrorData(
+                        code=INVALID_REQUEST,
+                        message="Method Not Allowed: GET requires an established session",
+                    ),
+                ).model_dump_json(by_alias=True, exclude_unset=True),
+                status_code=405,
+                media_type="application/json",
+                headers={"Allow": "GET, POST, DELETE"},
+            )
+            await response(scope, receive, send)
+            return
+
         user = scope.get("user")
         requestor = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
 

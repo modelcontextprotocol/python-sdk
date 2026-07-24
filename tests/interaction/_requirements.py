@@ -3095,6 +3095,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over HTTP: 405 is an HTTP status code.",
     ),
+    "hosting:http:pre-session-get-405": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#receiving-messages-from-the-server",
+        behavior=(
+            "A GET without a session ID in stateful mode returns 405 Method Not Allowed. "
+            "Per MCP spec: 'The server MUST either return Content-Type: text/event-stream in response "
+            "to this HTTP GET, or else return HTTP 405 Method Not Allowed.'"
+        ),
+        transports=("streamable-http",),
+        note="Only observable over HTTP: 405 is an HTTP status code. Fixes issue #3102.",
+    ),
     "hosting:http:no-broadcast": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#multiple-connections",
         behavior=(

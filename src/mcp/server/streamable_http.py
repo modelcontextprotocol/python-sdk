@@ -656,10 +656,28 @@ class StreamableHTTPServerTransport:
         This allows the server to communicate to the client without the client
         first sending data via HTTP POST. The server can send JSON-RPC requests
         and notifications on this stream.
+
+        Per MCP spec: "The server MUST either return Content-Type: text/event-stream
+        in response to this HTTP GET, or else return HTTP 405 Method Not Allowed."
         """
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
             raise ValueError("No read stream writer available. Ensure connect() is called first.")
+
+        # Per MCP spec, pre-session GETs that cannot be served as SSE must return
+        # 405 Method Not Allowed. A GET without a session ID in stateful mode
+        # cannot establish an SSE stream because no session exists yet.
+        if self.mcp_session_id and not self._get_session_id(request):
+            headers = {
+                "Allow": "GET, POST, DELETE",
+            }
+            response = self._create_error_response(
+                "Method Not Allowed: GET requires an established session",
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                headers=headers,
+            )
+            await response(request.scope, request.receive, send)
+            return
 
         # Validate Accept header - must include text/event-stream
         _, has_sse = check_accept_headers(request)
@@ -842,7 +860,7 @@ class StreamableHTTPServerTransport:
             return False
 
         # If session ID doesn't match, return error
-        if request_session_id != self.mcp_session_id:  # pragma: no cover
+        if request_session_id != self.mcp_session_id:
             response = self._create_error_response(
                 "Not Found: Invalid or expired session ID",
                 HTTPStatus.NOT_FOUND,
