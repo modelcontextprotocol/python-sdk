@@ -157,6 +157,90 @@ async def test_client_session_initialize():
 
 
 @pytest.mark.anyio
+async def test_client_session_initialize_custom_protocol_version():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    initialized_notification = None
+    result = None
+
+    async def mock_server():
+        nonlocal initialized_notification
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request, InitializeRequest)
+        assert request.params.protocol_version == "2024-11-05"
+
+        result = InitializeResult(
+            protocol_version="2024-11-05",
+            capabilities=ServerCapabilities(
+                logging=None,
+                resources=None,
+                tools=None,
+                experimental=None,
+                prompts=None,
+            ),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+            instructions="The server instructions.",
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            session_notification = await client_to_server_receive.receive()
+            jsonrpc_notification = session_notification.message
+            assert isinstance(jsonrpc_notification, JSONRPCNotification)
+            initialized_notification = client_notification_adapter.validate_python(
+                jsonrpc_notification.model_dump(by_alias=True, mode="json", exclude_none=True)
+            )
+
+    # Create a message handler to catch exceptions
+    async def message_handler(  # pragma: no cover
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        result = await session.initialize(protocol_version="2024-11-05")
+
+    # Assert the result
+    assert isinstance(result, InitializeResult)
+    assert result.protocol_version == "2024-11-05"
+    assert isinstance(result.capabilities, ServerCapabilities)
+    assert result.server_info == Implementation(name="mock-server", version="0.1.0")
+    assert result.instructions == "The server instructions."
+
+    # Check that the client sent the initialized notification
+    assert initialized_notification
+    assert isinstance(initialized_notification, InitializedNotification)
+
+
+@pytest.mark.anyio
 async def test_client_session_custom_client_info():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
