@@ -117,12 +117,12 @@ class FuncMetadata(BaseModel):
         being JSON-dumped into a text block.
 
         For a tool with an output schema, the structured output is returned as
-        `structuredContent`. By default it is *also* serialised into a `content`
+        `structuredContent`. By default it is *also* serialized into a `content`
         text block -- the spec's SHOULD, which keeps the value available to a
         client that consumes `content`. When ``mirror_structured_content`` is
-        False that serialised copy is omitted and `structuredContent` is the only
+        False that serialized copy is omitted and `structuredContent` is the only
         representation on the wire, so the same payload is not sent twice. Because
-        the serialised-text guidance is a SHOULD (not a MUST), opting out stays
+        the serialized-text guidance is a SHOULD (not a MUST), opting out stays
         conformant. The SDK makes no assumption about which field a client routes
         to a model versus elsewhere; that is the client's choice.
         """

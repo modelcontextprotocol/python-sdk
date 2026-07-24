@@ -51,7 +51,7 @@ class Tool(BaseModel):
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
     mirror_structured_content: bool = Field(
         default=True,
-        description="Whether structured output is also mirrored into a serialised text content block",
+        description="Whether structured output is also mirrored into a serialized text content block",
     )
 
     @cached_property
