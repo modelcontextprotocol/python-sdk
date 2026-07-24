@@ -185,10 +185,6 @@ async def _write(
     """Serialise a JSON-RPC reply with the table-mapped HTTP status."""
     status = ERROR_CODE_HTTP_STATUS.get(msg.error.code, _OK_STATUS) if isinstance(msg, JSONRPCError) else _OK_STATUS
     body = msg.model_dump(mode="json", by_alias=True, exclude_none=True)
-    if isinstance(msg, JSONRPCError) and msg.id is None:
-        # JSON-RPC requires `id: null` to appear on the wire when the request
-        # id couldn't be parsed; `exclude_none` would otherwise drop it.
-        body["id"] = None
     await Response(
         json.dumps(body, separators=(",", ":")),
         status_code=status,

@@ -33,7 +33,7 @@ Every section heading below names the API it affects, so searching this page for
 | pin dependencies or use the `mcp` CLI | [Packaging, dependencies, and CLI](#packaging-dependencies-and-cli) |
 | import `mcp.types` or touch protocol types (everyone does) | [Types and wire format](#types-and-wire-format) |
 | run `FastMCP`/`MCPServer` servers | [MCPServer (formerly FastMCP)](#mcpserver-formerly-fastmcp) |
-| use the lowlevel `Server` | [Lowlevel Server](#lowlevel-server), plus [Timeouts take `float` seconds](#timeouts-take-float-seconds-instead-of-timedelta) and [Experimental Tasks support removed](#experimental-tasks-support-removed) under Clients |
+| use the lowlevel `Server` | [Lowlevel Server](#lowlevel-server), plus [Timeouts take `float` seconds](#timeouts-take-float-seconds-instead-of-timedelta) and [Experimental Tasks runtime removed](#experimental-tasks-runtime-removed) under Clients |
 | write client code with `Client` or `ClientSession` | [Clients](#clients), plus [`streamablehttp_client` removed](#streamablehttp_client-removed) under Transports |
 | use stdio or streamable HTTP directly, or maintain a custom transport | [Transports](#transports) |
 | maintain OAuth client auth or a protected server | [OAuth and server auth](#oauth-and-server-auth) |
@@ -1653,11 +1653,62 @@ Behavior changes:
 
 `mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing. `RequestResponder.respond()` no longer exists, and neither do the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) or `BaseSession._in_flight`; inbound cancellation is handled by `JSONRPCDispatcher`.
 
-### Experimental Tasks support removed
+### Experimental Tasks runtime removed
 
-Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions, except the `TaskExecutionMode` alias, whose literal is now inlined on `ToolExecution.task_support`.
+The task runtime that shipped behind the `experimental` properties is gone. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. There is no built-in task store, no polling helper, and no automatic `tasks/*` routing. The `TaskExecutionMode` alias is also gone; its literal is inlined on `ToolExecution.task_support`.
 
-The 2026-07-28 revision reintroduces Tasks as an official extension: [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), `io.modelcontextprotocol/tasks`, redesigned around polling (`tasks/get`) instead of a blocking `tasks/result`. This SDK does not implement the extension yet.
+The task types stay, so a server can still serve Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) on a handshake-era connection by supplying the parts the runtime used to provide. This covers the server side of a task-augmented `tools/call`; the client side of a task-augmented `sampling/createMessage` or `elicitation/create` is not wired, so a client cannot answer one of those with a `CreateTaskResult`. A task-augmented `tools/call` arrives with `params.task` set and may be answered with a `CreateTaskResult`, and the `tasks/get`, `tasks/result`, `tasks/list`, and `tasks/cancel` methods are registered with `Server.add_request_handler`.
+
+```python
+async def call_tool(
+    ctx: ServerRequestContext, params: CallToolRequestParams
+) -> CallToolResult | CreateTaskResult:
+    if params.task is None:
+        return CallToolResult(content=[TextContent(text=run_now())])
+    return CreateTaskResult(task=await store.submit(params))
+
+
+async def get_task(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
+    return await store.status(params.task_id)
+
+
+server = Server("example", on_call_tool=call_tool)
+server.add_request_handler("tasks/get", GetTaskRequestParams, get_task)
+```
+
+Two things to know about handlers registered this way. They serve every negotiated version, so a server that also answers 2026-era clients should check `ctx.protocol_version` and reject anything outside 2025-11-25; the method names collide with the 2026 tasks extension but the payloads are not compatible. And their results are not validated against a per-version surface, so raise `MCPError` for the failure cases rather than letting an exception escape: an unhandled one reaches the client as an unmapped error carrying the exception text.
+
+The same era check belongs in `on_call_tool`. Its return type admits a `CreateTaskResult` at every version because the signature has no version to key on, but 2026-07-28 dropped tasks from the core protocol and rejects the shape, turning it into an opaque internal error. Returning one only when `params.task` is set keeps that unreachable for a well-behaved client, since a client that never learned the field never sets it.
+
+`Server.get_capabilities` does not derive a `tasks` capability from the registered handlers, and a spec-compliant client will not augment a request until it sees one, so build the advertisement explicitly:
+
+```python
+capabilities = server.get_capabilities()
+options = InitializationOptions(
+    server_name="example",
+    server_version="0.1.0",
+    capabilities=capabilities.model_copy(
+        update={
+            "tasks": ServerTasksCapability(
+                list=TasksListCapability(),
+                cancel=TasksCancelCapability(),
+                requests=ServerTasksRequestsCapability(tools=TasksToolsCapability(call={})),
+            )
+        }
+    ),
+)
+```
+
+A client sends the augmented request and names the result type through `ClientSession.send_request`, since `call_tool` resolves to the two core result arms:
+
+```python
+result = await client.session.send_request(
+    CallToolRequest(params=CallToolRequestParams(name="render", task=TaskMetadata(ttl=60_000))),
+    TypeAdapter[CallToolResult | CreateTaskResult](CallToolResult | CreateTaskResult),
+)
+```
+
+The 2026-07-28 revision drops Tasks from the core protocol and reintroduces them as an official extension: [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), `io.modelcontextprotocol/tasks`, redesigned around polling (`tasks/get`) instead of a blocking `tasks/result`. It is a different protocol, not a rename, and this SDK does not implement it yet.
 
 ## Transports
 

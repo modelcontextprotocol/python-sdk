@@ -827,6 +827,21 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/tools#text-content",
         behavior="tools/call delivers arguments to the tool handler and returns its text content to the caller.",
     ),
+    "tools:call:task-augmented": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/tasks#creating-tasks",
+        behavior=(
+            "A tools/call carrying `task` may be answered with a CreateTaskResult instead of a "
+            "CallToolResult, and the task reaches the caller intact."
+        ),
+        added_in="2025-11-25",
+        removed_in="2026-07-28",
+        note=(
+            "SEP-1686, removed from core in 2026-07-28 in favour of the io.modelcontextprotocol/tasks "
+            "extension. The SDK ships the wire vocabulary and the result arm; the task store, the "
+            "tasks/* lifecycle handlers and the capability ad are the server author's to provide "
+            "(tasks/* are servable through Server.add_request_handler)."
+        ),
+    ),
     "tools:call:concurrent": Requirement(
         source="sdk",
         behavior=(
@@ -1507,6 +1522,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
+        ),
+    ),
+    "logging:message:null-data": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
+        behavior=(
+            "`data` is a required field that accepts any JSON value, so a log message whose data is "
+            "null is delivered like any other rather than dropped."
         ),
     ),
     "logging:message:filtered": Requirement(

@@ -244,7 +244,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/subscribe", "2024-11-05"): v2025.EmptyResult,
         ("resources/templates/list", "2024-11-05"): v2025.ListResourceTemplatesResult,
         ("resources/unsubscribe", "2024-11-05"): v2025.EmptyResult,
-        ("tools/call", "2024-11-05"): v2025.CallToolResult,
+        ("tools/call", "2024-11-05"): v2025.AnyCallToolResult,
         ("tools/list", "2024-11-05"): v2025.ListToolsResult,
         # 2025-03-26
         ("completion/complete", "2025-03-26"): v2025.CompleteResult,
@@ -258,7 +258,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/subscribe", "2025-03-26"): v2025.EmptyResult,
         ("resources/templates/list", "2025-03-26"): v2025.ListResourceTemplatesResult,
         ("resources/unsubscribe", "2025-03-26"): v2025.EmptyResult,
-        ("tools/call", "2025-03-26"): v2025.CallToolResult,
+        ("tools/call", "2025-03-26"): v2025.AnyCallToolResult,
         ("tools/list", "2025-03-26"): v2025.ListToolsResult,
         # 2025-06-18
         ("completion/complete", "2025-06-18"): v2025.CompleteResult,
@@ -272,7 +272,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/subscribe", "2025-06-18"): v2025.EmptyResult,
         ("resources/templates/list", "2025-06-18"): v2025.ListResourceTemplatesResult,
         ("resources/unsubscribe", "2025-06-18"): v2025.EmptyResult,
-        ("tools/call", "2025-06-18"): v2025.CallToolResult,
+        ("tools/call", "2025-06-18"): v2025.AnyCallToolResult,
         ("tools/list", "2025-06-18"): v2025.ListToolsResult,
         # 2025-11-25
         ("completion/complete", "2025-11-25"): v2025.CompleteResult,
@@ -286,7 +286,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/subscribe", "2025-11-25"): v2025.EmptyResult,
         ("resources/templates/list", "2025-11-25"): v2025.ListResourceTemplatesResult,
         ("resources/unsubscribe", "2025-11-25"): v2025.EmptyResult,
-        ("tools/call", "2025-11-25"): v2025.CallToolResult,
+        ("tools/call", "2025-11-25"): v2025.AnyCallToolResult,
         ("tools/list", "2025-11-25"): v2025.ListToolsResult,
         # 2026-07-28 (dual-result rows use the version's union aliases)
         ("completion/complete", "2026-07-28"): v2026.CompleteResult,
@@ -401,7 +401,7 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
         "sampling/createMessage": types.CreateMessageResult | types.CreateMessageResultWithTools,
         "server/discover": types.DiscoverResult,
         "subscriptions/listen": types.SubscriptionsListenResult,
-        "tools/call": types.CallToolResult | types.InputRequiredResult,
+        "tools/call": types.CallToolResult | types.InputRequiredResult | types.CreateTaskResult,
         "tools/list": types.ListToolsResult,
     }
 )

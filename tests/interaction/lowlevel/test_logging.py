@@ -126,3 +126,35 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
         await client.call_tool("siren", {})
 
     assert [params.level for params in received] == list(ALL_LEVELS)
+
+
+@requirement("logging:message:null-data")
+async def test_log_message_with_null_data_reaches_the_logging_callback(connect: Connect) -> None:
+    """`data` is required but accepts any JSON value, so a null payload is a message, not an omission.
+
+    Spec-mandated: dropping the key produces a notification that fails its own schema, which the
+    receiving session rejects before dispatch, so the message disappears with no error to either side.
+    """
+    received: list[LoggingMessageNotificationParams] = []
+
+    async def collect(params: LoggingMessageNotificationParams) -> None:
+        received.append(params)
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="quiet", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "quiet"
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
+            level="info", data=None, related_request_id=ctx.request_id
+        )
+        return CallToolResult(content=[TextContent(text="done")])
+
+    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server, logging_callback=collect) as client:
+        await client.call_tool("quiet", {})
+
+    assert received == snapshot([LoggingMessageNotificationParams(level="info", data=None)])
