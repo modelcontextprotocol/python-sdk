@@ -2,10 +2,7 @@
 
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError
-from mcp.server.mcpserver import MCPServer
-from mcp.types import (
+from mcp_types import (
     ErrorData,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -14,6 +11,10 @@ from mcp.types import (
     ResourceTemplate,
     TextResourceContents,
 )
+
+from mcp import MCPError
+from mcp.server.mcpserver import MCPServer
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -21,7 +22,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("mcpserver:resource:static")
-async def test_read_static_resource(connect: Connect) -> None:
+async def test_read_static_resource(connect: Connect, unstamped: Unstamp) -> None:
     """A function registered for a fixed URI is served at that URI with its return value as text."""
     mcp = MCPServer("library")
 
@@ -33,7 +34,7 @@ async def test_read_static_resource(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.read_resource("config://app")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="theme = dark")]
         )
@@ -41,7 +42,7 @@ async def test_read_static_resource(connect: Connect) -> None:
 
 
 @requirement("mcpserver:resource:static")
-async def test_list_static_and_templated_resources(connect: Connect) -> None:
+async def test_list_static_and_templated_resources(connect: Connect, unstamped: Unstamp) -> None:
     """Statically-registered resources appear in resources/list; templated ones only in templates/list.
 
     The name and description are derived from the function name and docstring; the MIME type
@@ -63,7 +64,7 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
         resources = await client.list_resources()
         templates = await client.list_resource_templates()
 
-    assert resources == snapshot(
+    assert unstamped(resources) == snapshot(
         ListResourcesResult(
             resources=[
                 Resource(
@@ -75,7 +76,7 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
             ]
         )
     )
-    assert templates == snapshot(
+    assert unstamped(templates) == snapshot(
         ListResourceTemplatesResult(
             resource_templates=[
                 ResourceTemplate(
@@ -91,7 +92,7 @@ async def test_list_static_and_templated_resources(connect: Connect) -> None:
 
 @requirement("mcpserver:resource:template")
 @requirement("resources:read:template-vars")
-async def test_read_templated_resource(connect: Connect) -> None:
+async def test_read_templated_resource(connect: Connect, unstamped: Unstamp) -> None:
     """Reading a URI that matches a registered template invokes the function with the extracted parameters."""
     mcp = MCPServer("library")
 
@@ -103,7 +104,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.read_resource("users://42/profile")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[TextResourceContents(uri="users://42/profile", mime_type="text/plain", text="profile for 42")]
         )
@@ -112,10 +113,7 @@ async def test_read_templated_resource(connect: Connect) -> None:
 
 @requirement("mcpserver:resource:unknown-uri")
 async def test_read_unknown_uri_is_error(connect: Connect) -> None:
-    """Reading a URI that matches no registered resource fails with a JSON-RPC error.
-
-    The spec reserves -32002 for resource-not-found; see the divergence note on the requirement.
-    """
+    """Reading a URI that matches no registered resource fails with -32602 and the URI in data (SEP-2164)."""
     mcp = MCPServer("library")
 
     @mcp.resource("config://app")
@@ -127,16 +125,17 @@ async def test_read_unknown_uri_is_error(connect: Connect) -> None:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("config://missing")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown resource: config://missing"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=-32602, message="Unknown resource: config://missing", data={"uri": "config://missing"})
+    )
 
 
 @requirement("mcpserver:resource:read-throws-surfaced")
 async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(connect: Connect) -> None:
     """An exception raised by a resource function reaches the caller as a JSON-RPC error.
 
-    MCPServer wraps the failure in a generic error that names only the URI, so the original
-    exception text is not leaked to the client. The wrapped exception becomes error code 0 the
-    same way every other unhandled server-side exception does.
+    MCPServer wraps the failure in a generic ResourceError that names only the URI, so the original
+    exception text is not leaked to the client. The wrapped exception surfaces as -32603 Internal error.
     """
     mcp = MCPServer("library")
 
@@ -148,11 +147,15 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("res://boom")
 
-    assert exc_info.value.error == snapshot(ErrorData(code=0, message="Error reading resource res://boom"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=-32603, message="Error reading resource res://boom", data={"uri": "res://boom"})
+    )
 
 
 @requirement("mcpserver:resource:duplicate-name")
-async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(connect: Connect) -> None:
+async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Registering a second static resource at an already-used URI keeps the first registration.
 
     The intended behaviour is rejection at registration time; MCPServer instead logs a warning
@@ -178,6 +181,6 @@ async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(co
 
     assert [resource.uri for resource in listed.resources] == ["config://app"]
     assert listed.resources[0].name == "config_first"
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="first")])
     )

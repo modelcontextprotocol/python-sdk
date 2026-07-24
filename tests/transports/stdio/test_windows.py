@@ -19,11 +19,11 @@ from pathlib import Path
 import anyio
 import anyio.abc
 import pytest
+from mcp_types import JSONRPCRequest, JSONRPCResponse
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCRequest, JSONRPCResponse
 from tests.transports.stdio._liveness import (
     accept_alive,
     assert_stream_closed,
@@ -35,6 +35,11 @@ pytestmark = [
     pytest.mark.anyio,
     pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Object / event-loop semantics"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
 
 
 async def test_a_gracefully_exited_servers_child_is_reaped_when_the_job_handle_closes(  # pragma: no cover

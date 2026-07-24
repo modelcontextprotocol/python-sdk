@@ -2,13 +2,7 @@
 
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel
-
-from mcp import MCPError
-from mcp.client import ClientRequestContext
-from mcp.server.elicitation import AcceptedElicitation
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import (
+from mcp_types import (
     METHOD_NOT_FOUND,
     CallToolResult,
     ElicitRequestFormParams,
@@ -20,6 +14,13 @@ from mcp.types import (
     LoggingMessageNotificationParams,
     TextContent,
 )
+from pydantic import BaseModel
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext
+from mcp.server.elicitation import AcceptedElicitation
+from mcp.server.mcpserver import Context, MCPServer
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -41,10 +42,10 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
 
     @mcp.tool()
     async def narrate(ctx: Context) -> str:
-        await ctx.debug("d")
-        await ctx.info("i")
-        await ctx.warning("w")
-        await ctx.error("e")
+        await ctx.debug("d")  # pyright: ignore[reportDeprecated]
+        await ctx.info("i")  # pyright: ignore[reportDeprecated]
+        await ctx.warning("w")  # pyright: ignore[reportDeprecated]
+        await ctx.error("e")  # pyright: ignore[reportDeprecated]
         return "done"
 
     async def collect(params: LoggingMessageNotificationParams) -> None:
@@ -52,7 +53,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
 
     async with connect(mcp, logging_callback=collect) as client:
         result = await client.call_tool("narrate", {})
-        advertised_logging = client.initialize_result.capabilities.logging
+        advertised_logging = client.server_capabilities.logging
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="done")], structured_content={"result": "done"}))
     assert received == snapshot(
@@ -68,7 +69,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
 
 
 @requirement("mcpserver:context:progress")
-async def test_context_report_progress_sends_progress_notifications(connect: Connect) -> None:
+async def test_context_report_progress_sends_progress_notifications(connect: Connect, unstamped: Unstamp) -> None:
     """Context.report_progress sends progress notifications correlated to the calling request.
 
     The caller's progress callback receives each report, in order, before the tool call returns.
@@ -88,7 +89,7 @@ async def test_context_report_progress_sends_progress_notifications(connect: Con
     async with connect(mcp) as client:
         result = await client.call_tool("crunch", {}, progress_callback=on_progress)
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="crunched")], structured_content={"result": "crunched"})
     )
     assert received == snapshot([(1.0, 3.0, None), (2.0, 3.0, "halfway there")])
@@ -121,8 +122,9 @@ async def test_context_exposes_request_id_and_client_info_to_a_tool(connect: Con
     assert request_id
 
 
+@requirement("mcpserver:context:logging")
 @requirement("protocol:progress:no-token")
-async def test_report_progress_without_a_progress_token_sends_nothing(connect: Connect) -> None:
+async def test_report_progress_without_a_progress_token_sends_nothing(connect: Connect, unstamped: Unstamp) -> None:
     """When the caller supplied no progress callback, Context.report_progress is a silent no-op.
 
     The tool also emits one log message as a sentinel: the message handler receives only that,
@@ -135,7 +137,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     @mcp.tool()
     async def mill(ctx: Context) -> str:
         await ctx.report_progress(1, 3)
-        await ctx.info("milling done")
+        await ctx.info("milling done")  # pyright: ignore[reportDeprecated]
         return "milled"
 
     async def collect(message: IncomingMessage) -> None:
@@ -144,7 +146,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     async with connect(mcp, message_handler=collect) as client:
         result = await client.call_tool("mill", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="milled")], structured_content={"result": "milled"})
     )
     assert received == snapshot(
@@ -206,7 +208,7 @@ async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
 
 
 @requirement("mcpserver:context:read-resource")
-async def test_context_read_resource_reads_registered_resource(connect: Connect) -> None:
+async def test_context_read_resource_reads_registered_resource(connect: Connect, unstamped: Unstamp) -> None:
     """Context.read_resource lets a tool read a resource registered on the same server.
 
     The tool reports the MIME type and content it read, proving the resource function ran and its
@@ -227,7 +229,7 @@ async def test_context_read_resource_reads_registered_resource(connect: Connect)
     async with connect(mcp) as client:
         result = await client.call_tool("show_config", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="text/plain: 'theme = dark'")],
             structured_content={"result": "text/plain: 'theme = dark'"},
@@ -249,8 +251,8 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
 
     @mcp.tool()
     async def chatter(ctx: Context) -> str:
-        await ctx.debug("noise")
-        await ctx.error("signal")
+        await ctx.debug("noise")  # pyright: ignore[reportDeprecated]
+        await ctx.error("signal")  # pyright: ignore[reportDeprecated]
         return "done"
 
     async def collect(params: LoggingMessageNotificationParams) -> None:
@@ -258,11 +260,13 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(con
 
     async with connect(mcp, logging_callback=collect) as client:
         with pytest.raises(MCPError) as exc_info:
-            await client.set_logging_level("error")
+            await client.set_logging_level("error")  # pyright: ignore[reportDeprecated]
 
         await client.call_tool("chatter", {})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="logging/setLevel")
+    )
     assert received == snapshot(
         [
             LoggingMessageNotificationParams(level="debug", data="noise"),

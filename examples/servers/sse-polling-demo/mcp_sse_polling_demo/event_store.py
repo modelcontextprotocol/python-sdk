@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from mcp.server.streamable_http import EventCallback, EventId, EventMessage, EventStore, StreamId
-from mcp.types import JSONRPCMessage
+from mcp_types import JSONRPCMessage
 
 logger = logging.getLogger(__name__)
 

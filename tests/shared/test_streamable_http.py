@@ -16,35 +16,15 @@ from unittest.mock import MagicMock
 from urllib.parse import urlparse
 
 import anyio
-import httpx
+import httpx2
+import mcp_types as types
 import pytest
-from httpx_sse import ServerSentEvent
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.routing import Mount
-
-from mcp import MCPError, types
-from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
-from mcp.server import Server, ServerRequestContext
-from mcp.server.streamable_http import (
-    MCP_PROTOCOL_VERSION_HEADER,
-    MCP_SESSION_ID_HEADER,
-    SESSION_ID_PATTERN,
-    EventCallback,
-    EventId,
-    EventMessage,
-    EventStore,
-    StreamableHTTPServerTransport,
-    StreamId,
-)
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared._context import RequestContext
-from mcp.shared._context_streams import create_context_streams
-from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
-from mcp.types import (
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from httpx2 import ServerSentEvent
+from mcp_types import (
+    DEFAULT_NEGOTIATED_VERSION,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
@@ -57,6 +37,34 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.routing import Mount
+from starlette.types import Message, Scope
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.server import Server, ServerRequestContext
+from mcp.server.streamable_http import (
+    GET_STREAM_KEY,
+    MCP_PROTOCOL_VERSION_HEADER,
+    MCP_SESSION_ID_HEADER,
+    SESSION_ID_PATTERN,
+    EventCallback,
+    EventId,
+    EventMessage,
+    EventStore,
+    StreamableHTTPServerTransport,
+    StreamId,
+)
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._compat import resync_tracer
+from mcp.shared._context_streams import create_context_streams
+from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.session import RequestResponder
 from tests.interaction.transports import StreamingASGITransport
 
 # Test constants
@@ -77,14 +85,18 @@ BASE_URL = "http://127.0.0.1:8000"
 
 
 # Helper functions
-def extract_protocol_version_from_sse(response: httpx.Response) -> str:
-    """Extract the negotiated protocol version from an SSE initialization response."""
+def first_sse_data(response: httpx2.Response) -> dict[str, Any]:
+    """Return the first SSE `data:` payload of a response, parsed as JSON."""
     assert response.headers.get("Content-Type") == "text/event-stream"
     for line in response.text.splitlines():
         if line.startswith("data: "):
-            init_data = json.loads(line[6:])
-            return init_data["result"]["protocolVersion"]
-    raise ValueError("Could not extract protocol version from SSE response")  # pragma: no cover
+            return json.loads(line.removeprefix("data: "))
+    raise ValueError("No data event in SSE response")  # pragma: no cover
+
+
+def extract_protocol_version_from_sse(response: httpx2.Response) -> str:
+    """Extract the negotiated protocol version from an SSE initialization response."""
+    return first_sse_data(response)["result"]["protocolVersion"]
 
 
 # Simple in-memory event store for testing
@@ -203,7 +215,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         return CallToolResult(content=[TextContent(type="text", text=f"Called {name}")])
 
     elif name == "test_sampling_tool":
-        sampling_result = await ctx.session.create_message(
+        sampling_result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[
                 types.SamplingMessage(
                     role="user",
@@ -225,7 +237,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         )
 
     elif name == "wait_for_lock_with_notification":
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="First notification before lock",
             logger="lock_tool",
@@ -234,7 +246,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
 
         await ctx.lifespan_context.lock.wait()
 
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="Second notification after lock",
             logger="lock_tool",
@@ -248,7 +260,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         return CallToolResult(content=[TextContent(type="text", text="Lock released")])
 
     elif name == "tool_with_stream_close":
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="Before close",
             logger="stream_close_tool",
@@ -257,7 +269,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         assert ctx.close_sse_stream is not None
         await ctx.close_sse_stream()
         await anyio.sleep(0.1)
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="After close",
             logger="stream_close_tool",
@@ -266,7 +278,7 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         return CallToolResult(content=[TextContent(type="text", text="Done")])
 
     elif name == "tool_with_multiple_notifications_and_close":
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="notification1",
             logger="multi_notif_tool",
@@ -275,13 +287,13 @@ async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: Call
         assert ctx.close_sse_stream is not None
         await ctx.close_sse_stream()
         await anyio.sleep(0.1)
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="notification2",
             logger="multi_notif_tool",
             related_request_id=ctx.request_id,
         )
-        await ctx.session.send_log_message(
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
             level="info",
             data="notification3",
             logger="multi_notif_tool",
@@ -344,13 +356,13 @@ async def running_app(
         yield app
 
 
-def make_client(app: Starlette, headers: dict[str, str] | None = None) -> httpx.AsyncClient:
-    """An httpx client served in process by `app`, with create_mcp_http_client's redirect default.
+def make_client(app: Starlette, headers: dict[str, str] | None = None) -> httpx2.AsyncClient:
+    """An httpx2 client served in process by `app`, with create_mcp_http_client's redirect default.
 
     (Starlette's Mount 307-redirects the bare /mcp path to /mcp/, which the SDK's own client
     factory follows.)
     """
-    return httpx.AsyncClient(
+    return httpx2.AsyncClient(
         transport=StreamingASGITransport(app), base_url=BASE_URL, headers=headers, follow_redirects=True
     )
 
@@ -388,7 +400,7 @@ async def event_app(event_store: SimpleEventStore) -> AsyncIterator[tuple[Simple
 async def test_accept_header_validation(basic_app: Starlette) -> None:
     """A POST without an Accept header is rejected with 406."""
     async with make_client(basic_app) as client:
-        # Suppress the httpx client default Accept: */* header
+        # Suppress the httpx2 client default Accept: */* header
         del client.headers["accept"]
         response = await client.post(
             "/mcp",
@@ -704,7 +716,7 @@ async def test_json_response_accept_json_only(json_app: Starlette) -> None:
 async def test_json_response_missing_accept_header(json_app: Starlette) -> None:
     """JSON response mode still rejects requests without an Accept header."""
     async with make_client(json_app) as client:
-        # Suppress the httpx client default Accept: */* header
+        # Suppress the httpx2 client default Accept: */* header
         del client.headers["accept"]
         response = await client.post(
             "/mcp",
@@ -817,7 +829,7 @@ async def test_get_validation(basic_app: Starlette) -> None:
         assert session_id is not None
         negotiated_version = extract_protocol_version_from_sse(init_response)
 
-        # Test without Accept header (suppress the httpx client default Accept: */*)
+        # Test without Accept header (suppress the httpx2 client default Accept: */*)
         del client.headers["accept"]
         response = await client.get(
             "/mcp",
@@ -987,16 +999,16 @@ async def test_streamable_http_client_get_stream(basic_app: Starlette) -> None:
         assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
 
 
-def create_session_id_capturing_client(app: Starlette) -> tuple[httpx.AsyncClient, list[str]]:
-    """Create an in-process httpx client that captures the session ID from responses."""
+def create_session_id_capturing_client(app: Starlette) -> tuple[httpx2.AsyncClient, list[str]]:
+    """Create an in-process httpx2 client that captures the session ID from responses."""
     captured_ids: list[str] = []
 
-    async def capture_session_id(response: httpx.Response) -> None:
+    async def capture_session_id(response: httpx2.Response) -> None:
         session_id = response.headers.get(MCP_SESSION_ID_HEADER)
         if session_id:
             captured_ids.append(session_id)
 
-    client = httpx.AsyncClient(
+    client = httpx2.AsyncClient(
         transport=StreamingASGITransport(app),
         base_url=BASE_URL,
         follow_redirects=True,
@@ -1008,7 +1020,7 @@ def create_session_id_capturing_client(app: Starlette) -> tuple[httpx.AsyncClien
 @pytest.mark.anyio
 async def test_streamable_http_client_session_termination(basic_app: Starlette) -> None:
     """After the client terminates its session on close, a new connection with that session ID fails."""
-    # Use httpx client with event hooks to capture session ID
+    # Use httpx2 client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(basic_app)
 
     async with httpx_client:
@@ -1036,8 +1048,10 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
+                assert exc_info.value.error.code == INVALID_REQUEST
+                assert "terminated" in exc_info.value.error.message.lower()
 
 
 @pytest.mark.anyio
@@ -1046,19 +1060,19 @@ async def test_streamable_http_client_session_termination_204(
 ) -> None:
     """Session termination also succeeds when the server answers the DELETE with 204.
 
-    This test patches the httpx client to return a 204 response for DELETEs.
+    This test patches the httpx2 client to return a 204 response for DELETEs.
     """
 
     # Save the original delete method to restore later
-    original_delete = httpx.AsyncClient.delete
+    original_delete = httpx2.AsyncClient.delete
 
     # Mock the client's delete method to return a 204
-    async def mock_delete(self: httpx.AsyncClient, *args: Any, **kwargs: Any) -> httpx.Response:
+    async def mock_delete(self: httpx2.AsyncClient, *args: Any, **kwargs: Any) -> httpx2.Response:
         # Call the original method to get the real response
         response = await original_delete(self, *args, **kwargs)
 
         # Create a new response with 204 status code but same headers
-        mocked_response = httpx.Response(
+        mocked_response = httpx2.Response(
             204,
             headers=response.headers,
             content=response.content,
@@ -1066,10 +1080,10 @@ async def test_streamable_http_client_session_termination_204(
         )
         return mocked_response
 
-    # Apply the patch to the httpx client
-    monkeypatch.setattr(httpx.AsyncClient, "delete", mock_delete)
+    # Apply the patch to the httpx2 client
+    monkeypatch.setattr(httpx2.AsyncClient, "delete", mock_delete)
 
-    # Use httpx client with event hooks to capture session ID
+    # Use httpx2 client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(basic_app)
 
     async with httpx_client:
@@ -1097,8 +1111,10 @@ async def test_streamable_http_client_session_termination_204(
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
+                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
+                assert exc_info.value.error.code == INVALID_REQUEST
+                assert "terminated" in exc_info.value.error.message.lower()
 
 
 @pytest.mark.anyio
@@ -1127,7 +1143,7 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
         captured_resumption_token = token
         resumption_token_received.set()
 
-    # Use httpx client with event hooks to capture session ID
+    # Use httpx2 client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client(app)
 
     # First, start the client session and begin the tool that waits on lock
@@ -1187,6 +1203,8 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
                     # Kill the client session while tool is waiting on lock
                     tg.cancel_scope.cancel()
 
+    await resync_tracer()
+
     async with make_client(app, headers=headers) as httpx_client2:
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client2) as (
             read_stream,
@@ -1229,7 +1247,7 @@ async def test_streamablehttp_server_sampling(basic_app: Starlette) -> None:
 
     # Define sampling callback that returns a mock response
     async def sampling_callback(
-        context: RequestContext[ClientSession],
+        context: ClientRequestContext,
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult:
         nonlocal sampling_callback_invoked, captured_message_params
@@ -1312,13 +1330,14 @@ async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolR
         "headers": dict(ctx.request.headers),
         "method": ctx.request.method,
         "path": ctx.request.url.path,
+        "protocol_version": ctx.protocol_version,
+        "session_protocol_version": ctx.session.protocol_version,
     }
     return CallToolResult(content=[TextContent(type="text", text=json.dumps(context_data))])
 
 
-@pytest.fixture
-async def context_app() -> AsyncIterator[Starlette]:
-    """An app whose server echoes request context, served in process."""
+@asynccontextmanager
+async def _run_context_app(*, stateless: bool) -> AsyncIterator[Starlette]:
     server = Server(
         "ContextAwareServer",
         on_list_tools=_handle_context_list_tools,
@@ -1326,11 +1345,57 @@ async def context_app() -> AsyncIterator[Starlette]:
     )
     session_manager = StreamableHTTPSessionManager(
         app=server,
+        stateless=stateless,
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
     app = Starlette(routes=[Mount("/mcp", app=session_manager.handle_request)])
     async with session_manager.run():
         yield app
+
+
+@pytest.fixture
+async def context_app() -> AsyncIterator[Starlette]:
+    """An app whose server echoes request context, served in process."""
+    async with _run_context_app(stateless=False) as app:
+        yield app
+
+
+@pytest.fixture
+async def stateless_context_app() -> AsyncIterator[Starlette]:
+    async with _run_context_app(stateless=True) as app:
+        yield app
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("header_value", "expected"),
+    [
+        ("2025-06-18", "2025-06-18"),
+        ("2025-11-25", "2025-11-25"),
+        (None, DEFAULT_NEGOTIATED_VERSION),
+    ],
+)
+async def test_streamablehttp_stateless_ctx_protocol_version_tracks_the_header(
+    stateless_context_app: Starlette, header_value: str | None, expected: str
+) -> None:
+    """No handshake on stateless: the header (or the spec's 2025-03-26 default) reaches `ctx.protocol_version`."""
+    body = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="tools/call",
+        params={"name": "echo_context", "arguments": {"request_id": "r"}},
+    )
+    headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+    if header_value is not None:
+        headers[MCP_PROTOCOL_VERSION_HEADER] = header_value
+    async with make_client(stateless_context_app) as client:
+        response = await client.post(
+            f"{BASE_URL}/mcp", json=body.model_dump(by_alias=True, exclude_none=True), headers=headers
+        )
+    assert response.status_code == 200
+    echoed = json.loads(first_sse_data(response)["result"]["content"][0]["text"])
+    assert echoed["protocol_version"] == expected
+    assert echoed["session_protocol_version"] == expected
 
 
 @pytest.mark.anyio
@@ -1445,7 +1510,8 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
         session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
         assert session_id is not None
 
-        # Test request with invalid protocol version (should fail)
+        # An unrecognised header value routes to the modern entry, where the
+        # validation ladder rejects an envelope-less body at rung 1.
         response = await client.post(
             "/mcp",
             headers={
@@ -1457,21 +1523,7 @@ async def test_server_validates_protocol_version_header(basic_app: Starlette) ->
             json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-2"},
         )
         assert response.status_code == 400
-        assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
-
-        # Test request with unsupported protocol version (should fail)
-        response = await client.post(
-            "/mcp",
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-                MCP_SESSION_ID_HEADER: session_id,
-                MCP_PROTOCOL_VERSION_HEADER: "1999-01-01",  # Very old unsupported version
-            },
-            json={"jsonrpc": "2.0", "method": "tools/list", "id": "test-3"},
-        )
-        assert response.status_code == 400
-        assert MCP_PROTOCOL_VERSION_HEADER in response.text or "protocol version" in response.text.lower()
+        assert response.json()["error"]["code"] == INVALID_PARAMS
 
         # Test request with valid protocol version (should succeed)
         negotiated_version = extract_protocol_version_from_sse(init_response)
@@ -1562,7 +1614,7 @@ async def test_handle_sse_event_skips_empty_data() -> None:
     transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
 
     # Create a mock SSE event with empty data (keep-alive ping)
-    mock_sse = ServerSentEvent(event="message", data="", id=None, retry=None)
+    mock_sse = ServerSentEvent(event="message", data="")
 
     # Create a context-aware stream writer (matches StreamWriter type alias)
     write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
@@ -1578,84 +1630,6 @@ async def test_handle_sse_event_skips_empty_data() -> None:
         with pytest.raises(TimeoutError):
             with anyio.fail_after(0):
                 await read_stream.receive()
-    finally:
-        await write_stream.aclose()
-        await read_stream.aclose()
-
-
-@pytest.mark.anyio
-async def test_priming_event_not_sent_for_old_protocol_version() -> None:
-    """_maybe_send_priming_event skips for old protocol versions (backwards compat)."""
-    # Create a transport with an event store
-    transport = StreamableHTTPServerTransport(
-        "/mcp",
-        event_store=SimpleEventStore(),
-    )
-
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
-
-    try:
-        # Call _maybe_send_priming_event with OLD protocol version - should NOT send
-        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-06-18")
-
-        # Nothing should have been written to the stream
-        assert write_stream.statistics().current_buffer_used == 0
-
-        # Now test with NEW protocol version - should send
-        await transport._maybe_send_priming_event("test-request-id-2", write_stream, "2025-11-25")
-
-        # Should have written a priming event
-        assert write_stream.statistics().current_buffer_used == 1
-    finally:
-        await write_stream.aclose()
-        await read_stream.aclose()
-
-
-@pytest.mark.anyio
-async def test_priming_event_not_sent_without_event_store() -> None:
-    """_maybe_send_priming_event returns early when no event_store is configured."""
-    # Create a transport WITHOUT an event store
-    transport = StreamableHTTPServerTransport("/mcp")
-
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
-
-    try:
-        # Call _maybe_send_priming_event - should return early without sending
-        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-11-25")
-
-        # Nothing should have been written to the stream
-        assert write_stream.statistics().current_buffer_used == 0
-    finally:
-        await write_stream.aclose()
-        await read_stream.aclose()
-
-
-@pytest.mark.anyio
-async def test_priming_event_includes_retry_interval() -> None:
-    """_maybe_send_priming_event includes the retry field when retry_interval is set."""
-    # Create a transport with an event store AND retry_interval
-    transport = StreamableHTTPServerTransport(
-        "/mcp",
-        event_store=SimpleEventStore(),
-        retry_interval=5000,
-    )
-
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
-
-    try:
-        # Call _maybe_send_priming_event with new protocol version
-        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-11-25")
-
-        # Should have written a priming event with retry field
-        assert write_stream.statistics().current_buffer_used == 1
-
-        # Read the event and verify it has retry field
-        event = await read_stream.receive()
-        assert "retry" in event
-        assert event["retry"] == 5000
     finally:
         await write_stream.aclose()
         await read_stream.aclose()
@@ -1691,6 +1665,63 @@ async def test_close_sse_stream_callback_not_provided_for_old_protocol_version()
     assert isinstance(session_msg_new.metadata, ServerMessageMetadata)
     assert session_msg_new.metadata.close_sse_stream is not None
     assert session_msg_new.metadata.close_standalone_sse_stream is not None
+
+
+@pytest.mark.anyio
+async def test_close_sse_stream_callback_not_provided_for_unknown_protocol_version() -> None:
+    """close_sse_stream callbacks are withheld when the client's version is unrecognized."""
+    transport = StreamableHTTPServerTransport(
+        "/mcp",
+        event_store=SimpleEventStore(),
+    )
+
+    mock_message = JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list")
+    mock_request = MagicMock()
+
+    session_msg = transport._create_session_message(mock_message, mock_request, "test-request-id", "zzz")
+
+    assert session_msg.metadata is not None
+    assert isinstance(session_msg.metadata, ServerMessageMetadata)
+    assert session_msg.metadata.close_sse_stream is None
+    assert session_msg.metadata.close_standalone_sse_stream is None
+
+
+@pytest.mark.anyio
+async def test_initialize_with_unknown_protocol_version_gets_no_priming_event(
+    event_app: tuple[SimpleEventStore, Starlette],
+) -> None:
+    """A garbage protocolVersion in initialize params must not trigger priming.
+
+    The priming decision reads the raw body params before any validation, so an
+    unrecognized string must gate conservatively (old-client behavior), not
+    compare lexicographically past "2025-11-25".
+    """
+    event_store, app = event_app
+    init_request = {
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test-client", "version": "1.0"},
+            "protocolVersion": "zzz",
+            "capabilities": {},
+        },
+        "id": "init-1",
+    }
+    async with make_client(app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=init_request,
+        )
+        assert response.status_code == 200
+
+    # The store must have seen traffic (the initialize response), but no
+    # priming event — priming events are stored with a None payload.
+    assert event_store._events
+    assert all(message is not None for _, _, message in event_store._events)
 
 
 @pytest.mark.anyio
@@ -1946,7 +1977,7 @@ async def test_streamable_http_multiple_reconnections() -> None:
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "multi_close_tool"
         for i, milestone in enumerate(milestones.values()):
-            await ctx.session.send_log_message(
+            await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
                 level="info",
                 data=f"checkpoint_{i}",
                 logger="multi_close_tool",
@@ -2050,7 +2081,7 @@ async def test_standalone_get_stream_reconnection(event_app: tuple[SimpleEventSt
 
 @pytest.mark.anyio
 async def test_streamable_http_client_does_not_mutate_provided_client(basic_app: Starlette) -> None:
-    """streamable_http_client does not mutate the provided httpx client's headers."""
+    """streamable_http_client does not mutate the provided httpx2 client's headers."""
     # Create a client with custom headers
     original_headers = {
         "X-Custom-Header": "custom-value",
@@ -2068,7 +2099,7 @@ async def test_streamable_http_client_does_not_mutate_provided_client(basic_app:
                 assert isinstance(result, InitializeResult)
 
         # Verify client headers were not mutated with MCP protocol headers
-        # If accept header exists, it should still be httpx default, not MCP's
+        # If accept header exists, it should still be httpx2 default, not MCP's
         if "accept" in custom_client.headers:  # pragma: no branch
             assert custom_client.headers.get("accept") == "*/*"
         # MCP content-type should not have been added
@@ -2081,8 +2112,8 @@ async def test_streamable_http_client_does_not_mutate_provided_client(basic_app:
 
 @pytest.mark.anyio
 async def test_streamable_http_client_mcp_headers_override_defaults(context_app: Starlette) -> None:
-    """MCP protocol headers override the httpx client's default headers in actual requests."""
-    # httpx.AsyncClient has default "accept: */*" header
+    """MCP protocol headers override the httpx2 client's default headers in actual requests."""
+    # httpx2.AsyncClient has default "accept: */*" header
     # We need to verify that our MCP accept header overrides it in actual requests
 
     async with make_client(context_app) as client:
@@ -2099,7 +2130,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults(context_app:
                 assert isinstance(tool_result.content[0], TextContent)
                 headers_data = json.loads(tool_result.content[0].text)
 
-                # Verify MCP protocol headers were sent (not httpx defaults)
+                # Verify MCP protocol headers were sent (not httpx2 defaults)
                 assert "accept" in headers_data
                 assert "application/json" in headers_data["accept"]
                 assert "text/event-stream" in headers_data["accept"]
@@ -2140,3 +2171,115 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(context_
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pytest.LogCaptureFixture) -> None:
+    """Standalone-stream teardown while the writer is parked in receive() logs no error (SDK-defined)."""
+    session_manager = StreamableHTTPSessionManager(
+        app=_create_server(),
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    app = Starlette(routes=[Mount("/mcp", app=session_manager.handle_request)])
+    notified = anyio.Event()
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        # Only the standalone-stream notification is teed to the handler here.
+        assert isinstance(message, types.ResourceUpdatedNotification)
+        notified.set()
+
+    async with session_manager.run():
+        async with (
+            make_client(app) as http_client,
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream, message_handler=message_handler) as session,
+        ):
+            await session.initialize()
+            # A notification with no related request rides the GET stream, proving the writer is live.
+            await session.call_tool("test_tool_with_standalone_notification", {})
+            with anyio.fail_after(5):
+                await notified.wait()
+            # Tear the standalone stream down while the writer is parked on it.
+            (transport,) = session_manager._server_instances.values()  # pyright: ignore[reportPrivateUsage]
+            await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+    assert "Error in standalone SSE writer" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Teardown landing while the standalone writer is between dequeues logs no error.
+
+    SDK-defined: after teardown the writer's next dequeue hits its own closed stream — expected
+    disconnect noise. The public surface cannot force this window (the in-process client consumes
+    SSE without backpressure), so the test drives the transport's ASGI entry point with a gated `send`.
+    """
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+    # The GET handler only checks that a read-stream writer exists; it is never written to.
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
+
+    stream_registered = anyio.Event()
+
+    class SignalingStreams(
+        dict[types.RequestId, tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]]]
+    ):
+        # Only the GET handler inserts here, so any insert is the standalone stream registration.
+        def __setitem__(
+            self,
+            key: types.RequestId,
+            value: tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]],
+        ) -> None:
+            super().__setitem__(key, value)
+            stream_registered.set()
+
+    transport._request_streams = SignalingStreams()  # pyright: ignore[reportPrivateUsage]
+
+    gate = anyio.Event()
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+        await gate.wait()
+
+    # Never delivers anything, parking the response's disconnect listener.
+    disconnect_send, disconnect_receive = anyio.create_memory_object_stream[Message](0)
+
+    async def asgi_receive() -> Message:
+        return await disconnect_receive.receive()
+
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [(b"accept", b"text/event-stream")],
+    }
+    notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+
+    async with read_stream_writer, read_stream, disconnect_send, disconnect_receive:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(transport.handle_request, scope, asgi_receive, asgi_send)
+                await stream_registered.wait()
+                standalone_send = transport._request_streams[GET_STREAM_KEY][0]  # pyright: ignore[reportPrivateUsage]
+                # Zero-buffer rendezvous: once send() returns, the writer has dequeued the event
+                # and is blocked forwarding it past the closed gate — the between-dequeues window.
+                await standalone_send.send(EventMessage(notification))
+                await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+                # Unblock the response; the writer's next dequeue hits its closed stream.
+                gate.set()
+
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 200
+    body_chunks = [message for message in sent if message["type"] == "http.response.body"]
+    assert b"notifications/initialized" in body_chunks[0]["body"]
+    assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+    assert "Error in standalone SSE writer" not in caplog.text
+    assert "Error in standalone SSE response" not in caplog.text

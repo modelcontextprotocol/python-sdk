@@ -5,13 +5,7 @@ from typing import Annotated, Literal
 
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel, Field
-
-from mcp import MCPError
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp.shared.exceptions import UrlElicitationRequiredError
-from mcp.types import (
+from mcp_types import (
     URL_ELICITATION_REQUIRED,
     CallToolResult,
     ElicitRequestURLParams,
@@ -20,6 +14,13 @@ from mcp.types import (
     LoggingMessageNotificationParams,
     TextContent,
 )
+from pydantic import BaseModel, Field
+
+from mcp import MCPError
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.shared.exceptions import UrlElicitationRequiredError
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -28,7 +29,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content(connect: Connect) -> None:
+async def test_call_tool_returns_text_content(connect: Connect, unstamped: Unstamp) -> None:
     """Arguments reach the tool function; its return value comes back as text content.
 
     MCPServer also derives an output schema from the return annotation and attaches the
@@ -43,11 +44,15 @@ async def test_call_tool_returns_text_content(connect: Connect) -> None:
     async with connect(mcp) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"})
+    )
 
 
 @requirement("mcpserver:tool:schema-variants")
-async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool_runs(connect: Connect) -> None:
+async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool_runs(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Literal, nested-model, and constrained parameters are validated and coerced from the wire arguments.
 
     The string "3" is coerced to `int` and the `point` dict to a `Point` instance before the function
@@ -67,7 +72,7 @@ async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool
     async with connect(mcp) as client:
         result = await client.call_tool("place", {"mode": "fast", "point": {"x": "3", "y": 4}, "count": 5})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="fast at (3, 4) x5")], structured_content={"result": "fast at (3, 4) x5"}
         )
@@ -76,7 +81,7 @@ async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool
 
 @requirement("mcpserver:tool:handler-throws")
 @requirement("mcpserver:output-schema:skip-on-error")
-async def test_call_tool_function_exception_becomes_error_result(connect: Connect) -> None:
+async def test_call_tool_function_exception_becomes_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """An exception raised by a tool function is returned as an is_error result, not a JSON-RPC error.
 
     The function's `-> str` annotation gives the tool a derived output schema, but the error
@@ -92,13 +97,13 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
     async with connect(mcp) as client:
         result = await client.call_tool("explode", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="Error executing tool explode: boom")], is_error=True)
     )
 
 
 @requirement("mcpserver:tool:handler-throws")
-async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> None:
+async def test_call_tool_tool_error_becomes_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """A ToolError raised by a tool function is returned as an is_error result, not a JSON-RPC error."""
     mcp = MCPServer("errors")
 
@@ -109,13 +114,13 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> No
     async with connect(mcp) as client:
         result = await client.call_tool("flux", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="Error executing tool flux: flux capacitor offline")], is_error=True)
     )
 
 
 @requirement("mcpserver:tool:unknown-name")
-async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> None:
+async def test_call_tool_unknown_name_returns_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """Calling a tool name that was never registered is reported as an is_error result.
 
     The spec classifies unknown tools as a protocol error; see the divergence note on the
@@ -130,12 +135,14 @@ async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> 
     async with connect(mcp) as client:
         result = await client.call_tool("nope", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True)
+    )
 
 
 @requirement("mcpserver:tool:output-schema:model")
 @requirement("tools:call:structured-content:text-mirror")
-async def test_call_tool_model_return_becomes_structured_content(connect: Connect) -> None:
+async def test_call_tool_model_return_becomes_structured_content(connect: Connect, unstamped: Unstamp) -> None:
     """A tool returning a pydantic model advertises the model's schema as the tool's output schema
     and returns the model's fields as structured content alongside a serialised text block.
     """
@@ -164,7 +171,7 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
             "type": "object",
         }
     )
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[
                 TextContent(
@@ -182,7 +189,7 @@ async def test_call_tool_model_return_becomes_structured_content(connect: Connec
 
 
 @requirement("mcpserver:tool:output-schema:wrapped")
-async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) -> None:
+async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect, unstamped: Unstamp) -> None:
     """A tool returning a list wraps the value under a "result" key in both the generated output
     schema and the structured content.
     """
@@ -204,7 +211,7 @@ async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) 
             "type": "object",
         }
     )
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="2"), TextContent(text="3"), TextContent(text="5")],
             structured_content={"result": [2, 3, 5]},
@@ -279,7 +286,9 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
 
 
 @requirement("mcpserver:tool:duplicate-name")
-async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(connect: Connect) -> None:
+async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Registering a second tool with an already-used name keeps the first registration.
 
     The intended behaviour is rejection at registration time; MCPServer instead logs a warning
@@ -304,14 +313,14 @@ async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(conne
         result = await client.call_tool("echo", {})
 
     assert [tool.name for tool in listed.tools] == ["echo"]
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="first")], structured_content={"result": "first"})
     )
 
 
 @requirement("mcpserver:tool:naming-validation")
 async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_reject(
-    connect: Connect, caplog: pytest.LogCaptureFixture
+    connect: Connect, caplog: pytest.LogCaptureFixture, unstamped: Unstamp
 ) -> None:
     """A tool name that violates the SEP-986 rules logs a warning at registration but is still registered.
 
@@ -340,7 +349,9 @@ async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_re
         result = await client.call_tool("bad name!", {})
 
     assert [tool.name for tool in listed.tools] == ["bad name!"]
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"})
+    )
 
 
 @requirement("mcpserver:tool:url-elicitation-error")
@@ -414,7 +425,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
     async def grow(ctx: Context) -> str:
         mcp.add_tool(extra, name="extra")
         mcp.remove_tool("doomed")
-        await ctx.info("tool set changed")
+        await ctx.info("tool set changed")  # pyright: ignore[reportDeprecated]
         return "mutated"
 
     async def collect(message: IncomingMessage) -> None:

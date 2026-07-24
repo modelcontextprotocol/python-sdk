@@ -1,12 +1,12 @@
 """Integration tests for title field functionality."""
 
 import pytest
+from mcp_types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
 
 from mcp import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.resources import FunctionResource
 from mcp.shared.metadata_utils import get_display_name
-from mcp.types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
 
 
 @pytest.mark.anyio
@@ -25,12 +25,12 @@ async def test_server_name_title_description_version():
 
     # Start server and connect client
     async with Client(mcp) as client:
-        # Access initialization result from session
-        init_result = await client.session.initialize()
-        assert init_result.server_info.name == "TestServer"
-        assert init_result.server_info.title == "Test Server Title"
-        assert init_result.server_info.description == "This is a test server description."
-        assert init_result.server_info.version == "1.0"
+        server_info = client.server_info
+        assert server_info is not None
+        assert server_info.name == "TestServer"
+        assert server_info.title == "Test Server Title"
+        assert server_info.description == "This is a test server description."
+        assert server_info.version == "1.0"
 
 
 @pytest.mark.anyio

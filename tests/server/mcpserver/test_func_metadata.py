@@ -10,11 +10,11 @@ from typing import Annotated, Any, Final, NamedTuple, TypedDict
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
+from mcp_types import CallToolResult, InputRequiredResult
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
-from mcp.types import CallToolResult
 
 
 class SomeInputModelA(BaseModel):
@@ -153,6 +153,28 @@ async def test_complex_function_runtime_arg_validation_with_json():
         arguments_to_pass_directly=None,
     )
     assert result == "ok!"
+
+
+@pytest.mark.anyio
+async def test_call_fn_does_not_mutate_pre_validated():
+    """A caller-provided `pre_validated` dict must not be mutated by the call."""
+
+    def fn(x: int, ctx: str) -> str:
+        return f"{x}:{ctx}"
+
+    meta = func_metadata(fn, skip_names=["ctx"])
+    pre_validated = meta.validate_arguments({"x": 1})
+    snapshot = dict(pre_validated)
+
+    result = await meta.call_fn_with_arg_validation(
+        fn,
+        fn_is_async=False,
+        arguments_to_validate={"x": 1},
+        arguments_to_pass_directly={"ctx": "injected"},
+        pre_validated=pre_validated,
+    )
+    assert result == "1:injected"
+    assert pre_validated == snapshot  # `ctx` was not leaked into the caller's dict
 
 
 def test_str_vs_list_str():
@@ -862,6 +884,29 @@ def test_tool_call_result_annotated_is_structured_and_converted():
     assert isinstance(meta.convert_result(func_returning_annotated_tool_call_result()), CallToolResult)
 
 
+def test_tool_call_result_annotated_unioned_with_input_required_result_is_equivalent_to_the_bare_annotated_form():
+    """Stripping `InputRequiredResult` makes the residual behave exactly as if it were the
+    declared return annotation, including the `Annotated[CallToolResult, Model]` special case
+    — the schema derives from `Model` and `convert_result` validates `structured_content`
+    against it instead of wrapping the whole `CallToolResult`."""
+
+    class PersonClass(BaseModel):
+        name: str
+
+    def fn_bare() -> Annotated[CallToolResult, PersonClass]:
+        return CallToolResult(content=[], structured_content={"name": "Brandon"})
+
+    def fn_iir() -> Annotated[CallToolResult, PersonClass] | InputRequiredResult:
+        return CallToolResult(content=[], structured_content={"name": "Brandon"})
+
+    bare = func_metadata(fn_bare)
+    iir = func_metadata(fn_iir)
+    assert iir.output_schema == bare.output_schema
+    assert iir.wrap_output == bare.wrap_output
+    assert isinstance(bare.convert_result(fn_bare()), CallToolResult)
+    assert isinstance(iir.convert_result(fn_iir()), CallToolResult)
+
+
 def test_tool_call_result_annotated_is_structured_and_invalid():
     class PersonClass(BaseModel):
         name: str
@@ -1038,7 +1083,10 @@ def test_structured_output_aliases():
 
     # Check that the actual output uses aliases too
     result = ModelWithAliases(**{"first": "hello", "second": "world"})
-    _, structured_content = meta.convert_result(result)
+    converted = meta.convert_result(result)
+    assert isinstance(converted, CallToolResult)
+    structured_content = converted.structured_content
+    assert structured_content is not None
 
     # The structured content should use aliases to match the schema
     assert "first" in structured_content
@@ -1050,7 +1098,10 @@ def test_structured_output_aliases():
 
     # Also test the case where we have a model with defaults to ensure aliases work in all cases
     result_with_defaults = ModelWithAliases()  # Uses default None values
-    _, structured_content_defaults = meta.convert_result(result_with_defaults)
+    converted_defaults = meta.convert_result(result_with_defaults)
+    assert isinstance(converted_defaults, CallToolResult)
+    structured_content_defaults = converted_defaults.structured_content
+    assert structured_content_defaults is not None
 
     # Even with defaults, should use aliases in output
     assert "first" in structured_content_defaults
@@ -1189,3 +1240,71 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def test_convert_result_passes_input_required_result_through_unchanged():
+    def fn() -> str | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    irr = InputRequiredResult(request_state="opaque")
+    assert meta.convert_result(irr) is irr
+
+
+def test_input_required_result_return_annotation_yields_no_output_schema():
+    def fn() -> InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None
+    assert meta.output_model is None
+
+
+def test_union_with_input_required_result_derives_schema_from_residual_arm():
+    def fn() -> str | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is not None
+    assert meta.output_schema["properties"]["result"]["type"] == "string"
+    converted = meta.convert_result("hello")
+    assert isinstance(converted, CallToolResult)
+    assert converted.structured_content == {"result": "hello"}
+    irr = InputRequiredResult(request_state="opaque")
+    assert meta.convert_result(irr) is irr
+
+
+def test_call_tool_result_unioned_with_input_required_result_is_accepted():
+    def fn() -> CallToolResult | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None
+
+
+def test_basemodel_union_input_required_result_derives_model_schema():
+    class Payload(BaseModel):
+        x: int
+
+    def fn() -> Payload | InputRequiredResult: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_model is Payload
+    assert meta.wrap_output is False
+    assert meta.output_schema == Payload.model_json_schema()
+
+
+def test_call_tool_result_in_union_with_input_required_result_is_still_rejected():
+    def fn() -> CallToolResult | str | InputRequiredResult: ...  # pragma: no branch
+
+    with pytest.raises(InvalidSignature, match="CallToolResult cannot be used in Union"):
+        func_metadata(fn)
+
+
+def test_union_of_only_input_required_subclasses_yields_no_output_schema():
+    class StepA(InputRequiredResult):
+        pass
+
+    class StepB(InputRequiredResult):
+        pass
+
+    def fn() -> StepA | StepB: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    assert meta.output_schema is None

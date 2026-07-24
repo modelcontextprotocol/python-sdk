@@ -9,14 +9,15 @@ travels on -- that the SDK client never exposes. Transport-agnostic behaviour is
 import anyio
 import pytest
 from anyio.lowlevel import checkpoint
-from httpx_sse import ServerSentEvent, aconnect_sse
+from httpx2 import ServerSentEvent
 from inline_snapshot import snapshot
-
-from mcp.server import Server, ServerRequestContext
-from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import (
+from mcp_types import (
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     INVALID_PARAMS,
     PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     CallToolRequestParams,
     CallToolResult,
     EmptyResult,
@@ -31,6 +32,10 @@ from mcp.types import (
     SubscribeRequestParams,
     TextContent,
 )
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+
+from mcp.server import Server, ServerRequestContext
+from mcp.server.transport_security import TransportSecuritySettings
 from tests.interaction._connect import (
     base_headers,
     initialize_body,
@@ -52,7 +57,7 @@ def _server() -> Server:
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         assert params.name == "narrate"
-        await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)
+        await ctx.session.send_log_message(level="info", data="related", logger=None, related_request_id=ctx.request_id)  # pyright: ignore[reportDeprecated]
         await ctx.session.send_resource_updated("file:///watched.txt")
         return CallToolResult(content=[TextContent(text="done")])
 
@@ -68,7 +73,7 @@ def _server() -> Server:
         """Registered so the resources subscribe sub-capability is advertised; the client never subscribes."""
         raise NotImplementedError
 
-    return Server(
+    return Server(  # pyright: ignore[reportDeprecated]
         "hosted",
         on_list_tools=list_tools,
         on_call_tool=call_tool,
@@ -155,7 +160,12 @@ async def test_malformed_and_batched_bodies_return_400() -> None:
 @requirement("hosting:http:protocol-version-400")
 @requirement("hosting:http:protocol-version-default")
 async def test_protocol_version_header_is_validated() -> None:
-    """An unsupported MCP-Protocol-Version header returns 400; an absent header is accepted as the default."""
+    """An unsupported MCP-Protocol-Version header returns 400; an absent header is accepted as the default.
+
+    An unrecognised header value routes to the modern entry (which owns rejection of unknown
+    versions), and a request without the per-request envelope is rejected at the first ladder
+    rung. Only known initialize-handshake versions and an absent header reach the legacy path.
+    """
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
 
@@ -172,11 +182,38 @@ async def test_protocol_version_header_is_validated() -> None:
         )
 
     assert bad.status_code == 400
-    assert JSONRPCError.model_validate_json(bad.text).error.message.startswith(
-        "Bad Request: Unsupported protocol version: 1991-01-01."
-    )
+    assert JSONRPCError.model_validate_json(bad.text).error.code == INVALID_PARAMS
     # 202 proves the request was accepted under the assumed default version (2025-03-26).
     assert defaulted.status_code == 202
+
+
+@requirement("hosting:http:protocol-version-rejection-literal")
+async def test_unsupported_protocol_version_rejection_body_contains_the_sniffed_literal() -> None:
+    """The 400 body for an unsupported MCP-Protocol-Version contains the substring peer SDKs sniff.
+
+    SDK-defined: other SDKs detect this rejection by substring-matching ``Unsupported protocol
+    version`` in the response body, so the literal must survive any rewording of the surrounding
+    message. The unsupported value must appear in both the header and the envelope so the
+    classifier reaches its version-supported rung rather than reporting a header mismatch first.
+    """
+    bad = "1991-01-01"
+    meta = {
+        PROTOCOL_VERSION_META_KEY: bad,
+        CLIENT_INFO_META_KEY: {"name": "t", "version": "0"},
+        CLIENT_CAPABILITIES_META_KEY: {},
+    }
+    async with mounted_app(_server()) as (http, _):
+        response = await http.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"_meta": meta}},
+            headers=base_headers() | {"mcp-protocol-version": bad, "mcp-method": "tools/list"},
+        )
+
+    assert response.status_code == 400
+    error = JSONRPCError.model_validate_json(response.text).error
+    assert error.code == UNSUPPORTED_PROTOCOL_VERSION
+    assert "Unsupported protocol version" in response.text
+    assert error.data == {"supported": list(MODERN_PROTOCOL_VERSIONS), "requested": bad}
 
 
 @requirement("hosting:http:json-response-mode")
@@ -223,7 +260,7 @@ async def test_a_second_standalone_get_stream_on_the_same_session_returns_409() 
     async with mounted_app(_server()) as (http, _):
         session_id = await initialize_via_http(http)
 
-        async with aconnect_sse(http, "GET", "/mcp", headers=base_headers(session_id=session_id)) as first:
+        async with http.sse("/mcp", headers=base_headers(session_id=session_id)) as first:
             assert first.response.status_code == 200
             # The standalone-stream writer registers its key as its first action, then parks
             # awaiting messages; one yield to the loop lets that registration complete before the
@@ -259,10 +296,10 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
         get_events: list[ServerSentEvent] = []
 
         async def read_standalone_stream() -> None:
-            async with aconnect_sse(http, "GET", "/mcp", headers=base_headers(session_id=session_id)) as get:
+            async with http.sse("/mcp", headers=base_headers(session_id=session_id)) as get:
                 assert get.response.status_code == 200
                 standalone_ready.set()
-                async for event in get.aiter_sse():
+                async for event in get:
                     get_events.append(event)
                     seen_on_standalone.set()
 
@@ -275,16 +312,15 @@ async def test_messages_are_routed_to_exactly_one_stream() -> None:
 
                 params = CallToolRequestParams(name="narrate", arguments={})
                 body = JSONRPCRequest(jsonrpc="2.0", id=5, method="tools/call", params=params.model_dump())
-                async with aconnect_sse(
-                    http,
-                    "POST",
+                async with http.sse(
                     "/mcp",
+                    method="POST",
                     json=body.model_dump(by_alias=True, exclude_none=True),
                     headers=base_headers(session_id=session_id),
                 ) as post:
                     assert post.response.status_code == 200
                     # The POST stream iterator ends when the server closes the stream after the response.
-                    post_events = [event async for event in post.aiter_sse()]
+                    post_events = [event async for event in post]
 
                 await seen_on_standalone.wait()
                 tg.cancel_scope.cancel()
@@ -323,11 +359,14 @@ async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> No
             "/mcp", json=initialize_body(), headers=base_headers() | {"origin": "http://evil.example"}
         )
         bad_host = await http.post("/mcp", json=initialize_body(), headers=base_headers() | {"host": "evil.example"})
-        async with aconnect_sse(
-            http, "POST", "/mcp", json=initialize_body(), headers=base_headers() | {"origin": "http://127.0.0.1:8000"}
+        async with http.sse(
+            "/mcp",
+            method="POST",
+            json=initialize_body(),
+            headers=base_headers() | {"origin": "http://127.0.0.1:8000"},
         ) as ok:
             assert ok.response.status_code == 200
-            assert [event async for event in ok.aiter_sse()]
+            assert [event async for event in ok]
 
     assert (bad_origin.status_code, bad_origin.text) == snapshot((403, "Invalid Origin header"))
     assert (bad_host.status_code, bad_host.text) == snapshot((421, "Invalid Host header"))
@@ -335,10 +374,10 @@ async def test_origin_validation_rejects_disallowed_origins_when_enabled() -> No
     async with mounted_app(
         Server("unguarded"), transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     ) as (http, _):
-        async with aconnect_sse(
-            http, "POST", "/mcp", json=initialize_body(), headers=base_headers() | {"origin": "http://evil.example"}
+        async with http.sse(
+            "/mcp", method="POST", json=initialize_body(), headers=base_headers() | {"origin": "http://evil.example"}
         ) as unguarded:
             status = unguarded.response.status_code
-            assert [event async for event in unguarded.aiter_sse()]
+            assert [event async for event in unguarded]
 
     assert status == 200

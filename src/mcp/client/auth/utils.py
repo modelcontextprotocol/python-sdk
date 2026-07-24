@@ -1,11 +1,11 @@
 import re
 from urllib.parse import urljoin, urlparse
 
-from httpx import Request, Response
+from httpx2 import Request, Response
+from mcp_types import LATEST_PROTOCOL_VERSION
 from pydantic import AnyUrl, ValidationError
 
-from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
-from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -13,7 +13,7 @@ from mcp.shared.auth import (
     OAuthToken,
     ProtectedResourceMetadata,
 )
-from mcp.types import LATEST_PROTOCOL_VERSION
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
@@ -131,6 +131,28 @@ def get_client_metadata_scopes(
     return selected_scope
 
 
+def union_scopes(previous_scope: str | None, new_scope: str | None) -> str | None:
+    """Merge two space-delimited scope strings, preserving order and dropping duplicates.
+
+    SEP-2350: on step-up re-authorization the client requests the union of previously requested
+    scopes and the newly challenged scopes, so escalating one operation does not drop the
+    permissions granted for another. Previously requested scopes come first; new scopes are
+    appended in order.
+    """
+    if not previous_scope:
+        return new_scope
+    if not new_scope:
+        return previous_scope
+
+    merged = previous_scope.split()
+    seen = set(merged)
+    for scope in new_scope.split():
+        if scope not in seen:
+            merged.append(scope)
+            seen.add(scope)
+    return " ".join(merged)
+
+
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
     """Generate an ordered list of URLs for authorization server metadata discovery.
 
@@ -211,8 +233,47 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
     return True, None
 
 
+def validate_authorization_response_iss(iss: str | None, oauth_metadata: OAuthMetadata | None) -> None:
+    """Validate the RFC 9207 `iss` authorization-response parameter.
+
+    Per RFC 9207 section 2.4, the client compares `iss` against the issuer of the
+    authorization server the request was sent to, using simple string comparison
+    (RFC 3986 section 6.2.1, i.e. without URL normalization), and rejects on mismatch.
+    A response that omits `iss` is rejected only when the server advertised support via
+    `authorization_response_iss_parameter_supported`.
+
+    Raises:
+        OAuthFlowError: If `iss` is present and does not match, or is absent when the
+            authorization server advertised support.
+    """
+    expected = str(oauth_metadata.issuer) if oauth_metadata else None
+
+    if iss is not None:
+        if iss != expected:
+            raise OAuthFlowError(f"Authorization response iss mismatch: {iss} != {expected}")
+        return
+
+    if oauth_metadata is not None and oauth_metadata.authorization_response_iss_parameter_supported:
+        raise OAuthFlowError("Authorization response missing iss parameter advertised by the authorization server")
+
+
+def validate_metadata_issuer(oauth_metadata: OAuthMetadata, expected_issuer: str) -> None:
+    """Validate that authorization server metadata `issuer` matches the discovery issuer.
+
+    Per RFC 8414 section 3.3 / SEP-2468, the `issuer` in the metadata must match the issuer
+    used to construct the well-known URL, compared as a simple string (RFC 3986 section 6.2.1).
+
+    Raises:
+        OAuthFlowError: If the metadata issuer does not match `expected_issuer`.
+    """
+    if str(oauth_metadata.issuer) != expected_issuer:
+        raise OAuthFlowError(
+            f"Authorization server metadata issuer mismatch: {oauth_metadata.issuer} != {expected_issuer}"
+        )
+
+
 def create_oauth_metadata_request(url: str) -> Request:
-    return Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
+    return Request("GET", url, headers={MCP_PROTOCOL_VERSION_HEADER: LATEST_PROTOCOL_VERSION})
 
 
 def create_client_registration_request(
@@ -262,6 +323,26 @@ def is_valid_client_metadata_url(url: str | None) -> bool:
         return parsed.scheme == "https" and parsed.path not in ("", "/")
     except Exception:
         return False
+
+
+def credentials_match_issuer(
+    client_info: OAuthClientInformationFull, issuer: str, client_metadata_url: str | None
+) -> bool:
+    """Whether stored client credentials may be reused against `issuer` (SEP-2352).
+
+    A URL-based client ID (CIMD) is portable across authorization servers — the same self-hosted
+    document is resolved by whichever server is in use — so it always matches; CIMD is identified
+    by the client ID being the configured `client_metadata_url`, not by URL shape (a registration
+    server may also issue URL-shaped IDs that are bound to it). Credentials with a recorded issuer
+    match only when it equals `issuer` (simple string comparison). Credentials with no recorded
+    issuer (pre-registered, or stored before issuer binding existed) carry no binding to enforce
+    and are left as-is.
+    """
+    if client_metadata_url is not None and client_info.client_id == client_metadata_url:
+        return True
+    if client_info.issuer is None:
+        return True
+    return client_info.issuer == issuer
 
 
 def should_use_client_metadata_url(

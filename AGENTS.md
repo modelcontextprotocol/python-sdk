@@ -4,19 +4,25 @@
 
 <!-- TODO: drop this section once v2 ships and main becomes the stable line -->
 
-- `main` is currently the V2 rework. Breaking changes are expected here — when removing or
-  replacing an API, delete it outright and document the change in
-  `docs/migration.md`. Do not add `@deprecated` shims or backward-compat layers
-  on `main`.
+- `main` is currently the V2 rework.
+- Breaking changes are expected here — removing or replacing an API must be
+  intentional. Adding a replacement API or `@deprecated` shim must likewise be
+  a deliberate design choice, not bolted on for free.
+- Breaking changes (including those softened by a backwards-compatibility
+  shim) must be documented in `docs/migration.md`.
 - `v1.x` is the release branch for the current stable line. Backport PRs target
   this branch and use a `[v1.x]` title prefix.
-- `README.md` is frozen at v1 (a pre-commit hook rejects edits). Edit
-  `README.v2.md` instead.
+- `README.md` documents v2. The v1 README lives on the `v1.x` branch.
 
 ## Package Management
 
 - ONLY use uv, NEVER pip
-- Installation: `uv add <package>`
+- Installation: `uv add <package>`. Exception: the root project's runtime
+  dependencies are dynamic (the published `mcp` wheel exact-pins `mcp-types`),
+  so `uv add` cannot edit them — add the requirement to
+  `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies` in
+  `pyproject.toml` by hand, then run `uv lock`. Dependency groups, extras, and
+  the example packages still take plain `uv add`.
 - Running tools: `uv run --frozen <tool>`. Always pass `--frozen` so uv doesn't
   rewrite `uv.lock` as a side effect.
 - Cross-version testing: `uv run --frozen --python 3.10 pytest ...` to run
@@ -43,6 +49,8 @@
 
 ## Testing
 
+- When writing or reviewing tests, conform to `.claude/skills/test-quality/SKILL.md`
+  — it defines the bar for naming, abstraction level, assertions, and determinism.
 - Framework: `uv run --frozen pytest`
 - Async testing: use anyio, not asyncio
 - Do not use `Test` prefixed classes — write plain top-level `test_*` functions.
@@ -117,7 +125,8 @@ What the existing pragmas mean:
 
 ## Breaking Changes
 
-When making breaking changes, document them in `docs/migration.md`. Include:
+When making breaking changes, document them in `docs/migration.md` — including
+changes softened by a backwards-compatibility shim. Include:
 
 - What changed
 - Why it changed
@@ -125,6 +134,14 @@ When making breaking changes, document them in `docs/migration.md`. Include:
 
 Search for related sections in the migration guide and group related changes together
 rather than adding new standalone sections.
+
+## Documentation
+
+When a change affects public API or user-visible behaviour, update the relevant
+page(s) under `docs/` in the same PR. Docs are organised by the `nav:` sections
+in `mkdocs.yml` (Get started, Servers, Inside your handler, Running your server,
+Clients, Advanced), not by the on-disk directory names. Find the page covering
+the feature you touched in `mkdocs.yml` rather than adding a new one.
 
 ## Formatting & Type Checking
 

@@ -6,12 +6,17 @@ in the WWW-Authenticate header, the actual scope is used (not the resource_metad
 
 from unittest import mock
 
-import httpx
+import httpx2
 import pytest
 from pydantic import AnyUrl
 
 from mcp.client.auth import OAuthClientProvider
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import (
+    AuthorizationCodeResult,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthToken,
+)
 
 
 class MockTokenStorage:
@@ -48,8 +53,8 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     async def redirect_handler(url: str) -> None:
         pass  # pragma: no cover
 
-    async def callback_handler() -> tuple[str, str | None]:
-        return "test_auth_code", "test_state"  # pragma: no cover
+    async def callback_handler() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="test_auth_code", state="test_state")  # pragma: no cover
 
     client_metadata = OAuthClientMetadata(
         redirect_uris=[AnyUrl("http://localhost:3030/callback")],
@@ -74,7 +79,7 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
         redirect_uris=[AnyUrl("http://localhost:3030/callback")],
     )
 
-    test_request = httpx.Request("GET", "https://api.example.com/mcp")
+    test_request = httpx2.Request("GET", "https://api.example.com/mcp")
     auth_flow = provider.async_auth_flow(test_request)
 
     # First request (no auth header yet)
@@ -85,7 +90,7 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     resource_metadata_url = "https://api.example.com/.well-known/oauth-protected-resource"
     expected_scope = "read write"
 
-    response_401 = httpx.Response(
+    response_401 = httpx2.Response(
         401,
         headers={"WWW-Authenticate": (f'Bearer resource_metadata="{resource_metadata_url}", scope="{expected_scope}"')},
         request=test_request,
@@ -96,7 +101,7 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     assert ".well-known/oauth-protected-resource" in str(prm_request.url)
 
     # PRM response with scopes_supported (these should be overridden by WWW-Auth scope)
-    prm_response = httpx.Response(
+    prm_response = httpx2.Response(
         200,
         content=(
             b'{"resource": "https://api.example.com/mcp", '
@@ -111,7 +116,7 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     assert ".well-known/oauth-authorization-server" in str(oauth_metadata_request.url)
 
     # OAuth metadata response
-    oauth_metadata_response = httpx.Response(
+    oauth_metadata_response = httpx2.Response(
         200,
         content=(
             b'{"issuer": "https://auth.example.com", '
@@ -147,7 +152,7 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     )
 
     # Complete the flow to properly release the lock
-    token_response = httpx.Response(
+    token_response = httpx2.Response(
         200,
         content=b'{"access_token": "test_token", "token_type": "Bearer", "expires_in": 3600}',
         request=token_request,
@@ -157,7 +162,7 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     assert final_request.headers["Authorization"] == "Bearer test_token"
 
     # Finish the flow
-    final_response = httpx.Response(200, request=final_request)
+    final_response = httpx2.Response(200, request=final_request)
     try:
         await auth_flow.asend(final_response)
     except StopAsyncIteration:

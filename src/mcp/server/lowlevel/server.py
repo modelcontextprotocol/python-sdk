@@ -36,43 +36,72 @@ handler callables by method string.
 
 from __future__ import annotations
 
-import contextvars
+import copy
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from importlib.metadata import version as importlib_version
-from typing import Any, Generic, cast
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass
+from functools import cached_property
+from typing import Any, Generic, overload
 
-import anyio
-from opentelemetry.trace import SpanKind, StatusCode
+import mcp_types as types
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.routing import Mount, Route
-from typing_extensions import TypeVar
+from typing_extensions import TypeVar, deprecated
 
-from mcp import types
+from mcp.server._otel import OpenTelemetryMiddleware
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerRequestContext
+from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
+from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
-from mcp.server.session import ServerSession
+from mcp.server.runner import serve_dual_era_loop
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    StreamableHTTPASGIApp,
+    StreamableHTTPSessionManager,
+)
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.exceptions import MCPError
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared.exceptions import MCPDeprecationWarning
+from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
+
+_ParamsT = TypeVar("_ParamsT", bound=BaseModel, default=BaseModel)
+
+RequestHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[HandlerResult]]
+"""A registered request handler: `(ctx, params) -> result`."""
+
+NotificationHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[None]]
+"""A registered notification handler: `(ctx, params) -> None`."""
+
+
+@dataclass(frozen=True, slots=True)
+class HandlerEntry(Generic[LifespanResultT]):
+    """A registered handler and the params model to validate incoming params against.
+
+    Stored in `Server._request_handlers` / `_notification_handlers` and consumed
+    by `ServerRunner` to validate, build `Context`, and invoke. The handler's
+    second-argument type is erased to `Any` in storage (each entry has a
+    different concrete params type and `Callable` parameters are contravariant);
+    the precise type is recoverable via `params_type`. The correlation is
+    enforced at registration time by `Server.add_request_handler`.
+    """
+
+    params_type: type[BaseModel]
+    handler: RequestHandler[LifespanResultT, Any]
 
 
 class NotificationOptions:
@@ -83,7 +112,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
+async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
 
     Returns:
@@ -97,16 +126,18 @@ async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestPar
 
 
 class Server(Generic[LifespanResultT]):
+    @overload
     def __init__(
         self,
         name: str,
         *,
-        version: str | None = None,
+        version: str = "",
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -119,7 +150,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -134,7 +165,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_read_resource: Callable[
             [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
-            Awaitable[types.ReadResourceResult],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
         ]
         | None = None,
         on_subscribe_resource: Callable[
@@ -147,6 +178,11 @@ class Server(Generic[LifespanResultT]):
             Awaitable[types.EmptyResult],
         ]
         | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.SubscriptionsListenResult],
+        ]
+        | None = None,
         on_list_prompts: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListPromptsResult],
@@ -154,7 +190,90 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_get_prompt: Callable[
             [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
-            Awaitable[types.GetPromptResult],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_completion: Callable[
+            [ServerRequestContext[LifespanResultT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ]
+        | None = None,
+        on_ping: Callable[
+            [ServerRequestContext[LifespanResultT], types.RequestParams | None],
+            Awaitable[types.EmptyResult],
+        ] = _ping_handler,
+    ) -> None: ...
+    @overload
+    @deprecated(
+        "on_set_logging_level (Logging) and on_roots_list_changed (Roots) are deprecated as of 2026-07-28 "
+        "(SEP-2577); on_progress (client-to-server progress) is deprecated as of 2026-07-28. Passing any of "
+        "them emits an MCPDeprecationWarning at runtime.",
+        category=MCPDeprecationWarning,
+    )
+    def __init__(
+        self,
+        name: str,
+        *,
+        version: str = "",
+        title: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        lifespan: Callable[
+            [Server[LifespanResultT]],
+            AbstractAsyncContextManager[LifespanResultT],
+        ] = lifespan,
+        # Request handlers
+        on_list_tools: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ]
+        | None = None,
+        on_call_tool: Callable[
+            [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_list_resources: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ]
+        | None = None,
+        on_list_resource_templates: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ]
+        | None = None,
+        on_read_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_subscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_unsubscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.SubscriptionsListenResult],
+        ]
+        | None = None,
+        on_list_prompts: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ]
+        | None = None,
+        on_get_prompt: Callable[
+            [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
         ]
         | None = None,
         on_completion: Callable[
@@ -182,7 +301,118 @@ class Server(Generic[LifespanResultT]):
             Awaitable[None],
         ]
         | None = None,
-    ):
+    ) -> None: ...
+    def __init__(
+        self,
+        name: str,
+        *,
+        version: str = "",
+        title: str | None = None,
+        description: str | None = None,
+        instructions: str | None = None,
+        website_url: str | None = None,
+        icons: list[types.Icon] | None = None,
+        cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
+        lifespan: Callable[
+            [Server[LifespanResultT]],
+            AbstractAsyncContextManager[LifespanResultT],
+        ] = lifespan,
+        # Request handlers
+        on_list_tools: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ]
+        | None = None,
+        on_call_tool: Callable[
+            [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_list_resources: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ]
+        | None = None,
+        on_list_resource_templates: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ]
+        | None = None,
+        on_read_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_subscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_unsubscribe_resource: Callable[
+            [ServerRequestContext[LifespanResultT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_subscriptions_listen: Callable[
+            [ServerRequestContext[LifespanResultT], types.SubscriptionsListenRequestParams],
+            Awaitable[types.SubscriptionsListenResult],
+        ]
+        | None = None,
+        on_list_prompts: Callable[
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ]
+        | None = None,
+        on_get_prompt: Callable[
+            [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult | types.InputRequiredResult],
+        ]
+        | None = None,
+        on_completion: Callable[
+            [ServerRequestContext[LifespanResultT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ]
+        | None = None,
+        on_set_logging_level: Callable[
+            [ServerRequestContext[LifespanResultT], types.SetLevelRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_ping: Callable[
+            [ServerRequestContext[LifespanResultT], types.RequestParams | None],
+            Awaitable[types.EmptyResult],
+        ] = _ping_handler,
+        # Notification handlers
+        on_roots_list_changed: Callable[
+            [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
+            Awaitable[None],
+        ]
+        | None = None,
+        on_progress: Callable[
+            [ServerRequestContext[LifespanResultT], types.ProgressNotificationParams],
+            Awaitable[None],
+        ]
+        | None = None,
+    ) -> None:
+        if on_set_logging_level is not None:
+            warnings.warn(
+                "The logging capability is deprecated as of 2026-07-28 (SEP-2577).",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+        if on_roots_list_changed is not None:
+            warnings.warn(
+                "The roots capability is deprecated as of 2026-07-28 (SEP-2577).",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+        if on_progress is not None:
+            warnings.warn(
+                "Client-to-server progress is deprecated as of 2026-07-28.",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+
         self.name = name
         self.version = version
         self.title = title
@@ -190,56 +420,106 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
+        # Per-method `ttl_ms`/`cache_scope` fills, applied by `ServerRunner`
+        # after the handler returns; fields the handler set explicitly win.
+        self.cache_hints: dict[str, CacheHint] = validate_cache_hints(cache_hints)
         self.lifespan = lifespan
-        self._request_handlers: dict[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]] = {}
-        self._notification_handlers: dict[
-            str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
-        ] = {}
+        self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
+        self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._session_manager: StreamableHTTPSessionManager | None = None
+        # Context-tier middleware: wraps every inbound request (including
+        # `initialize`, lookup, validation, handler) with
+        # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
+        # `OpenTelemetryMiddleware` ships on by default so every server emits a
+        # SERVER span per message; it is a no-op until an OTel exporter is
+        # installed. Drop it from this list to opt out.
+        # TODO(L54): provisional - signature and semantics change with the
+        # Context/middleware rework (covariant `Context[L]`, outbound seam) before
+        # v2 final.
+        self.middleware: list[ServerMiddleware[LifespanResultT]] = [OpenTelemetryMiddleware()]
+        # SEP-2133 extension settings advertised under `ServerCapabilities.extensions`
+        # (identifier -> settings). Higher layers (e.g. `MCPServer(extensions=...)`)
+        # populate it; `get_capabilities` reads it when no explicit map is passed.
+        self.extensions: dict[str, dict[str, Any]] = {}
         logger.debug("Initializing server %r", name)
 
-        # Populate internal handler dicts from on_* kwargs
-        self._request_handlers.update(
-            {
-                method: handler
-                for method, handler in {
-                    "ping": on_ping,
-                    "prompts/list": on_list_prompts,
-                    "prompts/get": on_get_prompt,
-                    "resources/list": on_list_resources,
-                    "resources/templates/list": on_list_resource_templates,
-                    "resources/read": on_read_resource,
-                    "resources/subscribe": on_subscribe_resource,
-                    "resources/unsubscribe": on_unsubscribe_resource,
-                    "tools/list": on_list_tools,
-                    "tools/call": on_call_tool,
-                    "logging/setLevel": on_set_logging_level,
-                    "completion/complete": on_completion,
-                }.items()
-                if handler is not None
-            }
-        )
+        _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
+            ("ping", types.RequestParams, on_ping),
+            ("server/discover", types.RequestParams, self._handle_discover),
+            ("prompts/list", types.PaginatedRequestParams, on_list_prompts),
+            ("prompts/get", types.GetPromptRequestParams, on_get_prompt),
+            ("resources/list", types.PaginatedRequestParams, on_list_resources),
+            ("resources/templates/list", types.PaginatedRequestParams, on_list_resource_templates),
+            ("resources/read", types.ReadResourceRequestParams, on_read_resource),
+            ("resources/subscribe", types.SubscribeRequestParams, on_subscribe_resource),
+            ("resources/unsubscribe", types.UnsubscribeRequestParams, on_unsubscribe_resource),
+            ("subscriptions/listen", types.SubscriptionsListenRequestParams, on_subscriptions_listen),
+            ("tools/list", types.PaginatedRequestParams, on_list_tools),
+            ("tools/call", types.CallToolRequestParams, on_call_tool),
+            ("logging/setLevel", types.SetLevelRequestParams, on_set_logging_level),
+            ("completion/complete", types.CompleteRequestParams, on_completion),
+        ]
+        self._request_handlers.update({m: HandlerEntry(pt, h) for m, pt, h in _spec_requests if h is not None})
 
+        _spec_notifications: list[tuple[str, type[BaseModel], NotificationHandler[LifespanResultT, Any] | None]] = [
+            ("notifications/roots/list_changed", types.NotificationParams, on_roots_list_changed),
+            ("notifications/progress", types.ProgressNotificationParams, on_progress),
+        ]
         self._notification_handlers.update(
-            {
-                method: handler
-                for method, handler in {
-                    "notifications/roots/list_changed": on_roots_list_changed,
-                    "notifications/progress": on_progress,
-                }.items()
-                if handler is not None
-            }
+            {m: HandlerEntry(pt, h) for m, pt, h in _spec_notifications if h is not None}
         )
 
-    def _add_request_handler(
+    def add_request_handler(
         self,
         method: str,
-        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]],
+        params_type: type[_ParamsT],
+        handler: RequestHandler[LifespanResultT, _ParamsT],
     ) -> None:
-        """Add a request handler, silently replacing any existing handler for the same method."""
-        self._request_handlers[method] = handler
+        """Register a request handler for `method`.
 
-    # TODO: Rethink capabilities API. Currently capabilities are derived from registered
+        `params_type` is the model incoming params are validated against
+        before the handler is invoked. It should subclass `RequestParams` so
+        `_meta` parses uniformly. A message with no `params` member validates
+        `{}` against `params_type`: models with required fields reject it as
+        INVALID_PARAMS, all-optional models reach the handler with their
+        defaults - the handler never receives `None`. Replaces any existing
+        handler for the same method, except `initialize`, which is reserved:
+        the runner owns the handshake, so registering it raises `ValueError`.
+        Use `Server.middleware` to observe or wrap initialization.
+        """
+        if method == "initialize":
+            raise ValueError(
+                "'initialize' is handled by the server runner and cannot be overridden; "
+                "use Server.middleware to observe or wrap initialization"
+            )
+        self._request_handlers[method] = HandlerEntry(params_type, handler)
+
+    def add_notification_handler(
+        self,
+        method: str,
+        params_type: type[_ParamsT],
+        handler: NotificationHandler[LifespanResultT, _ParamsT],
+    ) -> None:
+        """Register a notification handler for `method`.
+
+        `params_type` should subclass `NotificationParams` so `_meta`
+        parses uniformly. Absent params follow the same contract as requests:
+        `{}` is validated, so the handler receives the model with its defaults,
+        never `None`. Replaces any existing handler. A handler for
+        `notifications/initialized` runs after the runner has marked the
+        connection initialized.
+        """
+        self._notification_handlers[method] = HandlerEntry(params_type, handler)
+
+    def get_request_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
+        """Return the registered entry for a request method, or `None`."""
+        return self._request_handlers.get(method)
+
+    def get_notification_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
+        """Return the registered entry for a notification method, or `None`."""
+        return self._notification_handlers.get(method)
+
+    # TODO(L53): Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
     # entirely from server state (e.g. constructor params for list_changed) instead of
@@ -248,25 +528,24 @@ class Server(Generic[LifespanResultT]):
         self,
         notification_options: NotificationOptions | None = None,
         experimental_capabilities: dict[str, dict[str, Any]] | None = None,
+        extensions: dict[str, dict[str, Any]] | None = None,
     ) -> InitializationOptions:
-        """Create initialization options from this server instance."""
+        """Create initialization options from this server instance.
 
-        def pkg_version(package: str) -> str:
-            try:
-                return importlib_version(package)
-            except Exception:  # pragma: no cover
-                pass
-
-            return "unknown"  # pragma: no cover
-
+        `extensions` advertises SEP-2133 extension support under
+        `ServerCapabilities.extensions`; keys are extension identifiers (e.g.
+        `io.modelcontextprotocol/ui`), values are per-extension settings.
+        Defaults to `self.extensions`, which higher layers populate.
+        """
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else pkg_version("mcp"),
+            server_version=self.version,
             title=self.title,
             description=self.description,
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},
+                extensions if extensions is not None else self.extensions,
             ),
             instructions=self.instructions,
             website_url=self.website_url,
@@ -275,30 +554,56 @@ class Server(Generic[LifespanResultT]):
 
     def get_capabilities(
         self,
-        notification_options: NotificationOptions,
-        experimental_capabilities: dict[str, dict[str, Any]],
+        notification_options: NotificationOptions | None = None,
+        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
+        extensions: dict[str, dict[str, Any]] | None = None,
+        *,
+        protocol_version: str | None = None,
     ) -> types.ServerCapabilities:
-        """Convert existing handlers to a ServerCapabilities object."""
+        """Convert existing handlers to a ServerCapabilities object.
+
+        `extensions` is the SEP-2133 extension map (identifier -> settings)
+        advertised under `ServerCapabilities.extensions`; it defaults to
+        `self.extensions`.
+
+        `protocol_version` makes the subscription-delivered bits era-honest:
+        at 2026-07-28+ versions, change notifications are delivered only on
+        `subscriptions/listen` streams, so the `listChanged` flags and
+        `resources.subscribe` derive from whether that method is served -
+        `notification_options` and the legacy `resources/subscribe` handler
+        (which the modern wire cannot dispatch) are ignored. When omitted, the
+        handshake-era derivation applies unchanged.
+        """
+        notification_options = notification_options or NotificationOptions()
         prompts_capability = None
         resources_capability = None
         tools_capability = None
         logging_capability = None
         completions_capability = None
 
+        if protocol_version in MODERN_PROTOCOL_VERSIONS:
+            listen_served = "subscriptions/listen" in self._request_handlers
+            prompts_changed = tools_changed = resources_changed = subscribe = listen_served
+        else:
+            prompts_changed = notification_options.prompts_changed
+            tools_changed = notification_options.tools_changed
+            resources_changed = notification_options.resources_changed
+            subscribe = "resources/subscribe" in self._request_handlers
+
         # Set prompt capabilities if handler exists
         if "prompts/list" in self._request_handlers:
-            prompts_capability = types.PromptsCapability(list_changed=notification_options.prompts_changed)
+            prompts_capability = types.PromptsCapability(list_changed=prompts_changed)
 
         # Set resource capabilities if handler exists
         if "resources/list" in self._request_handlers:
             resources_capability = types.ResourcesCapability(
-                subscribe="resources/subscribe" in self._request_handlers,
-                list_changed=notification_options.resources_changed,
+                subscribe=subscribe,
+                list_changed=resources_changed,
             )
 
         # Set tool capabilities if handler exists
         if "tools/list" in self._request_handlers:
-            tools_capability = types.ToolsCapability(list_changed=notification_options.tools_changed)
+            tools_capability = types.ToolsCapability(list_changed=tools_changed)
 
         # Set logging capabilities if handler exists
         if "logging/setLevel" in self._request_handlers:
@@ -314,9 +619,60 @@ class Server(Generic[LifespanResultT]):
             tools=tools_capability,
             logging=logging_capability,
             experimental=experimental_capabilities,
+            extensions=extensions if extensions is not None else (self.extensions or None),
             completions=completions_capability,
         )
         return capabilities
+
+    @property
+    def server_info(self) -> types.Implementation:
+        """The `serverInfo` block describing this implementation.
+
+        Derived from the constructor's identity fields. An unversioned server
+        reports an empty `version`; the SDK never substitutes its own.
+        """
+        return types.Implementation(
+            name=self.name,
+            version=self.version,
+            title=self.title,
+            description=self.description,
+            website_url=self.website_url,
+            icons=self.icons,
+        )
+
+    @cached_property
+    def _server_info_stamp_source(self) -> dict[str, Any]:
+        # Identity is fixed at construction, so the dump is computed once per
+        # server instead of per request. Never handed out directly: nested
+        # values (`icons`) would alias the cache into stamped responses.
+        return self.server_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+    @property
+    def server_info_stamp(self) -> dict[str, Any]:
+        """A fresh wire dump of `server_info`; callers own the returned dict.
+
+        Each access materializes a deep copy of the once-per-server dump, so
+        a caller mutating a stamped response can never corrupt the identity
+        stamped into later responses.
+        """
+        return copy.deepcopy(self._server_info_stamp_source)
+
+    async def _handle_discover(
+        self, ctx: ServerRequestContext[LifespanResultT], params: types.RequestParams | None
+    ) -> types.DiscoverResult:
+        """Default `server/discover` handler.
+
+        Auto-derived from server state at call time, so capabilities reflect
+        whatever has been registered (constructor `on_*` kwargs and later
+        `add_request_handler` calls). Operators can replace it wholesale via
+        `add_request_handler("server/discover", ...)`. Reachability for legacy
+        peers is decided at the boundary (`types.methods`), not here.
+        """
+        return types.DiscoverResult(
+            supported_versions=list(MODERN_PROTOCOL_VERSIONS),
+            capabilities=self.get_capabilities(protocol_version=ctx.protocol_version),
+            instructions=self.instructions,
+        )
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -342,172 +698,24 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
-        # When True, the server is stateless and
-        # clients can perform initialization with any node. The client must still follow
-        # the initialization lifecycle, but can do so with any available node
-        # rather than requiring initialization for each connection.
-        stateless: bool = False,
-    ):
-        async with AsyncExitStack() as stack:
-            lifespan_context = await stack.enter_async_context(self.lifespan(self))
-            session = await stack.enter_async_context(
-                ServerSession(
-                    read_stream,
-                    write_stream,
-                    initialization_options,
-                    stateless=stateless,
-                )
-            )
-
-            async with anyio.create_task_group() as tg:
-                try:
-                    async for message in session.incoming_messages:
-                        logger.debug("Received message: %s", message)
-
-                        if isinstance(message, RequestResponder) and message.context is not None:
-                            context = message.context
-                        else:
-                            context = contextvars.copy_context()
-
-                        context.run(
-                            tg.start_soon,
-                            self._handle_message,
-                            message,
-                            session,
-                            lifespan_context,
-                            raise_exceptions,
-                        )
-                finally:
-                    # Transport closed: cancel in-flight handlers. Without this the
-                    # TG join waits for them, and when they eventually try to
-                    # respond they hit a closed write stream (the session's
-                    # _receive_loop closed it when the read stream ended).
-                    tg.cancel_scope.cancel()
-
-    async def _handle_message(
-        self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception,
-        session: ServerSession,
-        lifespan_context: LifespanResultT,
-        raise_exceptions: bool = False,
-    ):
-        with warnings.catch_warnings(record=True) as w:
-            match message:
-                case RequestResponder() as responder:
-                    with responder:
-                        await self._handle_request(
-                            message, responder.request, session, lifespan_context, raise_exceptions
-                        )
-                case Exception():
-                    logger.error(f"Received exception from stream: {message}")
-                    if raise_exceptions:
-                        raise message
-                case _:
-                    await self._handle_notification(message, session, lifespan_context)
-
-            for warning in w:  # pragma: lax no cover
-                logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
-
-    async def _handle_request(
-        self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult],
-        req: types.ClientRequest,
-        session: ServerSession,
-        lifespan_context: LifespanResultT,
-        raise_exceptions: bool,
-    ):
-        logger.info("Processing request of type %s", type(req).__name__)
-
-        target = getattr(req.params, "name", None) if req.params else None
-        span_name = f"MCP handle {req.method} {target}" if target else f"MCP handle {req.method}"
-
-        # Extract W3C trace context from _meta (SEP-414).
-        meta = cast(dict[str, Any] | None, getattr(req.params, "meta", None)) if req.params else None
-        parent_context = extract_trace_context(meta) if meta is not None else None
-
-        with otel_span(
-            span_name,
-            kind=SpanKind.SERVER,
-            attributes={"mcp.method.name": req.method, "jsonrpc.request.id": message.request_id},
-            context=parent_context,
-        ) as span:
-            if handler := self._request_handlers.get(req.method):
-                logger.debug("Dispatching request of type %s", type(req).__name__)
-
-                try:
-                    # Extract request context and close_sse_stream from message metadata
-                    request_data = None
-                    close_sse_stream_cb = None
-                    close_standalone_sse_stream_cb = None
-                    if message.message_metadata is not None and isinstance(
-                        message.message_metadata, ServerMessageMetadata
-                    ):
-                        request_data = message.message_metadata.request_context
-                        close_sse_stream_cb = message.message_metadata.close_sse_stream
-                        close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
-
-                    ctx = ServerRequestContext(
-                        request_id=message.request_id,
-                        meta=message.request_meta,
-                        session=session,
-                        lifespan_context=lifespan_context,
-                        request=request_data,
-                        close_sse_stream=close_sse_stream_cb,
-                        close_standalone_sse_stream=close_standalone_sse_stream_cb,
-                    )
-                    response = await handler(ctx, req.params)
-                except MCPError as err:
-                    response = err.error
-                except anyio.get_cancelled_exc_class():
-                    if message.cancelled:
-                        # Client sent CancelledNotification; responder.cancel() already
-                        # sent an error response, so skip the duplicate.
-                        logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
-                        return
-                    # Transport-close cancellation from the TG in run(); re-raise so the
-                    # TG swallows its own cancellation.
-                    raise
-                except Exception as err:
-                    if raise_exceptions:  # pragma: no cover
-                        raise err
-                    response = types.ErrorData(code=0, message=str(err))
-            else:
-                response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
-
-            if isinstance(response, types.ErrorData) and span is not None:
-                span.set_status(StatusCode.ERROR, response.message)
-
-            try:
-                await message.respond(response)
-            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-                # Transport closed between handler unblocking and respond. Happens
-                # when _receive_loop's finally wakes a handler blocked on
-                # send_request: the handler runs to respond() before run()'s TG
-                # cancel fires, but after the write stream closed. Closed if our
-                # end closed (_receive_loop's async-with exit); Broken if the peer
-                # end closed first (streamable_http terminate()).
-                logger.debug("Response for %s dropped - transport closed", message.request_id)
-                return
-
-            logger.debug("Response sent")
-
-    async def _handle_notification(
-        self,
-        notify: types.ClientNotification,
-        session: ServerSession,
-        lifespan_context: LifespanResultT,
     ) -> None:
-        if handler := self._notification_handlers.get(notify.method):
-            logger.debug("Dispatching notification of type %s", type(notify).__name__)
+        """Serve a single connection over the given streams until the read side closes.
 
-            try:
-                ctx = ServerRequestContext(
-                    session=session,
-                    lifespan_context=lifespan_context,
-                )
-                await handler(ctx, notify.params)
-            except Exception:  # pragma: no cover
-                logger.exception("Uncaught exception in notification handler")
+        Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
+        then drives the loop, serving the legacy handshake era and the modern
+        per-request-envelope era (the first era-distinctive message to succeed
+        locks the connection). Transports with their own lifespan owner (the
+        streamable-HTTP manager) call `serve_loop` directly instead.
+        """
+        async with self.lifespan(self) as lifespan_context:
+            await serve_dual_era_loop(
+                self,
+                read_stream,
+                write_stream,
+                lifespan_state=lifespan_context,
+                init_options=initialization_options,
+                raise_exceptions=raise_exceptions,
+            )
 
     def streamable_http_app(
         self,
@@ -517,6 +725,7 @@ class Server(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
@@ -541,6 +750,7 @@ class Server(Generic[LifespanResultT]):
             json_response=json_response,
             stateless=stateless_http,
             security_settings=transport_security,
+            max_request_body_size=max_request_body_size,
         )
         self._session_manager = session_manager
 
@@ -575,6 +785,7 @@ class Server(Generic[LifespanResultT]):
                         service_documentation_url=auth.service_documentation_url,
                         client_registration_options=auth.client_registration_options,
                         revocation_options=auth.revocation_options,
+                        identity_assertion_enabled=auth.identity_assertion_enabled,
                     )
                 )
 
@@ -611,7 +822,7 @@ class Server(Generic[LifespanResultT]):
                 )
             )
 
-        if custom_starlette_routes:  # pragma: no cover
+        if custom_starlette_routes:
             routes.extend(custom_starlette_routes)
 
         return Starlette(

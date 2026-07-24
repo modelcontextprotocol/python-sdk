@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_types import InputRequiredResult
+
 from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
 
@@ -45,12 +47,18 @@ class PromptManager:
         self._prompts[prompt.name] = prompt
         return prompt
 
+    def remove_prompt(self, name: str) -> None:
+        """Remove a prompt by name."""
+        if name not in self._prompts:
+            raise ValueError(f"Unknown prompt: {name}")
+        del self._prompts[name]
+
     async def render_prompt(
         self,
         name: str,
         arguments: dict[str, Any] | None,
         context: Context[LifespanContextT, RequestT],
-    ) -> list[Message]:
+    ) -> list[Message] | InputRequiredResult:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:

@@ -1,14 +1,7 @@
 """Tests for server validation functions."""
 
 import pytest
-
-from mcp.server.validation import (
-    check_sampling_tools_capability,
-    validate_sampling_tools,
-    validate_tool_use_result_messages,
-)
-from mcp.shared.exceptions import MCPError
-from mcp.types import (
+from mcp_types import (
     ClientCapabilities,
     SamplingCapability,
     SamplingMessage,
@@ -19,6 +12,13 @@ from mcp.types import (
     ToolResultContent,
     ToolUseContent,
 )
+
+from mcp.server.validation import (
+    check_sampling_tools_capability,
+    validate_sampling_tools,
+    validate_tool_use_result_messages,
+)
+from mcp.shared.exceptions import MCPError
 
 # Tests for check_sampling_tools_capability function
 
@@ -117,6 +117,16 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_without_previ
         ),
     ]
     with pytest.raises(ValueError, match="previous message containing tool_use"):
+        validate_tool_use_result_messages(messages)
+
+
+def test_validate_tool_use_result_messages_raises_when_previous_message_has_no_tool_use() -> None:
+    """Raises when tool_result follows a message that has content but no tool_use."""
+    messages = [
+        SamplingMessage(role="assistant", content=TextContent(type="text", text="just text")),
+        SamplingMessage(role="user", content=ToolResultContent(type="tool_result", tool_use_id="tool-1")),
+    ]
+    with pytest.raises(ValueError, match="do not match any tool_use in the previous message"):
         validate_tool_use_result_messages(messages)
 
 

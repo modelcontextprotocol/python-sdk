@@ -2,13 +2,7 @@
 
 import anyio
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.shared.exceptions import MCPError
-from mcp.shared.message import SessionMessage
-from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -24,6 +18,12 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio
@@ -41,7 +41,7 @@ async def test_server_remains_functional_after_cancel():
                 Tool(
                     name="test_tool",
                     description="Tool for testing",
-                    input_schema={},
+                    input_schema={"type": "object"},
                 )
             ]
         )
@@ -59,7 +59,7 @@ async def test_server_remains_functional_after_cancel():
 
     server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
-    async with Client(server) as client:
+    async with Client(server, mode="legacy") as client:
         # First request (will be cancelled)
         async def first_request():
             try:
@@ -138,7 +138,7 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
         id=1,
         method="initialize",
         params=InitializeRequestParams(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ClientCapabilities(),
             client_info=Implementation(name="test", version="1.0"),
         ).model_dump(by_alias=True, mode="json", exclude_none=True),
@@ -195,7 +195,7 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
             both_started.set()
         # Blocks on send_request waiting for a client response that never comes.
         # _receive_loop's finally will wake this with CONNECTION_CLOSED.
-        await ctx.session.list_roots()
+        await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         raise AssertionError  # pragma: no cover
 
     server = Server("test", on_call_tool=handle_call_tool)
@@ -212,7 +212,7 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
         id=1,
         method="initialize",
         params=InitializeRequestParams(
-            protocol_version=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_HANDSHAKE_VERSION,
             capabilities=ClientCapabilities(),
             client_info=Implementation(name="test", version="1.0"),
         ).model_dump(by_alias=True, mode="json", exclude_none=True),

@@ -10,12 +10,8 @@ through the suite's streaming ASGI bridge — no sockets, threads, or subprocess
 import anyio
 import pytest
 from inline_snapshot import snapshot
-from pydantic import BaseModel
-
-from mcp.client import ClientRequestContext
-from mcp.server.elicitation import AcceptedElicitation
-from mcp.server.mcpserver import Context, MCPServer
-from mcp.types import (
+from mcp_types import (
+    INVALID_REQUEST,
     CallToolResult,
     ElicitRequestParams,
     ElicitResult,
@@ -25,6 +21,12 @@ from mcp.types import (
     ResourceUpdatedNotificationParams,
     TextContent,
 )
+from pydantic import BaseModel
+
+from mcp.client import ClientRequestContext
+from mcp.server.elicitation import AcceptedElicitation
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.exceptions import MCPError
 from tests.interaction._connect import connect_over_streamable_http
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
@@ -55,7 +57,7 @@ def _smoke_server() -> MCPServer:
     @mcp.tool()
     async def announce(ctx: Context) -> str:
         """Send one notification related to this request and one that is not."""
-        await ctx.info("about to announce")
+        await ctx.info("about to announce")  # pyright: ignore[reportDeprecated]
         await ctx.session.send_resource_updated("file:///watched.txt")
         return "announced"
 
@@ -67,7 +69,8 @@ def _smoke_server() -> MCPServer:
 async def test_tool_call_over_streamable_http_with_json_responses() -> None:
     """The round trip works when the server answers with a single JSON body instead of an SSE stream."""
     async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
-        assert client.initialize_result.server_info.name == "smoke"
+        assert client.server_info is not None
+        assert client.server_info.name == "smoke"
         result = await client.call_tool("echo", {"text": "as json"})
 
     assert result == snapshot(
@@ -92,15 +95,15 @@ async def test_tool_calls_over_stateless_streamable_http() -> None:
 
 @requirement("transport:streamable-http:stateless-restrictions")
 async def test_stateless_streamable_http_rejects_server_initiated_requests() -> None:
-    """A handler that tries to call back to the client in stateless mode fails: there is no session."""
+    """A handler that tries to call back to the client in stateless mode fails: there is no
+    back-channel for server-initiated requests. The resulting ``NoBackChannelError`` is an
+    ``MCPError``, so it surfaces as a top-level JSON-RPC error rather than an
+    ``isError`` result."""
     async with connect_over_streamable_http(_smoke_server(), stateless_http=True) as client:
-        result = await client.call_tool("ask", {})
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("ask", {})
 
-    assert result.is_error is True
-    assert isinstance(result.content[0], TextContent)
-    # The exact message is the StatelessModeNotSupported exception text wrapped by the tool-error
-    # path; pin the stable prefix rather than the full exception prose.
-    assert result.content[0].text.startswith("Error executing tool ask:")
+    assert exc_info.value.error.code == INVALID_REQUEST
 
 
 @requirement("transport:streamable-http:notifications")

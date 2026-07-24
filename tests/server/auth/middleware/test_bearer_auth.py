@@ -9,8 +9,18 @@ from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.types import Message, Receive, Scope, Send
 
-from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, BearerAuthBackend, RequireAuthMiddleware
-from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, ProviderTokenVerifier
+from mcp.server.auth.middleware.bearer_auth import (
+    AuthenticatedUser,
+    BearerAuthBackend,
+    RequireAuthMiddleware,
+    authorization_context,
+)
+from mcp.server.auth.provider import (
+    AccessToken,
+    OAuthAuthorizationServerProvider,
+    ProviderTokenVerifier,
+    principal_components,
+)
 
 
 class MockOAuthProvider:
@@ -446,3 +456,16 @@ class TestRequireAuthMiddleware:
         assert app.scope == scope
         assert app.receive == receive
         assert app.send == send
+
+
+def test_authorization_context_is_built_from_principal_components() -> None:
+    """Session ownership identifies the principal via the shared principal_components triple."""
+    token = AccessToken(
+        token="t", client_id="client-1", scopes=[], subject="alice", claims={"iss": "https://as.example"}
+    )
+    client_id, issuer, subject = principal_components(token)
+    assert authorization_context(AuthenticatedUser(token)) == {
+        "client_id": client_id,
+        "issuer": issuer,
+        "subject": subject,
+    }

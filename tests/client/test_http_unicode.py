@@ -7,17 +7,17 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-import httpx
+import httpx2
+import mcp_types as types
 import pytest
+from mcp_types import TextContent, Tool
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import TextContent, Tool
 from tests.interaction.transports import StreamingASGITransport
 
 # The in-process app is mounted at this origin purely so URLs are well-formed; nothing listens here.
@@ -114,7 +114,7 @@ async def unicode_session() -> AsyncIterator[ClientSession]:
         session_manager.run(),
         # follow_redirects matches the SDK's own client factory; Starlette's Mount 307-redirects
         # the bare /mcp path to /mcp/.
-        httpx.AsyncClient(
+        httpx2.AsyncClient(
             transport=StreamingASGITransport(app), base_url=BASE_URL, follow_redirects=True
         ) as http_client,
         streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),

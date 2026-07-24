@@ -43,11 +43,13 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
     file_path = match.group(2)
 
     try:
-        # Read the entire file
+        # Read the entire file. A missing source file must be fatal: a "Warning"
+        # that returns the stale block lets --check pass with exit 0, so a
+        # renamed or deleted snippet is invisible to CI. SystemExit deliberately
+        # escapes the `except Exception` below.
         file = Path(file_path)
         if not file.exists():
-            print(f"Warning: File not found: {file_path}")
-            return full_match
+            sys.exit(f"Error: snippet-source file not found: {file_path}")
 
         code = file.read_text().rstrip()
         github_url = get_github_url(file_path)
@@ -69,7 +71,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
             if existing_content is not None:
                 existing_lines = existing_content.strip().split("\n")
                 # Find code between ```python and ```
-                code_lines = []
+                code_lines: list[str] = []
                 in_code = False
                 for line in existing_lines:
                     if line.strip() == "```python":
@@ -91,16 +93,16 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
         return full_match
 
 
-def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bool = False) -> bool:
+def update_readme_snippets(check_mode: bool = False) -> bool:
     """Update code snippets in README.md with live code from source files.
 
     Args:
-        readme_path: Path to the README file
         check_mode: If True, only check if updates are needed without modifying
 
     Returns:
         True if file is up to date or was updated, False if check failed
     """
+    readme_path = Path("README.md")
     if not readme_path.exists():
         print(f"Error: README file not found: {readme_path}")
         return False
@@ -144,12 +146,10 @@ def main():
     parser.add_argument(
         "--check", action="store_true", help="Check mode - verify snippets are up to date without modifying"
     )
-    # TODO(v2): Drop the `--readme` argument when v2 is released, and set to `README.md`.
-    parser.add_argument("--readme", default="README.v2.md", help="Path to README file (default: README.v2.md)")
 
     args = parser.parse_args()
 
-    success = update_readme_snippets(Path(args.readme), check_mode=args.check)
+    success = update_readme_snippets(check_mode=args.check)
 
     if not success:
         sys.exit(1)

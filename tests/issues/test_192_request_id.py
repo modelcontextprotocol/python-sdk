@@ -1,11 +1,6 @@
 import anyio
 import pytest
-
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-from mcp.shared.message import SessionMessage
-from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
+from mcp_types import (
     ClientCapabilities,
     Implementation,
     InitializeRequestParams,
@@ -15,6 +10,11 @@ from mcp.types import (
     JSONRPCResponse,
     NotificationParams,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
+
+from mcp.server.lowlevel import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
+from mcp.shared.message import SessionMessage
 
 
 @pytest.mark.anyio
@@ -59,7 +59,7 @@ async def test_request_id_match() -> None:
             id="init-1",
             method="initialize",
             params=InitializeRequestParams(
-                protocol_version=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_HANDSHAKE_VERSION,
                 capabilities=ClientCapabilities(),
                 client_info=Implementation(name="test-client", version="1.0.0"),
             ).model_dump(by_alias=True, exclude_none=True),

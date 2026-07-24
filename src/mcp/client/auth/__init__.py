@@ -1,4 +1,4 @@
-"""OAuth2 Authentication implementation for HTTPX.
+"""OAuth2 Authentication implementation for httpx2.
 
 Implements authorization code flow with PKCE and automatic token refresh.
 """
@@ -9,8 +9,10 @@ from mcp.client.auth.oauth2 import (
     PKCEParameters,
     TokenStorage,
 )
+from mcp.shared.auth import AuthorizationCodeResult
 
 __all__ = [
+    "AuthorizationCodeResult",
     "OAuthClientProvider",
     "OAuthFlowError",
     "OAuthRegistrationError",

@@ -9,14 +9,15 @@ from typing import Any
 
 import anyio
 import anyio.to_thread
-import httpx
+import httpx2
 import pydantic
 import pydantic_core
+from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
-from mcp.types import Annotations, Icon
+from mcp.shared.exceptions import MCPError
 
 
 class TextResource(Resource):
@@ -26,7 +27,7 @@ class TextResource(Resource):
 
     async def read(self) -> str:
         """Read the text content."""
-        return self.text  # pragma: no cover
+        return self.text
 
 
 class BinaryResource(Resource):
@@ -63,6 +64,14 @@ class FunctionResource(Resource):
             else:
                 result = await anyio.to_thread.run_sync(self.fn)
 
+            if isinstance(result, InputRequiredResult):
+                # A static resource function can never read the retry's
+                # input_responses (it takes no Context), so this can only be a
+                # mistake — reject it instead of JSON-dumping it as content.
+                raise ValueError(
+                    "static resources cannot return InputRequiredResult; only resource "
+                    "template functions participate in the multi-round-trip flow"
+                )
             if isinstance(result, Resource):  # pragma: no cover
                 return await result.read()
             elif isinstance(result, bytes):
@@ -71,6 +80,8 @@ class FunctionResource(Resource):
                 return result
             else:
                 return pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        except MCPError:
+            raise
         except Exception as e:
             raise ValueError(f"Error reading resource {self.uri}: {e}")
 
@@ -159,7 +170,7 @@ class HttpResource(Resource):
 
     async def read(self) -> str | bytes:
         """Read the HTTP content."""
-        async with httpx.AsyncClient() as client:  # pragma: no cover
+        async with httpx2.AsyncClient() as client:  # pragma: no cover
             response = await client.get(self.url)
             response.raise_for_status()
             return response.text

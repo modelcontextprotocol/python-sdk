@@ -1,6 +1,6 @@
-"""An in-process, full-duplex HTTP transport for driving ASGI applications from httpx.
+"""An in-process, full-duplex HTTP transport for driving ASGI applications from httpx2.
 
-`httpx.ASGITransport` runs the application to completion and only then hands the buffered
+`httpx2.ASGITransport` runs the application to completion and only then hands the buffered
 response to the caller, so a server that streams its response — the streamable HTTP transport's
 SSE responses — can never converse with the client mid-request: a server-initiated request
 nested inside a still-open call deadlocks. `StreamingASGITransport` removes that limitation by
@@ -20,7 +20,7 @@ The behavioural contract, pinned by `test_bridge.py`:
   server over a real socket would give.
 
 The transport owns an anyio task group for the application tasks; it is opened and closed by
-`httpx.AsyncClient`'s own context manager, so use the client as a context manager (the suite
+`httpx2.AsyncClient`'s own context manager, so use the client as a context manager (the suite
 always does). Closing the transport cancels every running application task by default; set
 `cancel_on_close=False` to wait for the application's own disconnect handling instead.
 """
@@ -31,12 +31,14 @@ from types import TracebackType
 
 import anyio
 import anyio.abc
-import httpx
+import httpx2
 from anyio.streams.memory import MemoryObjectReceiveStream
 from starlette.types import ASGIApp, Message, Scope
 
+from mcp.shared._compat import resync_tracer
 
-class _StreamingResponseBody(httpx.AsyncByteStream):
+
+class _StreamingResponseBody(httpx2.AsyncByteStream):
     """A response body that yields chunks as the application produces them.
 
     Closing it tells the application the client has gone away (`http.disconnect`), mirroring a
@@ -56,7 +58,7 @@ class _StreamingResponseBody(httpx.AsyncByteStream):
         await self._chunks.aclose()
 
 
-class StreamingASGITransport(httpx.AsyncBaseTransport):
+class StreamingASGITransport(httpx2.AsyncBaseTransport):
     """Drive an ASGI application in-process, streaming each response as it is produced.
 
     With `cancel_on_close` (the default), closing the transport cancels every application task
@@ -82,15 +84,16 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
         exc_value: BaseException | None = None,
         traceback: TracebackType | None = None,
     ) -> None:
-        # httpx closes every streamed response before closing the transport, so by now each
+        # httpx2 closes every streamed response before closing the transport, so by now each
         # application task has been delivered `http.disconnect`. Either cancel immediately, or wait
         # for the application's own disconnect handling to unwind.
         if self._cancel_on_close:
             self._task_group.cancel_scope.cancel()
         await self._task_group.__aexit__(exc_type, exc_value, traceback)
+        await resync_tracer()
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        assert isinstance(request.stream, httpx.AsyncByteStream)
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        assert isinstance(request.stream, httpx2.AsyncByteStream)
         request_body = b"".join([chunk async for chunk in request.stream])
 
         scope: Scope = {
@@ -161,7 +164,7 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
             client_disconnected.set()
             await chunk_reader.aclose()
             raise
-        return httpx.Response(
+        return httpx2.Response(
             status_code=response_status,
             headers=response_headers,
             stream=_StreamingResponseBody(chunk_reader, client_disconnected),

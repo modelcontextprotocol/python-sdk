@@ -3,16 +3,23 @@
 from pathlib import Path
 
 import anyio
+import mcp_types as types
 import pytest
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp_types import (
+    REQUEST_TIMEOUT,
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+)
 
-from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
-from mcp.types import CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams, TextContent
 
 
 @pytest.mark.anyio
@@ -55,7 +62,8 @@ async def test_notification_validation_error(tmp_path: Path):
         assert params.name in ("slow", "fast"), f"Unknown tool: {params.name}"
 
         if params.name == "slow":
-            await slow_request_lock.wait()  # it should timeout here
+            # The client's timeout fires during this wait; the courtesy cancellation then interrupts it.
+            await slow_request_lock.wait()
             text = f"slow {request_count}"
         else:
             text = f"fast {request_count}"
@@ -95,9 +103,9 @@ async def test_notification_validation_error(tmp_path: Path):
             # Use very small timeout to trigger quickly without waiting
             with pytest.raises(MCPError) as exc_info:
                 await session.call_tool("slow", read_timeout_seconds=0.000001)  # artificial timeout that always fails
-            assert "Timed out while waiting" in str(exc_info.value)
+            assert exc_info.value.error.code == REQUEST_TIMEOUT
 
-            # release the slow request not to have hanging process
+            # No-op if the courtesy cancellation already interrupted the handler.
             slow_request_lock.set()
 
             # Third call should work (fast operation, no timeout),

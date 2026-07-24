@@ -3,7 +3,7 @@
 Auth is HTTP-only so these tests are not transport-parametrized; each connects via
 `connect_with_oauth`, which co-hosts the SDK's authorization server, protected-resource
 metadata, and bearer-gated MCP endpoint on one bridge-backed Starlette app and drives the
-whole flow through one `httpx.AsyncClient` carrying the SDK's `OAuthClientProvider`. The
+whole flow through one `httpx2.AsyncClient` carrying the SDK's `OAuthClientProvider`. The
 authorize redirect completes headlessly through the same bridge, so every request the flow
 makes is observable via `on_request`.
 """
@@ -13,16 +13,16 @@ from collections import Counter
 from urllib.parse import parse_qs, urlsplit
 
 import anyio
-import httpx
+import httpx2
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import CallToolResult, ListToolsResult, TextContent, Tool
 from pydantic import AnyUrl
 
-from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.shared.auth import OAuthClientInformationFull
-from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -64,7 +64,7 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
       6. POST /token (authorization-code exchange).
       7. Retry POST /mcp with `Authorization: Bearer <access_token>` → succeeds.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
     server = Server("guarded", on_list_tools=list_tools)
@@ -104,7 +104,7 @@ async def test_an_unauthenticated_request_is_challenged_then_the_full_oauth_flow
     # The first PRM discovery GET carries the protocol-version header (an SDK behaviour, not a
     # spec requirement on discovery requests).
     prm_get = next(r for r in requests if r.url.path == "/.well-known/oauth-protected-resource/mcp")
-    assert prm_get.headers.get("mcp-protocol-version") == snapshot("2025-11-25")
+    assert prm_get.headers.get("mcp-protocol-version") == snapshot("2026-07-28")
 
     authorize = parse_qs(urlsplit(headless.authorize_url).query)
     assert authorize["response_type"] == ["code"]
@@ -145,7 +145,7 @@ async def test_a_preregistered_client_skips_registration() -> None:
     The provider holds the same registration server-side so the authorize and token steps
     accept it; the recorded requests prove no `/register` call was made.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
     server = Server("guarded", on_list_tools=list_tools)
@@ -180,7 +180,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
     scope filled in from server discovery), and the server's issued client_id and secret are
     persisted to storage and held by the provider.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     storage = InMemoryTokenStorage()
     server = Server("guarded", on_list_tools=list_tools)
@@ -203,6 +203,7 @@ async def test_the_dcr_request_carries_the_client_metadata() -> None:
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
             "scope": "mcp",
+            "application_type": "native",
             "client_name": "interaction-suite",
             "software_id": "interaction-test-suite",
         }
@@ -226,7 +227,7 @@ async def test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_w
     real_app = server.streamable_http_app(auth=auth_settings(), auth_server_provider=provider)
     app = shimmed_app(real_app, not_found=frozenset({"/missing"}), serve={"/override": b'{"shimmed": true}'})
     async with server.session_manager.run():
-        async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
+        async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
             served = await http.get("/override")
             assert served.status_code == 200
             assert served.headers["content-type"] == "application/json"

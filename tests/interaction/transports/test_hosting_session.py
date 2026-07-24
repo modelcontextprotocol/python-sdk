@@ -9,12 +9,12 @@ behaviour is covered by the `connect`-fixture matrix.
 import re
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import JSONRPCResponse, ListToolsResult, PaginatedRequestParams, Tool
 
 from mcp.server import Server, ServerRequestContext
-from mcp.types import JSONRPCResponse, ListToolsResult, PaginatedRequestParams, Tool
 from tests.interaction._connect import (
     base_headers,
     client_via_http,
@@ -167,9 +167,9 @@ async def test_stateless_mode_never_issues_a_session_id() -> None:
     cannot have issued one, or the client would echo it); the empty instance map proves the
     manager kept no transport between requests.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def record(request: httpx.Request) -> None:
+    async def record(request: httpx2.Request) -> None:
         requests.append(request)
 
     async with mounted_app(_server(), stateless_http=True, on_request=record) as (http, manager):

@@ -1,11 +1,9 @@
 """Completion interactions against the low-level Server, driven through the public Client API."""
 
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     CompleteResult,
@@ -14,6 +12,10 @@ from mcp.types import (
     PromptReference,
     ResourceTemplateReference,
 )
+
+from mcp import MCPError
+from mcp.server import Server, ServerRequestContext
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -22,7 +24,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("completion:prompt-arg")
 @requirement("completion:result-shape")
-async def test_complete_prompt_argument(connect: Connect) -> None:
+async def test_complete_prompt_argument(connect: Connect, unstamped: Unstamp) -> None:
     """Completing a prompt argument delivers the ref, argument name, and current value to the handler.
 
     The returned values are filtered by the argument's value, proving the value reached the handler.
@@ -43,13 +45,13 @@ async def test_complete_prompt_argument(connect: Connect) -> None:
             PromptReference(name="code_review"), argument={"name": "language", "value": "py"}
         )
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CompleteResult(completion=Completion(values=["python", "pytorch"], total=2, has_more=False))
     )
 
 
 @requirement("completion:resource-template-arg")
-async def test_complete_resource_template_variable(connect: Connect) -> None:
+async def test_complete_resource_template_variable(connect: Connect, unstamped: Unstamp) -> None:
     """Completing a URI template variable delivers the template URI and variable name to the handler."""
 
     async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> CompleteResult:
@@ -66,11 +68,11 @@ async def test_complete_resource_template_variable(connect: Connect) -> None:
             argument={"name": "owner", "value": "model"},
         )
 
-    assert result == snapshot(CompleteResult(completion=Completion(values=["modelcontextprotocol"])))
+    assert unstamped(result) == snapshot(CompleteResult(completion=Completion(values=["modelcontextprotocol"])))
 
 
 @requirement("completion:context-arguments")
-async def test_complete_receives_context_arguments(connect: Connect) -> None:
+async def test_complete_receives_context_arguments(connect: Connect, unstamped: Unstamp) -> None:
     """Previously-resolved arguments passed as completion context reach the handler.
 
     The returned value is derived from the context, proving it arrived.
@@ -91,7 +93,9 @@ async def test_complete_receives_context_arguments(connect: Connect) -> None:
             context_arguments={"owner": "modelcontextprotocol"},
         )
 
-    assert result == snapshot(CompleteResult(completion=Completion(values=["modelcontextprotocol/python-sdk"])))
+    assert unstamped(result) == snapshot(
+        CompleteResult(completion=Completion(values=["modelcontextprotocol/python-sdk"]))
+    )
 
 
 @requirement("completion:error:invalid-ref")
@@ -123,9 +127,11 @@ async def test_complete_without_handler_is_method_not_found(connect: Connect) ->
     server = Server("incomplete")
 
     async with connect(server) as client:
-        assert client.initialize_result.capabilities.completions is None
+        assert client.server_capabilities.completions is None
 
         with pytest.raises(MCPError) as exc_info:
             await client.complete(PromptReference(name="anything"), argument={"name": "topic", "value": ""})
 
-    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="completion/complete")
+    )

@@ -1,14 +1,15 @@
 """Roots interactions against the low-level Server, driven through the public Client API."""
 
 import anyio
+import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from pydantic import FileUrl
 
-from mcp import MCPError, types
+from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
-from mcp.types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -29,7 +30,7 @@ async def test_list_roots_round_trip(connect: Connect) -> None:
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "show_roots"
-        result = await ctx.session.list_roots()
+        result = await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         lines = [f"{root.uri} name={root.name}" for root in result.roots]
         return CallToolResult(content=[TextContent(text="\n".join(lines))])
 
@@ -64,7 +65,7 @@ async def test_list_roots_empty(connect: Connect) -> None:
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "count_roots"
-        result = await ctx.session.list_roots()
+        result = await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         return CallToolResult(content=[TextContent(text=str(len(result.roots)))])
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -94,7 +95,7 @@ async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "show_roots"
         try:
-            await ctx.session.list_roots()
+            await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         except MCPError as exc:
             return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # list_roots cannot succeed without a client callback
@@ -122,7 +123,7 @@ async def test_list_roots_callback_error_surfaces_to_the_handler(connect: Connec
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "show_roots"
         try:
-            await ctx.session.list_roots()
+            await ctx.session.list_roots()  # pyright: ignore[reportDeprecated]
         except MCPError as exc:
             return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
         raise NotImplementedError  # the callback always answers with an error
@@ -152,15 +153,15 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
         received.append(params)
         delivered.set()
 
-    server = Server("rooted", on_roots_list_changed=roots_list_changed)
+    server = Server("rooted", on_roots_list_changed=roots_list_changed)  # pyright: ignore[reportDeprecated]
 
     async def list_roots(context: ClientRequestContext) -> ListRootsResult:
         """Registered so the client declares the roots capability; the server never asks for roots."""
         raise NotImplementedError
 
     async with connect(server, list_roots_callback=list_roots) as client:
-        await client.send_roots_list_changed()
+        await client.send_roots_list_changed()  # pyright: ignore[reportDeprecated]
         with anyio.fail_after(5):
             await delivered.wait()
 
-    assert received == snapshot([None])
+    assert received == snapshot([types.NotificationParams()])

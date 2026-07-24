@@ -1,0 +1,51 @@
+# Conformance scenarios not yet passing against the Python SDK on main.
+# CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
+#
+# Baseline established against the harness pinned via CONFORMANCE_PKG in
+# .github/workflows/conformance.yml. New conformance releases are adopted by
+# deliberately bumping that pin and reconciling both this file and
+# expected-failures.2026-07-28.yml in the same change.
+#
+# Entries are grouped by SEP. As each SEP lands in the SDK the corresponding
+# scenarios start passing and MUST be removed from this list (the runner fails
+# on stale entries), so the baseline burns down per milestone.
+
+client:
+  # SEP-1932 (DPoP): the SDK's OAuth client does not implement DPoP proofs.
+  # These scenarios are new in the da56f663 referee pin. The entries are
+  # per-check (conformance #406) because both scenarios pass their
+  # non-DPoP checks (discovery, token acquisition, request flow) live.
+  - auth/dpop:sep-1932-client-token-request-proof
+  - auth/dpop:sep-1932-client-dpop-auth-scheme
+  - auth/dpop:sep-1932-client-fresh-proof
+  - auth/dpop-nonce:sep-1932-client-token-request-proof
+  - auth/dpop-nonce:sep-1932-client-dpop-auth-scheme
+  - auth/dpop-nonce:sep-1932-client-fresh-proof
+  - auth/dpop-nonce:sep-1932-client-as-nonce
+  - auth/dpop-nonce:sep-1932-client-rs-nonce
+  # Workload identity federation: the OAuth client does not implement the
+  # urn:ietf:params:oauth:grant-type:jwt-bearer grant (it answers with
+  # authorization_code). Also new in the da56f663 referee pin; per-check for
+  # the same reason.
+  - auth/wif-jwt-bearer:wif-grant-type
+
+server:
+  # SEP-2663 (io.modelcontextprotocol/tasks): the SDK does not implement the
+  # tasks extension yet. These extension-tagged scenarios are selected only by
+  # the bare `--suite all` leg — extension scenarios never match a
+  # --spec-version filter and the active/draft suites exclude them — so these
+  # entries are inert for the other legs that read this file.
+  #
+  # `tasks-status-notifications` is intentionally NOT listed: the harness
+  # skips it unconditionally (pending its rewrite against subscriptions/
+  # listen), and a baseline entry for a scenario with no failing checks is
+  # flagged stale.
+  - tasks-lifecycle
+  - tasks-capability-negotiation
+  - tasks-wire-fields
+  - tasks-request-state-removal
+  - tasks-mrtr-input
+  - tasks-request-headers
+  - tasks-dispatch-and-envelope
+  - tasks-required-task-error
+  - tasks-mrtr-composition

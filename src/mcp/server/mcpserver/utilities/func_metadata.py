@@ -4,11 +4,12 @@ import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
 import pydantic_core
+from mcp_types import CallToolResult, ContentBlock, InputRequiredResult, TextContent
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -24,9 +25,12 @@ from typing_inspection.introspection import (
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
-from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
+
+
+def _is_input_required_type(obj: Any) -> bool:
+    return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
 
 
 class StrictJsonSchema(GenerateJsonSchema):
@@ -65,21 +69,36 @@ class FuncMetadata(BaseModel):
     output_model: Annotated[type[BaseModel], WithJsonSchema(None)] | None = None
     wrap_output: bool = False
 
+    def validate_arguments(self, arguments_to_validate: dict[str, Any]) -> dict[str, Any]:
+        """Validate raw arguments into a one-level kwargs dict (no function call).
+
+        Used to feed resolver dependency injection the validated tool arguments
+        before the tool function itself runs.
+        """
+        arguments_pre_parsed = self.pre_parse_json(arguments_to_validate)
+        arguments_parsed_model = self.arg_model.model_validate(arguments_pre_parsed)
+        return arguments_parsed_model.model_dump_one_level()
+
     async def call_fn_with_arg_validation(
         self,
         fn: Callable[..., Any | Awaitable[Any]],
         fn_is_async: bool,
         arguments_to_validate: dict[str, Any],
         arguments_to_pass_directly: dict[str, Any] | None,
+        pre_validated: dict[str, Any] | None = None,
     ) -> Any:
         """Call the given function with arguments validated and injected.
 
         Arguments are first attempted to be parsed from JSON, then validated against
-        the argument model, before being passed to the function.
+        the argument model, before being passed to the function. Pass `pre_validated`
+        (the output of `validate_arguments`) to reuse an earlier validation pass -
+        validating twice can re-run `default_factory`/stateful validators and hand the
+        function different values than a caller already observed.
         """
-        arguments_pre_parsed = self.pre_parse_json(arguments_to_validate)
-        arguments_parsed_model = self.arg_model.model_validate(arguments_pre_parsed)
-        arguments_parsed_dict = arguments_parsed_model.model_dump_one_level()
+        # Copy so a caller-provided `pre_validated` dict is never mutated in place.
+        arguments_parsed_dict = dict(
+            pre_validated if pre_validated is not None else self.validate_arguments(arguments_to_validate)
+        )
 
         arguments_parsed_dict |= arguments_to_pass_directly or {}
 
@@ -88,20 +107,22 @@ class FuncMetadata(BaseModel):
         else:
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
-    def convert_result(self, result: Any) -> Any:
-        """Convert a function call result to the format for the lowlevel tool call handler.
+    def convert_result(self, result: Any) -> CallToolResult | InputRequiredResult:
+        """Convert a function call result into a `CallToolResult`.
 
-        - If output_model is None, return the unstructured content directly.
-        - If output_model is not None, convert the result to structured output format
-            (dict[str, Any]) and return both unstructured and structured content.
+        An `InputRequiredResult` is passed through unchanged so the multi-round
+        flow surfaces on the wire as `resultType: "input_required"` rather than
+        being JSON-dumped into a text block.
 
-        Note: we return unstructured content here **even though the lowlevel server
+        Note: we build unstructured content here **even though the lowlevel server
         tool call handler provides generic backwards compatibility serialization of
         structured content**. This is for MCPServer backwards compatibility: we need to
         retain MCPServer's ad hoc conversion logic for constructing unstructured output
         from function return values, whereas the lowlevel server simply serializes
         the structured output.
         """
+        if isinstance(result, InputRequiredResult):
+            return result
         if isinstance(result, CallToolResult):
             if self.output_schema is not None:
                 assert self.output_model is not None, "Output model must be set if output schema is defined"
@@ -111,16 +132,16 @@ class FuncMetadata(BaseModel):
         unstructured_content = _convert_to_content(result)
 
         if self.output_schema is None:
-            return unstructured_content
-        else:
-            if self.wrap_output:
-                result = {"result": result}
+            return CallToolResult(content=unstructured_content)
 
-            assert self.output_model is not None, "Output model must be set if output schema is defined"
-            validated = self.output_model.model_validate(result)
-            structured_content = validated.model_dump(mode="json", by_alias=True)
+        if self.wrap_output:
+            result = {"result": result}
 
-            return (unstructured_content, structured_content)
+        assert self.output_model is not None, "Output model must be set if output schema is defined"
+        validated = self.output_model.model_validate(result)
+        structured_content = validated.model_dump(mode="json", by_alias=True)
+
+        return CallToolResult(content=unstructured_content, structured_content=structured_content)
 
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Pre-parse data from JSON.
@@ -144,7 +165,7 @@ class FuncMetadata(BaseModel):
                 key_to_field_info[field_info.alias] = field_info
 
         for data_key, data_value in data.items():
-            if data_key not in key_to_field_info:  # pragma: no cover
+            if data_key not in key_to_field_info:
                 continue
 
             field_info = key_to_field_info[data_key]
@@ -270,10 +291,33 @@ def func_metadata(
     # unknown (i.e. a bare `Final`).
     assert return_type_expr is not UNKNOWN
 
+    if _is_input_required_type(return_type_expr):
+        # A tool annotated to return only InputRequiredResult never produces structured content.
+        return FuncMetadata(arg_model=arguments_model)
+
+    # The annotation fed to schema derivation. Starts as the raw return annotation (preserving any
+    # Annotated[...] wrapper) and is narrowed below if InputRequiredResult arms are stripped.
+    effective_annotation: Any = sig.return_annotation
+
     if is_union_origin(get_origin(return_type_expr)):
         args = get_args(return_type_expr)
-        # Check if CallToolResult appears in the union (excluding None for Optional check)
-        if any(isinstance(arg, type) and issubclass(arg, CallToolResult) for arg in args if arg is not type(None)):
+        # InputRequiredResult is a control-flow signal, not data: strip it so the residual arms
+        # drive schema derivation. convert_result short-circuits on an InputRequiredResult instance
+        # before output validation, so the schema only ever sees the data arms at runtime.
+        residual = tuple(a for a in args if not _is_input_required_type(a))
+        if not residual:
+            return FuncMetadata(arg_model=arguments_model)
+        if len(residual) != len(args):
+            # PEP 604 has no syntax for "union of a runtime tuple"; Union[...] is the only spelling.
+            effective_annotation = residual[0] if len(residual) == 1 else Union[residual]  # noqa: UP007
+            # Re-normalize so the residual is processed exactly as if it had been the declared
+            # return annotation: unwraps a top-level Annotated[...] arm and re-derives metadata,
+            # so the CallToolResult/BaseModel/TypedDict dispatch below sees the bare type.
+            inspected_return_ann = inspect_annotation(effective_annotation, annotation_source=AnnotationSource.FUNCTION)
+            return_type_expr = inspected_return_ann.type
+        if len(residual) > 1 and any(
+            isinstance(a, type) and issubclass(a, CallToolResult) for a in residual if a is not type(None)
+        ):
             raise InvalidSignature(
                 f"Function {func.__name__}: CallToolResult cannot be used in Union or Optional types. "
                 "To return empty results, use: CallToolResult(content=[])"
@@ -299,7 +343,7 @@ def func_metadata(
         else:
             return FuncMetadata(arg_model=arguments_model)
     else:
-        original_annotation = sig.return_annotation
+        original_annotation = effective_annotation
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(
         original_annotation, return_type_expr, func.__name__
@@ -496,7 +540,7 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
     return DictModel
 
 
-def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
+def _convert_to_content(result: Any) -> list[ContentBlock]:
     """Convert a result to a sequence of content objects.
 
     Note: This conversion logic comes from previous versions of MCPServer and is being

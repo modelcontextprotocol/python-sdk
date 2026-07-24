@@ -1,9 +1,9 @@
 """Test icon and metadata support (SEP-973)."""
 
 import pytest
+from mcp_types import Icon
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import Icon
 
 pytestmark = pytest.mark.anyio
 

@@ -1,13 +1,13 @@
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
     PaginatedRequestParams,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 
 
 @pytest.mark.anyio

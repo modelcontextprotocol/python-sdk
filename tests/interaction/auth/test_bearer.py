@@ -10,13 +10,13 @@ endpoint behind the gate. The flow side of the same 401 is `test_flow.py`'s flag
 import time
 from collections.abc import AsyncIterator
 
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import JSONRPCResponse
 
 from mcp.server import Server
 from mcp.server.auth.provider import AccessToken
-from mcp.types import JSONRPCResponse
 from tests.interaction._connect import base_headers, initialize_body, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import StaticTokenVerifier, auth_settings
@@ -44,7 +44,7 @@ TOKENS = {
 
 
 @pytest.fixture
-async def protected() -> AsyncIterator[httpx.AsyncClient]:
+async def protected() -> AsyncIterator[httpx2.AsyncClient]:
     """A bearer-gated streamable-HTTP app (resource server only) on the in-process bridge."""
     server = Server("rs")
     settings = auth_settings(required_scopes=[REQUIRED_SCOPE])
@@ -53,8 +53,8 @@ async def protected() -> AsyncIterator[httpx.AsyncClient]:
 
 
 async def post_mcp(
-    http: httpx.AsyncClient, *, bearer: str | None = None, query: dict[str, str] | None = None
-) -> httpx.Response:
+    http: httpx2.AsyncClient, *, bearer: str | None = None, query: dict[str, str] | None = None
+) -> httpx2.Response:
     """POST an initialize body to `/mcp`, optionally with a bearer token and/or a query string."""
     headers = base_headers()
     if bearer is not None:
@@ -76,7 +76,7 @@ def parse_www_authenticate(value: str) -> dict[str, str]:
 
 @requirement("hosting:auth:missing-401")
 async def test_a_request_with_no_authorization_header_is_challenged_with_resource_metadata(
-    protected: httpx.AsyncClient,
+    protected: httpx2.AsyncClient,
 ) -> None:
     """No `Authorization` header → 401 with a `WWW-Authenticate` carrying `resource_metadata`.
 
@@ -103,7 +103,7 @@ async def test_a_request_with_no_authorization_header_is_challenged_with_resourc
 
 
 @requirement("hosting:auth:invalid-401")
-async def test_an_unrecognized_bearer_token_is_answered_401_invalid_token(protected: httpx.AsyncClient) -> None:
+async def test_an_unrecognized_bearer_token_is_answered_401_invalid_token(protected: httpx2.AsyncClient) -> None:
     """A token the verifier does not recognize is answered 401 `invalid_token`.
 
     The challenge is identical to the no-header case (the backend returns `None` for both); the
@@ -120,7 +120,7 @@ async def test_an_unrecognized_bearer_token_is_answered_401_invalid_token(protec
 
 
 @requirement("hosting:auth:expired-401")
-async def test_an_expired_token_is_answered_401(protected: httpx.AsyncClient) -> None:
+async def test_an_expired_token_is_answered_401(protected: httpx2.AsyncClient) -> None:
     """A token whose `expires_at` is in the past is answered 401 `invalid_token`.
 
     The expiry check is the bearer backend's, against the wall clock; the test seeds a concrete
@@ -135,7 +135,7 @@ async def test_an_expired_token_is_answered_401(protected: httpx.AsyncClient) ->
 
 @requirement("hosting:auth:scope-403")
 async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_scope_without_a_scope_param(
-    protected: httpx.AsyncClient,
+    protected: httpx2.AsyncClient,
 ) -> None:
     """A token lacking the required scope is answered 403 `insufficient_scope`, with no `scope` parameter.
 
@@ -157,7 +157,7 @@ async def test_a_token_missing_a_required_scope_is_answered_403_insufficient_sco
 
 
 @requirement("hosting:auth:aud-validation")
-async def test_a_token_with_a_mismatched_audience_is_accepted(protected: httpx.AsyncClient) -> None:
+async def test_a_token_with_a_mismatched_audience_is_accepted(protected: httpx2.AsyncClient) -> None:
     """A token whose `resource` does not match the server's resource identifier is accepted.
 
     The spec mandates the resource server validate the token's audience; the bearer backend
@@ -175,7 +175,7 @@ async def test_a_token_with_a_mismatched_audience_is_accepted(protected: httpx.A
 
 
 @requirement("hosting:auth:query-token-ignored")
-async def test_an_access_token_in_the_query_string_is_not_accepted(protected: httpx.AsyncClient) -> None:
+async def test_an_access_token_in_the_query_string_is_not_accepted(protected: httpx2.AsyncClient) -> None:
     """A valid token presented in the URI query string is treated as no authentication.
 
     The bearer backend reads only the `Authorization` header, so `?access_token=...` is never

@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
+from mcp_types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
+
+
+class MCPDeprecationWarning(UserWarning):
+    """A custom deprecation warning for the MCP SDK.
+
+    Unlike the built-in `DeprecationWarning`, this inherits from `UserWarning` so
+    it is shown by default, helping users discover deprecated features without
+    enabling warnings explicitly.
+
+    Reference: https://sethmlarson.dev/deprecations-via-warnings-dont-work-for-python-libraries
+    """
 
 
 class MCPError(Exception):
@@ -27,7 +38,7 @@ class MCPError(Exception):
 
     @property
     def data(self) -> Any:
-        return self.error.data  # pragma: no cover
+        return self.error.data
 
     @classmethod
     def from_jsonrpc_error(cls, error: JSONRPCError) -> MCPError:
@@ -41,19 +52,21 @@ class MCPError(Exception):
         return self.message
 
 
-class StatelessModeNotSupported(RuntimeError):
-    """Raised when attempting to use a method that is not supported in stateless mode.
+class NoBackChannelError(MCPError):
+    """Raised when sending a server-initiated request over a transport that cannot deliver it.
 
-    Server-to-client requests (sampling, elicitation, list_roots) are not
-    supported in stateless HTTP mode because there is no persistent connection
-    for bidirectional communication.
+    Stateless HTTP and JSON-response-mode HTTP have no channel for the server to
+    push requests (sampling, elicitation, roots/list) to the client. This is
+    raised by `DispatchContext.send_raw_request` when `can_send_request` is
+    `False`, and serializes to an `INVALID_REQUEST` error response.
     """
 
     def __init__(self, method: str):
         super().__init__(
-            f"Cannot use {method} in stateless HTTP mode. "
-            "Stateless mode does not support server-to-client requests. "
-            "Use stateful mode (stateless_http=False) to enable this feature."
+            code=INVALID_REQUEST,
+            message=(
+                f"Cannot send {method!r}: this transport context has no back-channel for server-initiated requests."
+            ),
         )
         self.method = method
 

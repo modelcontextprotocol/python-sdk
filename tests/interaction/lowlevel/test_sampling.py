@@ -5,14 +5,11 @@ ctx.session.create_message(), the client's sampling callback answers it, and the
 round-trips what it received back to the test through its tool result.
 """
 
+import mcp_types as types
 import pydantic
 import pytest
 from inline_snapshot import snapshot
-
-from mcp import MCPError, types
-from mcp.client import ClientRequestContext
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     CallToolResult,
     CreateMessageRequestParams,
@@ -28,6 +25,10 @@ from mcp.types import (
     ToolResultContent,
     ToolUseContent,
 )
+
+from mcp import MCPError
+from mcp.client import ClientRequestContext
+from mcp.server import Server, ServerRequestContext
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -49,7 +50,7 @@ async def test_create_message_round_trip(connect: Connect) -> None:
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
             max_tokens=100,
         )
@@ -104,7 +105,7 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
             max_tokens=50,
             system_prompt="You are terse.",
@@ -170,7 +171,7 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "describe_image"
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png"))],
             max_tokens=100,
         )
@@ -220,7 +221,7 @@ async def test_create_message_result_with_image_content_returns_to_handler(conne
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "draw"
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(text="Draw a cat."))],
             max_tokens=100,
         )
@@ -261,7 +262,7 @@ async def test_create_message_callback_error(connect: Connect) -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
                 messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
                 max_tokens=100,
             )
@@ -292,7 +293,7 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
                 messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
                 max_tokens=100,
             )
@@ -324,7 +325,7 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
                 messages=[SamplingMessage(role="user", content=TextContent(text="What is the weather?"))],
                 max_tokens=100,
                 tools=[types.Tool(name="get_weather", input_schema={"type": "object"})],
@@ -366,7 +367,7 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "summarise_tools"
         try:
-            await ctx.session.create_message(
+            await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
                 messages=[
                     SamplingMessage(
                         role="user",
@@ -452,7 +453,7 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "transcribe"
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=AudioContent(data="c25k", mime_type="audio/wav"))],
             max_tokens=100,
         )
@@ -502,7 +503,7 @@ async def test_create_message_result_with_audio_content_returns_to_handler(conne
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "speak"
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[SamplingMessage(role="user", content=TextContent(text="Say hello, aloud."))],
             max_tokens=100,
         )
@@ -539,7 +540,7 @@ async def test_create_message_with_list_valued_message_content_reaches_callback(
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "caption"
-        result = await ctx.session.create_message(
+        result = await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
             messages=[
                 SamplingMessage(
                     role="user",
@@ -606,7 +607,7 @@ async def test_create_message_with_mismatched_tool_use_and_result_ids_is_rejecte
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "continue_tools"
         try:
-            await ctx.session.create_message(
+            await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
                 messages=[
                     SamplingMessage(
                         role="assistant",
@@ -662,7 +663,7 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask_model"
         try:
-            await ctx.session.create_message(
+            await ctx.session.create_message(  # pyright: ignore[reportDeprecated]
                 messages=[SamplingMessage(role="user", content=TextContent(text="Two thoughts, please."))],
                 max_tokens=100,
             )

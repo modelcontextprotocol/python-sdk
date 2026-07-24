@@ -2,7 +2,9 @@
 
 import asyncio
 
-from mcp import ClientSession, StdioServerParameters, types
+import mcp_types as types
+
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 

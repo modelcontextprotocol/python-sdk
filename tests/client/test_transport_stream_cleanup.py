@@ -16,12 +16,11 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-import httpx
+import httpx2
 import pytest
 
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.client.websocket import websocket_client
 
 
 @contextmanager
@@ -65,7 +64,7 @@ async def test_sse_client_closes_all_streams_on_connection_error(free_tcp_port: 
     closed in the finally block.
     """
     with _assert_no_memory_stream_leak():
-        with pytest.raises(httpx.ConnectError):
+        with pytest.raises(httpx2.ConnectError):
             async with sse_client(f"http://127.0.0.1:{free_tcp_port}/sse"):
                 pytest.fail("should not reach here")  # pragma: no cover
 
@@ -77,18 +76,18 @@ async def test_sse_client_closes_all_streams_on_http_error() -> None:
     ExceptionGroup) with nothing to leak — the task group is never entered.
     """
 
-    def return_403(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(403)
+    def return_403(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(403)
 
     def mock_factory(
         headers: dict[str, str] | None = None,
-        timeout: httpx.Timeout | None = None,
-        auth: httpx.Auth | None = None,
-    ) -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=httpx.MockTransport(return_403))
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(transport=httpx2.MockTransport(return_403))
 
     with _assert_no_memory_stream_leak():
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(httpx2.HTTPStatusError):
             async with sse_client("http://test/sse", httpx_client_factory=mock_factory):
                 pytest.fail("should not reach here")  # pragma: no cover
 
@@ -104,16 +103,3 @@ async def test_streamable_http_client_closes_all_streams_on_exit() -> None:
     with _assert_no_memory_stream_leak():
         async with streamable_http_client("http://127.0.0.1:1/mcp"):
             pass
-
-
-@pytest.mark.anyio
-async def test_websocket_client_closes_all_streams_on_connection_error(free_tcp_port: int) -> None:
-    """websocket_client must close all 4 stream ends when ws_connect fails.
-
-    Before the fix, there was no try/finally at all — if ws_connect raised,
-    all 4 streams were leaked.
-    """
-    with _assert_no_memory_stream_leak():
-        with pytest.raises(OSError):
-            async with websocket_client(f"ws://127.0.0.1:{free_tcp_port}/ws"):
-                pytest.fail("should not reach here")  # pragma: no cover

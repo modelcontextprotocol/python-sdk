@@ -1,10 +1,7 @@
 """Basic tests for list_prompts, list_resources, and list_tools handlers without pagination."""
 
 import pytest
-
-from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import (
+from mcp_types import (
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -13,6 +10,9 @@ from mcp.types import (
     Resource,
     Tool,
 )
+
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 
 
 @pytest.mark.anyio

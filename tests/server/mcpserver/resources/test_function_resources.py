@@ -3,6 +3,8 @@ import threading
 import anyio
 import anyio.from_thread
 import pytest
+from inline_snapshot import snapshot
+from mcp_types import InputRequiredResult
 from pydantic import BaseModel
 
 from mcp.server.mcpserver.resources import FunctionResource
@@ -242,3 +244,20 @@ async def test_sync_fn_does_not_block_event_loop():
             release.set()
 
     assert result == ["done"]
+
+
+@pytest.mark.anyio
+async def test_read_rejects_an_input_required_result_from_a_static_function():
+    """A static resource function returning an InputRequiredResult is a mistake (it can
+    never read the retry's input_responses), so read() raises instead of JSON-dumping it."""
+
+    def ask() -> InputRequiredResult:
+        return InputRequiredResult(request_state="round-1")
+
+    resource = FunctionResource(uri="resource://ask", name="ask", fn=ask)
+    with pytest.raises(ValueError) as exc:
+        await resource.read()
+    assert str(exc.value) == snapshot(
+        "Error reading resource resource://ask: static resources cannot return "
+        "InputRequiredResult; only resource template functions participate in the multi-round-trip flow"
+    )
