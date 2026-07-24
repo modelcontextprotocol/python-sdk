@@ -1063,9 +1063,34 @@ async def test_modern_tools_call_logs_a_handler_raised_validation_error_loudly(
     assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
 
 
-async def test_modern_post_with_deeply_nested_body_is_parse_error_not_a_crash() -> None:
-    """Deep nesting makes json.loads raise RecursionError; still an unparseable body: 400 + PARSE_ERROR."""
+async def test_modern_post_with_deeply_nested_body_is_rejected_not_a_crash() -> None:
+    """A deeply nested body is rejected with a 400, never a crash.
+
+    Which JSON-RPC code it gets is platform-dependent: since CPython 3.12 the C
+    json scanner guards recursion by actual C-stack headroom, so depending on
+    the thread's stack size the body either fails to parse (RecursionError ->
+    PARSE_ERROR) or parses into a giant list that then fails request
+    validation (-> INVALID_REQUEST). Both are correct rejections; the
+    deterministic PARSE_ERROR mapping is covered by the monkeypatch test below.
+    """
     body = b"[" * 100_000 + b"]" * 100_000
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] in (PARSE_ERROR, INVALID_REQUEST)
+
+
+async def test_modern_post_recursion_error_during_parse_is_parse_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RecursionError raised while parsing the body maps to 400 + PARSE_ERROR (deterministically)."""
+    real_loads = json.loads
+    body = b"[" * 50 + b"]" * 50
+
+    def _raise_for_request_body(s: Any, *args: Any, **kwargs: Any) -> Any:
+        if s == body:  # `json` here is the stdlib module; only fail the request-body parse.
+            raise RecursionError("maximum recursion depth exceeded")
+        return real_loads(s, *args, **kwargs)
+
+    monkeypatch.setattr("mcp.server._streamable_http_modern.json.loads", _raise_for_request_body)
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 400
