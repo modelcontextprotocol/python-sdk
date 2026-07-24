@@ -59,6 +59,8 @@ async def client():  # (2)!
 @pytest.mark.anyio
 async def test_call_add_tool(client: Client):
     result = await client.call_tool("add", {"a": 1, "b": 2})
+    # Drop the server identity stamp in `_meta`; it is not what this test is about.
+    result.meta = None
     assert result == snapshot(
         CallToolResult(
             content=[TextContent(type="text", text="3")],

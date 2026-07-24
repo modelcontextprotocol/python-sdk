@@ -11,6 +11,7 @@ from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -264,11 +265,14 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     discover = JSONRPCRequest(jsonrpc="2.0", id=1, method="server/discover", params={"_meta": envelope})
     tools = JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={"_meta": envelope})
 
-    responses = _serve_stdio_and_collect(monkeypatch, MCPServer(name="ModernStdioServer"), [discover, tools], 2)
+    server = MCPServer(name="ModernStdioServer", version="1.2.3")
+    responses = _serve_stdio_and_collect(monkeypatch, server, [discover, tools], 2)
 
     assert isinstance(responses[0], JSONRPCResponse) and responses[0].id == 1
     assert "2026-07-28" in responses[0].result["supportedVersions"]
-    assert responses[0].result["serverInfo"]["name"] == "ModernStdioServer"
+    # Server identity travels as the result `_meta` stamp, not a DiscoverResult
+    # body field (spec 2026-07-28, #3002).
+    assert responses[0].result["_meta"][SERVER_INFO_META_KEY] == {"name": "ModernStdioServer", "version": "1.2.3"}
     assert isinstance(responses[1], JSONRPCResponse) and responses[1].id == 2
     # `resultType` is the modern-only wire field: its presence proves the
     # request was served at the discovered version, not the handshake era.

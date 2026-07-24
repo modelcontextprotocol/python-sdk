@@ -69,6 +69,7 @@ def _smoke_server() -> MCPServer:
 async def test_tool_call_over_streamable_http_with_json_responses() -> None:
     """The round trip works when the server answers with a single JSON body instead of an SSE stream."""
     async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
+        assert client.server_info is not None
         assert client.server_info.name == "smoke"
         result = await client.call_tool("echo", {"text": "as json"})
 

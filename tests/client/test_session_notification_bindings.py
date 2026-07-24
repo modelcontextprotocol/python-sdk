@@ -7,7 +7,7 @@ import logging
 import anyio
 import mcp_types as types
 import pytest
-from mcp_types import EmptyResult, Implementation, ServerCapabilities
+from mcp_types import EmptyResult, ServerCapabilities
 from mcp_types.version import LATEST_MODERN_VERSION
 from pydantic import BaseModel
 
@@ -42,7 +42,6 @@ def _adopt_modern(session: ClientSession) -> None:
         types.DiscoverResult(
             supported_versions=[LATEST_MODERN_VERSION],
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="stub", version="0"),
         )
     )
 

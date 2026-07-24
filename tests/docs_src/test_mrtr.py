@@ -22,6 +22,7 @@ from docs_src.mrtr import tutorial001, tutorial002, tutorial003, tutorial004, tu
 from mcp import Client, MCPError
 from mcp.client import ClientRequestContext
 from mcp.server.mcpserver import InvalidRequestState
+from tests.docs_src._helpers import strip_server_info
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -31,6 +32,7 @@ async def test_first_call_returns_an_input_required_result() -> None:
     """tutorial001: a tool that is missing input returns `InputRequiredResult` instead of calling back."""
     async with Client(tutorial001.server) as client:
         result = await client.session.call_tool("provision", {"name": "orders"}, allow_input_required=True)
+        result = strip_server_info(result, tutorial001.server)
         assert result == snapshot(
             InputRequiredResult(
                 result_type="input_required",
@@ -57,6 +59,7 @@ async def test_the_auto_loop_drives_the_call_to_completion() -> None:
     """tutorial003: register `elicitation_callback`, call the tool, get a plain `CallToolResult` back."""
     async with Client(tutorial001.server, elicitation_callback=tutorial003.handle_elicitation) as client:
         result = await client.call_tool("provision", {"name": "orders"})
+        result = strip_server_info(result, tutorial001.server)
         assert result == snapshot(
             CallToolResult(content=[TextContent(type="text", text="Provisioned 'orders' in eu-west-1.")])
         )
@@ -80,6 +83,7 @@ async def test_retry_with_input_responses_and_request_state_completes_the_call()
             input_responses={"region": ElicitResult(action="accept", content={"region": "eu-west-1"})},
             request_state="provision-v1",
         )
+        result = strip_server_info(result, tutorial001.server)
         assert result == snapshot(
             CallToolResult(content=[TextContent(type="text", text="Provisioned 'orders' in eu-west-1.")])
         )
@@ -89,6 +93,7 @@ async def test_the_manual_loop_drives_the_call_to_completion() -> None:
     """tutorial002: `client.session.call_tool(..., allow_input_required=True)` for callers who own the loop."""
     async with Client(tutorial001.server) as client:
         result = await tutorial002.provision(client, "billing")
+        result = strip_server_info(result, tutorial001.server)
         assert result == snapshot(
             CallToolResult(content=[TextContent(type="text", text="Provisioned 'billing' in eu-west-1.")])
         )
@@ -121,6 +126,7 @@ async def test_a_prompt_returns_an_input_required_result_on_the_first_round() ->
     returns the `InputRequiredResult` itself."""
     async with Client(tutorial004.mcp) as client:
         result = await client.session.get_prompt("briefing", allow_input_required=True)
+        result = strip_server_info(result, tutorial004.mcp)
         assert result == snapshot(
             InputRequiredResult(
                 result_type="input_required",
@@ -151,6 +157,7 @@ async def test_the_prompt_auto_loop_returns_the_final_messages() -> None:
     caller sees only the complete `GetPromptResult`."""
     async with Client(tutorial004.mcp, elicitation_callback=_answer_audience) as client:
         result = await client.get_prompt("briefing")
+        result = strip_server_info(result, tutorial004.mcp)
         assert result == snapshot(
             GetPromptResult(
                 description="Draft a briefing tuned to its audience.",

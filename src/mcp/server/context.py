@@ -116,8 +116,11 @@ HandlerResult = BaseModel | dict[str, Any] | None
 all three to a result dict."""
 
 CallNext = Callable[["ServerRequestContext[Any, Any]"], Awaitable[HandlerResult]]
-"""Invokes the rest of the chain. Pass the `ctx` through; rewrite `method` or
-`params` with `dataclasses.replace(ctx, ...)` to alter what the handler sees."""
+"""Invokes the rest of the chain with the given context. What a context
+rewrite (`dataclasses.replace(ctx, ...)`) can alter depends on the tier:
+`ServerMiddleware` runs before params validation, so its rewrites change what
+the handler is invoked with; an `Extension` interceptor runs after, so its
+rewrites change only what the handler observes on `ctx`."""
 
 _MwLifespanT = TypeVar("_MwLifespanT")
 

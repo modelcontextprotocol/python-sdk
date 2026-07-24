@@ -176,7 +176,6 @@ def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
     return types.DiscoverResult(
         supported_versions=[protocol_version],
         capabilities=types.ServerCapabilities(),
-        server_info=types.Implementation(name="", version=""),
         result_type="complete",
         ttl_ms=0,
         cache_scope="public",
@@ -453,7 +452,8 @@ class Client:
                 session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
             # Only publish the session after the handshake succeeds, so `_session is not None`
-            # implies the protocol_version/server_info/server_capabilities are populated. If the
+            # implies the protocol_version/server_capabilities are populated (server_info
+            # stays optional: 2026-era servers may not identify themselves). If the
             # handshake raised above, the local exit_stack unwinds the transport for us.
             self._session = session
             self._exit_stack = exit_stack.pop_all()
@@ -479,18 +479,24 @@ class Client:
         return self._session
 
     # TODO(maxisbey): the by-construction shape is for __aenter__ to return a connected-view
-    # type whose protocol_version/server_info/server_capabilities are non-Optional fields,
+    # type whose protocol_version/server_capabilities are non-Optional fields,
     # eliminating these guards (and the one in .session). Same family as resolving the
     # transport/connector at __post_init__ so the Optional internal fields disappear.
+    # (server_info stays Optional even connected: the 2026-era stamp is optional.)
     @property
     def protocol_version(self) -> str:
         """Negotiated protocol version (set by initialize/discover/adopt during ``__aenter__``)."""
         return _connected(self.session.protocol_version)
 
     @property
-    def server_info(self) -> Implementation:
-        """Server name/version (set by initialize/discover/adopt during ``__aenter__``)."""
-        return _connected(self.session.server_info)
+    def server_info(self) -> Implementation | None:
+        """Server name/version, or `None` when the server did not identify itself.
+
+        Legacy connections always carry it (`InitializeResult.serverInfo` is
+        required); on 2026-era connections the `_meta` `serverInfo` stamp is
+        optional, so an anonymous server reads as `None`.
+        """
+        return self.session.server_info
 
     @property
     def server_capabilities(self) -> ServerCapabilities:

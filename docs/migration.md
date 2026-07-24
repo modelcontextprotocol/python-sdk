@@ -606,6 +606,14 @@ mcp = MCPServer("Demo", instructions="You answer questions about the weather.")
 
 Keep `name` positional and pass everything else by keyword.
 
+### Unversioned servers report an empty version
+
+In v1, a server constructed without a `version` reported the installed `mcp`
+package's version as its own in the `initialize` result's `serverInfo`. In v2
+it reports an empty string instead: the SDK's version is not your server's
+version. Pass `version="..."` to `Server(...)` or `MCPServer(...)` to identify
+your server properly. The field is display-only; nothing breaks either way.
+
 ### `mount_path` parameter removed from MCPServer
 
 The `mount_path` parameter has been removed from `MCPServer.__init__()`, `MCPServer.run()`, `MCPServer.run_sse_async()`, and `MCPServer.sse_app()`. It was also removed from the `Settings` class.
@@ -1498,7 +1506,7 @@ version = session.protocol_version
 
 The raw handshake result is also retained: `session.initialize_result` is set after `initialize()` (≤2025-11-25 servers — including `stateless_http=True` servers, which still answer `initialize`); `session.discover_result` is set after `discover()` (2026-07-28+ servers). At most one is non-`None`.
 
-On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
+On the high-level `Client`, `client.server_capabilities` and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it, and `client.server_info` is `Implementation | None`: on 2026-era connections identity is optional wire metadata, so a server that does not report it reads as `None`. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
 
 ### `cursor` parameter removed from `ClientSession` list methods
 

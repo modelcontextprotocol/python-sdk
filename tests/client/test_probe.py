@@ -25,8 +25,8 @@ from mcp_types import (
     METHOD_NOT_FOUND,
     PARSE_ERROR,
     REQUEST_TIMEOUT,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
-    Implementation,
     ServerCapabilities,
 )
 from mcp_types.version import (
@@ -85,7 +85,7 @@ def _discover_dict(versions: list[str] | None = None) -> dict[str, Any]:
     return types.DiscoverResult(
         supported_versions=versions or list(MODERN_PROTOCOL_VERSIONS),
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="stub", version="0"),
+        _meta={SERVER_INFO_META_KEY: {"name": "stub", "version": "0"}},
     ).model_dump(by_alias=True, mode="json", exclude_none=True)
 
 
@@ -101,11 +101,13 @@ def _err_32022(supported: Any) -> MCPError:
 
 
 async def test_a_valid_discover_result_is_adopted_without_initializing() -> None:
-    """A parseable `DiscoverResult` from the probe is adopted; `initialize()` is never called."""
+    """A parseable `DiscoverResult` from the probe is adopted intact — including the
+    `_meta` serverInfo stamp — and `initialize()` is never called."""
     session = _StubSession(_discover_dict())
     await _negotiate(session)
     assert session.adopted is not None
-    assert session.adopted.server_info.name == "stub"
+    assert session.adopted.meta is not None
+    assert session.adopted.meta[SERVER_INFO_META_KEY] == {"name": "stub", "version": "0"}
     assert not session.initialized
     assert session.probed_at == [LATEST_MODERN_VERSION]
 
@@ -114,6 +116,16 @@ async def test_an_unparseable_discover_result_falls_back_to_initialize() -> None
     """A probe response that does not validate as `DiscoverResult` is not modern evidence,
     so the policy falls back to the legacy handshake instead of adopting garbage."""
     session = _StubSession({"not": "a discover result"})
+    await _negotiate(session)
+    assert session.initialized
+    assert session.adopted is None
+
+
+async def test_a_discover_result_advertising_only_legacy_versions_falls_back_to_initialize() -> None:
+    """A server that answers the probe but lists no modern version has made an
+    explicit legacy advertisement (go-sdk's default stateful streamable server
+    does this), so the policy runs the handshake instead of raising on adopt."""
+    session = _StubSession(_discover_dict(list(HANDSHAKE_PROTOCOL_VERSIONS)))
     await _negotiate(session)
     assert session.initialized
     assert session.adopted is None

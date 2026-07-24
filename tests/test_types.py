@@ -394,7 +394,6 @@ def test_concrete_wire_results_always_dump_result_type_complete():
         DiscoverResult(
             supported_versions=["2026-07-28"],
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="server", version="1.0"),
         ),
     ]
     for result in carriers:
@@ -414,7 +413,6 @@ def test_cacheable_results_default_to_immediately_stale_private():
         DiscoverResult(
             supported_versions=["2026-07-28"],
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="server", version="1.0"),
         ),
     ]
     for result in cacheable:

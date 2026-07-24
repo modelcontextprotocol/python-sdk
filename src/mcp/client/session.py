@@ -20,6 +20,7 @@ from mcp_types import (
     INTERNAL_ERROR,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
     RequestId,
     RequestParamsMeta,
@@ -75,6 +76,21 @@ def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
     # ClientSession callers may skip the handshake entirely) keep the courtesy cancel.
     if data["method"] in ("initialize", "server/discover"):
         opts["cancel_on_abandon"] = False
+
+
+def _parse_server_info_stamp(result: types.DiscoverResult) -> types.Implementation | None:
+    """The typed identity from a discover result's `_meta` serverInfo stamp.
+
+    The stamp is display-only per the spec, so absent and malformed both read
+    as `None` rather than failing the connection.
+    """
+    raw = (result.meta or {}).get(SERVER_INFO_META_KEY)
+    if raw is None:
+        return None
+    try:
+        return types.Implementation.model_validate(raw)
+    except ValidationError:
+        return None
 
 
 def _make_handshake_stamp(protocol_version: str) -> Callable[[dict[str, Any], CallOptions], None]:
@@ -360,6 +376,7 @@ class ClientSession:
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
+        self._discover_server_info: types.Implementation | None = None
         self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
@@ -605,12 +622,14 @@ class ClientSession:
             capabilities = self._build_capabilities(version).model_dump(by_alias=True, mode="json", exclude_none=True)
             self._stamp = _make_modern_stamp(version, client_info, capabilities, self._resolve_param_headers)
             self._discover_result = result
+            self._discover_server_info = _parse_server_info_stamp(result)
             self._initialize_result = None
         else:
             version = result.protocol_version
             self._stamp = _make_handshake_stamp(version)
             self._initialize_result = result
             self._discover_result = None
+            self._discover_server_info = None
         self._negotiated_version = version
         # Both arms reach here, so re-adoption resets cleanly; legacy versions activate no claims.
         # Core-vocabulary tags are unconstructible (ResultClaim.__post_init__), so no exclusion needed.
@@ -719,9 +738,15 @@ class ClientSession:
 
     @property
     def server_info(self) -> types.Implementation | None:
-        """Server name/version. None until `initialize()`, `discover()`, or `adopt()`."""
+        """Server name/version. None until `initialize()`, `discover()`, or `adopt()`.
+
+        On 2026-era connections this is the discover result's optional `_meta`
+        `serverInfo` stamp, parsed once at adopt time; `None` when the server
+        did not identify itself. The stamp is display-only per the spec, so a
+        malformed value reads as absent rather than failing the connection.
+        """
         if self._discover_result is not None:
-            return self._discover_result.server_info
+            return self._discover_server_info
         if self._initialize_result is not None:
             return self._initialize_result.server_info
         return None

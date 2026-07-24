@@ -133,14 +133,21 @@ or veto a tool call:
 ```
 
 * `params` is the validated `CallToolRequestParams`: you get `params.name` and
-  `params.arguments` without touching raw JSON.
-* `call_next(ctx)` runs the rest of the chain. Return its result unchanged (observe),
-  return something else (replace), or raise an `MCPError` (refuse).
+  `params.arguments` without touching raw JSON. It is also what decides which
+  tool call runs: passing a rewritten context through `call_next` changes what
+  the handler observes on `ctx`, not the tool invocation. Wire-level request
+  rewriting belongs to [Middleware](middleware.md).
+* `call_next(ctx)` runs the rest of the chain and returns the handler's result.
+  Return it unchanged (observe), return something else (replace), or raise an
+  `MCPError` (refuse). Whatever you return is serialized like any handler
+  result, including the 2026-era `serverInfo` identity stamp, so a
+  short-circuiting interceptor never produces an anonymous or off-schema
+  response.
 * With several extensions, interceptors nest in registration order: the first
   extension in `extensions=[...]` is outermost.
 * The default implementation is a pass-through, and a server whose extensions never
-  override this hook installs **no** middleware at all. You don't pay for what
-  you don't use.
+  override this hook keeps the bare `tools/call` handler untouched. You don't
+  pay for what you don't use.
 
 The hook wraps `tools/call` and nothing else. For every-message concerns, use
 [Middleware](middleware.md). That is what it is for.

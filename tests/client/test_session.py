@@ -16,6 +16,7 @@ from mcp_types import (
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     REQUEST_TIMEOUT,
+    SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
     CallToolResult,
     Implementation,
@@ -1323,7 +1324,6 @@ def test_adopt_raises_when_no_mutual_modern_version_is_supported() -> None:
             types.DiscoverResult(
                 supported_versions=["1999-01-01"],
                 capabilities=types.ServerCapabilities(),
-                server_info=types.Implementation(name="s", version="0"),
                 result_type="complete",
                 ttl_ms=0,
                 cache_scope="public",
@@ -1514,7 +1514,6 @@ def _discover_result_dict() -> dict[str, Any]:
     return types.DiscoverResult(
         supported_versions=["2026-07-28"],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="stub", version="0"),
     ).model_dump(by_alias=True, mode="json", exclude_none=True)
 
 
@@ -1654,12 +1653,13 @@ def test_era_neutral_properties_are_none_before_any_handshake() -> None:
 @pytest.mark.anyio
 async def test_era_neutral_properties_after_discover() -> None:
     """SDK-defined: after `discover()` the era-neutral accessors read from the
-    DiscoverResult; `initialize_result` stays None."""
+    DiscoverResult; `server_info` comes from the `_meta` serverInfo stamp and
+    `initialize_result` stays None."""
     raw = types.DiscoverResult(
         supported_versions=["2026-07-28"],
         capabilities=ServerCapabilities(tools=types.ToolsCapability(list_changed=True)),
-        server_info=Implementation(name="discovered", version="2.0"),
         instructions="hello",
+        _meta={SERVER_INFO_META_KEY: {"name": "discovered", "version": "2.0"}},
     ).model_dump(by_alias=True, mode="json", exclude_none=True)
     dispatcher = _ScriptedDispatcher(raw)
     with anyio.fail_after(5):
@@ -1671,6 +1671,40 @@ async def test_era_neutral_properties_after_discover() -> None:
     assert session.instructions == "hello"
     assert session.initialize_result is None
     assert isinstance(session.discover_result, types.DiscoverResult)
+
+
+@pytest.mark.anyio
+async def test_server_info_is_none_when_the_discover_result_carries_no_stamp() -> None:
+    """Spec-mandated (2026-07-28, #3002): the serverInfo result-`_meta` stamp is
+    optional, so a server that does not identify itself reads as `None` rather
+    than failing the connection."""
+    raw = types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(raw)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.protocol_version == "2026-07-28"
+    assert session.server_info is None
+
+
+@pytest.mark.anyio
+async def test_a_malformed_server_info_stamp_reads_as_absent() -> None:
+    """Spec-mandated (2026-07-28, #3002): the stamp is self-reported and
+    display-only, so a value that is not an `Implementation` must not fail the
+    call; it reads as if the server sent none."""
+    raw = types.DiscoverResult(
+        supported_versions=["2026-07-28"],
+        capabilities=ServerCapabilities(),
+        _meta={SERVER_INFO_META_KEY: {"version": "no name makes this invalid"}},
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    dispatcher = _ScriptedDispatcher(raw)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.discover()
+    assert session.server_info is None
 
 
 @pytest.mark.anyio

@@ -408,7 +408,6 @@ async def test_listen_on_a_never_entered_session_raises_runtime_error():
         types.DiscoverResult(
             supported_versions=["2026-07-28"],
             capabilities=types.ServerCapabilities(),
-            server_info=types.Implementation(name="stub", version="0"),
         )
     )
     with pytest.raises(RuntimeError, match="entered session"):

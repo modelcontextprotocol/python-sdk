@@ -102,9 +102,12 @@ Call it and the result carries both representations:
   "content": [{"type": "text", "text": "Found 3 books matching 'dune'."}],
   "structuredContent": {"matches": 3, "query": "dune"},
   "isError": false,
-  "resultType": "complete"
+  "resultType": "complete",
+  "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Bookshop", "version": "2.0.0"}}
 }
 ```
+
+The `_meta` block is the server's identity stamp: the SDK adds it to every 2026-era result, with the `version` from the constructor (a server that sets none reports an empty string). A server that must not identify itself can strip the key with a middleware, which owns the results it returns.
 
 The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
 
