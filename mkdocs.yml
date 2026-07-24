@@ -67,6 +67,7 @@ nav:
       - Middleware: advanced/middleware.md
       - Extensions: advanced/extensions.md
       - MCP Apps: advanced/apps.md
+      - Server Cards: advanced/server-cards.md
   - Troubleshooting: troubleshooting.md
   - Migration Guide: migration.md
   - API Reference: api/
