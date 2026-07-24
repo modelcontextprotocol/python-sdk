@@ -76,6 +76,32 @@ EventId = str
 SSEEvent = dict[str, Any]
 
 
+def _parse_accept_header(accept_header: str) -> list[str]:
+    """Parse the Accept header into a list of acceptable media types, honoring q=0 values."""
+    media_types: list[str] = []
+    for entry in accept_header.split(","):
+        parts = [part.strip() for part in entry.split(";") if part.strip()]
+        if not parts:
+            continue
+
+        media_type = parts[0].lower()
+        q = 1.0
+        for param in parts[1:]:
+            param = param.strip()
+            if param.startswith("q="):
+                try:
+                    q = float(param[2:])
+                except ValueError:
+                    q = 1.0
+                break
+
+        if q <= 0:
+            continue
+
+        media_types.append(media_type)
+    return media_types
+
+
 def check_accept_headers(request: Request) -> tuple[bool, bool]:
     """Return (has_json, has_sse) for the request's Accept header, with RFC 7231 wildcard handling.
 
@@ -85,7 +111,7 @@ def check_accept_headers(request: Request) -> tuple[bool, bool]:
     - text/* matches any text/ subtype
     """
     accept_header = request.headers.get("accept", "")
-    accept_types = [media_type.strip().split(";")[0].strip().lower() for media_type in accept_header.split(",")]
+    accept_types = _parse_accept_header(accept_header)
 
     has_wildcard = "*/*" in accept_types
     has_json = has_wildcard or any(t in (CONTENT_TYPE_JSON, "application/*") for t in accept_types)
@@ -436,9 +462,11 @@ class StreamableHTTPServerTransport:
     def _check_content_type(self, request: Request) -> bool:
         """Check if the request has the correct Content-Type."""
         content_type = request.headers.get("content-type", "")
-        content_type_parts = [part.strip() for part in content_type.split(";")[0].split(",")]
 
-        return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
+        # Only normalize the media type (drop parameters) and compare
+        media_types = [part.strip().lower() for part in content_type.split(";", 1)[0].split(",")]
+
+        return CONTENT_TYPE_JSON in media_types
 
     async def _validate_accept_header(self, request: Request, scope: Scope, send: Send) -> bool:
         """Validate Accept header based on response mode. Returns True if valid."""

@@ -441,6 +441,45 @@ async def test_accept_header_wildcard(basic_app: Starlette, accept_header: str) 
 @pytest.mark.parametrize(
     "accept_header",
     [
+        "application/json;q=0",
+        "text/event-stream;q=0, application/json;q=0",
+        "application/*;q=0, text/*;q=0.8",
+        "*/*;q=0",
+    ],
+)
+async def test_accept_header_respects_q_zero(basic_app: Starlette, accept_header: str) -> None:
+    """Accept headers with q=0 entries must not be treated as acceptable media types."""
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": accept_header,
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert response.status_code == 406
+
+
+@pytest.mark.anyio
+async def test_accept_header_invalid_q_falls_back_to_default_weight(basic_app: Starlette) -> None:
+    """Malformed q parameters fall back to the default weight and still allow the media type."""
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json;foo=bar;q=not-a-number, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert response.status_code == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "accept_header",
+    [
         "text/html",
         "application/*",
         "text/*",
