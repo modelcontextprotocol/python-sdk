@@ -211,3 +211,134 @@ def test_edge_cases(tool_name: str, is_valid: bool, expected_warning_fragment: s
     result = validate_tool_name(tool_name)
     assert result.is_valid is is_valid
     assert any(expected_warning_fragment in w for w in result.warnings)
+
+
+# ============================================================================
+# NEW TESTS: Unicode Homoglyph & Confusable Character Detection
+# ============================================================================
+# These tests verify that the validator detects Unicode homoglyphs
+# (characters that look identical but are different) that could be used
+# for tool name spoofing attacks.
+
+
+class TestUnicodeHomoglyphDetection:
+    """Tests for detecting Unicode homoglyphs that visually impersonate ASCII."""
+
+    def test_cyrillic_a_rejected(self) -> None:
+        """Cyrillic А (U+0410) looks identical to Latin A but must be rejected.
+
+        Note: NFKC does not map Cyrillic to Latin lookalikes, so this character
+        is caught by the ASCII-only regex check (invalid characters), not by the
+        normalization check. The rejection is the important invariant here.
+        """
+        result = validate_tool_name("tool_А")
+        assert not result.is_valid, "Cyrillic А should be rejected"
+        assert any("invalid characters" in w.lower() for w in result.warnings), (
+            f"Expected invalid-character warning. Got: {result.warnings}"
+        )
+
+    def test_cyrillic_o_rejected(self) -> None:
+        """Cyrillic О (U+041E) looks identical to Latin O."""
+        result = validate_tool_name("tool_О")
+        assert not result.is_valid
+
+    def test_cyrillic_e_rejected(self) -> None:
+        """Cyrillic Е (U+0415) looks identical to Latin E."""
+        result = validate_tool_name("tool_Е")
+        assert not result.is_valid
+
+    def test_cyrillic_p_rejected(self) -> None:
+        """Cyrillic Р (U+0420) looks identical to Latin P."""
+        result = validate_tool_name("tool_Р")
+        assert not result.is_valid
+
+    def test_fullwidth_a_rejected(self) -> None:
+        """Fullwidth Latin а (U+FF41) looks like ASCII a."""
+        result = validate_tool_name("ａtool")
+        assert not result.is_valid
+
+    def test_fullwidth_mixed_rejected(self) -> None:
+        """Mix of fullwidth and ASCII should be detected."""
+        result = validate_tool_name("toｏl")  # 'о' is fullwidth
+        assert not result.is_valid
+
+    def test_greek_alpha_rejected(self) -> None:
+        """Greek Α (U+0391) looks like Latin A."""
+        result = validate_tool_name("tool_Α")
+        assert not result.is_valid
+
+    def test_rtl_override_rejected(self) -> None:
+        """Right-to-left override character (U+202E) should be rejected."""
+        result = validate_tool_name("tool‮_name")  # RIGHT-TO-LEFT OVERRIDE
+        assert not result.is_valid
+        assert any("directional" in w.lower() or "rtl" in w.lower() for w in result.warnings), (
+            f"Warning should mention directional formatting. Got: {result.warnings}"
+        )
+
+    def test_ltr_override_rejected(self) -> None:
+        """Left-to-right override character (U+202D) should be rejected."""
+        result = validate_tool_name("tool‭_name")  # LEFT-TO-RIGHT OVERRIDE
+        assert not result.is_valid
+
+
+class TestUnicodeNormalizationBypass:
+    """Tests for Unicode normalization form attacks."""
+
+    def test_decomposed_unicode_detected(self) -> None:
+        """Decomposed Unicode should be normalized and detected."""
+        import unicodedata
+
+        # 'café' in decomposed form (e + combining accent)
+        decomposed = unicodedata.normalize("NFD", "café")
+        result = validate_tool_name(f"tool_{decomposed}")
+        # Should either be rejected or warn
+        assert not result.is_valid or any("normalize" in w.lower() for w in result.warnings), (
+            f"Decomposed forms should be detected. Got is_valid={result.is_valid}, warnings={result.warnings}"
+        )
+
+    def test_nfkc_normalization_detected(self) -> None:
+        """NFKC normalization changes should be detected.
+
+        Fullwidth ASCII (e.g. ａｂｃ) always normalizes under NFKC, so the
+        validator must flag it unconditionally.
+        """
+        # Fullwidth characters always normalize to ASCII under NFKC
+        original = "ａｂｃ"  # Fullwidth ASCII — NFKC maps these to 'abc'
+        result = validate_tool_name(original)
+        assert not result.is_valid or any("normalize" in w.lower() for w in result.warnings), (
+            "NFKC normalization should be detected"
+        )
+
+
+class TestUnicodeBoundaryConditions:
+    """Edge cases and boundary conditions."""
+
+    def test_zero_width_characters_rejected(self) -> None:
+        """Zero-width characters should be rejected."""
+        result = validate_tool_name("tool​_name")  # Zero-width space
+        assert not result.is_valid
+
+
+class TestValidAsciiStillWorks:
+    """Ensure valid ASCII tool names still pass after homoglyph detection added."""
+
+    def test_basic_ascii_passes(self) -> None:
+        """Standard ASCII tool names should still pass."""
+        result = validate_tool_name("verify_user")
+        assert result.is_valid
+
+    def test_numbers_pass(self) -> None:
+        result = validate_tool_name("tool_123")
+        assert result.is_valid
+
+    def test_dashes_underscores_pass(self) -> None:
+        result = validate_tool_name("my-tool_name-v2")
+        assert result.is_valid
+
+    def test_dots_pass(self) -> None:
+        result = validate_tool_name("tool.extension")
+        assert result.is_valid
+
+    def test_long_valid_name_passes(self) -> None:
+        result = validate_tool_name("a" * 128)  # Max length, all valid
+        assert result.is_valid
