@@ -157,6 +157,43 @@ async def test_client_session_initialize():
 
 
 @pytest.mark.anyio
+async def test_client_session_requires_context_manager():
+    client_to_server_send, _client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    _server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async with (
+        client_to_server_send,
+        _client_to_server_receive,
+        _server_to_client_send,
+        server_to_client_receive,
+    ):
+        session = ClientSession(server_to_client_receive, client_to_server_send)
+
+        with pytest.raises(RuntimeError, match="async context manager"):
+            await session.initialize()
+
+
+@pytest.mark.anyio
+async def test_client_session_reentry_raises_runtime_error():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        session = ClientSession(server_to_client_receive, client_to_server_send)
+        await session.__aenter__()
+        try:
+            with pytest.raises(RuntimeError, match="already running"):
+                await session.__aenter__()
+        finally:
+            await session.__aexit__(None, None, None)
+
+
+@pytest.mark.anyio
 async def test_client_session_custom_client_info():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -1266,12 +1303,12 @@ async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_tha
 
 @pytest.mark.anyio
 async def test_dispatcher_keyword_send_request_before_enter_raises_runtimeerror():
-    """The documented pre-enter RuntimeError holds for dispatcher= sessions too."""
+    """The documented pre-enter RuntimeError holds before any dispatcher call."""
     client_side, _server_side = create_direct_dispatcher_pair()
     session = ClientSession(dispatcher=client_side)
     with anyio.fail_after(5), pytest.raises(RuntimeError) as exc:
         await session.send_ping()
-    assert str(exc.value) == "DirectDispatcher.send_raw_request called before run()"
+    assert "async context manager" in str(exc.value)
 
 
 @pytest.mark.anyio
