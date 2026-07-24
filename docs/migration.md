@@ -1863,6 +1863,36 @@ group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
 per-process terminate/kill fallback are gone. The win32 utilities logger is now
 named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
+### `stdio_server` keeps the protocol streams on private descriptors
+
+While serving, the stdio transport moves the wire to private descriptors and points
+fd 0 at the null device and fd 1 at stderr, restoring both on exit. Subprocesses and
+handler code can no longer read protocol bytes or write into the stream (the
+[#671](https://github.com/modelcontextprotocol/python-sdk/issues/671) fix). Ordinary
+servers have nothing to do, and code that inspects or manipulates fd 0/1 directly
+during a session now sees the diversions, not the wire.
+
+One pattern needs migrating: watchdog threads that watch fd 0 to detect a vanished
+client (a POSIX-specific pattern; `select.poll` does not exist on Windows). The null
+device does not behave like the old pipe: it never reports `POLLHUP` or `POLLERR`,
+and it reports readable immediately and permanently (`POLLIN` from `poll()` on Linux,
+plus `POLLOUT` under the default event mask; ready from `select()`; and macOS can
+report `POLLNVAL` for devices). A watcher waiting for `POLLHUP` or `POLLERR` is
+silently disarmed; a watcher that treats any event as "client gone" now fires at
+startup instead of never. Watch the parent process instead: on POSIX, exit
+when `os.getppid()` changes, which happens when the client dies because orphaned
+processes are reparented. That works on both v1 and v2 and does not depend on
+descriptor layout.
+
+Also new: a second concurrent `stdio_server()` on the process's default streams now
+raises `RuntimeError` instead of silently contending for stdin, a configuration that
+never worked (there is one stdin).
+
+Also worth knowing: a child process that streams large output to its inherited
+stdout now streams it into the client's stderr channel. Capture output you do not
+want in the client's logs, and be aware that a client which never drains its stderr
+pipe applies back-pressure to the server (true of stderr logging on v1 as well).
+
 ### WebSocket transport removed
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.

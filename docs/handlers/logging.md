@@ -33,8 +33,11 @@ For a **stdio** server this question matters more than usual. The host launched 
 The standard library already does the right thing: log output goes to `sys.stderr` by default. Your `logger.info(...)` lines land in the terminal (or wherever the host collects the subprocess's stderr), and the protocol stream stays clean.
 
 !!! tip
-    Never `print()` in a stdio server. `print` writes to **stdout**, and stdout *is* the wire: one stray
-    line and the client is trying to parse it as JSON-RPC.
+    Don't `print()` in a stdio server. `print` writes to **stdout**, and stdout belongs to the protocol.
+    While serving, the SDK diverts stdout that is actually *flushed* to stderr, so it can't corrupt the
+    wire, but a `print()` in a block-buffered process usually sits unflushed in `sys.stdout`'s buffer
+    until the interpreter drains it at exit, straight onto the protocol stream. Even when it is diverted,
+    the line lands raw among the log output, with no level, no logger name, and no way to filter it.
 
     `logger.debug("got here")` is the same one line of effort and goes to the right place.
 
@@ -72,7 +75,7 @@ went to standard error: the terminal, not the wire.
 * The MCP protocol's logging capability is deprecated by the 2026-07-28 spec and not replaced. Don't build on it.
 * `logger = logging.getLogger(__name__)` at module level, `logger.info(...)` in the tool. That's the whole pattern.
 * Log output never reaches the model. Only the value you `return` does.
-* Standard error is yours; stdout belongs to the protocol. Never `print()` in a stdio server.
+* Standard error is yours; stdout belongs to the protocol. The SDK diverts flushed stray stdout to stderr while serving, but an unflushed `print()` can still drain onto the wire at exit, and diverted lines arrive unlabeled; use `logging`, whose handler flushes every record.
 * `MCPServer(..., log_level="DEBUG")` sets the level, and a logging configuration you made first is left alone.
 
 Telling connected clients that something on your server changed (the tool list, a resource) is **[Subscriptions](subscriptions.md)**.
