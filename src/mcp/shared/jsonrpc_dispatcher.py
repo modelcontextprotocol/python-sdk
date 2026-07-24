@@ -335,12 +335,16 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             pending_key = coerce_request_id(request_id)
             if pending_key in self._pending:
                 raise ValueError(f"request id {request_id!r} is already in flight")
+            # Advance the mint counter past the supplied key: ids are single-use
+            # within a session, so a minted id may not revisit this key even
+            # after the request completes.
+            if isinstance(pending_key, int):
+                self._next_id = max(self._next_id, pending_key)
         else:
-            # Mint past any key a supplied id occupies: the collision error is
-            # reserved for the caller who actually chose the id.
+            # Cannot collide: the counter is past every supplied integer key
+            # (advanced above) and every previously minted id. The collision
+            # error is reserved for the caller who actually chose the id.
             request_id = self._allocate_id()
-            while request_id in self._pending:
-                request_id = self._allocate_id()
             pending_key = request_id
         out_params = dict(params) if params is not None else {}
         out_meta = dict(out_params.get("_meta") or {})
