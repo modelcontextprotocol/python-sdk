@@ -255,21 +255,25 @@ def _admits_null(prop: dict[str, Any]) -> bool:
 
 
 def keep_required_nullable(source: str, classes: frozenset[str]) -> str:
-    """Give each of `classes` `KeepRequiredNullable` as a second base."""
+    """Append `KeepRequiredNullable` to each of `classes`'s base list.
+
+    Matches whatever bases codegen chose, since a `$def` that composes through `allOf` is
+    emitted with its composed bases rather than a bare `WireModel`.
+    """
     for name in sorted(classes):
         source, count = re.subn(
-            rf"^class {name}\(WireModel\):$",
-            f"class {name}(WireModel, KeepRequiredNullable):",
+            rf"^class {name}\((?P<bases>[^)]+)\):$",
+            rf"class {name}(\g<bases>, KeepRequiredNullable):",
             source,
             flags=re.MULTILINE,
         )
         if count != 1:
-            raise SystemExit(f"expected one `class {name}(WireModel)` to patch, found {count}")
+            raise SystemExit(f"expected one `class {name}(...)` to patch, found {count}")
     if classes:
-        source = source.replace(
-            "from mcp_types._wire_base import WireModel",
-            "from mcp_types._wire_base import KeepRequiredNullable, WireModel",
-        )
+        import_line = "from mcp_types._wire_base import WireModel"
+        if import_line not in source:
+            raise SystemExit(f"cannot import KeepRequiredNullable: {import_line!r} not found")
+        source = source.replace(import_line, "from mcp_types._wire_base import KeepRequiredNullable, WireModel")
     return source
 
 

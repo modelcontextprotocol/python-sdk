@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 from types import ModuleType
-from typing import Any, get_args
 
 import mcp_types as monolith
 import mcp_types._types as _types
@@ -12,7 +11,7 @@ import mcp_types.jsonrpc as jsonrpc
 import mcp_types.v2025_11_25 as v2025_11_25
 import mcp_types.v2026_07_28 as v2026_07_28
 import pytest
-from mcp_types._wire_base import KeepRequiredNullable
+from mcp_types._wire_base import KeepRequiredNullable, admits_none
 from pydantic import BaseModel
 
 SURFACES: tuple[ModuleType, ...] = (v2025_11_25, v2026_07_28)
@@ -231,7 +230,7 @@ def _models_with_a_required_nullable_field() -> list[tuple[str, type[BaseModel],
             nullable_required = frozenset(
                 field.serialization_alias or field.alias or field_name
                 for field_name, field in obj.model_fields.items()
-                if field.is_required() and (field.annotation is Any or type(None) in get_args(field.annotation))
+                if field.is_required() and admits_none(field.annotation)
             )
             if nullable_required:
                 found.append((f"{module.__name__}.{name}", obj, nullable_required))
@@ -250,8 +249,11 @@ def test_models_with_a_required_nullable_field_survive_an_exclude_none_dump(
 ) -> None:
     """`exclude_none=True` would drop such a field, leaving a body that fails its own schema.
 
-    `KeepRequiredNullable` puts it back. This walk is over the built models, which is the
-    authority; `scripts/gen_surface_types.py` reaches the same set from the raw schema.
+    `KeepRequiredNullable` puts it back. This walk deliberately shares `admits_none` with the
+    runtime, so it is a consistency check rather than an oracle: what it catches is a model the
+    generator's independent schema-side rule (`_admits_null`) failed to give the base, or a
+    hand-written model nobody remembered. A spelling both rules miss is caught by neither, and
+    only an end-to-end test of that message would find it.
     """
     assert issubclass(cls, KeepRequiredNullable), (
         f"{qualname} needs the KeepRequiredNullable base. For a generated model, regenerate the "
@@ -260,7 +262,9 @@ def test_models_with_a_required_nullable_field_survive_an_exclude_none_dump(
         "in _types.py and jsonrpc.py take the base directly."
     )
     instance = cls.model_construct(**dict.fromkeys(cls.model_fields))
-    assert nullable_required <= instance.model_dump(by_alias=True, mode="json", exclude_none=True).keys()
+    dumped = instance.model_dump(by_alias=True, mode="json", exclude_none=True)
+    assert nullable_required <= dumped.keys()
+    assert all(dumped[alias] is None for alias in nullable_required)
 
 
 def test_every_surface_class_is_accounted_for() -> None:

@@ -1663,7 +1663,7 @@ The task types stay, so a server can still serve Tasks ([SEP-1686](https://githu
 async def call_tool(
     ctx: ServerRequestContext, params: CallToolRequestParams
 ) -> CallToolResult | CreateTaskResult:
-    if params.task is None:
+    if params.task is None or ctx.protocol_version != "2025-11-25":
         return CallToolResult(content=[TextContent(text=run_now())])
     return CreateTaskResult(task=await store.submit(params))
 
@@ -1678,7 +1678,7 @@ server.add_request_handler("tasks/get", GetTaskRequestParams, get_task)
 
 Two things to know about handlers registered this way. They serve every negotiated version, so a server that also answers 2026-era clients should check `ctx.protocol_version` and reject anything outside 2025-11-25; the method names collide with the 2026 tasks extension but the payloads are not compatible. And their results are not validated against a per-version surface, so raise `MCPError` for the failure cases rather than letting an exception escape: an unhandled one reaches the client as an unmapped error carrying the exception text.
 
-The same era check belongs in `on_call_tool`. Its return type admits a `CreateTaskResult` at every version because the signature has no version to key on, but 2026-07-28 dropped tasks from the core protocol and rejects the shape, turning it into an opaque internal error. Returning one only when `params.task` is set keeps that unreachable for a well-behaved client, since a client that never learned the field never sets it.
+The same era check belongs in `on_call_tool`, and `params.task` is not a substitute for it. The handler receives the version-free params model, which carries `task` at every version, so a client can set the field on a 2026-07-28 connection and reach a handler that then answers with a `CreateTaskResult`, which that revision rejects as an opaque internal error. Gate on `ctx.protocol_version == "2025-11-25"` and treat `params.task` as the opt-in within that era, not as the era test.
 
 `Server.get_capabilities` does not derive a `tasks` capability from the registered handlers, and a spec-compliant client will not augment a request until it sees one, so build the advertisement explicitly:
 

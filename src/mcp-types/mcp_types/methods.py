@@ -244,7 +244,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/subscribe", "2024-11-05"): v2025.EmptyResult,
         ("resources/templates/list", "2024-11-05"): v2025.ListResourceTemplatesResult,
         ("resources/unsubscribe", "2024-11-05"): v2025.EmptyResult,
-        ("tools/call", "2024-11-05"): v2025.AnyCallToolResult,
+        ("tools/call", "2024-11-05"): v2025.CallToolResult,
         ("tools/list", "2024-11-05"): v2025.ListToolsResult,
         # 2025-03-26
         ("completion/complete", "2025-03-26"): v2025.CompleteResult,
@@ -258,7 +258,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/subscribe", "2025-03-26"): v2025.EmptyResult,
         ("resources/templates/list", "2025-03-26"): v2025.ListResourceTemplatesResult,
         ("resources/unsubscribe", "2025-03-26"): v2025.EmptyResult,
-        ("tools/call", "2025-03-26"): v2025.AnyCallToolResult,
+        ("tools/call", "2025-03-26"): v2025.CallToolResult,
         ("tools/list", "2025-03-26"): v2025.ListToolsResult,
         # 2025-06-18
         ("completion/complete", "2025-06-18"): v2025.CompleteResult,
@@ -272,7 +272,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/subscribe", "2025-06-18"): v2025.EmptyResult,
         ("resources/templates/list", "2025-06-18"): v2025.ListResourceTemplatesResult,
         ("resources/unsubscribe", "2025-06-18"): v2025.EmptyResult,
-        ("tools/call", "2025-06-18"): v2025.AnyCallToolResult,
+        ("tools/call", "2025-06-18"): v2025.CallToolResult,
         ("tools/list", "2025-06-18"): v2025.ListToolsResult,
         # 2025-11-25
         ("completion/complete", "2025-11-25"): v2025.CompleteResult,
