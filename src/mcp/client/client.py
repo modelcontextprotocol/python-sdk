@@ -32,6 +32,7 @@ from mcp_types import (
     ListToolsResult,
     LoggingLevel,
     PaginatedRequestParams,
+    PaginatedResult,
     PromptReference,
     ReadResourceResult,
     RequestParamsMeta,
@@ -81,6 +82,37 @@ forward-compat; ``Client.__post_init__`` rejects anything outside that set at co
 _T = TypeVar("_T")
 _ResultT = TypeVar("_ResultT")
 _CacheableT = TypeVar("_CacheableT", bound=CacheableResult)
+_PaginatedCacheableT = TypeVar("_PaginatedCacheableT", bound=PaginatedResult)
+
+_DEFAULT_LIST_MAX_PAGES = 64
+
+
+class PaginationExceededError(RuntimeError):
+    """A ``list_all_*`` walk exceeded the configured page limit.
+
+    Raised when automatic pagination does not terminate within
+    ``Client.list_max_pages`` pages, indicating a server that keeps
+    returning ``next_cursor`` without end.
+    """
+
+    def __init__(self, method: str, max_pages: int) -> None:
+        super().__init__(f"{method}: exceeded list_max_pages ({max_pages}); server pagination did not terminate")
+        self.method = method
+        self.max_pages = max_pages
+
+
+class CursorCycleError(RuntimeError):
+    """A ``list_all_*`` walk detected a repeated pagination cursor.
+
+    Raised when the server returns a ``next_cursor`` that was already
+    seen during the current pagination walk, indicating a cursor cycle.
+    """
+
+    def __init__(self, method: str, cursor: str) -> None:
+        super().__init__(f"{method}: pagination detected cursor cycle: {cursor!r}")
+        self.method = method
+        self.cursor = cursor
+
 
 _Connector = Callable[[AsyncExitStack, ConnectMode, bool], Awaitable["Dispatcher[Any]"]]
 """Resolved at ``__post_init__`` from the shape of ``server`` alone: enter whatever resources
@@ -357,6 +389,14 @@ class Client:
     cacheable verbs take a per-call `cache_mode` (see `CacheMode`); calls carrying
     `meta` always reach the server. A `CacheConfig` with a custom `store` requires
     `target_id` when the server is not a URL (no identity can be derived)."""
+
+    list_max_pages: int = _DEFAULT_LIST_MAX_PAGES
+    """Maximum number of pages to fetch during ``list_all_*`` auto-pagination.
+
+    Defaults to 64 (matching the TypeScript SDK). A value of 0 disables the cap
+    (unlimited pagination). A negative value also means unlimited. Raises
+    `PaginationExceededError` when the limit is exceeded, and `CursorCycleError`
+    when a repeated cursor is detected."""
 
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
@@ -931,6 +971,102 @@ class Client:
             absorb=lambda hit: self.session._absorb_tool_listing(  # pyright: ignore[reportPrivateUsage]
                 hit, complete=hit.next_cursor is None
             ),
+        )
+
+    async def _drain_all_pages(
+        self,
+        method: str,
+        fetch_page: Callable[[str | None], Awaitable[_PaginatedCacheableT]],
+        get_items: Callable[[_PaginatedCacheableT], list[Any]],
+        set_items: Callable[[_PaginatedCacheableT, list[Any]], None],
+    ) -> _PaginatedCacheableT:
+        """Drain all pages of a paginated list method into a single aggregated result.
+
+        Safety guards:
+        - Cursor cycle detection via a seen-set; raises `CursorCycleError`.
+        - Page cap enforced via ``self.list_max_pages``; raises `PaginationExceededError`.
+        """
+        first = await fetch_page(None)
+        cursor = first.next_cursor
+        seen: set[str] = set()
+        pages = 1
+        max_pages = self.list_max_pages
+
+        # Use an accumulator to avoid quadratic list copying
+        accumulator = get_items(first)
+
+        while cursor is not None:
+            if cursor in seen:
+                raise CursorCycleError(method, cursor)
+            seen.add(cursor)
+            if max_pages > 0 and pages >= max_pages:
+                raise PaginationExceededError(method, max_pages)
+            page = await fetch_page(cursor)
+            accumulator.extend(get_items(page))
+            cursor = page.next_cursor
+            pages += 1
+
+        set_items(first, accumulator)
+        # Strip the terminal cursor from the aggregated result.
+        first.next_cursor = None
+        return first
+
+    async def list_all_tools(self) -> ListToolsResult:
+        """Fetch all tools from the server, draining pagination automatically.
+
+        Raises:
+            PaginationExceededError: The walk exceeded ``list_max_pages``.
+            CursorCycleError: The server returned a repeated cursor.
+        """
+        result = await self._drain_all_pages(
+            "tools/list",
+            fetch_page=lambda c: self.list_tools(cursor=c, cache_mode="bypass"),
+            get_items=lambda r: list(r.tools),
+            set_items=lambda r, items: setattr(r, "tools", items),  # noqa: B010
+        )
+        # Absorb the final aggregated result as complete to prune stale session state
+        return self.session._absorb_tool_listing(result, complete=True)  # pyright: ignore[reportPrivateUsage]
+
+    async def list_all_resources(self) -> ListResourcesResult:
+        """Fetch all resources from the server, draining pagination automatically.
+
+        Raises:
+            PaginationExceededError: The walk exceeded ``list_max_pages``.
+            CursorCycleError: The server returned a repeated cursor.
+        """
+        return await self._drain_all_pages(
+            "resources/list",
+            fetch_page=lambda c: self.list_resources(cursor=c, cache_mode="bypass"),
+            get_items=lambda r: list(r.resources),
+            set_items=lambda r, items: setattr(r, "resources", items),  # noqa: B010
+        )
+
+    async def list_all_resource_templates(self) -> ListResourceTemplatesResult:
+        """Fetch all resource templates from the server, draining pagination automatically.
+
+        Raises:
+            PaginationExceededError: The walk exceeded ``list_max_pages``.
+            CursorCycleError: The server returned a repeated cursor.
+        """
+        return await self._drain_all_pages(
+            "resources/templates/list",
+            fetch_page=lambda c: self.list_resource_templates(cursor=c, cache_mode="bypass"),
+            get_items=lambda r: list(r.resource_templates),
+            set_items=lambda r, items: setattr(r, "resource_templates", items),  # noqa: B010
+        )
+
+    async def list_all_prompts(self) -> ListPromptsResult:
+        """Fetch all prompts from the server, draining pagination automatically.
+
+        Raises:
+            PaginationExceededError: The walk exceeded ``list_max_pages``.
+            CursorCycleError: The server returned a repeated cursor.
+        """
+        return await self._drain_all_pages(
+            "prompts/list",
+            fetch_page=lambda c: self.list_prompts(cursor=c, cache_mode="bypass"),
+            get_items=lambda r: list(r.prompts),
+            set_items=lambda r, items: setattr(r, "prompts", items),  # noqa: B010
         )
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
