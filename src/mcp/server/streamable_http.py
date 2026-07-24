@@ -700,6 +700,8 @@ class StreamableHTTPServerTransport:
 
         # Create SSE stream
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
+        # Register immediately so session terminate() can close this ASGI response.
+        self._sse_stream_writers[GET_STREAM_KEY] = sse_stream_writer
 
         async def standalone_sse_writer():
             try:
@@ -723,11 +725,13 @@ class StreamableHTTPServerTransport:
                         await sse_stream_writer.send(event_data)
             except anyio.ClosedResourceError:
                 # Session teardown can close the stream while the writer is between dequeues.
+                # Also expected when terminate()/close_sse_stream() closes the writer.
                 pass
             except Exception:
                 logger.exception("Error in standalone SSE writer")  # pragma: no cover
             finally:
                 logger.debug("Closing standalone SSE writer")
+                self._sse_stream_writers.pop(GET_STREAM_KEY, None)
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
 
         # Create and start EventSourceResponse
@@ -744,6 +748,7 @@ class StreamableHTTPServerTransport:
             logger.exception("Error in standalone SSE response")
             await self._clean_up_memory_streams(GET_STREAM_KEY)
         finally:
+            self._sse_stream_writers.pop(GET_STREAM_KEY, None)
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
 
@@ -774,10 +779,18 @@ class StreamableHTTPServerTransport:
         """Terminate the current session, closing all streams.
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
+
+        Active SSE writers are closed first so EventSourceResponse / ASGI callables can
+        complete instead of hanging until the task group is cancelled (see #2150).
         """
 
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
+
+        # Close SSE stream writers first so long-lived GET/POST SSE responses finish.
+        # Copy keys: close_sse_stream mutates the dict (includes GET_STREAM_KEY).
+        for request_id in list(self._sse_stream_writers.keys()):
+            self.close_sse_stream(request_id)
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())
@@ -876,8 +889,13 @@ class StreamableHTTPServerTransport:
 
             # Create SSE stream for replay
             sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
+            # Provisional key so terminate() can close the response during replay itself
+            # (before stream_id is known from event_store.replay_events_after).
+            replay_writer_key: RequestId = f"_replay:{last_event_id}:{id(sse_stream_writer)}"
+            self._sse_stream_writers[replay_writer_key] = sse_stream_writer
 
             async def replay_sender():
+                registered_stream_id: RequestId | None = None
                 try:
                     async with sse_stream_writer:
                         # Define an async callback for sending events
@@ -891,8 +909,10 @@ class StreamableHTTPServerTransport:
                         # If stream ID not in mapping, create it
                         if stream_id and stream_id not in self._request_streams:  # pragma: no branch
                             try:
-                                # Register SSE writer so close_sse_stream() can close it
+                                # Re-key from provisional → stream_id for close_sse_stream(stream_id)
+                                self._sse_stream_writers.pop(replay_writer_key, None)
                                 self._sse_stream_writers[stream_id] = sse_stream_writer
+                                registered_stream_id = stream_id
 
                                 # Prime the resumed connection so the client sees the stream
                                 # is re-registered. The replay→live-tail ordering window here
@@ -914,13 +934,20 @@ class StreamableHTTPServerTransport:
 
                                         await sse_stream_writer.send(event_data)
                             finally:
-                                self._sse_stream_writers.pop(stream_id, None)
+                                # registered_stream_id is set immediately on try entry; keep the
+                                # guard for defensive cleanup if re-key is later reordered.
+                                if registered_stream_id is not None:  # pragma: no branch
+                                    self._sse_stream_writers.pop(registered_stream_id, None)
                                 await self._clean_up_memory_streams(stream_id)
                 except anyio.ClosedResourceError:  # pragma: lax no cover
                     # Expected when close_sse_stream() is called
                     logger.debug("Replay SSE stream closed by close_sse_stream()")
                 except Exception:  # pragma: lax no cover
                     logger.exception("Error in replay sender")
+                finally:
+                    self._sse_stream_writers.pop(replay_writer_key, None)
+                    if registered_stream_id is not None:
+                        self._sse_stream_writers.pop(registered_stream_id, None)
 
             # Create and start EventSourceResponse
             response = EventSourceResponse(
@@ -934,6 +961,7 @@ class StreamableHTTPServerTransport:
             except Exception:  # pragma: lax no cover
                 logger.exception("Error in replay response")
             finally:
+                self._sse_stream_writers.pop(replay_writer_key, None)
                 await sse_stream_writer.aclose()
                 await sse_stream_reader.aclose()
 
