@@ -625,6 +625,55 @@ async def test_accept_wildcard_satisfies_both_response_modes(json_response: bool
     assert response.status_code == 200
 
 
+async def test_accept_q0_for_the_required_type_is_not_acceptable() -> None:
+    """RFC 7231 5.3.1: a media-range weighted q=0 is explicitly "not acceptable" -- a client
+    that sends `application/json;q=0` has ruled JSON out even though it's the only other type
+    on the line, so a JSON-mode request must get 406, not 200."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")  # pragma: no cover
+
+    async with _asgi_client(
+        Server("test", on_list_tools=list_tools),
+        json_response=True,
+        accept="application/json;q=0, text/event-stream;q=1.0",
+    ) as http:
+        response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 406
+
+
+async def test_accept_q0_for_a_specific_type_overrides_a_present_wildcard() -> None:
+    """A specific "not acceptable" entry is more specific than `*/*` and must win: the client
+    is still rejecting JSON even though it also (redundantly) accepts everything."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")  # pragma: no cover
+
+    async with _asgi_client(
+        Server("test", on_list_tools=list_tools),
+        json_response=True,
+        accept="application/json;q=0, */*",
+    ) as http:
+        response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 406
+
+
+async def test_accept_nonzero_q_for_the_required_type_is_still_acceptable() -> None:
+    """A low but nonzero weight is still a "yes" -- q only gates acceptability at 0, this SDK
+    doesn't rank multiple acceptable representations by preference."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[], ttl_ms=0, cache_scope="public")
+
+    async with _asgi_client(
+        Server("test", on_list_tools=list_tools),
+        json_response=True,
+        accept="application/json;q=0.1",
+    ) as http:
+        response = await http.post("/mcp", json=_list_tools_body(), headers={MCP_METHOD_HEADER: "tools/list"})
+    assert response.status_code == 200
+
+
 async def test_late_notify_after_terminal_dropped() -> None:
     """SDK-defined: a `notify()` after the SSE sink has closed is silently dropped — the closed
     stream must not propagate as an exception out of the dispatch context."""

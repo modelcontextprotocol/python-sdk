@@ -77,19 +77,56 @@ SSEEvent = dict[str, Any]
 
 
 def check_accept_headers(request: Request) -> tuple[bool, bool]:
-    """Return (has_json, has_sse) for the request's Accept header, with RFC 7231 wildcard handling.
+    """Return (has_json, has_sse) for the request's Accept header, with RFC 7231 wildcard
+    and q-value handling.
 
     Supports wildcard media types per RFC 7231, section 5.3.2:
     - */* matches any media type
     - application/* matches any application/ subtype
     - text/* matches any text/ subtype
+
+    A media-range weighted q=0 is explicitly "not acceptable" per RFC 7231, section 5.3.1.
+    An explicit q=0 for a specific type (or its family wildcard) takes precedence over a
+    broader range that would otherwise accept it — e.g. "application/json;q=0, */*" still
+    rejects JSON even though */* is also present.
     """
     accept_header = request.headers.get("accept", "")
-    accept_types = [media_type.strip().split(";")[0].strip().lower() for media_type in accept_header.split(",")]
+    accepted: set[str] = set()
+    rejected: set[str] = set()
 
-    has_wildcard = "*/*" in accept_types
-    has_json = has_wildcard or any(t in (CONTENT_TYPE_JSON, "application/*") for t in accept_types)
-    has_sse = has_wildcard or any(t in (CONTENT_TYPE_SSE, "text/*") for t in accept_types)
+    for media_range in accept_header.split(","):
+        params = [p.strip() for p in media_range.split(";")]
+        media_type = params[0].lower()
+        if not media_type:
+            continue
+
+        q = 1.0
+        for param in params[1:]:
+            name, _, value = param.partition("=")
+            if name.strip().lower() == "q":
+                try:
+                    q = float(value.strip())
+                except ValueError:
+                    q = 1.0
+                break
+
+        (rejected if q <= 0 else accepted).add(media_type)
+
+    def is_acceptable(media_type: str, family_wildcard: str) -> bool:
+        # Most specific match wins: an exact media type overrides its family wildcard,
+        # which in turn overrides the global "*/*".
+        if media_type in accepted:
+            return True
+        if media_type in rejected:
+            return False
+        if family_wildcard in accepted:
+            return True
+        if family_wildcard in rejected:
+            return False
+        return "*/*" in accepted
+
+    has_json = is_acceptable(CONTENT_TYPE_JSON, "application/*")
+    has_sse = is_acceptable(CONTENT_TYPE_SSE, "text/*")
 
     return has_json, has_sse
 
