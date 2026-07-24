@@ -100,6 +100,24 @@ def test_check_resource_allowed_path_boundary_matching():
     assert check_resource_allowed("https://example.com/api/v1", "https://example.com/api/") is True
 
 
+def test_check_resource_allowed_rejects_different_queries():
+    """Query-routed resources with different query components are distinct."""
+    assert (
+        check_resource_allowed(
+            "https://example.com/api?tenant=a",
+            "https://example.com/api?tenant=b",
+        )
+        is False
+    )
+    assert (
+        check_resource_allowed(
+            "https://example.com/api?tenant=a",
+            "https://example.com/api",
+        )
+        is False
+    )
+
+
 def test_check_resource_allowed_trailing_slash_handling():
     """Trailing slashes should be handled correctly."""
     # With and without trailing slashes

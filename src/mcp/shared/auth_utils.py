@@ -32,9 +32,10 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     """Check if a requested resource URL matches a configured resource URL.
 
     A requested resource matches if it has the same scheme, domain, port,
-    and its path starts with the configured resource's path. This allows
-    hierarchical matching where a token for a parent resource can be used
-    for child resources.
+    the same query component, and its path starts with the configured
+    resource's path. This allows hierarchical matching where a token for a
+    parent resource can be used for child resources without collapsing
+    query-routed resource identifiers.
 
     Args:
         requested_resource: The resource URL being requested
@@ -49,6 +50,9 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
 
     # Compare scheme, host, and port (origin)
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
+        return False
+
+    if requested.query != configured.query:
         return False
 
     # Normalize trailing slashes before comparison so that
