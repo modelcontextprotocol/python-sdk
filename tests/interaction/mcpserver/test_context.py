@@ -17,12 +17,11 @@ from mcp_types import (
 from pydantic import BaseModel
 
 from mcp import MCPError
-from mcp.client import ClientRequestContext
+from mcp.client import ClientRequestContext, IncomingMessage
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
 from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio

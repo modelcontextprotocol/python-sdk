@@ -52,6 +52,7 @@ from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
     ElicitationFnT,
+    IncomingMessage,
     ListRootsFnT,
     LoggingFnT,
     MessageHandlerFnT,
@@ -68,7 +69,6 @@ from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import event_to_notification
 
 logger = logging.getLogger(__name__)
@@ -155,9 +155,7 @@ def _strip_userinfo(url: str) -> str:
 def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
     """Wrap the session message handler with cache eviction on server notifications."""
 
-    async def handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def handler(message: IncomingMessage) -> None:
         if isinstance(message, types.ServerNotification):
             try:
                 await cache.evict_for_notification(message)

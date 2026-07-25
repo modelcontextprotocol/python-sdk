@@ -42,7 +42,7 @@ from mcp_types import (
 )
 from mcp_types.version import LATEST_MODERN_VERSION
 
-from mcp.client import Client
+from mcp.client import Client, IncomingMessage
 from mcp.client._transport import TransportStreams
 from mcp.client.caching import (
     CacheConfig,
@@ -57,12 +57,9 @@ from mcp.server.caching import CacheHint
 from mcp.shared.exceptions import MCPError
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
 from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
-
-IncomingMessage = RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception
 
 
 def _coordinator(client: Client) -> ClientResponseCache:
