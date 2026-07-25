@@ -42,6 +42,18 @@ class TestFileResource:
         assert resource.path == temp_file
         assert resource.is_binary is False  # default
 
+    def test_uppercase_text_mime_type_is_treated_as_text(self, temp_file: Path):
+        """Media types are case-insensitive (RFC 9110, section 8.3.1), so an
+        upper/mixed-case ``text/*`` mime type must still be treated as text
+        (``is_binary`` stays False) rather than misclassified as binary."""
+        resource = FileResource(
+            uri=temp_file.as_uri(),
+            name="test",
+            path=temp_file,
+            mime_type="Text/Markdown",
+        )
+        assert resource.is_binary is False
+
     def test_file_resource_str_path_conversion(self, temp_file: Path):
         """Test FileResource handles string paths."""
         resource = FileResource(
