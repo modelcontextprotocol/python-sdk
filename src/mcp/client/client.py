@@ -349,14 +349,15 @@ class Client:
     transparently by `call_tool`), and its notification bindings. For an
     ad-only entry use `mcp.client.advertise(identifier, settings)`."""
 
-    cache: CacheConfig | Literal[False] | None = None
+    cache: CacheConfig | None = field(default_factory=CacheConfig)
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
 
-    `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
-    in-memory store; pass a `CacheConfig` to customize, or `False` to disable. The
-    cacheable verbs take a per-call `cache_mode` (see `CacheMode`); calls carrying
-    `meta` always reach the server. A `CacheConfig` with a custom `store` requires
-    `target_id` when the server is not a URL (no identity can be derived)."""
+    The default `CacheConfig()` honors server `ttlMs`/`cacheScope` hints with a
+    per-client in-memory store; pass a customized `CacheConfig`, or `None` to
+    disable. The cacheable verbs take a per-call `cache_mode` (see `CacheMode`);
+    calls carrying `meta` always reach the server. A `CacheConfig` with a custom
+    `store` requires `target_id` when the server is not a URL (no identity can be
+    derived)."""
 
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
@@ -388,8 +389,8 @@ class Client:
         else:
             self._connect = _connect_transport(srv)
 
-        if self.cache is not False:
-            config = self.cache if self.cache is not None else CacheConfig()
+        if self.cache is not None:
+            config = self.cache
             # Only the hash below leaves this scope - the raw identity may carry credentials; never log or store it.
             target_id = config.target_id
             if target_id is None and isinstance(self.server, str):
