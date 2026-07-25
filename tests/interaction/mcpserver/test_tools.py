@@ -445,7 +445,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
 
 @requirement("tools:list:connection-independent")
 async def test_tool_list_is_identical_across_connections_and_unchanged_by_other_requests(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """Concurrent connections to one server see the same tool list, before and after one of them calls a tool.
 
@@ -474,7 +474,9 @@ async def test_tool_list_is_identical_across_connections_and_unchanged_by_other_
         assert await first_client.list_tools() == first_list
         assert await second_client.list_tools() == first_list
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ate")], structured_content={"result": "ate"}))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="ate")], structured_content={"result": "ate"})
+    )
     assert [tool.name for tool in first_list.tools] == snapshot(["cherry", "apple", "banana"])
 
 

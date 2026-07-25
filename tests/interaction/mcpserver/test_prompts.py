@@ -202,7 +202,7 @@ async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(
 
 @requirement("prompts:list:connection-invariant")
 async def test_prompt_list_is_identical_across_connections_and_unchanged_by_other_requests(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """Spec-mandated: concurrent connections see the same prompt list, unchanged by a prompts/get on one."""
     mcp = MCPServer("prompter")
@@ -226,7 +226,7 @@ async def test_prompt_list_is_identical_across_connections_and_unchanged_by_othe
         assert await first_client.list_prompts() == first_list
         assert await second_client.list_prompts() == first_list
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             description="A fixed greeting.",
             messages=[PromptMessage(role="user", content=TextContent(text="Say hello."))],

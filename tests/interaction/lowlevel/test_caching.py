@@ -9,6 +9,7 @@ import anyio
 import mcp_types as types
 import pytest
 from mcp_types import (
+    SERVER_INFO_META_KEY,
     DiscoverResult,
     ElicitRequest,
     ElicitRequestFormParams,
@@ -216,7 +217,7 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
             cache_scope="public",
         )
 
-    server = Server("cached", on_read_resource=read_resource)
+    server = Server("cached", version="1.0.0", on_read_resource=read_resource)
 
     async def answer_who(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         assert isinstance(params, ElicitRequestFormParams)
@@ -245,7 +246,9 @@ async def test_the_interim_input_required_frame_carries_no_caching_hints_while_t
     interim = responses[reads[0].id]
     complete = responses[reads[1].id]
     # Exact key vocabulary, stronger than `not in` checks: any field added to interim frames fails loudly.
-    assert sorted(interim) == ["inputRequests", "resultType"]
+    # The interim frame is a 2026 result, so it carries the serverInfo stamp but still no caching hints.
+    assert sorted(interim) == ["_meta", "inputRequests", "resultType"]
+    assert interim["_meta"] == {SERVER_INFO_META_KEY: {"name": "cached", "version": "1.0.0"}}
     assert interim["resultType"] == "input_required"
     assert complete["ttlMs"] == 60_000
     assert complete["cacheScope"] == "public"
@@ -289,13 +292,7 @@ async def test_a_negative_ttl_from_a_nonconformant_server_is_clamped_to_zero() -
             ClientSession(client_read, client_write, client_info=Implementation(name="cli", version="0")) as session,
         ):
             task_group.start_soon(scripted_server)
-            session.adopt(
-                DiscoverResult(
-                    supported_versions=[LATEST_MODERN_VERSION],
-                    capabilities=ServerCapabilities(),
-                    server_info=Implementation(name="srv", version="0"),
-                )
-            )
+            session.adopt(DiscoverResult(supported_versions=[LATEST_MODERN_VERSION], capabilities=ServerCapabilities()))
             with anyio.fail_after(5):
                 result = await session.list_tools()
 

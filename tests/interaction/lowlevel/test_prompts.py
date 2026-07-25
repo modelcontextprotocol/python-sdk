@@ -200,7 +200,7 @@ async def test_get_prompt_with_non_text_content_round_trips(connect: Connect, un
 
 
 @requirement("prompts:get:content:resource-link")
-async def test_get_prompt_resource_link_content_round_trips(connect: Connect) -> None:
+async def test_get_prompt_resource_link_content_round_trips(connect: Connect, unstamped: Unstamp) -> None:
     """A resource_link prompt message reaches the client with URI and descriptive fields intact. Spec-mandated."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
@@ -224,7 +224,7 @@ async def test_get_prompt_resource_link_content_round_trips(connect: Connect) ->
     async with connect(server) as client:
         result = await client.get_prompt("entry_point")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(
             messages=[
                 PromptMessage(
@@ -261,7 +261,9 @@ async def test_get_prompt_unknown_name_is_protocol_error(connect: Connect) -> No
 
 
 @requirement("prompts:mrtr:get:basic")
-async def test_get_prompt_input_required_is_fulfilled_and_the_retry_returns_the_messages(connect: Connect) -> None:
+async def test_get_prompt_input_required_is_fulfilled_and_the_retry_returns_the_messages(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A prompts/get answered with input_required is fulfilled by the elicitation callback and retried.
 
     Spec-mandated: prompts/get is an MRTR-supported request (basic/patterns/mrtr, Supported Requests).
@@ -299,7 +301,7 @@ async def test_get_prompt_input_required_is_fulfilled_and_the_retry_returns_the_
     async with connect(server, elicitation_callback=elicit) as client:
         result = await client.get_prompt("greet")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="Hello, alice!"))])
     )
     assert callback_received == [sent]

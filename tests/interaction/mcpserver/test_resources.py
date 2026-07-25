@@ -189,7 +189,7 @@ async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(
 
 @requirement("resources:list:connection-invariant")
 async def test_resource_list_is_identical_across_connections_and_unchanged_by_other_requests(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """Concurrent connections see the same resource list before and after one reads (spec-mandated, 2026-07-28)."""
     mcp = MCPServer("library")
@@ -213,7 +213,7 @@ async def test_resource_list_is_identical_across_connections_and_unchanged_by_ot
         assert await first_client.list_resources() == first_list
         assert await second_client.list_resources() == first_list
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="theme = dark")]
         )
@@ -223,7 +223,7 @@ async def test_resource_list_is_identical_across_connections_and_unchanged_by_ot
 
 @requirement("resources:read:path-traversal-rejected")
 async def test_read_with_a_traversal_path_is_rejected_without_invoking_the_resource_function(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """A traversal in the extracted path parameter is rejected before the resource function runs.
 
@@ -244,7 +244,7 @@ async def test_read_with_a_traversal_path_is_rejected_without_invoking_the_resou
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("file:///files/../../etc/passwd")
 
-    assert control == snapshot(
+    assert unstamped(control) == snapshot(
         ReadResourceResult(
             contents=[
                 TextResourceContents(

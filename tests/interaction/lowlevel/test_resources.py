@@ -147,7 +147,7 @@ async def test_read_resource_binary(connect: Connect, unstamped: Unstamp) -> Non
 
 
 @requirement("resources:read:multiple-contents")
-async def test_read_resource_returns_multiple_contents_in_order(connect: Connect) -> None:
+async def test_read_resource_returns_multiple_contents_in_order(connect: Connect, unstamped: Unstamp) -> None:
     """A multi-entry resources/read result reaches the client intact and in order. Spec-mandated."""
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
@@ -165,7 +165,7 @@ async def test_read_resource_returns_multiple_contents_in_order(connect: Connect
     async with connect(server) as client:
         result = await client.read_resource("file:///project/")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(
             contents=[
                 TextResourceContents(uri="file:///project/a.txt", mime_type="text/plain", text="alpha"),
@@ -382,7 +382,9 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
 
 
 @requirement("resources:mrtr:read:basic")
-async def test_read_resource_input_required_is_fulfilled_and_the_retry_returns_the_contents(connect: Connect) -> None:
+async def test_read_resource_input_required_is_fulfilled_and_the_retry_returns_the_contents(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A resources/read answered with input_required is fulfilled by the elicitation callback and retried.
 
     Spec-mandated: resources/read is an MRTR-supported request (basic/patterns/mrtr, Supported Requests).
@@ -420,7 +422,7 @@ async def test_read_resource_input_required_is_fulfilled_and_the_retry_returns_t
     async with connect(server, elicitation_callback=elicit) as client:
         result = await client.read_resource("file:///profile.txt")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         ReadResourceResult(contents=[TextResourceContents(uri="file:///profile.txt", text="hello alice")])
     )
     assert callback_received == [sent]

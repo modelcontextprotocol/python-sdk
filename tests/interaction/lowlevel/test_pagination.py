@@ -62,7 +62,9 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect, unst
 
 
 @requirement("protocol:pagination:empty-cursor-valid")
-async def test_an_empty_string_next_cursor_round_trips_as_a_cursor_not_end_of_results(connect: Connect) -> None:
+async def test_an_empty_string_next_cursor_round_trips_as_a_cursor_not_end_of_results(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """An empty-string next_cursor round-trips verbatim, distinct from absent.
 
     Spec-mandated: an empty string is a valid cursor and MUST NOT be treated as the end of results.
@@ -84,7 +86,9 @@ async def test_an_empty_string_next_cursor_round_trips_as_a_cursor_not_end_of_re
 
     assert first_page.next_cursor == ""
     assert seen_cursors == [None, ""]
-    assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})]))
+    assert unstamped(second_page) == snapshot(
+        ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})])
+    )
 
 
 @requirement("pagination:exhaustion")

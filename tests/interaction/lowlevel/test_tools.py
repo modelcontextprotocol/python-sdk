@@ -776,13 +776,7 @@ async def test_a_wire_null_structured_content_is_rejected_as_missing_by_the_clie
             ClientSession(client_read, client_write, client_info=Implementation(name="cli", version="0")) as session,
         ):
             task_group.start_soon(scripted_server)
-            session.adopt(
-                DiscoverResult(
-                    supported_versions=[LATEST_MODERN_VERSION],
-                    capabilities=ServerCapabilities(),
-                    server_info=Implementation(name="srv", version="0"),
-                )
-            )
+            session.adopt(DiscoverResult(supported_versions=[LATEST_MODERN_VERSION], capabilities=ServerCapabilities()))
             with anyio.fail_after(5):
                 listed = await session.list_tools()
             assert [(tool.name, tool.output_schema) for tool in listed.tools] == [("nil", {"type": "null"})]
