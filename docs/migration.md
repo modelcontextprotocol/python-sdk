@@ -916,6 +916,27 @@ await ctx.log(level="info", data="hello")
 
 Positional calls (`await ctx.info("hello")`) are unaffected.
 
+### `Context.client_id` removed
+
+`Context.client_id` has been removed. It never returned an authenticated client identity: it echoed a non-standard `client_id` key from the request's `_meta`, which nothing in the SDK or the MCP spec populates, so it was `None` unless a caller injected `meta={"client_id": ...}` by hand. The name also collided with the OAuth `client_id`, which is what callers usually mean by "the client".
+
+If you were reading a custom `_meta` key, read it from the meta dict directly. If you want the authenticated OAuth client, use the access token:
+
+```python
+# Before (v1)
+client_id = ctx.client_id
+
+# After (v2) — the raw _meta key, if you were setting it yourself
+meta = ctx.request_context.meta
+client_id = meta.get("client_id") if meta else None
+
+# After (v2) — the authenticated OAuth client (usually what you want)
+from mcp.server.auth.middleware.auth_context import get_access_token
+
+token = get_access_token()
+client_id = token.client_id if token else None
+```
+
 ### `ProgressContext` and `progress()` context manager removed
 
 The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.
