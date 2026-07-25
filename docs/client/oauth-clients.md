@@ -83,7 +83,7 @@ The first time `Client` sends a request, the server answers `401`. The provider 
 
 After that it is quiet. Tokens come out of storage, an expired access token is refreshed with the refresh token, and only when none of that works does it run the flow again.
 
-You wrote none of it. Three keyword arguments remain (`timeout`, `client_metadata_url` and `validate_resource_url`), and this file needs none of them. `client_metadata_url` is the one worth knowing about; it gets its own section below.
+You wrote none of it. Two keyword arguments remain (`client_metadata_url` and `validate_resource_url`), and this file needs neither. `client_metadata_url` is the one worth knowing about; it gets its own section below.
 
 ### Try it
 

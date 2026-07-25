@@ -63,7 +63,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             token_endpoint_auth_method=token_endpoint_auth_method,
             scope=scope,
         )
-        super().__init__(server_url, client_metadata, storage, None, None, 300.0)
+        super().__init__(server_url, client_metadata, storage, None, None)
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
@@ -277,7 +277,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             token_endpoint_auth_method="private_key_jwt",
             scope=scope,
         )
-        super().__init__(server_url, client_metadata, storage, None, None, 300.0)
+        super().__init__(server_url, client_metadata, storage, None, None)
         self._assertion_provider = assertion_provider
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(

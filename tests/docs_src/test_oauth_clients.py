@@ -80,11 +80,11 @@ async def test_client_credentials_provider_builds_its_own_metadata() -> None:
     assert metadata.scope == "user"
 
 
-async def test_the_three_remaining_keyword_arguments_have_defaults() -> None:
-    """The page names `timeout`, `client_metadata_url` and `validate_resource_url` as the remainder."""
+async def test_the_two_remaining_keyword_arguments_have_defaults() -> None:
+    """The page names `client_metadata_url` and `validate_resource_url` as the remainder."""
     parameters = inspect.signature(OAuthClientProvider.__init__).parameters
     supplied = ["server_url", "client_metadata", "storage", "redirect_handler", "callback_handler"]
-    remainder = ["timeout", "client_metadata_url", "validate_resource_url"]
+    remainder = ["client_metadata_url", "validate_resource_url"]
     assert list(parameters) == ["self", *supplied, *remainder]
     assert all(parameters[name].default is not inspect.Parameter.empty for name in remainder)
 

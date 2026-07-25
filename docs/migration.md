@@ -2034,6 +2034,24 @@ ClientCredentialsOAuthProvider(..., scopes="read write")
 ClientCredentialsOAuthProvider(..., scope="read write")
 ```
 
+### `timeout` parameter removed from `OAuthClientProvider`
+
+`OAuthClientProvider` no longer accepts a `timeout` argument, and `OAuthContext.timeout` is gone. The value was stored but never read, so it never bounded anything — removing it changes nothing at runtime.
+
+**Before (v1):**
+
+```python
+provider = OAuthClientProvider(server_url, client_metadata, storage, timeout=120.0)
+```
+
+**After (v2):**
+
+```python
+provider = OAuthClientProvider(server_url, client_metadata, storage)
+```
+
+If you passed `timeout` to bound how long you wait for the user to complete authorization, apply that bound where you actually wait — inside your `redirect_handler`/`callback_handler`, e.g. `with anyio.fail_after(120): ...`.
+
 ### Client rejects authorization server metadata with a mismatched `issuer`
 
 During OAuth discovery, `OAuthClientProvider` now validates that the authorization server
