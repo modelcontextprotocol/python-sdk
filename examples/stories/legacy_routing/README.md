@@ -68,7 +68,7 @@ async def mcp_endpoint(scope, receive, send):
         case "legacy":
             await my_existing_v1_manager.handle_request(scope, replay, send)
         case "modern":
-            await modern_manager.handle_request(scope, replay, send)
+            await modern_manager.asgi_app(scope, replay, send)
         case rejection:
             await send_jsonrpc_error(send, rejection)  # map via ERROR_CODE_HTTP_STATUS
 ```

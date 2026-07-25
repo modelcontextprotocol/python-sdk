@@ -606,6 +606,14 @@ mcp = MCPServer("Demo", instructions="You answer questions about the weather.")
 
 Keep `name` positional and pass everything else by keyword.
 
+### Unversioned servers report an empty version
+
+In v1, a server constructed without a `version` reported the installed `mcp`
+package's version as its own in the `initialize` result's `serverInfo`. In v2
+it reports an empty string instead: the SDK's version is not your server's
+version. Pass `version="..."` to `Server(...)` or `MCPServer(...)` to identify
+your server properly. The field is display-only; nothing breaks either way.
+
 ### `mount_path` parameter removed from MCPServer
 
 The `mount_path` parameter has been removed from `MCPServer.__init__()`, `MCPServer.run()`, `MCPServer.run_sse_async()`, and `MCPServer.sse_app()`. It was also removed from the `Settings` class.
@@ -622,6 +630,7 @@ Transport-specific parameters have been moved from the `MCPServer` constructor t
 - `sse_path`, `message_path` - SSE transport paths
 - `streamable_http_path` - StreamableHTTP endpoint path
 - `json_response`, `stateless_http` - StreamableHTTP behavior
+- `max_request_body_size` - StreamableHTTP request-body limit
 - `event_store`, `retry_interval` - StreamableHTTP event handling
 - `transport_security` - DNS rebinding protection
 
@@ -674,6 +683,21 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
 If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
+
+### Streamable HTTP request bodies are limited to 4 MiB
+
+V2 applies a 4 MiB default limit to Streamable HTTP POST bodies and returns HTTP 413 before parsing
+the JSON or creating a session when that limit is exceeded.
+
+Most servers need no migration. If your application intentionally accepts larger MCP messages,
+set an explicit byte limit on `run()` or `streamable_http_app()`:
+
+```python
+mcp.run(transport="streamable-http", max_request_body_size=8 * 1024 * 1024)
+```
+
+The limit must be positive and applies to both legacy session-based requests and V2's modern
+single-exchange requests. Keep the smallest value your application actually needs.
 
 ### Streamable HTTP: lifespan now entered once at manager startup
 
@@ -891,6 +915,27 @@ await ctx.log(level="info", data="hello")
 ```
 
 Positional calls (`await ctx.info("hello")`) are unaffected.
+
+### `Context.client_id` removed
+
+`Context.client_id` has been removed. It never returned an authenticated client identity: it echoed a non-standard `client_id` key from the request's `_meta`, which nothing in the SDK or the MCP spec populates, so it was `None` unless a caller injected `meta={"client_id": ...}` by hand. The name also collided with the OAuth `client_id`, which is what callers usually mean by "the client".
+
+If you were reading a custom `_meta` key, read it from the meta dict directly. If you want the authenticated OAuth client, use the access token:
+
+```python
+# Before (v1)
+client_id = ctx.client_id
+
+# After (v2) — the raw _meta key, if you were setting it yourself
+meta = ctx.request_context.meta
+client_id = meta.get("client_id") if meta else None
+
+# After (v2) — the authenticated OAuth client (usually what you want)
+from mcp.server.auth.middleware.auth_context import get_access_token
+
+token = get_access_token()
+client_id = token.client_id if token else None
+```
 
 ### `ProgressContext` and `progress()` context manager removed
 
@@ -1482,7 +1527,7 @@ version = session.protocol_version
 
 The raw handshake result is also retained: `session.initialize_result` is set after `initialize()` (≤2025-11-25 servers — including `stateless_http=True` servers, which still answer `initialize`); `session.discover_result` is set after `discover()` (2026-07-28+ servers). At most one is non-`None`.
 
-On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
+On the high-level `Client`, `client.server_capabilities` and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it, and `client.server_info` is `Implementation | None`: on 2026-era connections identity is optional wire metadata, so a server that does not report it reads as `None`. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
 
 ### `cursor` parameter removed from `ClientSession` list methods
 
@@ -1839,6 +1884,36 @@ group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
 per-process terminate/kill fallback are gone. The win32 utilities logger is now
 named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
+### `stdio_server` keeps the protocol streams on private descriptors
+
+While serving, the stdio transport moves the wire to private descriptors and points
+fd 0 at the null device and fd 1 at stderr, restoring both on exit. Subprocesses and
+handler code can no longer read protocol bytes or write into the stream (the
+[#671](https://github.com/modelcontextprotocol/python-sdk/issues/671) fix). Ordinary
+servers have nothing to do, and code that inspects or manipulates fd 0/1 directly
+during a session now sees the diversions, not the wire.
+
+One pattern needs migrating: watchdog threads that watch fd 0 to detect a vanished
+client (a POSIX-specific pattern; `select.poll` does not exist on Windows). The null
+device does not behave like the old pipe: it never reports `POLLHUP` or `POLLERR`,
+and it reports readable immediately and permanently (`POLLIN` from `poll()` on Linux,
+plus `POLLOUT` under the default event mask; ready from `select()`; and macOS can
+report `POLLNVAL` for devices). A watcher waiting for `POLLHUP` or `POLLERR` is
+silently disarmed; a watcher that treats any event as "client gone" now fires at
+startup instead of never. Watch the parent process instead: on POSIX, exit
+when `os.getppid()` changes, which happens when the client dies because orphaned
+processes are reparented. That works on both v1 and v2 and does not depend on
+descriptor layout.
+
+Also new: a second concurrent `stdio_server()` on the process's default streams now
+raises `RuntimeError` instead of silently contending for stdin, a configuration that
+never worked (there is one stdin).
+
+Also worth knowing: a child process that streams large output to its inherited
+stdout now streams it into the client's stderr channel. Capture output you do not
+want in the client's logs, and be aware that a client which never drains its stderr
+pipe applies back-pressure to the server (true of stderr logging on v1 as well).
+
 ### WebSocket transport removed
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.
@@ -1899,6 +1974,22 @@ async def callback_handler() -> AuthorizationCodeResult:
 ```
 
 Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
+
+### `scopes=` renamed to `scope=` on the client-credentials providers
+
+`ClientCredentialsOAuthProvider` and `PrivateKeyJWTOAuthProvider` took the requested scope as a keyword named `scopes`, even though the value is a single space-separated string, not a list. The parameter is now `scope`, matching the RFC 6749 wire parameter, `OAuthClientMetadata.scope`, and the newer `IdentityAssertionOAuthProvider`.
+
+**Before (v1):**
+
+```python
+ClientCredentialsOAuthProvider(..., scopes="read write")
+```
+
+**After (v2):**
+
+```python
+ClientCredentialsOAuthProvider(..., scope="read write")
+```
 
 ### Client rejects authorization server metadata with a mismatched `issuer`
 

@@ -121,6 +121,7 @@ SKIP: frozenset[str] = frozenset(
         "v2026_07_28.RequestMetaObject",
         "v2026_07_28.RequestedSchema",
         "v2026_07_28.ResourceRequestParams",
+        "v2026_07_28.ResultMetaObject",
         "v2026_07_28.StringSchema",
         "v2026_07_28.SubscriptionsListenResultMeta",
         "v2026_07_28.TitledMultiSelectEnumSchema",

@@ -102,9 +102,9 @@ async def test_a_hintless_result_is_not_cached_by_default() -> None:
     assert fetches == [None, None]
 
 
-async def test_cache_false_makes_every_call_a_round_trip() -> None:
+async def test_cache_none_makes_every_call_a_round_trip() -> None:
     server, fetches = _counting_tools_server()
-    async with Client(server, cache=False) as client:
+    async with Client(server, cache=None) as client:
         await client.list_tools()
         await client.list_tools()
     assert fetches == [None, None]

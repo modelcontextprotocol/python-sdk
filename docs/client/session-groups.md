@@ -64,7 +64,7 @@ Run it again. `print(sorted(group.tools))` now shows both:
 
 `connect_to_server` returns the `ClientSession` it opened. Keep it if you ever want that server gone: `await group.disconnect_from_server(session)` removes its tools, resources, and prompts from the group.
 
-If you already hold a connected `ClientSession` (`Client.session` is one), hand it to `await group.connect_with_session(server_info, session)` instead of opening a new transport. It aggregates the same way. The group never closes a session it didn't open.
+If you already hold a connected `ClientSession` (`Client.session` is one), hand it to `await group.connect_with_session(server_info, session)` instead of opening a new transport. It aggregates the same way. The group never closes a session it didn't open. `server_info` names the server for component prefixes; on a 2026-era connection `client.server_info` can be `None` (identity is optional), so pass your own `Implementation(name=..., version=...)` in that case.
 
 ## The classic handshake
 

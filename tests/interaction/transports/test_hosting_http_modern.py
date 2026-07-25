@@ -22,6 +22,7 @@ from mcp_types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
+    SERVER_INFO_META_KEY,
     CallToolRequestParams,
     CallToolResult,
     DiscoverResult,
@@ -77,7 +78,11 @@ def _meta_envelope() -> dict[str, object]:
 
 
 def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Server:
-    """A low-level server with one ``add`` tool for the raw-httpx2 tests below."""
+    """A low-level server with one `add` tool for the raw-httpx2 tests below.
+
+    The explicit version gives the `_meta` serverInfo stamp every 2026 result
+    carries a non-empty value for the wire-level snapshots.
+    """
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         tool = Tool(name="add", input_schema={"type": "object"})
@@ -91,7 +96,7 @@ def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Serve
             on_meta(dict(ctx.meta))
         return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
 
-    return Server("modern", on_list_tools=list_tools, on_call_tool=call_tool)
+    return Server("modern", version="1.0.0", on_list_tools=list_tools, on_call_tool=call_tool)
 
 
 @requirement("hosting:http:modern:tools-call-stateless")
@@ -99,9 +104,10 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
     """A 2026-07-28 tools/call is served without an initialize handshake and returns resultType: complete.
 
     Spec-mandated under the draft transport: the per-request ``_meta`` envelope replaces initialize,
-    and ``resultType`` is the 2026 result-envelope discriminator (``complete`` for the monolith
-    result). Asserted at the wire because the SDK client never surfaces ``resultType`` and because
-    the absence of any prior request on the connection is the assertion.
+    `resultType` is the 2026 result-envelope discriminator (`complete` for the monolith
+    result), and the server identifies itself via the result `_meta` serverInfo stamp. Asserted at
+    the wire because the SDK client never surfaces `resultType` and because the absence of any
+    prior request on the connection is the assertion.
     """
     body = {
         "jsonrpc": "2.0",
@@ -117,7 +123,12 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
     parsed = JSONRPCResponse.model_validate(response.json())
     assert parsed.id == 1
     assert parsed.result == snapshot(
-        {"content": [{"text": "5", "type": "text"}], "isError": False, "resultType": "complete"}
+        {
+            "content": [{"text": "5", "type": "text"}],
+            "isError": False,
+            "resultType": "complete",
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+        }
     )
 
 
@@ -213,12 +224,13 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
 
 @requirement("hosting:http:modern:discover-response-shape")
 async def test_modern_server_discover_returns_capabilities_and_supported_versions() -> None:
-    """A 2026-07-28 server/discover POST returns capabilities, serverInfo, and supportedVersions.
+    """A 2026-07-28 server/discover POST returns capabilities and supportedVersions, with serverInfo in `_meta`.
 
     Spec-mandated under the draft: server/discover is the 2026 advertisement method that replaces
     the initialize-response payload, and ``supportedVersions`` is the field a client picks its
-    per-request envelope version from. Asserted at the wire because the SDK client never exposes
-    the raw result body.
+    per-request envelope version from. The server's identity is no longer a result-body field: it
+    travels as the io.modelcontextprotocol/serverInfo result `_meta` stamp. Asserted at the wire
+    because the SDK client never exposes the raw result body.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
@@ -227,7 +239,8 @@ async def test_modern_server_discover_returns_capabilities_and_supported_version
     assert response.status_code == 200
     result = JSONRPCResponse.model_validate(response.json()).result
     assert result["supportedVersions"] == snapshot(["2026-07-28"])
-    assert result["serverInfo"]["name"] == "modern"
+    assert "serverInfo" not in result
+    assert result["_meta"][SERVER_INFO_META_KEY] == {"name": "modern", "version": "1.0.0"}
     assert "capabilities" in result
 
 
@@ -282,7 +295,7 @@ async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_tabl
         raise MCPError(
             code=MISSING_REQUIRED_CLIENT_CAPABILITY,
             message="sampling required",
-            data={"requiredCapabilities": ["sampling"]},
+            data={"requiredCapabilities": {"sampling": {}}},
         )
 
     server = _server()
@@ -294,7 +307,7 @@ async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_tabl
     assert response.status_code == 400
     error = JSONRPCError.model_validate(response.json()).error
     assert error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
-    assert error.data == {"requiredCapabilities": ["sampling"]}
+    assert error.data == {"requiredCapabilities": {"sampling": {}}}
 
 
 @requirement("hosting:http:modern:tools-call-stateless")
@@ -340,7 +353,6 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
                 DiscoverResult(
                     supported_versions=[LATEST_MODERN_VERSION],
                     capabilities=ServerCapabilities(),
-                    server_info=Implementation(name="srv", version="0"),
                 )
             )
             result = await session.call_tool(
@@ -350,7 +362,12 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
             )
 
     assert result.model_dump(by_alias=True, mode="json", exclude_none=True) == snapshot(
-        {"content": [{"type": "text", "text": "5"}], "isError": False, "resultType": "complete"}
+        {
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+            "content": [{"type": "text", "text": "5"}],
+            "isError": False,
+            "resultType": "complete",
+        }
     )
 
     # Exactly the tools/call POST and the implicit tools/list POST -- no initialize, no
@@ -440,7 +457,6 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -487,7 +503,6 @@ async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> No
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -541,7 +556,6 @@ async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() ->
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -596,7 +610,6 @@ async def test_vendor_request_with_name_param_carries_mcp_name_on_the_wire() -> 
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (

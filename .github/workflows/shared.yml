@@ -143,8 +143,8 @@ jobs:
   # nav entries without a page and pages without a nav entry, `zensical build
   # --strict` fails on broken .md links, `pymdownx.snippets: check_paths:
   # true` fails on a deleted `docs_src/` include, and the post-build steps
-  # fail on unresolved cross-references, inventory download failures, and
-  # broken non-markdown link targets.
+  # fail on order-dependent API rendering, unresolved cross-references,
+  # inventory download failures, and broken non-markdown link targets.
   # Until this job existed the docs were only ever built post-merge by
   # `deploy-docs.yml`, so those failures went green on the PR and broke the next
   # deploy of main. This is the check path; `deploy-docs.yml` stays the deploy

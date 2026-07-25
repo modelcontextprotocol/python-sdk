@@ -52,13 +52,6 @@ Two things the stream is *not*:
     handler on the low-level `Server` and acknowledge a smaller filter than the client asked
     for; the acknowledgment is how the client learns what it actually got.
 
-!!! warning "Streamable HTTP only, for now"
-    `subscriptions/listen` needs a transport that can stream a request's response, which today
-    means streamable HTTP. Over stdio a 2026-07-28 connection rejects the method with
-    METHOD_NOT_FOUND, even though `server/discover` advertises the subscription capabilities
-    there. Serving it over stdio is planned; the open-stream semantics for that transport are
-    not built yet.
-
 ## The client end
 
 Here is a client on the other side of that stream, following the board:

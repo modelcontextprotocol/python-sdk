@@ -4,8 +4,9 @@
 #
 # Zensical runs no MkDocs plugins or hooks, so the build is three steps:
 # materialise the API reference pages and the concrete config, build the
-# site strictly, then generate llms.txt and the per-page markdown
-# renditions. This script is the single owner of that recipe, dependency
+# site strictly (plus the order-independence and cross-reference checks
+# Zensical doesn't do itself), then generate llms.txt and the per-page
+# markdown renditions. This script is the single owner of that recipe, dependency
 # sync included — CI (shared.yml, docs-preview.yml) and scripts/build-docs.sh
 # all call it. The toolchain detection in docs-preview.yml and build-docs.sh
 # keys on this file's path and expects the site under site/.
@@ -30,6 +31,11 @@ rm -rf .cache site
 
 uv run --frozen --no-sync python scripts/docs/build_config.py
 uv run --frozen --no-sync zensical build -f mkdocs.gen.yml --strict
+
+# The build above renders pages in one arbitrary (filesystem-dependent)
+# order; prove the API reference renders in hostile orders too — see the
+# check's docstring for the failure mode this guards.
+uv run --frozen --no-sync python scripts/docs/check_render_order.py
 
 # Zensical stays green even under --strict when a cross-reference fails to
 # resolve (rendered as literal bracket text) or an objects.inv inventory

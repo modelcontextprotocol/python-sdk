@@ -998,7 +998,8 @@ class TestServerResourceTemplates:
             result = await client.read_resource("resource://bob/csv")
             assert result == snapshot(
                 ReadResourceResult(
-                    contents=[TextResourceContents(uri="resource://bob/csv", mime_type="text/csv", text="csv for bob")]
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
+                    contents=[TextResourceContents(uri="resource://bob/csv", mime_type="text/csv", text="csv for bob")],
                 )
             )
 
@@ -1065,6 +1066,7 @@ class TestServerResourceMetadata:
             result = await client.read_resource("resource://data")
             assert result == snapshot(
                 ReadResourceResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     contents=[
                         TextResourceContents(
                             uri="resource://data",
@@ -1072,7 +1074,7 @@ class TestServerResourceMetadata:
                             meta={"version": "1.0", "category": "config"},  # type: ignore[reportUnknownMemberType]
                             text="test data",
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1234,11 +1236,12 @@ class TestContextInjection:
             result = await client.read_resource("resource://nocontext/test")
             assert result == snapshot(
                 ReadResourceResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     contents=[
                         TextResourceContents(
                             uri="resource://nocontext/test", mime_type="text/plain", text="Resource test works"
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1262,11 +1265,12 @@ class TestContextInjection:
             result = await client.read_resource("resource://custom/123")
             assert result == snapshot(
                 ReadResourceResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     contents=[
                         TextResourceContents(
                             uri="resource://custom/123", mime_type="text/plain", text="Resource 123 with context"
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1394,6 +1398,7 @@ class TestServerPrompts:
             result = await client.list_prompts()
             assert result == snapshot(
                 ListPromptsResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     prompts=[
                         Prompt(
                             name="fn",
@@ -1403,7 +1408,7 @@ class TestServerPrompts:
                                 PromptArgument(name="optional", required=False),
                             ],
                         )
-                    ]
+                    ],
                 )
             )
 
@@ -1419,6 +1424,7 @@ class TestServerPrompts:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result == snapshot(
                 GetPromptResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     description="",
                     messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
                 )
@@ -1449,6 +1455,7 @@ class TestServerPrompts:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result == snapshot(
                 GetPromptResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     description="This is the function docstring.",
                     messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
                 )
@@ -1471,6 +1478,7 @@ class TestServerPrompts:
             result = await client.get_prompt("fn")
             assert result == snapshot(
                 GetPromptResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
                     description="",
                     messages=[
                         PromptMessage(

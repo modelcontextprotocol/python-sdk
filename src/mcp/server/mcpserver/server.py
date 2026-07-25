@@ -64,7 +64,7 @@ from mcp.server.extension import (
     Extension,
     MethodBinding,
     RequestHandler,
-    compose_tool_call_interceptor,
+    compose_tool_call_handler,
     validate_extension_identifier,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -87,7 +87,7 @@ from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -165,7 +165,7 @@ class MCPServer(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
-        version: str | None = None,
+        version: str = "",
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         *,
@@ -228,8 +228,9 @@ class MCPServer(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        # Ordering: inside OpenTelemetry (spans record the sealed wire form),
-        # outside extension interceptors (extensions see plaintext).
+        # Ordering: inside OpenTelemetry (spans record the sealed wire form).
+        # Extension interceptors run at the handler layer, inside this
+        # boundary, so they see plaintext.
         if request_state_security is None:
             security = RequestStateSecurity.ephemeral()
         else:
@@ -289,7 +290,7 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.icons
 
     @property
-    def version(self) -> str | None:
+    def version(self) -> str:
         return self._lowlevel_server.version
 
     @property
@@ -334,13 +335,20 @@ class MCPServer(Generic[LifespanResultT]):
         self._lowlevel_server.extensions[extension.identifier] = extension.settings()
 
     def _install_extension_interceptor(self) -> None:
-        """Compose every extension's `tools/call` interceptor into one middleware.
+        """Wrap the `tools/call` handler with every extension's interceptor.
 
         Installed only when at least one extension overrides `intercept_tool_call`,
-        so a server with purely additive extensions adds no middleware.
+        so a server with purely additive extensions keeps the bare handler. The
+        chain wraps the handler itself, below the runner's outbound envelope
+        pass, so a short-circuiting interceptor's result is sieved and stamped
+        exactly like a handler result.
         """
         if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
-            self._lowlevel_server.middleware.append(compose_tool_call_interceptor(self._extensions))
+            self._lowlevel_server.add_request_handler(
+                "tools/call",
+                CallToolRequestParams,
+                compose_tool_call_handler(self._extensions, self._handle_call_tool),
+            )
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -369,6 +377,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = ...,
         event_store: EventStore | None = ...,
         retry_interval: int | None = ...,
+        max_request_body_size: int = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -1050,6 +1059,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using StreamableHTTP transport."""
@@ -1061,6 +1071,7 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
             transport_security=transport_security,
             host=host,
         )
@@ -1209,6 +1220,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -1219,6 +1231,7 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            max_request_body_size=max_request_body_size,
             transport_security=transport_security,
             host=host,
             auth=self.settings.auth,
@@ -1315,8 +1328,8 @@ def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: st
         MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
             did not advertise `identifier`.
     """
-    client_params = ctx.session.client_params
-    declared = client_params.capabilities.extensions if client_params else None
+    capabilities = ctx.session.client_capabilities
+    declared = capabilities.extensions if capabilities else None
     if not declared or identifier not in declared:
         data = MissingRequiredClientCapabilityErrorData(
             required_capabilities=ClientCapabilities(extensions={identifier: {}})

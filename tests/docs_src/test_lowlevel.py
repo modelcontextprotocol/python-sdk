@@ -2,7 +2,15 @@
 
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INTERNAL_ERROR, CallToolRequestParams, CallToolResult, ErrorData, RequestParams, TextContent
+from mcp_types import (
+    INTERNAL_ERROR,
+    SERVER_INFO_META_KEY,
+    CallToolRequestParams,
+    CallToolResult,
+    ErrorData,
+    RequestParams,
+    TextContent,
+)
 
 from docs_src.lowlevel import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005, tutorial006
 from mcp import Client, MCPError
@@ -79,8 +87,17 @@ async def test_output_schema_and_structured_content_are_both_yours_to_build() ->
             }
         )
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
-        assert result.content == [TextContent(type="text", text="Found 3 books matching 'dune'.")]
-        assert result.structured_content == {"matches": 3, "query": "dune"}
+        # The page shows this exact payload; tutorial003 pins `version="2.0.0"` so
+        # the identity stamp is deterministic and the fence is proved verbatim.
+        assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
+            {
+                "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Bookshop", "version": "2.0.0"}},
+                "content": [{"type": "text", "text": "Found 3 books matching 'dune'."}],
+                "structuredContent": {"matches": 3, "query": "dune"},
+                "isError": False,
+                "resultType": "complete",
+            }
+        )
 
 
 async def test_the_client_checks_the_schema_you_promised() -> None:
@@ -99,6 +116,10 @@ async def test_meta_reaches_the_client_application() -> None:
     """tutorial004: `_meta=` on the result comes back as `result.meta` and serialises under `_meta`."""
     async with Client(tutorial004.server) as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
+        assert result.meta is not None
+        # The server identity stamp shares `_meta` with the handler's keys without clobbering
+        # them. Remove it before the exact compares: the page's fence leaves the stamp out.
+        del result.meta[SERVER_INFO_META_KEY]
         assert result.meta == {"bookshop/record_ids": ["bk_17", "bk_42", "bk_99"]}
         assert result.model_dump(by_alias=True, exclude_none=True) == snapshot(
             {

@@ -188,6 +188,13 @@ plugins:
       handlers:
         python:
           paths: [src, src/mcp-types]
+          # Zensical renders pages in undefined (filesystem-dependent) order
+          # against one shared griffe collection, so a cross-package re-export
+          # (`mcp` -> `mcp_types`) resolves only if its target package happens
+          # to have been collected first. Chasing exported aliases into their
+          # packages at load time makes resolution order-independent;
+          # scripts/docs/check_render_order.py enforces that property.
+          load_external_modules: true
           options:
             relative_crossrefs: true
             members_order: source

@@ -64,22 +64,21 @@ def _compact_index(module: griffe.Module, documented: set[str]) -> str | None:
     """Build a compact page body for a module that re-exports from outside its own subtree.
 
     mkdocstrings renders a re-export whose canonical documentation lives on
-    another page as a full duplicate of it: deterministically for aliases
-    within one top-level package (`mcp.client.auth` re-exporting from
-    `mcp.shared.auth`), and order-dependently across top-level packages
-    (`from mcp_types import y` + `__all__` renders the duplicate only when
-    the other package happens to be loaded already, and silently omits the
-    member when it isn't). Modules whose exports all live in their own
-    subtree (`mcp_types` re-exporting its private `._types` module, or a
-    module whose `__all__` lists only its own definitions) are unaffected
-    and keep the plain `::: module` stub (return `None`): their page is
-    itself the canonical rendering.
+    another page as a full duplicate of it, whether the alias stays within
+    one top-level package (`mcp.client.auth` re-exporting from
+    `mcp.shared.auth`) or crosses packages (`from mcp_types import y` +
+    `__all__` — `load_external_modules` in mkdocs.yml has the collector chase
+    exported cross-package aliases when their package is first collected, so
+    the target package is loaded regardless of page order). Modules whose
+    exports all live in their own subtree (`mcp_types` re-exporting its
+    private `._types` module, or a module whose `__all__` lists only its own
+    definitions) are unaffected and keep the plain `::: module` stub (return
+    `None`): their page is itself the canonical rendering.
 
-    For an affected module, pin the semantics instead of inheriting the
-    accident: every export whose canonical page exists elsewhere under the API
-    reference becomes a link to it, and only exports documented nowhere else
-    (re-exports from private modules) keep their full body here, via an
-    explicit `members:` list.
+    For an affected module, replace the duplicates: every export whose
+    canonical page exists elsewhere under the API reference becomes a link to
+    it, and only exports documented nowhere else (re-exports from private
+    modules) keep their full body here, via an explicit `members:` list.
     """
     prefix = f"{module.path}."
     exports: dict[str, griffe.Object | griffe.Alias] = {}
@@ -138,18 +137,7 @@ def _compact_index(module: griffe.Module, documented: set[str]) -> str | None:
             entry += f" — {summary}"
         sections.setdefault(_KIND_SECTIONS[target.kind], []).append(entry)
 
-    # Rendering the stub resolves the cross-package aliases again, in
-    # mkdocstrings' own collection. On a warm incremental rebuild the target
-    # package's pages can all be cache hits, so nothing else loads it and the
-    # resolution crashes (AliasResolutionError); preloading pins it. The
-    # module's own root package needs no pin: rendering the stub loads it.
-    preload = sorted(
-        {member.target_path.split(".")[0] for member in exports.values() if member.is_alias}
-        - {module.path.split(".")[0]}
-    )
     body = [f"::: {module.path}", "    options:"]
-    if preload:
-        body += ["      preload_modules:", *(f"        - {pkg}" for pkg in preload)]
     if inline:
         body += ["      members:", *(f"        - {name}" for name in inline)]
     else:

@@ -24,7 +24,6 @@ from mcp_types import (
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
-    Implementation,
     InputRequiredResult,
     ListPromptsResult,
     ListResourcesResult,
@@ -213,11 +212,11 @@ def test_a_custom_store_with_an_explicit_target_id_constructs_for_any_server() -
     assert _coordinator(client)._store is store
 
 
-async def test_cache_false_disables_the_cache_and_the_handler_wrap() -> None:
+async def test_cache_none_disables_the_cache_and_the_handler_wrap() -> None:
     async def handler(message: IncomingMessage) -> None:
         raise NotImplementedError
 
-    client = Client(_list_changed_server(), cache=False, message_handler=handler)
+    client = Client(_list_changed_server(), cache=None, message_handler=handler)
     assert client._response_cache is None
 
     async with client:
@@ -225,7 +224,7 @@ async def test_cache_false_disables_the_cache_and_the_handler_wrap() -> None:
 
 
 def test_the_default_cache_uses_a_per_client_in_memory_store() -> None:
-    """`cache=None` (the default) is cache-on."""
+    """The default `CacheConfig()` is cache-on."""
     server = Server("plain")
     first = Client(server)
     second = Client(server)
@@ -638,7 +637,7 @@ async def test_a_read_resource_carrying_meta_is_fetched_and_replaces_the_warm_en
 async def test_cache_mode_is_inert_when_caching_is_disabled() -> None:
     server, fetches = _varying_tools_server()
 
-    async with Client(server, cache=False) as client:
+    async with Client(server, cache=None) as client:
         await client.list_tools()
         await client.list_tools(cache_mode="use")
         await client.list_tools(cache_mode="refresh")
@@ -845,7 +844,6 @@ async def test_a_cache_hit_listing_still_mirrors_x_mcp_headers_on_tools_call() -
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
 
     with anyio.fail_after(5):

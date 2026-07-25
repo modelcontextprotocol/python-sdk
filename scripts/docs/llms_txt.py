@@ -93,7 +93,7 @@ def _dest_md_uri(src_uri: str) -> str:
     return "index.md" if directory == PurePosixPath(".") else f"{directory}/index.md"
 
 
-def _page_url(src_uri: str) -> str:
+def page_url(src_uri: str) -> str:
     """The directory URL of a page relative to the site root (`servers/tools/`, `""` for the home page)."""
     return _dest_md_uri(src_uri).removesuffix("index.md")
 
@@ -260,7 +260,7 @@ def _rewrite_links(markdown: str, src_uri: str, site_url: str, prose: dict[str, 
             raise _BuildError(f"llms_txt: cannot resolve link target {target!r} in {src_uri}")
         if linked.endswith(".md"):
             # Pages without a markdown rendition (the api/ stubs) link to their HTML instead.
-            url = _dest_md_uri(linked) if linked in prose else _page_url(linked)
+            url = _dest_md_uri(linked) if linked in prose else page_url(linked)
         else:
             url = linked  # assets are published at their docs-relative path
         return f"{opening}{site_url}{url}{anchor or ''}{title or ''}{closing}"
@@ -316,7 +316,7 @@ def generate(site_dir: Path) -> None:
             # same one `_title` falls back to).
             h1 = _prose_h1(markdown)
             body = markdown if h1 is None else markdown[: h1.start()] + markdown[h1.end() :]
-            full += [f"# {title}", "", f"Source: {site_url}{_page_url(src_uri)}", "", body.strip(), ""]
+            full += [f"# {title}", "", f"Source: {site_url}{page_url(src_uri)}", "", body.strip(), ""]
         index.append("")
 
     index += ["## Optional", ""]
@@ -332,7 +332,7 @@ def generate(site_dir: Path) -> None:
             f" missing {sorted(generated - listed)}, stale {sorted(listed - generated)}"
         )
     for src_uri, title, description in _OPTIONAL_PAGES:
-        index.append(f"- [{title}]({site_url}{_page_url(src_uri)}): {description}")
+        index.append(f"- [{title}]({site_url}{page_url(src_uri)}): {description}")
     index.append("")
 
     (site_dir / "llms.txt").write_text("\n".join(index), encoding="utf-8")

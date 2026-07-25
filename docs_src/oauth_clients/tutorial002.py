@@ -29,7 +29,7 @@ oauth = ClientCredentialsOAuthProvider(
     storage=InMemoryTokenStorage(),
     client_id="reporting-agent",
     client_secret="...",
-    scopes="user",
+    scope="user",
 )
 
 

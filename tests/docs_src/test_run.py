@@ -9,6 +9,7 @@ from mcp_types import CallToolResult, TextContent
 from docs_src.run import tutorial001, tutorial002, tutorial003
 from mcp import Client
 from mcp.server import MCPServer
+from tests.docs_src._helpers import strip_server_info
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -18,6 +19,7 @@ async def test_the_run_call_is_guarded_so_importing_does_not_start_a_server() ->
     """tutorial001: `run()` sits under `__main__`, so the module imports cleanly and serves in-memory."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("search_books", {"query": "dune"})
+        result = strip_server_info(result, tutorial001.mcp)
         assert result == snapshot(
             CallToolResult(
                 content=[TextContent(type="text", text="Found 3 books matching 'dune'.")],

@@ -39,7 +39,7 @@ python server.py
 
 Nothing prints, and it doesn't return. It is waiting on stdin for a host to speak first.
 
-That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../handlers/logging.md)**.
+That also means stdout **is the wire**. While serving, the SDK moves the wire to a private descriptor and diverts output that is *flushed* to stdout (a subprocess writing to its inherited stdout, a flushed `print()`) to stderr, where it can't corrupt the stream. Output flushed to stdout *before* serving begins (a wrapper script echoing, an unbuffered import-time print) still lands on the wire, and so does a `print()` that stays buffered until the interpreter drains it at exit. For output you actually want, the `logging` module is the right tool: its handler flushes each record to stderr as it happens. That story is in **[Logging](../handlers/logging.md)**.
 
 ### Try it
 
@@ -67,6 +67,9 @@ Each transport has its own keyword arguments, all on `run()`:
 * `streamable_http_path`: where the MCP endpoint lives. Default `/mcp`.
 * `json_response=True`: answer with plain JSON instead of an SSE stream.
 * `stateless_http=True`: a fresh transport per request, no session tracking.
+* `max_request_body_size`: largest accepted POST body in bytes. Defaults to 4 MiB; larger requests
+  receive HTTP 413 before parsing or session creation. Raise it only when legitimate MCP messages
+  exceed that size.
 * `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[Deploy & scale](deploy.md)** covers `transport_security`.
 
 !!! warning
