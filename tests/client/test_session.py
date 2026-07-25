@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import anyio
 import anyio.abc
@@ -867,7 +867,7 @@ async def test_on_notify_drops_a_server_notification_absent_at_the_negotiated_ve
     caplog: pytest.LogCaptureFixture,
 ):
     """`notifications/elicitation/complete` does not exist at 2025-06-18: it is
-    debug-log-dropped without reaching `message_handler`."""
+    warn-dropped without reaching `message_handler`."""
     seen: list[object] = []
     delivered = anyio.Event()
 
@@ -875,23 +875,25 @@ async def test_on_notify_drops_a_server_notification_absent_at_the_negotiated_ve
         seen.append(msg)
         delivered.set()
 
-    with caplog.at_level("DEBUG", logger="client"):
-        async with raw_client_session(message_handler=handler) as (session, to_client, _):
-            _set_negotiated_version(session, "2025-06-18")
-            await to_client.send(
-                SessionMessage(
-                    JSONRPCNotification(
-                        jsonrpc="2.0", method="notifications/elicitation/complete", params={"elicitationId": "e1"}
-                    )
+    async with raw_client_session(message_handler=handler) as (session, to_client, _):
+        _set_negotiated_version(session, "2025-06-18")
+        await to_client.send(
+            SessionMessage(
+                JSONRPCNotification(
+                    jsonrpc="2.0", method="notifications/elicitation/complete", params={"elicitationId": "e1"}
                 )
             )
-            await to_client.send(
-                SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
-            )
-            await delivered.wait()
+        )
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
+        )
+        await delivered.wait()
     assert len(seen) == 1
     assert isinstance(seen[0], types.ToolListChangedNotification)
-    assert "dropped 'notifications/elicitation/complete': not defined at 2025-06-18" in caplog.text
+    assert (
+        "dropped 'notifications/elicitation/complete': not defined at 2025-06-18 "
+        "and no notification binding is registered"
+    ) in caplog.text
 
 
 @pytest.mark.anyio
@@ -1471,6 +1473,29 @@ async def test_send_notification_after_close_is_dropped_silently():
     finally:
         for s in (s2c_send, s2c_recv, c2s_send, c2s_recv):
             s.close()
+
+
+class _ReceiptEventParams(types.NotificationParams):
+    seq: int
+
+
+class _ReceiptEvent(types.Notification[_ReceiptEventParams, Literal["notifications/com.example/receipt"]]):
+    method: Literal["notifications/com.example/receipt"] = "notifications/com.example/receipt"
+    params: _ReceiptEventParams
+
+
+@pytest.mark.anyio
+async def test_send_notification_accepts_a_custom_notification_model():
+    """A `types.Notification` subclass outside the spec union serializes onto the wire
+    as-is, so extensions can emit their own methods without casts."""
+    async with raw_client_session() as (session, _, recv_from_client):
+        await session.send_notification(_ReceiptEvent(params=_ReceiptEventParams(seq=7)))
+        with anyio.fail_after(5):
+            sent = await recv_from_client.receive()
+    notification = sent.message
+    assert isinstance(notification, JSONRPCNotification)
+    assert notification.method == "notifications/com.example/receipt"
+    assert notification.params == {"seq": 7}
 
 
 # --- discover() ladder ---

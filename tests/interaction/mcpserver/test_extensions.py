@@ -4,6 +4,7 @@ substitutes a claimed `tools/call` shape and the declaring client's `ClientExten
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Literal
 
+import anyio
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -11,7 +12,7 @@ from mcp_types import MISSING_REQUIRED_CLIENT_CAPABILITY, CallToolResult, Result
 from pydantic import ValidationError
 
 from mcp import MCPError
-from mcp.client import ClaimContext, ClientExtension, ResultClaim, advertise
+from mcp.client import ClaimContext, ClientExtension, NotificationBinding, ResultClaim, advertise
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import Context, MCPServer, require_client_extension
@@ -175,3 +176,59 @@ async def test_legacy_ad_omits_claim_bearing_identifiers_but_keeps_claim_less_on
         result = await client.call_tool("declared", {})
 
     assert result.structured_content == {"result": [_FLAGS]}
+
+
+class ReceiptIssuedParams(types.NotificationParams):
+    seq: int
+
+
+class ReceiptIssued(types.Notification[ReceiptIssuedParams, Literal["notifications/receipts"]]):
+    """Vendor notification the Receipts extension observes; off-spec, so only a binding sees it."""
+
+    method: Literal["notifications/receipts"] = "notifications/receipts"
+    params: ReceiptIssuedParams
+
+
+class ReceiptFeed(ClientExtension):
+    """Client half: observes the vendor `notifications/receipts` stream."""
+
+    identifier = _RECEIPTS
+
+    def __init__(self, handler: Callable[[ReceiptIssuedParams], Awaitable[None]]) -> None:
+        self._handler = handler
+
+    def notifications(self) -> Sequence[NotificationBinding[Any]]:
+        return [
+            NotificationBinding(method="notifications/receipts", params_type=ReceiptIssuedParams, handler=self._handler)
+        ]
+
+
+@requirement("extensions:client:notification-binding-delivery")
+async def test_vendor_notifications_reach_the_owning_extensions_binding_in_order(connect: Connect) -> None:
+    """A tool emits vendor notifications through `ctx.session.send_notification`; the declaring
+    client's binding receives the validated params serially, in dispatch order."""
+    received: list[int] = []
+    done = anyio.Event()
+
+    async def on_receipt(params: ReceiptIssuedParams) -> None:
+        received.append(params.seq)
+        if params.seq == 3:
+            done.set()
+
+    server = MCPServer("issuer")
+
+    @server.tool()
+    async def buy_many(ctx: Context) -> str:
+        """Issue three receipts."""
+        for seq in (1, 2, 3):
+            await ctx.session.send_notification(
+                ReceiptIssued(params=ReceiptIssuedParams(seq=seq)), related_request_id=ctx.request_id
+            )
+        return "issued"
+
+    async with connect(server, extensions=[ReceiptFeed(on_receipt)]) as client:
+        await client.call_tool("buy_many", {})
+        with anyio.fail_after(5):
+            await done.wait()
+
+    assert received == [1, 2, 3]

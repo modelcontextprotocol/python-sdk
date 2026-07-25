@@ -2535,10 +2535,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "against the binding's params type and delivered to its handler serially, in dispatch order."
         ),
         added_in="2026-07-28",
-        deferred=(
-            "Covered at session tier by tests/client/test_session_notification_bindings.py: no public "
-            "server-side surface emits vendor-method notifications (ServerNotification is a closed union), "
-            "and HTTP-modern arrival additionally needs the subscriptions/listen client runtime."
+        note=(
+            "The server emits with related_request_id so the notification rides the originating "
+            "request's stream; a standalone vendor notification has no modern channel outside "
+            "subscriptions/listen. Queue bounds and shadowing edge cases stay pinned at session tier "
+            "in tests/client/test_session_notification_bindings.py."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════

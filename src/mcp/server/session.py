@@ -102,10 +102,19 @@ class ServerSession:
 
     async def send_notification(
         self,
-        notification: types.ServerNotification,
+        notification: types.ServerNotification | types.Notification[Any, Any],
         related_request_id: types.RequestId | None = None,
     ) -> None:
-        """Send a typed server-to-client notification."""
+        """Send a typed server-to-client notification.
+
+        Spec notifications are the `types.ServerNotification` union members; any
+        other `types.Notification` subclass is sent as-is, so extensions can emit
+        their own methods (a python-sdk client observes those by registering a
+        `NotificationBinding`). The 2026-07-28 revision gives standalone
+        notifications no channel outside `subscriptions/listen`, so on modern
+        connections pass `related_request_id` to ride the originating request's
+        stream.
+        """
         channel = self._request_outbound if related_request_id is not None else self._connection.outbound
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
         await channel.notify(data["method"], data.get("params"))

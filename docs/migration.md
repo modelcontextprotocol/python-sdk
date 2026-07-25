@@ -1690,6 +1690,36 @@ Behavior changes:
 
 `mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing. `RequestResponder.respond()` no longer exists, and neither do the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) or `BaseSession._in_flight`; inbound cancellation is handled by `JSONRPCDispatcher`.
 
+### Vendor notifications never reach `message_handler`; observe them with a `NotificationBinding`
+
+In v1 every inbound server notification was validated against the closed `ServerNotification` union. Methods outside the union were dropped with a warning before any callback ran, and `notifications/tasks/status` was a union member, so it did reach `message_handler`. In v2 the notification tables are per protocol version and `TaskStatusNotification` is types-only: a method the negotiated version does not define is delivered only to a matching `NotificationBinding`, and without one it is dropped with a warning naming the method. `message_handler` keeps its typed contract and never sees these.
+
+Code that watched task status (or any vendor method) through `message_handler` registers a binding instead:
+
+```python
+from mcp.client import NotificationBinding
+from mcp_types import TaskStatusNotificationParams
+
+
+async def on_task_status(params: TaskStatusNotificationParams) -> None:
+    ...
+
+
+session = ClientSession(
+    read_stream,
+    write_stream,
+    notification_bindings=[
+        NotificationBinding(
+            method="notifications/tasks/status",
+            params_type=TaskStatusNotificationParams,
+            handler=on_task_status,
+        )
+    ],
+)
+```
+
+On the high-level `Client`, bindings are declared by a `ClientExtension`'s `notifications()`; see [Extensions](advanced/extensions.md). The sending direction also loses its `cast`: `send_notification` on both `ClientSession` and `ServerSession` accepts any `mcp_types.Notification` subclass, where v1 typed it to the closed unions.
+
 ### Experimental Tasks support removed
 
 Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions, except the `TaskExecutionMode` alias, whose literal is now inlined on `ToolExecution.task_support`.

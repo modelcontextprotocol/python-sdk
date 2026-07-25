@@ -17,7 +17,7 @@ import contextvars
 import logging
 from collections.abc import AsyncIterator, Awaitable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import KW_ONLY, dataclass, replace
+from dataclasses import KW_ONLY, dataclass, field, replace
 from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, Generic, cast
 
@@ -164,6 +164,14 @@ class ServerRunner(Generic[LifespanT]):
     init_options: InitializationOptions | None = None
     """`InitializeResult` payload. Defaults to `server.create_initialization_options()`."""
 
+    _warned_notification_drops: set[str] = field(default_factory=lambda: set(), init=False, repr=False)
+
+    def _log_dropped_notification(self, method: str, message: str, *args: object) -> None:
+        """The first drop of a method warns; repeats log at debug so a stream cannot flood the log."""
+        level = logging.WARNING if method not in self._warned_notification_drops else logging.DEBUG
+        self._warned_notification_drops.add(method)
+        logger.log(level, message, method, *args)
+
     @cached_property
     def on_request(self) -> OnRequest:
         return self._on_request
@@ -251,11 +259,12 @@ class ServerRunner(Generic[LifespanT]):
 
         async def _inner(ctx: ServerRequestContext[LifespanT, Any]) -> None:
             method, params = ctx.method, ctx.params
-            if method in _methods.SPEC_CLIENT_NOTIFICATION_METHODS:
+            is_spec = method in _methods.SPEC_CLIENT_NOTIFICATION_METHODS
+            if is_spec:
                 try:
                     _methods.validate_client_notification(method, version, params)
                 except KeyError:
-                    logger.debug("dropped %r: not defined at %s", method, version)
+                    self._log_dropped_notification(method, "dropped %r: not defined at %s", version)
                     return
                 except ValidationError:
                     logger.warning("dropped %r: malformed params", method)
@@ -270,7 +279,13 @@ class ServerRunner(Generic[LifespanT]):
                 return
             entry = self.server.get_notification_handler(method)
             if entry is None:
-                logger.debug("no handler for notification %s", method)
+                if is_spec:
+                    # Not serving a spec notification is ordinary (most servers
+                    # ignore roots/list_changed); dropping a custom method the
+                    # peer went out of its way to send deserves a warning.
+                    logger.debug("no handler for notification %s", method)
+                else:
+                    self._log_dropped_notification(method, "dropped %r: no notification handler is registered")
                 return
             # Same absent-params contract as requests.
             try:

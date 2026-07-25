@@ -182,22 +182,27 @@ async def test_invalid_params_are_warned_and_dropped_without_reaching_handler(
 
 
 @pytest.mark.anyio
-async def test_unbound_vendor_notification_keeps_the_debug_drop(caplog: pytest.LogCaptureFixture) -> None:
-    """SDK-defined: a vendor method with no binding keeps the debug-log-and-drop behaviour."""
-    caplog.set_level(logging.DEBUG, logger="client")
-
+async def test_unbound_vendor_notification_is_dropped_with_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """SDK-defined: a vendor method with no binding is dropped with a warning naming the
+    remedy; repeats of the same method drop to debug so a stream cannot flood the log."""
     client_side, server_side = create_direct_dispatcher_pair()
     binding = NotificationBinding(method=_VENDOR_METHOD, params_type=_EventParams, handler=_noop_handler)
     session = ClientSession(dispatcher=client_side, notification_bindings=[binding])
-    with anyio.fail_after(5):
+    with caplog.at_level(logging.DEBUG, logger="client"), anyio.fail_after(5):
         async with anyio.create_task_group() as tg:
             await tg.start(server_side.run, _server_on_request, _server_on_notify)
             async with session:
                 _adopt_modern(session)
                 await server_side.notify("notifications/vendor/unbound", {"seq": 1})
+                await server_side.notify("notifications/vendor/unbound", {"seq": 2})
             server_side.close()
 
-    assert f"dropped 'notifications/vendor/unbound': not defined at {LATEST_MODERN_VERSION}" in caplog.text
+    expected = (
+        f"dropped 'notifications/vendor/unbound': not defined at {LATEST_MODERN_VERSION} "
+        "and no notification binding is registered"
+    )
+    levels = [r.levelno for r in caplog.records if r.getMessage() == expected]
+    assert levels == [logging.WARNING, logging.DEBUG]
 
 
 @pytest.mark.anyio
