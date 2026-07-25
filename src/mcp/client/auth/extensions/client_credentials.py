@@ -46,7 +46,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
         client_id: str,
         client_secret: str,
         token_endpoint_auth_method: Literal["client_secret_basic", "client_secret_post"] = "client_secret_basic",
-        scopes: str | None = None,
+        scope: str | None = None,
     ) -> None:
         """Initialize client_credentials OAuth provider.
 
@@ -57,14 +57,14 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             client_secret: The OAuth client secret.
             token_endpoint_auth_method: Authentication method for token endpoint.
                 Either "client_secret_basic" (default) or "client_secret_post".
-            scopes: Optional space-separated list of scopes to request.
+            scope: Optional space-separated list of scopes to request.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
             redirect_uris=None,
             grant_types=["client_credentials"],
             token_endpoint_auth_method=token_endpoint_auth_method,
-            scope=scopes,
+            scope=scope,
         )
         super().__init__(server_url, client_metadata, storage, None, None, 300.0)
         # Store client_info to be set during _initialize - no dynamic registration needed
@@ -74,7 +74,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             client_secret=client_secret,
             grant_types=["client_credentials"],
             token_endpoint_auth_method=token_endpoint_auth_method,
-            scope=scopes,
+            scope=scope,
         )
 
     async def _initialize(self) -> None:
@@ -258,7 +258,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         storage: TokenStorage,
         client_id: str,
         assertion_provider: Callable[[str], Awaitable[str]],
-        scopes: str | None = None,
+        scope: str | None = None,
     ) -> None:
         """Initialize private_key_jwt OAuth provider.
 
@@ -271,14 +271,14 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
                 `SignedJWTParameters.create_assertion_provider()` for SDK-signed JWTs,
                 `static_assertion_provider()` for pre-built JWTs, or provide your own
                 callback for workload identity federation.
-            scopes: Optional space-separated list of scopes to request.
+            scope: Optional space-separated list of scopes to request.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
             redirect_uris=None,
             grant_types=["client_credentials"],
             token_endpoint_auth_method="private_key_jwt",
-            scope=scopes,
+            scope=scope,
         )
         super().__init__(server_url, client_metadata, storage, None, None, 300.0)
         self._assertion_provider = assertion_provider
@@ -288,7 +288,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             client_id=client_id,
             grant_types=["client_credentials"],
             token_endpoint_auth_method="private_key_jwt",
-            scope=scopes,
+            scope=scope,
         )
 
     async def _initialize(self) -> None:

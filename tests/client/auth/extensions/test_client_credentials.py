@@ -210,7 +210,7 @@ class TestClientCredentialsOAuthProvider:
             storage=mock_storage,
             client_id="test-client-id",
             client_secret="test-client-secret",
-            scopes="read write",
+            scope="read write",
         )
 
         await provider._initialize()
@@ -240,7 +240,7 @@ class TestClientCredentialsOAuthProvider:
             storage=mock_storage,
             client_id="test-client-id",
             client_secret="test-client-secret",
-            scopes="read write",
+            scope="read write",
         )
         provider.context.oauth_metadata = OAuthMetadata(
             issuer=AnyHttpUrl("https://api.example.com"),
@@ -268,7 +268,7 @@ class TestClientCredentialsOAuthProvider:
             client_id="test-client-id",
             client_secret="test-client-secret",
             token_endpoint_auth_method="client_secret_post",
-            scopes="read write",
+            scope="read write",
         )
         await provider._initialize()
         provider.context.oauth_metadata = OAuthMetadata(
@@ -296,7 +296,7 @@ class TestClientCredentialsOAuthProvider:
             client_id="placeholder",
             client_secret="test-client-secret",
             token_endpoint_auth_method="client_secret_post",
-            scopes="read write",
+            scope="read write",
         )
         await provider._initialize()
         provider.context.oauth_metadata = OAuthMetadata(
@@ -386,7 +386,7 @@ class TestPrivateKeyJWTOAuthProvider:
             storage=mock_storage,
             client_id="test-client-id",
             assertion_provider=mock_assertion_provider,
-            scopes="read write",
+            scope="read write",
         )
         provider.context.oauth_metadata = OAuthMetadata(
             issuer=AnyHttpUrl("https://auth.example.com"),

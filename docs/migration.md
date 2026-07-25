@@ -1975,6 +1975,22 @@ async def callback_handler() -> AuthorizationCodeResult:
 
 Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
 
+### `scopes=` renamed to `scope=` on the client-credentials providers
+
+`ClientCredentialsOAuthProvider` and `PrivateKeyJWTOAuthProvider` took the requested scope as a keyword named `scopes`, even though the value is a single space-separated string, not a list. The parameter is now `scope`, matching the RFC 6749 wire parameter, `OAuthClientMetadata.scope`, and the newer `IdentityAssertionOAuthProvider`.
+
+**Before (v1):**
+
+```python
+ClientCredentialsOAuthProvider(..., scopes="read write")
+```
+
+**After (v2):**
+
+```python
+ClientCredentialsOAuthProvider(..., scope="read write")
+```
+
 ### Client rejects authorization server metadata with a mismatched `issuer`
 
 During OAuth discovery, `OAuthClientProvider` now validates that the authorization server
