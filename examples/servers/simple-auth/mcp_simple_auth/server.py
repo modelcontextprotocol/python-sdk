@@ -12,7 +12,8 @@ import logging
 from typing import Any, Literal
 
 import click
-from pydantic import AnyHttpUrl, BaseModel
+from pydantic import AnyHttpUrl
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver.server import MCPServer
@@ -22,8 +23,10 @@ from .token_verifier import IntrospectionTokenVerifier
 logger = logging.getLogger(__name__)
 
 
-class ResourceServerSettings(BaseModel):
+class ResourceServerSettings(BaseSettings):
     """Settings for the MCP Resource Server."""
+
+    model_config = SettingsConfigDict(env_prefix="MCP_RESOURCE_")
 
     # Server settings
     host: str = "localhost"

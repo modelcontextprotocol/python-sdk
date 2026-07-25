@@ -12,7 +12,8 @@ import secrets
 import time
 from typing import Any
 
-from pydantic import AnyHttpUrl, BaseModel
+from pydantic import AnyHttpUrl
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
@@ -28,8 +29,10 @@ from mcp.server.auth.provider import (
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
-class SimpleAuthSettings(BaseModel):
+class SimpleAuthSettings(BaseSettings):
     """Simple OAuth settings for demo purposes."""
+
+    model_config = SettingsConfigDict(env_prefix="MCP_")
 
     # Demo user credentials
     demo_username: str = "demo_user"
