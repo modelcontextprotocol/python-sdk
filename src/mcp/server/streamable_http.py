@@ -550,6 +550,13 @@ class StreamableHTTPServerTransport:
             request_id = str(message.id)
 
             if self.is_json_response_enabled:
+                if request_id in self._request_streams:
+                    response = self._create_error_response(
+                        "Duplicate request id: a request with this id is already in flight on this session.",
+                        HTTPStatus.CONFLICT,
+                    )
+                    await response(scope, receive, send)
+                    return
                 self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
                     REQUEST_STREAM_BUFFER_SIZE
                 )
@@ -570,7 +577,7 @@ class StreamableHTTPServerTransport:
                             response_message = event_message.message
                             break
                         # For notifications and requests, keep waiting
-                        else:  # pragma: no cover
+                        else:
                             logger.debug(f"received: {event_message.message.method}")
 
                     # At this point we should have a response
@@ -597,6 +604,14 @@ class StreamableHTTPServerTransport:
                 finally:
                     await self._clean_up_memory_streams(request_id)
             else:
+                if request_id in self._request_streams:
+                    response = self._create_error_response(
+                        "Duplicate request id: a request with this id is already in flight on this session.",
+                        HTTPStatus.CONFLICT,
+                    )
+                    await response(scope, receive, send)
+                    return
+
                 # Mint the priming event before any per-request state exists:
                 # `EventStore.store_event` is user code and may raise, in which
                 # case the outer handler returns a 500 with nothing to clean up.

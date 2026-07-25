@@ -810,6 +810,169 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
 
 
 @pytest.mark.anyio
+async def test_post_duplicate_request_id_rejected_while_first_still_in_flight(basic_app: Starlette) -> None:
+    """A second POST reusing an in-flight request's JSON-RPC id is rejected; the first still completes."""
+    async with make_client(basic_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        negotiated_version = extract_protocol_version_from_sse(init_response)
+        session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+        assert session_id is not None
+
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        }
+        shared_id = "shared-request-id"
+
+        first_request_blocked = anyio.Event()
+        first_response_lines: list[str] = []
+
+        async def run_first_request() -> None:
+            async with client.stream(
+                "POST",
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "wait_for_lock_with_notification", "arguments": {}},
+                    "id": shared_id,
+                },
+            ) as first_response:
+                assert first_response.status_code == 200
+                async for line in first_response.aiter_lines():  # pragma: no branch
+                    first_response_lines.append(line)
+                    if line.startswith("data: ") and "First notification before lock" in line:
+                        first_request_blocked.set()
+                    if line.startswith("data: ") and '"result"' in line:
+                        break
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_first_request)
+
+            with anyio.fail_after(5):
+                await first_request_blocked.wait()
+
+            # The first request is still in flight (blocked on the lock), holding `shared_id`.
+            duplicate_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "test_tool", "arguments": {}},
+                    "id": shared_id,
+                },
+            )
+            assert duplicate_response.status_code == 409
+            assert "Duplicate request id" in duplicate_response.text
+
+            # Release the lock so the first request can finish.
+            release_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "release_lock", "arguments": {}},
+                    "id": "release-lock-1",
+                },
+            )
+            assert release_response.status_code == 200
+
+        final_data_line = next(line for line in reversed(first_response_lines) if line.startswith("data: "))
+        final_payload = json.loads(final_data_line.removeprefix("data: "))
+        assert final_payload["id"] == shared_id
+        assert final_payload["result"]["content"][0]["text"] == "Completed"
+
+
+@pytest.mark.anyio
+async def test_json_response_duplicate_request_id_rejected_while_first_still_in_flight(json_app: Starlette) -> None:
+    """In JSON response mode, a second POST reusing an in-flight id is rejected; the first still completes."""
+    async with make_client(json_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+        assert session_id is not None
+        negotiated_version = init_response.json()["result"]["protocolVersion"]
+
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        }
+        shared_id = "shared-json-request-id"
+        first_result: dict[str, Any] = {}
+
+        async def run_first_request() -> None:
+            response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "wait_for_lock_with_notification", "arguments": {}},
+                    "id": shared_id,
+                },
+            )
+            assert response.status_code == 200
+            first_result.update(response.json())
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_first_request)
+
+            # The first request registers its request stream and blocks on the lock before
+            # anything else in this task group can run.
+            await anyio.wait_all_tasks_blocked()
+
+            duplicate_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "test_tool", "arguments": {}},
+                    "id": shared_id,
+                },
+            )
+            assert duplicate_response.status_code == 409
+            assert "Duplicate request id" in duplicate_response.text
+
+            release_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "release_lock", "arguments": {}},
+                    "id": "release-lock-json-1",
+                },
+            )
+            assert release_response.status_code == 200
+
+        assert first_result["id"] == shared_id
+        assert first_result["result"]["content"][0]["text"] == "Completed"
+
+
+@pytest.mark.anyio
 async def test_get_validation(basic_app: Starlette) -> None:
     """A GET without an Accept header covering text/event-stream is rejected with 406."""
     async with make_client(basic_app) as client:
