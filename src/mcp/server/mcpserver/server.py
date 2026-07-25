@@ -44,8 +44,8 @@ from mcp_types import PromptArgument as MCPPromptArgument
 from mcp_types import Resource as MCPResource
 from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
+from pydantic import BaseModel
 from pydantic.networks import AnyUrl
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -98,20 +98,8 @@ logger = get_logger(__name__)
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
-class Settings(BaseSettings, Generic[LifespanResultT]):
-    """MCPServer settings.
-
-    All settings can be configured via environment variables with the prefix MCP_.
-    For example, MCP_DEBUG=true will set debug=True.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="MCP_",
-        env_file=".env",
-        env_nested_delimiter="__",
-        nested_model_default_partial_update=True,
-        extra="ignore",
-    )
+class Settings(BaseModel, Generic[LifespanResultT]):
+    """MCPServer settings, as passed to the `MCPServer` constructor."""
 
     # Server settings
     debug: bool
