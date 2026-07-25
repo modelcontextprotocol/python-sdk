@@ -1,7 +1,9 @@
 # MCP Python SDK
 
-!!! tip "Looking for the upcoming v2?"
-    See the [v2 development documentation](https://py.sdk.modelcontextprotocol.io/v2/).
+!!! tip "You are viewing the v1.x maintenance-line documentation"
+    v2 is the current stable release: its documentation is at
+    <https://py.sdk.modelcontextprotocol.io/>. Staying on v1.x for now? Pin `mcp<2`
+    (for example `mcp>=1.28,<2`) so an unpinned install doesn't move you to 2.x.
 
 The **Model Context Protocol (MCP)** allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction.
 
@@ -48,7 +50,7 @@ if __name__ == "__main__":
 Run the server:
 
 ```bash
-uv run --with mcp server.py
+uv run --with "mcp<2" server.py
 ```
 
 Then open the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) and connect to `http://localhost:8000/mcp`:
@@ -74,5 +76,5 @@ Full API documentation is available in the [API Reference](api.md).
 ## llms.txt
 
 Reading with an LLM? This documentation is also published in the [llms.txt](https://llmstxt.org/) format:
-[llms.txt](https://py.sdk.modelcontextprotocol.io/llms.txt) is an index of the pages, and
-[llms-full.txt](https://py.sdk.modelcontextprotocol.io/llms-full.txt) contains every page in a single file.
+[llms.txt](https://py.sdk.modelcontextprotocol.io/v1/llms.txt) is an index of the pages, and
+[llms-full.txt](https://py.sdk.modelcontextprotocol.io/v1/llms-full.txt) contains every page in a single file.
