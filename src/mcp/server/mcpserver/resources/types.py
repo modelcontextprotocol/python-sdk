@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import json
 from collections.abc import Callable
 from functools import partial
@@ -20,21 +21,17 @@ from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 
-_TEXTUAL_APPLICATION_TYPES = frozenset(
-    {
-        "application/json",
-        "application/xml",
-        "application/javascript",
-        "application/ecmascript",
-    }
-)
+# `application/*` types that are textual but predate the `+json`/`+xml`
+# structured-syntax suffixes, so the suffix rule below can't catch them.
+_TEXTUAL_APPLICATION_TYPES = frozenset({"application/json", "application/xml"})
 
 
 def _default_file_encoding(mime_type: str) -> str | None:
     """The encoding a file of this mime type is decoded with by default.
 
-    A declared `charset=` parameter wins. Otherwise textual types (`text/*`,
-    JSON, XML, JavaScript) are UTF-8 and everything else is bytes (None).
+    A declared `charset=` parameter wins. Otherwise textual types (`text/*`, JSON,
+    XML) are `utf-8-sig` — UTF-8 that also tolerates a byte-order mark — and
+    everything else is bytes (None).
     """
     essence, *params = (part.strip() for part in mime_type.split(";"))
     for param in params:
@@ -43,7 +40,7 @@ def _default_file_encoding(mime_type: str) -> str | None:
             return value.strip().strip('"')
     essence = essence.lower()
     if essence.startswith("text/") or essence.endswith(("+json", "+xml")) or essence in _TEXTUAL_APPLICATION_TYPES:
-        return "utf-8"
+        return "utf-8-sig"
     return None
 
 
@@ -151,9 +148,9 @@ class FileResource(Resource):
 
     The file is decoded with `encoding` and served as text, or read as bytes and
     served as a base64 blob when `encoding` is None. When `encoding` is omitted it
-    defaults to the `charset` declared in `mime_type`, else `"utf-8"` for textual
-    mime types (`text/*`, JSON, XML, JavaScript) and None for everything else;
-    pass it explicitly to override either way.
+    defaults to the `charset` declared in `mime_type`, else `"utf-8-sig"` for
+    textual mime types (`text/*`, JSON, XML) and None for everything else; pass
+    it explicitly to override either way.
     """
 
     path: Path = Field(description="Path to the file")
@@ -169,6 +166,17 @@ class FileResource(Resource):
         if not path.is_absolute():
             raise ValueError("Path must be absolute")
         return path
+
+    @pydantic.field_validator("encoding")
+    @classmethod
+    def validate_known_encoding(cls, encoding: str | None) -> str | None:
+        """Ensure the encoding names a known codec, so a typo fails at construction not at read."""
+        if encoding is not None:
+            try:
+                codecs.lookup(encoding)
+            except LookupError as e:
+                raise ValueError(f"unknown encoding: {encoding}") from e
+        return encoding
 
     async def read(self) -> str | bytes:
         """Read the file content."""

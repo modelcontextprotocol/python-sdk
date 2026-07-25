@@ -826,13 +826,19 @@ Reading a missing resource now returns JSON-RPC error code `-32602` (invalid par
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
 
+### `Resource` classes reject unknown keyword arguments
+
+The `Resource` base class now sets `extra="forbid"`, so every resource class — `TextResource`, `BinaryResource`, `FunctionResource`, `FileResource`, `HttpResource`, `DirectoryResource`, and your own subclasses — raises `ValidationError` on an unrecognised keyword argument instead of silently dropping it. Previously a typo'd or since-removed parameter (such as `FileResource(is_binary=...)`, below) was accepted and ignored. Remove any stray keyword arguments; if a subclass needs to accept arbitrary extras, set its own `model_config = ConfigDict(extra="allow")`.
+
 ### `FileResource.is_binary` replaced by `encoding`
 
 `FileResource` used to take `is_binary: bool` and guess its default from `mime_type` (`text/*` → text, anything else → bytes). Two problems fell out of that: `is_binary=False` could not actually be set — `False` doubled as the "not given" sentinel, so `mime_type="application/json"` always came back as a base64 blob — and text reads used `Path.read_text()` with no encoding, i.e. the platform locale (cp1252 on Windows).
 
-The field is now `encoding: str | None`. A string means "decode with this encoding and serve as text"; `None` means "read bytes and serve as a blob". When omitted it defaults to the `charset` declared in `mime_type` if there is one, otherwise `"utf-8"` for textual mime types (`text/*`, `application/json`, `application/xml`, `application/javascript`, and any `+json`/`+xml` suffix) and `None` for everything else, so JSON and XML files are now served as text without any configuration.
+The field is now `encoding: str | None`. A string means "decode with this encoding and serve as text"; `None` means "read bytes and serve as a blob". When omitted it defaults to the `charset` declared in `mime_type` if there is one, otherwise `"utf-8-sig"` for textual mime types (`text/*`, `application/json`, `application/xml`, and any `+json`/`+xml` suffix) and `None` for everything else, so JSON and XML files are now served as text without any configuration. `utf-8-sig` is plain UTF-8 that also drops a byte-order mark if the file has one; a declared `charset=` is used as-is.
 
-Passing the removed `is_binary=` argument raises a `ValidationError` at construction rather than being silently ignored — all `Resource` classes now reject unknown keyword arguments.
+Passing the removed `is_binary=` argument now raises a `ValidationError` at construction (see the section above) rather than being silently ignored. A misspelled `encoding` also fails at construction rather than on the first read.
+
+One case flips the other way: a non-UTF-8 file with a textual mime type (say UTF-16 XML) previously shipped byte-exact as a blob and now fails to decode. Set `encoding` to the file's real encoding, or `encoding=None` to keep serving it as a blob.
 
 **Before (v1):**
 
@@ -845,7 +851,7 @@ FileResource(uri="file:///notes.txt", path=notes)  # text, decoded with the loca
 
 ```python
 FileResource(uri="file:///logo.png", path=logo, mime_type="image/png")  # bytes, from mime_type
-FileResource(uri="file:///notes.txt", path=notes)  # text, decoded as UTF-8
+FileResource(uri="file:///notes.txt", path=notes)  # text, decoded as UTF-8 (BOM tolerated)
 FileResource(uri="file:///data.json", path=data, mime_type="application/json")  # now text, not a blob
 ```
 

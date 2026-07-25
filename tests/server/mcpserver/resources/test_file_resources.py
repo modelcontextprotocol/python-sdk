@@ -1,3 +1,4 @@
+import codecs
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -37,7 +38,7 @@ def test_file_resource_creation(temp_file: Path):
     assert resource.description == "test file"
     assert resource.mime_type == "text/plain"
     assert resource.path == temp_file
-    assert resource.encoding == "utf-8"
+    assert resource.encoding == "utf-8-sig"
 
 
 def test_file_resource_str_path_conversion(temp_file: Path):
@@ -79,17 +80,16 @@ async def test_encoding_none_reads_bytes(temp_file: Path):
     "mime_type",
     [
         "text/plain",
-        "text/html; charset=utf-8",
+        "text/html",
         "application/json",
         "application/xml",
         "application/vnd.api+json",
         "image/svg+xml",
-        "application/javascript",
     ],
 )
-def test_textual_mime_types_default_to_utf8(temp_file: Path, mime_type: str):
+def test_textual_mime_types_default_to_utf8_sig(temp_file: Path, mime_type: str):
     resource = FileResource(uri=temp_file.as_uri(), path=temp_file, mime_type=mime_type)
-    assert resource.encoding == "utf-8"
+    assert resource.encoding == "utf-8-sig"
 
 
 @pytest.mark.parametrize("mime_type", ["image/png", "application/octet-stream", "application/pdf"])
@@ -113,10 +113,29 @@ def test_removed_is_binary_kwarg_is_rejected(temp_file: Path):
         FileResource.model_validate({"uri": temp_file.as_uri(), "path": temp_file, "is_binary": True})
 
 
+def test_unknown_encoding_is_rejected(temp_file: Path):
+    """A codec typo fails at construction rather than on the first read."""
+    with pytest.raises(ValidationError, match="unknown encoding: not-a-codec"):
+        FileResource(uri=temp_file.as_uri(), path=temp_file, encoding="not-a-codec")
+
+
+def test_unknown_declared_charset_is_rejected(temp_file: Path):
+    with pytest.raises(ValidationError, match="unknown encoding"):
+        FileResource(uri=temp_file.as_uri(), path=temp_file, mime_type="text/plain; charset=not-a-codec")
+
+
 @pytest.mark.anyio
 async def test_json_file_is_served_as_text_by_default(temp_file: Path):
     """The mime type that motivated the encoding field: JSON must not become a base64 blob."""
     temp_file.write_text('{"a": 1}', encoding="utf-8")
+    resource = FileResource(uri=temp_file.as_uri(), path=temp_file, mime_type="application/json")
+    assert await resource.read() == '{"a": 1}'
+
+
+@pytest.mark.anyio
+async def test_utf8_bom_is_stripped_by_default(temp_file: Path):
+    """The default utf-8-sig decoding drops a byte-order mark that would otherwise break JSON parsers."""
+    temp_file.write_bytes(codecs.BOM_UTF8 + b'{"a": 1}')
     resource = FileResource(uri=temp_file.as_uri(), path=temp_file, mime_type="application/json")
     assert await resource.read() == '{"a": 1}'
 
