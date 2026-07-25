@@ -172,7 +172,12 @@ class LoggingFnT(Protocol):
 
 
 IncomingMessage: TypeAlias = types.ServerNotification | Exception
-"""What `message_handler` receives: every server notification, plus transport-level exceptions."""
+"""What `message_handler` receives: the server notifications the session surfaces, plus transport-level exceptions.
+
+`notifications/cancelled` is applied by the dispatcher and never surfaced, and a
+`notifications/subscriptions/acknowledged` for a live `listen()` stream is consumed by that
+stream, so neither reaches the handler.
+"""
 
 
 class MessageHandlerFnT(Protocol):
