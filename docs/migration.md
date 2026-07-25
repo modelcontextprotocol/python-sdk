@@ -684,6 +684,22 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
 
+### `MCP_*` environment variables and `.env` files are no longer read
+
+The `Settings` docstring advertised configuration via `MCP_*` environment variables and a `.env` file (e.g. `MCP_DEBUG=true`), but constructor arguments have always taken precedence, so those environment variables never took effect. `Settings` is now a plain Pydantic model rather than a `pydantic-settings` `BaseSettings`, and `pydantic-settings` is no longer a dependency of the SDK.
+
+If you want environment-driven configuration, read the environment yourself and pass the values to the constructor:
+
+```python
+import os
+
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo", debug=os.environ.get("MCP_DEBUG") == "true")
+```
+
+If your own code uses `pydantic-settings`, add it to your project's dependencies directly.
+
 ### Streamable HTTP request bodies are limited to 4 MiB
 
 V2 applies a 4 MiB default limit to Streamable HTTP POST bodies and returns HTTP 413 before parsing
