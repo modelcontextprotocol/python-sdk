@@ -4,13 +4,10 @@ Two things happened at once in v2. The **SDK was rebuilt**: a new engine under b
 
 This page is the tour of both halves, one section per headline, each ending in the page that owns the topic. It is not the porting manual. That is the **[Migration Guide](migration.md)**: every breaking change, with before and after code.
 
-!!! note "v2 is a release candidate"
-    `pip install mcp` still installs v1.x: you opt into v2 with an exact version pin, and the
-    API can still move before the stable release, which lands alongside the spec release.
-    **[Installation](get-started/installation.md)** has the copy-paste install line and the
-    pinning rules. And if anything in v2 breaks, surprises, or slows you down,
-    [tell us](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml):
-    before the stable release, that is the most useful thing you can send us.
+!!! note "v2 is the stable line"
+    `pip install mcp` installs 2.x, and **[Installation](get-started/installation.md)** has the
+    copy-paste install line. If anything in v2 breaks, surprises, or slows you down,
+    [tell us](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml).
 
 ## The SDK: v1 to v2
 
@@ -191,13 +188,13 @@ That file is the pitch in one place: one server, one `Resolve`-backed tool, and 
 
 ### Change notifications become one stream
 
-At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), a middleware can refuse a listen request per caller, and multi-replica deployments plug in a shared `SubscriptionBus`. On the client (since `2.0.0b2`), `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver.
+At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), a middleware can refuse a listen request per caller, and multi-replica deployments plug in a shared `SubscriptionBus`. On the client, `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver.
 
 **[Subscriptions](handlers/subscriptions.md)** covers publishing and serving, **[its Clients twin](client/subscriptions.md)** the watching end, and **[Deploy & scale](run/deploy.md)** the bus.
 
 ### The rest, quickly
 
-* **Identity is optional, per-message metadata.** The request-side `clientInfo` `_meta` key is optional (the required pair is `protocolVersion` + `clientCapabilities`), and `serverInfo` moved out of the `server/discover` result body: servers stamp it into every 2026-era result's `_meta` instead (since `2.0.0rc1`; [spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). The SDK always stamps; `client.server_info` is `None` when a server does not identify itself (for example, a middleware stripped the key). **[The low-level Server](advanced/low-level-server.md)** shows the stamp on the wire.
+* **Identity is optional, per-message metadata.** The request-side `clientInfo` `_meta` key is optional (the required pair is `protocolVersion` + `clientCapabilities`), and `serverInfo` moved out of the `server/discover` result body: servers stamp it into every 2026-era result's `_meta` instead ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). The SDK always stamps; `client.server_info` is `None` when a server does not identify itself (for example, a middleware stripped the key). **[The low-level Server](advanced/low-level-server.md)** shows the stamp on the wire.
 * **Requests are routable without parsing bodies.** Modern HTTP requests carry `Mcp-Method` (and, for the three tool-ish calls, `Mcp-Name`); a tool input-schema property annotated with `x-mcp-header` is mirrored into an `Mcp-Param-*` header and cross-checked by the server ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways and rate limiters can route on headers alone; the **[Migration Guide](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** has the rules.
 * **Results carry cache hints.** List and read results declare `ttlMs` and `cacheScope` ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); you set them per method with `cache_hints=`, and `Client` honors them with a built-in response cache. A server that sends no hints (every pre-2026 server) sees identical, uncached traffic. **[Caching hints](client/caching.md)**.
 * **Extensions are first class.** Servers and clients declare optional capability bundles under reverse-DNS identifiers ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); the built-in `Apps` extension (MCP Apps) is the reference. **[Extensions](advanced/extensions.md)** and **[MCP Apps](advanced/apps.md)**.
@@ -208,5 +205,5 @@ At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are repla
 ## Upgrading from v1?
 
 * The **[Migration Guide](migration.md)** is the complete, exact list of what to change; this page was the why.
-* **v1.x is not going anywhere.** It stays the stable line, with critical fixes and security patches, and nothing about the 2026-07-28 spec release breaks it. If you publish a library that depends on `mcp`, add an upper bound (for example `mcp>=1.27,<2`) so stable v2 does not surprise your users.
+* **v1.x is not going anywhere.** It moves to maintenance, keeps getting critical fixes and security patches, and nothing about the 2026-07-28 spec release breaks it; its docs live at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/). If you publish a library that depends on `mcp` and are not ready to migrate, keep an upper bound (for example `mcp>=1.28,<2`) so an unpinned resolve stays on 1.x.
 * Something rough, confusing, or broken? **[File v2 feedback](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml)**; it all gets read.

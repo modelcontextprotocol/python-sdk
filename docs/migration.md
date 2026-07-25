@@ -186,8 +186,8 @@ in `httpx2`; build an `ssl.SSLContext` and configure it instead.
 
 Both commands run your server through a fresh `uv run --with ...` environment. In v1 the
 `mcp` requirement in that command was unpinned, so the spawned environment resolved to the
-newest stable release rather than the version you had installed; with a v2 pre-release
-installed, `mcp dev server.py` built a v1 environment that could not import a v2 server.
+newest stable release rather than the version you had installed; while v2 was in
+pre-release, `mcp dev server.py` built a v1 environment that could not import a v2 server.
 Both commands now pin the requirement to the version you are running
 (`mcp==<installed version>`). Source builds and other unpublished versions, which have
 nothing on PyPI to pin to, keep the unpinned form.

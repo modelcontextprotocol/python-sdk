@@ -4,12 +4,17 @@ Thank you for helping keep the Model Context Protocol and its ecosystem secure.
 
 ## Supported Versions
 
-Security fixes are released for the most recent stable (v1.x) release line.
+| Version                              | Line                    | Support                                  |
+| ------------------------------------ | ----------------------- | ---------------------------------------- |
+| 2.x (newest release)                 | current stable (`main`) | bug fixes, security fixes, new features  |
+| 1.28.x (`v1.x` branch)               | maintenance             | critical bug fixes and security fixes    |
+| < 1.28, and all pre-release versions | unsupported             | upgrade to the newest 1.28.x or to 2.x   |
 
-v2 pre-releases (`2.0.0aN`, …) are development snapshots: fixes land only in
-the newest pre-release, and already-published pre-releases are not patched. If
-you are testing the v2 line, track the latest pre-release; for production use,
-stay on the latest stable release.
+Only the newest release of a supported line receives fixes, so reproduce against
+it before reporting. If your project depends on `mcp` and is not yet ready for
+2.x, constrain to `mcp>=1.28,<2` and follow the
+[migration guide](https://py.sdk.modelcontextprotocol.io/migration/) when you
+migrate.
 
 ## Reporting Security Issues
 
