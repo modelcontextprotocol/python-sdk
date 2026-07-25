@@ -826,6 +826,31 @@ Reading a missing resource now returns JSON-RPC error code `-32602` (invalid par
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
 
+### `FileResource.is_binary` replaced by `encoding`
+
+`FileResource` used to take `is_binary: bool` and guess its default from `mime_type` (`text/*` → text, anything else → bytes). Two problems fell out of that: `is_binary=False` could not actually be set — `False` doubled as the "not given" sentinel, so `mime_type="application/json"` always came back as a base64 blob — and text reads used `Path.read_text()` with no encoding, i.e. the platform locale (cp1252 on Windows).
+
+The field is now `encoding: str | None`. A string means "decode with this encoding and serve as text"; `None` means "read bytes and serve as a blob". When omitted it defaults to the `charset` declared in `mime_type` if there is one, otherwise `"utf-8"` for textual mime types (`text/*`, `application/json`, `application/xml`, `application/javascript`, and any `+json`/`+xml` suffix) and `None` for everything else, so JSON and XML files are now served as text without any configuration.
+
+Passing the removed `is_binary=` argument raises a `ValidationError` at construction rather than being silently ignored — all `Resource` classes now reject unknown keyword arguments.
+
+**Before (v1):**
+
+```python
+FileResource(uri="file:///logo.png", path=logo, mime_type="image/png", is_binary=True)
+FileResource(uri="file:///notes.txt", path=notes)  # text, decoded with the locale encoding
+```
+
+**After (v2):**
+
+```python
+FileResource(uri="file:///logo.png", path=logo, mime_type="image/png")  # bytes, from mime_type
+FileResource(uri="file:///notes.txt", path=notes)  # text, decoded as UTF-8
+FileResource(uri="file:///data.json", path=data, mime_type="application/json")  # now text, not a blob
+```
+
+Pass `encoding=None` to force a blob, or `encoding="latin-1"` (etc.) to decode a text file that isn't UTF-8.
+
 ### Resource templates: matching behavior changes
 
 Resource template matching has been rewritten with [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570) support.
