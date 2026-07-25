@@ -12,7 +12,6 @@ dependencies = [
     "httpx2>=2.5.0",
     "mcp",
     "pydantic>=2.0",
-    "pydantic-settings>=2.5.2",
     "sse-starlette>=1.6.1",
     "uvicorn>=0.23.1; sys_platform != 'emscripten'",
 ]
