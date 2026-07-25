@@ -1930,13 +1930,14 @@ purpose-built provider for the flow you actually run:
 
 - Machine-to-machine with a client secret
   ([`io.modelcontextprotocol/oauth-client-credentials`](https://modelcontextprotocol.io/extensions/auth/oauth-client-credentials)):
-  `ClientCredentialsOAuthProvider(server_url, storage, client_id, client_secret)`.
+  `ClientCredentialsOAuthProvider(server_url=..., storage=..., client_id=..., client_secret=...)`.
 - Machine-to-machine authenticating with a JWT instead of a secret (same extension, RFC 7523 §2.2
   `private_key_jwt` client authentication on the `client_credentials` grant, which is the mode the
-  extension actually specifies for JWTs): `PrivateKeyJWTOAuthProvider(server_url, storage,
-  client_id, assertion_provider)`. Build the assertion with `SignedJWTParameters(issuer, subject,
-  signing_key).create_assertion_provider()` (replaces `JWTParameters` signing fields), or wrap a
-  prebuilt JWT with `static_assertion_provider(token)` (replaces `JWTParameters(assertion=...)`).
+  extension actually specifies for JWTs): `PrivateKeyJWTOAuthProvider(server_url=...,
+  storage=..., client_id=..., assertion_provider=...)`. Build the assertion with
+  `SignedJWTParameters(issuer=..., subject=..., signing_key=...).create_assertion_provider()`
+  (replaces `JWTParameters` signing fields), or wrap a prebuilt JWT with
+  `static_assertion_provider(token)` (replaces `JWTParameters(assertion=...)`).
 - Presenting an enterprise ID-JAG under the `jwt-bearer` grant
   ([SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)):
   `IdentityAssertionOAuthProvider` in `mcp.client.auth.extensions.identity_assertion`.
