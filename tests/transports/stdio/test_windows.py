@@ -15,12 +15,14 @@ import asyncio
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
+from textwrap import dedent
 
 import anyio
 import anyio.abc
 import pytest
-from mcp_types import JSONRPCRequest, JSONRPCResponse
+from mcp_types import JSONRPCRequest, JSONRPCResponse, TextContent
 
+from mcp.client.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.message import SessionMessage
@@ -238,3 +240,46 @@ async def test_a_native_server_emitting_crlf_line_endings_round_trips_messages()
             # here instead of a parsed message.
             assert isinstance(received, SessionMessage)
             assert received.message == JSONRPCResponse(jsonrpc="2.0", id=1, result={})
+
+
+async def test_a_tool_spawned_python_child_with_default_stdin_completes_promptly() -> None:  # pragma: no cover
+    """A tool that runs a Python subprocess without redirecting stdin returns promptly.
+
+    Regression for #671: pre-isolation the child inherited the protocol stdin pipe
+    and hung in interpreter startup (CPython gh-78961) until the next inbound message.
+    """
+    server = dedent(
+        """
+        import subprocess, sys
+        from mcp.server import MCPServer
+
+        mcp = MCPServer("spawner")
+
+        @mcp.tool()
+        def run_child() -> str:
+            proc = subprocess.run([sys.executable, "-c", "print('ok')"], capture_output=True, timeout=20)
+            return proc.stdout.decode().strip()
+
+        @mcp.tool()
+        def run_child_bare() -> str:
+            # Even without redirection the console subsystem hands the child the standard handles.
+            proc = subprocess.run([sys.executable, "-c", "pass"], timeout=20)
+            return str(proc.returncode)
+
+        mcp.run()
+        """
+    )
+    transport = stdio_client(StdioServerParameters(command=sys.executable, args=["-c", server]))
+
+    # A regression hangs forever, so the bound only has to beat "never".
+    with anyio.fail_after(40.0):
+        async with Client(transport) as client:
+            result = await client.call_tool("run_child")
+            bare = await client.call_tool("run_child_bare")
+
+    content = result.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == "ok"
+    bare_content = bare.content[0]
+    assert isinstance(bare_content, TextContent)
+    assert bare_content.text == "0"
