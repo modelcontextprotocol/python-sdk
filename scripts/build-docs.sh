@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 #
-# Build combined v1 + v2 MkDocs documentation for GitHub Pages.
+# Build combined v1 + v2 documentation for GitHub Pages.
 #
 # v1 docs (from the v1.x branch) are placed at the site root.
 # v2 docs (from main) are placed under /v2/.
 #
-# Both branches are fetched fresh from origin, so the output is identical
-# regardless of which branch triggered the workflow. This script is intended
-# to run in CI; for local single-branch preview use `uv run mkdocs serve`.
+# The two lines use different toolchains: v1.x still builds with MkDocs, while
+# main builds with Zensical (which needs a pre-build step to materialise the API
+# reference and a post-build step for llms.txt — see scripts/docs/). Each branch
+# is fetched fresh from origin and built with its own synced `docs` group, so
+# the output is identical regardless of which branch triggered the workflow.
+# This script is intended to run in CI; for a local v2 preview use
+# `scripts/serve-docs.sh`.
 #
 # Usage:
 #   scripts/build-docs.sh [output-dir]
@@ -30,7 +34,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-rm -rf "${OUTPUT_DIR:?}"/*
+# Build the checked-out worktree into its local `site/`, picking the toolchain
+# from the branch's own files rather than hard-coding it here: a branch that
+# ships the Zensical build recipe (scripts/docs/build.sh) builds with it,
+# otherwise it falls back to MkDocs. This keeps the combined build correct
+# regardless of which branch triggered it. Zensical requires site_dir to live
+# within the project root, so both paths build to the local `site/` and let
+# the caller copy it to its destination.
+build_site() {
+    if [[ -f scripts/docs/build.sh ]]; then
+        bash scripts/docs/build.sh
+    else
+        uv sync --frozen --group docs
+        NO_MKDOCS_2_WARNING=1 uv run --frozen --no-sync mkdocs build --site-dir site
+    fi
+}
 
 build_branch() {
     local branch="$1" worktree="$2" dest="$3"
@@ -43,10 +61,14 @@ build_branch() {
 
     (
         cd "$worktree"
-        uv sync --frozen --group docs
-        uv run --frozen --no-sync mkdocs build --site-dir "$dest"
+        rm -rf site
+        build_site
+        mkdir -p "$dest"
+        cp -a site/. "$dest/"
     )
 }
+
+rm -rf "${OUTPUT_DIR:?}"/*
 
 build_branch v1.x "$V1_WORKTREE" "$OUTPUT_DIR"
 build_branch main "$V2_WORKTREE" "$OUTPUT_DIR/v2"
