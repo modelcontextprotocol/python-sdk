@@ -38,6 +38,8 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
+from tests._stamp import Unstamp
+from tests._stamp import unstamped as strip_stamp
 from tests.interaction._connect import BASE_URL, Connect, mounted_app
 from tests.interaction._helpers import RecordingTransport
 from tests.interaction._requirements import requirement
@@ -672,7 +674,9 @@ async def test_a_mode_less_elicitation_request_is_treated_as_form_mode() -> None
 
 
 @requirement("elicitation:mrtr:form:basic")
-async def test_embedded_form_elicitation_accepted_content_returns_to_retried_handler(connect: Connect) -> None:
+async def test_embedded_form_elicitation_accepted_content_returns_to_retried_handler(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """An embedded form elicitation reaches the callback as sent and its accepted content reaches the handler.
 
     Spec-mandated: at 2026-07-28 elicitation/create rides the MRTR flow, not a server-initiated request.
@@ -723,13 +727,15 @@ async def test_embedded_form_elicitation_accepted_content_returns_to_retried_han
             )
         ]
     )
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(content=[TextContent(text="accept")], structured_content={"username": "ada", "newsletter": True})
     )
 
 
 @requirement("elicitation:mrtr:form:action:decline")
-async def test_embedded_form_elicitation_decline_reaches_retried_handler_with_no_content(connect: Connect) -> None:
+async def test_embedded_form_elicitation_decline_reaches_retried_handler_with_no_content(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """An embedded form elicitation declined by the callback reaches the retried handler with no content."""
 
     async def list_tools(
@@ -765,11 +771,13 @@ async def test_embedded_form_elicitation_decline_reaches_retried_handler_with_no
     async with connect(server, elicitation_callback=answer_form) as client:
         result = await client.call_tool("confirm", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
 
 
 @requirement("elicitation:mrtr:form:action:cancel")
-async def test_embedded_form_elicitation_cancel_reaches_retried_handler_with_no_content(connect: Connect) -> None:
+async def test_embedded_form_elicitation_cancel_reaches_retried_handler_with_no_content(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """An embedded form elicitation cancelled by the callback reaches the retried handler with no content."""
 
     async def list_tools(
@@ -805,11 +813,13 @@ async def test_embedded_form_elicitation_cancel_reaches_retried_handler_with_no_
     async with connect(server, elicitation_callback=answer_form) as client:
         result = await client.call_tool("confirm", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
 
 
 @requirement("elicitation:mrtr:form:schema:primitives")
-async def test_embedded_form_elicitation_schema_primitives_reach_the_callback_as_sent(connect: Connect) -> None:
+async def test_embedded_form_elicitation_schema_primitives_reach_the_callback_as_sent(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Primitive requested-schema fields on an embedded form elicitation reach the callback intact.
 
     Spec-mandated. One representative constraint per type; the exhaustive sweep lives with the 2025 push-path sibling.
@@ -877,7 +887,7 @@ async def test_embedded_form_elicitation_schema_primitives_reach_the_callback_as
             )
         ]
     )
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[TextContent(text="accept")],
             structured_content={"email": "ada@example.com", "age": 36, "score": 9.5, "subscribed": True},
@@ -887,7 +897,7 @@ async def test_embedded_form_elicitation_schema_primitives_reach_the_callback_as
 
 @requirement("elicitation:mrtr:capability:not-declared")
 async def test_server_embeds_elicitation_for_a_client_that_declared_no_elicitation_capability(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """Pins a known gap: the SDK embeds an elicitation for a client that declared no elicitation capability.
 
@@ -916,7 +926,7 @@ async def test_server_embeds_elicitation_for_a_client_that_declared_no_elicitati
         raw = await client.session.call_tool("ask", {}, allow_input_required=True)
 
     assert isinstance(raw, InputRequiredResult)
-    assert raw == snapshot(
+    assert unstamped(raw) == snapshot(
         InputRequiredResult(
             input_requests={
                 "ask": ElicitRequest(
@@ -983,7 +993,7 @@ async def test_url_elicitation_rides_mrtr_and_no_32042_error_crosses_the_wire() 
     assert received == snapshot(
         [ElicitRequestURLParams(message="Sign in to continue.", url="https://example.com/auth")]
     )
-    assert result == snapshot(CallToolResult(content=[TextContent(text="accept content=None")]))
+    assert strip_stamp(result) == snapshot(CallToolResult(content=[TextContent(text="accept content=None")]))
     # Positive control: the interim input_required leg was captured, so the scan below is not vacuous.
     interim = [
         message.message

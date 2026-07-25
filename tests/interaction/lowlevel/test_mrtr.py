@@ -54,6 +54,8 @@ from mcp.server.extension import Extension
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
+from tests._stamp import Unstamp
+from tests._stamp import unstamped as strip_stamp
 from tests.interaction._connect import BASE_URL, Connect, base_headers, mounted_app
 from tests.interaction._helpers import RecordingTransport
 from tests.interaction._requirements import requirement
@@ -106,7 +108,9 @@ def _login_server(request_states: list[str | None]) -> Server:
 
 
 @requirement("mrtr:tools-call:write-once-roundtrip")
-async def test_input_required_tool_call_is_auto_fulfilled_and_retried_to_completion(connect: Connect) -> None:
+async def test_input_required_tool_call_is_auto_fulfilled_and_retried_to_completion(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """An input_required tools/call is auto-fulfilled by the client driver and retried to completion.
 
     The byte-exact requestState echo (spec MUST) is the only observable proxy for the MUST NOT
@@ -125,13 +129,15 @@ async def test_input_required_tool_call_is_auto_fulfilled_and_retried_to_complet
     async with connect(server, elicitation_callback=answer_login) as client:
         result = await client.call_tool("login", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="hello octocat")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="hello octocat")]))
     assert prompts == ["Provide your GitHub username"]
     assert request_states == [None, OPAQUE_STATE]
 
 
 @requirement("mrtr:request-state-only:retry")
-async def test_state_only_input_required_is_retried_with_no_responses_and_echoed_state(connect: Connect) -> None:
+async def test_state_only_input_required_is_retried_with_no_responses_and_echoed_state(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A state-only input_required result is retried with no inputResponses and the state echoed.
 
     No callbacks are registered: a driver that wrongly dispatched here would error the call.
@@ -161,12 +167,14 @@ async def test_state_only_input_required_is_retried_with_no_responses_and_echoed
     async with connect(server) as client:
         result = await client.call_tool("resume", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="done")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="done")]))
     assert request_states == [None, resume_token]
 
 
 @requirement("mrtr:multi-round:complete")
-async def test_server_reprompts_across_two_productive_rounds_then_completes(connect: Connect) -> None:
+async def test_server_reprompts_across_two_productive_rounds_then_completes(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A server re-prompting with input_required across two productive rounds completes normally.
 
     Round 1's answer rides forward inside request_state (the spec's stateless-server pattern). Each
@@ -216,7 +224,7 @@ async def test_server_reprompts_across_two_productive_rounds_then_completes(conn
     async with connect(server, elicitation_callback=answer_by_prompt) as client:
         result = await client.call_tool("enroll", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="one+two")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="one+two")]))
     assert prompts == ["first question", "second question"]
     assert request_states == [None, "s1", "s2:one"]
 
@@ -314,7 +322,9 @@ async def test_input_required_result_with_neither_field_cannot_reach_the_client(
 
 
 @requirement("mrtr:input-responses:key-correspondence")
-async def test_multi_request_input_responses_are_keyed_by_the_input_request_keys(connect: Connect) -> None:
+async def test_multi_request_input_responses_are_keyed_by_the_input_request_keys(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """inputResponses on the retry are keyed by the inputRequests keys, each value that key's typed result.
 
     ElicitResult and ListRootsResult prove the map contract; sampling fidelity belongs to the sampling entries.
@@ -354,11 +364,11 @@ async def test_multi_request_input_responses_are_keyed_by_the_input_request_keys
     async with connect(server, elicitation_callback=answer_login, list_roots_callback=answer_roots) as client:
         result = await client.call_tool("profile", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="octocat@file:///workspace")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="octocat@file:///workspace")]))
 
 
 @requirement("mrtr:input-responses:missing-reprompted")
-async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: Connect) -> None:
+async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: Connect, unstamped: Unstamp) -> None:
     """A retry omitting a requested inputResponses key is re-prompted, not errored (spec SHOULD).
 
     The re-prompt decision belongs to the test's handler; the SDK obligation pinned is that the partial
@@ -423,13 +433,15 @@ async def test_retry_missing_a_requested_key_is_reprompted_not_errored(connect: 
             allow_input_required=True,
         )
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="one+two")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="one+two")]))
     # The partial map reached the handler as sent, not filtered or rejected.
     assert seen == [None, {"first"}, {"second"}]
 
 
 @requirement("mrtr:input-responses:unknown-ignored")
-async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_completes(connect: Connect) -> None:
+async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_completes(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A retry carrying an unrequested inputResponses key completes normally (spec SHOULD: ignore).
 
     The ignoring happens in the test's handler; the SDK half pinned is that the stray entry is
@@ -472,12 +484,14 @@ async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_com
             allow_input_required=True,
         )
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="hello ada")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="hello ada")]))
     assert seen == [None, {"name", "stray"}]
 
 
 @requirement("mrtr:push-api:loud-fail-2026")
-async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_completes(connect: Connect) -> None:
+async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_completes(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """A push API call on a 2026 connection raises a typed local error and the call still completes.
 
     Spec-mandated outcome, era-routed enforcement: every modern dispatch path installs a
@@ -510,7 +524,7 @@ async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_compl
         result = await client.call_tool("ask", {})
 
     # The failed push did not poison the request: the call completes with the handler's fallback.
-    assert result == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
     assert len(caught) == 1
     assert caught[0].method == "elicitation/create"
     assert caught[0].error == snapshot(
@@ -562,7 +576,7 @@ async def test_request_scoped_push_elicit_on_in_memory_2026_loud_fails_locally_a
         result = await client.call_tool("ask", {})
 
     # The failed push did not poison the request: the call completes with the handler's fallback.
-    assert result == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
+    assert strip_stamp(result) == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
     assert len(caught) == 1
     assert caught[0].method == "elicitation/create"
     assert caught[0].error == snapshot(
@@ -819,7 +833,7 @@ async def test_parallel_mrtr_calls_keep_request_state_and_responses_isolated() -
         ):
 
             async def call(name: str) -> None:
-                results[name] = await client.call_tool(name, {})
+                results[name] = strip_stamp(await client.call_tool(name, {}))
 
             task_group.start_soon(call, "alpha")
             task_group.start_soon(call, "beta")
@@ -879,7 +893,7 @@ async def test_2026_trace_is_client_requests_and_server_responses_only() -> None
             result = await client.call_tool("ask", {})
 
     # Non-vacuity: the elicitation genuinely happened and the round trip completed through it.
-    assert result == snapshot(CallToolResult(content=[TextContent(text="done:Berlin:s1")]))
+    assert strip_stamp(result) == snapshot(CallToolResult(content=[TextContent(text="done:Berlin:s1")]))
     assert elicited == ["Need a name"]
     # Prove the received log holds only messages before narrowing: a filtered-out transport exception would fake it.
     received_messages = [message for message in recording.received if isinstance(message, SessionMessage)]
@@ -1030,7 +1044,7 @@ async def test_result_body_without_result_type_parses_as_a_complete_result() -> 
 
 @requirement("protocol:result-type:unrecognized-invalid")
 async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_of_treated_as_invalid(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """PINS A KNOWN GAP: an unrecognized resultType round-trips instead of being treated as invalid (spec MUST).
 
@@ -1061,4 +1075,4 @@ async def test_an_unrecognized_result_type_value_is_surfaced_unchanged_instead_o
 
     # The divergent observable: the unrecognized discriminator survives unchanged, never a rejection.
     assert result.result_type == "bogus"
-    assert result == snapshot(CallToolResult(content=[TextContent(text="still here")], result_type="bogus"))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="still here")], result_type="bogus"))

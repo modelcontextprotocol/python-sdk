@@ -34,6 +34,7 @@ from mcp_types import (
 from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -695,7 +696,7 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
 
 @requirement("sampling:mrtr:create:basic")
 async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the_retried_handler(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """An embedded sampling request is fulfilled by the client callback and its result reaches the retried handler.
 
@@ -742,7 +743,9 @@ async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the
     async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_model", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: Hello to you too.")]))
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: Hello to you too.")])
+    )
     assert callback_received == [SENT]
     assert handler_received == [{"ask": RESULT}]
 
@@ -751,7 +754,7 @@ async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the
 @requirement("sampling:mrtr:create:max-tokens")
 @requirement("sampling:mrtr:create:model-preferences")
 @requirement("sampling:mrtr:create:system-prompt")
-async def test_embedded_sampling_params_reach_the_callback_intact(connect: Connect) -> None:
+async def test_embedded_sampling_params_reach_the_callback_intact(connect: Connect, unstamped: Unstamp) -> None:
     """Every parameter supplied in an embedded sampling request reaches the client callback unchanged.
 
     Spec-mandated.
@@ -801,12 +804,14 @@ async def test_embedded_sampling_params_reach_the_callback_intact(connect: Conne
         result = await client.call_tool("ask_model", {})
 
     assert callback_received == [SENT]
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
 
 
 @requirement("sampling:create:messages-not-retained")
 @requirement("sampling:mrtr:create:basic")
-async def test_each_embedded_sampling_round_delivers_only_its_own_messages(connect: Connect) -> None:
+async def test_each_embedded_sampling_round_delivers_only_its_own_messages(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """Each embedded sampling round delivers exactly its own messages list to the client callback.
 
     A retaining client would show round one's message inside round two's list.
@@ -864,7 +869,7 @@ async def test_each_embedded_sampling_round_delivers_only_its_own_messages(conne
     async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_model", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: reply 2")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: reply 2")]))
     assert callback_received == [SENT1, SENT2]
 
 

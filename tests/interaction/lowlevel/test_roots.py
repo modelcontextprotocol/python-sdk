@@ -20,6 +20,7 @@ from pydantic import FileUrl
 from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -178,7 +179,9 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
 
 
 @requirement("roots:mrtr:list:basic")
-async def test_embedded_roots_list_is_fulfilled_and_the_roots_reach_the_retried_handler(connect: Connect) -> None:
+async def test_embedded_roots_list_is_fulfilled_and_the_roots_reach_the_retried_handler(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """The roots callback answers an embedded roots/list and its roots reach the retried handler. Spec-mandated."""
     ROOTS = ListRootsResult(
         roots=[
@@ -213,7 +216,7 @@ async def test_embedded_roots_list_is_fulfilled_and_the_roots_reach_the_retried_
     async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("show_roots", {})
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         CallToolResult(
             content=[
                 TextContent(
@@ -229,7 +232,9 @@ file:///home/alice/scratch name=None\
 
 
 @requirement("roots:mrtr:list:empty")
-async def test_an_empty_embedded_roots_list_reaches_the_retried_handler_as_such(connect: Connect) -> None:
+async def test_an_empty_embedded_roots_list_reaches_the_retried_handler_as_such(
+    connect: Connect, unstamped: Unstamp
+) -> None:
     """An empty embedded roots list reaches the retried handler as an empty list, not an error. Spec-mandated."""
     EMPTY = ListRootsResult(roots=[])
     handler_received: list[InputResponses] = []
@@ -258,5 +263,5 @@ async def test_an_empty_embedded_roots_list_reaches_the_retried_handler_as_such(
     async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("count_roots", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="0")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="0")]))
     assert handler_received == [{"roots": EMPTY}]

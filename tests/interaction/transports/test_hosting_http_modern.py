@@ -64,6 +64,7 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import NoBackChannelError
+from tests._stamp import unstamped
 from tests.interaction._connect import (
     BASE_URL,
     base_headers,
@@ -691,7 +692,6 @@ async def test_non_header_safe_tool_name_is_carried_as_base64_sentinel_mcp_name(
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -704,7 +704,7 @@ async def test_non_header_safe_tool_name_is_carried_as_base64_sentinel_mcp_name(
         ):
             result = await client.call_tool("hëllo", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
     call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
     assert call.headers["mcp-name"] == snapshot("=?base64?aMOrbGxv?=")
     assert json.loads(call.content)["params"]["name"] == "hëllo"
@@ -724,7 +724,6 @@ async def test_sentinel_lookalike_argument_value_is_base64_wrapped_in_its_param_
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -764,7 +763,6 @@ async def test_null_and_absent_annotated_arguments_emit_no_param_headers_and_the
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -779,7 +777,7 @@ async def test_null_and_absent_annotated_arguments_emit_no_param_headers_and_the
             await client.list_tools()
             result = await client.call_tool("run", {"region": "us-west1", "note": None})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
     call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
     assert {k: v for k, v in call.headers.items() if k.startswith("mcp-param-")} == snapshot(
         {"mcp-param-region": "us-west1"}
@@ -854,7 +852,11 @@ async def test_modern_cacheable_results_carry_ttl_and_scope_with_defaults_filled
         return ReadResourceResult(contents=[TextResourceContents(uri="res://x", text="hi")], ttl_ms=5_000)
 
     server = Server(
-        "cacheable", on_list_tools=list_tools, on_list_resources=list_resources, on_read_resource=read_resource
+        "cacheable",
+        version="1.0.0",
+        on_list_tools=list_tools,
+        on_list_resources=list_resources,
+        on_read_resource=read_resource,
     )
 
     with anyio.fail_after(5):
@@ -888,11 +890,18 @@ async def test_modern_cacheable_results_carry_ttl_and_scope_with_defaults_filled
             "resultType": "complete",
             "tools": [{"inputSchema": {"type": "object"}, "name": "add"}],
             "ttlMs": 60000,
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "cacheable", "version": "1.0.0"}},
         }
     )
     assert listed_resources.status_code == 200
     assert JSONRPCResponse.model_validate(listed_resources.json()).result == snapshot(
-        {"cacheScope": "private", "resources": [], "resultType": "complete", "ttlMs": 0}
+        {
+            "cacheScope": "private",
+            "resources": [],
+            "resultType": "complete",
+            "ttlMs": 0,
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "cacheable", "version": "1.0.0"}},
+        }
     )
     assert read.status_code == 200
     assert JSONRPCResponse.model_validate(read.json()).result == snapshot(
@@ -901,6 +910,7 @@ async def test_modern_cacheable_results_carry_ttl_and_scope_with_defaults_filled
             "contents": [{"text": "hi", "uri": "res://x"}],
             "resultType": "complete",
             "ttlMs": 5000,
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "cacheable", "version": "1.0.0"}},
         }
     )
 
@@ -929,7 +939,10 @@ async def test_modern_json_response_mode_returns_single_json_body_and_drops_mid_
         "params": {"name": "noisy", "arguments": {}, "_meta": _meta_envelope()},
     }
     with anyio.fail_after(5):
-        async with mounted_app(Server("modern", on_call_tool=call_tool), json_response=True) as (http, _):
+        async with mounted_app(Server("modern", version="1.0.0", on_call_tool=call_tool), json_response=True) as (
+            http,
+            _,
+        ):
             response = await http.post("/mcp", json=body, headers=_modern_headers(method="tools/call", name="noisy"))
 
     assert response.status_code == 200
@@ -938,7 +951,12 @@ async def test_modern_json_response_mode_returns_single_json_body_and_drops_mid_
         {
             "jsonrpc": "2.0",
             "id": 1,
-            "result": {"content": [{"text": "done", "type": "text"}], "isError": False, "resultType": "complete"},
+            "result": {
+                "content": [{"text": "done", "type": "text"}],
+                "isError": False,
+                "resultType": "complete",
+                "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+            },
         }
     )
 
@@ -969,7 +987,7 @@ async def test_modern_response_upgrades_to_sse_when_the_handler_emits_and_ends_w
     }
     with anyio.fail_after(5):
         async with (
-            mounted_app(Server("modern", on_call_tool=call_tool)) as (http, _),
+            mounted_app(Server("modern", version="1.0.0", on_call_tool=call_tool)) as (http, _),
             http.sse(
                 "/mcp", method="POST", json=body, headers=_modern_headers(method="tools/call", name="noisy")
             ) as source,
@@ -987,7 +1005,12 @@ async def test_modern_response_upgrades_to_sse_when_the_handler_emits_and_ends_w
             {
                 "jsonrpc": "2.0",
                 "id": 1,
-                "result": {"content": [{"text": "done", "type": "text"}], "isError": False, "resultType": "complete"},
+                "result": {
+                    "content": [{"text": "done", "type": "text"}],
+                    "isError": False,
+                    "resultType": "complete",
+                    "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+                },
             },
         ]
     )
@@ -1020,7 +1043,7 @@ async def test_modern_notifications_land_only_on_the_originating_requests_respon
             await release_quiet.wait()
         return CallToolResult(content=[TextContent(text="quiet-done")])
 
-    server = Server("scoped", on_call_tool=call_tool)
+    server = Server("scoped", version="1.0.0", on_call_tool=call_tool)
 
     emit_responses: list[httpx2.Response] = []
     emit_frames: list[JSONRPCMessage] = []
@@ -1071,6 +1094,7 @@ async def test_modern_notifications_land_only_on_the_originating_requests_respon
                     "content": [{"text": "emitted", "type": "text"}],
                     "isError": False,
                     "resultType": "complete",
+                    "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "scoped", "version": "1.0.0"}},
                 },
             },
         ]
@@ -1081,7 +1105,12 @@ async def test_modern_notifications_land_only_on_the_originating_requests_respon
         {
             "jsonrpc": "2.0",
             "id": 2,
-            "result": {"content": [{"text": "quiet-done", "type": "text"}], "isError": False, "resultType": "complete"},
+            "result": {
+                "content": [{"text": "quiet-done", "type": "text"}],
+                "isError": False,
+                "resultType": "complete",
+                "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "scoped", "version": "1.0.0"}},
+            },
         }
     )
 
@@ -1152,7 +1181,12 @@ async def test_modern_standard_headers_are_matched_case_insensitively() -> None:
     parsed = JSONRPCResponse.model_validate(response.json())
     assert parsed.id == 1
     assert parsed.result == snapshot(
-        {"content": [{"text": "5", "type": "text"}], "isError": False, "resultType": "complete"}
+        {
+            "content": [{"text": "5", "type": "text"}],
+            "isError": False,
+            "resultType": "complete",
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+        }
     )
 
 
@@ -1243,7 +1277,12 @@ async def test_modern_encoded_mcp_name_matching_the_body_after_decode_is_served(
     parsed = JSONRPCResponse.model_validate(response.json())
     assert parsed.id == 1
     assert parsed.result == snapshot(
-        {"content": [{"text": "5", "type": "text"}], "isError": False, "resultType": "complete"}
+        {
+            "content": [{"text": "5", "type": "text"}],
+            "isError": False,
+            "resultType": "complete",
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+        }
     )
 
 
@@ -1269,7 +1308,6 @@ async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_enco
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -1282,7 +1320,7 @@ async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_enco
         ):
             result = await client.get_prompt("héllo")
 
-    assert result == snapshot(
+    assert unstamped(result) == snapshot(
         GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="bonjour"))])
     )
     [call] = requests
@@ -1376,7 +1414,6 @@ async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -1390,7 +1427,7 @@ async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call
         ):
             result = await client.call_tool("ask", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
     assert len(caught) == 1
     assert caught[0].method == "elicitation/create"
     assert caught[0].error == snapshot(
@@ -1427,7 +1464,6 @@ async def test_custom_request_header_reaches_the_handler_request_context_on_both
     discover = DiscoverResult(
         supported_versions=[LATEST_MODERN_VERSION],
         capabilities=ServerCapabilities(),
-        server_info=Implementation(name="srv", version="0"),
     )
     with anyio.fail_after(5):
         async with (
@@ -1447,7 +1483,9 @@ async def test_custom_request_header_reaches_the_handler_request_context_on_both
         ):
             legacy_result = await client.call_tool("probe", {})
 
-    assert modern_result == snapshot(CallToolResult(content=[TextContent(text="modern-value")]))
+    # The modern leg is stamped and the legacy leg is not: unstamped() strips the one, and the
+    # bare compare on the other holds only because a handshake-era result carries no stamp.
+    assert unstamped(modern_result) == snapshot(CallToolResult(content=[TextContent(text="modern-value")]))
     assert legacy_result == snapshot(CallToolResult(content=[TextContent(text="legacy-value")]))
 
 
