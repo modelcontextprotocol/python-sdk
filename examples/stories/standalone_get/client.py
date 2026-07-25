@@ -3,7 +3,7 @@
 import anyio
 import mcp_types as types
 
-from mcp.client import Client
+from mcp.client import Client, IncomingMessage
 from stories._harness import Target, run_client
 
 
@@ -13,7 +13,7 @@ async def main(target: Target, *, mode: str = "auto") -> None:
     received: list[types.ResourceListChangedNotification] = []
     seen = anyio.Event()
 
-    async def on_message(message: object) -> None:
+    async def on_message(message: IncomingMessage) -> None:
         if isinstance(message, types.ResourceListChangedNotification):
             received.append(message)
             seen.set()

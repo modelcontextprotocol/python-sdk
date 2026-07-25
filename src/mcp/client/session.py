@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import reduce
 from operator import or_
 from types import TracebackType
-from typing import Annotated, Any, Final, Literal, Protocol, cast, overload
+from typing import Annotated, Any, Final, Literal, Protocol, TypeAlias, cast, overload
 
 import anyio
 import anyio.abc
@@ -53,7 +53,6 @@ from mcp.shared.inbound import (
 )
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY, event_from_wire
 from mcp.shared.transport_context import TransportContext
 
@@ -172,16 +171,15 @@ class LoggingFnT(Protocol):
     async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
 
 
+IncomingMessage: TypeAlias = types.ServerNotification | Exception
+"""What `message_handler` receives: every server notification, plus transport-level exceptions."""
+
+
 class MessageHandlerFnT(Protocol):
-    async def __call__(
-        self,
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None: ...  # pragma: no branch
+    async def __call__(self, message: IncomingMessage) -> None: ...  # pragma: no branch
 
 
-async def _default_message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-) -> None:
+async def _default_message_handler(message: IncomingMessage) -> None:
     await anyio.lowlevel.checkpoint()
 
 

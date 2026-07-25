@@ -15,12 +15,12 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import CallToolResult, ProgressNotification, ProgressNotificationParams, ProgressToken, TextContent
 
+from mcp.client import IncomingMessage
 from mcp.server import Server, ServerRequestContext
 from mcp.server.session import ServerSession
-from mcp.shared.session import ProgressFnT
+from mcp.shared.dispatcher import ProgressFnT
 from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
