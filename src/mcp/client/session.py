@@ -334,8 +334,10 @@ class ClientSession:
     `dispatcher=`), enter as an async context manager, then call
     `initialize()`. The dispatcher owns the receive loop and request
     correlation; this class owns the typed MCP layer and the constructor
-    callbacks. Transport `Exception` items reach `message_handler` only when
-    the session builds its own dispatcher from a stream pair.
+    callbacks. Transport `Exception` items reach `message_handler` on any
+    stream-backed dispatcher (`JSONRPCDispatcher`), whether built here from a
+    stream pair or supplied without a stream-exception hook of its own; an
+    in-process `DirectDispatcher` carries none.
 
     Extension `result_claims` fold into tools/call parsing at `adopt()`;
     `notification_bindings` observe vendor notifications via bounded FIFOs.
