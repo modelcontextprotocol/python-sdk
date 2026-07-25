@@ -221,7 +221,7 @@ async def test_dcr_defaults_grant_types_to_authorization_code_and_refresh_token_
 
     The metadata is built directly rather than via `oauth_client_metadata()`, which sets `grant_types`.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     client_metadata = OAuthClientMetadata(client_name="interaction-suite", redirect_uris=[AnyUrl(REDIRECT_URI)])
@@ -253,7 +253,7 @@ async def test_dcr_sends_consumer_set_grant_types_verbatim() -> None:
 
     The value deliberately differs from the default pair so pass-through is distinguishable from defaulting.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     client_metadata = OAuthClientMetadata(
@@ -281,7 +281,7 @@ async def test_dcr_sends_a_consumer_set_application_type_verbatim() -> None:
     `"web"` against a loopback redirect URI is deliberately not what redirect-URI derivation
     would produce, so pass-through stays distinguishable from any future derivation strategy.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     client_metadata = OAuthClientMetadata(

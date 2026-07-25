@@ -921,7 +921,7 @@ def _meta_envelope() -> dict[str, object]:
 async def test_retry_with_malformed_input_responses_is_rejected_with_invalid_params() -> None:
     """A retry whose inputResponses do not parse is rejected with invalid params before dispatch (spec SHOULD).
 
-    Raw httpx against the mounted modern entry: the typed API rejects garbage inputResponses at
+    Raw httpx2 against the mounted modern entry: the typed API rejects garbage inputResponses at
     construction, so the violation is unproducible above this seam.
     """
 

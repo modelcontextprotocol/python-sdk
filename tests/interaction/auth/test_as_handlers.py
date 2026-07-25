@@ -335,7 +335,7 @@ async def test_a_non_loopback_http_redirect_uri_is_accepted_at_registration(
 
 @requirement("hosting:auth:as:register-echo-application-type")
 async def test_register_echoes_native_for_a_client_that_registered_application_type_web(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """A client registering `application_type: "web"` is told `"native"` in the registration echo.
 

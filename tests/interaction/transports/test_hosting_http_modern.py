@@ -14,7 +14,6 @@ from typing import Any, Literal
 import anyio
 import httpx2
 import pytest
-from httpx_sse import aconnect_sse
 from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
@@ -684,9 +683,9 @@ async def test_non_header_safe_tool_name_is_carried_as_base64_sentinel_mcp_name(
 
     server = Server("sentinel-name", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
     discover = DiscoverResult(
@@ -717,9 +716,9 @@ async def test_sentinel_lookalike_argument_value_is_base64_wrapped_in_its_param_
 
     Spec-mandated by the sentinel-collision rule, the only encoding trigger: the value is otherwise header-safe ASCII.
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
     discover = DiscoverResult(
@@ -757,9 +756,9 @@ async def test_null_and_absent_annotated_arguments_emit_no_param_headers_and_the
     argument against its `Mcp-Param-*` header and would reject an orphan header for the null or
     absent argument (a header matching no annotation is ignored).
     """
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
     discover = DiscoverResult(
@@ -971,11 +970,11 @@ async def test_modern_response_upgrades_to_sse_when_the_handler_emits_and_ends_w
     with anyio.fail_after(5):
         async with (
             mounted_app(Server("modern", on_call_tool=call_tool)) as (http, _),
-            aconnect_sse(
-                http, "POST", "/mcp", json=body, headers=_modern_headers(method="tools/call", name="noisy")
+            http.sse(
+                "/mcp", method="POST", json=body, headers=_modern_headers(method="tools/call", name="noisy")
             ) as source,
         ):
-            events = [event async for event in source.aiter_sse()]
+            events = [event async for event in source]
 
     assert source.response.status_code == 200
     assert source.response.headers["content-type"].split(";", 1)[0] == "text/event-stream"
@@ -1023,25 +1022,25 @@ async def test_modern_notifications_land_only_on_the_originating_requests_respon
 
     server = Server("scoped", on_call_tool=call_tool)
 
-    emit_responses: list[httpx.Response] = []
+    emit_responses: list[httpx2.Response] = []
     emit_frames: list[JSONRPCMessage] = []
-    quiet_responses: list[httpx.Response] = []
+    quiet_responses: list[httpx2.Response] = []
 
-    async def post_emit(http: httpx.AsyncClient) -> None:
+    async def post_emit(http: httpx2.AsyncClient) -> None:
         body = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
             "params": {"name": "emit", "arguments": {}, "_meta": _meta_envelope()},
         }
-        async with aconnect_sse(
-            http, "POST", "/mcp", json=body, headers=_modern_headers(method="tools/call", name="emit")
+        async with http.sse(
+            "/mcp", method="POST", json=body, headers=_modern_headers(method="tools/call", name="emit")
         ) as source:
-            events = [event async for event in source.aiter_sse()]
+            events = [event async for event in source]
             emit_responses.append(source.response)
             emit_frames.extend(parse_sse_messages(events))
 
-    async def post_quiet(http: httpx.AsyncClient) -> None:
+    async def post_quiet(http: httpx2.AsyncClient) -> None:
         body = {
             "jsonrpc": "2.0",
             "id": 2,
@@ -1111,12 +1110,12 @@ async def test_modern_sse_response_carries_x_accel_buffering_no() -> None:
     with anyio.fail_after(5):
         async with (
             mounted_app(Server("modern", on_call_tool=call_tool)) as (http, _),
-            aconnect_sse(
-                http, "POST", "/mcp", json=body, headers=_modern_headers(method="tools/call", name="noisy")
+            http.sse(
+                "/mcp", method="POST", json=body, headers=_modern_headers(method="tools/call", name="noisy")
             ) as source,
         ):
             # Drained only so teardown is clean.
-            async for _ in source.aiter_sse():
+            async for _ in source:
                 pass
 
     assert source.response.headers["x-accel-buffering"] == "no"
@@ -1227,7 +1226,7 @@ async def test_modern_encoded_mcp_name_matching_the_body_after_decode_is_served(
     """A sentinel-encoded ``Mcp-Name`` whose decoded value matches the body is served, not rejected.
 
     Spec-mandated: the server decodes the header before validation -- a plain string comparison
-    would have answered 400 HeaderMismatch. The typed client sends ASCII bare, hence raw httpx.
+    would have answered 400 HeaderMismatch. The typed client sends ASCII bare, hence raw httpx2.
     """
     body = {
         "jsonrpc": "2.0",
@@ -1262,9 +1261,9 @@ async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_enco
 
     server = Server("sentinel-prompt", on_get_prompt=get_prompt)
 
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
     discover = DiscoverResult(
@@ -1324,11 +1323,11 @@ async def test_modern_client_disconnect_mid_request_cancels_the_running_handler(
     }
     with anyio.fail_after(5):
         async with mounted_app(Server("modern", on_call_tool=call_tool)) as (http, _):
-            async with aconnect_sse(
-                http, "POST", "/mcp", json=body, headers=_modern_headers(method="tools/call", name="park")
+            async with http.sse(
+                "/mcp", method="POST", json=body, headers=_modern_headers(method="tools/call", name="park")
             ) as source:
                 # Advanced once only: a full `async for` would wait for the close that is ours to perform.
-                events = source.aiter_sse()
+                events = aiter(source)
                 first = await anext(events)
             # Awaited while the app is still mounted: after mounted_app exits, the bridge's
             # teardown cancellation would make this pass vacuously.
@@ -1458,7 +1457,7 @@ async def test_modern_mcp_param_header_disagreeing_with_body_argument_is_rejecte
 
     Spec-mandated: the server resolves the ``x-mcp-header`` annotation from the tool's advertised
     ``inputSchema`` via its own tools/list handler and rejects the decoded-header/body disagreement
-    before dispatch. Raw httpx because the HTTP status is a wire-only observable and the typed
+    before dispatch. Raw httpx2 because the HTTP status is a wire-only observable and the typed
     client cannot emit a mismatching header by construction.
     """
 
