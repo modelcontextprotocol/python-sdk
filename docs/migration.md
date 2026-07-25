@@ -1920,6 +1920,33 @@ The WebSocket transport has been removed: `mcp.client.websocket.websocket_client
 
 ## OAuth and server auth
 
+### `RFC7523OAuthClientProvider` and `JWTParameters` removed
+
+`RFC7523OAuthClientProvider` (deprecated since 1.23.0) and its `JWTParameters` model have been
+removed from `mcp.client.auth.extensions.client_credentials`. The provider implemented the
+[RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) §2.1 `jwt-bearer` *authorization grant*
+with an SDK-minted or prebuilt JWT, which no MCP auth extension specifies. Replace it with the
+purpose-built provider for the flow you actually run:
+
+- Machine-to-machine with a client secret
+  ([`io.modelcontextprotocol/oauth-client-credentials`](https://modelcontextprotocol.io/extensions/auth/oauth-client-credentials)):
+  `ClientCredentialsOAuthProvider(server_url=..., storage=..., client_id=..., client_secret=...)`.
+- Machine-to-machine authenticating with a JWT instead of a secret (same extension, RFC 7523 §2.2
+  `private_key_jwt` client authentication on the `client_credentials` grant, which is the mode the
+  extension actually specifies for JWTs): `PrivateKeyJWTOAuthProvider(server_url=...,
+  storage=..., client_id=..., assertion_provider=...)`. Build the assertion with
+  `SignedJWTParameters(issuer=..., subject=..., signing_key=...).create_assertion_provider()`
+  (replaces `JWTParameters` signing fields), or wrap a prebuilt JWT with
+  `static_assertion_provider(token)` (replaces `JWTParameters(assertion=...)`).
+- Presenting an enterprise ID-JAG under the `jwt-bearer` grant
+  ([SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)):
+  `IdentityAssertionOAuthProvider` in `mcp.client.auth.extensions.identity_assertion`.
+
+The provider's third mode — the interactive `authorization_code` flow with `private_key_jwt`
+client authentication on the token exchange — has no replacement and is intentionally dropped; it
+was never exercised by the test suite and no MCP auth extension specifies it. If you depended on
+it, open an issue describing the deployment.
+
 ### OAuth metadata URLs no longer gain a trailing slash
 
 `OAuthMetadata`, `ProtectedResourceMetadata`, and `OAuthClientMetadata` now set

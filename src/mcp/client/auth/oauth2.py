@@ -383,9 +383,7 @@ class OAuthClientProvider(httpx2.Auth):
             token_url = urljoin(auth_base_url, "/token")
         return token_url
 
-    async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
-    ) -> httpx2.Request:
+    async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str) -> httpx2.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided for authorization code grant")  # pragma: no cover
@@ -393,16 +391,13 @@ class OAuthClientProvider(httpx2.Auth):
             raise OAuthFlowError("Missing client info")  # pragma: no cover
 
         token_url = self._get_token_endpoint()
-        token_data = token_data or {}
-        token_data.update(
-            {
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
-                "client_id": self.context.client_info.client_id,
-                "code_verifier": code_verifier,
-            }
-        )
+        token_data: dict[str, Any] = {
+            "grant_type": "authorization_code",
+            "code": auth_code,
+            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
+            "client_id": self.context.client_info.client_id,
+            "code_verifier": code_verifier,
+        }
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
