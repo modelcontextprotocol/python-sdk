@@ -100,21 +100,30 @@ def get_client_metadata_scopes(
     protected_resource_metadata: ProtectedResourceMetadata | None,
     authorization_server_metadata: OAuthMetadata | None = None,
     client_grant_types: list[str] | None = None,
+    configured_scope: str | None = None,
 ) -> str | None:
-    """Select effective scopes and augment for refresh token support."""
+    """Select effective scopes and augment for refresh token support.
+
+    A source that yields no scopes (absent, null, or an empty list) offers no guidance, so
+    selection falls through to the next source rather than treating "advertised nothing" as
+    "request nothing".
+    """
     selected_scope: str | None = None
 
     # MCP spec scope selection priority:
     #   1. WWW-Authenticate header scope
     #   2. PRM scopes_supported
     #   3. AS scopes_supported (SDK fallback)
-    #   4. Omit scope parameter
-    if www_authenticate_scope is not None:
+    #   4. Scope the caller configured on the provider (SDK fallback)
+    #   5. Omit scope parameter
+    if www_authenticate_scope:
         selected_scope = www_authenticate_scope
-    elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
+    elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported:
         selected_scope = " ".join(protected_resource_metadata.scopes_supported)
-    elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported is not None:
+    elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported:
         selected_scope = " ".join(authorization_server_metadata.scopes_supported)
+    else:
+        selected_scope = configured_scope or None
 
     # SEP-2207: append offline_access when the AS supports it and the client can use refresh tokens
     if (

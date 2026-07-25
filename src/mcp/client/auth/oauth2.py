@@ -106,6 +106,11 @@ class OAuthContext:
     timeout: float = 300.0
     client_metadata_url: str | None = None
 
+    # The scope the caller configured on the provider, kept separate from
+    # client_metadata.scope: discovery overwrites the latter, and this survives
+    # as the fallback when the server advertises no scopes.
+    configured_scope: str | None = None
+
     # Discovered metadata
     protected_resource_metadata: ProtectedResourceMetadata | None = None
     oauth_metadata: OAuthMetadata | None = None
@@ -273,6 +278,7 @@ class OAuthClientProvider(httpx2.Auth):
             callback_handler=callback_handler,
             timeout=timeout,
             client_metadata_url=client_metadata_url,
+            configured_scope=client_metadata.scope,
         )
         self._validate_resource_url_callback = validate_resource_url
         self._initialized = False
@@ -643,6 +649,7 @@ class OAuthClientProvider(httpx2.Auth):
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
                         self.context.client_metadata.grant_types,
+                        self.context.configured_scope,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
@@ -717,6 +724,7 @@ class OAuthClientProvider(httpx2.Auth):
                             self.context.protected_resource_metadata,
                             self.context.oauth_metadata,
                             self.context.client_metadata.grant_types,
+                            self.context.configured_scope,
                         )
                         granted_scope = self.context.current_tokens.scope if self.context.current_tokens else None
                         prior_scope = union_scopes(self.context.client_metadata.scope, granted_scope)
