@@ -103,7 +103,6 @@ class OAuthContext:
     storage: TokenStorage
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None
-    timeout: float = 300.0
     client_metadata_url: str | None = None
 
     # Discovered metadata
@@ -233,7 +232,6 @@ class OAuthClientProvider(httpx2.Auth):
         storage: TokenStorage,
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
         callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
-        timeout: float = 300.0,
         client_metadata_url: str | None = None,
         validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
     ):
@@ -245,7 +243,6 @@ class OAuthClientProvider(httpx2.Auth):
             storage: Token storage implementation.
             redirect_handler: Handler for authorization redirects.
             callback_handler: Handler for authorization callbacks.
-            timeout: Timeout for the OAuth flow.
             client_metadata_url: URL-based client ID. When provided and the server
                 advertises client_id_metadata_document_supported=True, this URL will be
                 used as the client_id instead of performing dynamic client registration.
@@ -271,7 +268,6 @@ class OAuthClientProvider(httpx2.Auth):
             storage=storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
-            timeout=timeout,
             client_metadata_url=client_metadata_url,
         )
         self._validate_resource_url_callback = validate_resource_url
