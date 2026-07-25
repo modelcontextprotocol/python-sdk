@@ -264,6 +264,8 @@ async def test_resources_subscribe_on_a_2026_connection_is_method_not_found_desp
     """On a 2026-07-28 connection, `resources/subscribe` is METHOD_NOT_FOUND even with a handler registered.
 
     resources/subscribe is removed from the 2026-07-28 surface; the registry rejects it before handler lookup.
+    The request is sent through the generic `send_request` seam because the typed subscribe method
+    is retired along with the 2025-era capability it drives.
     """
 
     async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
@@ -271,10 +273,11 @@ async def test_resources_subscribe_on_a_2026_connection_is_method_not_found_desp
         raise NotImplementedError
 
     server = Server("library", on_subscribe_resource=subscribe_resource)
+    subscribe = types.SubscribeRequest(params=types.SubscribeRequestParams(uri="file:///watched.txt"))
 
     async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
-            await client.subscribe_resource("file:///watched.txt")
+            await client.session.send_request(subscribe, EmptyResult)
 
     assert exc_info.value.error == snapshot(
         ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="resources/subscribe")
