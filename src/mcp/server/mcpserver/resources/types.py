@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import codecs
 import json
 from collections.abc import Callable
 from functools import partial
@@ -169,13 +168,17 @@ class FileResource(Resource):
 
     @pydantic.field_validator("encoding")
     @classmethod
-    def validate_known_encoding(cls, encoding: str | None) -> str | None:
-        """Ensure the encoding names a known codec, so a typo fails at construction not at read."""
+    def validate_text_encoding(cls, encoding: str | None) -> str | None:
+        """Ensure the encoding names a usable text codec, so a mistake fails at construction not at read."""
         if encoding is not None:
+            # Decoding a probe byte rejects both unknown names and codecs that
+            # aren't text encodings (base64_codec, rot13, ...) via LookupError.
             try:
-                codecs.lookup(encoding)
+                b"x".decode(encoding)
             except LookupError as e:
-                raise ValueError(f"unknown encoding: {encoding}") from e
+                raise ValueError(str(e)) from e
+            except UnicodeError:
+                pass  # a real text encoding; the probe byte just doesn't decode in it
         return encoding
 
     async def read(self) -> str | bytes:

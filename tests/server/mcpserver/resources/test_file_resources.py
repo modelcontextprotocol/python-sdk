@@ -124,6 +124,18 @@ def test_unknown_declared_charset_is_rejected(temp_file: Path):
         FileResource(uri=temp_file.as_uri(), path=temp_file, mime_type="text/plain; charset=not-a-codec")
 
 
+def test_multibyte_encoding_is_accepted(temp_file: Path):
+    """UTF-16 can't decode a lone probe byte but is still a valid text encoding."""
+    resource = FileResource(uri=temp_file.as_uri(), path=temp_file, encoding="utf-16")
+    assert resource.encoding == "utf-16"
+
+
+def test_non_text_codec_is_rejected(temp_file: Path):
+    """A registered codec that isn't a text encoding (bytes-to-bytes) is not a usable encoding."""
+    with pytest.raises(ValidationError, match="not a text encoding"):
+        FileResource(uri=temp_file.as_uri(), path=temp_file, encoding="base64_codec")
+
+
 @pytest.mark.anyio
 async def test_json_file_is_served_as_text_by_default(temp_file: Path):
     """The mime type that motivated the encoding field: JSON must not become a base64 blob."""

@@ -838,7 +838,7 @@ The field is now `encoding: str | None`. A string means "decode with this encodi
 
 Passing the removed `is_binary=` argument now raises a `ValidationError` at construction (see the section above) rather than being silently ignored. A misspelled `encoding` also fails at construction rather than on the first read.
 
-One case flips the other way: a non-UTF-8 file with a textual mime type (say UTF-16 XML) previously shipped byte-exact as a blob and now fails to decode. Set `encoding` to the file's real encoding, or `encoding=None` to keep serving it as a blob.
+Two edge cases to check. A non-UTF-8 file with a *newly* textual mime type (say a UTF-16 `application/xml`) previously shipped byte-exact as a blob and now fails to decode. And an existing `text/*` file that was only readable through your platform's locale encoding (v1 decoded these with the locale, not UTF-8) now fails too. In both cases set `encoding` to the file's real encoding, or `encoding=None` to serve the bytes as a blob.
 
 **Before (v1):**
 
