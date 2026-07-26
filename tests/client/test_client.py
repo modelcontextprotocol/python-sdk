@@ -657,12 +657,16 @@ async def test_a_complete_listing_prunes_per_tool_state_for_tools_it_no_longer_c
     with anyio.fail_after(5):
         async with Client(server) as client:
             await client.session.list_tools()
+            # Compile the retired tool's output-schema validator so its eviction is observable.
+            await client.session.validate_tool_result("retired", CallToolResult(content=[], structured_content={}))
             assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
             assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+            assert set(client.session._tool_output_validators) == {"retired"}
 
             await client.session.list_tools()
             assert set(client.session._x_mcp_header_maps) == {"survivor"}
             assert set(client.session._tool_output_schemas) == {"survivor"}
+            assert client.session._tool_output_validators == {}
 
 
 async def test_a_complete_listing_prunes_output_schemas_on_a_legacy_session_too() -> None:
