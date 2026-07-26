@@ -45,10 +45,9 @@ pytestmark = pytest.mark.anyio
 async def test_list_resources_returns_registered_resources(connect: Connect, unstamped: Unstamp) -> None:
     """Listed resources reach the client with their URIs, names, and optional descriptive fields intact.
 
-    The fully-populated entry includes annotations, so the snapshot also proves they round-trip.
-    The SDK's Annotations model omits the schema's lastModified field (see the divergence on
-    resources:annotations); the input is built via model_validate with lastModified set so the
-    snapshot pins the drop and will fail once the SDK adds the field.
+    The fully-populated entry includes annotations, so the snapshot also proves they round-trip,
+    including the schema's lastModified field: the input is built via model_validate with the wire key
+    lastModified set, and the snapshot pins last_modified populated on the received model.
     """
 
     async def list_resources(

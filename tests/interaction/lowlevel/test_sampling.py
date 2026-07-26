@@ -98,9 +98,9 @@ async def test_create_message_round_trip(connect: Connect) -> None:
 async def test_create_message_params_reach_callback(connect: Connect) -> None:
     """Every sampling parameter the handler supplies arrives at the client callback unchanged.
 
-    The client has not declared the sampling.context capability (Client cannot declare it), yet
-    include_context="thisServer" reaches the callback regardless: the spec's SHOULD NOT is not
-    enforced. See the divergence note on `sampling:context:server-gated-by-capability`.
+    The client has not declared the sampling.context capability, yet include_context="thisServer" reaches
+    the callback regardless: the spec's SHOULD NOT is not enforced. See the divergence note on
+    `sampling:context:server-gated-by-capability`.
     """
     received: list[CreateMessageRequestParams] = []
 
@@ -319,8 +319,8 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
 async def test_create_message_with_tools_is_rejected_for_unsupporting_client(connect: Connect) -> None:
     """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
 
-    The client supports plain sampling but cannot declare the tools sub-capability (Client does not
-    expose it), so the server-side validator rejects the request before anything reaches the wire.
+    The client supports plain sampling but does not declare the tools sub-capability, so the server-side
+    validator rejects the request before anything reaches the wire.
     """
 
     async def list_tools(
@@ -413,8 +413,7 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
 async def test_a_client_with_a_sampling_callback_declares_the_sampling_capability(connect: Connect) -> None:
     """A client connecting with a sampling callback advertises the sampling capability to the server.
 
-    Client cannot declare any sub-capabilities (it does not expose ClientSession's
-    sampling_capabilities parameter), so the snapshot pins an empty SamplingCapability.
+    The client declares no sub-capabilities here, so the snapshot pins an empty SamplingCapability.
     """
     captured: list[SamplingCapability | None] = []
 

@@ -596,8 +596,9 @@ async def test_sampling_request_embedded_for_a_non_sampling_client_is_sent_and_r
 ) -> None:
     """PINS A KNOWN GAP: an embedded sampling request an undeclared client cannot support is sent anyway.
 
-    The SDK has no embed gate (spec MUST NOT), so the violation surfaces as the client driver's refusal
-    aborting the call. When the server-side gate lands: re-pin to the gated outcome and delete the Divergence.
+    The low-level Server's hand-built input_required path has no embed gate (the MCPServer resolver
+    path does), so the violation surfaces as the client driver's refusal aborting the call. When the
+    low-level gate lands: re-pin to the gated outcome and delete the Divergence.
     """
     calls: list[str] = []
 
@@ -635,8 +636,9 @@ async def test_roots_request_embedded_for_a_rootless_client_is_sent_and_refused_
 ) -> None:
     """PINS A KNOWN GAP: an embedded roots request a rootless client cannot support is sent anyway.
 
-    The SDK has no embed gate (spec MUST NOT), so the violation surfaces as the client driver's refusal
-    aborting the call. When the server-side gate lands: re-pin to the gated outcome and delete the Divergence.
+    The low-level Server's hand-built input_required path has no embed gate (the MCPServer resolver
+    path does), so the violation surfaces as the client driver's refusal aborting the call. When the
+    low-level gate lands: re-pin to the gated outcome and delete the Divergence.
     """
     calls: list[str] = []
 
