@@ -52,6 +52,7 @@ from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
     ElicitationFnT,
+    IncomingMessage,
     ListRootsFnT,
     LoggingFnT,
     MessageHandlerFnT,
@@ -68,7 +69,6 @@ from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import event_to_notification
 
 logger = logging.getLogger(__name__)
@@ -155,9 +155,7 @@ def _strip_userinfo(url: str) -> str:
 def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
     """Wrap the session message handler with cache eviction on server notifications."""
 
-    async def handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def handler(message: IncomingMessage) -> None:
         if isinstance(message, types.ServerNotification):
             try:
                 await cache.evict_for_notification(message)
@@ -349,14 +347,15 @@ class Client:
     transparently by `call_tool`), and its notification bindings. For an
     ad-only entry use `mcp.client.advertise(identifier, settings)`."""
 
-    cache: CacheConfig | Literal[False] | None = None
+    cache: CacheConfig | None = field(default_factory=CacheConfig)
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
 
-    `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
-    in-memory store; pass a `CacheConfig` to customize, or `False` to disable. The
-    cacheable verbs take a per-call `cache_mode` (see `CacheMode`); calls carrying
-    `meta` always reach the server. A `CacheConfig` with a custom `store` requires
-    `target_id` when the server is not a URL (no identity can be derived)."""
+    The default `CacheConfig()` honors server `ttlMs`/`cacheScope` hints with a
+    per-client in-memory store; pass a customized `CacheConfig`, or `None` to
+    disable. The cacheable verbs take a per-call `cache_mode` (see `CacheMode`);
+    calls carrying `meta` always reach the server. A `CacheConfig` with a custom
+    `store` requires `target_id` when the server is not a URL (no identity can be
+    derived)."""
 
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
@@ -388,8 +387,8 @@ class Client:
         else:
             self._connect = _connect_transport(srv)
 
-        if self.cache is not False:
-            config = self.cache if self.cache is not None else CacheConfig()
+        if self.cache is not None:
+            config = self.cache
             # Only the hash below leaves this scope - the raw identity may carry credentials; never log or store it.
             target_id = config.target_id
             if target_id is None and isinstance(self.server, str):

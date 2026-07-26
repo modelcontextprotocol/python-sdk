@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import reduce
 from operator import or_
 from types import TracebackType
-from typing import Annotated, Any, Final, Literal, Protocol, cast, overload
+from typing import Annotated, Any, Final, Literal, Protocol, TypeAlias, cast, overload
 
 import anyio
 import anyio.abc
@@ -53,7 +53,6 @@ from mcp.shared.inbound import (
 )
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY, event_from_wire
 from mcp.shared.transport_context import TransportContext
 
@@ -172,16 +171,20 @@ class LoggingFnT(Protocol):
     async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
 
 
+IncomingMessage: TypeAlias = types.ServerNotification | Exception
+"""What `message_handler` receives: the server notifications the session surfaces, plus transport-level exceptions.
+
+`notifications/cancelled` is applied by the dispatcher and never surfaced, and a
+`notifications/subscriptions/acknowledged` for a live `listen()` stream is consumed by that
+stream, so neither reaches the handler.
+"""
+
+
 class MessageHandlerFnT(Protocol):
-    async def __call__(
-        self,
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None: ...  # pragma: no branch
+    async def __call__(self, message: IncomingMessage) -> None: ...  # pragma: no branch
 
 
-async def _default_message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-) -> None:
+async def _default_message_handler(message: IncomingMessage) -> None:
     await anyio.lowlevel.checkpoint()
 
 
@@ -331,8 +334,10 @@ class ClientSession:
     `dispatcher=`), enter as an async context manager, then call
     `initialize()`. The dispatcher owns the receive loop and request
     correlation; this class owns the typed MCP layer and the constructor
-    callbacks. Transport `Exception` items reach `message_handler` only when
-    the session builds its own dispatcher from a stream pair.
+    callbacks. Transport `Exception` items reach `message_handler` on any
+    stream-backed dispatcher (`JSONRPCDispatcher`), whether built here from a
+    stream pair or supplied without a stream-exception hook of its own; an
+    in-process `DirectDispatcher` carries none.
 
     Extension `result_claims` fold into tools/call parsing at `adopt()`;
     `notification_bindings` observe vendor notifications via bounded FIFOs.

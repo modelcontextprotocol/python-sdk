@@ -37,7 +37,7 @@ from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERS
 from pydantic import FileUrl, ValidationError
 
 from mcp import MCPError
-from mcp.client import ClientRequestContext
+from mcp.client import ClientRequestContext, IncomingMessage
 from mcp.client.client import Client
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.client.subscriptions import ToolsListChanged, listen
@@ -45,7 +45,6 @@ from mcp.server import Server, ServerRequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnNotifyIntercept, OnRequest
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY
 from mcp.shared.transport_context import TransportContext
 
@@ -123,9 +122,7 @@ async def test_client_session_initialize():
             )
 
     # Create a message handler to catch exceptions
-    async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no cover
         if isinstance(message, Exception):
             raise message
 
@@ -1228,10 +1225,8 @@ async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_tha
     async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:
         raise ValueError("logging callback boom")
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
-        assert not isinstance(message, RequestResponder | Exception)
+    async def message_handler(message: IncomingMessage) -> None:
+        assert not isinstance(message, Exception)
         teed.append(message)
         raise ValueError("message handler boom")
 

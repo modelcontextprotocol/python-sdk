@@ -58,6 +58,9 @@ dev = [
     # We add mcp[cli] so `uv sync` considers the extras.
     "mcp[cli]",
     "mcp-example-stories",
+    # pydantic-settings is used only by examples (simple-auth, mcpserver/text_me);
+    # keep it reachable for pyright, which covers examples/servers.
+    "pydantic-settings>=2.5.2",
     "tomli>=2.0; python_version < '3.11'",
     "pyright>=1.1.400",
     "pytest>=8.4.0",
@@ -128,7 +131,6 @@ dependencies = [
     "starlette>=0.27; python_version < '3.14'",
     "python-multipart>=0.0.9",
     "sse-starlette>=3.0.0",
-    "pydantic-settings>=2.5.2",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
     "pywin32>=311; sys_platform == 'win32'",

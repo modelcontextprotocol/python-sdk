@@ -16,8 +16,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from mcp import ClientSession, MCPError
+from mcp.client import IncomingMessage
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.session import RequestResponder
 
 pytestmark = pytest.mark.anyio
 
@@ -82,9 +82,7 @@ async def test_non_compliant_notification_response() -> None:
     """
     returned_exception = None
 
-    async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no cover
         nonlocal returned_exception
         if isinstance(message, Exception):
             returned_exception = message

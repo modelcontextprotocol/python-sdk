@@ -40,7 +40,7 @@ flows — with a single subprocess test for stdio.
 ```text
 tests/interaction/
   _requirements.py      the requirements manifest (see below)
-  _helpers.py           shared type aliases + the wire-recording transport
+  _helpers.py           the wire-recording transport
   _connect.py           the transport-parametrized connection factories
   conftest.py           the connect fixture (the transport matrix)
   test_coverage.py      enforces the manifest ↔ test contract
