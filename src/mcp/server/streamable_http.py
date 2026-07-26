@@ -492,7 +492,9 @@ class StreamableHTTPServerTransport:
 
             try:
                 raw_message = json.loads(body)
-            except json.JSONDecodeError as e:
+            except ValueError as e:
+                # Both json.JSONDecodeError (bad syntax) and UnicodeDecodeError (body bytes
+                # that are not valid UTF-8) subclass ValueError; both are client errors.
                 response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
                 await response(scope, receive, send)
                 return

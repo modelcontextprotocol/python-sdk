@@ -1,6 +1,7 @@
 """Tests for StreamableHTTPSessionManager."""
 
 import json
+import logging
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -19,7 +20,7 @@ from mcp.server.streamable_http_manager import (
     RequestBodyLimitMiddleware,
     StreamableHTTPSessionManager,
 )
-from mcp.types import INVALID_REQUEST
+from mcp.types import INVALID_REQUEST, PARSE_ERROR
 
 
 @pytest.mark.anyio
@@ -440,6 +441,59 @@ async def test_unknown_session_id_returns_404():
         assert error_data["id"] == "server-error"
         assert error_data["error"]["code"] == INVALID_REQUEST
         assert error_data["error"]["message"] == "Session not found"
+
+
+@pytest.mark.anyio
+async def test_non_utf8_body_returns_parse_error(caplog: pytest.LogCaptureFixture):
+    """A POST body that is not valid UTF-8 is a client error, not a server error.
+
+    json.loads() raises UnicodeDecodeError rather than json.JSONDecodeError for such a
+    body, so it used to escape the parse-error branch and surface as HTTP 500 with an
+    ERROR-level traceback.
+    """
+    app = Server("test-non-utf8-body")
+    manager = StreamableHTTPSessionManager(app=app, stateless=True)
+
+    async with manager.run():
+        sent_messages: list[Message] = []
+        response_body = b""
+
+        async def mock_send(message: Message):
+            nonlocal response_body
+            sent_messages.append(message)
+            if message["type"] == "http.response.body":
+                response_body += message.get("body", b"")
+
+        scope: Scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"accept", b"application/json, text/event-stream"),
+            ],
+        }
+
+        # Valid JSON syntax, but encoded as Windows-1252: the em dash is byte 0x97.
+        body = '{"jsonrpc": "2.0", "id": 1, "method": "x — y"}'.encode("cp1252")
+
+        async def mock_receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        with caplog.at_level(logging.DEBUG):
+            await manager.handle_request(scope, mock_receive, mock_send)
+
+    response_start = next((msg for msg in sent_messages if msg["type"] == "http.response.start"), None)
+    assert response_start is not None, "Should have sent a response"
+    assert response_start["status"] == 400
+
+    error_data = json.loads(response_body)
+    assert error_data["jsonrpc"] == "2.0"
+    assert error_data["error"]["code"] == PARSE_ERROR
+    assert error_data["error"]["message"].startswith("Parse error:")
+
+    error_records = [record for record in caplog.records if record.levelno >= logging.ERROR]
+    assert error_records == [], f"Unparseable body should not log at ERROR: {[r.getMessage() for r in error_records]}"
 
 
 @pytest.mark.anyio
