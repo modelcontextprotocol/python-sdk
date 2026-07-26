@@ -39,31 +39,7 @@ python server.py
 
 Nothing prints, and it doesn't return. It is waiting on stdin for a host to speak first.
 
-That also means stdout **is the wire**. A stray `print()` corrupts the stream; the `logging` module writes to stderr and is the right tool. That story is in **[Logging](../handlers/logging.md)**.
-
-On Windows, the same rule applies to child processes your tools start. A child
-that inherits the stdio server's stdin can block behind the server's protocol
-reader. If your tool starts a subprocess and you do not intend to feed it input,
-redirect the child's stdin:
-
-```python
-import asyncio
-import subprocess
-import sys
-
-
-async def run_script() -> tuple[bytes, bytes]:
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "script.py",
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return await process.communicate()
-```
-
-The matching troubleshooting entry is **[My stdio tool hangs when it starts a subprocess on Windows](../troubleshooting.md#my-stdio-tool-hangs-when-it-starts-a-subprocess-on-windows)**.
+That also means stdout **is the wire**. While serving, the SDK moves the wire to a private descriptor and diverts output that is *flushed* to stdout (a subprocess writing to its inherited stdout, a flushed `print()`) to stderr, where it can't corrupt the stream. Output flushed to stdout *before* serving begins (a wrapper script echoing, an unbuffered import-time print) still lands on the wire, and so does a `print()` that stays buffered until the interpreter drains it at exit. For output you actually want, the `logging` module is the right tool: its handler flushes each record to stderr as it happens. That story is in **[Logging](../handlers/logging.md)**.
 
 ### Try it
 

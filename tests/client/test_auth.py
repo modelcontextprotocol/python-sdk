@@ -192,7 +192,6 @@ class TestOAuthContext:
         assert oauth_provider.context.server_url == "https://api.example.com/v1/mcp"
         assert oauth_provider.context.client_metadata == client_metadata
         assert oauth_provider.context.storage == mock_storage
-        assert oauth_provider.context.timeout == 300.0
         assert oauth_provider.context is not None
 
     def test_context_url_parsing(self, oauth_provider: OAuthClientProvider):

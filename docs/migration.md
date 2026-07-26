@@ -606,6 +606,14 @@ mcp = MCPServer("Demo", instructions="You answer questions about the weather.")
 
 Keep `name` positional and pass everything else by keyword.
 
+### Unversioned servers report an empty version
+
+In v1, a server constructed without a `version` reported the installed `mcp`
+package's version as its own in the `initialize` result's `serverInfo`. In v2
+it reports an empty string instead: the SDK's version is not your server's
+version. Pass `version="..."` to `Server(...)` or `MCPServer(...)` to identify
+your server properly. The field is display-only; nothing breaks either way.
+
 ### `mount_path` parameter removed from MCPServer
 
 The `mount_path` parameter has been removed from `MCPServer.__init__()`, `MCPServer.run()`, `MCPServer.run_sse_async()`, and `MCPServer.sse_app()`. It was also removed from the `Settings` class.
@@ -675,6 +683,22 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
 If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
+
+### `MCP_*` environment variables and `.env` files are no longer read
+
+The `Settings` docstring advertised configuration via `MCP_*` environment variables and a `.env` file (e.g. `MCP_DEBUG=true`), but constructor arguments have always taken precedence, so those environment variables never took effect. `Settings` is now a plain Pydantic model rather than a `pydantic-settings` `BaseSettings`, and `pydantic-settings` is no longer a dependency of the SDK.
+
+If you want environment-driven configuration, read the environment yourself and pass the values to the constructor:
+
+```python
+import os
+
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo", debug=os.environ.get("MCP_DEBUG") == "true")
+```
+
+If your own code uses `pydantic-settings`, add it to your project's dependencies directly.
 
 ### Streamable HTTP request bodies are limited to 4 MiB
 
@@ -818,6 +842,37 @@ Reading a missing resource now returns JSON-RPC error code `-32602` (invalid par
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
 
+### `Resource` classes reject unknown keyword arguments
+
+The `Resource` base class now sets `extra="forbid"`, so every resource class — `TextResource`, `BinaryResource`, `FunctionResource`, `FileResource`, `HttpResource`, `DirectoryResource`, and your own subclasses — raises `ValidationError` on an unrecognised keyword argument instead of silently dropping it. Previously a typo'd or since-removed parameter (such as `FileResource(is_binary=...)`, below) was accepted and ignored. Remove any stray keyword arguments; if a subclass needs to accept arbitrary extras, set its own `model_config = ConfigDict(extra="allow")`.
+
+### `FileResource.is_binary` replaced by `encoding`
+
+`FileResource` used to take `is_binary: bool` and guess its default from `mime_type` (`text/*` → text, anything else → bytes). Two problems fell out of that: `is_binary=False` could not actually be set — `False` doubled as the "not given" sentinel, so `mime_type="application/json"` always came back as a base64 blob — and text reads used `Path.read_text()` with no encoding, i.e. the platform locale (cp1252 on Windows).
+
+The field is now `encoding: str | None`. A string means "decode with this encoding and serve as text"; `None` means "read bytes and serve as a blob". When omitted it defaults to the `charset` declared in `mime_type` if there is one, otherwise `"utf-8-sig"` for textual mime types (`text/*`, `application/json`, `application/xml`, and any `+json`/`+xml` suffix) and `None` for everything else, so JSON and XML files are now served as text without any configuration. `utf-8-sig` is plain UTF-8 that also drops a byte-order mark if the file has one; a declared `charset=` is used as-is.
+
+Passing the removed `is_binary=` argument now raises a `ValidationError` at construction (see the section above) rather than being silently ignored. A misspelled `encoding` also fails at construction rather than on the first read.
+
+Two edge cases to check. A non-UTF-8 file with a *newly* textual mime type (say a UTF-16 `application/xml`) previously shipped byte-exact as a blob and now fails to decode. And an existing `text/*` file that was only readable through your platform's locale encoding (v1 decoded these with the locale, not UTF-8) now fails too. In both cases set `encoding` to the file's real encoding, or `encoding=None` to serve the bytes as a blob.
+
+**Before (v1):**
+
+```python
+FileResource(uri="file:///logo.png", path=logo, mime_type="image/png", is_binary=True)
+FileResource(uri="file:///notes.txt", path=notes)  # text, decoded with the locale encoding
+```
+
+**After (v2):**
+
+```python
+FileResource(uri="file:///logo.png", path=logo, mime_type="image/png")  # bytes, from mime_type
+FileResource(uri="file:///notes.txt", path=notes)  # text, decoded as UTF-8 (BOM tolerated)
+FileResource(uri="file:///data.json", path=data, mime_type="application/json")  # now text, not a blob
+```
+
+Pass `encoding=None` to force a blob, or `encoding="latin-1"` (etc.) to decode a text file that isn't UTF-8.
+
 ### Resource templates: matching behavior changes
 
 Resource template matching has been rewritten with [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570) support.
@@ -907,6 +962,27 @@ await ctx.log(level="info", data="hello")
 ```
 
 Positional calls (`await ctx.info("hello")`) are unaffected.
+
+### `Context.client_id` removed
+
+`Context.client_id` has been removed. It never returned an authenticated client identity: it echoed a non-standard `client_id` key from the request's `_meta`, which nothing in the SDK or the MCP spec populates, so it was `None` unless a caller injected `meta={"client_id": ...}` by hand. The name also collided with the OAuth `client_id`, which is what callers usually mean by "the client".
+
+If you were reading a custom `_meta` key, read it from the meta dict directly. If you want the authenticated OAuth client, use the access token:
+
+```python
+# Before (v1)
+client_id = ctx.client_id
+
+# After (v2) — the raw _meta key, if you were setting it yourself
+meta = ctx.request_context.meta
+client_id = meta.get("client_id") if meta else None
+
+# After (v2) — the authenticated OAuth client (usually what you want)
+from mcp.server.auth.middleware.auth_context import get_access_token
+
+token = get_access_token()
+client_id = token.client_id if token else None
+```
 
 ### `ProgressContext` and `progress()` context manager removed
 
@@ -1498,7 +1574,7 @@ version = session.protocol_version
 
 The raw handshake result is also retained: `session.initialize_result` is set after `initialize()` (≤2025-11-25 servers — including `stateless_http=True` servers, which still answer `initialize`); `session.discover_result` is set after `discover()` (2026-07-28+ servers). At most one is non-`None`.
 
-On the high-level `Client`, `client.server_capabilities`, `client.server_info`, and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
+On the high-level `Client`, `client.server_capabilities` and `client.protocol_version` are non-nullable inside the context manager. `client.instructions` remains `str | None` since the server may omit it, and `client.server_info` is `Implementation | None`: on 2026-era connections identity is optional wire metadata, so a server that does not report it reads as `None`. (The lowlevel `ClientSession` still lets you call methods before any handshake, as in v1; `Client` always connects on enter — by default it probes `server/discover` and falls back to the initialize handshake.)
 
 ### `cursor` parameter removed from `ClientSession` list methods
 
@@ -1643,7 +1719,9 @@ Behavior changes:
 - **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected.
 - **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the `mcp.shared.context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession, Any]` become `ClientRequestContext` (details in [`RequestContext` type parameters simplified](#requestcontext-type-parameters-simplified)).
 
-`mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing. `RequestResponder.respond()` no longer exists, and neither do the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) or `BaseSession._in_flight`; inbound cancellation is handled by `JSONRPCDispatcher`.
+- **`message_handler` no longer receives requests.** Server-initiated requests are answered by the typed callbacks (`sampling_callback`, `elicitation_callback`, `list_roots_callback`), so the handler's parameter is now `IncomingMessage = ServerNotification | Exception`, exported from `mcp.client`. Replace the hand-written v1 union `RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception` with `IncomingMessage`; `RequestResponder` is gone (below), so the old annotation no longer imports.
+
+The `mcp.shared.session` module is gone. `RequestResponder` is removed — `respond()`, the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) and `BaseSession._in_flight` have no replacement; inbound cancellation is handled by `JSONRPCDispatcher`. `ProgressFnT` now lives only in `mcp.shared.dispatcher`, and `RequestId` in `mcp_types`.
 
 ### Experimental Tasks support removed
 
@@ -1855,11 +1933,68 @@ group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
 per-process terminate/kill fallback are gone. The win32 utilities logger is now
 named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
+### `stdio_server` keeps the protocol streams on private descriptors
+
+While serving, the stdio transport moves the wire to private descriptors and points
+fd 0 at the null device and fd 1 at stderr, restoring both on exit. Subprocesses and
+handler code can no longer read protocol bytes or write into the stream (the
+[#671](https://github.com/modelcontextprotocol/python-sdk/issues/671) fix). Ordinary
+servers have nothing to do, and code that inspects or manipulates fd 0/1 directly
+during a session now sees the diversions, not the wire.
+
+One pattern needs migrating: watchdog threads that watch fd 0 to detect a vanished
+client (a POSIX-specific pattern; `select.poll` does not exist on Windows). The null
+device does not behave like the old pipe: it never reports `POLLHUP` or `POLLERR`,
+and it reports readable immediately and permanently (`POLLIN` from `poll()` on Linux,
+plus `POLLOUT` under the default event mask; ready from `select()`; and macOS can
+report `POLLNVAL` for devices). A watcher waiting for `POLLHUP` or `POLLERR` is
+silently disarmed; a watcher that treats any event as "client gone" now fires at
+startup instead of never. Watch the parent process instead: on POSIX, exit
+when `os.getppid()` changes, which happens when the client dies because orphaned
+processes are reparented. That works on both v1 and v2 and does not depend on
+descriptor layout.
+
+Also new: a second concurrent `stdio_server()` on the process's default streams now
+raises `RuntimeError` instead of silently contending for stdin, a configuration that
+never worked (there is one stdin).
+
+Also worth knowing: a child process that streams large output to its inherited
+stdout now streams it into the client's stderr channel. Capture output you do not
+want in the client's logs, and be aware that a client which never drains its stderr
+pipe applies back-pressure to the server (true of stderr logging on v1 as well).
+
 ### WebSocket transport removed
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.
 
 ## OAuth and server auth
+
+### `RFC7523OAuthClientProvider` and `JWTParameters` removed
+
+`RFC7523OAuthClientProvider` (deprecated since 1.23.0) and its `JWTParameters` model have been
+removed from `mcp.client.auth.extensions.client_credentials`. The provider implemented the
+[RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) §2.1 `jwt-bearer` *authorization grant*
+with an SDK-minted or prebuilt JWT, which no MCP auth extension specifies. Replace it with the
+purpose-built provider for the flow you actually run:
+
+- Machine-to-machine with a client secret
+  ([`io.modelcontextprotocol/oauth-client-credentials`](https://modelcontextprotocol.io/extensions/auth/oauth-client-credentials)):
+  `ClientCredentialsOAuthProvider(server_url=..., storage=..., client_id=..., client_secret=...)`.
+- Machine-to-machine authenticating with a JWT instead of a secret (same extension, RFC 7523 §2.2
+  `private_key_jwt` client authentication on the `client_credentials` grant, which is the mode the
+  extension actually specifies for JWTs): `PrivateKeyJWTOAuthProvider(server_url=...,
+  storage=..., client_id=..., assertion_provider=...)`. Build the assertion with
+  `SignedJWTParameters(issuer=..., subject=..., signing_key=...).create_assertion_provider()`
+  (replaces `JWTParameters` signing fields), or wrap a prebuilt JWT with
+  `static_assertion_provider(token)` (replaces `JWTParameters(assertion=...)`).
+- Presenting an enterprise ID-JAG under the `jwt-bearer` grant
+  ([SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)):
+  `IdentityAssertionOAuthProvider` in `mcp.client.auth.extensions.identity_assertion`.
+
+The provider's third mode — the interactive `authorization_code` flow with `private_key_jwt`
+client authentication on the token exchange — has no replacement and is intentionally dropped; it
+was never exercised by the test suite and no MCP auth extension specifies it. If you depended on
+it, open an issue describing the deployment.
 
 ### OAuth metadata URLs no longer gain a trailing slash
 
@@ -1915,6 +2050,40 @@ async def callback_handler() -> AuthorizationCodeResult:
 ```
 
 Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
+
+### `scopes=` renamed to `scope=` on the client-credentials providers
+
+`ClientCredentialsOAuthProvider` and `PrivateKeyJWTOAuthProvider` took the requested scope as a keyword named `scopes`, even though the value is a single space-separated string, not a list. The parameter is now `scope`, matching the RFC 6749 wire parameter, `OAuthClientMetadata.scope`, and the newer `IdentityAssertionOAuthProvider`.
+
+**Before (v1):**
+
+```python
+ClientCredentialsOAuthProvider(..., scopes="read write")
+```
+
+**After (v2):**
+
+```python
+ClientCredentialsOAuthProvider(..., scope="read write")
+```
+
+### `timeout` parameter removed from `OAuthClientProvider`
+
+`OAuthClientProvider` no longer accepts a `timeout` argument, and `OAuthContext.timeout` is gone. The value was stored but never read, so it never bounded anything — removing it changes nothing at runtime.
+
+**Before (v1):**
+
+```python
+provider = OAuthClientProvider(server_url, client_metadata, storage, timeout=120.0)
+```
+
+**After (v2):**
+
+```python
+provider = OAuthClientProvider(server_url, client_metadata, storage)
+```
+
+If you passed `timeout` to bound how long you wait for the user to complete authorization, apply that bound where you actually wait — inside your `redirect_handler`/`callback_handler`, e.g. `with anyio.fail_after(120): ...`.
 
 ### Client rejects authorization server metadata with a mismatched `issuer`
 

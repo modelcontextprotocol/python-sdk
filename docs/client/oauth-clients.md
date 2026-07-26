@@ -83,7 +83,7 @@ The first time `Client` sends a request, the server answers `401`. The provider 
 
 After that it is quiet. Tokens come out of storage, an expired access token is refreshed with the refresh token, and only when none of that works does it run the flow again.
 
-You wrote none of it. Three keyword arguments remain (`timeout`, `client_metadata_url` and `validate_resource_url`), and this file needs none of them. `client_metadata_url` is the one worth knowing about; it gets its own section below.
+You wrote none of it. Two keyword arguments remain (`client_metadata_url` and `validate_resource_url`), and this file needs neither. `client_metadata_url` is the one worth knowing about; it gets its own section below.
 
 ### Try it
 
@@ -112,7 +112,7 @@ A nightly job, a CI step, another service. There is no browser and nobody to cli
 What changed:
 
 * No `OAuthClientMetadata`, no handlers. You pass `client_id` and `client_secret`; the provider builds a minimal `client_credentials` registration around them and skips dynamic registration entirely.
-* `scopes` is a space-separated string, the OAuth wire format.
+* `scope` is a space-separated string, the OAuth wire format.
 * Everything downstream is identical: the same `TokenStorage`, the same `httpx2.AsyncClient(auth=...)`, the same `streamable_http_client`.
 
 By default the secret travels as HTTP Basic auth on the token request (`client_secret_basic`). Pass `token_endpoint_auth_method="client_secret_post"` to put it in the form body instead. Some authorization servers only accept one of the two.

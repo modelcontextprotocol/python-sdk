@@ -9,10 +9,22 @@ from pathlib import Path
 
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import CallToolResult, TextContent, TextResourceContents
+from mcp_types import SERVER_INFO_META_KEY, CallToolResult, TextContent, TextResourceContents
 from pytest_examples import CodeExample, EvalExample, find_examples
 
 from mcp import Client
+
+
+def strip_server_info(result: CallToolResult, server_name: str) -> CallToolResult:
+    """Assert the 2026-era serverInfo stamp, then drop it from the result's meta.
+
+    The example servers set no explicit version, so the stamp's version is
+    empty; the snapshots stay about the behavior under test, not identity.
+    """
+    assert result.meta is not None
+    assert result.meta[SERVER_INFO_META_KEY] == {"name": server_name, "version": ""}
+    remaining = {k: v for k, v in result.meta.items() if k != SERVER_INFO_META_KEY}
+    return result.model_copy(update={"meta": remaining or None})
 
 
 @pytest.mark.anyio
@@ -21,7 +33,7 @@ async def test_simple_echo():
     from examples.mcpserver.simple_echo import mcp
 
     async with Client(mcp) as client:
-        result = await client.call_tool("echo", {"text": "hello"})
+        result = strip_server_info(await client.call_tool("echo", {"text": "hello"}), "Echo Server")
         assert result == snapshot(
             CallToolResult(content=[TextContent(text="hello")], structured_content={"result": "hello"})
         )
@@ -35,6 +47,7 @@ async def test_complex_inputs():
     async with Client(mcp) as client:
         tank = {"shrimp": [{"name": "bob"}, {"name": "alice"}]}
         result = await client.call_tool("name_shrimp", {"tank": tank, "extra_names": ["charlie"]})
+        result = strip_server_info(result, "Shrimp Tank")
         assert result == snapshot(
             CallToolResult(
                 content=[
@@ -53,7 +66,8 @@ async def test_direct_call_tool_result_return():
     from examples.mcpserver.direct_call_tool_result_return import mcp
 
     async with Client(mcp) as client:
-        result = await client.call_tool("echo", {"text": "hello"})
+        # The serverInfo stamp merges alongside the handler-authored meta.
+        result = strip_server_info(await client.call_tool("echo", {"text": "hello"}), "Echo Server")
         assert result == snapshot(
             CallToolResult(
                 meta={"some": "metadata"},  # type: ignore[reportUnknownMemberType]
@@ -80,7 +94,7 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     async with Client(mcp) as client:
         # Test the sum function
-        result = await client.call_tool("sum", {"a": 1, "b": 2})
+        result = strip_server_info(await client.call_tool("sum", {"a": 1, "b": 2}), "Demo")
         assert result == snapshot(CallToolResult(content=[TextContent(text="3")], structured_content={"result": 3}))
 
         # Test the desktop resource

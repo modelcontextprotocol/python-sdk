@@ -44,8 +44,8 @@ from mcp_types import PromptArgument as MCPPromptArgument
 from mcp_types import Resource as MCPResource
 from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
+from pydantic import BaseModel
 from pydantic.networks import AnyUrl
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -64,7 +64,7 @@ from mcp.server.extension import (
     Extension,
     MethodBinding,
     RequestHandler,
-    compose_tool_call_interceptor,
+    compose_tool_call_handler,
     validate_extension_identifier,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -98,20 +98,8 @@ logger = get_logger(__name__)
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
-class Settings(BaseSettings, Generic[LifespanResultT]):
-    """MCPServer settings.
-
-    All settings can be configured via environment variables with the prefix MCP_.
-    For example, MCP_DEBUG=true will set debug=True.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="MCP_",
-        env_file=".env",
-        env_nested_delimiter="__",
-        nested_model_default_partial_update=True,
-        extra="ignore",
-    )
+class Settings(BaseModel, Generic[LifespanResultT]):
+    """MCPServer settings, as passed to the `MCPServer` constructor."""
 
     # Server settings
     debug: bool
@@ -165,7 +153,7 @@ class MCPServer(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
-        version: str | None = None,
+        version: str = "",
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         *,
@@ -228,8 +216,9 @@ class MCPServer(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        # Ordering: inside OpenTelemetry (spans record the sealed wire form),
-        # outside extension interceptors (extensions see plaintext).
+        # Ordering: inside OpenTelemetry (spans record the sealed wire form).
+        # Extension interceptors run at the handler layer, inside this
+        # boundary, so they see plaintext.
         if request_state_security is None:
             security = RequestStateSecurity.ephemeral()
         else:
@@ -289,7 +278,7 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.icons
 
     @property
-    def version(self) -> str | None:
+    def version(self) -> str:
         return self._lowlevel_server.version
 
     @property
@@ -334,13 +323,20 @@ class MCPServer(Generic[LifespanResultT]):
         self._lowlevel_server.extensions[extension.identifier] = extension.settings()
 
     def _install_extension_interceptor(self) -> None:
-        """Compose every extension's `tools/call` interceptor into one middleware.
+        """Wrap the `tools/call` handler with every extension's interceptor.
 
         Installed only when at least one extension overrides `intercept_tool_call`,
-        so a server with purely additive extensions adds no middleware.
+        so a server with purely additive extensions keeps the bare handler. The
+        chain wraps the handler itself, below the runner's outbound envelope
+        pass, so a short-circuiting interceptor's result is sieved and stamped
+        exactly like a handler result.
         """
         if any(type(e).intercept_tool_call is not Extension.intercept_tool_call for e in self._extensions):
-            self._lowlevel_server.middleware.append(compose_tool_call_interceptor(self._extensions))
+            self._lowlevel_server.add_request_handler(
+                "tools/call",
+                CallToolRequestParams,
+                compose_tool_call_handler(self._extensions, self._handle_call_tool),
+            )
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -1320,8 +1316,8 @@ def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: st
         MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
             did not advertise `identifier`.
     """
-    client_params = ctx.session.client_params
-    declared = client_params.capabilities.extensions if client_params else None
+    capabilities = ctx.session.client_capabilities
+    declared = capabilities.extensions if capabilities else None
     if not declared or identifier not in declared:
         data = MissingRequiredClientCapabilityErrorData(
             required_capabilities=ClientCapabilities(extensions={identifier: {}})

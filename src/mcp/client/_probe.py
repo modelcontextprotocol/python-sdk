@@ -9,8 +9,13 @@ Every ``MCPError`` falls back except ``-32022`` with a disjoint modern-only
 ``supported`` list. The streamable-HTTP transport already maps HTTP-layer
 4xx rejections (no JSON-RPC body) into ``MCPError`` codes, so those reach
 the same path. Any non-``MCPError`` exception (network/connection errors,
-anyio cancellation, the ``RuntimeError`` from ``adopt()`` on no-mutual)
-propagates to the caller; an outage or in-process bug is never an era verdict.
+anyio cancellation) propagates to the caller; an outage or in-process bug
+is never an era verdict.
+
+A successful ``DiscoverResult`` whose ``supportedVersions`` shares no modern
+version with this client is treated the same way: the server speaks discover
+but advertises only handshake-era versions, which is a legacy advertisement,
+not an incompatibility.
 
 The fallback handshake itself can be answered with ``-32022`` — e.g. a probe
 that timed out client-side but succeeded on a slow-starting server locked the
@@ -89,12 +94,20 @@ async def negotiate_auto(session: ClientSession) -> None:
                 version = mutual[-1]
                 continue
             return
-        # any other exception (httpx2.TransportError, ConnectionError, anyio errors,
-        # RuntimeError from adopt) → propagate
+        # any other exception (httpx2.TransportError, ConnectionError,
+        # anyio errors) → propagate
         try:
             result = types.DiscoverResult.model_validate(raw)
         except ValidationError:
             await session.initialize()  # unparseable result → not modern evidence
+            return
+        if not any(v in result.supported_versions for v in MODERN_PROTOCOL_VERSIONS):
+            # A discover-answering server that advertises no modern version
+            # (go-sdk's stateful streamable default does this) is an explicit
+            # legacy advertisement: fall back like the -32022 branch above
+            # instead of letting `adopt()` raise. The ts and go clients fall
+            # back here too.
+            await session.initialize()
             return
         session.adopt(result)
         return

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +14,33 @@ import httpx2
 import pydantic
 import pydantic_core
 from mcp_types import Annotations, Icon, InputRequiredResult
-from pydantic import Field, ValidationInfo, validate_call
+from pydantic import Field, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
+
+# `application/*` types that are textual but predate the `+json`/`+xml`
+# structured-syntax suffixes, so the suffix rule below can't catch them.
+_TEXTUAL_APPLICATION_TYPES = frozenset({"application/json", "application/xml"})
+
+
+def _default_file_encoding(mime_type: str) -> str | None:
+    """The encoding a file of this mime type is decoded with by default.
+
+    A declared `charset=` parameter wins. Otherwise textual types (`text/*`, JSON,
+    XML) are `utf-8-sig` — UTF-8 that also tolerates a byte-order mark — and
+    everything else is bytes (None).
+    """
+    essence, *params = (part.strip() for part in mime_type.split(";"))
+    for param in params:
+        name, _, value = param.partition("=")
+        if name.strip().lower() == "charset" and value:
+            return value.strip().strip('"')
+    essence = essence.lower()
+    if essence.startswith("text/") or essence.endswith(("+json", "+xml")) or essence in _TEXTUAL_APPLICATION_TYPES:
+        return "utf-8-sig"
+    return None
 
 
 class TextResource(Resource):
@@ -122,17 +145,17 @@ class FunctionResource(Resource):
 class FileResource(Resource):
     """A resource that reads from a file.
 
-    Set is_binary=True to read the file as binary data instead of text.
+    The file is decoded with `encoding` and served as text, or read as bytes and
+    served as a base64 blob when `encoding` is None. When `encoding` is omitted it
+    defaults to the `charset` declared in `mime_type`, else `"utf-8-sig"` for
+    textual mime types (`text/*`, JSON, XML) and None for everything else; pass
+    it explicitly to override either way.
     """
 
     path: Path = Field(description="Path to the file")
-    is_binary: bool = Field(
-        default=False,
-        description="Whether to read the file as binary data",
-    )
-    mime_type: str = Field(
-        default="text/plain",
-        description="MIME type of the resource content",
+    encoding: str | None = Field(
+        default_factory=lambda data: _default_file_encoding(data["mime_type"]),
+        description="Text encoding used to decode the file, or None to serve its bytes as a blob",
     )
 
     @pydantic.field_validator("path")
@@ -143,21 +166,27 @@ class FileResource(Resource):
             raise ValueError("Path must be absolute")
         return path
 
-    @pydantic.field_validator("is_binary")
+    @pydantic.field_validator("encoding")
     @classmethod
-    def set_binary_from_mime_type(cls, is_binary: bool, info: ValidationInfo) -> bool:
-        """Set is_binary based on mime_type if not explicitly set."""
-        if is_binary:
-            return True
-        mime_type = info.data.get("mime_type", "text/plain")
-        return not mime_type.startswith("text/")
+    def validate_text_encoding(cls, encoding: str | None) -> str | None:
+        """Ensure the encoding names a usable text codec, so a mistake fails at construction not at read."""
+        if encoding is not None:
+            # Decoding a probe byte rejects both unknown names and codecs that
+            # aren't text encodings (base64_codec, rot13, ...) via LookupError.
+            try:
+                b"x".decode(encoding)
+            except LookupError as e:
+                raise ValueError(str(e)) from e
+            except UnicodeError:
+                pass  # a real text encoding; the probe byte just doesn't decode in it
+        return encoding
 
     async def read(self) -> str | bytes:
         """Read the file content."""
         try:
-            if self.is_binary:
+            if self.encoding is None:
                 return await anyio.to_thread.run_sync(self.path.read_bytes)
-            return await anyio.to_thread.run_sync(self.path.read_text)
+            return await anyio.to_thread.run_sync(partial(self.path.read_text, encoding=self.encoding))
         except Exception as e:
             raise ValueError(f"Error reading file {self.path}: {e}")
 

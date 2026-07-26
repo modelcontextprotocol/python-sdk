@@ -137,44 +137,9 @@ There is no error string for this, which is exactly why it is hard to search. Th
 * **Is the tool on the `mcp` the host is running?** A second `MCPServer(...)` in another module is a different, empty server. Check which object the host's command actually imports.
 * **Did two tools share a name?** Then one of them is gone. Look for `Tool already exists:` in the server log.
 * **Is the host's list stale?** Adding a tool after startup only reaches clients that handle `notifications/tools/list_changed`. Restarting the host is the blunt fix.
-* **Did something write to `stdout`?** On a stdio transport, stdout *is* the protocol: one stray `print()` and the host drops the connection, which some hosts render as a server with nothing in it. Log with the `logging` module instead. The rest of the host-side checklist is on **[Connect to a real host](get-started/real-host.md)**.
+* **Did something write to `stdout` outside the diverted window?** While serving, the SDK diverts *flushed* stray stdout to stderr (best-effort: an environment that replaces the standard streams is served as-is), but output flushed to stdout earlier (a wrapper script echoing, an import-time `print()` in an unbuffered process) or a buffered `print()` drained at interpreter exit lands on the protocol stream, and one junk line can make the host drop the connection, which some hosts render as a server with nothing in it. Log with the `logging` module instead. The rest of the host-side checklist is on **[Connect to a real host](get-started/real-host.md)**.
 
 An "invalid" tool name is *not* on that list: a non-conforming name logs a warning but the tool is registered and listed anyway.
-
-## My stdio tool hangs when it starts a subprocess on Windows
-
-Your server is running over `stdio`, and a tool starts another process with
-`asyncio.create_subprocess_exec`, `asyncio.create_subprocess_shell`, or
-`subprocess.Popen`. The tool call never returns on Windows, while the same code
-works over an HTTP transport.
-
-The child inherited the server's stdin. In a stdio server, stdin is the protocol
-pipe and the server is already waiting on it for the next JSON-RPC message. A
-Python child process on Windows can block during startup when it inherits that
-same pipe.
-
-If you do not intend to send input to the child, redirect its stdin:
-
-```python
-import asyncio
-import subprocess
-import sys
-
-
-async def run_script() -> tuple[bytes, bytes]:
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "script.py",
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return await process.communicate()
-```
-
-Use the same idea with `subprocess.Popen(..., stdin=subprocess.DEVNULL)`. Also
-capture or redirect the child's stdout. The stdio server's stdout is the MCP
-wire, so a child that writes there can corrupt the connection.
 
 ## `MCPError: Server returned an error response`
 

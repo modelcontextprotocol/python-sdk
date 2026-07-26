@@ -28,12 +28,11 @@ from mcp_types import (
 )
 
 from mcp import MCPError, UrlElicitationRequiredError
-from mcp.client import ClientRequestContext, ClientSession
+from mcp.client import ClientRequestContext, ClientSession, IncomingMessage
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio

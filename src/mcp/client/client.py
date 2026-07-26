@@ -52,6 +52,7 @@ from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
     ElicitationFnT,
+    IncomingMessage,
     ListRootsFnT,
     LoggingFnT,
     MessageHandlerFnT,
@@ -68,7 +69,6 @@ from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import event_to_notification
 
 logger = logging.getLogger(__name__)
@@ -155,9 +155,7 @@ def _strip_userinfo(url: str) -> str:
 def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
     """Wrap the session message handler with cache eviction on server notifications."""
 
-    async def handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def handler(message: IncomingMessage) -> None:
         if isinstance(message, types.ServerNotification):
             try:
                 await cache.evict_for_notification(message)
@@ -176,7 +174,6 @@ def _synthesize_discover(protocol_version: str) -> types.DiscoverResult:
     return types.DiscoverResult(
         supported_versions=[protocol_version],
         capabilities=types.ServerCapabilities(),
-        server_info=types.Implementation(name="", version=""),
         result_type="complete",
         ttl_ms=0,
         cache_scope="public",
@@ -350,14 +347,15 @@ class Client:
     transparently by `call_tool`), and its notification bindings. For an
     ad-only entry use `mcp.client.advertise(identifier, settings)`."""
 
-    cache: CacheConfig | Literal[False] | None = None
+    cache: CacheConfig | None = field(default_factory=CacheConfig)
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
 
-    `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
-    in-memory store; pass a `CacheConfig` to customize, or `False` to disable. The
-    cacheable verbs take a per-call `cache_mode` (see `CacheMode`); calls carrying
-    `meta` always reach the server. A `CacheConfig` with a custom `store` requires
-    `target_id` when the server is not a URL (no identity can be derived)."""
+    The default `CacheConfig()` honors server `ttlMs`/`cacheScope` hints with a
+    per-client in-memory store; pass a customized `CacheConfig`, or `None` to
+    disable. The cacheable verbs take a per-call `cache_mode` (see `CacheMode`);
+    calls carrying `meta` always reach the server. A `CacheConfig` with a custom
+    `store` requires `target_id` when the server is not a URL (no identity can be
+    derived)."""
 
     _entered: bool = field(init=False, default=False)
     _session: ClientSession | None = field(init=False, default=None)
@@ -389,8 +387,8 @@ class Client:
         else:
             self._connect = _connect_transport(srv)
 
-        if self.cache is not False:
-            config = self.cache if self.cache is not None else CacheConfig()
+        if self.cache is not None:
+            config = self.cache
             # Only the hash below leaves this scope - the raw identity may carry credentials; never log or store it.
             target_id = config.target_id
             if target_id is None and isinstance(self.server, str):
@@ -453,7 +451,8 @@ class Client:
                 session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
             # Only publish the session after the handshake succeeds, so `_session is not None`
-            # implies the protocol_version/server_info/server_capabilities are populated. If the
+            # implies the protocol_version/server_capabilities are populated (server_info
+            # stays optional: 2026-era servers may not identify themselves). If the
             # handshake raised above, the local exit_stack unwinds the transport for us.
             self._session = session
             self._exit_stack = exit_stack.pop_all()
@@ -479,18 +478,24 @@ class Client:
         return self._session
 
     # TODO(maxisbey): the by-construction shape is for __aenter__ to return a connected-view
-    # type whose protocol_version/server_info/server_capabilities are non-Optional fields,
+    # type whose protocol_version/server_capabilities are non-Optional fields,
     # eliminating these guards (and the one in .session). Same family as resolving the
     # transport/connector at __post_init__ so the Optional internal fields disappear.
+    # (server_info stays Optional even connected: the 2026-era stamp is optional.)
     @property
     def protocol_version(self) -> str:
         """Negotiated protocol version (set by initialize/discover/adopt during ``__aenter__``)."""
         return _connected(self.session.protocol_version)
 
     @property
-    def server_info(self) -> Implementation:
-        """Server name/version (set by initialize/discover/adopt during ``__aenter__``)."""
-        return _connected(self.session.server_info)
+    def server_info(self) -> Implementation | None:
+        """Server name/version, or `None` when the server did not identify itself.
+
+        Legacy connections always carry it (`InitializeResult.serverInfo` is
+        required); on 2026-era connections the `_meta` `serverInfo` stamp is
+        optional, so an anonymous server reads as `None`.
+        """
+        return self.session.server_info
 
     @property
     def server_capabilities(self) -> ServerCapabilities:

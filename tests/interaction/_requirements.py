@@ -354,8 +354,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:stateless:request-envelope": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
         behavior=(
-            "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion, "
-            "/clientInfo, and /clientCapabilities in params._meta; no initialize handshake occurs."
+            "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion "
+            "and /clientCapabilities in params._meta (/clientInfo is optional); no initialize handshake occurs."
         ),
         added_in="2026-07-28",
     ),
@@ -408,7 +408,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#discover",
         behavior=(
             "Calling discover() sends server/discover with no params and returns a typed DiscoverResult "
-            "carrying protocolVersion, capabilities, serverInfo and the cache hint fields."
+            "carrying supportedVersions, capabilities and the cache hint fields; the server's identity "
+            "travels as the io.modelcontextprotocol/serverInfo stamp in the result _meta."
         ),
         added_in="2026-07-28",
     ),
@@ -3261,8 +3262,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "hosting:http:modern:discover-response-shape": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/index",
         behavior=(
-            "A 2026-07-28 server/discover response carries supportedVersions, capabilities, and "
-            "serverInfo, with supportedVersions naming the modern protocol revisions the server accepts."
+            "A 2026-07-28 server/discover response carries supportedVersions and capabilities in the "
+            "result body, with supportedVersions naming the modern protocol revisions the server "
+            "accepts; serverInfo is not a body field and travels as the io.modelcontextprotocol/serverInfo "
+            "result _meta stamp."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
@@ -3916,9 +3919,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over stdio: stdin/stdout purity is stdio-specific.",
         divergence=Divergence(
             note=(
-                "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
-                "handler code that calls print() writes directly to the protocol stream and corrupts the "
-                "framing. The spec MUST is satisfied only as long as application code behaves."
+                "While serving, stdio_server moves the wire to private descriptors and diverts fd 0/1, so "
+                "handler code and its child processes can neither read protocol bytes nor write into the "
+                "stream (pinned by tests/server/test_stdio.py). Remaining gaps: output flushed to stdout "
+                "before the transport enters can still precede the first frame, and the claim is "
+                "best-effort - skipped for explicitly injected streams and for processes without "
+                "normal standard descriptors."
             ),
         ),
     ),

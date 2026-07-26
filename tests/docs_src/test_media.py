@@ -93,6 +93,7 @@ def test_raw_data_without_a_format_falls_back_to_a_default_mime_type() -> None:
 async def test_icons_are_visible_where_they_were_declared() -> None:
     """tutorial004: server icons land on `server_info`, tool icons on the `Tool`, resource icons on the `Resource`."""
     async with Client(tutorial004.mcp) as client:
+        assert client.server_info is not None
         assert client.server_info.icons == [
             Icon(src="https://example.com/brand-kit.png", mime_type="image/png", sizes=["48x48"])
         ]

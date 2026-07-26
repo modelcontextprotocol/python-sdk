@@ -30,7 +30,7 @@ Everything else on this page is identical across all three. Headers, subprocesse
 
 Four read-only properties, populated the moment you enter the block:
 
-* `client.server_info`: the server's identity. `server_info.name` here is `"Bookshop"`, `server_info.version` is whatever the server reports.
+* `client.server_info`: the server's identity, or `None` for a 2026-era server that does not report one (python-sdk servers do by default). `server_info.name` here is `"Bookshop"`, `server_info.version` is whatever the server reports.
 * `client.server_capabilities`: what the server can do (`tools`, `resources`, `prompts`, `completions`, ...). A capability the server doesn't have is `None`.
 * `client.protocol_version`: the protocol version the two sides agreed on. Here it is `"2026-07-28"`.
 * `client.instructions`: the server's `instructions=` string, or `None` if it didn't set one.
@@ -202,7 +202,7 @@ There is one constructor flag built for that: `Client(mcp, raise_exceptions=True
 ## Recap
 
 * `Client(x)` connects in-memory to a server object, over Streamable HTTP to a URL string, and over anything else via a transport.
-* `async with` is the whole lifecycle. Inside it, `server_info`, `server_capabilities`, `protocol_version` and `instructions` are already populated.
+* `async with` is the whole lifecycle. Inside it, `server_capabilities` and `protocol_version` are already populated; `server_info` and `instructions` are too when the server provides them.
 * `list_tools()` gives you each tool's `name`, `title`, `description` and `input_schema`.
 * `call_tool()` returns `content` for the model, `structured_content` for your code, and `is_error`. A raising tool is a result, not an exception.
 * `content` is a union of block types; narrow with `isinstance` before reading.

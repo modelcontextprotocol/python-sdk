@@ -103,7 +103,6 @@ class OAuthContext:
     storage: TokenStorage
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None
-    timeout: float = 300.0
     client_metadata_url: str | None = None
 
     # Discovered metadata
@@ -233,7 +232,6 @@ class OAuthClientProvider(httpx2.Auth):
         storage: TokenStorage,
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
         callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
-        timeout: float = 300.0,
         client_metadata_url: str | None = None,
         validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
     ):
@@ -245,7 +243,6 @@ class OAuthClientProvider(httpx2.Auth):
             storage: Token storage implementation.
             redirect_handler: Handler for authorization redirects.
             callback_handler: Handler for authorization callbacks.
-            timeout: Timeout for the OAuth flow.
             client_metadata_url: URL-based client ID. When provided and the server
                 advertises client_id_metadata_document_supported=True, this URL will be
                 used as the client_id instead of performing dynamic client registration.
@@ -271,7 +268,6 @@ class OAuthClientProvider(httpx2.Auth):
             storage=storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
-            timeout=timeout,
             client_metadata_url=client_metadata_url,
         )
         self._validate_resource_url_callback = validate_resource_url
@@ -383,9 +379,7 @@ class OAuthClientProvider(httpx2.Auth):
             token_url = urljoin(auth_base_url, "/token")
         return token_url
 
-    async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
-    ) -> httpx2.Request:
+    async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str) -> httpx2.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided for authorization code grant")  # pragma: no cover
@@ -393,16 +387,13 @@ class OAuthClientProvider(httpx2.Auth):
             raise OAuthFlowError("Missing client info")  # pragma: no cover
 
         token_url = self._get_token_endpoint()
-        token_data = token_data or {}
-        token_data.update(
-            {
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
-                "client_id": self.context.client_info.client_id,
-                "code_verifier": code_verifier,
-            }
-        )
+        token_data: dict[str, Any] = {
+            "grant_type": "authorization_code",
+            "code": auth_code,
+            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
+            "client_id": self.context.client_info.client_id,
+            "code_verifier": code_verifier,
+        }
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):

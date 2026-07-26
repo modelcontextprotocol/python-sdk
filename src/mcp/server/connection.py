@@ -147,9 +147,13 @@ class Connection:
 
     session_id: str | None
 
-    client_params: InitializeRequestParams | None
-    """The full `initialize` request params, or the equivalent built from the
-    2026-era envelope. `None` when no client info was supplied."""
+    client_capabilities: ClientCapabilities | None
+    """The capabilities the peer declared: the handshake's on the loop path,
+    the request envelope's on the modern path. `None` when none were declared.
+    Kept in lockstep with `client_params` by its setter, and settable on its
+    own for the modern envelope, where capabilities are required but client
+    info is optional (spec PR #3002) - capability checks must not depend on the
+    peer having identified itself."""
 
     protocol_version: str
     """The protocol version this connection speaks. Populated at construction
@@ -180,10 +184,28 @@ class Connection:
         self.outbound = outbound
         self.protocol_version = protocol_version
         self.session_id = session_id
+        self.client_capabilities = None
         self.client_params = client_params
         self.initialized = anyio.Event()
         self.state = {}
         self.exit_stack = AsyncExitStack()
+
+    @property
+    def client_params(self) -> InitializeRequestParams | None:
+        """The full `initialize` request params, or the equivalent built from the
+        2026-era envelope. `None` when no client info was supplied."""
+        return self._client_params
+
+    @client_params.setter
+    def client_params(self, value: InitializeRequestParams | None) -> None:
+        # Assignment is the sync point: recording full client params (the
+        # handshake commit, or a modern envelope carrying client info) also
+        # records the capabilities fact, so the two can never drift. Clearing
+        # to `None` leaves `client_capabilities` alone - the modern envelope
+        # declares capabilities without client info.
+        self._client_params = value
+        if value is not None:
+            self.client_capabilities = value.capabilities
 
     @classmethod
     def from_envelope(
@@ -201,13 +223,15 @@ class Connection:
         values. `client_info` and `client_capabilities` are the raw envelope
         values: this constructor owns turning them into connection identity,
         identically on every modern entry, so a mis-shaped value degrades to
-        not-supplied rather than failing the request. `initialized`
-        is set and the info/capabilities (when both supplied and well-formed)
-        are recorded as `client_params` so capability checks work. `outbound`
-        defaults to the no-channel sentinel for the single-exchange HTTP path;
-        duplex modern transports (e.g. stdio) pass a notify-only wrapper
-        around the dispatcher so server notifications ride the pipe while
-        server-initiated requests stay refused.
+        not-supplied rather than failing the request. `initialized` is set,
+        well-formed capabilities are recorded as `client_capabilities` (client
+        info is optional per spec PR #3002, so capability checks never depend on
+        it), and the full `client_params` is additionally synthesized when
+        client info was supplied too. `outbound` defaults to the no-channel
+        sentinel for the single-exchange HTTP path; duplex modern transports
+        (e.g. stdio) pass a notify-only wrapper around the dispatcher so
+        server notifications ride the pipe while server-initiated requests
+        stay refused.
         """
         info = _typed(Implementation, client_info)
         capabilities = _typed(ClientCapabilities, client_capabilities)
@@ -219,6 +243,7 @@ class Connection:
                 client_info=info,
             )
         connection = cls(outbound, protocol_version=protocol_version, client_params=client_params)
+        connection.client_capabilities = capabilities
         connection.initialized.set()
         return connection
 
@@ -369,13 +394,13 @@ class Connection:
     def check_capability(self, capability: ClientCapabilities) -> bool:
         """Return whether the connected client declared the given capability.
 
-        Returns `False` when no client info has been recorded.
+        Returns `False` when no capabilities have been recorded.
         """
         # TODO(L53): redesign - mirrors v1 ServerSession.check_client_capability
         # verbatim for parity.
-        if self.client_params is None:
+        if self.client_capabilities is None:
             return False
-        have = self.client_params.capabilities
+        have = self.client_capabilities
         if capability.roots is not None:
             if have.roots is None:
                 return False

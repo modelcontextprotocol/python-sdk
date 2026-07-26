@@ -43,7 +43,7 @@ from starlette.routing import Mount
 from starlette.types import Message, Scope
 
 from mcp import MCPError
-from mcp.client import ClientRequestContext
+from mcp.client import ClientRequestContext, IncomingMessage
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
@@ -64,7 +64,6 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
 from tests.interaction.transports import StreamingASGITransport
 
 # Test constants
@@ -968,9 +967,7 @@ async def test_streamable_http_client_get_stream(basic_app: Starlette) -> None:
     notifications_received: list[types.ServerNotification] = []
 
     # Define message handler to capture notifications
-    async def message_handler(  # pragma: no branch
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no branch
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             notifications_received.append(message)
 
@@ -1128,9 +1125,7 @@ async def test_streamable_http_client_resumption(event_app: tuple[SimpleEventSto
     first_notification_received = anyio.Event()
     resumption_token_received = anyio.Event()
 
-    async def message_handler(  # pragma: no branch
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no branch
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             captured_notifications.append(message)
             # Look for our first notification
@@ -1798,14 +1793,11 @@ async def test_streamable_http_client_auto_reconnects(
     _, app = event_app
     captured_notifications: list[str] = []
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
-        if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
-                captured_notifications.append(str(message.params.data))
+        if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+            captured_notifications.append(str(message.params.data))
 
     async with (
         make_client(app) as http_client,
@@ -1866,14 +1858,11 @@ async def test_streamable_http_sse_polling_full_cycle(
     _, app = event_app
     all_notifications: list[str] = []
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
-        if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
-                all_notifications.append(str(message.params.data))
+        if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+            all_notifications.append(str(message.params.data))
 
     async with (
         make_client(app) as http_client,
@@ -1909,14 +1898,11 @@ async def test_streamable_http_events_replayed_after_disconnect(
     _, app = event_app
     notification_data: list[str] = []
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
-        if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
-                notification_data.append(str(message.params.data))
+        if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+            notification_data.append(str(message.params.data))
 
     async with (
         make_client(app) as http_client,
@@ -2042,14 +2028,11 @@ async def test_standalone_get_stream_reconnection(event_app: tuple[SimpleEventSt
     _, app = event_app
     received_notifications: list[str] = []
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:
         if isinstance(message, Exception):
             return  # pragma: no cover
-        if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message, types.ResourceUpdatedNotification):  # pragma: no branch
-                received_notifications.append(str(message.params.uri))
+        if isinstance(message, types.ResourceUpdatedNotification):  # pragma: no branch
+            received_notifications.append(str(message.params.uri))
 
     async with (
         make_client(app) as http_client,
@@ -2183,9 +2166,7 @@ async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pyt
     app = Starlette(routes=[Mount("/mcp", app=session_manager.handle_request)])
     notified = anyio.Event()
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:
         # Only the standalone-stream notification is teed to the handler here.
         assert isinstance(message, types.ResourceUpdatedNotification)
         notified.set()

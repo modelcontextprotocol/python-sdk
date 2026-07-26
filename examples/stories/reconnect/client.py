@@ -15,7 +15,11 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
         discovered = client.session.discover_result
         assert discovered is not None, "mode='auto' against a modern server populates discover_result"
         assert client.protocol_version == LATEST_MODERN_VERSION
-        assert client.server_info.name == "reconnect-example"
+        # On the 2026 era, server identity is an optional serverInfo stamp in the
+        # result _meta; an anonymous server reads as None. This one stamps it.
+        info = client.server_info
+        assert info is not None, "the server stamps serverInfo into its results"
+        assert info.name == "reconnect-example"
         assert LATEST_MODERN_VERSION in discovered.supported_versions
 
         result = await client.call_tool("add", {"a": 2, "b": 3})
@@ -28,11 +32,13 @@ async def main(targets: TargetFactory, *, mode: str = "auto") -> None:
 
     # Reconnect: a version pin plus the cached DiscoverResult adopts the prior state with
     # zero round-trips on entry. A Client cannot be re-entered after exit, so targets()
-    # yields a fresh one. Without prior_discover= a bare pin would synthesize a blank
-    # server_info — the cache is what makes the era-neutral accessors useful here.
+    # yields a fresh one. Without prior_discover= a bare pin would leave server_info
+    # None — the cache is what carries the server's identity stamp across reconnects.
     async with Client(targets(), mode=LATEST_MODERN_VERSION, prior_discover=rehydrated) as second:
         assert second.protocol_version == LATEST_MODERN_VERSION
-        assert second.server_info.name == "reconnect-example"
+        info = second.server_info
+        assert info is not None, "the cached DiscoverResult carries the serverInfo stamp"
+        assert info.name == "reconnect-example"
         assert second.server_capabilities.tools is not None
         assert second.session.discover_result == rehydrated
 
