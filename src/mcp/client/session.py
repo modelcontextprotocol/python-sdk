@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -73,6 +74,17 @@ def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
     ttl = raw.get("ttlMs")
     if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl < 0:
         raw["ttlMs"] = 0
+
+
+def _same_schema(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
+    """JSON equality for two output schemas.
+
+    Python `==` is not JSON equality: it conflates `True`/`1` and `False`/`0`, which JSON
+    Schema keeps distinct (`const: true` vs `const: 1`). Canonical serialization compares as
+    JSON does; where it is stricter (`1` vs `1.0`), erring toward "changed" only costs a
+    recompile, never a stale validator.
+    """
+    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
@@ -362,9 +374,9 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        # Compiled output-schema validators, each paired with the schema object it was built
-        # from so a re-listed tool can't be served a validator for its previous schema.
-        self._tool_output_validators: dict[str, tuple[dict[str, Any], Validator]] = {}
+        # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
+        # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
+        self._tool_output_validators: dict[str, Validator] = {}
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
@@ -1053,17 +1065,15 @@ class ClientSession:
                 jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
             )
             if error is not None:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {error}")
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {error}") from error
 
     def _output_schema_validator(self, name: str, output_schema: dict[str, Any]) -> Validator:
-        """Compiled validator for `output_schema`, built once and reused across calls.
+        """Compiled validator for the tool's cached output schema, built once per schema value.
 
         Compiling is ~60x the cost of validating, so a one-shot `jsonschema.validate()` per
-        result dominates `call_tool`. The cache holds the schema object it compiled alongside
-        the validator and only reuses it on an identity match: `_absorb_tool_listing` assigns a
-        freshly parsed schema object on every listing, so a server that changes a tool's schema
-        forces a rebuild rather than reusing the stale validator. Holding the reference also
-        keeps the allocator from recycling that identity behind our back.
+        result dominates `call_tool`; the compiled validator is cached instead. It stays valid
+        because `_absorb_tool_listing` evicts a tool's validator whenever it absorbs a different
+        schema for that tool, so a cached entry always matches `output_schema`.
 
         Raises:
             RuntimeError: The schema is not a valid JSON Schema. Raised on every call, since a
@@ -1072,18 +1082,18 @@ class ClientSession:
         from jsonschema import SchemaError
         from jsonschema.validators import validator_for
 
-        cached = self._tool_output_validators.get(name)
-        if cached is not None and cached[0] is output_schema:
-            return cached[1]
+        if (validator := self._tool_output_validators.get(name)) is not None:
+            return validator
 
         validator_cls = validator_for(output_schema)
         try:
             validator_cls.check_schema(output_schema)
         except SchemaError as e:
             raise RuntimeError(f"Invalid schema for tool {name}: {e}")
-        # The `Validator` protocol declares `registry` without a default; concrete classes have one.
+        # jsonschema ships no `py.typed`, so pyright reads typeshed's stub, which declares
+        # `registry` as required (concrete validators default it); cast to a schema-only ctor.
         validator = cast("Callable[[dict[str, Any]], Validator]", validator_cls)(output_schema)
-        self._tool_output_validators[name] = (output_schema, validator)
+        self._tool_output_validators[name] = validator
         return validator
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
@@ -1213,8 +1223,14 @@ class ClientSession:
                 kept.append(tool)
             result.tools = kept
 
-        # Cache tool output schemas for future validation; cursor pages only ever add.
+        # Cache tool output schemas for future validation; cursor pages only ever add. A
+        # changed schema evicts its compiled validator; an unchanged one (a re-listing, or the
+        # response cache re-absorbing a served hit) keeps it. Only validated tools pay the check.
         for tool in result.tools:
+            if tool.name in self._tool_output_validators and not _same_schema(
+                self._tool_output_schemas.get(tool.name), tool.output_schema
+            ):
+                del self._tool_output_validators[tool.name]
             self._tool_output_schemas[tool.name] = tool.output_schema
 
         if complete:
@@ -1223,6 +1239,7 @@ class ClientSession:
             names = {tool.name for tool in result.tools}
             self._x_mcp_header_maps = {k: v for k, v in self._x_mcp_header_maps.items() if k in names}
             self._tool_output_schemas = {k: v for k, v in self._tool_output_schemas.items() if k in names}
+            self._tool_output_validators = {k: v for k, v in self._tool_output_validators.items() if k in names}
 
         return result
 

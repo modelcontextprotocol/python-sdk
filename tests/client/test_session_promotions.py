@@ -74,6 +74,7 @@ async def test_validate_tool_result_raises_on_an_unusable_output_schema() -> Non
         result = CallToolResult(content=[], structured_content={"x": 1})
         for _ in range(2):
             # Compiling is never cached on failure, so the second call raises like the first.
+            # Stable SDK prefix only: the message tail is jsonschema text that shifts with the dependency.
             with pytest.raises(RuntimeError, match="Invalid schema for tool t"):
                 await client.session.validate_tool_result("t", result)
 
@@ -86,6 +87,21 @@ async def test_validate_tool_result_compiles_the_output_schema_once_per_tool() -
         result = CallToolResult(content=[], structured_content={"x": 1})
         await client.session.validate_tool_result("t", result)
         compiled = client.session._tool_output_validators["t"]
+        await client.session.validate_tool_result("t", result)
+        assert client.session._tool_output_validators["t"] is compiled
+
+
+@pytest.mark.anyio
+async def test_validate_tool_result_keeps_the_validator_across_a_relisting_of_the_same_schema() -> None:
+    """SDK-defined: an unchanged schema on a re-listing (or a re-absorbed cache hit) keeps its
+    compiled validator, so relisting between calls doesn't reintroduce the per-call compile."""
+    server = _make_server({"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]})
+    async with Client(server) as client:
+        result = CallToolResult(content=[], structured_content={"x": 1})
+        await client.session.validate_tool_result("t", result)
+        compiled = client.session._tool_output_validators["t"]
+
+        await client.session.list_tools()  # a second listing carrying an equal schema
         await client.session.validate_tool_result("t", result)
         assert client.session._tool_output_validators["t"] is compiled
 
