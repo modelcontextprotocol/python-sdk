@@ -245,6 +245,23 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
     assert body["error_description"].startswith("Requested scopes are not valid: ")
 
 
+@requirement("hosting:auth:as:register-echo")
+@pytest.mark.parametrize("application_type", ["web", "native"])
+async def test_registration_response_echoes_the_registered_application_type(
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
+    application_type: str,
+) -> None:
+    """The 201 body reflects the application_type the client registered (RFC 7591 §3.2.1)."""
+    http, _ = as_app
+    body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
+
+    response = await http.post("/register", json=body | {"application_type": application_type})
+
+    assert response.status_code == 201
+    info = OAuthClientInformationFull.model_validate_json(response.content)
+    assert info.application_type == application_type
+
+
 @requirement("hosting:auth:as:redirect-uri-binding")
 async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
     as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],

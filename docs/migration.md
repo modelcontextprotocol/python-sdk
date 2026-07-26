@@ -2179,6 +2179,27 @@ client_metadata = OAuthClientMetadata(
 
 Under OIDC, omitting `application_type` defaults to `"web"`, which an authorization server may reject for the `localhost` redirect URIs native clients use; sending `"native"` avoids that. Non-OIDC servers ignore the parameter.
 
+### `OAuthClientInformationFull` no longer subclasses `OAuthClientMetadata`, and parses server-substituted metadata
+
+`OAuthClientMetadata` is the registration request a client sends; `OAuthClientInformationFull` is the authorization server's record of a registered client, parsed from its Dynamic Client Registration response. In v1 the second inherited from the first, which typed the response as though it had to be a request this SDK would send. It does not: [RFC 7591 §3.2.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.1) lets the server "reject or replace any of the client's requested metadata values submitted during the registration and substitute them with suitable values", and real servers return an `application_type` outside OIDC Registration's `web`/`native`, an explicit `null`, a `token_endpoint_auth_method` the SDK does not implement, or an empty `redirect_uris`. The inherited strict types turned each of those into a `ValidationError` on a 2xx response - after the server had already provisioned the client, so the registration was discarded and orphaned.
+
+The two are now siblings over a shared `OAuthClientMetadataBase`. `OAuthClientMetadata` keeps its strict types (the SDK still refuses to *send* an unregistered `application_type`), while `OAuthClientInformationFull` accepts what a server may echo:
+
+```python
+# v1
+class OAuthClientInformationFull(OAuthClientMetadata): ...
+
+# v2
+class OAuthClientMetadata(OAuthClientMetadataBase): ...          # request: strict
+class OAuthClientInformationFull(OAuthClientMetadataBase): ...   # server record: tolerant
+```
+
+On `OAuthClientInformationFull`, `application_type` and `token_endpoint_auth_method` are now `str | None`, `grant_types` is `list[str]`, and `redirect_uris` is optional (`list[AnyUrl] | None`, no minimum length). `client_id` is now required (`str`): [RFC 7591 §3.2.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.1) makes it mandatory in the response, and a record of a registered client without one was never meaningful. Code that only reads these fields is unaffected. Code that relied on `isinstance(client_info, OAuthClientMetadata)`, or passed an `OAuthClientInformationFull` where an `OAuthClientMetadata` is expected, must reference the record type directly. `validate_scope()` and `validate_redirect_uri()` moved with the record: they are methods of `OAuthClientInformationFull` (the type authorization-server code holds) and are no longer available on `OAuthClientMetadata`.
+
+A registration response the server sends is no longer rejected on these fields (an echoed `""` for `token_endpoint_auth_method` or `application_type` is treated as absent, as it already was for the optional URL fields). Whether a substituted value is usable is decided where the value is used: a registered `token_endpoint_auth_method` this SDK does not recognize (anything other than `none`, `client_secret_post`, `client_secret_basic`, or `private_key_jwt`) now raises `OAuthTokenError` naming the method at the token exchange, rather than the token request being sent unauthenticated for the server to reject.
+
+The SDK's own registration endpoint also now returns all registered metadata in its 201 response (RFC 7591 §3.2.1), including the client's `application_type`, which v1 dropped from the echo (silently reporting the default in place of a client's `"web"`).
+
 ### Stricter client authentication at `/token` and `/revoke`
 
 v2 hardens client authentication on SDK-hosted authorization servers (`create_auth_routes`) in two ways. Both apply automatically; server code only needs changing if you hand-provision client records.

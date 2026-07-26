@@ -2940,6 +2940,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; Cache-Control is an HTTP header.",
     ),
+    "hosting:auth:as:register-echo": Requirement(
+        source="sdk",
+        behavior=(
+            "The bundled registration endpoint returns all registered metadata about the client "
+            "in its 201 response (RFC 7591 §3.2.1), including the client's `application_type` "
+            "rather than a substituted default."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
+    ),
     "hosting:auth:as:register-error-response": Requirement(
         source="sdk",
         behavior=(
@@ -3656,6 +3666,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A 400 from the registration endpoint surfaces to the caller as an OAuthRegistrationError "
             "carrying the status and the server's RFC 7591 error body."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:dcr:substituted-metadata": Requirement(
+        source="sdk",
+        behavior=(
+            "A 201 registration response whose echoed metadata the server substituted (RFC 7591 §3.2.1) - "
+            "an unregistered application_type, null redirect_uris, extra grant types - completes the flow; "
+            "a substituted token_endpoint_auth_method the client cannot apply is instead reported as an "
+            "OAuthRegistrationError before the record is persisted or authorization begins."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",

@@ -112,27 +112,17 @@ class RegistrationHandler:
             else None
         )
 
-        client_info = OAuthClientInformationFull(
-            client_id=client_id,
-            client_id_issued_at=client_id_issued_at,
-            client_secret=client_secret,
-            client_secret_expires_at=client_secret_expires_at,
-            # passthrough information from the client request
-            redirect_uris=client_metadata.redirect_uris,
-            token_endpoint_auth_method=client_metadata.token_endpoint_auth_method,
-            grant_types=client_metadata.grant_types,
-            response_types=client_metadata.response_types,
-            client_name=client_metadata.client_name,
-            client_uri=client_metadata.client_uri,
-            logo_uri=client_metadata.logo_uri,
-            scope=client_metadata.scope,
-            contacts=client_metadata.contacts,
-            tos_uri=client_metadata.tos_uri,
-            policy_uri=client_metadata.policy_uri,
-            jwks_uri=client_metadata.jwks_uri,
-            jwks=client_metadata.jwks,
-            software_id=client_metadata.software_id,
-            software_version=client_metadata.software_version,
+        # RFC 7591 §3.2.1: the response returns all registered metadata about the client, so
+        # the record is the whole validated request plus the credentials minted here - built
+        # from the request's dump so no metadata field can be silently omitted from the echo.
+        client_info = OAuthClientInformationFull.model_validate(
+            {
+                **client_metadata.model_dump(),
+                "client_id": client_id,
+                "client_id_issued_at": client_id_issued_at,
+                "client_secret": client_secret,
+                "client_secret_expires_at": client_secret_expires_at,
+            }
         )
         try:
             # Register client

@@ -301,8 +301,8 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
         content = await response.aread()
         client_info = OAuthClientInformationFull.model_validate_json(content)
         return client_info
-    except ValidationError as e:  # pragma: no cover
-        raise OAuthRegistrationError(f"Invalid registration response: {e}")
+    except ValidationError as e:
+        raise OAuthRegistrationError(f"Invalid registration response: {e}") from e
 
 
 def is_valid_client_metadata_url(url: str | None) -> bool:
@@ -381,8 +381,8 @@ def create_client_info_from_metadata_url(
 
     Args:
         client_metadata_url: The URL to use as the client_id
-        redirect_uris: The redirect URIs from the client metadata (passed through for
-            compatibility with OAuthClientInformationFull which inherits from OAuthClientMetadata)
+        redirect_uris: The redirect URIs from the client metadata, recorded on the client
+            information alongside the client_id
 
     Returns:
         OAuthClientInformationFull with the URL as client_id

@@ -11,7 +11,7 @@ import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, get_args
 from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
@@ -19,7 +19,7 @@ import httpx2
 from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -48,6 +48,7 @@ from mcp.shared.auth import (
     OAuthMetadata,
     OAuthToken,
     ProtectedResourceMetadata,
+    TokenEndpointAuthMethod,
 )
 from mcp.shared.auth_utils import (
     calculate_token_expiry,
@@ -57,6 +58,33 @@ from mcp.shared.auth_utils import (
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 logger = logging.getLogger(__name__)
+
+# Methods `OAuthContext.prepare_token_auth` recognizes on a registered client, derived from the
+# same set the SDK is willing to request so the two cannot drift. `None`/"none" send no client
+# secret; `private_key_jwt` adds no secret here (its assertion is supplied by
+# `PrivateKeyJWTOAuthProvider`). Anything else is a method this client cannot apply.
+_RECOGNIZED_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = (None, *get_args(TokenEndpointAuthMethod))
+
+
+def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
+    """Confirm a completed registration is one this client can act on.
+
+    RFC 7591 §3.2.1 lets the authorization server replace requested metadata and leaves it to
+    the client to "check the values in the response to determine if the registration is
+    sufficient for use". The one substitution that makes the minted credentials unusable is a
+    token-endpoint auth method this client cannot apply, so it is judged here - before the
+    record is persisted or any interactive authorization begins - rather than surfacing later
+    as an opaque failure at the token endpoint.
+
+    Raises:
+        OAuthRegistrationError: The server registered the client with a
+            `token_endpoint_auth_method` this client does not implement.
+    """
+    if client_info.token_endpoint_auth_method not in _RECOGNIZED_TOKEN_ENDPOINT_AUTH_METHODS:
+        raise OAuthRegistrationError(
+            "Authorization server registered the client with unsupported token_endpoint_auth_method "
+            f"{client_info.token_endpoint_auth_method!r}"
+        )
 
 
 class PKCEParameters(BaseModel):
@@ -190,6 +218,12 @@ class OAuthContext:
 
         Returns:
             Tuple of (updated_data, updated_headers)
+
+        Raises:
+            OAuthTokenError: The registered client's `token_endpoint_auth_method` is one this
+                client does not implement. The authorization server may assign a method other
+                than the one requested (RFC 7591 §3.2.1); the registration record accepts it,
+                and the mismatch is reported here, where the method is applied.
         """
         if headers is None:
             headers = {}  # pragma: no cover
@@ -212,7 +246,10 @@ class OAuthContext:
             # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id
             data["client_secret"] = self.client_info.client_secret
-        # For auth_method == "none", don't add any client_secret
+        elif auth_method not in _RECOGNIZED_TOKEN_ENDPOINT_AUTH_METHODS:
+            raise OAuthTokenError(f"Registered client uses unsupported token_endpoint_auth_method {auth_method!r}")
+        # For "none" (or absent), don't add any client_secret; "private_key_jwt" adds its
+        # assertion in the provider that implements it, not here.
 
         return data, headers
 
@@ -664,6 +701,7 @@ class OAuthClientProvider(httpx2.Auth):
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
+                            check_registration_usable(client_information)
                             # Only record the issuer when the registration above actually targeted
                             # the discovered AS — either via its published registration_endpoint,
                             # or because the resource-origin /register fallback is on the issuer's
