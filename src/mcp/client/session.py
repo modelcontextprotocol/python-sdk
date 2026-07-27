@@ -363,7 +363,6 @@ class ClientSession:
         self._extensions = dict(extensions) if extensions is not None else None
         self._result_claims = _index_claims(result_claims, extensions)
         self._notification_bindings = _index_bindings(notification_bindings)
-        self._warned_notification_drops: set[str] = set()
         self._active_claims: dict[str, ResultClaim[Any]] = {}
         self._call_tool_adapter = _CallToolResultAdapter
         self._binding_queues: dict[
@@ -528,13 +527,8 @@ class ClientSession:
             return result_type.validate_python(raw, by_name=False)
         return result_type.model_validate(raw, by_name=False)
 
-    async def send_notification(self, notification: types.ClientNotification | types.Notification[Any, Any]) -> None:
+    async def send_notification(self, notification: types.ClientNotification) -> None:
         """Send a one-way notification. Usable before entering the context manager.
-
-        Spec notifications are the `types.ClientNotification` union members; any
-        other `types.Notification` subclass is sent as-is, so extensions can emit
-        their own methods (a python-sdk server routes those to handlers registered
-        with `Server.add_notification_handler`).
 
         Fire-and-forget: after the connection has closed, the notification is
         dropped with a debug log instead of raising.
@@ -1340,11 +1334,9 @@ class ClientSession:
             # Only methods unknown to the negotiated version's core tables reach the bindings.
             binding = self._notification_bindings.get(method)
             if binding is None:
-                # The first drop of a method warns; repeats log at debug so a stream cannot flood the log.
-                level = logging.WARNING if method not in self._warned_notification_drops else logging.DEBUG
-                self._warned_notification_drops.add(method)
-                logger.log(
-                    level, "dropped %r: not defined at %s and no notification binding is registered", method, version
+                # A binding is the opt-in for methods core does not know; a no-op one silences the warning.
+                logger.warning(
+                    "dropped %r: not defined at %s and no notification binding is registered", method, version
                 )
                 return
             try:

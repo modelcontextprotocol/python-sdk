@@ -166,11 +166,16 @@ The constructor covers the methods MCP defines. `add_request_handler` covers eve
 * `params_type` is the model the incoming `params` are validated against **before** your handler runs, so custom methods *do* get the validation tools don't. Subclass `RequestParams` so the `_meta` field parses like every other method's.
 * The handler returns a `BaseModel`, a `dict`, or `None`. The SDK serialises it into the JSON-RPC result.
 
-Notifications have a twin in each direction. Inbound, `add_notification_handler(method, params_type, handler)` registers `async (ctx, params) -> None`. Spec-defined notification methods are validated against the negotiated version's tables before dispatch, and one that does not exist at that version is dropped with a warning. Custom methods skip the version gate; your `params_type` is their validation, and a custom notification nobody registered a handler for is dropped with a warning.
+Notifications have a twin in each direction. Inbound, `add_notification_handler(method, params_type, handler)` registers `async (ctx, params) -> None`. Spec-defined notification methods are validated against the negotiated version's tables before dispatch; custom methods skip the version gate, so your `params_type` is their validation.
 
 Outbound, `ctx.session.send_notification(...)` accepts any `mcp_types.Notification` subclass, not just the spec-defined union, so the notifying half of a vendor protocol is one model away:
 
 ```python
+from typing import Literal
+
+from mcp_types import Notification, NotificationParams
+
+
 class ReindexProgressParams(NotificationParams):
     percent: float
 
@@ -187,7 +192,7 @@ async def reindex(ctx: ServerRequestContext, params: ReindexParams) -> None:
     )
 ```
 
-Pass `related_request_id` so the notification rides the originating request's stream; the 2026-07-28 wire gives standalone notifications no channel outside `subscriptions/listen`. A python-sdk client observes vendor methods with a `NotificationBinding` (**[Extensions](extensions.md)**) and warns about ones it has no binding for.
+Pass `related_request_id` so the notification rides the originating request's stream; the 2026-07-28 wire gives standalone notifications no channel outside `subscriptions/listen`, and a streamable HTTP response answered with `json_response=True` has no stream, so notifications sent during it are dropped. A python-sdk client observes vendor methods with a `NotificationBinding` (**[Extensions](extensions.md)**) and warns on each one it has no binding for.
 
 One honest caveat: the high-level `Client` only has verbs for the methods MCP defines, so there is no `client.reindex()`. A vendor method is for a peer that already knows it exists: a client you also ship, or another service of yours speaking JSON-RPC.
 

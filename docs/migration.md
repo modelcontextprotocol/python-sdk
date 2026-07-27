@@ -1681,7 +1681,7 @@ session = ClientSession(
 )
 ```
 
-On the high-level `Client`, bindings are declared by a `ClientExtension`'s `notifications()`; see [Extensions](advanced/extensions.md). The sending direction also loses its `cast`: `send_notification` on both `ClientSession` and `ServerSession` accepts any `mcp_types.Notification` subclass, where v1 typed it to the closed unions.
+On the high-level `Client`, bindings are declared by a `ClientExtension`'s `notifications()`; see [Extensions](advanced/extensions.md). The server's sending direction also loses its `cast`: `ServerSession.send_notification` accepts any `mcp_types.Notification` subclass, where v1 typed it to the closed union.
 
 ### Experimental Tasks support removed
 

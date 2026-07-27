@@ -135,7 +135,7 @@ Two more. Neither declares anything.
 
 `logging_callback` receives every `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**[Logging](../handlers/logging.md)** has what to do instead), so this callback exists for the servers that still emit it.
 
-`message_handler` is the catch-all for spec traffic: every notification the negotiated protocol version defines reaches it (as well as its specific callback), and on a stream-backed transport so does every transport-level `Exception`. Vendor and extension methods are outside that set; they are delivered only to a matching `NotificationBinding` (**[Extensions](../advanced/extensions.md)**), and without one they are dropped with a warning. The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
+`message_handler` is the catch-all for spec traffic: every notification the negotiated protocol version defines reaches it (as well as its specific callback), except `notifications/cancelled`, which the session applies internally, and acknowledgements consumed by an open `listen()` stream. On a stream-backed transport it also receives every transport-level `Exception`. Vendor and extension methods are outside that set; they are delivered only to a matching `NotificationBinding` (**[Extensions](../advanced/extensions.md)**), and without one they are dropped with a warning. The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
 
 ## Recap
 

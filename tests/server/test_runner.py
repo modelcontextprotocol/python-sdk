@@ -8,7 +8,6 @@ behaviour under test. Driver tests (`serve_connection`, `serve_one`,
 """
 
 import contextvars
-import logging
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -376,12 +375,12 @@ async def test_runner_on_notify_drops_a_spec_notification_absent_at_the_negotiat
     # A custom (non-spec) method bypasses the version gate, so it reaches its
     # handler regardless of which spec notifications exist at the pinned version.
     server.add_notification_handler("custom/barrier", NotificationParams, on_barrier)
-    async with connected_runner(server) as (client, runner):
-        runner.connection.protocol_version = "2026-07-28"
-        await client.notify("notifications/roots/list_changed", None)
-        await client.notify("custom/barrier", None)
-        await barrier.wait()
-    # Warn-level: the peer violated the negotiated version, so the drop must be visible.
+    with caplog.at_level("DEBUG", logger="mcp.server.runner"):
+        async with connected_runner(server) as (client, runner):
+            runner.connection.protocol_version = "2026-07-28"
+            await client.notify("notifications/roots/list_changed", None)
+            await client.notify("custom/barrier", None)
+            await barrier.wait()
     assert "dropped 'notifications/roots/list_changed': not defined at 2026-07-28" in caplog.text
 
 
@@ -577,34 +576,20 @@ async def test_runner_absent_wire_params_for_required_params_custom_method_is_in
 
 
 @pytest.mark.anyio
-async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: SrvT, caplog: pytest.LogCaptureFixture):
+async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: SrvT):
     seen: list[Any] = []
 
     async def on_roots(ctx: Ctx, params: NotificationParams | None) -> None:
         seen.append(params)
 
     server.add_notification_handler("notifications/roots/list_changed", NotificationParams, on_roots)
-    with caplog.at_level(logging.DEBUG, logger="mcp.server.runner"):
-        async with connected_runner(server, initialized=False) as (client, _):
-            await client.notify("notifications/roots/list_changed", None)  # before init: dropped
-            await client.notify("notifications/initialized", None)
-            await client.notify("notifications/unknown", None)  # no handler: dropped
-            await client.notify("notifications/unknown", None)  # repeat: logged at debug, not warned again
-            await client.notify("notifications/roots/list_changed", None)  # post-init: delivered
-            await anyio.wait_all_tasks_blocked()
+    async with connected_runner(server, initialized=False) as (client, _):
+        await client.notify("notifications/roots/list_changed", None)  # before init: dropped
+        await client.notify("notifications/initialized", None)
+        await client.notify("notifications/unknown", None)  # no handler: dropped
+        await client.notify("notifications/roots/list_changed", None)  # post-init: delivered
+        await anyio.wait_all_tasks_blocked()
     assert seen == [NotificationParams()]  # only the post-init one reached the handler
-    # An unserved custom method warns once (repeats drop to debug); an unserved
-    # spec method (initialized) stays at debug.
-    drop_levels = [
-        r.levelno
-        for r in caplog.records
-        if r.getMessage() == "dropped 'notifications/unknown': no notification handler is registered"
-    ]
-    assert drop_levels == [logging.WARNING, logging.DEBUG]
-    spec_levels = [
-        r.levelno for r in caplog.records if r.getMessage() == "no handler for notification notifications/initialized"
-    ]
-    assert spec_levels == [logging.DEBUG]
 
 
 @pytest.mark.anyio

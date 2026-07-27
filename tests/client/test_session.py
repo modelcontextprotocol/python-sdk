@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import anyio
 import anyio.abc
@@ -1473,29 +1473,6 @@ async def test_send_notification_after_close_is_dropped_silently():
     finally:
         for s in (s2c_send, s2c_recv, c2s_send, c2s_recv):
             s.close()
-
-
-class _ReceiptEventParams(types.NotificationParams):
-    seq: int
-
-
-class _ReceiptEvent(types.Notification[_ReceiptEventParams, Literal["notifications/com.example/receipt"]]):
-    method: Literal["notifications/com.example/receipt"] = "notifications/com.example/receipt"
-    params: _ReceiptEventParams
-
-
-@pytest.mark.anyio
-async def test_send_notification_accepts_a_custom_notification_model():
-    """A `types.Notification` subclass outside the spec union serializes onto the wire
-    as-is, so extensions can emit their own methods without casts."""
-    async with raw_client_session() as (session, _, recv_from_client):
-        await session.send_notification(_ReceiptEvent(params=_ReceiptEventParams(seq=7)))
-        with anyio.fail_after(5):
-            sent = await recv_from_client.receive()
-    notification = sent.message
-    assert isinstance(notification, JSONRPCNotification)
-    assert notification.method == "notifications/com.example/receipt"
-    assert notification.params == {"seq": 7}
 
 
 # --- discover() ladder ---
