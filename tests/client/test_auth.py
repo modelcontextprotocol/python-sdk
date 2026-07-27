@@ -679,7 +679,10 @@ class TestOAuthFallback:
         # client_secret should NOT be in body for basic auth
         content = request.content.decode()
         assert "client_secret=" not in content
-        assert "client_id=test%40client" in content  # client_id still in body
+        # RFC 6749 section 2.3: with Basic auth, client_id must not appear in the body
+        # either, it is already presented via the Authorization header, and strict token
+        # endpoints reject a request that presents credentials both ways.
+        assert "client_id=" not in content
 
     @pytest.mark.anyio
     async def test_basic_auth_refresh_token(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
@@ -715,6 +718,9 @@ class TestOAuthFallback:
         # client_secret should NOT be in body
         content = request.content.decode()
         assert "client_secret=" not in content
+        # ...and neither should client_id, for the same RFC 6749 section 2.3 reason as
+        # token exchange.
+        assert "client_id=" not in content
 
     @pytest.mark.anyio
     async def test_none_auth_method(self, oauth_provider: OAuthClientProvider):
