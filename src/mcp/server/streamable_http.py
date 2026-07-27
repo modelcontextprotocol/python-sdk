@@ -224,9 +224,8 @@ class _MessageChannel:
         (the standalone GET stream); re-attaching after a detach is how a
         `Last-Event-ID` reconnect resumes a live stream.
         """
+        assert self._writer is None, "every attach site checks `attached` first"
         writer, reader = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
-        if self._writer is not None:
-            self._writer.close()
         self._writer = writer
         return reader
 
@@ -262,8 +261,15 @@ class _MessageChannel:
         self.finished.set()
 
     def finish(self) -> None:
-        """Mark the request as finished even if no terminal frame was recorded."""
+        """The request is over: mark it finished and end any response still attached.
+
+        Normally the terminal frame already ended the response; this covers a
+        request whose terminal write never landed (e.g. the event store raised
+        mid-stream), so the client sees the stream close rather than hanging.
+        """
         self.finished.set()
+        if self._writer is not None:
+            self._detach(self._writer)
 
 
 @dataclass
@@ -513,6 +519,9 @@ class StreamableHTTPServerTransport:
         cancelling it (server shutdown or the idle timeout) cancels the
         handlers and tears the connection down.
         """
+        self._require_app()
+        connection = self._connection
+        assert connection is not None, "a session-bound transport always has a connection"
         try:
             async with anyio.create_task_group() as tg:
                 self._task_group = tg
@@ -521,15 +530,12 @@ class StreamableHTTPServerTransport:
                 tg.cancel_scope.cancel()
         finally:
             self._task_group = None
-            # End every still-open response stream and wake anything awaiting a
-            # client answer; runs on termination and on manager shutdown alike.
-            for channel in list(self._channels.values()):
-                channel.close()
-            self._channels.clear()
+            # By now every request handler has finished and released its own
+            # channel; end the standalone stream and wake anything awaiting a
+            # client answer (runs on termination and manager shutdown alike).
             self._standalone.close()
             self._corr.close()
-            if self._connection is not None:
-                await aclose_shielded(self._connection)
+            await aclose_shielded(connection)
 
     def _build_message_metadata(
         self, request: Request, request_id: RequestId, protocol_version: str
@@ -650,7 +656,14 @@ class StreamableHTTPServerTransport:
         }
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Application entry point that handles all HTTP requests."""
+        """Application entry point that handles all HTTP requests.
+
+        Raises:
+            RuntimeError: The transport was constructed without a server to
+                dispatch to (`app`); it is created and driven by
+                `StreamableHTTPSessionManager`.
+        """
+        self._require_app()
         request = Request(scope, receive)
 
         # Validate request headers for DNS rebinding protection
@@ -807,8 +820,8 @@ class StreamableHTTPServerTransport:
             return
 
     def _session_runner(self) -> ServerRunner[Any]:
-        """The stateful session's handler kernel."""
-        assert self._runner is not None, "stateful session was built without a server"
+        """The stateful session's handler kernel; built with the transport's server binding."""
+        assert self._runner is not None
         return self._runner
 
     def _stateless_runner(self, request: Request) -> ServerRunner[Any]:
@@ -853,10 +866,10 @@ class StreamableHTTPServerTransport:
         )
 
         async def _run_notification() -> None:
+            # `on_notify` contains handler exceptions itself, so a crashing
+            # notification handler cannot take the session down.
             try:
                 await runner.on_notify(dctx, message.method, message.params)
-            except Exception:  # a crashing notification handler must not take the session down
-                logger.exception("notification handler for %r raised", message.method)
             finally:
                 if connection is not None:
                     await aclose_shielded(connection)

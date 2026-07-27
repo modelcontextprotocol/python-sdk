@@ -19,7 +19,6 @@ from typing import Any, Generic, Literal, cast
 import anyio
 import anyio.abc
 from mcp_types import (
-    CONNECTION_CLOSED,
     INTERNAL_ERROR,
     ErrorData,
     JSONRPCError,
@@ -51,7 +50,7 @@ from mcp.shared.dispatcher import (
     as_request_id,
     run_notify_intercept,
 )
-from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.message import (
     ClientMessageMetadata,
     MessageMetadata,
@@ -271,10 +270,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 transport closed or the dispatcher shut down.
             RuntimeError: Called before `run()`.
         """
-        # Post-close sends get the same CONNECTION_CLOSED contract as in-flight waiters.
-        if self._corr.closed:
-            raise MCPError(code=CONNECTION_CLOSED, message="Connection closed")
-        if not self._running:
+        # Post-close sends get the same CONNECTION_CLOSED contract as in-flight
+        # waiters (raised by the correlator); only a never-run dispatcher is a usage error.
+        if not self._running and not self._corr.closed:
             raise RuntimeError("JSONRPCDispatcher.send_raw_request called before run()")
         plan = _plan_outbound(_related_request_id, opts)
         return await self._corr.call(

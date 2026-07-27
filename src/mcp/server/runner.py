@@ -477,9 +477,9 @@ async def serve_loop(
     """Drive ``server`` in handshake-only loop mode over a stream pair until the channel closes.
 
     Builds the loop-mode `JSONRPCDispatcher` + `Connection` and hands them to
-    `serve_connection`. The streamable-HTTP manager (which owns its lifespan
-    and serves the modern era on the single-exchange entry instead) calls
-    this; `Server.run` drives `serve_dual_era_loop`, which extends the same
+    `serve_connection`. For a transport that supplies a duplex message stream
+    pair but owns its own lifespan (so `Server.run`'s lifespan entry is not
+    wanted); `Server.run` drives `serve_dual_era_loop`, which extends the same
     dispatcher recipe (notably the `inline_methods={"initialize"}` rule) with
     era routing.
     """

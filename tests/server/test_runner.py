@@ -53,6 +53,7 @@ from mcp_types.version import (
 )
 
 import mcp.server.runner
+from mcp.client.session import ClientSession
 from mcp.server.caching import CacheHint
 from mcp.server.connection import Connection, NotifyOnlyOutbound
 from mcp.server.context import ServerRequestContext
@@ -67,6 +68,7 @@ from mcp.server.runner import (
     aclose_shielded,
     serve_connection,
     serve_dual_era_loop,
+    serve_loop,
     serve_one,
 )
 from mcp.server.session import ServerSession
@@ -75,6 +77,7 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
+from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import MessageMetadata, SessionMessage
 from mcp.shared.peer import dump_params
 from mcp.shared.transport_context import TransportContext
@@ -2056,3 +2059,22 @@ async def test_dual_era_client_propagates_body_exception_unwrapped(server: SrvT)
     with pytest.raises(RuntimeError, match="boom"):
         async with dual_era_client(server):
             raise RuntimeError("boom")
+
+
+@pytest.mark.anyio
+async def test_serve_loop_serves_a_handshake_connection_over_a_stream_pair(server: SrvT) -> None:
+    """`serve_loop`, the loop-mode driver for transports that own their own lifespan, round-trips
+    a handshake and a request over a duplex stream pair and returns when the channel closes."""
+    async with create_client_server_memory_streams() as ((client_read, client_write), (server_read, server_write)):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(
+                    partial(serve_loop, server, server_read, server_write, lifespan_state={}, session_id="loop-1")
+                )
+                async with ClientSession(client_read, client_write) as session:
+                    initialized = await session.initialize()
+                    tools = await session.list_tools()
+                    assert initialized.server_info.name == "test-server"
+                    assert [tool.name for tool in tools.tools] == ["t"]
+                # Closing the client's write side EOFs the loop and lets it return.
+                await client_write.aclose()
