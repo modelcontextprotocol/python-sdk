@@ -404,10 +404,10 @@ async def test_client_credentials_provider_obtains_a_token_without_an_authorize_
 async def test_client_credentials_provider_requests_its_configured_scope_when_the_server_advertises_none() -> None:
     """With no scopes advertised, the provider's configured `scope` reaches the `/token` body.
 
-    Both metadata documents omit `scopes_supported` (absent, not empty - an empty list would
-    itself mean "request none"), so the spec's WWW-Authenticate/PRM chain yields nothing and
-    the SDK falls back to the scope the caller configured on the provider — an SDK-defined tier
-    below the spec's chain (see the divergence on the requirement).
+    Both metadata documents publish no scopes (an empty list would fall through the same way),
+    so the spec's WWW-Authenticate/PRM chain yields nothing and the SDK falls back to the scope
+    the caller configured on the provider — an SDK-defined tier below the spec's chain (see
+    the divergence on the requirement).
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
