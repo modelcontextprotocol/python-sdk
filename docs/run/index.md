@@ -65,7 +65,7 @@ Each transport has its own keyword arguments, all on `run()`:
 
 * `host` / `port`: where to listen. Defaults `127.0.0.1` and `8000`.
 * `streamable_http_path`: where the MCP endpoint lives. Default `/mcp`.
-* `json_response=True`: answer with plain JSON instead of an SSE stream.
+* `json_response=True`: answer each POST with a single JSON body instead of an SSE stream. That body has room for the response and nothing else, so a tool that calls back into the client mid-request (`ctx.elicit()`, sampling) raises `NoBackChannelError` on this leg, and notifications tied to the in-flight call (progress from `ctx.report_progress()`, per-call log messages) are dropped; the standalone `GET` stream still carries unrelated ones.
 * `stateless_http=True`: a fresh transport per request, no session tracking.
 * `max_request_body_size`: largest accepted POST body in bytes. Defaults to 4 MiB; larger requests
   receive HTTP 413 before parsing or session creation. Raise it only when legitimate MCP messages

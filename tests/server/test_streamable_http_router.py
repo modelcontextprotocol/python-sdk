@@ -3,6 +3,7 @@
 import anyio
 import pytest
 from mcp_types import JSONRPCMessage, JSONRPCResponse
+from starlette.requests import Request
 from starlette.types import Message, Scope
 
 from mcp.server.streamable_http import (
@@ -14,7 +15,8 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
     StreamId,
 )
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.transport_context import TransportContext
 
 
 class _PrimingFailingStore(EventStore):
@@ -114,3 +116,18 @@ async def test_priming_store_failure_leaves_no_per_request_state() -> None:
     assert sent[0]["status"] == 500
     body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
     assert b"backend unavailable" not in body
+
+
+def test_transport_context_reports_response_mode_and_request_headers() -> None:
+    """The transport's own verdict: no request-scoped requests in JSON mode, headers off the carried Request."""
+    json_transport = StreamableHTTPServerTransport(mcp_session_id="sid", is_json_response_enabled=True)
+    assert json_transport.transport_context_for(None) == TransportContext(
+        kind="streamable-http", can_send_request=False
+    )
+    sse_transport = StreamableHTTPServerTransport(mcp_session_id="sid", is_json_response_enabled=False)
+    assert sse_transport.transport_context_for(None) == TransportContext(kind="streamable-http", can_send_request=True)
+
+    request = Request({"type": "http", "method": "POST", "path": "/", "headers": [(b"x-test", b"1")]})
+    context = sse_transport.transport_context_for(ServerMessageMetadata(request_context=request))
+    assert context.headers is not None
+    assert context.headers["x-test"] == "1"

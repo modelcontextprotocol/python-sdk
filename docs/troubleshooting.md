@@ -305,7 +305,7 @@ You see this one from `ctx.elicit()` on a legacy connection, and on any connecti
 
 ## `MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.`
 
-Your handler tried to reach the client mid-request, on a connection where nothing can carry a request from the server. There are exactly two ways to be on one.
+Your handler tried to reach the client mid-request, on a connection whose call has no channel that can carry a request from the server. There are three server configurations that put a call there.
 
 **A `2026-07-28` connection: any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this (on the very first in-memory test, since `Client(server)` negotiates `2026-07-28` without being asked), and passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
 
@@ -329,20 +329,23 @@ mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport
 --8<-- "docs_src/troubleshooting/tutorial008.py"
 ```
 
+**A legacy connection on a `json_response=True` server.** The `POST` is answered with one JSON body, and one body carries only the response, so the request-scoped stream a mid-request `ctx.elicit()` needs does not exist here either. The session, its `Mcp-Session-Id`, and its standalone stream are all still there; only the request-scoped channel is gone.
+
 The message names the method it could not send. `NoBackChannelError` is the class the server raises, but the wire carries only the base `MCPError`, so the sentence above is your traceback's last line, not the class name.
 
-The fix is the same for both: don't reach back mid-call. Move the question into a **resolver** (or return an `InputRequiredResult` yourself) and it becomes part of the *response*, which every connection can carry:
+For a `2026-07-28` client the fix is the same on all three: don't reach back mid-call. Move the question into a **resolver** (or return an `InputRequiredResult` yourself) and it becomes part of the *response*, which every connection can carry:
 
 ```python title="server.py" hl_lines="15-17 21"
 --8<-- "docs_src/troubleshooting/tutorial007.py"
 ```
 
-Same question, same `elicitation_callback` on the client. The difference is under the hood: a resolver lets the server *return* the question from the call instead of pushing it, so nothing ever flows server-to-client. **[Elicitation](handlers/elicitation.md)** covers resolvers; **[Multi-round-trip requests](handlers/multi-round-trip.md)** covers what happens on the wire.
+Same question, same `elicitation_callback` on the client. The difference is under the hood: a resolver lets the server *return* the question from the call instead of pushing it, so nothing ever flows server-to-client. That rescues every `2026-07-28` client, whichever of the three configurations the server is in. A *legacy* client is not rescued by the rewrite alone: `2025-11-25` has no way to return a question, so on a legacy connection the resolver still sends `elicitation/create` down the request-scoped channel, and still needs a server that keeps it — neither `stateless_http=True` nor `json_response=True`. **[Elicitation](handlers/elicitation.md)** covers resolvers; **[Multi-round-trip requests](handlers/multi-round-trip.md)** covers what happens on the wire.
 
 !!! check
     The tool with `ctx.elicit()` is not wrong, it is *pre-2026*. Connect with `mode="legacy"`
-    (the classic `initialize` handshake, spec `2025-11-25` and earlier) to a server that is not
-    `stateless_http=True`, and it works, because the server-to-client channel exists there.
+    (the classic `initialize` handshake, spec `2025-11-25` and earlier) to a server that is neither
+    `stateless_http=True` nor `json_response=True`, and it works, because the server-to-client
+    channel exists there.
     **[Protocol versions](protocol-versions.md)** is the page on what each version has.
 
 ## `MCPError: Invalid or expired requestState`
@@ -407,6 +410,6 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * One 421, three spellings: `Server returned an error response` (the python `Client`), `421 Misdirected Request` / `Invalid Host header` (everything else), `Invalid Host header: <host>` (the server log). Fix: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> a mounted app whose host lifespan never entered `mcp.session_manager.run()`.
 * `Session not found` -> the server restarted; reconnect.
-* `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` needs a server-to-client channel: a `2026-07-28` connection never has one, and `stateless_http=True` takes away the legacy one. Use a resolver. Its neighbour `Method not found` is a request for a method the other side's protocol revision doesn't have.
+* `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` needs a server-to-client channel: a `2026-07-28` connection never has one, `stateless_http=True` takes away the legacy one, and `json_response=True` takes away the request-scoped one. Use a resolver (a legacy client also needs a server that keeps the channel). Its neighbour `Method not found` is a request for a method the other side's protocol revision doesn't have.
 * `Client did not declare the form elicitation capability ...` and `Elicitation not supported` -> the client is missing `elicitation_callback=`.
 * `Invalid or expired requestState` never says why on the wire. The server log does; `unknown key` means share `RequestStateSecurity(keys=[...])` across workers.

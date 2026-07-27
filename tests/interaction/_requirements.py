@@ -2577,6 +2577,16 @@ REQUIREMENTS: dict[str, Requirement] = {
             "overtake anything already queued for the request."
         ),
     ),
+    "transport:streamable-http:json-response-restrictions": Requirement(
+        source="sdk",
+        behavior=(
+            "In JSON-response mode a handler's request-scoped server-initiated request fails fast with an "
+            "INVALID_REQUEST protocol error and request-scoped notifications are not delivered, because the "
+            "single JSON body carries only the response; the connection's standalone stream is unaffected."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
+    ),
     "transport:streamable-http:stateless": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(

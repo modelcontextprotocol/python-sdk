@@ -64,7 +64,8 @@ def _smoke_server() -> MCPServer:
     async def ask(ctx: Context) -> str:
         """Elicit a confirmation from the client and report the outcome."""
         answer = await ctx.elicit("Proceed?", Confirmation)
-        # In stateless mode the elicit raises before this point: there is no session to call back through.
+        # In stateless and JSON-response modes the elicit raises before this point: there is no
+        # request-scoped channel to call back through.
         assert isinstance(answer, AcceptedElicitation)
         return f"confirmed={answer.data.confirmed}"
 
@@ -115,6 +116,19 @@ async def test_stateless_streamable_http_rejects_server_initiated_requests() -> 
     ``isError`` result."""
     async with connect_over_streamable_http(_smoke_server(), stateless_http=True) as client:
         with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("ask", {})
+
+    assert exc_info.value.error.code == INVALID_REQUEST
+
+
+@requirement("transport:streamable-http:json-response-restrictions")
+async def test_json_response_streamable_http_rejects_request_scoped_server_requests() -> None:
+    """A handler that calls back to the client mid-request fails fast when the server answers with
+    JSON: the one response body cannot carry the nested `elicitation/create`, so the request-scoped
+    channel raises `NoBackChannelError` (a top-level `MCPError`) instead of parking a waiter no reply
+    could ever reach. Bounded, because before the fix this call hung until it timed out."""
+    async with connect_over_streamable_http(_smoke_server(), json_response=True) as client:
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc_info:
             await client.call_tool("ask", {})
 
     assert exc_info.value.error.code == INVALID_REQUEST
