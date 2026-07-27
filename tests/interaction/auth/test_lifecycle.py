@@ -399,6 +399,44 @@ async def test_client_credentials_provider_obtains_a_token_without_an_authorize_
     assert decoded == "m2m-client:m2m-secret"
 
 
+@requirement("client-auth:scope-selection:priority")
+async def test_client_credentials_provider_requests_its_configured_scope_when_the_server_advertises_none() -> None:
+    """With no scopes advertised, the provider's configured `scope` reaches the `/token` body.
+
+    The server publishes no `scopes_supported` (empty `required_scopes`), so the spec's
+    WWW-Authenticate/PRM chain yields nothing and the SDK falls back to the scope the caller
+    configured on the provider — an SDK-defined tier below the spec's chain (see the divergence
+    on the requirement).
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+
+    auth = ClientCredentialsOAuthProvider(
+        server_url=f"{BASE_URL}/mcp",
+        storage=InMemoryTokenStorage(),
+        client_id="m2m-client",
+        client_secret="m2m-secret",
+        scope="ops",
+    )
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            settings=auth_settings(required_scopes=[]),
+            auth=auth,
+            app_shim=m2m_token_shim(provider, scopes=["ops"]),
+            on_request=on_request,
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+
+    [token_req] = find(recorded, "POST", "/token")
+    assert form_body(token_req)["scope"] == "ops"
+
+
 @requirement("client-auth:private-key-jwt")
 async def test_private_key_jwt_provider_authenticates_the_token_request_with_an_assertion() -> None:
     """The private-key-JWT provider sends a `client_assertion` on the token request, with the issuer as audience.

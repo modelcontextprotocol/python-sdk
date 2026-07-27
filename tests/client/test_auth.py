@@ -2796,6 +2796,63 @@ def test_union_scopes(previous: str | None, new: str | None, expected: str | Non
     assert union_scopes(previous, new) == expected
 
 
+def test_configured_scope_is_the_fallback_when_the_server_advertises_no_scopes():
+    """The scope the caller set on the provider is requested when discovery yields no scopes.
+
+    SDK-defined tier below the spec's chain; without it the configured scope was silently dropped.
+    """
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=None,
+    )
+
+    scopes = get_client_metadata_scopes(
+        www_authenticate_scope=None,
+        protected_resource_metadata=prm,
+        authorization_server_metadata=None,
+        configured_scope="user",
+    )
+
+    assert scopes == "user"
+
+
+def test_advertised_scopes_take_precedence_over_the_configured_scope():
+    """Server-advertised scopes (here PRM) win over the caller-configured fallback."""
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=["read"],
+    )
+
+    scopes = get_client_metadata_scopes(
+        www_authenticate_scope=None,
+        protected_resource_metadata=prm,
+        authorization_server_metadata=None,
+        configured_scope="user",
+    )
+
+    assert scopes == "read"
+
+
+def test_empty_scopes_supported_falls_through_to_the_configured_scope():
+    """An empty scopes_supported list advertises nothing, so selection continues to the next source."""
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=[],
+    )
+
+    scopes = get_client_metadata_scopes(
+        www_authenticate_scope=None,
+        protected_resource_metadata=prm,
+        authorization_server_metadata=None,
+        configured_scope="user",
+    )
+
+    assert scopes == "user"
+
+
 def test_credentials_match_issuer_same_issuer():
     info = OAuthClientInformationFull(client_id="c", redirect_uris=[AnyUrl("http://localhost/cb")], issuer="https://as")
     assert credentials_match_issuer(info, "https://as", None) is True
