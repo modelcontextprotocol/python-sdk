@@ -150,9 +150,9 @@ subtle ways (server-initiated messages stop arriving) instead of raising immedia
 
 Retry and error-classification logic keyed to HTTP status codes needs a look too: through
 the SDK's client, timeouts and non-2xx responses surface as `MCPError` with JSON-RPC codes,
-not `408`s or `httpx.HTTPStatusError` — see
-[Client request timeouts now raise `-32001`](#client-request-timeouts-now-raise--32001-request_timeout-instead-of-408)
-and [Streamable HTTP: non-2xx responses now surface as per-request JSON-RPC errors](#streamable-http-non-2xx-responses-now-surface-as-per-request-json-rpc-errors).
+not `408`s or `httpx.HTTPStatusError` — see the client request timeouts section
+(`REQUEST_TIMEOUT`, `-32001`) under [Clients](#clients) and
+[Streamable HTTP: non-2xx responses now surface as per-request JSON-RPC errors](#streamable-http-non-2xx-responses-now-surface-as-per-request-json-rpc-errors).
 
 The SDK's own auth providers made the same move: `OAuthClientProvider`,
 `ClientCredentialsOAuthProvider`, `PrivateKeyJWTOAuthProvider`, and
