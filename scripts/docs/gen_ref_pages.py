@@ -30,8 +30,9 @@ API_DIR = ROOT / "docs" / "api"
 # it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 PACKAGES = (ROOT / "src" / "mcp", ROOT / "src" / "mcp-types" / "mcp_types")
 
-# Deprecated compatibility shims: they mirror another module's namespace and
-# are documented in the migration guide, so they earn no API page of their own.
+# Alias modules that mirror another module's namespace (`mcp.types` mirrors
+# `mcp_types`): the mirrored package's pages are the canonical rendering, so
+# the alias earns no page of its own.
 EXCLUDED = frozenset({"mcp.types"})
 
 _KIND_SECTIONS = {

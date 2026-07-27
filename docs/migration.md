@@ -14,7 +14,7 @@ Every section heading below names the API it affects, so searching this page for
 |---|---|---|
 | `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
 | Fields renamed from camelCase to snake_case | `AttributeError: 'Tool' object has no attribute 'inputSchema'` | [snake_case fields](#field-names-changed-from-camelcase-to-snake_case) |
-| `mcp.types` moved to the `mcp-types` package | `MCPDeprecationWarning: mcp.types is deprecated; import from mcp_types.` | [`mcp.types` moved](#mcptypes-moved-to-the-mcp-types-package) |
+| `mcp.types` names removed | `AttributeError: mcp.types.Content was removed in v2; use ContentBlock.` | [Removed types](#removed-type-aliases-and-classes) |
 | `McpError` renamed to `MCPError` | `ImportError: cannot import name 'McpError' from 'mcp'` | [`McpError` renamed](#mcperror-renamed-to-mcperror) |
 | Resource URIs are `str`, not `AnyUrl` | `AttributeError: 'str' object has no attribute 'host'` | [URI type](#resource-uri-type-changed-from-anyurl-to-str) |
 | Message unions (`ServerNotification`, `JSONRPCMessage`, ...) are plain unions, not `RootModel` | `AttributeError: 'LoggingMessageNotification' object has no attribute 'root'` | [`RootModel` → unions](#replace-rootmodel-by-union-types-with-typeadapter-validation) |
@@ -198,18 +198,19 @@ nothing on PyPI to pin to, keep the unpinned form.
 
 The protocol wire types now live in a standalone distribution, `mcp-types`, imported as
 `mcp_types`. Its only runtime dependencies are `pydantic` and `typing-extensions`, so code
-that just needs to (de)serialize MCP traffic can install it without the full SDK. The `mcp` package depends on `mcp-types` and
-continues to re-export the type names at the top level, so `from mcp import Tool` is
-unchanged. `mcp.shared.version` was removed. The package's API reference is at
+that just needs to (de)serialize MCP traffic can install it without the full SDK. The `mcp`
+package depends on `mcp-types` and continues to re-export the type names at the top level, so
+`from mcp import Tool` is unchanged. The package's API reference is at
 [`mcp_types`](api/mcp_types/index.md).
 
-`import mcp.types` still works in v2, as a compatibility shim that mirrors `mcp_types` and
-emits an `MCPDeprecationWarning` on first import; it will be removed in v3, so switch to
-`mcp_types` now. The shim only restores the import: the field renames below still apply, so
-code that imports through it can go on to fail on camelCase attribute access. The 23 names
-that no longer exist (listed under
-[Removed type aliases and classes](#removed-type-aliases-and-classes)) raise an
-`ImportError` from the shim that names their replacement.
+`import mcp.types` and `from mcp.types import ...` keep working: `mcp.types` is a permanent
+alias that mirrors `mcp_types` exactly (every name is the same object), so v1's most common
+import line needs no change if you already depend on `mcp`. Only `mcp.shared.version` was
+removed; import from `mcp_types.version` instead. Reading a name that no longer exists (listed
+under [Removed type aliases and classes](#removed-type-aliases-and-classes)) as
+`mcp.types.Content` raises an `AttributeError` that names its replacement; a
+`from mcp.types import Content` of one raises a plain `ImportError` (Python discards the hint on
+that path, but it still fails fast).
 
 The supported import surface is `mcp_types`, `mcp_types.jsonrpc`, `mcp_types.methods`, and
 `mcp_types.version`. Underscore-prefixed submodules (`mcp_types._types`, and the generated
@@ -230,11 +231,13 @@ from mcp.shared.version import LATEST_PROTOCOL_VERSION
 **After (v2):**
 
 ```python
+# Unchanged if you depend on the SDK:
+from mcp.types import Tool, Resource
+from mcp import Tool, Resource
+
+# Or the standalone package, which installs without the SDK's transport stack:
 from mcp_types import Tool, Resource
 from mcp_types.version import LATEST_PROTOCOL_VERSION
-
-# Names `mcp` already re-exported at the top level are unchanged:
-from mcp import Tool, Resource
 ```
 
 ### Removed type aliases and classes
@@ -1941,7 +1944,7 @@ except MCPError as e:
         raise
 ```
 
-`e.error.code` also still works; `e.code` is the v2 convenience property. `mcp.types` no longer exists, so the constant comes from `mcp_types`. The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
+`e.error.code` also still works; `e.code` is the v2 convenience property. The constant is importable from `mcp_types` or, equivalently, `mcp.types`. The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
 
 ### `ClientSession` now runs on `JSONRPCDispatcher`; `BaseSession` removed
 

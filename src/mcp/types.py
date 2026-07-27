@@ -1,30 +1,22 @@
-"""Deprecated: the protocol types moved to the standalone `mcp_types` package.
+"""The MCP protocol wire types, as the `mcp.types` namespace.
 
-`import mcp.types` still works in v2 as a compatibility shim, but it emits an
-`MCPDeprecationWarning` and will be removed in v3. Import from `mcp_types` instead:
+This module mirrors the standalone `mcp_types` package exactly (every name is the
+same object), so SDK users can keep the familiar v1 spelling:
 
-    from mcp_types import Tool, TextContent
+    import mcp.types as types
 
-Field names also changed from camelCase to snake_case (`tool.input_schema`, not
-`tool.inputSchema`), so an import that succeeds through this shim can still fail
-later on attribute access. See the migration guide, "Types and wire format".
+    types.TextContent(type="text", text="hi")
+
+Depend on and import `mcp_types` directly instead when you only need to
+(de)serialize MCP traffic and don't want the SDK's transport stack: its only
+runtime dependencies are `pydantic` and `typing-extensions`.
 """
 
-# A wildcard mirror of the mcp_types namespace is the whole point of this shim.
+# A wildcard mirror of the mcp_types namespace is the whole point of this module.
 # pyright: reportWildcardImportFromLibrary=false
-
-import warnings
 
 from mcp_types import *
 from mcp_types import __all__ as __all__
-
-from mcp.shared.exceptions import MCPDeprecationWarning
-
-warnings.warn(
-    "mcp.types is deprecated; import from mcp_types. Fields are now snake_case; see the migration guide.",
-    MCPDeprecationWarning,
-    stacklevel=2,
-)
 
 # Names v1's mcp.types exposed that no longer exist. A bare "cannot import name"
 # leaves people grepping; naming the replacement finishes the migration step.
@@ -56,9 +48,9 @@ _REMOVED = {
 
 def __getattr__(name: str) -> object:
     if (hint := _REMOVED.get(name)) is not None:
-        # ImportError, not AttributeError: `from mcp.types import X` swallows an
-        # AttributeError raised here and reports a generic "cannot import name",
-        # discarding the hint; an ImportError propagates through both the
-        # from-import and plain attribute-access paths with the message intact.
-        raise ImportError(f"mcp.types.{name} was removed in v2; {hint}. See the migration guide.")
+        # AttributeError as PEP 562 requires, so hasattr() and getattr(..., default)
+        # still take their fallback path. The cost: `from mcp.types import Content`
+        # discards this message for CPython's generic "cannot import name" (still
+        # fail-fast); attribute access, the far more common v1 spelling, keeps it.
+        raise AttributeError(f"mcp.types.{name} was removed in v2; {hint}. See the migration guide.")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

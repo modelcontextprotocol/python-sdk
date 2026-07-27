@@ -1,6 +1,3 @@
-import importlib
-import sys
-from types import ModuleType
 from typing import Any
 
 import mcp_types
@@ -43,7 +40,7 @@ from mcp_types import (
 from pydantic import ValidationError
 
 import mcp
-from mcp import MCPDeprecationWarning
+import mcp.types
 
 
 @pytest.mark.anyio
@@ -454,42 +451,36 @@ def test_input_required_result_requires_at_least_one_of_input_requests_or_reques
     assert InputRequiredResult(request_state="s").input_requests is None
 
 
-def _import_deprecated_mcp_types_shim() -> ModuleType:
-    """Re-import the `mcp.types` compatibility shim so its import-time warning fires again."""
-    sys.modules.pop("mcp.types", None)
-    with pytest.warns(MCPDeprecationWarning) as record:
-        module = importlib.import_module("mcp.types")
-    assert str(record[0].message) == snapshot(
-        "mcp.types is deprecated; import from mcp_types. Fields are now snake_case; see the migration guide."
-    )
-    return module
+def test_mcp_types_namespace_mirrors_mcp_types_exactly():
+    """SDK-defined: `mcp.types` is a permanent alias whose every name is the `mcp_types` object."""
+    assert mcp.types.__all__ == mcp_types.__all__
+    assert all(getattr(mcp.types, name) is getattr(mcp_types, name) for name in mcp_types.__all__)
 
 
-def test_deprecated_mcp_types_import_warns_and_mirrors_mcp_types():
-    """SDK-defined: the v1 `mcp.types` module is a warning shim that mirrors `mcp_types` exactly."""
-    module = _import_deprecated_mcp_types_shim()
-    assert module.__all__ == mcp_types.__all__
-    assert module.Tool is mcp_types.Tool
-    # Importing the submodule binds it on the package, so v1's `from mcp import types`
-    # idiom resolves to the same shim module.
-    assert getattr(mcp, "types") is module
-
-
-def test_deprecated_mcp_types_names_the_replacement_for_a_name_removed_in_v2():
-    """SDK-defined: a v1 name that no longer exists raises an error naming its v2 replacement."""
-    module = _import_deprecated_mcp_types_shim()
-    # ImportError rather than AttributeError so `from mcp.types import Content` keeps this
-    # message: the from-import path replaces an AttributeError with a generic one.
-    with pytest.raises(ImportError) as exc_info:
-        getattr(module, "Content")
+def test_mcp_types_attribute_access_names_the_replacement_for_a_removed_name():
+    """SDK-defined: reading a v1 name that no longer exists names its v2 replacement."""
+    with pytest.raises(AttributeError) as exc_info:
+        getattr(mcp.types, "Content")
     assert str(exc_info.value) == snapshot(
         "mcp.types.Content was removed in v2; use ContentBlock. See the migration guide."
     )
+    # AttributeError (not ImportError) keeps the introspection contract for probing code.
+    assert not hasattr(mcp.types, "Content")
+    assert getattr(mcp.types, "Content", None) is None
 
 
-def test_deprecated_mcp_types_unknown_attribute_raises_attribute_error():
-    """SDK-defined: an unknown attribute is a normal AttributeError, so `hasattr` still works."""
-    module = _import_deprecated_mcp_types_shim()
+def test_mcp_types_from_import_of_a_removed_name_still_fails_fast():
+    """SDK-defined: `from mcp.types import <removed>` raises rather than importing a stale name.
+
+    CPython builds this ImportError itself and discards the module's hint text, so only the
+    exception type is asserted; the hint is on the attribute-access path above.
+    """
+    with pytest.raises(ImportError):
+        exec("from mcp.types import Content")
+
+
+def test_mcp_types_unknown_attribute_raises_attribute_error():
+    """SDK-defined: an unknown attribute is a normal AttributeError, so `hasattr` returns False."""
     with pytest.raises(AttributeError):
-        getattr(module, "not_a_protocol_type")
-    assert not hasattr(module, "not_a_protocol_type")
+        getattr(mcp.types, "not_a_protocol_type")
+    assert not hasattr(mcp.types, "not_a_protocol_type")
