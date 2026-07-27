@@ -55,7 +55,7 @@ result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')
 One `tools/call` from you, one `elicitation/create` back from the server, answered by your function, all inside a single tool call.
 
 !!! info
-    `mode="legacy"` on line 17 is doing real work. By default `Client(...)` negotiates the modern
+    `mode="legacy"` on the `Client(...)` call is doing real work. By default `Client(...)` negotiates the modern
     protocol path, and that path has no back-channel for server-to-client requests: `ctx.elicit`
     fails before your callback ever runs. The transport doesn't decide that; the negotiated
     protocol does, in-memory and over a URL alike. Pin `mode="legacy"` whenever your client has
