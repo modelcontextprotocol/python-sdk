@@ -532,7 +532,7 @@ raise MCPError.from_error_data(error_data)
 
 ### `FastMCP` renamed to `MCPServer`
 
-The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. This is a simple rename with no functional changes to the class itself.
+The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. The rename itself is mechanical, but the class is not behaviourally identical to v1's — the rest of this section covers what changed.
 
 **Before (v1):**
 
@@ -552,7 +552,7 @@ mcp = MCPServer("Demo")
 
 `Context` is the type annotation for the `ctx` parameter injected into tools, resources, and prompts (see [`get_context()` removed](#mcpserverget_context-removed) below). The `ctx.fastmcp` property is now `ctx.mcp_server`.
 
-The old import path is not gone entirely: `from mcp.server.fastmcp import FastMCP` (and `Context`, `Image`, `Audio`, `Icon` — the names v1 exported there) still resolves, to the v2 objects, and emits an `MCPDeprecationWarning` at import. That is a bridge, not a compatibility layer: `FastMCP` is `MCPServer` under its old name, with every v2 change on this page in effect, and the warning names the ones that don't announce themselves. The path is removed in v3. Nothing beneath it is shimmed, so `mcp.server.fastmcp.server`, `mcp.server.fastmcp.prompts.base`, and the rest raise `ModuleNotFoundError`.
+The old import path is not gone entirely: `from mcp.server.fastmcp import FastMCP` (and `Context`, `Image`, `Audio`, `Icon` — the names v1 exported there) still resolves, to the v2 objects, and emits an `MCPDeprecationWarning` at import. That is a bridge, not a compatibility layer: `FastMCP` is `MCPServer` under its old name, with every v2 change on this page in effect, and the warning points back here for the ones that don't announce themselves. The path is removed in v3. Nothing beneath it is shimmed, so `mcp.server.fastmcp.server`, `mcp.server.fastmcp.prompts.base`, and the rest raise `ModuleNotFoundError`.
 
 All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.*` with the same structure. Common imports:
 
