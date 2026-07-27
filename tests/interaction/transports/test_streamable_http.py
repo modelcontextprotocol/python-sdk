@@ -134,6 +134,35 @@ async def test_json_response_streamable_http_rejects_request_scoped_server_reque
     assert exc_info.value.error.code == INVALID_REQUEST
 
 
+@requirement("transport:streamable-http:json-response-restrictions")
+@requirement("transport:streamable-http:unrelated-messages")
+@requirement("hosting:http:standalone-sse")
+async def test_json_response_streamable_http_delivers_only_unrelated_notifications() -> None:
+    """In JSON-response mode the call's own log notification has no stream to ride and never
+    reaches the client, while the tool result comes back as the JSON body and the unrelated
+    resource-updated notification arrives on the standalone stream. The handler writes both
+    notifications before returning, so once the result and the unrelated message are in, no
+    request-scoped message can still be in flight."""
+    received: list[IncomingMessage] = []
+    server_message_seen = anyio.Event()
+
+    async def collect(message: IncomingMessage) -> None:
+        received.append(message)
+        server_message_seen.set()
+
+    async with connect_over_streamable_http(_smoke_server(), json_response=True, message_handler=collect) as client:
+        with anyio.fail_after(5):
+            result = await client.call_tool("announce", {})
+            await server_message_seen.wait()
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="announced")], structured_content={"result": "announced"})
+    )
+    assert received == snapshot(
+        [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
+    )
+
+
 @requirement("transport:streamable-http:notifications")
 @requirement("transport:streamable-http:unrelated-messages")
 @requirement("hosting:http:standalone-sse")

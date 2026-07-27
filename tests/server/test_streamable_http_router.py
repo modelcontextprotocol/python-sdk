@@ -118,6 +118,48 @@ async def test_priming_store_failure_leaves_no_per_request_state() -> None:
     assert b"backend unavailable" not in body
 
 
+@pytest.mark.anyio
+async def test_json_post_answers_500_when_session_terminates_mid_request() -> None:
+    """A JSON-mode POST whose session is torn down before the handler answers gets a 500, not a stall."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="sid", is_json_response_enabled=True)
+    body = b'{"jsonrpc":"2.0","id":"req-1","method":"tools/list","params":{}}'
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"application/json"),
+            (b"content-type", b"application/json"),
+            (b"mcp-session-id", b"sid"),
+            (b"mcp-protocol-version", b"2025-11-25"),
+        ],
+    }
+    body_sent = False
+
+    async def receive() -> Message:
+        nonlocal body_sent
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        raise NotImplementedError
+
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+
+    async with transport.connect() as (read_stream, _write_stream):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(transport.handle_request, scope, receive, asgi_send)
+            with anyio.fail_after(5):
+                await read_stream.receive()  # the request reached the session; the POST is parked
+            await transport.terminate()
+
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 500
+
+
 def test_transport_context_reports_response_mode_and_request_headers() -> None:
     """The transport's own verdict: no request-scoped requests in JSON mode, headers off the carried Request."""
     json_transport = StreamableHTTPServerTransport(mcp_session_id="sid", is_json_response_enabled=True)

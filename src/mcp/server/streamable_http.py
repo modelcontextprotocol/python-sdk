@@ -612,43 +612,24 @@ class StreamableHTTPServerTransport:
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
                 try:
-                    # Process messages from the request-specific stream
-                    # We need to collect all messages until we get a response
-                    response_message = None
-
-                    # Use similar approach to SSE writer for consistency
-                    async for event_message in request_stream_reader:  # pragma: no branch
-                        # If it's a response, this is what we're waiting for
-                        if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
-                            response_message = event_message.message
-                            break
-                        # For notifications and requests, keep waiting
-                        else:  # pragma: no cover
-                            logger.debug(f"received: {event_message.message.method}")
-
-                    # At this point we should have a response
-                    if response_message:
-                        # Create JSON response
-                        response = self._create_json_response(response_message)
-                        await response(scope, receive, send)
-                    else:  # pragma: no cover
-                        # This shouldn't happen in normal operation
-                        logger.error("No response message received before stream closed")
-                        response = self._create_error_response(
-                            "Error processing request: No response received",
-                            HTTPStatus.INTERNAL_SERVER_ERROR,
-                        )
-                        await response(scope, receive, send)
-                except Exception:  # pragma: no cover
-                    logger.exception("Error processing JSON response")
+                    # `message_router` deposits only this request's own response
+                    # here: anything else scoped to the request has no wire in
+                    # JSON-response mode.
+                    event_message = await request_stream_reader.receive()
+                except (anyio.EndOfStream, anyio.ClosedResourceError):
+                    # The stream closed with no response: the session was
+                    # terminated while this request was in flight.
+                    logger.debug(f"Session terminated with request {request_id} in flight; no response to send")
                     response = self._create_error_response(
-                        "Error processing request",
+                        "Session terminated before the request completed",
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         INTERNAL_ERROR,
                     )
-                    await response(scope, receive, send)
+                else:
+                    response = self._create_json_response(event_message.message)
                 finally:
                     await self._clean_up_memory_streams(request_id)
+                await response(scope, receive, send)
             else:
                 # Mint the priming event before any per-request state exists:
                 # `EventStore.store_event` is user code and may raise, in which
@@ -1049,7 +1030,19 @@ class StreamableHTTPServerTransport:
                             )
                             and session_message.metadata.related_request_id is not None
                         ):
-                            target_request_id = str(session_message.metadata.related_request_id)
+                            related_request_id = session_message.metadata.related_request_id
+                            if self.is_json_response_enabled:
+                                # A JSON body carries exactly the one response: a
+                                # message that only rides this request's stream
+                                # has no wire form (and no POST could replay it),
+                                # so drop it before storing or queueing - never
+                                # park it in a queue nothing drains (#1764).
+                                logger.debug(
+                                    f"Dropped message related to request {related_request_id}: "
+                                    "a JSON response carries only its own response"
+                                )
+                                continue
+                            target_request_id = str(related_request_id)
 
                         request_stream_id = target_request_id if target_request_id is not None else GET_STREAM_KEY
 
