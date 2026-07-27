@@ -992,6 +992,12 @@ class StreamableHTTPServerTransport:
     ]:
         """Context manager that provides read and write streams for a connection.
 
+        Drive the yielded streams through a `JSONRPCDispatcher` built with
+        `transport_context_for` as its `transport_builder`, as the session
+        manager does: that is what makes the request-scoped channel refuse
+        server-initiated requests in JSON-response mode instead of parking
+        them where nothing can deliver them.
+
         Yields:
             Tuple of (read_stream, write_stream) for bidirectional communication
         """
