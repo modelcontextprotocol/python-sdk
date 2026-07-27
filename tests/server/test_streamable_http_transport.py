@@ -5,20 +5,26 @@ correlator; these tests pin the parts of that lifecycle a real client can hit
 that the transport-agnostic interaction matrix does not reach.
 """
 
+from unittest.mock import MagicMock
+
 import anyio
+import anyio.lowlevel
 import pytest
 from httpx2 import EventSource
 from mcp_types import (
+    INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     TextContent,
 )
+from starlette.requests import Request
 from starlette.types import Message, Scope
 
 from mcp.server import Server, ServerRequestContext
@@ -32,10 +38,16 @@ from mcp.server.streamable_http import (
     _MessageChannel,  # pyright: ignore[reportPrivateUsage]
 )
 from mcp.shared._correlation import RequestCorrelator
-from mcp.shared.exceptions import NoBackChannelError
+from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import ServerMessageMetadata
 from mcp.shared.transport_context import TransportContext
-from tests.interaction._connect import base_headers, initialize_via_http, mounted_app, parse_sse_messages
+from tests.interaction._connect import (
+    base_headers,
+    connect_over_streamable_http,
+    initialize_via_http,
+    mounted_app,
+    parse_sse_messages,
+)
 from tests.interaction.transports._event_store import SequencedEventStore
 
 pytestmark = pytest.mark.anyio
@@ -336,10 +348,164 @@ async def test_a_closed_request_context_drops_notifications_and_refuses_requests
         _request_id=1,
     )
     assert dctx.can_send_request
+    reader = channel.attach()
 
     dctx.close()
 
     await dctx.notify("notifications/message", {"level": "info", "data": "too late"})
-    assert not channel.finished.is_set()
+    with pytest.raises(anyio.WouldBlock):
+        reader.receive_nowait()  # nothing reached the response stream
+    reader.close()
+    channel.close()
     with pytest.raises(NoBackChannelError):
         await dctx.send_raw_request("ping", None)
+
+
+class _SlowFirstStore(EventStore):
+    """The first `store_event` call is slow, so an unordered second writer could overtake it."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+        self.count += 1
+        event_id = str(self.count)
+        if event_id == "1":
+            for _ in range(5):
+                await anyio.lowlevel.checkpoint()
+        return event_id
+
+    async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+        raise NotImplementedError
+
+
+async def test_concurrent_writes_reach_the_wire_in_event_store_order() -> None:
+    """Two tasks writing one channel are delivered in the order the event store recorded them.
+
+    A `Last-Event-ID` resume replays in store order, so the wire must never diverge from it.
+    """
+    channel = _MessageChannel("1", _SlowFirstStore())
+    reader = channel.attach()
+    first = JSONRPCNotification(jsonrpc="2.0", method="notifications/one")
+    second = JSONRPCNotification(jsonrpc="2.0", method="notifications/two")
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(channel.write, first)
+            await anyio.lowlevel.checkpoint()  # let the first writer reach the store
+            tg.start_soon(channel.write, second)
+
+    delivered = [reader.receive_nowait(), reader.receive_nowait()]
+    reader.close()
+    channel.close()
+    assert [(event.event_id, event.message) for event in delivered] == [("1", first), ("2", second)]
+
+
+class _GatedPrimingStore(SequencedEventStore):
+    """Parks request ``42``'s priming write until released, so a DELETE can land mid-request."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parked = anyio.Event()
+        self.release = anyio.Event()
+
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+        if stream_id == "42" and message is None:
+            self.parked.set()
+            await self.release.wait()
+        return await super().store_event(stream_id, message)
+
+
+async def test_a_request_arriving_across_termination_is_refused_not_run() -> None:
+    """A POST suspended when its session is DELETEd is answered 404 rather than run on the dead session."""
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        raise NotImplementedError  # the handler must never run
+
+    server = Server("terminating", on_call_tool=call_tool)
+    store = _GatedPrimingStore()
+
+    pending: list[int] = []
+    async with mounted_app(server, event_store=store, retry_interval=0) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def call() -> None:
+                    response = await http.post(
+                        "/mcp", content=_tools_call(42, "wait", {}), headers=base_headers(session_id=session_id)
+                    )
+                    pending.append(response.status_code)
+
+                tg.start_soon(call)
+                await store.parked.wait()
+                delete = await http.delete("/mcp", headers=base_headers(session_id=session_id))
+                assert delete.status_code == 200
+                store.release.set()
+
+    assert pending == [404]
+
+
+class _BrokenReplayStore(SequencedEventStore):
+    async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+        raise RuntimeError("replay backend unavailable")
+
+
+async def test_a_failing_replay_ends_that_stream_and_the_session_keeps_working() -> None:
+    """`replay_events_after` raising costs the reconnecting GET an empty stream, nothing more."""
+    server = Server("replay-broken")
+
+    async with mounted_app(server, event_store=_BrokenReplayStore(), retry_interval=0) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with http.stream(  # pragma: no branch
+                "GET", "/mcp", headers=base_headers(session_id=session_id) | {"last-event-id": "1"}
+            ) as replay:
+                assert replay.status_code == 200
+                assert [event async for event in EventSource(replay)] == []
+            ping = await http.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 2, "method": "ping"},
+                headers=base_headers(session_id=session_id),
+            )
+    assert ping.status_code == 200
+
+
+async def test_json_mode_refuses_a_request_scoped_server_to_client_request() -> None:
+    """In JSON-response mode an elicitation from a handler fails with a JSON-RPC error, not a hang.
+
+    The POST's single JSON body has no stream to carry the nested request, so the transport
+    raises `NoBackChannelError` (an `MCPError`) rather than waiting for an answer that could
+    never be delivered.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        await ctx.session.send_request(
+            ElicitRequest(
+                params=ElicitRequestFormParams(message="ok?", requested_schema={"type": "object", "properties": {}})
+            ),
+            ElicitResult,
+            metadata=ServerMessageMetadata(related_request_id=ctx.request_id),
+        )
+        raise NotImplementedError  # the request must be refused before reaching here
+
+    server = Server("json-mode", on_call_tool=call_tool)
+
+    async with connect_over_streamable_http(server, json_response=True) as client:
+        with pytest.raises(MCPError) as exc_info, anyio.fail_after(5):
+            await client.call_tool("ask", {})
+
+    assert exc_info.value.error.code == INVALID_REQUEST
+
+
+async def test_a_session_bound_transport_drops_notifications_once_its_session_has_ended() -> None:
+    """A POSTed notification landing after the session task is gone is dropped, not handled."""
+    transport = StreamableHTTPServerTransport("sid", app=Server("ended"), lifespan_state={})
+    # The session task (`run()`) never started, so the transport has no live session to hand work to.
+    request = MagicMock(spec=Request)
+    request.headers = {}
+
+    with anyio.fail_after(5):
+        await transport._deliver_client_message(  # pyright: ignore[reportPrivateUsage]
+            request, JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+        )

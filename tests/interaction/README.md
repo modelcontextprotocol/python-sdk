@@ -279,8 +279,9 @@ this hits any test that must run statements after a `ClientSession`/`streamable_
 but still inside an outer `async with`, and no restructure can avoid it.
 
 A handful of `# pragma: lax no cover` markers in `src/` cover teardown exception handlers whose
-execution is timing-dependent under the in-process HTTP bridge — the SSE-writer and replay
-`except` handlers in `server/streamable_http.py`. `strict-no-cover` does not check `lax` lines; do not
+execution is timing-dependent under the in-process HTTP bridge — the `except Exception` arms
+around the standalone-GET and replay `response(...)` calls in `server/streamable_http.py`.
+`strict-no-cover` does not check `lax` lines; do not
 promote them to strict `no cover` without first making the teardown ordering deterministic. The
 suite also relies on a one-line `src/mcp/server/sse.py` fix (`sse_stream_reader.aclose()`) that
 closes a stream the SSE leg would otherwise leak.

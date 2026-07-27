@@ -750,11 +750,11 @@ session_manager = StreamableHTTPSessionManager(app=server, event_store=..., json
 
 Behaviour clarified in the same change:
 
-- In JSON-response mode a server-to-client request (sampling, elicitation) now raises
-  `NoBackChannelError` — a JSON response has no stream to carry the request, and previously the
-  call would hang waiting for an answer that could never be delivered.
-- Stateful streamable-HTTP handlers see `TransportContext(kind="streamable-http")` carrying the
-  request `headers`; the stream-pair path previously reported `kind="jsonrpc"` with no headers.
+- In JSON-response mode a *request-scoped* server-to-client request (`ctx.elicit()`, or any
+  `ctx.session` call carrying `related_request_id`) now raises `NoBackChannelError` — the POST's
+  single JSON body has no stream to carry the nested request, and previously the call would hang
+  waiting for an answer that could never be delivered. Connection-scoped sends (calls without
+  `related_request_id`) are unchanged and still ride the standalone GET stream.
 - A GET carrying `Last-Event-ID` on a server without an `EventStore` opens the standalone stream
   as a plain GET would, since there is nothing to replay.
 

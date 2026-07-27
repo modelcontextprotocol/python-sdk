@@ -7,6 +7,7 @@ entirely in process.
 from __future__ import annotations as _annotations
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -2177,5 +2178,4 @@ async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pyt
             # Tear the standalone stream down while the writer is parked on it.
             (transport,) = session_manager._server_instances.values()  # pyright: ignore[reportPrivateUsage]
             transport.close_standalone_sse_stream()
-    assert "Error in standalone SSE writer" not in caplog.text
-    assert "Error in SSE writer" not in caplog.text
+    assert [r for r in caplog.records if r.name == "mcp.server.streamable_http" and r.levelno >= logging.ERROR] == []

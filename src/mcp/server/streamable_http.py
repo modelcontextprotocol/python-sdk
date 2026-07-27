@@ -175,6 +175,10 @@ class _MessageChannel:
         self._event_store = event_store
         self._writer: MemoryObjectSendStream[EventMessage] | None = None
         self._closed = False
+        # Store-then-forward is one atomic step per channel, so the wire order
+        # of concurrent writers always matches the order the event store saw
+        # (what a `Last-Event-ID` resume replays from).
+        self._write_lock = anyio.Lock()
         self.terminal: JSONRPCResponse | JSONRPCError | None = None
         """The terminal outcome once the request this channel serves has finished."""
         self.finished = anyio.Event()
@@ -186,33 +190,41 @@ class _MessageChannel:
         return self._writer is not None
 
     async def write(self, message: JSONRPCMessage) -> None:
-        """Store-then-forward one outbound message. Never raises for a dropped connection."""
-        if self._closed:
-            logger.debug("dropped message on closed stream %s", self.stream_id)
-            return
-        # Store the event if we have an event store,
-        # regardless of whether a client is connected
-        # messages will be replayed on the re-connect
-        event_id: EventId | None = None
-        if self._event_store is not None:
-            event_id = await self._event_store.store_event(self.stream_id, message)
-            logger.debug(f"Stored {event_id} from {self.stream_id}")
-        if isinstance(message, JSONRPCResponse | JSONRPCError):
-            self.terminal = message
-            self.finished.set()
-        writer = self._writer
-        if writer is None:
-            logger.debug(
-                f"""Request stream {self.stream_id} is not connected
-                for message. Still processing message as the client
-                might reconnect and replay."""
-            )
-            return
-        try:
-            await writer.send(EventMessage(message, event_id))
-        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-            # The SSE response went away between the attach check and the send.
-            self._detach(writer)
+        """Store-then-forward one outbound message. Never raises."""
+        async with self._write_lock:
+            if self._closed:
+                logger.debug("dropped message on closed stream %s", self.stream_id)
+                return
+            # Store the event if we have an event store,
+            # regardless of whether a client is connected
+            # messages will be replayed on the re-connect
+            event_id: EventId | None = None
+            if self._event_store is not None:
+                try:
+                    event_id = await self._event_store.store_event(self.stream_id, message)
+                except Exception:
+                    # A broken store must not leak its exception into the caller's
+                    # write (nor its text onto the wire): this stream is over.
+                    logger.exception("EventStore.store_event failed for stream %s; closing the stream", self.stream_id)
+                    self.close()
+                    return
+                logger.debug(f"Stored {event_id} from {self.stream_id}")
+            if isinstance(message, JSONRPCResponse | JSONRPCError):
+                self.terminal = message
+                self.finished.set()
+            writer = self._writer
+            if writer is None:
+                logger.debug(
+                    f"""Request stream {self.stream_id} is not connected
+                    for message. Still processing message as the client
+                    might reconnect and replay."""
+                )
+                return
+            try:
+                await writer.send(EventMessage(message, event_id))
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                # The SSE response went away between the attach check and the send.
+                self._detach(writer)
 
     def attach(self) -> MemoryObjectReceiveStream[EventMessage]:
         """Attach a fresh SSE response and return the reader it drains.
@@ -877,19 +889,27 @@ class StreamableHTTPServerTransport:
     def _can_send_request(self) -> bool:
         """Whether a request handler on this transport has a back-channel for server-to-client requests.
 
-        Stateless mode and JSON-response mode have none: a nested elicitation
-        or sampling request has no stream to ride, and no POST of the client's
-        answer could be correlated back to a session.
+        JSON-response mode has none: the request's response is one JSON body,
+        so a nested elicitation or sampling request has no stream to ride.
+        Stateless mode additionally lacks a session, so no POST of the client's
+        answer could be correlated back to a waiting handler.
         """
         return self.mcp_session_id is not None and not self.is_json_response_enabled
 
     async def _spawn_or_run(self, fn: Callable[..., Awaitable[None]], *args: Any) -> None:
-        """Run `fn(*args)` on the session task group if one is running, else inline."""
-        tg = self._task_group
-        if tg is not None:
-            tg.start_soon(fn, *args)
-        else:
+        """Run `fn(*args)`: on the session task group when session-bound, inline when stateless.
+
+        A session-bound transport whose session has ended drops the work: the
+        session is being torn down, so no handler may run against it.
+        """
+        if self.mcp_session_id is None:
             await fn(*args)
+            return
+        tg = self._task_group
+        if tg is None or self._terminated:
+            logger.debug("dropped work for ended session %s", self.mcp_session_id)
+            return
+        tg.start_soon(fn, *args)
 
     async def _serve_request(
         self,
@@ -912,18 +932,32 @@ class StreamableHTTPServerTransport:
             None if self.is_json_response_enabled else await self._mint_priming_event(stream_id, protocol_version)
         )
 
+        # The session may have ended (DELETE, idle timeout, manager shutdown)
+        # while this request was suspended above; a session-bound transport must
+        # refuse the request instead of running it against a dead session. No
+        # await from here to the dispatch, so the answer holds when we act on it.
+        stateful = self.mcp_session_id is not None
+        session_task_group = self._task_group
+        if stateful and (self._terminated or session_task_group is None):
+            response = self._create_error_response(
+                "Not Found: Session has been terminated",
+                HTTPStatus.NOT_FOUND,
+            )
+            await response(scope, receive, send)
+            return
+
         channel = _MessageChannel(stream_id, self._event_store)
         self._channels[stream_id] = channel
         # Attach the response's writer before the handler starts, so nothing
         # the handler emits early lands on an unattached channel.
         reader = None if self.is_json_response_enabled else channel.attach()
 
-        if self.mcp_session_id is None:
-            runner = self._stateless_runner(request)
-            connection = runner.connection
-        else:
+        if stateful:
             runner = self._session_runner()
             connection = None
+        else:
+            runner = self._stateless_runner(request)
+            connection = runner.connection
         dctx = _HTTPRequestDispatchContext(
             transport=self._transport_context(request, can_send_request=self._can_send_request),
             _corr=self._corr,
@@ -937,6 +971,8 @@ class StreamableHTTPServerTransport:
 
         async def _run_handler() -> None:
             try:
+                # `serve_inbound` contains handler exceptions and `channel.write`
+                # never raises, so this task always completes on its own.
                 await self._corr.serve_inbound(
                     request_id,
                     dctx,
@@ -945,11 +981,6 @@ class StreamableHTTPServerTransport:
                     write_result=partial(self._write_result, channel, request_id),
                     write_error=partial(self._write_error, channel, request_id),
                 )
-            except Exception:
-                # `serve_inbound` contains handler exceptions itself; anything
-                # escaping it is a channel write that raised (e.g. a broken
-                # EventStore), which must cost this request, not the session.
-                logger.exception("Error handling request %r", request_id)
             finally:
                 # The channel stays registered until the handler is done, so a
                 # `Last-Event-ID` reconnect can re-attach while it still runs.
@@ -959,11 +990,11 @@ class StreamableHTTPServerTransport:
                 if connection is not None:
                     await aclose_shielded(connection)
 
-        if self._task_group is not None:
+        if session_task_group is not None:
             # Session-scoped: the handler outlives this HTTP request. A client
             # that drops the connection is not cancelling the request (it may
             # resume via Last-Event-ID); it cancels by POSTing notifications/cancelled.
-            self._task_group.start_soon(_run_handler)
+            session_task_group.start_soon(_run_handler)
             if reader is None:
                 await self._respond_json(scope, receive, send, channel)
             else:
@@ -1051,10 +1082,6 @@ class StreamableHTTPServerTransport:
                     await sse_send.send(self._create_event_data(event_message))
                     if stop_at_response and isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                         break
-        except anyio.ClosedResourceError:  # pragma: lax no cover
-            logger.debug("SSE stream closed by close_sse_stream()")
-        except Exception:  # pragma: lax no cover
-            logger.exception("Error in SSE writer")
         finally:
             logger.debug("Closing SSE writer")
             channel.detach(reader)
@@ -1256,14 +1283,23 @@ class StreamableHTTPServerTransport:
                             # stream is re-registered.
                             priming_event = await self._mint_priming_event(stream_id, replay_protocol_version)
 
-                            # Forward messages to SSE
-                            await self._pump_channel(channel, reader, sse_send, priming_event, stop_at_response=True)
+                            # Forward messages to SSE: a request's stream ends after
+                            # its response frame; the standalone stream carries no
+                            # response and tails until the client leaves again.
+                            await self._pump_channel(
+                                channel,
+                                reader,
+                                sse_send,
+                                priming_event,
+                                stop_at_response=stream_id != GET_STREAM_KEY,
+                            )
                         finally:
                             channel.detach(reader)
-                except anyio.ClosedResourceError:  # pragma: lax no cover
-                    # Expected when close_sse_stream() is called
-                    logger.debug("Replay SSE stream closed by close_sse_stream()")
-                except Exception:  # pragma: lax no cover
+                            # The pump closes the reader it drained; this covers a
+                            # priming failure that never handed the reader over.
+                            reader.close()
+                except Exception:
+                    # `replay_events_after` is user code; a failing replay ends this response only.
                     logger.exception("Error in replay sender")
 
             # Create and start EventSourceResponse
