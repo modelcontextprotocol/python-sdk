@@ -1580,7 +1580,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "The client rejects a wire structuredContent null as if it were missing: "
                 "CallToolResult.structured_content parses JSON null to None -- the same value as "
                 "field-absent, with no sentinel -- and the presence check in "
-                "ClientSession._validate_tool_result (src/mcp/client/session.py) reads is-None as "
+                "ClientSession.validate_tool_result (src/mcp/client/session.py) reads is-None as "
                 "'did not return structured content' and raises RuntimeError, so a conforming "
                 "null never reaches the schema validator. A fix needs an absent-vs-null sentinel "
                 "on the model before the presence check can tell the cases apart."
@@ -1618,8 +1618,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         deferred=(
             "Not implemented in the SDK: nothing inspects the declared $schema dialect -- "
-            "validate_tool_result (src/mcp/client/session.py) hands the advertised schema straight to "
-            "jsonschema.validate, so there is no SDK-authored unsupported-dialect rejection to pin."
+            "validate_tool_result (src/mcp/client/session.py) compiles the advertised schema with "
+            "whichever validator class jsonschema selects for its $schema (an unrecognized dialect "
+            "falls back to the latest supported draft), so there is no SDK-authored "
+            "unsupported-dialect rejection to pin."
         ),
     ),
     "client:output-schema:skip-on-error": Requirement(
