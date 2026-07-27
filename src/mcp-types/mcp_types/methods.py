@@ -1,6 +1,6 @@
 """Per-version method maps and parse/serialize functions for MCP traffic.
 
-This module is supported public API; the `mcp_types.v*` packages it draws on
+This module is supported public API; the `mcp_types._v*` packages it draws on
 are internal validators and not for direct import.
 
 Surface maps key `(method, version)` to per-version wire types (key absence is
@@ -18,8 +18,8 @@ from typing import Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
 from pydantic import BaseModel, TypeAdapter
 
 import mcp_types as types
-import mcp_types.v2025_11_25 as v2025
-import mcp_types.v2026_07_28 as v2026
+import mcp_types._v2025_11_25 as v2025
+import mcp_types._v2026_07_28 as v2026
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 __all__ = [
