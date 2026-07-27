@@ -14,7 +14,7 @@ Every section heading below names the API it affects, so searching this page for
 |---|---|---|
 | `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
 | Fields renamed from camelCase to snake_case | `AttributeError: 'Tool' object has no attribute 'inputSchema'` | [snake_case fields](#field-names-changed-from-camelcase-to-snake_case) |
-| `mcp.types` names removed | `AttributeError: mcp.types.Content was removed in v2; use ContentBlock.` | [Removed types](#removed-type-aliases-and-classes) |
+| `mcp.types` names removed | `ImportError: cannot import name 'Content' from 'mcp.types'` | [Removed types](#removed-type-aliases-and-classes) |
 | `McpError` renamed to `MCPError` | `ImportError: cannot import name 'McpError' from 'mcp'` | [`McpError` renamed](#mcperror-renamed-to-mcperror) |
 | Resource URIs are `str`, not `AnyUrl` | `AttributeError: 'str' object has no attribute 'host'` | [URI type](#resource-uri-type-changed-from-anyurl-to-str) |
 | Message unions (`ServerNotification`, `JSONRPCMessage`, ...) are plain unions, not `RootModel` | `AttributeError: 'LoggingMessageNotification' object has no attribute 'root'` | [`RootModel` → unions](#replace-rootmodel-by-union-types-with-typeadapter-validation) |
@@ -216,11 +216,10 @@ SDK.** That is the point of the split: tooling and lightweight clients can depen
 protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the rest of the
 server/transport stack.
 
-Reading a name that no longer exists (listed under
-[Removed type aliases and classes](#removed-type-aliases-and-classes)) as
-`mcp.types.Content` raises an `AttributeError` that names its replacement; a
-`from mcp.types import Content` of one raises a plain `ImportError` (Python discards the hint on
-that path, but it still fails fast).
+Names that no longer exist (listed under
+[Removed type aliases and classes](#removed-type-aliases-and-classes)) fail on import or
+attribute access with an ordinary `ImportError` / `AttributeError`; the table below names each
+replacement.
 
 The supported import surface is the package plus its `jsonrpc`, `methods`, and `version`
 submodules, and each has both spellings: `mcp.types` / `mcp_types`, `mcp.types.jsonrpc` /

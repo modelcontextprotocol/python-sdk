@@ -485,35 +485,6 @@ def test_mcp_types_submodules_mirror_mcp_types_submodules_exactly(mirror: Module
     _assert_mirrors(mirror, source)
 
 
-def test_mcp_types_attribute_access_names_the_replacement_for_a_removed_name():
-    """SDK-defined: reading a v1 name that no longer exists names its v2 replacement."""
-    with pytest.raises(AttributeError) as exc_info:
-        getattr(mcp.types, "Content")
-    assert str(exc_info.value) == snapshot(
-        "mcp.types.Content was removed in v2; use ContentBlock. See the migration guide."
-    )
-    # AttributeError (not ImportError) keeps the introspection contract for probing code.
-    assert not hasattr(mcp.types, "Content")
-    assert getattr(mcp.types, "Content", None) is None
-
-
-def test_mcp_types_from_import_of_a_removed_name_still_fails_fast():
-    """SDK-defined: `from mcp.types import <removed>` raises rather than importing a stale name.
-
-    CPython builds this ImportError itself and discards the module's hint text, so only the
-    exception type is asserted; the hint is on the attribute-access path above.
-    """
-    with pytest.raises(ImportError):
-        exec("from mcp.types import Content")
-
-
-def test_mcp_types_unknown_attribute_raises_attribute_error():
-    """SDK-defined: an unknown attribute is a normal AttributeError, so `hasattr` returns False."""
-    with pytest.raises(AttributeError):
-        getattr(mcp.types, "not_a_protocol_type")
-    assert not hasattr(mcp.types, "not_a_protocol_type")
-
-
 def test_bare_import_mcp_binds_the_types_submodule():
     """SDK-defined: `import mcp` alone binds `mcp.types`, so v1's `mcp.types.Tool` idiom works.
 
