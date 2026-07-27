@@ -65,6 +65,13 @@ GET_STREAM_KEY = "_GET_stream"
 # whole session on a lazily-started `sse_writer`. See #1764.
 REQUEST_STREAM_BUFFER_SIZE: Final = 16
 
+# Error code answering a request that settled without a response (e.g. it was
+# cancelled) on this 2025-era wire, which ends a request's stream only with a
+# response. Mirrors LSP's RequestCancelled; not sent by the 2026 transports, where
+# the spec forbids answering a cancelled request. See
+# `StreamableHTTPServerTransport._terminate_unanswered_request`.
+REQUEST_CANCELLED: Final = -32800
+
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
@@ -252,7 +259,7 @@ class StreamableHTTPServerTransport:
 
     def _create_session_message(
         self,
-        message: JSONRPCMessage,
+        message: JSONRPCRequest,
         request: Request,
         request_id: RequestId,
         protocol_version: str,
@@ -262,7 +269,10 @@ class StreamableHTTPServerTransport:
         The close_sse_stream callbacks are only provided when the client supports
         resumability (protocol version >= 2025-11-25). Old clients can't resume if
         the stream is closed early because they didn't receive a priming event.
+        Every request carries `on_request_unanswered`, so a request that settles
+        without a response is still terminated on this era's wire.
         """
+        end_stream = partial(self._terminate_unanswered_request, message.id)
         # Only provide close callbacks when client supports resumability
         if self._event_store and is_version_at_least(protocol_version, "2025-11-25"):
 
@@ -276,9 +286,10 @@ class StreamableHTTPServerTransport:
                 request_context=request,
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
+                on_request_unanswered=end_stream,
             )
         else:
-            metadata = ServerMessageMetadata(request_context=request)
+            metadata = ServerMessageMetadata(request_context=request, on_request_unanswered=end_stream)
 
         return SessionMessage(message, metadata=metadata)
 
@@ -389,6 +400,20 @@ class StreamableHTTPServerTransport:
             event_data["id"] = event_message.event_id
 
         return event_data
+
+    async def _terminate_unanswered_request(self, request_id: RequestId) -> None:
+        """Terminate a request that settled without a response (e.g. cancelled).
+
+        The 2025-era wire ends a request's stream only with a response for its
+        id - and stores that response so a resuming client's replay terminates
+        too - so this era answers a cancelled request with `REQUEST_CANCELLED`
+        where the dispatcher itself stays silent (the 2026 transports MUST NOT
+        answer). It is written through the same ordered channel as the request's
+        other messages, so it cannot overtake anything already queued for it.
+        """
+        assert self._write_stream is not None  # a dispatched request implies connect() ran
+        error = ErrorData(code=REQUEST_CANCELLED, message="Request cancelled")
+        await self._write_stream.send(SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error)))
 
     async def _clean_up_memory_streams(self, request_id: RequestId) -> None:
         """Clean up memory streams for a given request ID."""
@@ -555,7 +580,10 @@ class StreamableHTTPServerTransport:
                 )
                 request_stream_reader = self._request_streams[request_id][1]
                 # Process the message
-                metadata = ServerMessageMetadata(request_context=request)
+                metadata = ServerMessageMetadata(
+                    request_context=request,
+                    on_request_unanswered=partial(self._terminate_unanswered_request, message.id),
+                )
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
                 try:
