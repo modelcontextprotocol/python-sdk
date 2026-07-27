@@ -124,6 +124,13 @@ def test_metadata_url_construction_url_with_path_component():
     assert str(result) == "https://example.com/.well-known/oauth-protected-resource/mcp"
 
 
+def test_metadata_url_construction_preserves_query_component():
+    """Resource metadata URL construction preserves RFC 9728 query components."""
+    resource_url = AnyHttpUrl("https://example.com/mcp?tenant=a")
+    result = build_resource_metadata_url(resource_url)
+    assert str(result) == "https://example.com/.well-known/oauth-protected-resource/mcp?tenant=a"
+
+
 def test_metadata_url_construction_url_with_trailing_slash_only():
     """Test URL construction for resource with trailing slash only."""
     resource_url = AnyHttpUrl("https://example.com/")
@@ -138,6 +145,8 @@ def test_metadata_url_construction_url_with_trailing_slash_only():
         ("https://example.com", "https://example.com/.well-known/oauth-protected-resource"),
         ("https://example.com/", "https://example.com/.well-known/oauth-protected-resource"),
         ("https://example.com/mcp", "https://example.com/.well-known/oauth-protected-resource/mcp"),
+        ("https://example.com/mcp?tenant=a", "https://example.com/.well-known/oauth-protected-resource/mcp?tenant=a"),
+        ("https://example.com?tenant=a", "https://example.com/.well-known/oauth-protected-resource?tenant=a"),
         ("http://localhost:8001/mcp", "http://localhost:8001/.well-known/oauth-protected-resource/mcp"),
     ],
 )
