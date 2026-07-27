@@ -1955,7 +1955,7 @@ except MCPError as e:
         raise
 ```
 
-`e.error.code` also still works; `e.code` is the v2 convenience property. The constant is importable from `mcp.types` or, equivalently, `mcp.types`. The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
+`e.error.code` also still works; `e.code` is the v2 convenience property. The constant is importable from `mcp.types` (or from `mcp_types` in a project that uses that package without the SDK). The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
 
 ### `ClientSession` now runs on `JSONRPCDispatcher`; `BaseSession` removed
 

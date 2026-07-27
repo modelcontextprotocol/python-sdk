@@ -7,8 +7,10 @@ same object), so SDK users can keep the familiar v1 spelling:
 
     types.TextContent(type="text", text="hi")
 
-The protocol-version registry lives in the `mcp.types.version` submodule,
-mirroring `mcp_types.version` the same way.
+The `mcp.types.jsonrpc`, `mcp.types.methods`, and `mcp.types.version`
+submodules mirror `mcp_types.jsonrpc`, `mcp_types.methods`, and
+`mcp_types.version` the same way, so every supported `mcp_types` import has
+an `mcp.types` spelling.
 
 Depend on and import `mcp_types` directly instead when you only need to
 (de)serialize MCP traffic and don't want the SDK's transport stack: its only
@@ -20,6 +22,13 @@ runtime dependencies are `pydantic` and `typing-extensions`.
 
 from mcp_types import *
 from mcp_types import __all__ as __all__
+
+# Bind the mirror submodules on the package, so `mcp.types.version.X` is as
+# reachable by attribute access as `mcp_types.version.X` (whose `__init__`
+# binds `.version` by importing from it), not only via `from ... import`.
+from . import jsonrpc as jsonrpc
+from . import methods as methods
+from . import version as version
 
 # Names v1's mcp.types exposed that no longer exist. A bare "cannot import name"
 # leaves people grepping; naming the replacement finishes the migration step.

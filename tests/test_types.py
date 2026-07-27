@@ -1,8 +1,11 @@
 import subprocess
 import sys
+from types import ModuleType
 from typing import Any
 
 import mcp_types
+import mcp_types.jsonrpc
+import mcp_types.methods
 import mcp_types.version
 import pytest
 from inline_snapshot import snapshot
@@ -44,6 +47,8 @@ from pydantic import ValidationError
 
 import mcp
 import mcp.types
+import mcp.types.jsonrpc
+import mcp.types.methods
 import mcp.types.version
 
 
@@ -455,10 +460,29 @@ def test_input_required_result_requires_at_least_one_of_input_requests_or_reques
     assert InputRequiredResult(request_state="s").input_requests is None
 
 
+def _assert_mirrors(mirror: ModuleType, source: ModuleType) -> None:
+    # The mirror shares the source's `__all__` list object by construction (`from source import
+    # __all__`), so the meaningful proof is that every exported name is the identical object.
+    assert all(getattr(mirror, name) is getattr(source, name) for name in source.__all__)
+
+
 def test_mcp_types_namespace_mirrors_mcp_types_exactly():
     """SDK-defined: `mcp.types` is a permanent alias whose every name is the `mcp_types` object."""
-    assert mcp.types.__all__ == mcp_types.__all__
-    assert all(getattr(mcp.types, name) is getattr(mcp_types, name) for name in mcp_types.__all__)
+    _assert_mirrors(mcp.types, mcp_types)
+
+
+@pytest.mark.parametrize(
+    ("mirror", "source"),
+    [
+        (mcp.types.jsonrpc, mcp_types.jsonrpc),
+        (mcp.types.methods, mcp_types.methods),
+        (mcp.types.version, mcp_types.version),
+    ],
+    ids=["jsonrpc", "methods", "version"],
+)
+def test_mcp_types_submodules_mirror_mcp_types_submodules_exactly(mirror: ModuleType, source: ModuleType):
+    """SDK-defined: every supported `mcp_types` submodule has an `mcp.types` mirror, name for name."""
+    _assert_mirrors(mirror, source)
 
 
 def test_mcp_types_attribute_access_names_the_replacement_for_a_removed_name():
@@ -505,11 +529,3 @@ def test_bare_import_mcp_binds_the_types_submodule():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == snapshot("Tool\n")
-
-
-def test_mcp_types_version_mirrors_mcp_types_version_exactly():
-    """SDK-defined: `mcp.types.version` is a permanent alias whose every name is the `mcp_types.version` object."""
-    assert mcp.types.version.__all__ == mcp_types.version.__all__
-    assert all(
-        getattr(mcp.types.version, name) is getattr(mcp_types.version, name) for name in mcp_types.version.__all__
-    )
