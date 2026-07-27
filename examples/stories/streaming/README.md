@@ -71,5 +71,6 @@ uv run python -m stories.streaming.client --http --server server_lowlevel
 
 ## See also
 
-`parallel_calls/` (concurrent in-flight calls), `error_handling/` (the
-cancellation error path), `tools/` (the basics this builds on).
+`parallel_calls/` (concurrent in-flight calls), `error_handling/` (error
+surfaces: `is_error` results vs protocol errors), `tools/` (the basics this
+builds on).

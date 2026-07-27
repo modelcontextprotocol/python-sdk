@@ -539,11 +539,15 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
             "receiver does not send a response for the cancelled request - no result and no error."
         ),
-        note=(
-            "The 2025-era streamable HTTP wire has no way to end a request but a response, so that "
-            "one transport terminates the settled request with REQUEST_CANCELLED (-32800) instead of "
-            "staying silent; see transport:streamable-http:cancelled-request-terminated. The 2026-07-28 "
-            "MUST NOT applies to stdio and the 2026 wire, where nothing is sent."
+        divergence=Divergence(
+            note=(
+                "The 2025-era streamable HTTP transport still answers a cancelled request, with a "
+                "REQUEST_CANCELLED (-32800) error - deliberate and era-scoped: that wire ends a request's "
+                "stream only with a response for its id, so silence would leave the POST (and any "
+                "resuming client's replay) open. Every other transport sends nothing, and the "
+                "2026-07-28 MUST NOT applies only there. Retires with the legacy transport; see "
+                "transport:streamable-http:cancelled-request-terminated."
+            ),
         ),
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
@@ -2558,7 +2562,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
     ),
     "transport:streamable-http:cancelled-request-terminated": Requirement(
-        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        source="sdk",
         behavior=(
             "A request cancelled through notifications/cancelled is terminated with a REQUEST_CANCELLED "
             "(-32800) error response, completing its POST - the JSON body in JSON-response mode, the "
@@ -2566,11 +2570,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         note=(
-            "Deliberate SHOULD-level divergence, era-scoped: the 2025-era wire ends a request's stream "
-            "only with a response for its id (and stores it so a resuming client's replay terminates "
-            "too), so this transport answers where the dispatcher writes nothing. Written through the "
-            "same ordered channel as the request's other messages, so it cannot overtake anything "
-            "already queued for the request."
+            "An SDK choice, not spec-mandated (the spec-side gap is the Divergence on "
+            "protocol:cancel:in-flight): this era's wire ends a request's stream only with a response "
+            "for its id, and stores it so a resuming client's replay terminates too. The terminator is "
+            "written through the same ordered channel as the request's other messages, so it cannot "
+            "overtake anything already queued for the request."
         ),
     ),
     "transport:streamable-http:stateless": Requirement(
@@ -3395,17 +3399,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#cancellation-flow",
         behavior=(
             "At 2025-era revisions, abandoning an in-flight request POSTs exactly one "
-            "notifications/cancelled naming its request id, and releases the abandoned request's own "
-            "response stream so it neither stays parked nor resumes."
+            "notifications/cancelled naming its request id."
         ),
         transports=("streamable-http",),
         removed_in="2026-07-28",
         superseded_by="client-transport:http:cancel-closes-stream",
-        note=(
-            "HTTP-only by nature: pins that the frame travels as its own POST on the legacy HTTP wire. "
-            "The frame, not the released stream, is the signal - a 2025 server treats the disconnect "
-            "as nothing."
-        ),
+        note="HTTP-only by nature: pins that the frame travels as its own POST on the legacy HTTP wire.",
     ),
     "client-transport:http:concurrent-streams": Requirement(
         source="sdk",
