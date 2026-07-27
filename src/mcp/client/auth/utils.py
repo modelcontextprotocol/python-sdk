@@ -1,4 +1,3 @@
-import re
 from urllib.parse import urljoin, urlparse
 
 from httpx2 import Request, Response
@@ -16,6 +15,45 @@ from mcp.shared.auth import (
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
+def _iter_www_auth_params(www_auth_header: str) -> list[str]:
+    """Split a WWW-Authenticate challenge into auth-param tokens."""
+    params_start = www_auth_header.find(" ")
+    if params_start == -1:
+        return []
+
+    params: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    escape_next = False
+
+    for char in www_auth_header[params_start + 1 :]:
+        if escape_next:
+            current.append(char)
+            escape_next = False
+            continue
+        if char == "\\" and in_quotes:
+            current.append(char)
+            escape_next = True
+            continue
+        if char == '"':
+            in_quotes = not in_quotes
+            current.append(char)
+            continue
+        if char == "," and not in_quotes:
+            param = "".join(current).strip()
+            if param:
+                params.append(param)
+            current = []
+            continue
+        current.append(char)
+
+    param = "".join(current).strip()
+    if param:
+        params.append(param)
+
+    return params
+
+
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
     """Extract field from WWW-Authenticate header.
 
@@ -26,13 +64,16 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
-    # Pattern matches: field_name="value" or field_name=value (unquoted)
-    pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
+    for param in _iter_www_auth_params(www_auth_header):
+        name, separator, value = param.partition("=")
+        if separator != "=" or name.strip() != field_name:
+            continue
 
-    if match:
-        # Return quoted value if present, otherwise unquoted value
-        return match.group(1) or match.group(2)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] == '"':
+            value = value[1:-1]
+        if value:
+            return value
 
     return None
 
