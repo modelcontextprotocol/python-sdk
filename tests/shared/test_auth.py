@@ -176,16 +176,25 @@ def test_a_registration_response_without_a_client_id_is_rejected():
         OAuthClientInformationFull.model_validate({"application_type": "web"})
 
 
+@pytest.mark.parametrize("placeholder", [None, ""], ids=["null", "empty-string"])
 @pytest.mark.parametrize(
-    "nulled",
+    "member",
     ["grant_types", "response_types", "redirect_uris", "application_type", "token_endpoint_auth_method", "scope"],
 )
-def test_client_information_reads_an_explicit_null_as_an_omitted_key(nulled: str):
-    """A server that dumps unset members as null (rather than omitting them) still yields a
-    usable registration: null and absent mean the same, so the field's default applies."""
-    info = OAuthClientInformationFull.model_validate({"client_id": "abc123", nulled: None})
+def test_client_information_reads_a_placeholder_member_as_an_omitted_key(member: str, placeholder: object):
+    """A server that dumps unset members as null, or echoes them as "", still yields a
+    usable registration: a placeholder and an absent key mean the same, so the field's
+    default applies - including for list fields, where the placeholder is not a valid list."""
+    info = OAuthClientInformationFull.model_validate({"client_id": "abc123", member: placeholder})
     defaults = OAuthClientInformationFull.model_validate({"client_id": "abc123"})
-    assert getattr(info, nulled) == getattr(defaults, nulled)
+    assert getattr(info, member) == getattr(defaults, member)
+
+
+def test_a_placeholder_client_id_is_a_missing_client_id():
+    """The placeholder rule applies to the credential too: an empty client_id is no client_id,
+    so the body is rejected rather than parsing as a registration with an empty identifier."""
+    with pytest.raises(ValidationError):
+        OAuthClientInformationFull.model_validate({"client_id": ""})
 
 
 def test_client_information_that_is_not_an_object_still_fails_the_parse():
@@ -193,14 +202,6 @@ def test_client_information_that_is_not_an_object_still_fails_the_parse():
     passed through and rejected as a normal validation failure rather than swallowed."""
     with pytest.raises(ValidationError):
         OAuthClientInformationFull.model_validate("not-an-object")
-
-
-@pytest.mark.parametrize("empty_field", ["token_endpoint_auth_method", "application_type"])
-def test_client_information_empty_string_metadata_coerced_to_absent(empty_field: str):
-    """An echoed "" reads as absent, matching the URL-field coercion, so it is neither
-    stored as a value nor later mistaken for an unrecognized method or type."""
-    info = OAuthClientInformationFull.model_validate({"client_id": "abc123", empty_field: ""})
-    assert getattr(info, empty_field) is None
 
 
 @pytest.mark.parametrize("redirect_uris", [None, []], ids=["absent", "empty"])

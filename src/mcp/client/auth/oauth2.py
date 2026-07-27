@@ -61,10 +61,16 @@ logger = logging.getLogger(__name__)
 
 # Methods a registered client's record may carry without a token request being an error,
 # derived from the set the SDK is willing to request so the two cannot drift. `None`/"none"
-# send no client secret; `private_key_jwt` sends none from here either, its assertion being
-# added by `PrivateKeyJWTOAuthProvider` (whose inherited refresh path passes through
-# `prepare_token_auth`). Anything else is a method no client here can apply.
+# send no client secret. `private_key_jwt` sends none from here either: only
+# `PrivateKeyJWTOAuthProvider` signs the assertion, and only in its client-credentials
+# exchange, so its inherited refresh path must pass through here without raising - a refresh
+# the server then rejects falls back to a fresh client-credentials exchange, which signs.
+# Anything else is a method no client here can apply.
 _KNOWN_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = (None, *get_args(TokenEndpointAuthMethod))
+
+# Methods that authenticate the token request with the minted `client_secret`; a
+# registration assigning one is only usable if the server issued that secret.
+_SECRET_TOKEN_ENDPOINT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
 
 # Methods a registration completed by the authorization-code flow can act on. That flow
 # authenticates the token request with the minted client secret (or nothing); it holds no key
@@ -80,20 +86,26 @@ def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
 
     RFC 7591 §3.2.1 lets the authorization server replace requested metadata and leaves it to
     the client to "check the values in the response to determine if the registration is
-    sufficient for use". The one substitution that makes the minted credentials unusable is a
-    token-endpoint auth method the authorization-code flow cannot apply - one it does not
-    implement, or `private_key_jwt`, whose assertion this flow has no key to sign - so it is
-    judged here, before the record is persisted or any interactive authorization begins,
-    rather than surfacing later as an opaque failure at the token endpoint.
+    sufficient for use". Two substitutions make the minted credentials unusable, and both are
+    judged here - before the record is persisted or any interactive authorization begins -
+    rather than surfacing later as an opaque failure at the token endpoint: a token-endpoint
+    auth method the authorization-code flow cannot apply (one it does not implement, or
+    `private_key_jwt`, whose assertion this flow has no key to sign), and a secret-based
+    method the flow could apply but for which the server issued no `client_secret`.
 
     Raises:
         OAuthRegistrationError: The server registered the client with a
-            `token_endpoint_auth_method` this flow cannot apply.
+            `token_endpoint_auth_method` this flow cannot apply, or with a secret-based
+            method but no `client_secret`.
     """
-    if client_info.token_endpoint_auth_method not in _REGISTRATION_USABLE_TOKEN_ENDPOINT_AUTH_METHODS:
+    method = client_info.token_endpoint_auth_method
+    if method not in _REGISTRATION_USABLE_TOKEN_ENDPOINT_AUTH_METHODS:
         raise OAuthRegistrationError(
-            "Authorization server registered the client with unsupported token_endpoint_auth_method "
-            f"{client_info.token_endpoint_auth_method!r}"
+            f"Authorization server registered the client with unsupported token_endpoint_auth_method {method!r}"
+        )
+    if method in _SECRET_TOKEN_ENDPOINT_AUTH_METHODS and client_info.client_secret is None:
+        raise OAuthRegistrationError(
+            f"Authorization server registered the client for {method!r} but issued no client_secret"
         )
 
 
@@ -230,10 +242,10 @@ class OAuthContext:
             Tuple of (updated_data, updated_headers)
 
         Raises:
-            OAuthTokenError: The registered client's `token_endpoint_auth_method` is one this
-                client does not implement. The authorization server may assign a method other
-                than the one requested (RFC 7591 §3.2.1); the registration record accepts it,
-                and the mismatch is reported here, where the method is applied.
+            OAuthTokenError: The client record carries a `token_endpoint_auth_method` this
+                client does not know. A dynamic registration assigning an unusable method is
+                rejected earlier, by `check_registration_usable`; this fires for a stored or
+                pre-registered record that reaches a token request with such a method.
         """
         if headers is None:
             headers = {}  # pragma: no cover
@@ -243,7 +255,7 @@ class OAuthContext:
 
         auth_method = self.client_info.token_endpoint_auth_method
 
-        if auth_method == "client_secret_basic" and self.client_info.client_id and self.client_info.client_secret:
+        if auth_method == "client_secret_basic" and self.client_info.client_secret:
             # URL-encode client ID and secret per RFC 6749 Section 2.3.1
             encoded_id = quote(self.client_info.client_id, safe="")
             encoded_secret = quote(self.client_info.client_secret, safe="")
@@ -252,7 +264,7 @@ class OAuthContext:
             headers["Authorization"] = f"Basic {encoded_credentials}"
             # Don't include client_secret in body for basic auth
             data = {k: v for k, v in data.items() if k != "client_secret"}
-        elif auth_method == "client_secret_post" and self.client_info.client_id and self.client_info.client_secret:
+        elif auth_method == "client_secret_post" and self.client_info.client_secret:
             # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id
             data["client_secret"] = self.client_info.client_secret

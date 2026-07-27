@@ -1031,11 +1031,13 @@ async def test_registration_response_with_substituted_metadata_yields_the_creden
 
 
 @pytest.mark.anyio
-async def test_registration_response_does_not_seed_the_issuer_binding_from_the_body():
+@pytest.mark.parametrize("echoed_issuer", ["https://not-the-flow.example", 12345], ids=["string", "not-a-string"])
+async def test_registration_response_does_not_seed_the_issuer_binding_from_the_body(echoed_issuer: object):
     """The issuer binding (SEP-2352) is the SDK's record of which server it registered with,
-    stamped by the auth flow; an "issuer" member in the untrusted response body must not
-    populate it, or a mismatched binding would discard the credentials on every 401."""
-    body = b'{"client_id": "issued-id", "issuer": "https://not-the-flow.example"}'
+    stamped by the auth flow; an "issuer" member in the untrusted response body is dropped
+    before parsing - never populating the binding, and never failing the parse either, so a
+    mismatched or malformed value cannot discard the credentials on every 401."""
+    body = json.dumps({"client_id": "issued-id", "issuer": echoed_issuer}).encode()
 
     client_info = await handle_registration_response(httpx2.Response(201, content=body))
 
@@ -1044,9 +1046,16 @@ async def test_registration_response_does_not_seed_the_issuer_binding_from_the_b
 
 
 @pytest.mark.anyio
-async def test_a_2xx_body_that_is_not_client_information_is_an_oauth_registration_error():
-    """A success status whose body is not client information surfaces as OAuthRegistrationError."""
-    response = httpx2.Response(201, content=b"<html>not json</html>")
+@pytest.mark.parametrize(
+    "content",
+    [b"<html>not json</html>", b'["json", "but", "not", "an", "object"]', '{"client_id": "café"}'.encode("latin-1")],
+    ids=["not-json", "not-an-object", "not-utf8"],
+)
+async def test_a_2xx_body_that_is_not_client_information_is_an_oauth_registration_error(content: bytes):
+    """A success status whose body is not client information - unparseable, not an object, or
+    not valid UTF-8 - surfaces as OAuthRegistrationError rather than a raw parse failure, so a
+    single OAuthFlowError handler still covers registration."""
+    response = httpx2.Response(201, content=content)
 
     with pytest.raises(OAuthRegistrationError):
         await handle_registration_response(response)
@@ -1068,9 +1077,10 @@ async def test_token_exchange_reports_an_unimplemented_registered_auth_method(oa
 
 
 def test_prepare_token_auth_leaves_a_private_key_jwt_client_to_its_provider(oauth_provider: OAuthClientProvider):
-    """private_key_jwt is recognized (PrivateKeyJWTOAuthProvider supplies the assertion), so
-    the base leaves the request untouched rather than reporting an unsupported method - the
-    refresh path a private-key-JWT client inherits keeps working."""
+    """private_key_jwt is recognized, so the base leaves the request untouched rather than
+    raising - PrivateKeyJWTOAuthProvider's inherited refresh path passes through here, and a
+    refresh the server then rejects (no assertion is signed on it) falls back to a fresh,
+    signed client-credentials exchange instead of aborting the flow."""
     oauth_provider.context.client_info = OAuthClientInformationFull(
         client_id="registered-id",
         client_secret="registered-secret",

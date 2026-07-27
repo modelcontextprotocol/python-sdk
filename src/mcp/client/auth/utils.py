@@ -1,9 +1,11 @@
 import re
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
 from httpx2 import Request, Response
 from mcp_types import LATEST_PROTOCOL_VERSION
 from pydantic import AnyUrl, ValidationError
+from pydantic_core import from_json
 
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.shared.auth import (
@@ -299,14 +301,17 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
 
     try:
         content = await response.aread()
-        client_info = OAuthClientInformationFull.model_validate_json(content)
-    except ValidationError as e:
+        body = from_json(content)
+        # `issuer` is the SDK's own binding of these credentials to the server they were
+        # registered with (SEP-2352), stamped by the auth flow - never sourced from the
+        # wire, so it is dropped before the body is parsed rather than trusted or cleared.
+        if isinstance(body, dict):
+            cast(dict[str, Any], body).pop("issuer", None)
+        return OAuthClientInformationFull.model_validate(body)
+    except ValueError as e:
+        # `from_json` reports malformed bytes/JSON as ValueError, and pydantic's
+        # ValidationError is itself a ValueError, so both parse layers surface here.
         raise OAuthRegistrationError(f"Invalid registration response: {e}") from e
-    # `issuer` is the SDK's own binding of these credentials to the server they were
-    # registered with (SEP-2352), stamped by the auth flow - never taken from the wire.
-    # A body echoing an "issuer" member must not seed the trust binding.
-    client_info.issuer = None
-    return client_info
 
 
 def is_valid_client_metadata_url(url: str | None) -> bool:

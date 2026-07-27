@@ -50,6 +50,18 @@ class RegistrationHandler:
         # If auth method is None, default to client_secret_post
         if client_metadata.token_endpoint_auth_method is None:
             client_metadata.token_endpoint_auth_method = "client_secret_post"
+        # This server authenticates token requests with the client secret it mints; it holds
+        # no client key to verify a private_key_jwt assertion, so confirming that method would
+        # register a client whose every token request is then rejected. Refuse it instead
+        # (RFC 7591 §3.2.2), before minting credentials the client could never use.
+        if client_metadata.token_endpoint_auth_method == "private_key_jwt":
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description="token_endpoint_auth_method 'private_key_jwt' is not supported",
+                ),
+                status_code=400,
+            )
 
         client_secret = None
         if client_metadata.token_endpoint_auth_method != "none":  # pragma: no branch

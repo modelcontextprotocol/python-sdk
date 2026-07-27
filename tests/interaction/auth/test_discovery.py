@@ -223,24 +223,31 @@ async def test_a_registration_response_with_substituted_metadata_completes_the_f
 
 
 @requirement("client-auth:dcr:substituted-metadata")
-@pytest.mark.parametrize("auth_method", ["client_secret_jwt", "private_key_jwt"])
-async def test_a_registration_assigning_an_unusable_auth_method_surfaces_as_a_registration_error(
-    auth_method: str,
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        pytest.param(
+            {"client_secret": "s3cr3t", "token_endpoint_auth_method": "client_secret_jwt"}, id="unimplemented"
+        ),
+        pytest.param({"client_secret": "s3cr3t", "token_endpoint_auth_method": "private_key_jwt"}, id="unsignable"),
+        pytest.param({"token_endpoint_auth_method": "client_secret_post"}, id="secret-not-issued"),
+    ],
+)
+async def test_a_registration_assigning_unusable_credentials_surfaces_as_a_registration_error(
+    credentials: dict[str, str],
 ) -> None:
-    """A 201 assigning an auth method this flow cannot apply is a registration error.
+    """A 201 assigning credentials this flow cannot apply is a registration error.
 
     RFC 7591 §3.2.1 leaves it to the client to judge whether a substituted value makes the
     registration usable. The authorization-code flow authenticates with the minted secret, so
-    neither an unimplemented method nor `private_key_jwt` (an assertion it has no key to
-    sign) is usable; both are reported before the record is stored or any authorize/token
-    request is made.
+    an unimplemented method, `private_key_jwt` (an assertion it has no key to sign), and a
+    secret-based method with no secret issued are all unusable; each is reported before
+    the record is stored or any authorize/token request is made.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
-    body = json.dumps(
-        {"client_id": "unusable", "client_secret": "s3cr3t", "token_endpoint_auth_method": auth_method}
-    ).encode()
+    body = json.dumps({"client_id": "unusable", **credentials}).encode()
     app_shim = shim(serve={"/register": (201, body)})
     storage = InMemoryTokenStorage()
 

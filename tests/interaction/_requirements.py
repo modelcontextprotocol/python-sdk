@@ -3676,9 +3676,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A 201 registration response whose echoed metadata the server substituted (RFC 7591 §3.2.1) - "
             "an unregistered application_type, null redirect_uris, extra grant types - completes the flow; "
-            "a substituted token_endpoint_auth_method the authorization-code flow cannot apply (an "
-            "unimplemented method, or private_key_jwt, whose assertion it has no key to sign) is instead "
-            "reported as an OAuthRegistrationError before the record is persisted or authorization begins."
+            "substituted credentials the authorization-code flow cannot apply (an unimplemented "
+            "token_endpoint_auth_method; private_key_jwt, whose assertion it has no key to sign; or a "
+            "secret-based method with no client_secret issued) are instead reported as an "
+            "OAuthRegistrationError before the record is persisted or authorization begins."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",

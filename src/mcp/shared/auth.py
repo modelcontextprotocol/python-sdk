@@ -15,9 +15,9 @@ DEFAULT_GRANT_TYPES = ["authorization_code", "refresh_token"]
 
 
 def _empty_str_to_none(v: object) -> object:
-    # Some authorization servers echo omitted metadata back as "" instead of dropping the
-    # key. RFC 7591 §2 marks these fields OPTIONAL; treat "" as absent rather than rejecting
-    # an otherwise valid registration response over a placeholder.
+    # RFC 7591 §2 marks these URL fields OPTIONAL; a "" placeholder means absent, so it
+    # must not fail AnyHttpUrl validation. (The registered-client record applies the same
+    # rule to every member; this coercion serves the request model.)
     if v == "":
         return None
     return v
@@ -136,11 +136,11 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
     requested metadata values submitted during the registration and substitute them with
     suitable values", so `application_type`, `token_endpoint_auth_method`, and `grant_types`
     are typed to accept any string the server echoes, and `redirect_uris` may be absent or
-    empty. A member the server serializes as an explicit `null` is read as omitted, so the
-    field's default applies rather than the parse failing. Whether a substituted value is
-    usable is decided where the value is used, not at parse. `redirect_uris` elements are
-    still parsed as URLs, as the authorization server compares them against a client's
-    requested `redirect_uri`.
+    empty. A member the server serializes as a placeholder - an explicit `null`, or `""` -
+    is read as an omitted key, so the field's default applies rather than the parse failing.
+    Whether a substituted value is usable is decided where the value is used, not at parse.
+    `redirect_uris` elements are still parsed as URLs, as the authorization server compares
+    them against a client's requested `redirect_uri`.
     """
 
     redirect_uris: list[AnyUrl] | None = None
@@ -164,21 +164,15 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
 
     @model_validator(mode="before")
     @classmethod
-    def _explicit_null_reads_as_omitted(cls, data: object) -> object:
-        # Servers that serialize their client record dump unset members as null instead of
-        # omitting the keys; a null for a list field would otherwise fail the parse (and
-        # discard an already-provisioned registration). null and absent mean the same thing.
+    def _placeholder_members_read_as_omitted(cls, data: object) -> object:
+        # Servers dump unset members of their client record as null, or echo them as "",
+        # instead of omitting the keys. Either placeholder would otherwise fail the parse of a
+        # list field (or read "" as an unrecognized method) and discard an already-provisioned
+        # registration; a placeholder and an absent key mean the same thing.
         if isinstance(data, dict):
             members = cast(dict[str, Any], data)
-            return {key: value for key, value in members.items() if value is not None}
+            return {key: value for key, value in members.items() if value is not None and value != ""}
         return data
-
-    @field_validator("token_endpoint_auth_method", "application_type", mode="before")
-    @classmethod
-    def _empty_string_optional_metadata_to_none(cls, v: object) -> object:
-        # An echoed "" here would otherwise read as an unrecognized method/type; treat it as
-        # absent, matching the URL-field coercion.
-        return _empty_str_to_none(v)
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:

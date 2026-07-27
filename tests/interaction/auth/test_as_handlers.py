@@ -239,10 +239,21 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
 
     bad_scope = await http.post("/register", json=body | {"scope": "forbidden"})
     assert bad_scope.status_code == 400
-    body = bad_scope.json()
-    assert body["error"] == "invalid_client_metadata"
+    bad_scope_body = bad_scope.json()
+    assert bad_scope_body["error"] == "invalid_client_metadata"
     # The description embeds a set difference whose ordering is not stable, so assert the prefix.
-    assert body["error_description"].startswith("Requested scopes are not valid: ")
+    assert bad_scope_body["error_description"].startswith("Requested scopes are not valid: ")
+
+    # The server holds no client key to verify a private_key_jwt assertion, so it refuses to
+    # confirm a registration whose every token request it would then reject (RFC 7591 §3.2.2).
+    unsignable = await http.post("/register", json=body | {"token_endpoint_auth_method": "private_key_jwt"})
+    assert unsignable.status_code == 400
+    assert unsignable.json() == snapshot(
+        {
+            "error": "invalid_client_metadata",
+            "error_description": "token_endpoint_auth_method 'private_key_jwt' is not supported",
+        }
+    )
 
 
 @requirement("hosting:auth:as:register-echo")
