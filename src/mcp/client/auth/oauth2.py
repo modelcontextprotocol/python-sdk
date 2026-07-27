@@ -59,28 +59,38 @@ from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 logger = logging.getLogger(__name__)
 
-# Methods `OAuthContext.prepare_token_auth` recognizes on a registered client, derived from the
-# same set the SDK is willing to request so the two cannot drift. `None`/"none" send no client
-# secret; `private_key_jwt` adds no secret here (its assertion is supplied by
-# `PrivateKeyJWTOAuthProvider`). Anything else is a method this client cannot apply.
-_RECOGNIZED_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = (None, *get_args(TokenEndpointAuthMethod))
+# Methods a registered client's record may carry without a token request being an error,
+# derived from the set the SDK is willing to request so the two cannot drift. `None`/"none"
+# send no client secret; `private_key_jwt` sends none from here either, its assertion being
+# added by `PrivateKeyJWTOAuthProvider` (whose inherited refresh path passes through
+# `prepare_token_auth`). Anything else is a method no client here can apply.
+_KNOWN_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = (None, *get_args(TokenEndpointAuthMethod))
+
+# Methods a registration completed by the authorization-code flow can act on. That flow
+# authenticates the token request with the minted client secret (or nothing); it holds no key
+# to sign a `private_key_jwt` assertion, so a server assigning that method has registered a
+# client this flow cannot use. `PrivateKeyJWTOAuthProvider` never registers dynamically.
+_REGISTRATION_USABLE_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = tuple(
+    method for method in _KNOWN_TOKEN_ENDPOINT_AUTH_METHODS if method != "private_key_jwt"
+)
 
 
 def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
-    """Confirm a completed registration is one this client can act on.
+    """Confirm a registration this flow completed is one it can act on.
 
     RFC 7591 §3.2.1 lets the authorization server replace requested metadata and leaves it to
     the client to "check the values in the response to determine if the registration is
     sufficient for use". The one substitution that makes the minted credentials unusable is a
-    token-endpoint auth method this client cannot apply, so it is judged here - before the
-    record is persisted or any interactive authorization begins - rather than surfacing later
-    as an opaque failure at the token endpoint.
+    token-endpoint auth method the authorization-code flow cannot apply - one it does not
+    implement, or `private_key_jwt`, whose assertion this flow has no key to sign - so it is
+    judged here, before the record is persisted or any interactive authorization begins,
+    rather than surfacing later as an opaque failure at the token endpoint.
 
     Raises:
         OAuthRegistrationError: The server registered the client with a
-            `token_endpoint_auth_method` this client does not implement.
+            `token_endpoint_auth_method` this flow cannot apply.
     """
-    if client_info.token_endpoint_auth_method not in _RECOGNIZED_TOKEN_ENDPOINT_AUTH_METHODS:
+    if client_info.token_endpoint_auth_method not in _REGISTRATION_USABLE_TOKEN_ENDPOINT_AUTH_METHODS:
         raise OAuthRegistrationError(
             "Authorization server registered the client with unsupported token_endpoint_auth_method "
             f"{client_info.token_endpoint_auth_method!r}"
@@ -246,7 +256,7 @@ class OAuthContext:
             # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id
             data["client_secret"] = self.client_info.client_secret
-        elif auth_method not in _RECOGNIZED_TOKEN_ENDPOINT_AUTH_METHODS:
+        elif auth_method not in _KNOWN_TOKEN_ENDPOINT_AUTH_METHODS:
             raise OAuthTokenError(f"Registered client uses unsupported token_endpoint_auth_method {auth_method!r}")
         # For "none" (or absent), don't add any client_secret; "private_key_jwt" adds its
         # assertion in the provider that implements it, not here.

@@ -223,18 +223,23 @@ async def test_a_registration_response_with_substituted_metadata_completes_the_f
 
 
 @requirement("client-auth:dcr:substituted-metadata")
-async def test_a_registration_assigning_an_unusable_auth_method_surfaces_as_a_registration_error() -> None:
-    """A 201 assigning an auth method the client cannot apply is a registration error.
+@pytest.mark.parametrize("auth_method", ["client_secret_jwt", "private_key_jwt"])
+async def test_a_registration_assigning_an_unusable_auth_method_surfaces_as_a_registration_error(
+    auth_method: str,
+) -> None:
+    """A 201 assigning an auth method this flow cannot apply is a registration error.
 
     RFC 7591 §3.2.1 leaves it to the client to judge whether a substituted value makes the
-    registration usable; an unimplemented token-endpoint auth method does not, and is
-    reported before the record is stored or any authorize/token request is made.
+    registration usable. The authorization-code flow authenticates with the minted secret, so
+    neither an unimplemented method nor `private_key_jwt` (an assertion it has no key to
+    sign) is usable; both are reported before the record is stored or any authorize/token
+    request is made.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
     body = json.dumps(
-        {"client_id": "jwt-only", "client_secret": "s3cr3t", "token_endpoint_auth_method": "client_secret_jwt"}
+        {"client_id": "unusable", "client_secret": "s3cr3t", "token_endpoint_auth_method": auth_method}
     ).encode()
     app_shim = shim(serve={"/register": (201, body)})
     storage = InMemoryTokenStorage()

@@ -1,6 +1,6 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # RFC 7523 JWT bearer grant; SEP-990 leg 2 uses this to present the ID-JAG.
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
@@ -136,9 +136,11 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
     requested metadata values submitted during the registration and substitute them with
     suitable values", so `application_type`, `token_endpoint_auth_method`, and `grant_types`
     are typed to accept any string the server echoes, and `redirect_uris` may be absent or
-    empty. Whether a substituted value is usable is decided where the value is used, not at
-    parse. `redirect_uris` elements are still parsed as URLs, as the authorization server
-    compares them against a client's requested `redirect_uri`.
+    empty. A member the server serializes as an explicit `null` is read as omitted, so the
+    field's default applies rather than the parse failing. Whether a substituted value is
+    usable is decided where the value is used, not at parse. `redirect_uris` elements are
+    still parsed as URLs, as the authorization server compares them against a client's
+    requested `redirect_uri`.
     """
 
     redirect_uris: list[AnyUrl] | None = None
@@ -159,6 +161,17 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
     # SEP-2352: the issuer these credentials were registered with, recorded by the SDK (not an
     # RFC 7591 field) to detect authorization-server migration and avoid cross-AS credential reuse.
     issuer: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _explicit_null_reads_as_omitted(cls, data: object) -> object:
+        # Servers that serialize their client record dump unset members as null instead of
+        # omitting the keys; a null for a list field would otherwise fail the parse (and
+        # discard an already-provisioned registration). null and absent mean the same thing.
+        if isinstance(data, dict):
+            members = cast(dict[str, Any], data)
+            return {key: value for key, value in members.items() if value is not None}
+        return data
 
     @field_validator("token_endpoint_auth_method", "application_type", mode="before")
     @classmethod

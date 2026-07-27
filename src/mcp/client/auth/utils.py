@@ -300,9 +300,13 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
     try:
         content = await response.aread()
         client_info = OAuthClientInformationFull.model_validate_json(content)
-        return client_info
     except ValidationError as e:
         raise OAuthRegistrationError(f"Invalid registration response: {e}") from e
+    # `issuer` is the SDK's own binding of these credentials to the server they were
+    # registered with (SEP-2352), stamped by the auth flow - never taken from the wire.
+    # A body echoing an "issuer" member must not seed the trust binding.
+    client_info.issuer = None
+    return client_info
 
 
 def is_valid_client_metadata_url(url: str | None) -> bool:

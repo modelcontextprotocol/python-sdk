@@ -176,6 +176,25 @@ def test_a_registration_response_without_a_client_id_is_rejected():
         OAuthClientInformationFull.model_validate({"application_type": "web"})
 
 
+@pytest.mark.parametrize(
+    "nulled",
+    ["grant_types", "response_types", "redirect_uris", "application_type", "token_endpoint_auth_method", "scope"],
+)
+def test_client_information_reads_an_explicit_null_as_an_omitted_key(nulled: str):
+    """A server that dumps unset members as null (rather than omitting them) still yields a
+    usable registration: null and absent mean the same, so the field's default applies."""
+    info = OAuthClientInformationFull.model_validate({"client_id": "abc123", nulled: None})
+    defaults = OAuthClientInformationFull.model_validate({"client_id": "abc123"})
+    assert getattr(info, nulled) == getattr(defaults, nulled)
+
+
+def test_client_information_that_is_not_an_object_still_fails_the_parse():
+    """The null-as-omitted coercion only touches JSON objects; a body that is not one is
+    passed through and rejected as a normal validation failure rather than swallowed."""
+    with pytest.raises(ValidationError):
+        OAuthClientInformationFull.model_validate("not-an-object")
+
+
 @pytest.mark.parametrize("empty_field", ["token_endpoint_auth_method", "application_type"])
 def test_client_information_empty_string_metadata_coerced_to_absent(empty_field: str):
     """An echoed "" reads as absent, matching the URL-field coercion, so it is neither

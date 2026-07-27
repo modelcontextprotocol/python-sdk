@@ -258,8 +258,12 @@ async def test_registration_response_echoes_the_registered_application_type(
     response = await http.post("/register", json=body | {"application_type": application_type})
 
     assert response.status_code == 201
-    info = OAuthClientInformationFull.model_validate_json(response.content)
-    assert info.application_type == application_type
+    echoed = response.json()
+    assert echoed["application_type"] == application_type
+    # A secret was issued and no expiry is configured, so RFC 7591 §3.2.1 requires the
+    # response to carry client_secret_expires_at, with 0 (present, not omitted) for "never".
+    assert echoed["client_secret"]
+    assert echoed["client_secret_expires_at"] == 0
 
 
 @requirement("hosting:auth:as:redirect-uri-binding")

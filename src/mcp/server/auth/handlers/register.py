@@ -106,11 +106,15 @@ class RegistrationHandler:
             )
 
         client_id_issued_at = int(time.time())
-        client_secret_expires_at = (
-            client_id_issued_at + self.options.client_secret_expiry_seconds
-            if self.options.client_secret_expiry_seconds is not None
-            else None
-        )
+        # RFC 7591 §3.2.1: client_secret_expires_at is REQUIRED whenever a client_secret is
+        # issued, with 0 (not omission) meaning it never expires; a public client gets none.
+        client_secret_expires_at = None
+        if client_secret is not None:
+            client_secret_expires_at = (
+                client_id_issued_at + self.options.client_secret_expiry_seconds
+                if self.options.client_secret_expiry_seconds is not None
+                else 0
+            )
 
         # RFC 7591 §3.2.1: the response returns all registered metadata about the client, so
         # the record is the whole validated request plus the credentials minted here - built

@@ -1031,6 +1031,19 @@ async def test_registration_response_with_substituted_metadata_yields_the_creden
 
 
 @pytest.mark.anyio
+async def test_registration_response_does_not_seed_the_issuer_binding_from_the_body():
+    """The issuer binding (SEP-2352) is the SDK's record of which server it registered with,
+    stamped by the auth flow; an "issuer" member in the untrusted response body must not
+    populate it, or a mismatched binding would discard the credentials on every 401."""
+    body = b'{"client_id": "issued-id", "issuer": "https://not-the-flow.example"}'
+
+    client_info = await handle_registration_response(httpx2.Response(201, content=body))
+
+    assert client_info.client_id == "issued-id"
+    assert client_info.issuer is None
+
+
+@pytest.mark.anyio
 async def test_a_2xx_body_that_is_not_client_information_is_an_oauth_registration_error():
     """A success status whose body is not client information surfaces as OAuthRegistrationError."""
     response = httpx2.Response(201, content=b"<html>not json</html>")
