@@ -5,11 +5,21 @@ Notification ordering: await-free callbacks finish in arrival order, and passing
 streamable HTTP, so plain-list collection is deterministic on every transport leg.
 """
 
+from unittest.mock import AsyncMock
+
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
+from mcp_types import (
+    INVALID_PARAMS,
+    LOG_LEVEL_META_KEY,
+    CallToolResult,
+    EmptyResult,
+    LoggingMessageNotificationParams,
+    TextContent,
+)
 
+from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
 from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
@@ -81,7 +91,7 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect, un
         "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
     )
 
-    async with connect(server, logging_callback=collect) as client:
+    async with connect(server, logging_callback=collect, log_level="debug") as client:
         result = await client.call_tool("chatty", {})
 
     assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="done")]))
@@ -122,7 +132,68 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
         "logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
     )
 
-    async with connect(server, logging_callback=collect) as client:
+    async with connect(server, logging_callback=collect, log_level="debug") as client:
         await client.call_tool("siren", {})
 
     assert [params.level for params in received] == list(ALL_LEVELS)
+
+
+def _siren_server() -> Server:
+    """A server whose `siren` tool logs one message at each of the eight severity levels.
+
+    The messages are sent without `related_request_id`: on 2026-07-28+ log delivery is
+    request-scoped by construction, so they still ride the requesting stream on every leg.
+    """
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="siren", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "siren"
+        for level in ALL_LEVELS:
+            await ctx.session.send_log_message(level=level, data=f"a {level} message")  # pyright: ignore[reportDeprecated]
+        return CallToolResult(content=[TextContent(text="logged")])
+
+    return Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
+
+
+@requirement("logging:per-request:opt-in")
+async def test_no_log_messages_are_sent_for_a_request_without_a_log_level(connect: Connect) -> None:
+    """A request whose _meta carries no io.modelcontextprotocol/logLevel gets no log messages at all.
+
+    The handler emits at every severity, but the client never opts in, so the server must send
+    nothing: the log calls are dropped rather than delivered on some other stream.
+    """
+    logging_callback = AsyncMock()
+
+    async with connect(_siren_server(), logging_callback=logging_callback) as client:
+        result = await client.call_tool("siren", {})
+
+    assert isinstance(result.content[0], TextContent) and result.content[0].text == "logged"
+    logging_callback.assert_not_awaited()
+
+
+@requirement("logging:per-request:threshold")
+async def test_log_messages_below_the_requested_level_are_dropped(connect: Connect) -> None:
+    """A request opting in at `warning` receives only warning and above, in order."""
+    received: list[LoggingMessageNotificationParams] = []
+
+    async def collect(params: LoggingMessageNotificationParams) -> None:
+        received.append(params)
+
+    async with connect(_siren_server(), logging_callback=collect, log_level="warning") as client:
+        await client.call_tool("siren", {})
+
+    assert [params.level for params in received] == ["warning", "error", "critical", "alert", "emergency"]
+
+
+@requirement("logging:per-request:invalid-level")
+async def test_a_request_with_an_unrecognized_log_level_is_rejected(connect: Connect) -> None:
+    """A request whose _meta names an unrecognized log level is rejected with -32602 before the handler runs."""
+    async with connect(_siren_server()) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("siren", {}, meta={LOG_LEVEL_META_KEY: "verbose"})
+
+    assert exc_info.value.error.code == INVALID_PARAMS

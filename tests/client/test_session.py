@@ -13,6 +13,7 @@ from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     REQUEST_TIMEOUT,
@@ -1546,6 +1547,21 @@ async def test_discover_adopts_the_returned_result_and_installs_the_modern_stamp
     assert ping_method == "ping"
     assert ping_params is not None
     assert ping_params["_meta"][PROTOCOL_VERSION_META_KEY] == "2026-07-28"
+
+
+@pytest.mark.anyio
+async def test_log_level_opt_in_is_stamped_on_modern_requests_and_overridable_per_call() -> None:
+    """SDK-defined: `log_level` stamps the reserved log-level `_meta` key on every modern
+    request, and a request supplying that key in its own `_meta` overrides the default."""
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), {}, {})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher, log_level="warning") as session:
+            await session.discover()
+            await session.send_ping()
+            await session.send_ping(meta={LOG_LEVEL_META_KEY: "debug"})
+    default_meta, override_meta = (params["_meta"] for _, params in dispatcher.calls[-2:] if params is not None)
+    assert default_meta[LOG_LEVEL_META_KEY] == "warning"
+    assert override_meta[LOG_LEVEL_META_KEY] == "debug"
 
 
 @pytest.mark.anyio

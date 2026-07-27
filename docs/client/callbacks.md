@@ -133,7 +133,7 @@ Pass them to `Client(...)` exactly like `elicitation_callback`.
 
 Two more. Neither declares anything.
 
-`logging_callback` receives every `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**[Logging](../handlers/logging.md)** has what to do instead), so this callback exists for the servers that still emit it.
+`logging_callback` receives the `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**[Logging](../handlers/logging.md)** has what to do instead), so this callback exists for the servers that still emit it. On a 2026-era connection the callback alone gets you nothing, because 2026 servers send log messages only to requests that opt in: pass `log_level="info"` (or another level) to `Client(...)` to stamp that opt-in on every request and receive that level and above. Pre-2026 servers ignore it and keep their `logging/setLevel` behavior.
 
 `message_handler` is the catch-all: every server notification the session surfaces reaches it (as well as its specific callback), and on a stream-backed transport so does every transport-level `Exception`. Two never do: `notifications/cancelled` is applied by the SDK rather than surfaced, and a subscription acknowledgment for a live `listen()` stream is consumed by that stream. Annotate the parameter with `IncomingMessage` (`ServerNotification | Exception`, exported from `mcp.client`). The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
 

@@ -431,7 +431,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
 
-    async with connect(mcp, message_handler=collect) as client:
+    async with connect(mcp, message_handler=collect, log_level="debug") as client:
         before = await client.list_tools()
         await client.call_tool("grow", {})
         after = await client.list_tools()

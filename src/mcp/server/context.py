@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Generic, Protocol
@@ -6,7 +7,7 @@ from mcp_types import LoggingLevel, RequestId, RequestParamsMeta
 from pydantic import BaseModel
 from typing_extensions import TypeVar, deprecated
 
-from mcp.server.connection import Connection
+from mcp.server.connection import Connection, allowed_log_levels
 from mcp.server.session import ServerSession
 from mcp.shared.context import BaseContext
 from mcp.shared.dispatcher import DispatchContext
@@ -14,6 +15,12 @@ from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import CloseSSEStreamCallback
 from mcp.shared.peer import Meta
 from mcp.shared.transport_context import TransportContext
+
+logger = logging.getLogger(__name__)
+# `Context.log`'s `logger` parameter (public API, the spec's logger-name
+# field) shadows the module logger inside that method; this alias keeps it
+# reachable there.
+_logger = logger
 
 # Invariant: parametrizes a mutable dataclass field; dict default matches the default lifespan.
 LifespanContextT = TypeVar("LifespanContextT", default=dict[str, Any])
@@ -67,6 +74,9 @@ class Context(BaseContext[TransportContext], Generic[LifespanT_co]):
         super().__init__(dctx, meta=meta)
         self._lifespan = lifespan
         self._connection = connection
+        # Same per-request log gate as `ServerSession`: fixed at construction
+        # from this request's `_meta` log-level opt-in and the connection's era.
+        self._allowed_log_levels = allowed_log_levels(connection.protocol_version, meta)
 
     @property
     def lifespan(self) -> LifespanT_co:
@@ -102,7 +112,15 @@ class Context(BaseContext[TransportContext], Generic[LifespanT_co]):
         Uses this request's back-channel (so the entry rides the request's SSE
         stream in streamable HTTP), not the standalone stream - use
         `ctx.connection.log(...)` for that.
+
+        On 2026-07-28+ delivery is a per-request opt-in: nothing is sent
+        unless this request's `_meta` carried the reserved log-level key, and
+        entries below the requested level are dropped (debug-logged).
+        Handshake versions send unconditionally, as before.
         """
+        if level not in self._allowed_log_levels:
+            _logger.debug("dropped notifications/message at %r: not opted in at that level on this request", level)
+            return
         params: dict[str, Any] = {"level": level, "data": data}
         if logger is not None:
             params["logger"] = logger

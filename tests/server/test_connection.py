@@ -284,6 +284,16 @@ async def test_connection_log_sends_logging_message_notification():
 
 
 @pytest.mark.anyio
+async def test_connection_log_sends_nothing_on_a_modern_connection():
+    """2026 log delivery is a per-request opt-in on the requesting stream; the
+    connection-scoped standalone entry has no request to opt in, so it never sends."""
+    out = StubOutbound()
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None, outbound=out)
+    await conn.log("emergency", "unheard")  # pyright: ignore[reportDeprecated]
+    assert out.notifications == []
+
+
+@pytest.mark.anyio
 async def test_connection_log_with_meta_includes_meta_in_params():
     out = StubOutbound()
     conn = Connection.for_loop(out)
