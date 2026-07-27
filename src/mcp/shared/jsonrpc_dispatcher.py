@@ -189,11 +189,10 @@ def _default_transport_builder(metadata: MessageMetadata) -> TransportContext:
 
     A message reads as riding a full duplex pipe (`can_send_request=True`)
     unless the transport that framed it says otherwise on the metadata it
-    attached: streamable HTTP marks JSON-response-mode and sessionless
-    messages `ServerMessageMetadata(can_send_request=False)`, so their
-    request-scoped channel raises `NoBackChannelError` instead of parking a
-    waiter no reply can reach - with no wiring needed from whoever drives the
-    streams.
+    attached: streamable HTTP marks JSON-response-mode messages
+    `ServerMessageMetadata(can_send_request=False)`, so their request-scoped
+    channel raises `NoBackChannelError` instead of parking a waiter no reply
+    can reach - with no wiring needed from whoever drives the streams.
     """
     can_send_request = True
     if isinstance(metadata, ServerMessageMetadata) and metadata.can_send_request is not None:

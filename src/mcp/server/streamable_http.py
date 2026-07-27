@@ -220,11 +220,12 @@ class StreamableHTTPServerTransport:
     @property
     def _request_channel_can_send_request(self) -> bool:
         """Whether the request-scoped channel of a message this transport delivers can carry a
-        server-initiated request. It cannot in JSON-response mode (the POST is answered with one
-        JSON body) nor with no session (the client's reply would have no session to land on);
-        stamped on each message's `ServerMessageMetadata` so any dispatcher's builder reads it.
+        server-initiated request. It cannot in JSON-response mode: the POST is answered with one
+        JSON body, which holds only the response. Stamped on each message's
+        `ServerMessageMetadata` so any dispatcher's builder reads it; whether a reply has a session
+        to land on is the session manager's fact, not the transport's, so it is not decided here.
         """
-        return self.mcp_session_id is not None and not self.is_json_response_enabled
+        return not self.is_json_response_enabled
 
     def close_sse_stream(self, request_id: RequestId) -> None:
         """Close SSE connection for a specific request without terminating the stream.

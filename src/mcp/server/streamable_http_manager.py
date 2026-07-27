@@ -214,11 +214,12 @@ class StreamableHTTPSessionManager:
                     read_stream,
                     write_stream,
                     inline_methods=frozenset({"initialize"}),
-                    # No `transport_builder`: with no session ID the transport
-                    # marks each message's request-scoped channel unable to
-                    # carry a server-initiated request (the client's reply has
-                    # nowhere to land), so requests raise `NoBackChannelError`
-                    # while notifications still flow.
+                    # No session ID means a server-to-client request can be
+                    # written to this POST's response stream, but the client's
+                    # reply has nowhere to land — `can_send_request=False`
+                    # makes the per-request channel raise `NoBackChannelError`
+                    # for requests while still allowing notifications.
+                    transport_builder=lambda _md: TransportContext(kind="streamable-http", can_send_request=False),
                 )
                 # Born-ready, no standalone channel: the legacy stateless path
                 # never opens a GET stream and need not see `initialize`. The
@@ -319,8 +320,7 @@ class StreamableHTTPSessionManager:
                             with idle_scope:
                                 # Drive via `serve_loop` (not `Server.run()`) so the
                                 # manager's already-entered lifespan is reused
-                                # rather than re-entered per session; the transport
-                                # marks each message with what its channel can carry.
+                                # rather than re-entered per session.
                                 await serve_loop(
                                     self.app,
                                     read_stream,
