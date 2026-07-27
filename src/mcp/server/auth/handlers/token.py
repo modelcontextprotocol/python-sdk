@@ -10,7 +10,12 @@ from starlette.requests import Request
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenError, TokenErrorCode
+from mcp.server.auth.provider import (
+    IdentityAssertionParams,
+    OAuthAuthorizationServerProvider,
+    TokenError,
+    TokenErrorCode,
+)
 from mcp.shared.auth import OAuthToken
 
 
@@ -40,7 +45,24 @@ class RefreshTokenRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
-TokenRequest = Annotated[AuthorizationCodeRequest | RefreshTokenRequest, Field(discriminator="grant_type")]
+class JwtBearerRequest(BaseModel):
+    # RFC 7523 §2.1 JWT bearer authorization grant. SEP-990 leg 2: the client presents the
+    # enterprise IdP-issued ID-JAG to the MCP authorization server as the `assertion`.
+    grant_type: Literal["urn:ietf:params:oauth:grant-type:jwt-bearer"]
+    # See https://datatracker.ietf.org/doc/html/rfc7523#section-2.1
+    assertion: str = Field(..., description="The ID-JAG (a signed JWT) being presented as the grant")
+    scope: str | None = Field(None, description="Optional scope parameter")
+    client_id: str
+    # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
+    client_secret: str | None = None
+    # RFC 8707 resource indicator
+    resource: str | None = Field(None, description="Resource indicator for the token")
+
+
+TokenRequest = Annotated[
+    AuthorizationCodeRequest | RefreshTokenRequest | JwtBearerRequest,
+    Field(discriminator="grant_type"),
+]
 token_request_adapter = TypeAdapter[TokenRequest](TokenRequest)
 
 
@@ -62,6 +84,7 @@ TokenSuccessResponse = OAuthToken
 class TokenHandler:
     provider: OAuthAuthorizationServerProvider[Any, Any, Any]
     client_authenticator: ClientAuthenticator
+    identity_assertion_enabled: bool = False
 
     def response(self, obj: TokenSuccessResponse | TokenErrorResponse):
         status_code = 200
@@ -98,7 +121,7 @@ class TokenHandler:
             form_data = await request.form()
             # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
             token_request = token_request_adapter.validate_python(dict(form_data))
-        except ValidationError as validation_error:  # pragma: no cover
+        except ValidationError as validation_error:
             return self.response(
                 TokenErrorResponse(
                     error="invalid_request",
@@ -106,7 +129,7 @@ class TokenHandler:
                 )
             )
 
-        if token_request.grant_type not in client_info.grant_types:  # pragma: no cover
+        if token_request.grant_type not in client_info.grant_types:
             return self.response(
                 TokenErrorResponse(
                     error="unsupported_grant_type",
@@ -178,7 +201,7 @@ class TokenHandler:
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
-            case RefreshTokenRequest():  # pragma: no branch
+            case RefreshTokenRequest():
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
                 if refresh_token is None or refresh_token.client_id != token_request.client_id:
                     # if token belongs to different client, pretend it doesn't exist
@@ -213,6 +236,39 @@ class TokenHandler:
                 try:
                     # Exchange refresh token for new tokens
                     tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
+                except TokenError as e:
+                    return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
+
+            case JwtBearerRequest():  # pragma: no branch
+                if not self.identity_assertion_enabled:
+                    return self.response(
+                        TokenErrorResponse(
+                            error="unsupported_grant_type",
+                            error_description="The JWT bearer grant is not supported by this authorization server",
+                        )
+                    )
+
+                # SEP-990 §5.1: only confidential clients may present an ID-JAG. ClientAuthenticator
+                # already rejects a secret-based method with no stored secret; this additionally
+                # rejects the public `none` method so an unauthenticated client never reaches the
+                # provider hook.
+                if not client_info.client_secret:
+                    # RFC 6749 §5.2: the client authenticated but is not permitted this grant, so
+                    # unauthorized_client (not invalid_client, which is for failed authentication).
+                    return self.response(
+                        TokenErrorResponse(
+                            error="unauthorized_client",
+                            error_description="The JWT bearer grant requires a confidential client",
+                        )
+                    )
+
+                params = IdentityAssertionParams(
+                    assertion=token_request.assertion,
+                    scopes=token_request.scope.split(" ") if token_request.scope else None,
+                    resource=token_request.resource,
+                )
+                try:
+                    tokens = await self.provider.exchange_identity_assertion(client_info, params)
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 

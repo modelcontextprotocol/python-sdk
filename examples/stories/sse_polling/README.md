@@ -1,0 +1,76 @@
+# sse-polling
+
+> **Legacy mechanism (2025 handshake era).** `Last-Event-ID` resumability and
+> the sessionful transport are removed in the 2026-07-28 protocol (SEP-2575)
+> with no modern-era equivalent; the closest 2026-era pattern is client-side
+> reconnection over a persisted `DiscoverResult` —
+> [`reconnect/`](../reconnect/). TODO(maxisbey): revisit before beta.
+
+SEP-1699 server-initiated SSE disconnection with `Last-Event-ID` replay. The
+server's `EventStore` stamps every SSE event with an ID and opens each response
+stream with a priming event; mid-handler the tool calls
+`ctx.close_sse_stream()` to release the open HTTP response (freeing a
+connection slot), keeps emitting progress into the event store, and returns.
+The client transport sees the stream end, reconnects with `Last-Event-ID`, and
+the event store replays everything it missed — `await client.call_tool(...)`
+resolves as if the disconnect never happened.
+
+## Run it
+
+```bash
+# HTTP — the client self-hosts the app on a free port, runs, then tears it down
+uv run python -m stories.sse_polling.client --http --legacy
+# same, against the lowlevel-API server variant
+uv run python -m stories.sse_polling.client --http --legacy --server server_lowlevel
+
+# against a server you run yourself (real uvicorn on :8000)
+uv run python -m stories.sse_polling.server --port 8000 &
+SERVER_PID=$!
+uv run python -m stories.sse_polling.client --http http://127.0.0.1:8000/mcp --legacy
+kill "$SERVER_PID"
+```
+
+## What to look at
+
+- **`client.py` `main` — opens with `async with Client(target, mode=mode)`.**
+  There is no client-side resumability configuration: the `Client` and the
+  `streamable_http_client` transport handle the priming event, the SSE `retry:`
+  hint, and the `Last-Event-ID` reconnect automatically. The assertion that the
+  `"after-close"` progress message arrived is the proof — it was emitted while
+  no SSE stream was open.
+- **`server.py` — `streamable_http_app(event_store=..., retry_interval=0)`.**
+  Passing an `EventStore` is what enables resumability: every SSE event gets an
+  ID and the response opens with a priming event so the client always has a
+  `Last-Event-ID` to reconnect with. `retry_interval=0` makes the client's
+  reconnect wait a no-op (the SSE `retry:` hint).
+- **`server.py` — `await ctx.close_sse_stream()`.** Ends the current request's
+  SSE response without cancelling the handler. Everything emitted afterwards
+  goes to the event store and is replayed on reconnect. A no-op when no
+  `event_store` is configured.
+- **`server_lowlevel.py` — `ctx.close_sse_stream`.** On the lowlevel API the
+  callback is an optional field on `ServerRequestContext`; it is `None` unless
+  an event store is wired and the negotiated version is in the 2025 era.
+
+## Caveats
+
+- `streamable_http_app(...)` is a hosting entry that reshapes in a later
+  release; this story calls it directly because the event-store and
+  retry-interval kwargs are the point.
+- DNS-rebinding protection is disabled (`transport_security=NO_DNS_REBIND`)
+  because the in-process httpx2 client sends no `Origin` header. Drop the kwarg
+  for a real deployment.
+- `event_store.py` here is example-grade only (sequential IDs, no eviction). A
+  production server would back the `EventStore` interface with persistent
+  storage.
+
+## Spec
+
+[Resumability and Redelivery](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery)
+· SEP-1699 (server-initiated SSE close)
+
+## See also
+
+`standalone_get/` (the standalone-stream sibling of `close_sse_stream()`),
+`reconnect/` (the modern-era reconnection story — persisted `DiscoverResult`,
+no event store), `streaming/` (in-flight progress + cancellation without the
+disconnect).

@@ -5,18 +5,20 @@ dicts) and the user's handler layer (typed `Context`, typed params). It is a
 pure kernel: it holds a pre-populated `Connection` and reads
 `connection.protocol_version` / `connection.outbound` as facts. Driving a
 dispatcher loop and tearing down the connection live in the free-function
-drivers (`serve_connection`, `serve_loop`, `serve_one`); the entry constructs
-the `Connection`, the driver tears it down.
+drivers (`serve_connection`, `serve_loop`, `serve_dual_era_loop`, `serve_one`);
+the entry constructs the `Connection`, the driver tears it down.
 
 `ServerRunner` holds a `Server` directly - `Server` is the registry.
 """
 
 from __future__ import annotations
 
+import contextvars
 import logging
-from collections.abc import Awaitable, Mapping, Sequence
-from dataclasses import KW_ONLY, dataclass
-from functools import cached_property, partial, reduce
+from collections.abc import AsyncIterator, Awaitable, Mapping
+from contextlib import asynccontextmanager
+from dataclasses import KW_ONLY, dataclass, replace
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, Generic, cast
 
 import anyio
@@ -24,33 +26,47 @@ import anyio.abc
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CORE_RESULT_TYPES,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
+    CacheableResult,
     ErrorData,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
+    JSONRPCRequest,
+    RequestId,
     RequestParams,
     RequestParamsMeta,
+    UnsupportedProtocolVersionErrorData,
 )
 from mcp_types import methods as _methods
-from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
-from opentelemetry.trace import SpanKind, StatusCode
+from mcp_types.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    LATEST_HANDSHAKE_VERSION,
+    LATEST_MODERN_VERSION,
+    MODERN_PROTOCOL_VERSIONS,
+)
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar
 
-from mcp.server.connection import Connection
+from mcp.server.caching import apply_cache_hint
+from mcp.server.connection import Connection, NotifyOnlyOutbound
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._context_streams import ContextReceiveStream
 from mcp.shared._stream_protocols import ReadStream, WriteStream
-from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnNotify, OnRequest
-from mcp.shared.exceptions import MCPError
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.dispatcher import CallOptions, DispatchContext, Dispatcher, OnNotify, OnRequest
+from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.inbound import InboundLadderRejection, classify_inbound_request
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, handler_exception_to_error_data
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
@@ -62,8 +78,8 @@ __all__ = [
     "ServerRunner",
     "aclose_shielded",
     "modern_on_request",
-    "otel_middleware",
     "serve_connection",
+    "serve_dual_era_loop",
     "serve_loop",
     "serve_one",
 ]
@@ -91,58 +107,6 @@ def _extract_meta(params: Mapping[str, Any] | None) -> RequestParamsMeta | None:
         return None
 
 
-def otel_middleware(call_next: OnRequest) -> OnRequest:
-    """Dispatch-tier middleware that wraps each request in an OpenTelemetry span.
-
-    Mirrors the span shape of the existing `Server._handle_request`: span name
-    `"MCP handle <method> [<target>]"`, `mcp.method.name` attribute, W3C
-    trace context extracted from `params._meta` (SEP-414), and an ERROR
-    status if the handler raises.
-    """
-
-    async def wrapped(
-        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
-    ) -> dict[str, Any]:
-        target: str | None
-        match params:
-            case {"name": str() as target}:
-                pass
-            case _:
-                target = None
-        parent: Any | None
-        match params:
-            case {"_meta": {**meta}}:
-                parent = extract_trace_context(meta)
-            case _:
-                parent = None
-        span_name = f"MCP handle {method}{f' {target}' if target else ''}"
-        # `otel_middleware` wraps `on_request` only, so `request_id` is always set.
-        attributes = {"mcp.method.name": method, "jsonrpc.request.id": str(dctx.request_id)}
-        with otel_span(
-            span_name,
-            kind=SpanKind.SERVER,
-            attributes=attributes,
-            context=parent,
-            record_exception=False,
-            set_status_on_exception=False,
-        ) as span:
-            try:
-                return await call_next(dctx, method, params)
-            except MCPError as e:
-                span.set_status(StatusCode.ERROR, e.error.message)
-                raise
-            except ValidationError:
-                # Mirror the sanitized wire response; pydantic messages carry client input.
-                span.set_status(StatusCode.ERROR, "Invalid request parameters")
-                raise
-            except Exception as e:
-                span.record_exception(e)
-                span.set_status(StatusCode.ERROR, str(e))
-                raise
-
-    return wrapped
-
-
 def _dump_result(result: Any) -> dict[str, Any]:
     if result is None:
         return {}
@@ -153,7 +117,10 @@ def _dump_result(result: Any) -> dict[str, Any]:
     if isinstance(result, BaseModel):
         return result.model_dump(by_alias=True, mode="json", exclude_none=True)
     if isinstance(result, dict):
-        return cast(dict[str, Any], result)
+        # Copied so callers own the returned dict: handlers and middleware may
+        # retain the object they returned, and the outbound pipeline shapes the
+        # wire form without reaching into anything the handler still holds.
+        return dict(cast(dict[str, Any], result))
     raise TypeError(f"handler returned {type(result).__name__}; expected BaseModel, dict, or None")
 
 
@@ -196,19 +163,10 @@ class ServerRunner(Generic[LifespanT]):
     _: KW_ONLY
     init_options: InitializationOptions | None = None
     """`InitializeResult` payload. Defaults to `server.create_initialization_options()`."""
-    dispatch_middleware: Sequence[DispatchMiddleware] = (otel_middleware,)
 
     @cached_property
     def on_request(self) -> OnRequest:
-        """`_on_request` wrapped in `dispatch_middleware`, outermost-first.
-
-        Dispatch-tier middleware sees raw `(dctx, method, params) -> dict` and
-        wraps everything - initialize, METHOD_NOT_FOUND, validation failures
-        included.
-        """
-        return reduce(
-            lambda handler, middleware: middleware(handler), reversed(self.dispatch_middleware), self._on_request
-        )
+        return self._on_request
 
     @cached_property
     def on_notify(self) -> OnNotify:
@@ -223,7 +181,6 @@ class ServerRunner(Generic[LifespanT]):
         meta = _extract_meta(params)
         version = self.connection.protocol_version
         ctx = self._make_context(dctx, method, params, meta, version)
-        is_spec_method = method in _methods.SPEC_CLIENT_METHODS
 
         async def _inner(ctx: ServerRequestContext[LifespanT, Any]) -> HandlerResult:
             # Read method/params off `ctx` so a middleware that rewrote them via
@@ -242,7 +199,7 @@ class ServerRunner(Generic[LifespanT]):
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
             if method == "initialize":
-                return self._handle_initialize(params)
+                return self._serialize(method, version, self._handle_initialize(params))
             # Methods without a handler are METHOD_NOT_FOUND regardless of
             # initialization state: JSON-RPC 2.0 reserves -32601 for "not
             # available on this server", and clients probing a server before
@@ -261,25 +218,16 @@ class ServerRunner(Generic[LifespanT]):
             if isinstance(result, ErrorData):
                 # Raise inside the chain so middleware observes the failure.
                 raise MCPError.from_error_data(result)
-            return result
+            # Shape for the wire inside the chain so the OpenTelemetry span (the
+            # outermost middleware) records a failing handler return shape too.
+            return self._serialize(method, version, result)
 
         call = self._compose_server_middleware(_inner)
+        # `_inner` already produced the wire dict; a middleware that short-circuited
+        # without `call_next` is trusted to return its own well-formed result -
+        # including its response envelope. The pipeline never patches it up after
+        # the fact.
         result = _dump_result(await call(ctx))
-        # TODO(L56): reject resultType values outside {"complete", "input_required"} unless the
-        # corresponding extension is in this request's _meta clientCapabilities.extensions; the
-        # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
-        if is_spec_method:
-            try:
-                result = _methods.serialize_server_result(method, version, result)
-            except KeyError:
-                # Middleware short-circuited a wrong-version spec method without
-                # calling `call_next`; it owns the result shape.
-                pass
-            except ValidationError:
-                # Server bug, not client fault. Detail stays in the server log:
-                # pydantic messages echo the result body.
-                logger.exception("handler for %r returned an invalid result", method)
-                raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
             # Race-free: the read loop is parked until this call returns.
@@ -387,6 +335,85 @@ class ServerRunner(Generic[LifespanT]):
             close_standalone_sse_stream=close_standalone_sse_stream,
         )
 
+    def _serialize(self, method: str, version: str, result: HandlerResult) -> dict[str, Any]:
+        """Shape a handler result into its wire form: the outbound counterpart
+        of the inbound classification ladder.
+
+        One pass owns the whole response envelope, in order: cache hints fill
+        `ttlMs`/`cacheScope` the handler left unset, core-vocabulary spec-method
+        results are validated and sieved by the per-version surface (a claimed
+        extension `resultType` shape is the extension's to own), and 2026-era
+        results get the `serverInfo` `_meta` stamp (spec #3002). Runs inside the
+        middleware chain so the OpenTelemetry span observes a failing return
+        shape (unsupported type, malformed spec result) as an error rather
+        than closing on a request that the client sees fail - and so a
+        middleware that short-circuits without `call_next` owns its result,
+        envelope included.
+        """
+        # MRTR carve-out: `input_required` interim results, typed or mapping, never get hints.
+        if (hint := self.server.cache_hints.get(method)) is not None:
+            if isinstance(result, CacheableResult):
+                result = apply_cache_hint(result, hint)
+            elif isinstance(result, Mapping) and not _methods.is_input_required(result):
+                # Hint keys first so wire keys the handler set win, matching `apply_cache_hint` precedence.
+                result = {"ttlMs": hint.ttl_ms, "cacheScope": hint.scope, **result}
+        dumped = _dump_result(result)
+        # A modern-era extension `resultType` (outside the core vocabulary) marks
+        # a claimed shape owned by the extension that defined it: the per-version
+        # surface doesn't describe it, so the sieve applies to core results only.
+        # Legacy connections sieve everything - claimed shapes are 2026-era
+        # vocabulary and cannot be delivered on a legacy wire (mirrors the
+        # client-side ResultClaim rule).
+        # TODO(L56): reject extension resultType values unless the corresponding
+        # extension is in this request's _meta clientCapabilities.extensions; the
+        # explicit MUST-reject is client-side (basic/index.mdx ResultType), this enforces it proactively.
+        result_type = dumped.get("resultType")
+        core_shape = (
+            version not in MODERN_PROTOCOL_VERSIONS
+            or not isinstance(result_type, str)
+            or result_type in CORE_RESULT_TYPES
+        )
+        if method in _methods.SPEC_CLIENT_METHODS and core_shape:
+            try:
+                dumped = _methods.serialize_server_result(method, version, dumped)
+            except ValidationError:
+                # Server bug, not client fault. Detail stays in the server log:
+                # pydantic messages echo the result body.
+                logger.exception("handler for %r returned an invalid result", method)
+                raise MCPError(code=INTERNAL_ERROR, message="Handler returned an invalid result") from None
+        if version in MODERN_PROTOCOL_VERSIONS and dumped.get("resultType") is None:
+            # Spec 2026-07-28: `Result.resultType` is required - servers MUST
+            # include it (the absent-means-complete bridge is for clients of
+            # older servers only). The sieve guarantees it for core methods;
+            # this covers everything else: custom methods, extension methods,
+            # and empty results.
+            dumped["resultType"] = "complete"
+        return self._stamp_server_info(version, dumped)
+
+    def _stamp_server_info(self, version: str, result: dict[str, Any]) -> dict[str, Any]:
+        """Fill the `serverInfo` `_meta` stamp on a 2026-era result (spec #3002).
+
+        A handler-authored value wins; an explicit `null` reads as absent and
+        is stamped over, mirroring the request-side `clientInfo` posture (a
+        `null` is not a valid `Implementation`, so presence means a value). A
+        non-mapping `_meta` is the handler's to own, and handshake-era results
+        are never stamped. `result` is
+        pipeline-owned (`_dump_result` copies dicts; the spec-method sieve
+        re-dumps), but `_meta` may still be the handler's object, so the stamp
+        replaces it rather than writing into it. `server_info_stamp` is a
+        fresh dict per access, so the response never aliases server state.
+        """
+        if version not in MODERN_PROTOCOL_VERSIONS:
+            return result
+        raw_meta = result.get("_meta")
+        if raw_meta is None:
+            result["_meta"] = {SERVER_INFO_META_KEY: self.server.server_info_stamp}
+        elif isinstance(raw_meta, dict):
+            meta = cast("dict[str, Any]", raw_meta)
+            if meta.get(SERVER_INFO_META_KEY) is None:
+                result["_meta"] = {**meta, SERVER_INFO_META_KEY: self.server.server_info_stamp}
+        return result
+
     @staticmethod
     def _negotiate_initialize(params: Mapping[str, Any] | None) -> tuple[InitializeRequestParams, str]:
         """Validate `initialize` params and pick the protocol version."""
@@ -447,13 +474,14 @@ async def serve_loop(
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
 ) -> None:
-    """Drive ``server`` in loop mode over a stream pair until the channel closes.
+    """Drive ``server`` in handshake-only loop mode over a stream pair until the channel closes.
 
     Builds the loop-mode `JSONRPCDispatcher` + `Connection` and hands them to
-    `serve_connection`, so loop-mode callers share one dispatcher-construction
-    recipe (notably the `inline_methods={"initialize"}` rule). Callers that own
-    a lifespan (the streamable-HTTP manager) pass it in; callers that don't
-    (`Server.run` for stdio/memory) enter the lifespan and then call this.
+    `serve_connection`. The streamable-HTTP manager (which owns its lifespan
+    and serves the modern era on the single-exchange entry instead) calls
+    this; `Server.run` drives `serve_dual_era_loop`, which extends the same
+    dispatcher recipe (notably the `inline_methods={"initialize"}` rule) with
+    era routing.
     """
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
         read_stream,
@@ -468,6 +496,317 @@ async def serve_loop(
     await serve_connection(
         server, dispatcher, connection=connection, lifespan_state=lifespan_state, init_options=init_options
     )
+
+
+def _has_modern_envelope(params: Mapping[str, Any] | None) -> bool:
+    """Whether `params._meta` carries the reserved protocol-version key.
+
+    The `io.modelcontextprotocol/protocolVersion` key exists only in
+    2026-07-28+ envelopes and its prefix is spec-reserved, so legacy traffic
+    never mints it (a bare `_meta` is not evidence - legacy requests carry
+    `progressToken` there). The version key alone is the signal, not the full
+    required pair, so a half-built envelope still routes modern and gets the
+    classifier's INVALID_PARAMS naming the missing key.
+    """
+    if not params:
+        return False
+    meta = params.get("_meta")
+    return isinstance(meta, Mapping) and PROTOCOL_VERSION_META_KEY in meta
+
+
+def _initialize_after_modern_data(params: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Error data for an `initialize` arriving on a modern-locked connection.
+
+    The typed -32022 payload when the client's proposed version is parseable;
+    otherwise just the supported list (the point is naming what we serve).
+    """
+    requested = (params or {}).get("protocolVersion")
+    if isinstance(requested, str):
+        return UnsupportedProtocolVersionErrorData(
+            supported=list(MODERN_PROTOCOL_VERSIONS), requested=requested
+        ).model_dump(mode="json")
+    return {"supported": list(MODERN_PROTOCOL_VERSIONS)}
+
+
+def modern_error_data(exc: Exception) -> ErrorData:
+    """Map a modern request's handler exception to its wire `ErrorData`.
+
+    The exception-to-wire fact shared by the modern entries (the
+    single-exchange HTTP path and the dual-era stream loop), so an identical
+    modern request fails identically on every transport: `MCPError` and
+    `ValidationError` map via the shared `handler_exception_to_error_data`
+    ladder; anything else is logged server-side and surfaced as a generic
+    INTERNAL_ERROR so handler internals never reach the wire.
+    """
+    error = handler_exception_to_error_data(exc)
+    if error is not None:
+        return error
+    logger.exception("modern request handler raised")
+    return ErrorData(code=INTERNAL_ERROR, message="Internal server error")
+
+
+@dataclass
+class _NoServerRequestsDispatchContext:
+    """Delegating `DispatchContext` that refuses server-initiated requests.
+
+    Wraps the loop dispatcher's per-message context for modern-era dispatch:
+    the modern protocol forbids server-initiated JSON-RPC requests, so
+    `send_raw_request` refuses while notifications and progress still ride
+    the duplex pipe.
+    """
+
+    _inner: DispatchContext[TransportContext]
+
+    @property
+    def transport(self) -> TransportContext:
+        # Mask the per-message flag so the transport metadata agrees with this
+        # wrapper's denial: the modern HTTP entry builds its context with
+        # can_send_request=False, while the loop's default builder says True.
+        transport = self._inner.transport
+        return replace(transport, can_send_request=False) if transport.can_send_request else transport
+
+    @property
+    def can_send_request(self) -> bool:
+        return False
+
+    @property
+    def request_id(self) -> RequestId | None:
+        return self._inner.request_id
+
+    @property
+    def message_metadata(self) -> MessageMetadata:
+        return self._inner.message_metadata
+
+    @property
+    def cancel_requested(self) -> anyio.Event:
+        return self._inner.cancel_requested
+
+    async def send_raw_request(
+        self,
+        method: str,
+        params: Mapping[str, Any] | None,
+        opts: CallOptions | None = None,
+    ) -> dict[str, Any]:
+        raise NoBackChannelError(method)
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        await self._inner.notify(method, params, opts)
+
+    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
+        await self._inner.progress(progress, total, message)
+
+
+async def serve_dual_era_loop(
+    server: Server[LifespanT],
+    read_stream: ReadStream[SessionMessage | Exception],
+    write_stream: WriteStream[SessionMessage],
+    *,
+    lifespan_state: LifespanT,
+    session_id: str | None = None,
+    init_options: InitializationOptions | None = None,
+    raise_exceptions: bool = False,
+) -> None:
+    """Drive `server` over a duplex stream pair, in the era the client opens with.
+
+    The client's first request decides the connection's protocol era, once:
+    a request carrying the 2026-07-28 per-request `_meta` envelope opens a
+    modern connection, and anything else - the `initialize` handshake, which
+    does not exist at 2026 versions even when a client stamps the envelope on
+    it - opens a legacy one. The deciding frame is replayed into the chosen
+    serving loop along with everything the client sent before it. A later
+    claim from the other era is refused: `initialize` on a modern connection
+    gets UNSUPPORTED_PROTOCOL_VERSION naming the served versions, and an
+    enveloped request on a legacy connection gets INVALID_REQUEST.
+    """
+    # This loop owns both streams from the moment it is called, so the write
+    # stream is closed even if the client leaves before sending any request.
+    try:
+        async with _replay_from_opening_request(read_stream) as (opening, replayed):
+            opens_modern = (
+                opening is not None and opening.method != "initialize" and _has_modern_envelope(opening.params)
+            )
+            if opens_modern:
+                await _serve_modern_stream(
+                    server, replayed, write_stream, lifespan_state=lifespan_state, raise_exceptions=raise_exceptions
+                )
+            else:
+                await _serve_legacy_stream(
+                    server,
+                    replayed,
+                    write_stream,
+                    lifespan_state=lifespan_state,
+                    session_id=session_id,
+                    init_options=init_options,
+                    raise_exceptions=raise_exceptions,
+                )
+    finally:
+        await write_stream.aclose()
+
+
+_PRE_REQUEST_REPLAY_LIMIT: int = 8
+"""How many frames arriving ahead of the client's first request are kept
+for the chosen era's loop (a bare `notifications/initialized` is the one that
+matters); further ones are dropped and never decide the era."""
+
+
+def _sender_context(stream: ReadStream[Any]) -> contextvars.Context:
+    """The per-message sender context a context-aware stream carries, else the current one."""
+    ctx = getattr(stream, "last_context", None)
+    return ctx if ctx is not None else contextvars.copy_context()
+
+
+@asynccontextmanager
+async def _replay_from_opening_request(
+    read_stream: ReadStream[SessionMessage | Exception],
+) -> AsyncIterator[tuple[JSONRPCRequest | None, ReadStream[SessionMessage | Exception]]]:
+    """Peek at the client's first request without consuming it.
+
+    Yields that request together with a stream that replays it - preceded by
+    up to `_PRE_REQUEST_REPLAY_LIMIT` earlier frames - and relays the rest of
+    `read_stream` behind it, sender contexts included. The request is `None`
+    if the channel closes before one arrives.
+    """
+    lead: list[tuple[contextvars.Context, SessionMessage | Exception]] = []
+    opening_request: JSONRPCRequest | None = None
+    replay_send, replay_receive = anyio.create_memory_object_stream[
+        tuple[contextvars.Context, SessionMessage | Exception]
+    ]()
+    replayed = ContextReceiveStream(replay_receive)
+
+    async def replay_then_relay() -> None:
+        async with replay_send:
+            for envelope in lead:
+                await replay_send.send(envelope)
+            try:
+                async for item in read_stream:
+                    await replay_send.send((_sender_context(read_stream), item))
+            except anyio.ClosedResourceError:
+                # Receive end closed under us (stateless SHTTP teardown); same as EOF.
+                logger.debug("read stream closed by transport; treating as EOF")
+
+    # This helper takes ownership of `read_stream` from the serving loop, so
+    # every exit - including cancellation while awaiting the first request -
+    # closes it and the replay channel.
+    try:
+        try:
+            async for item in read_stream:
+                if isinstance(item, SessionMessage) and isinstance(item.message, JSONRPCRequest):
+                    opening_request = item.message
+                elif len(lead) >= _PRE_REQUEST_REPLAY_LIMIT:
+                    logger.debug("dropped a frame received before the first request: %r", item)
+                    continue
+                lead.append((_sender_context(read_stream), item))
+                if opening_request is not None:
+                    break
+        except anyio.ClosedResourceError:
+            # Receive end closed under us (stateless SHTTP teardown); same as EOF.
+            logger.debug("read stream closed by transport; treating as EOF")
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(replay_then_relay)
+            yield opening_request, replayed
+            tg.cancel_scope.cancel()
+    finally:
+        await read_stream.aclose()
+        replay_send.close()
+        replay_receive.close()
+
+
+async def _serve_legacy_stream(
+    server: Server[LifespanT],
+    read_stream: ReadStream[SessionMessage | Exception],
+    write_stream: WriteStream[SessionMessage],
+    *,
+    lifespan_state: LifespanT,
+    session_id: str | None,
+    init_options: InitializationOptions | None,
+    raise_exceptions: bool,
+) -> None:
+    """Serve a 2025 handshake connection; enveloped requests are refused."""
+    dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        read_stream,
+        write_stream,
+        raise_handler_exceptions=raise_exceptions,
+        # `initialize` inline for the same pipelining reason as `serve_loop`.
+        inline_methods=frozenset({"initialize"}),
+    )
+    connection = Connection.for_loop(dispatcher, session_id=session_id)
+    runner = ServerRunner(server, connection, lifespan_state, init_options=init_options)
+
+    async def on_request(
+        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        if method != "initialize" and _has_modern_envelope(params):
+            raise MCPError(
+                code=INVALID_REQUEST,
+                message="this connection serves the handshake protocol era; "
+                "requests carrying the 2026-07-28 envelope are not accepted on it",
+            )
+        return await runner.on_request(dctx, method, params)
+
+    try:
+        await dispatcher.run(on_request, runner.on_notify)
+    finally:
+        await aclose_shielded(connection)
+
+
+async def _serve_modern_stream(
+    server: Server[LifespanT],
+    read_stream: ReadStream[SessionMessage | Exception],
+    write_stream: WriteStream[SessionMessage],
+    *,
+    lifespan_state: LifespanT,
+    raise_exceptions: bool,
+) -> None:
+    """Serve a 2026-07-28 connection: every request carries its own envelope."""
+    dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        read_stream, write_stream, raise_handler_exceptions=raise_exceptions
+    )
+    outbound = NotifyOnlyOutbound(dispatcher)
+
+    async def on_request(
+        dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        if method == "initialize":
+            raise MCPError(
+                code=UNSUPPORTED_PROTOCOL_VERSION,
+                message="connection is serving the 2026-07-28 protocol; the initialize handshake is not accepted",
+                data=_initialize_after_modern_data(params),
+            )
+        route = classify_inbound_request({"method": method, "params": params})
+        if isinstance(route, InboundLadderRejection):
+            raise MCPError(code=route.code, message=route.message, data=route.data)
+        connection = Connection.from_envelope(
+            route.protocol_version, route.client_info, route.client_capabilities, outbound=outbound
+        )
+        try:
+            return await serve_one(
+                server,
+                _NoServerRequestsDispatchContext(dctx),
+                method,
+                params,
+                connection=connection,
+                lifespan_state=lifespan_state,
+            )
+        except (MCPError, ValidationError):
+            # The dispatcher's shared ladder maps these to the wire error.
+            raise
+        except Exception as exc:
+            if raise_exceptions:
+                raise
+            error = modern_error_data(exc)
+            raise MCPError(code=error.code, message=error.message, data=error.data) from exc
+
+    async def on_notify(dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
+        # The envelope is request-only, so a notification runs at the latest
+        # served version; the modern protocol has nothing version-specific here.
+        connection = Connection.from_envelope(LATEST_MODERN_VERSION, None, None, outbound=outbound)
+        notify_runner = ServerRunner(server, connection, lifespan_state)
+        try:
+            await notify_runner.on_notify(_NoServerRequestsDispatchContext(dctx), method, params)
+        finally:
+            await aclose_shielded(connection)
+
+    await dispatcher.run(on_request, on_notify)
 
 
 async def serve_one(
@@ -502,8 +841,11 @@ def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> O
     Wire this into the server side of a `DirectDispatcher` peer-pair to drive an
     in-process server on the modern per-request-envelope path (each request
     carries protocol version, client info, and capabilities in `params._meta`;
-    no `initialize` handshake). Like `serve_one`, this raises whatever the
-    handler chain raises - the dispatcher owns the exception-to-error mapping.
+    no `initialize` handshake). The dispatch context is wrapped in the
+    server-requests denial, so the modern prohibition on server-initiated
+    JSON-RPC requests holds on this entry like on the others. Like `serve_one`,
+    this raises whatever the handler chain raises - the dispatcher owns the
+    exception-to-error mapping.
     """
 
     async def handle(
@@ -515,6 +857,13 @@ def modern_on_request(server: Server[LifespanT], lifespan_state: LifespanT) -> O
             meta.get(CLIENT_INFO_META_KEY),
             meta.get(CLIENT_CAPABILITIES_META_KEY),
         )
-        return await serve_one(server, dctx, method, params, connection=connection, lifespan_state=lifespan_state)
+        return await serve_one(
+            server,
+            _NoServerRequestsDispatchContext(dctx),
+            method,
+            params,
+            connection=connection,
+            lifespan_state=lifespan_state,
+        )
 
     return handle

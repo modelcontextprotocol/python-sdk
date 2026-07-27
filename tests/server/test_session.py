@@ -225,6 +225,21 @@ async def test_create_message_with_tools_returns_with_tools_result():
     assert params is not None and params["tools"][0]["name"] == "t"
 
 
+@pytest.mark.anyio
+async def test_create_message_with_tool_choice_only_returns_with_tools_result():
+    # tool_choice alone is tools-mode: the answer may carry array content.
+    outbound = StubOutbound(result={"role": "assistant", "content": [{"type": "text", "text": "ok"}], "model": "m"})
+    session = _make_session(
+        outbound, capabilities=ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability()))
+    )
+    result = await session.create_message(  # pyright: ignore[reportDeprecated]
+        messages=[types.SamplingMessage(role="user", content=types.TextContent(type="text", text="hi"))],
+        max_tokens=10,
+        tool_choice=types.ToolChoice(mode="none"),
+    )
+    assert isinstance(result, types.CreateMessageResultWithTools)
+
+
 def test_check_client_capability_delegates_to_connection():
     outbound = StubOutbound()
     session = _make_session(outbound, capabilities=ClientCapabilities(sampling=SamplingCapability()))

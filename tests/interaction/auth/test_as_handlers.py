@@ -1,7 +1,7 @@
 """Error-plane behaviour of the SDK's bundled OAuth authorization-server handlers.
 
 The end-to-end OAuth tests prove the handlers' happy paths; these tests drive the same
-mounted authorization server directly with raw httpx so the assertions are the HTTP
+mounted authorization server directly with raw httpx2 so the assertions are the HTTP
 semantics (status, redirect target, error body, headers) the OAuth RFCs mandate. Almost
 every behaviour here is enforced by the SDK's own handlers; where the pinned output
 deviates from the RFC, the manifest entry carries the divergence.
@@ -13,7 +13,7 @@ import secrets
 from collections.abc import AsyncIterator
 from urllib.parse import parse_qs, urlsplit
 
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 
@@ -29,8 +29,8 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-async def as_app() -> AsyncIterator[tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider]]:
-    """Co-host the SDK's authorization-server routes and yield a raw httpx client against them."""
+async def as_app() -> AsyncIterator[tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider]]:
+    """Co-host the SDK's authorization-server routes and yield a raw httpx2 client against them."""
     provider = InMemoryAuthorizationServerProvider()
     settings = auth_settings()
     async with mounted_app(
@@ -49,14 +49,14 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-async def _register_client(http: httpx.AsyncClient) -> OAuthClientInformationFull:
+async def _register_client(http: httpx2.AsyncClient) -> OAuthClientInformationFull:
     """Dynamically register a client and return its full credentials."""
     response = await http.post("/register", content=oauth_client_metadata().model_dump_json())
     assert response.status_code == 201
     return OAuthClientInformationFull.model_validate_json(response.content)
 
 
-async def _mint_code(http: httpx.AsyncClient) -> tuple[OAuthClientInformationFull, str, str]:
+async def _mint_code(http: httpx2.AsyncClient) -> tuple[OAuthClientInformationFull, str, str]:
     """Register a client, complete a valid authorize step, and return (client_info, code, verifier)."""
     client_info = await _register_client(http)
     assert client_info.client_id is not None
@@ -96,7 +96,7 @@ def _token_form(client_info: OAuthClientInformationFull, **overrides: str) -> di
 
 @requirement("hosting:auth:as:authorize-requires-pkce")
 async def test_authorize_without_a_code_challenge_is_rejected_with_invalid_request(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """An authorize request omitting `code_challenge` is redirected back with `error=invalid_request`.
 
@@ -131,7 +131,7 @@ async def test_authorize_without_a_code_challenge_is_rejected_with_invalid_reque
 
 @requirement("hosting:auth:as:verifier-mismatch")
 async def test_a_mismatched_code_verifier_is_rejected_with_invalid_grant(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """A token exchange whose `code_verifier` does not hash to the stored challenge is rejected."""
     http, _ = as_app
@@ -145,7 +145,7 @@ async def test_a_mismatched_code_verifier_is_rejected_with_invalid_grant(
 
 @requirement("hosting:auth:as:code-single-use")
 async def test_reusing_an_authorization_code_is_rejected_with_invalid_grant(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """An authorization code can be exchanged exactly once; a second exchange is `invalid_grant`.
 
@@ -171,7 +171,7 @@ async def test_reusing_an_authorization_code_is_rejected_with_invalid_grant(
 
 @requirement("hosting:auth:as:redirect-uri-binding")
 async def test_a_redirect_uri_differing_from_authorize_is_rejected_at_the_token_endpoint(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """A token exchange whose `redirect_uri` differs from the one used at authorize is rejected.
 
@@ -200,7 +200,7 @@ async def test_a_redirect_uri_differing_from_authorize_is_rejected_at_the_token_
 
 @requirement("hosting:auth:as:token-cache-headers")
 async def test_token_responses_carry_cache_control_no_store(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """Every token-endpoint response (success and error) carries `Cache-Control: no-store`."""
     http, _ = as_app
@@ -220,7 +220,7 @@ async def test_token_responses_carry_cache_control_no_store(
 
 @requirement("hosting:auth:as:register-error-response")
 async def test_registration_with_invalid_metadata_is_rejected_with_400(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """Invalid client metadata at the registration endpoint returns 400 with an RFC 7591 error body."""
     http, _ = as_app
@@ -247,7 +247,7 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
 
 @requirement("hosting:auth:as:redirect-uri-binding")
 async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """An authorize request naming an unregistered `redirect_uri` returns 400 without redirecting to it.
 
@@ -280,7 +280,7 @@ async def test_authorize_with_an_unregistered_redirect_uri_is_rejected_directly(
 
 @requirement("hosting:auth:as:redirect-uri-scheme")
 async def test_a_non_loopback_http_redirect_uri_is_accepted_at_registration(
-    as_app: tuple[httpx.AsyncClient, InMemoryAuthorizationServerProvider],
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
 ) -> None:
     """A registration carrying a non-HTTPS, non-loopback redirect URI is accepted.
 

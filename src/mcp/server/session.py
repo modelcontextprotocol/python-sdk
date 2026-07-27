@@ -14,7 +14,7 @@ from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
 from mcp.server.connection import Connection
-from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
+from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages, wants_sampling_tools
 from mcp.shared.dispatcher import CallOptions, DispatchContext, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import ServerMessageMetadata
@@ -44,6 +44,21 @@ class ServerSession:
     def client_params(self) -> types.InitializeRequestParams | None:
         """The client's `initialize` request params; `None` when no client info was supplied."""
         return self._connection.client_params
+
+    @property
+    def client_capabilities(self) -> types.ClientCapabilities | None:
+        """The capabilities the client declared; `None` when none were declared.
+
+        Prefer this over `client_params.capabilities`: on 2026-07-28+ the
+        request envelope declares capabilities while client info stays
+        optional, so capabilities can be present without `client_params`.
+        """
+        return self._connection.client_capabilities
+
+    @property
+    def can_send_request(self) -> bool:
+        """Whether this request's channel can currently deliver a server-initiated request."""
+        return self._request_outbound.can_send_request
 
     @property
     def protocol_version(self) -> str:
@@ -141,10 +156,10 @@ class ServerSession:
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
         tools: None = None,
-        tool_choice: types.ToolChoice | None = None,
+        tool_choice: None = None,
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResult:
-        """Overload: Without tools, returns single content."""
+        """Overload: Without tools or tool_choice, returns single content."""
         ...
 
     @overload
@@ -165,6 +180,26 @@ class ServerSession:
         related_request_id: types.RequestId | None = None,
     ) -> types.CreateMessageResultWithTools:
         """Overload: With tools, returns array-capable content."""
+        ...
+
+    @overload
+    @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
+    async def create_message(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool] | None = None,
+        tool_choice: types.ToolChoice,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.CreateMessageResultWithTools:
+        """Overload: With tool_choice, returns array-capable content."""
         ...
 
     @deprecated("The sampling capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
@@ -211,8 +246,7 @@ class ServerSession:
             NoBackChannelError: The connection has no back-channel for
                 server-initiated requests.
         """
-        client_caps = self.client_params.capabilities if self.client_params else None
-        validate_sampling_tools(client_caps, tools, tool_choice)
+        validate_sampling_tools(self.client_capabilities, tools, tool_choice)
         validate_tool_use_result_messages(messages)
 
         request = types.CreateMessageRequest(
@@ -231,7 +265,7 @@ class ServerSession:
         )
         metadata_obj = ServerMessageMetadata(related_request_id=related_request_id)
 
-        if tools is not None:
+        if wants_sampling_tools(tools, tool_choice):
             return await self.send_request(
                 request=request,
                 result_type=types.CreateMessageResultWithTools,

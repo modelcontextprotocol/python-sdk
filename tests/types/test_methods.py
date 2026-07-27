@@ -268,7 +268,7 @@ EXPECTED_SERVER_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[Base
     ("resources/read", "2026-07-28"): (v2026.ReadResourceResult, v2026.InputRequiredResult),
     ("resources/templates/list", "2026-07-28"): v2026.ListResourceTemplatesResult,
     ("server/discover", "2026-07-28"): v2026.DiscoverResult,
-    ("subscriptions/listen", "2026-07-28"): v2026.EmptyResult,
+    ("subscriptions/listen", "2026-07-28"): v2026.SubscriptionsListenResult,
     ("tools/call", "2026-07-28"): (v2026.CallToolResult, v2026.InputRequiredResult),
     ("tools/list", "2026-07-28"): v2026.ListToolsResult,
 }
@@ -290,9 +290,7 @@ EXPECTED_CLIENT_RESULTS: dict[tuple[str, str], type[BaseModel] | tuple[type[Base
     ("sampling/createMessage", "2025-11-25"): v2025.CreateMessageResult,
 }
 
-EMPTY_SERVER_RESPONSE_METHODS = frozenset(
-    {"logging/setLevel", "ping", "resources/subscribe", "resources/unsubscribe", "subscriptions/listen"}
-)
+EMPTY_SERVER_RESPONSE_METHODS = frozenset({"logging/setLevel", "ping", "resources/subscribe", "resources/unsubscribe"})
 EMPTY_CLIENT_RESPONSE_METHODS = frozenset({"ping"})
 
 # Pre-2026 versions share the 2025-11-25 surface package.
@@ -304,12 +302,14 @@ PACKAGE_BY_VERSION = {
     "2026-07-28": "mcp_types.v2026_07_28",
 }
 
-# The three reserved `params._meta` entries the 2026 surface requires on every request.
+# The reserved `params._meta` entries the 2026 surface accepts on every request.
+# `clientInfo` is optional (SHOULD-include, spec PR #3002); the other two are required.
 META_TRIPLE: dict[str, Any] = {
     "io.modelcontextprotocol/protocolVersion": "2026-07-28",
     "io.modelcontextprotocol/clientInfo": {"name": "client", "version": "1.0"},
     "io.modelcontextprotocol/clientCapabilities": {},
 }
+META_REQUIRED_KEYS = ("io.modelcontextprotocol/protocolVersion", "io.modelcontextprotocol/clientCapabilities")
 
 # One minimal valid params mapping per surface request class.
 REQUEST_PARAMS_FIXTURES: dict[type[BaseModel], dict[str, Any] | None] = {
@@ -399,12 +399,14 @@ RESULT_BODY_FIXTURES: dict[type[BaseModel] | UnionType, dict[str, Any]] = {
     v2026.DiscoverResult: {
         "supportedVersions": ["2026-07-28"],
         "capabilities": {},
-        "serverInfo": {"name": "server", "version": "1.0"},
         "resultType": "complete",
         "ttlMs": 0,
         "cacheScope": "private",
     },
-    v2026.EmptyResult: {"resultType": "complete"},
+    v2026.SubscriptionsListenResult: {
+        "resultType": "complete",
+        "_meta": {"io.modelcontextprotocol/subscriptionId": 1},
+    },
     v2026.ListPromptsResult: {"prompts": [], "resultType": "complete", "ttlMs": 0, "cacheScope": "private"},
     v2026.ListResourcesResult: {"resources": [], "resultType": "complete", "ttlMs": 0, "cacheScope": "private"},
     v2026.ListResourceTemplatesResult: {
@@ -547,6 +549,26 @@ def test_built_in_maps_are_immutable():
             _assign_item(built_in)
 
 
+def test_cacheable_methods_mirror_the_cacheable_method_literal():
+    """SEP-2549 weld: the hand-written Literal and the set derived from `MONOLITH_RESULTS` must agree."""
+    assert methods.CACHEABLE_METHODS == frozenset(get_args(methods.CacheableMethod))
+
+
+def test_input_required_methods_mirror_the_monolith_input_required_arms():
+    """MRTR weld: the spec's three multi-round-trip carriers are the only input_required methods."""
+    assert methods.INPUT_REQUIRED_METHODS == frozenset({"prompts/get", "resources/read", "tools/call"})
+
+
+def test_is_input_required_matches_typed_and_wire_shapes():
+    """SDK-defined predicate: True only for the typed model and the tagged wire mapping."""
+    assert methods.is_input_required(types.InputRequiredResult(request_state="s"))
+    assert methods.is_input_required({"resultType": "input_required", "inputRequests": {}})
+    assert not methods.is_input_required({"resultType": "complete", "content": []})
+    assert not methods.is_input_required({})
+    assert not methods.is_input_required(types.CallToolResult(content=[]))
+    assert not methods.is_input_required(None)
+
+
 def test_minimal_request_bodies_parse_through_every_request_row():
     for (method, version), surface_type in methods.CLIENT_REQUESTS.items():
         parsed = methods.parse_client_request(method, version, REQUEST_PARAMS_FIXTURES[surface_type])
@@ -630,14 +652,22 @@ def test_unknown_version_strings_raise_value_error_on_every_parse_function():
         assert "2099-01-01" in str(excinfo.value)
 
 
-def test_2026_07_28_requests_missing_a_reserved_meta_entry_reject_as_missing():
-    for absent_key in META_TRIPLE:
+def test_2026_07_28_requests_missing_a_required_meta_entry_reject_as_missing():
+    for absent_key in META_REQUIRED_KEYS:
         partial_meta = {key: value for key, value in META_TRIPLE.items() if key != absent_key}
         with pytest.raises(pydantic.ValidationError) as excinfo:
             methods.parse_client_request("tools/list", "2026-07-28", {"_meta": partial_meta})
         assert [error["loc"] for error in excinfo.value.errors() if error["type"] == "missing"] == [
             ("params", "_meta", absent_key)
         ]
+
+
+def test_2026_07_28_requests_accept_meta_without_the_optional_client_info():
+    """spec PR #3002: `clientInfo` is optional on the 2026 surface - the required
+    pair alone validates."""
+    pair_meta = {key: value for key, value in META_TRIPLE.items() if key != "io.modelcontextprotocol/clientInfo"}
+    parsed = methods.parse_client_request("tools/list", "2026-07-28", {"_meta": pair_meta})
+    assert isinstance(parsed, types.ListToolsRequest)
 
 
 def test_2026_07_28_results_require_result_type():
@@ -840,11 +870,12 @@ MONOLITH_RESULT_FIXTURES: dict[str, types.Result] = {
     "server/discover": types.DiscoverResult(
         supported_versions=["2026-07-28"],
         capabilities=types.ServerCapabilities(),
-        server_info=types.Implementation(name="server", version="1.0"),
         ttl_ms=0,
         cache_scope="private",
     ),
-    "subscriptions/listen": types.EmptyResult(result_type="complete"),
+    "subscriptions/listen": types.SubscriptionsListenResult.model_validate(
+        {"_meta": {"io.modelcontextprotocol/subscriptionId": 1}}
+    ),
     "tools/call": types.CallToolResult(content=[]),
     "tools/list": types.ListToolsResult(tools=[], ttl_ms=0, cache_scope="private"),
 }
@@ -902,6 +933,24 @@ def test_serialize_server_result_preserves_open_type_extras():
     sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
     assert sieved["tools"][0]["inputSchema"] == input_schema
     assert sieved["tools"][0]["_meta"] == nested_meta
+
+
+def test_serialize_server_result_drops_top_level_server_info_on_discover_but_keeps_the_meta_stamp():
+    """Server identity moved from the discover body to result `_meta` (spec PR #3002):
+    the sieve drops the removed body key and preserves the `_meta` stamp."""
+    stamp = {"name": "server", "version": "1.0"}
+    dumped: dict[str, Any] = {
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {},
+        "serverInfo": stamp,
+        "_meta": {types.SERVER_INFO_META_KEY: stamp},
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    sieved = methods.serialize_server_result("server/discover", "2026-07-28", dumped)
+    assert "serverInfo" not in sieved
+    assert sieved["_meta"] == {types.SERVER_INFO_META_KEY: stamp}
 
 
 def test_serialize_server_result_drops_an_unknown_nested_tool_field():

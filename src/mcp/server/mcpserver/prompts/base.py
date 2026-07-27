@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import anyio.to_thread
 import pydantic_core
-from mcp_types import ContentBlock, Icon, TextContent
+from mcp_types import ContentBlock, Icon, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared.exceptions import MCPError
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -52,7 +53,7 @@ class AssistantMessage(Message):
 
 message_validator = TypeAdapter[UserMessage | AssistantMessage](UserMessage | AssistantMessage)
 
-SyncPromptResult = str | Message | dict[str, Any] | Sequence[str | Message | dict[str, Any]]
+SyncPromptResult = str | Message | dict[str, Any] | InputRequiredResult | Sequence[str | Message | dict[str, Any]]
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
 
@@ -92,6 +93,8 @@ class Prompt(BaseModel):
         - A Message object
         - A dict (converted to a message)
         - A sequence of any of the above
+        - An InputRequiredResult (passed through unchanged; the 2026-07-28
+          multi-round-trip flow — read `ctx.input_responses` on the retry)
         """
         func_name = name or fn.__name__
 
@@ -139,8 +142,11 @@ class Prompt(BaseModel):
         self,
         arguments: dict[str, Any] | None,
         context: Context[LifespanContextT, RequestT],
-    ) -> list[Message]:
+    ) -> list[Message] | InputRequiredResult:
         """Render the prompt with arguments.
+
+        An `InputRequiredResult` returned by the prompt function is passed
+        through unchanged so the multi-round-trip flow reaches the client.
 
         Raises:
             ValueError: If required arguments are missing, or if rendering fails.
@@ -162,6 +168,9 @@ class Prompt(BaseModel):
                 result = await fn(**call_args)
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **call_args))
+
+            if isinstance(result, InputRequiredResult):
+                return result
 
             # Validate messages
             if not isinstance(result, list | tuple):
@@ -185,5 +194,7 @@ class Prompt(BaseModel):
                     raise ValueError(f"Could not convert prompt result to message: {msg}")
 
             return messages
+        except MCPError:
+            raise
         except Exception as e:
             raise ValueError(f"Error rendering prompt {self.name}: {e}")

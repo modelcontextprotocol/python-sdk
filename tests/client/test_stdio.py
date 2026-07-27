@@ -44,6 +44,14 @@ from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 
+
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`
+    and calls `trio.run` directly (see the tests/conftest.py original for the Windows hazard).
+    """
+
+
 # ---------------------------------------------------------------------------
 # In-process fake of the spawned server process
 # ---------------------------------------------------------------------------

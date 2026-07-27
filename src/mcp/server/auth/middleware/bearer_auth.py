@@ -7,7 +7,7 @@ from starlette.authentication import AuthCredentials, AuthenticationBackend, Sim
 from starlette.requests import HTTPConnection
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.provider import AccessToken, TokenVerifier, principal_components
 
 
 class AuthenticatedUser(SimpleUser):
@@ -34,13 +34,8 @@ def authorization_context(user: AuthenticatedUser) -> AuthorizationContext:
     See `examples/servers/simple-auth/mcp_simple_auth/token_verifier.py` for
     a verifier that populates `subject` and `claims` from an introspection
     response."""
-    token = user.access_token
-    issuer = (token.claims or {}).get("iss")
-    return AuthorizationContext(
-        client_id=token.client_id,
-        issuer=str(issuer) if issuer is not None else None,
-        subject=token.subject,
-    )
+    client_id, issuer, subject = principal_components(user.access_token)
+    return AuthorizationContext(client_id=client_id, issuer=issuer, subject=subject)
 
 
 class BearerAuthBackend(AuthenticationBackend):

@@ -8,7 +8,7 @@ import shutil
 from contextlib import AsyncExitStack
 from typing import Any
 
-import httpx
+import httpx2
 from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -227,10 +227,7 @@ class LLMClient:
             messages: A list of message dictionaries.
 
         Returns:
-            The LLM's response as a string.
-
-        Raises:
-            httpx.RequestError: If the request to the LLM fails.
+            The LLM's response as a string, or an error message if the request fails.
         """
         url = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -249,17 +246,17 @@ class LLMClient:
         }
 
         try:
-            with httpx.Client() as client:
+            with httpx2.Client() as client:
                 response = client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
 
-        except httpx.RequestError as e:
+        except httpx2.HTTPError as e:
             error_message = f"Error getting LLM response: {str(e)}"
             logging.error(error_message)
 
-            if isinstance(e, httpx.HTTPStatusError):
+            if isinstance(e, httpx2.HTTPStatusError):
                 status_code = e.response.status_code
                 logging.error(f"Status code: {status_code}")
                 logging.error(f"Response details: {e.response.text}")

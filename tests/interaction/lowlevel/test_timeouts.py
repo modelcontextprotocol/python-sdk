@@ -27,6 +27,11 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
+@pytest.fixture(autouse=True)
+def _module_runner_lease() -> None:
+    """Opt out of the shared per-module event loop: this module parametrizes `anyio_backend`."""
+
+
 @requirement("protocol:timeout:basic")
 @requirement("protocol:timeout:sends-cancellation")
 async def test_request_timeout_fails_the_pending_call() -> None:

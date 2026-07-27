@@ -53,7 +53,11 @@ async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestPa
     raise NotImplementedError
 
 
-server = Server("stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", MCPDeprecationWarning)
+    server = Server(  # pyright: ignore[reportDeprecated]
+        "stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level
+    )
 
 
 async def main() -> None:

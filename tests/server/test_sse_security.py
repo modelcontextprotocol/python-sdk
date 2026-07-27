@@ -4,7 +4,7 @@ import logging
 import re
 
 import anyio
-import httpx
+import httpx2
 import pytest
 import sse_starlette.sse
 from mcp_types import JSONRPCRequest, JSONRPCResponse
@@ -40,8 +40,8 @@ def reset_sse_starlette_exit_event() -> None:
         app_status.should_exit_event = None
 
 
-def sse_security_client(security_settings: TransportSecuritySettings | None = None) -> httpx.AsyncClient:
-    """An httpx client whose requests are served in process by an SSE app with the given settings."""
+def sse_security_client(security_settings: TransportSecuritySettings | None = None) -> httpx2.AsyncClient:
+    """An httpx2 client whose requests are served in process by an SSE app with the given settings."""
     server = Server(SERVER_NAME)
     sse_transport = SseServerTransport("/messages/", security_settings)
 
@@ -65,7 +65,7 @@ def sse_security_client(security_settings: TransportSecuritySettings | None = No
     # The SSE GET runs until it observes a disconnect, so the bridge must let the application
     # drain on close rather than cancelling it.
     transport = StreamingASGITransport(app, cancel_on_close=False)
-    return httpx.AsyncClient(transport=transport, base_url=BASE_URL)
+    return httpx2.AsyncClient(transport=transport, base_url=BASE_URL)
 
 
 @pytest.mark.anyio

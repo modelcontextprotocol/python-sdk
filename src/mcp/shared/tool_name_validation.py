@@ -77,7 +77,7 @@ def validate_tool_name(name: str) -> ToolNameValidationResult:
         warnings.append("Tool name starts or ends with a dot, which may cause parsing issues in some contexts")
 
     # Check for invalid characters
-    if not TOOL_NAME_REGEX.match(name):
+    if not TOOL_NAME_REGEX.fullmatch(name):
         # Find all invalid characters (unique, preserving order)
         invalid_chars: list[str] = []
         seen: set[str] = set()

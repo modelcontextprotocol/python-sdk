@@ -1,6 +1,6 @@
 """Tests for mcp.server.auth.provider module."""
 
-from mcp.server.auth.provider import construct_redirect_uri
+from mcp.server.auth.provider import AccessToken, construct_redirect_uri, principal_components
 
 
 def test_construct_redirect_uri_no_existing_params():
@@ -77,3 +77,14 @@ def test_construct_redirect_uri_encoded_values():
 
     # urlencode uses + for spaces by default
     assert "state=test+state+with+spaces" in result
+
+
+def test_principal_components_composes_client_issuer_subject():
+    """The triple identifying a token's principal, degrading per missing component."""
+    bare = AccessToken(token="t", client_id="client-1", scopes=[])
+    assert principal_components(bare) == ("client-1", None, None)
+
+    full = AccessToken(
+        token="t", client_id="client-1", scopes=[], subject="alice", claims={"iss": "https://as.example"}
+    )
+    assert principal_components(full) == ("client-1", "https://as.example", "alice")

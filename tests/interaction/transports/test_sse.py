@@ -10,7 +10,7 @@ through the suite's streaming ASGI bridge.
 from uuid import UUID, uuid4
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import EmptyResult
@@ -36,10 +36,10 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
 
     def httpx_client_factory(
         headers: dict[str, str] | None = None,
-        timeout: httpx.Timeout | None = None,
-        auth: httpx.Auth | None = None,
-    ) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
             transport=StreamingASGITransport(app, cancel_on_close=False),
             base_url=BASE_URL,
             headers=headers,
@@ -63,7 +63,7 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
 async def test_post_without_a_session_id_is_rejected() -> None:
     """A POST to the message endpoint with no session_id query parameter is answered 400."""
     app, _ = build_sse_app(Server("legacy"))
-    async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
+    async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
         response = await http.post("/messages/", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
     assert (response.status_code, response.text) == snapshot((400, "session_id is required"))
 
@@ -72,7 +72,7 @@ async def test_post_without_a_session_id_is_rejected() -> None:
 async def test_post_with_a_malformed_session_id_is_rejected() -> None:
     """A POST whose session_id query parameter is not a UUID is answered 400."""
     app, _ = build_sse_app(Server("legacy"))
-    async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
+    async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
         response = await http.post(
             "/messages/", params={"session_id": "not-a-uuid"}, json={"jsonrpc": "2.0", "method": "ping", "id": 1}
         )
@@ -83,7 +83,7 @@ async def test_post_with_a_malformed_session_id_is_rejected() -> None:
 async def test_post_for_an_unknown_session_is_rejected() -> None:
     """A POST naming a well-formed session_id that no SSE stream owns is answered 404."""
     app, _ = build_sse_app(Server("legacy"))
-    async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
+    async with httpx2.AsyncClient(transport=StreamingASGITransport(app), base_url=BASE_URL) as http:
         response = await http.post(
             "/messages/", params={"session_id": uuid4().hex}, json={"jsonrpc": "2.0", "method": "ping", "id": 1}
         )

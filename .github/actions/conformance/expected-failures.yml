@@ -11,38 +11,40 @@
 # on stale entries), so the baseline burns down per milestone.
 
 client:
-  # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-  # SEP-2322 (multi-round-trip requests): client does not echo requestState /
-  # handle IncompleteResult yet.
-  - sep-2322-client-request-state
-  # SEP-2243 (HTTP standardization): no fixture handler / client Mcp-Param-* support yet.
-  - http-custom-headers
-  - http-invalid-tool-headers
-
-  # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-  # SEP-990 (enterprise-managed authorization extension): no fixture handler /
-  # client support for the token-exchange + JWT bearer flow.
-  - auth/enterprise-managed-authorization
+  # SEP-1932 (DPoP): the SDK's OAuth client does not implement DPoP proofs.
+  # The entries are per-check (conformance #406) because both scenarios
+  # pass their non-DPoP checks (discovery, token acquisition, request
+  # flow) live.
+  - auth/dpop:sep-1932-client-token-request-proof
+  - auth/dpop:sep-1932-client-dpop-auth-scheme
+  - auth/dpop:sep-1932-client-fresh-proof
+  - auth/dpop-nonce:sep-1932-client-token-request-proof
+  - auth/dpop-nonce:sep-1932-client-dpop-auth-scheme
+  - auth/dpop-nonce:sep-1932-client-fresh-proof
+  - auth/dpop-nonce:sep-1932-client-as-nonce
+  - auth/dpop-nonce:sep-1932-client-rs-nonce
+  # Workload identity federation: the OAuth client does not implement the
+  # urn:ietf:params:oauth:grant-type:jwt-bearer grant (it answers with
+  # authorization_code). Per-check for the same reason.
+  - auth/wif-jwt-bearer:wif-grant-type
 
 server:
-  # --- Draft-spec scenarios (in `--suite draft`; the `active` suite is green) ---
-  # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented.
-  - input-required-result-basic-elicitation
-  - input-required-result-basic-sampling
-  - input-required-result-basic-list-roots
-  - input-required-result-request-state
-  - input-required-result-multiple-input-requests
-  - input-required-result-multi-round
-  - input-required-result-non-tool-request
-  - input-required-result-result-type
-  - input-required-result-tampered-state
-  - input-required-result-capability-check
-  # SEP-2243 (HTTP header standardization): Mcp-Method / Mcp-Name cross-check
-  # against the request body is not implemented.
-  - http-header-validation
-  # WARNING-only entries: these scenarios emit no FAILURE checks but the
-  # expected-failures evaluator counts WARNINGs as failures (the summary line
-  # only shows passed/failed, not warnings, so a local re-probe can mis-read
-  # these as stale).
-  - input-required-result-missing-input-response
-  - input-required-result-validate-input
+  # SEP-2663 (io.modelcontextprotocol/tasks): the SDK does not implement the
+  # tasks extension yet. These extension-tagged scenarios are selected only by
+  # the bare `--suite all` leg — extension scenarios never match a
+  # --spec-version filter and the active/draft suites exclude them — so these
+  # entries are inert for the other legs that read this file.
+  #
+  # `tasks-status-notifications` is intentionally NOT listed: the harness
+  # skips it unconditionally (pending its rewrite against subscriptions/
+  # listen), and a baseline entry for a scenario with no failing checks is
+  # flagged stale.
+  - tasks-lifecycle
+  - tasks-capability-negotiation
+  - tasks-wire-fields
+  - tasks-request-state-removal
+  - tasks-mrtr-input
+  - tasks-request-headers
+  - tasks-dispatch-and-envelope
+  - tasks-required-task-error
+  - tasks-mrtr-composition

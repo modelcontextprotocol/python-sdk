@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from functools import cache
 from types import MappingProxyType, UnionType
-from typing import Any, Final, TypeVar
+from typing import Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -23,9 +23,12 @@ import mcp_types.v2026_07_28 as v2026
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 __all__ = [
+    "CACHEABLE_METHODS",
     "CLIENT_NOTIFICATIONS",
     "CLIENT_REQUESTS",
     "CLIENT_RESULTS",
+    "CacheableMethod",
+    "INPUT_REQUIRED_METHODS",
     "MONOLITH_NOTIFICATIONS",
     "MONOLITH_REQUESTS",
     "MONOLITH_RESULTS",
@@ -34,6 +37,7 @@ __all__ = [
     "SERVER_RESULTS",
     "SPEC_CLIENT_METHODS",
     "SPEC_CLIENT_NOTIFICATION_METHODS",
+    "is_input_required",
     "parse_client_notification",
     "parse_client_request",
     "parse_client_result",
@@ -292,7 +296,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
         ("resources/read", "2026-07-28"): v2026.AnyReadResourceResult,
         ("resources/templates/list", "2026-07-28"): v2026.ListResourceTemplatesResult,
         ("server/discover", "2026-07-28"): v2026.DiscoverResult,
-        ("subscriptions/listen", "2026-07-28"): v2026.EmptyResult,
+        ("subscriptions/listen", "2026-07-28"): v2026.SubscriptionsListenResult,
         ("tools/call", "2026-07-28"): v2026.AnyCallToolResult,
         ("tools/list", "2026-07-28"): v2026.ListToolsResult,
     }
@@ -396,12 +400,46 @@ MONOLITH_RESULTS: Final[Mapping[str, type[types.Result] | UnionType]] = MappingP
         # smart-union ties resolve leftmost. Pinned by tests/types/test_methods.py.
         "sampling/createMessage": types.CreateMessageResult | types.CreateMessageResultWithTools,
         "server/discover": types.DiscoverResult,
-        "subscriptions/listen": types.EmptyResult,
+        "subscriptions/listen": types.SubscriptionsListenResult,
         "tools/call": types.CallToolResult | types.InputRequiredResult,
         "tools/list": types.ListToolsResult,
     }
 )
 """Monolith result model (or two-arm union) per request method."""
+
+
+CacheableMethod = Literal[
+    "prompts/list",
+    "resources/list",
+    "resources/read",
+    "resources/templates/list",
+    "server/discover",
+    "tools/list",
+]
+"""Methods whose results carry `ttlMs`/`cacheScope`; hand-written Literal, welded to `CACHEABLE_METHODS` by tests."""
+
+CACHEABLE_METHODS: Final[frozenset[str]] = frozenset(
+    method
+    for method, row in MONOLITH_RESULTS.items()
+    if any(issubclass(arm, types.CacheableResult) for arm in (get_args(row) if isinstance(row, UnionType) else (row,)))
+)
+"""Runtime mirror of `CacheableMethod`, derived from `MONOLITH_RESULTS`."""
+
+INPUT_REQUIRED_METHODS: Final[frozenset[str]] = frozenset(
+    method
+    for method, row in MONOLITH_RESULTS.items()
+    if any(
+        issubclass(arm, types.InputRequiredResult) for arm in (get_args(row) if isinstance(row, UnionType) else (row,))
+    )
+)
+"""Methods whose results may be `InputRequiredResult`, derived from `MONOLITH_RESULTS`."""
+
+
+def is_input_required(result: object) -> TypeGuard[types.InputRequiredResult | dict[str, Any]]:
+    """True when `result` is an `input_required` interim result, typed or wire-shaped."""
+    if isinstance(result, types.InputRequiredResult):
+        return True
+    return isinstance(result, Mapping) and cast("Mapping[str, Any]", result).get("resultType") == "input_required"
 
 
 # --- Parse functions ---

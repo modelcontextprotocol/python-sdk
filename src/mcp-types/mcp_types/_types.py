@@ -8,7 +8,7 @@ the negotiated version. Per-field docstrings note version availability. The
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar, get_args
 
 from pydantic import (
     BaseModel,
@@ -67,6 +67,13 @@ LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel"
 
 Deprecated (with the rest of logging) by SEP-2577 in the same revision that
 introduces it. If absent, the server must not send log notifications.
+"""
+
+SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
+"""Reserved result `_meta` key: the server `Implementation` (2026-07-28). SDK-managed.
+
+Servers SHOULD stamp it on every result. The value is self-reported and
+unverified - display, logging, and debugging only; never behavior or security.
 """
 
 
@@ -128,6 +135,12 @@ class Request(MCPModel, Generic[RequestParamsT, MethodT]):
     method: MethodT
     params: RequestParamsT
 
+    name_param: ClassVar[str | None] = None
+    """Wire-params key mirrored into the `Mcp-Name` header on sends; SEP-2663 requires it for tasks/*.
+
+    Subclasses override by bare assignment: re-annotating as `ClassVar` trips pyright's invariance check.
+    """
+
 
 class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):
     """Base class for paginated requests, matching the schema's PaginatedRequest interface."""
@@ -144,13 +157,18 @@ class Notification(MCPModel, Generic[NotificationParamsT, MethodT]):
     params: NotificationParamsT
 
 
-ResultType = Literal["complete", "input_required"] | str
+_CoreResultType = Literal["complete", "input_required"]
+
+ResultType = _CoreResultType | str
 """Tags a `Result` so the client knows how to parse it (2026-07-28).
 
 "complete" means the result is final; "input_required" means it is an
 `InputRequiredResult`. The union is open (the tasks extension reserves "task").
 Absent `resultType` is equivalent to "complete".
 """
+
+CORE_RESULT_TYPES: Final[frozenset[str]] = frozenset(get_args(_CoreResultType))
+"""The `resultType` tags owned by the core protocol vocabulary; extension claims may not re-key them."""
 
 
 class Result(MCPModel):
@@ -579,8 +597,6 @@ class DiscoverResult(CacheableResult):
     """MCP protocol versions this server supports; the client should pick one for subsequent requests."""
 
     capabilities: ServerCapabilities
-
-    server_info: Implementation
 
     instructions: str | None = None
     """Natural-language guidance describing the server and its features, e.g. for
@@ -1061,6 +1077,21 @@ class SubscriptionsAcknowledgedNotification(
 
     method: Literal["notifications/subscriptions/acknowledged"] = "notifications/subscriptions/acknowledged"
     params: SubscriptionsAcknowledgedNotificationParams
+
+
+class SubscriptionsListenResult(Result):
+    """Signals that a `subscriptions/listen` stream has ended gracefully (2026-07-28).
+
+    Because the listen stream is long-lived, this result is sent only when the
+    server tears the subscription down (for example during shutdown); an abrupt
+    transport close carries no response. The body is otherwise empty: the
+    `_meta["io.modelcontextprotocol/subscriptionId"]` key is required on the
+    wire and equals the JSON-RPC id of the originating `subscriptions/listen`
+    request.
+    """
+
+    result_type: ResultType = "complete"
+    """See `ResultType`. Always serialized; older peers ignore it."""
 
 
 class ListPromptsRequest(PaginatedRequest[Literal["prompts/list"]]):
@@ -2061,7 +2092,7 @@ class InputRequiredResult(Result):
 
     @model_validator(mode="after")
     def _require_one_field(self) -> Self:
-        if self.input_requests is None and self.request_state is None:
+        if not self.input_requests and self.request_state is None:
             raise ValueError("InputRequiredResult requires at least one of input_requests or request_state")
         return self
 
@@ -2156,6 +2187,7 @@ ServerResult = (
     | ReadResourceResult
     | CallToolResult
     | ListToolsResult
+    | SubscriptionsListenResult
     | InputRequiredResult
 )
 """Union of every result payload a server can return for a client request.

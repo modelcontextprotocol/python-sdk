@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from mcp_types import InputRequiredResult
 
 from mcp.server.mcpserver import MCPServer
 
@@ -89,6 +90,7 @@ async def test_list_resources(mcp: MCPServer):
 @pytest.mark.anyio
 async def test_read_resource_dir(mcp: MCPServer):
     res_iter = await mcp.read_resource("dir://test_dir")
+    assert not isinstance(res_iter, InputRequiredResult)
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]
@@ -106,6 +108,7 @@ async def test_read_resource_dir(mcp: MCPServer):
 @pytest.mark.anyio
 async def test_read_resource_file(mcp: MCPServer):
     res_iter = await mcp.read_resource("file://test_dir/example.py")
+    assert not isinstance(res_iter, InputRequiredResult)
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]
@@ -122,6 +125,7 @@ async def test_delete_file(mcp: MCPServer, test_dir: Path):
 async def test_delete_file_and_check_resources(mcp: MCPServer, test_dir: Path):
     await mcp.call_tool("delete_file", arguments={"path": str(test_dir / "example.py")})
     res_iter = await mcp.read_resource("file://test_dir/example.py")
+    assert not isinstance(res_iter, InputRequiredResult)
     res_list = list(res_iter)
     assert len(res_list) == 1
     res = res_list[0]

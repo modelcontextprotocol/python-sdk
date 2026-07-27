@@ -28,7 +28,15 @@ from mcp_types import CONNECTION_CLOSED, INTERNAL_ERROR, INVALID_PARAMS, REQUEST
 from pydantic import ValidationError
 
 from mcp.shared._compat import resync_tracer
-from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
+from mcp.shared.dispatcher import (
+    CallOptions,
+    OnNotify,
+    OnNotifyIntercept,
+    OnRequest,
+    ProgressFnT,
+    coerce_request_id,
+    run_notify_intercept,
+)
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.message import MessageMetadata
 from mcp.shared.transport_context import TransportContext
@@ -56,7 +64,8 @@ class _DirectDispatchContext:
     _back_request: _Request
     _back_notify: _Notify
     request_id: RequestId | None = None
-    """A dispatcher-synthesized id for requests; `None` for notifications."""
+    """The caller-supplied `CallOptions["request_id"]`, else a dispatcher-synthesized
+    id for requests; `None` for notifications."""
     message_metadata: MessageMetadata = None  # TODO(maxisbey): remove for Context rework
     """Always `None`: in-memory dispatch attaches no transport metadata."""
     _on_progress: ProgressFnT | None = None
@@ -105,7 +114,9 @@ class DirectDispatcher:
         self._peer: DirectDispatcher | None = None
         self._on_request: OnRequest | None = None
         self._on_notify: OnNotify | None = None
+        self._on_notify_intercept: OnNotifyIntercept | None = None
         self._next_id = 0
+        self._in_flight_ids: set[RequestId] = set()
         self._ready = anyio.Event()
         self._close_event = anyio.Event()
         self._running = False
@@ -156,6 +167,7 @@ class DirectDispatcher:
         self,
         on_request: OnRequest,
         on_notify: OnNotify,
+        on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
@@ -167,6 +179,7 @@ class DirectDispatcher:
         try:
             self._on_request = on_request
             self._on_notify = on_notify
+            self._on_notify_intercept = on_notify_intercept
             self._running = True
             self._ready.set()
             task_status.started()
@@ -227,9 +240,28 @@ class DirectDispatcher:
                 # waiting on a peer whose run() has not started yet.
                 await self._wait_ready()
                 assert self._on_request is not None
-                # Synthesize an id: the DispatchContext contract reserves None for notifications.
-                self._next_id += 1
-                dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=self._next_id)
+                supplied_id = opts.get("request_id")
+                if supplied_id is not None:
+                    request_id: RequestId = supplied_id
+                    # Collisions use the same coerced domain as JSONRPCDispatcher's
+                    # pending keys, so this in-memory stand-in raises for exactly
+                    # the ids the wire dispatcher would; the context still sees
+                    # the verbatim value.
+                    in_flight_key = coerce_request_id(request_id)
+                    if in_flight_key in self._in_flight_ids:
+                        raise ValueError(f"request id {request_id!r} is already in flight")
+                else:
+                    # Synthesize an id (the DispatchContext contract reserves None
+                    # for notifications), minting past any key a supplied id
+                    # occupies: the collision error is reserved for the caller
+                    # who actually chose the id.
+                    self._next_id += 1
+                    while self._next_id in self._in_flight_ids:
+                        self._next_id += 1
+                    request_id = self._next_id
+                    in_flight_key = request_id
+                self._in_flight_ids.add(in_flight_key)
+                dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=request_id)
                 try:
                     return await self._on_request(dctx, method, params)
                 except MCPError:
@@ -247,6 +279,8 @@ class DirectDispatcher:
                         raise MCPError(code=INTERNAL_ERROR, message=str(e)) from e
                     logger.exception("request handler raised")
                     raise MCPError(code=INTERNAL_ERROR, message="Internal server error") from None
+                finally:
+                    self._in_flight_ids.discard(in_flight_key)
         except TimeoutError:
             raise MCPError(
                 code=REQUEST_TIMEOUT,
@@ -262,6 +296,8 @@ class DirectDispatcher:
             # Notifications are fire-and-forget: a notify to a closed peer is
             # dropped, not raised back into the sender's call.
             logger.debug("dropped notification %r to closed DirectDispatcher", method)
+            return
+        if run_notify_intercept(self._on_notify_intercept, method, params):
             return
         assert self._on_notify is not None
         dctx = self._make_context()

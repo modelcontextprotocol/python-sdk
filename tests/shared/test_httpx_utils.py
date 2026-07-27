@@ -1,6 +1,6 @@
-"""Tests for httpx utility functions."""
+"""Tests for httpx2 utility functions."""
 
-import httpx
+import httpx2
 
 from mcp.shared._httpx_utils import create_mcp_http_client
 
@@ -16,7 +16,7 @@ def test_default_settings():
 def test_custom_parameters():
     """Test custom headers and timeout are set correctly."""
     headers = {"Authorization": "Bearer token"}
-    timeout = httpx.Timeout(60.0)
+    timeout = httpx2.Timeout(60.0)
 
     client = create_mcp_http_client(headers, timeout)
 

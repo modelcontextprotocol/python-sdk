@@ -1,7 +1,7 @@
 import contextlib
 from unittest import mock
 
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 
@@ -380,7 +380,7 @@ async def test_client_session_group_establish_session_parameterized(
                 call_args = mock_specific_client_func.call_args
                 assert call_args.kwargs["url"] == server_params_instance.url
                 assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
-                assert isinstance(call_args.kwargs["http_client"], httpx.AsyncClient)
+                assert isinstance(call_args.kwargs["http_client"], httpx2.AsyncClient)
 
             mock_client_cm_instance.__aenter__.assert_awaited_once()
 

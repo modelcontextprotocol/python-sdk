@@ -18,6 +18,7 @@ from mcp_types import (
     SamplingMessage,
     TextContent,
     Tool,
+    ToolChoice,
 )
 
 from mcp.shared.dispatcher import DispatchContext
@@ -88,6 +89,21 @@ async def test_peer_sample_with_tools_returns_with_tools_result():
         method, params = rec.seen[0]
         assert method == "sampling/createMessage"
         assert params is not None and params["tools"][0]["name"] == "t"
+        assert isinstance(result, CreateMessageResultWithTools)
+
+
+@pytest.mark.anyio
+async def test_peer_sample_with_tool_choice_only_returns_with_tools_result():
+    # tool_choice alone is tools-mode: the answer may carry array content.
+    rec = _Recorder({"role": "assistant", "content": [{"type": "text", "text": "x"}], "model": "m"})
+    async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
+        peer = ClientPeer(client)
+        with anyio.fail_after(5):
+            result = await peer.sample(  # pyright: ignore[reportDeprecated]
+                [SamplingMessage(role="user", content=TextContent(type="text", text="q"))],
+                max_tokens=5,
+                tool_choice=ToolChoice(mode="none"),
+            )
         assert isinstance(result, CreateMessageResultWithTools)
 
 

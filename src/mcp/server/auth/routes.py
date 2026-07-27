@@ -17,7 +17,7 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthMetadata, ProtectedResourceMetadata
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
@@ -47,6 +47,9 @@ TOKEN_PATH = "/token"
 REGISTRATION_PATH = "/register"
 REVOCATION_PATH = "/revoke"
 
+# SEP-990: leg 2 uses the RFC 7523 jwt-bearer grant; support is advertised as the ID-JAG profile.
+ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
+
 
 def cors_middleware(
     handler: Callable[[Request], Response | Awaitable[Response]],
@@ -67,6 +70,7 @@ def create_auth_routes(
     service_documentation_url: AnyHttpUrl | None = None,
     client_registration_options: ClientRegistrationOptions | None = None,
     revocation_options: RevocationOptions | None = None,
+    identity_assertion_enabled: bool = False,
 ) -> list[Route]:
     validate_issuer_url(issuer_url)
 
@@ -77,6 +81,7 @@ def create_auth_routes(
         service_documentation_url,
         client_registration_options,
         revocation_options,
+        supports_identity_assertion=identity_assertion_enabled,
     )
     client_authenticator = ClientAuthenticator(provider)
 
@@ -103,7 +108,9 @@ def create_auth_routes(
         Route(
             TOKEN_PATH,
             endpoint=cors_middleware(
-                TokenHandler(provider, client_authenticator).handle,
+                TokenHandler(
+                    provider, client_authenticator, identity_assertion_enabled=identity_assertion_enabled
+                ).handle,
                 ["POST", "OPTIONS"],
             ),
             methods=["POST", "OPTIONS"],
@@ -147,9 +154,18 @@ def build_metadata(
     service_documentation_url: AnyHttpUrl | None,
     client_registration_options: ClientRegistrationOptions,
     revocation_options: RevocationOptions,
+    supports_identity_assertion: bool = False,
 ) -> OAuthMetadata:
     authorization_url = AnyHttpUrl(str(issuer_url).rstrip("/") + AUTHORIZATION_PATH)
     token_url = AnyHttpUrl(str(issuer_url).rstrip("/") + TOKEN_PATH)
+
+    grant_types_supported = ["authorization_code", "refresh_token"]
+    # SEP-990 / ext-auth §6: support for the ID-JAG flow is advertised as a grant PROFILE, not as
+    # the jwt-bearer grant type (which an AS might support for other purposes).
+    authorization_grant_profiles_supported: list[str] | None = None
+    if supports_identity_assertion:
+        grant_types_supported.append(JWT_BEARER_GRANT_TYPE)
+        authorization_grant_profiles_supported = [ID_JAG_GRANT_PROFILE]
 
     # Create metadata
     metadata = OAuthMetadata(
@@ -159,7 +175,7 @@ def build_metadata(
         scopes_supported=client_registration_options.valid_scopes,
         response_types_supported=["code"],
         response_modes_supported=None,
-        grant_types_supported=["authorization_code", "refresh_token"],
+        grant_types_supported=grant_types_supported,
         token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         token_endpoint_auth_signing_alg_values_supported=None,
         service_documentation=service_documentation_url,
@@ -168,6 +184,7 @@ def build_metadata(
         op_tos_uri=None,
         introspection_endpoint=None,
         code_challenge_methods_supported=["S256"],
+        authorization_grant_profiles_supported=authorization_grant_profiles_supported,
     )
 
     # Add registration endpoint if supported

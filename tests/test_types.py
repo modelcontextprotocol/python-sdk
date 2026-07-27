@@ -394,7 +394,6 @@ def test_concrete_wire_results_always_dump_result_type_complete():
         DiscoverResult(
             supported_versions=["2026-07-28"],
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="server", version="1.0"),
         ),
     ]
     for result in carriers:
@@ -414,7 +413,6 @@ def test_cacheable_results_default_to_immediately_stale_private():
         DiscoverResult(
             supported_versions=["2026-07-28"],
             capabilities=ServerCapabilities(),
-            server_info=Implementation(name="server", version="1.0"),
         ),
     ]
     for result in cacheable:
@@ -444,5 +442,6 @@ def test_input_required_result_dumps_its_discriminating_tag():
 def test_input_required_result_requires_at_least_one_of_input_requests_or_request_state():
     with pytest.raises(ValidationError):
         InputRequiredResult()
-    assert InputRequiredResult(input_requests={}).request_state is None
+    with pytest.raises(ValidationError):
+        InputRequiredResult(input_requests={})
     assert InputRequiredResult(request_state="s").input_requests is None

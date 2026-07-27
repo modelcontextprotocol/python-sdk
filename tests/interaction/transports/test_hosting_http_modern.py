@@ -9,18 +9,20 @@ result-envelope shape, so every assertion here is necessarily wire-level.
 
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
+    HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
+    SERVER_INFO_META_KEY,
     CallToolRequestParams,
     CallToolResult,
     DiscoverResult,
@@ -30,7 +32,9 @@ from mcp_types import (
     JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
+    Request,
     RequestParams,
+    Result,
     ServerCapabilities,
     TextContent,
     Tool,
@@ -38,6 +42,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION
 
 from mcp import MCPError
+from mcp.client.client import Client
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
@@ -73,7 +78,11 @@ def _meta_envelope() -> dict[str, object]:
 
 
 def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Server:
-    """A low-level server with one ``add`` tool for the raw-httpx tests below."""
+    """A low-level server with one `add` tool for the raw-httpx2 tests below.
+
+    The explicit version gives the `_meta` serverInfo stamp every 2026 result
+    carries a non-empty value for the wire-level snapshots.
+    """
 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         tool = Tool(name="add", input_schema={"type": "object"})
@@ -87,7 +96,7 @@ def _server(*, on_meta: Callable[[dict[str, Any]], None] | None = None) -> Serve
             on_meta(dict(ctx.meta))
         return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
 
-    return Server("modern", on_list_tools=list_tools, on_call_tool=call_tool)
+    return Server("modern", version="1.0.0", on_list_tools=list_tools, on_call_tool=call_tool)
 
 
 @requirement("hosting:http:modern:tools-call-stateless")
@@ -95,9 +104,10 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
     """A 2026-07-28 tools/call is served without an initialize handshake and returns resultType: complete.
 
     Spec-mandated under the draft transport: the per-request ``_meta`` envelope replaces initialize,
-    and ``resultType`` is the 2026 result-envelope discriminator (``complete`` for the monolith
-    result). Asserted at the wire because the SDK client never surfaces ``resultType`` and because
-    the absence of any prior request on the connection is the assertion.
+    `resultType` is the 2026 result-envelope discriminator (`complete` for the monolith
+    result), and the server identifies itself via the result `_meta` serverInfo stamp. Asserted at
+    the wire because the SDK client never surfaces `resultType` and because the absence of any
+    prior request on the connection is the assertion.
     """
     body = {
         "jsonrpc": "2.0",
@@ -113,7 +123,12 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
     parsed = JSONRPCResponse.model_validate(response.json())
     assert parsed.id == 1
     assert parsed.result == snapshot(
-        {"content": [{"text": "5", "type": "text"}], "isError": False, "resultType": "complete"}
+        {
+            "content": [{"text": "5", "type": "text"}],
+            "isError": False,
+            "resultType": "complete",
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+        }
     )
 
 
@@ -209,12 +224,13 @@ async def test_modern_handler_exception_maps_to_internal_error_without_leaking_t
 
 @requirement("hosting:http:modern:discover-response-shape")
 async def test_modern_server_discover_returns_capabilities_and_supported_versions() -> None:
-    """A 2026-07-28 server/discover POST returns capabilities, serverInfo, and supportedVersions.
+    """A 2026-07-28 server/discover POST returns capabilities and supportedVersions, with serverInfo in `_meta`.
 
     Spec-mandated under the draft: server/discover is the 2026 advertisement method that replaces
     the initialize-response payload, and ``supportedVersions`` is the field a client picks its
-    per-request envelope version from. Asserted at the wire because the SDK client never exposes
-    the raw result body.
+    per-request envelope version from. The server's identity is no longer a result-body field: it
+    travels as the io.modelcontextprotocol/serverInfo result `_meta` stamp. Asserted at the wire
+    because the SDK client never exposes the raw result body.
     """
     body = {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": _meta_envelope()}}
     async with mounted_app(_server()) as (http, _):
@@ -223,7 +239,8 @@ async def test_modern_server_discover_returns_capabilities_and_supported_version
     assert response.status_code == 200
     result = JSONRPCResponse.model_validate(response.json()).result
     assert result["supportedVersions"] == snapshot(["2026-07-28"])
-    assert result["serverInfo"]["name"] == "modern"
+    assert "serverInfo" not in result
+    assert result["_meta"][SERVER_INFO_META_KEY] == {"name": "modern", "version": "1.0.0"}
     assert "capabilities" in result
 
 
@@ -278,7 +295,7 @@ async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_tabl
         raise MCPError(
             code=MISSING_REQUIRED_CLIENT_CAPABILITY,
             message="sampling required",
-            data={"requiredCapabilities": ["sampling"]},
+            data={"requiredCapabilities": {"sampling": {}}},
         )
 
     server = _server()
@@ -290,7 +307,7 @@ async def test_modern_handler_raised_mcperror_maps_to_status_via_error_code_tabl
     assert response.status_code == 400
     error = JSONRPCError.model_validate(response.json()).error
     assert error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
-    assert error.data == {"requiredCapabilities": ["sampling"]}
+    assert error.data == {"requiredCapabilities": {"sampling": {}}}
 
 
 @requirement("hosting:http:modern:tools-call-stateless")
@@ -307,7 +324,7 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     plus the three-key ``io.modelcontextprotocol/*`` ``_meta`` envelope. The caller passes a
     ``custom-key`` under ``meta=`` and the server handler captures the incoming ``ctx.meta``,
     proving the envelope merge is additive: the caller's key sits alongside the three envelope keys
-    on the wire and inside the handler. Asserted at the wire via the ``mounted_app`` httpx event
+    on the wire and inside the handler. Asserted at the wire via the ``mounted_app`` httpx2 event
     hooks because none of the headers, the envelope, or the handshake-absence is observable through
     the public client API. The recorded log shows two POSTs: the ``tools/call`` itself and the
     client's implicit ``tools/list`` output-schema fetch (see ``client:output-schema:auto-list``),
@@ -316,13 +333,13 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     observed_metas: list[dict[str, Any]] = []
     server = _server(on_meta=observed_metas.append)
 
-    requests: list[httpx.Request] = []
-    responses: list[httpx.Response] = []
+    requests: list[httpx2.Request] = []
+    responses: list[httpx2.Response] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         requests.append(request)
 
-    async def on_response(response: httpx.Response) -> None:
+    async def on_response(response: httpx2.Response) -> None:
         responses.append(response)
 
     client_info = Implementation(name="e2e-client", version="1.0.0")
@@ -336,7 +353,6 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
                 DiscoverResult(
                     supported_versions=[LATEST_MODERN_VERSION],
                     capabilities=ServerCapabilities(),
-                    server_info=Implementation(name="srv", version="0"),
                 )
             )
             result = await session.call_tool(
@@ -346,7 +362,12 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
             )
 
     assert result.model_dump(by_alias=True, mode="json", exclude_none=True) == snapshot(
-        {"content": [{"type": "text", "text": "5"}], "isError": False, "resultType": "complete"}
+        {
+            "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "modern", "version": "1.0.0"}},
+            "content": [{"type": "text", "text": "5"}],
+            "isError": False,
+            "resultType": "complete",
+        }
     )
 
     # Exactly the tools/call POST and the implicit tools/list POST -- no initialize, no
@@ -388,3 +409,221 @@ async def test_pinned_client_stateless_tools_call_round_trips_against_the_modern
     assert len(responses) == len(requests)
     assert all("mcp-session-id" not in r.headers for r in requests)
     assert all("mcp-session-id" not in r.headers for r in responses)
+
+
+_CUSTOM_HEADER_TOOL = Tool(
+    name="run",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "region": {"type": "string", "x-mcp-header": "Region"},
+            "priority": {"type": "integer", "x-mcp-header": "Priority"},
+            "verbose": {"type": "boolean", "x-mcp-header": "Verbose"},
+            "note": {"type": "string", "x-mcp-header": "Note"},
+            "query": {"type": "string"},
+        },
+        "required": ["region"],
+    },
+)
+
+
+def _custom_header_server() -> Server:
+    """A server with one tool whose schema annotates four args with `x-mcp-header` and leaves `query` plain."""
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[_CUSTOM_HEADER_TOOL], ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    return Server("custom-headers", on_list_tools=list_tools, on_call_tool=call_tool)
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() -> None:
+    """A tools/call mirrors the tool's `x-mcp-header` arguments into `Mcp-Param-*` headers.
+
+    After `list_tools` caches the tool's annotations, the client renders each annotated argument into
+    its header per the spec's Value Encoding rules: `region` verbatim, `priority` as a decimal, `verbose`
+    as `false`, and the non-ASCII `note` base64-sentinel-wrapped. The unannotated `query` and the omitted
+    `verbose`-sibling stay out of the headers, and every mirrored value remains in the request body. Asserted
+    at the wire because the client never surfaces the outgoing headers.
+    """
+    requests: list[httpx2.Request] = []
+
+    async def on_request(request: httpx2.Request) -> None:
+        requests.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_custom_header_server(), on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            await client.list_tools()
+            await client.call_tool("run", {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"})
+
+    call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
+    assert {k: v for k, v in call.headers.items() if k.startswith("mcp-param-")} == snapshot(
+        {
+            "mcp-param-region": "us-west1",
+            "mcp-param-priority": "42",
+            "mcp-param-verbose": "false",
+            "mcp-param-note": "=?base64?aMOpbGxv?=",
+        }
+    )
+    # Mirroring is additive: the arguments are unchanged in the body.
+    assert json.loads(call.content)["params"]["arguments"] == snapshot(
+        {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"}
+    )
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_emits_no_param_headers_for_an_unlisted_tool() -> None:
+    """A `tools/call` for a tool the client never listed carries no `Mcp-Param-*` headers.
+
+    The spec lets a client that lacks the tool's `inputSchema` send the request without custom headers.
+    The call is made with no prior `list_tools`, so the first `tools/call` POST -- captured before the
+    implicit output-schema `list_tools` runs -- has no cached annotations and emits no `Mcp-Param-*` header.
+    The server validates `Mcp-Param-*` against its own catalog and rejects as the spec's scenario table
+    requires for an omitted header (the relist-and-retry recovery is a SHOULD the client does not implement yet).
+    """
+    requests: list[httpx2.Request] = []
+
+    async def on_request(request: httpx2.Request) -> None:
+        requests.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(_custom_header_server(), on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            with pytest.raises(MCPError) as excinfo:  # pragma: no branch
+                await client.call_tool("run", {"region": "us-west1"})
+
+    assert excinfo.value.error.code == HEADER_MISMATCH
+    assert len(requests) == 1
+    assert json.loads(requests[0].content)["method"] == "tools/call"
+    assert not any(k.startswith("mcp-param-") for k in requests[0].headers)
+
+
+@requirement("client-transport:http:custom-param-headers")
+async def test_modern_client_stops_mirroring_after_a_re_list_drops_the_tool() -> None:
+    """A re-list that drops a previously valid tool stops mirroring its `x-mcp-header` args.
+
+    The tool is first listed with a valid annotation (so a call mirrors `Mcp-Param-Region`), then re-listed
+    with an invalid annotation -- the modern client drops it and evicts the cached map, so a later `tools/call`
+    by name carries no `Mcp-Param-*` header. Asserted at the wire, where the eviction is observable.
+    """
+    schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "Region"}}}
+    bad_schema = {"type": "object", "properties": {"a": {"type": "string", "x-mcp-header": "bad name"}}}
+    valid = Tool(name="run", input_schema=schema)
+    invalid = Tool(name="run", input_schema=bad_schema)
+    # First listing valid, every later one invalid; the count is not pinned because the server also
+    # reads its own catalog on each tools/call.
+    listings: list[None] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        listings.append(None)
+        return ListToolsResult(tools=[valid if len(listings) == 1 else invalid], ttl_ms=0, cache_scope="public")
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server("evict", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    tool_calls: list[httpx2.Request] = []
+
+    async def on_request(request: httpx2.Request) -> None:
+        if json.loads(request.content)["method"] == "tools/call":
+            tool_calls.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server, on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            assert [t.name for t in (await client.list_tools()).tools] == ["run"]
+            await client.call_tool("run", {"a": "x"})
+
+            assert [t.name for t in (await client.list_tools()).tools] == []
+            await client.call_tool("run", {"a": "x"})
+
+    before, after = tool_calls
+    assert before.headers.get("mcp-param-region") == "x"
+    assert not any(k.startswith("mcp-param-") for k in after.headers)
+
+
+class _JobParams(RequestParams):
+    job_id: str
+
+
+class _JobStatusRequest(Request[_JobParams, Literal["com.example/jobs.status"]]):
+    method: Literal["com.example/jobs.status"] = "com.example/jobs.status"
+    name_param = "jobId"
+
+
+class _JobStatusResult(Result):
+    status: str
+
+
+@requirement("client-transport:http:vendor-name-param-header")
+async def test_vendor_request_with_name_param_carries_mcp_name_on_the_wire() -> None:
+    """`send_request` mirrors an unregistered vendor request's `name_param` value into the
+    `Mcp-Name` header while the body keeps the params key unchanged."""
+
+    async def job_status(ctx: ServerRequestContext, params: _JobParams) -> _JobStatusResult:
+        assert params.job_id == "job-7"
+        return _JobStatusResult(status="running")
+
+    server = _server()
+    server.add_request_handler("com.example/jobs.status", _JobParams, job_status)
+
+    requests: list[httpx2.Request] = []
+
+    async def on_request(request: httpx2.Request) -> None:
+        requests.append(request)
+
+    discover = DiscoverResult(
+        supported_versions=[LATEST_MODERN_VERSION],
+        capabilities=ServerCapabilities(),
+    )
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server, on_request=on_request) as (http, _),
+            Client(
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http),
+                mode=LATEST_MODERN_VERSION,
+                prior_discover=discover,
+            ) as client,
+        ):
+            request = _JobStatusRequest(params=_JobParams(job_id="job-7"))
+            result = await client.session.send_request(request, _JobStatusResult)
+
+    assert result.status == "running"
+    [wire_request] = requests
+    assert wire_request.headers["mcp-name"] == "job-7"
+    assert json.loads(wire_request.content)["params"]["jobId"] == "job-7"

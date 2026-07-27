@@ -2,6 +2,9 @@ from typing import Any, Literal
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator
 
+# RFC 7523 JWT bearer grant; SEP-990 leg 2 uses this to present the ID-JAG.
+JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
 
 class OAuthToken(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1"""
@@ -168,6 +171,9 @@ class OAuthMetadata(BaseModel):
     code_challenge_methods_supported: list[str] | None = None
     client_id_metadata_document_supported: bool | None = None
     authorization_response_iss_parameter_supported: bool | None = None
+    # SEP-990 / draft-ietf-oauth-identity-assertion-authz-grant §7.2: profiles whose grants the
+    # authorization server supports, e.g. `urn:ietf:params:oauth:grant-profile:id-jag`.
+    authorization_grant_profiles_supported: list[str] | None = None
 
 
 class ProtectedResourceMetadata(BaseModel):

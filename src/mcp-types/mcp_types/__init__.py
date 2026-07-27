@@ -8,9 +8,11 @@ https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/dr
 from mcp_types._types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    CORE_RESULT_TYPES,
     DEFAULT_NEGOTIATED_VERSION,
     LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     Annotations,
     AudioContent,
     BaseMetadata,
@@ -160,6 +162,7 @@ from mcp_types._types import (
     SubscriptionsAcknowledgedNotificationParams,
     SubscriptionsListenRequest,
     SubscriptionsListenRequestParams,
+    SubscriptionsListenResult,
     Task,
     TaskMetadata,
     TasksCallCapability,
@@ -229,7 +232,10 @@ __all__ = [
     "CLIENT_INFO_META_KEY",
     "CLIENT_CAPABILITIES_META_KEY",
     "LOG_LEVEL_META_KEY",
+    # Reserved result _meta keys
+    "SERVER_INFO_META_KEY",
     # Type aliases and variables
+    "CORE_RESULT_TYPES",
     "ContentBlock",
     "ElicitRequestedSchema",
     "ElicitRequestParams",
@@ -385,6 +391,7 @@ __all__ = [
     "ListTasksResult",
     "ListToolsResult",
     "ReadResourceResult",
+    "SubscriptionsListenResult",
     # Error data payloads
     "MissingRequiredClientCapabilityErrorData",
     "UnsupportedProtocolVersionErrorData",

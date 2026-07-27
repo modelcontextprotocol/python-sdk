@@ -8,7 +8,7 @@ contract in `test_coverage.py`.
 """
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from starlette.types import Message, Receive, Scope, Send
 
@@ -29,7 +29,7 @@ async def test_response_chunks_arrive_as_the_application_sends_them() -> None:
         await send({"type": "http.response.body", "body": b"second", "more_body": False})
 
     async with (
-        httpx.AsyncClient(transport=StreamingASGITransport(chunked_app), base_url="http://bridge") as http,
+        httpx2.AsyncClient(transport=StreamingASGITransport(chunked_app), base_url="http://bridge") as http,
         http.stream("GET", "/chunks") as response,
     ):
         with anyio.fail_after(5):
@@ -52,7 +52,7 @@ async def test_closing_the_response_delivers_a_disconnect_to_the_application() -
         seen_after_request.append(await receive())
         disconnect_seen.set()
 
-    async with httpx.AsyncClient(transport=StreamingASGITransport(waiting_app), base_url="http://bridge") as http:
+    async with httpx2.AsyncClient(transport=StreamingASGITransport(waiting_app), base_url="http://bridge") as http:
         async with http.stream("GET", "/wait") as response:
             assert response.status_code == 200
         # Leaving the stream block closes the response while the application is still mid-response.
@@ -68,7 +68,7 @@ async def test_an_application_failure_before_the_response_starts_fails_the_reque
     async def broken_app(scope: Scope, receive: Receive, send: Send) -> None:
         raise RuntimeError("the demo application is broken")
 
-    async with httpx.AsyncClient(transport=StreamingASGITransport(broken_app), base_url="http://bridge") as http:
+    async with httpx2.AsyncClient(transport=StreamingASGITransport(broken_app), base_url="http://bridge") as http:
         with pytest.raises(RuntimeError, match="the demo application is broken"):
             await http.get("/broken")
 
@@ -87,7 +87,7 @@ async def test_disabling_cancel_on_close_lets_the_application_finish_after_disco
 
     transport = StreamingASGITransport(lingering_app, cancel_on_close=False)
     with anyio.fail_after(5):
-        async with httpx.AsyncClient(transport=transport, base_url="http://bridge") as http:
+        async with httpx2.AsyncClient(transport=transport, base_url="http://bridge") as http:
             async with http.stream("GET", "/linger") as response:
                 assert response.status_code == 200
             assert not cleanup_ran.is_set()

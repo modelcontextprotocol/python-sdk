@@ -6,7 +6,7 @@ detail `Client` cannot observe directly but the recording can. Tests that need a
 endpoint to 404 or return alternate content wrap the SDK's app in `shimmed_app` while leaving
 the real authorize and token endpoints behind it, so the rest of the flow runs unaltered.
 
-The two server-side tests (#5, #6) drive raw httpx against `mounted_app` because their
+The two server-side tests (#5, #6) drive raw httpx2 against `mounted_app` because their
 assertions are the metadata response bodies and headers, which `Client` does not surface.
 """
 

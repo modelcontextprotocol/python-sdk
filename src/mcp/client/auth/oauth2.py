@@ -1,4 +1,4 @@
-"""OAuth2 Authentication implementation for HTTPX.
+"""OAuth2 Authentication implementation for httpx2.
 
 Implements authorization code flow with PKCE and automatic token refresh.
 """
@@ -15,7 +15,7 @@ from typing import Any, Protocol
 from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
-import httpx
+import httpx2
 from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, Field, ValidationError
 
@@ -103,7 +103,6 @@ class OAuthContext:
     storage: TokenStorage
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None
-    timeout: float = 300.0
     client_metadata_url: str | None = None
 
     # Discovered metadata
@@ -218,8 +217,8 @@ class OAuthContext:
         return data, headers
 
 
-class OAuthClientProvider(httpx.Auth):
-    """OAuth2 authentication for httpx.
+class OAuthClientProvider(httpx2.Auth):
+    """OAuth2 authentication for httpx2.
 
     Handles OAuth flow with automatic client registration and token storage.
     """
@@ -233,7 +232,6 @@ class OAuthClientProvider(httpx.Auth):
         storage: TokenStorage,
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
         callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
-        timeout: float = 300.0,
         client_metadata_url: str | None = None,
         validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
     ):
@@ -245,7 +243,6 @@ class OAuthClientProvider(httpx.Auth):
             storage: Token storage implementation.
             redirect_handler: Handler for authorization redirects.
             callback_handler: Handler for authorization callbacks.
-            timeout: Timeout for the OAuth flow.
             client_metadata_url: URL-based client ID. When provided and the server
                 advertises client_id_metadata_document_supported=True, this URL will be
                 used as the client_id instead of performing dynamic client registration.
@@ -271,13 +268,12 @@ class OAuthClientProvider(httpx.Auth):
             storage=storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
-            timeout=timeout,
             client_metadata_url=client_metadata_url,
         )
         self._validate_resource_url_callback = validate_resource_url
         self._initialized = False
 
-    async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
+    async def _handle_protected_resource_response(self, response: httpx2.Response) -> bool:
         """Handle protected resource metadata discovery response.
 
         Per SEP-985, supports fallback when discovery fails at one URL.
@@ -308,7 +304,7 @@ class OAuthClientProvider(httpx.Auth):
                 f"Protected Resource Metadata request failed: {response.status_code}"
             )  # pragma: no cover
 
-    async def _perform_authorization(self) -> httpx.Request:
+    async def _perform_authorization(self) -> httpx2.Request:
         """Perform the authorization flow."""
         auth_code, code_verifier = await self._perform_authorization_code_grant()
         token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
@@ -383,9 +379,7 @@ class OAuthClientProvider(httpx.Auth):
             token_url = urljoin(auth_base_url, "/token")
         return token_url
 
-    async def _exchange_token_authorization_code(
-        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
-    ) -> httpx.Request:
+    async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str) -> httpx2.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided for authorization code grant")  # pragma: no cover
@@ -393,16 +387,13 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError("Missing client info")  # pragma: no cover
 
         token_url = self._get_token_endpoint()
-        token_data = token_data or {}
-        token_data.update(
-            {
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
-                "client_id": self.context.client_info.client_id,
-                "code_verifier": code_verifier,
-            }
-        )
+        token_data: dict[str, Any] = {
+            "grant_type": "authorization_code",
+            "code": auth_code,
+            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
+            "client_id": self.context.client_info.client_id,
+            "code_verifier": code_verifier,
+        }
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
@@ -412,14 +403,14 @@ class OAuthClientProvider(httpx.Auth):
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
-        return httpx.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx2.Request("POST", token_url, data=token_data, headers=headers)
 
-    async def _handle_token_response(self, response: httpx.Response) -> None:
+    async def _handle_token_response(self, response: httpx2.Response) -> None:
         """Handle token exchange response."""
         if response.status_code not in {200, 201}:
-            body = await response.aread()  # pragma: no cover
-            body_text = body.decode("utf-8")  # pragma: no cover
-            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
+            body = await response.aread()
+            body_text = body.decode("utf-8")
+            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")
 
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
@@ -436,7 +427,7 @@ class OAuthClientProvider(httpx.Auth):
         self.context.update_token_expiry(token_response)
         await self.context.storage.set_tokens(token_response)
 
-    async def _refresh_token(self) -> httpx.Request:
+    async def _refresh_token(self) -> httpx2.Request:
         """Build token refresh request."""
         if not self.context.current_tokens or not self.context.current_tokens.refresh_token:
             raise OAuthTokenError("No refresh token available")  # pragma: no cover
@@ -464,9 +455,9 @@ class OAuthClientProvider(httpx.Auth):
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         refresh_data, headers = self.context.prepare_token_auth(refresh_data, headers)
 
-        return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
+        return httpx2.Request("POST", token_url, data=refresh_data, headers=headers)
 
-    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
+    async def _handle_refresh_response(self, response: httpx2.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
@@ -503,12 +494,12 @@ class OAuthClientProvider(httpx.Auth):
         self.context.client_info = await self.context.storage.get_client_info()
         self._initialized = True
 
-    def _add_auth_header(self, request: httpx.Request) -> None:
+    def _add_auth_header(self, request: httpx2.Request) -> None:
         """Add authorization header to request if we have valid tokens."""
         if self.context.current_tokens and self.context.current_tokens.access_token:  # pragma: no branch
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
 
-    async def _handle_oauth_metadata_response(self, response: httpx.Response) -> None:
+    async def _handle_oauth_metadata_response(self, response: httpx2.Response) -> None:
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
@@ -527,8 +518,8 @@ class OAuthClientProvider(httpx.Auth):
         if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
-    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        """HTTPX auth flow integration."""
+    async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        """httpx2 auth flow integration."""
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()

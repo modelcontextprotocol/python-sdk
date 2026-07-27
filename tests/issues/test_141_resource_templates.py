@@ -1,5 +1,6 @@
 import pytest
 from mcp_types import (
+    InputRequiredResult,
     ListResourceTemplatesResult,
     TextResourceContents,
 )
@@ -49,6 +50,7 @@ async def test_resource_template_edge_cases():
 
     # Verify valid template works
     result = await mcp.read_resource("resource://users/123/posts/456")
+    assert not isinstance(result, InputRequiredResult)
     result_list = list(result)
     assert len(result_list) == 1
     assert result_list[0].content == "Post 456 by user 123"

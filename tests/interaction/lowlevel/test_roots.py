@@ -153,7 +153,7 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
         received.append(params)
         delivered.set()
 
-    server = Server("rooted", on_roots_list_changed=roots_list_changed)
+    server = Server("rooted", on_roots_list_changed=roots_list_changed)  # pyright: ignore[reportDeprecated]
 
     async def list_roots(context: ClientRequestContext) -> ListRootsResult:
         """Registered so the client declares the roots capability; the server never asks for roots."""
