@@ -19,7 +19,6 @@ import anyio
 import httpx2
 import mcp_types as types
 import pytest
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx2 import ServerSentEvent
 from mcp_types import (
     DEFAULT_NEGOTIATED_VERSION,
@@ -40,7 +39,6 @@ from mcp_types import (
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
-from starlette.types import Message, Scope
 
 from mcp import MCPError
 from mcp.client import ClientRequestContext, IncomingMessage
@@ -48,7 +46,6 @@ from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
-    GET_STREAM_KEY,
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
     SESSION_ID_PATTERN,
@@ -1639,27 +1636,24 @@ async def test_close_sse_stream_callback_not_provided_for_old_protocol_version()
         event_store=SimpleEventStore(),
     )
 
-    # Create a mock message and request
-    mock_message = JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list")
+    # Create a mock request
     mock_request = MagicMock()
 
-    # Call _create_session_message with OLD protocol version
-    session_msg = transport._create_session_message(mock_message, mock_request, "test-request-id", "2025-06-18")
+    # Build the per-request metadata with OLD protocol version
+    metadata = transport._build_message_metadata(mock_request, "test-request-id", "2025-06-18")
 
     # Callbacks should NOT be provided for old protocol version
-    assert session_msg.metadata is not None
-    assert isinstance(session_msg.metadata, ServerMessageMetadata)
-    assert session_msg.metadata.close_sse_stream is None
-    assert session_msg.metadata.close_standalone_sse_stream is None
+    assert isinstance(metadata, ServerMessageMetadata)
+    assert metadata.close_sse_stream is None
+    assert metadata.close_standalone_sse_stream is None
 
     # Now test with NEW protocol version - should provide callbacks
-    session_msg_new = transport._create_session_message(mock_message, mock_request, "test-request-id-2", "2025-11-25")
+    metadata_new = transport._build_message_metadata(mock_request, "test-request-id-2", "2025-11-25")
 
     # Callbacks SHOULD be provided for new protocol version
-    assert session_msg_new.metadata is not None
-    assert isinstance(session_msg_new.metadata, ServerMessageMetadata)
-    assert session_msg_new.metadata.close_sse_stream is not None
-    assert session_msg_new.metadata.close_standalone_sse_stream is not None
+    assert isinstance(metadata_new, ServerMessageMetadata)
+    assert metadata_new.close_sse_stream is not None
+    assert metadata_new.close_standalone_sse_stream is not None
 
 
 @pytest.mark.anyio
@@ -1670,15 +1664,13 @@ async def test_close_sse_stream_callback_not_provided_for_unknown_protocol_versi
         event_store=SimpleEventStore(),
     )
 
-    mock_message = JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list")
     mock_request = MagicMock()
 
-    session_msg = transport._create_session_message(mock_message, mock_request, "test-request-id", "zzz")
+    metadata = transport._build_message_metadata(mock_request, "test-request-id", "zzz")
 
-    assert session_msg.metadata is not None
-    assert isinstance(session_msg.metadata, ServerMessageMetadata)
-    assert session_msg.metadata.close_sse_stream is None
-    assert session_msg.metadata.close_standalone_sse_stream is None
+    assert isinstance(metadata, ServerMessageMetadata)
+    assert metadata.close_sse_stream is None
+    assert metadata.close_standalone_sse_stream is None
 
 
 @pytest.mark.anyio
@@ -2184,83 +2176,6 @@ async def test_standalone_stream_teardown_mid_listen_is_not_an_error(caplog: pyt
                 await notified.wait()
             # Tear the standalone stream down while the writer is parked on it.
             (transport,) = session_manager._server_instances.values()  # pyright: ignore[reportPrivateUsage]
-            await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
+            transport.close_standalone_sse_stream()
     assert "Error in standalone SSE writer" not in caplog.text
-
-
-@pytest.mark.anyio
-async def test_standalone_stream_teardown_between_dequeues_is_not_an_error(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Teardown landing while the standalone writer is between dequeues logs no error.
-
-    SDK-defined: after teardown the writer's next dequeue hits its own closed stream — expected
-    disconnect noise. The public surface cannot force this window (the in-process client consumes
-    SSE without backpressure), so the test drives the transport's ASGI entry point with a gated `send`.
-    """
-    transport = StreamableHTTPServerTransport(
-        mcp_session_id=None,
-        security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-    )
-    # The GET handler only checks that a read-stream writer exists; it is never written to.
-    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
-    transport._read_stream_writer = read_stream_writer  # pyright: ignore[reportPrivateUsage]
-
-    stream_registered = anyio.Event()
-
-    class SignalingStreams(
-        dict[types.RequestId, tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]]]
-    ):
-        # Only the GET handler inserts here, so any insert is the standalone stream registration.
-        def __setitem__(
-            self,
-            key: types.RequestId,
-            value: tuple[MemoryObjectSendStream[EventMessage], MemoryObjectReceiveStream[EventMessage]],
-        ) -> None:
-            super().__setitem__(key, value)
-            stream_registered.set()
-
-    transport._request_streams = SignalingStreams()  # pyright: ignore[reportPrivateUsage]
-
-    gate = anyio.Event()
-    sent: list[Message] = []
-
-    async def asgi_send(message: Message) -> None:
-        sent.append(message)
-        await gate.wait()
-
-    # Never delivers anything, parking the response's disconnect listener.
-    disconnect_send, disconnect_receive = anyio.create_memory_object_stream[Message](0)
-
-    async def asgi_receive() -> Message:
-        return await disconnect_receive.receive()
-
-    scope: Scope = {
-        "type": "http",
-        "method": "GET",
-        "path": "/mcp",
-        "query_string": b"",
-        "headers": [(b"accept", b"text/event-stream")],
-    }
-    notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
-
-    async with read_stream_writer, read_stream, disconnect_send, disconnect_receive:
-        with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
-                tg.start_soon(transport.handle_request, scope, asgi_receive, asgi_send)
-                await stream_registered.wait()
-                standalone_send = transport._request_streams[GET_STREAM_KEY][0]  # pyright: ignore[reportPrivateUsage]
-                # Zero-buffer rendezvous: once send() returns, the writer has dequeued the event
-                # and is blocked forwarding it past the closed gate — the between-dequeues window.
-                await standalone_send.send(EventMessage(notification))
-                await transport._clean_up_memory_streams(GET_STREAM_KEY)  # pyright: ignore[reportPrivateUsage]
-                # Unblock the response; the writer's next dequeue hits its closed stream.
-                gate.set()
-
-    assert sent[0]["type"] == "http.response.start"
-    assert sent[0]["status"] == 200
-    body_chunks = [message for message in sent if message["type"] == "http.response.body"]
-    assert b"notifications/initialized" in body_chunks[0]["body"]
-    assert body_chunks[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
-    assert "Error in standalone SSE writer" not in caplog.text
-    assert "Error in standalone SSE response" not in caplog.text
+    assert "Error in SSE writer" not in caplog.text

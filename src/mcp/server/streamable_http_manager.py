@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import anyio
 from anyio.abc import TaskStatus
-from mcp_types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
+from mcp_types import INVALID_REQUEST, ErrorData, JSONRPCError
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from starlette.datastructures import Headers
 from starlette.requests import Request
@@ -20,14 +20,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
-from mcp.server.connection import Connection
-from mcp.server.runner import serve_connection, serve_loop
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, EventStore, StreamableHTTPServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.transport_context import TransportContext
 
 if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
@@ -188,59 +184,24 @@ class StreamableHTTPSessionManager:
 
         # Dispatch to the appropriate handler
         if self.stateless:
-            await self._handle_stateless_request(pv, scope, receive, send)
+            await self._handle_stateless_request(scope, receive, send)
         else:
             await self._handle_stateful_request(scope, receive, send)
 
-    async def _handle_stateless_request(
-        self, protocol_version_hint: str | None, scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def _handle_stateless_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process request in stateless mode - creating a new transport for each request."""
         logger.debug("Stateless mode: Creating new transport for this request")
-        # No session ID needed in stateless mode
+        # No session ID needed in stateless mode: the transport serves this one
+        # request with a born-ready connection (no `initialize`, no standalone
+        # GET stream) and no back-channel for server-to-client requests.
         http_transport = StreamableHTTPServerTransport(
             mcp_session_id=None,  # No session tracking in stateless mode
             is_json_response_enabled=self.json_response,
             event_store=None,  # No event store in stateless mode
             security_settings=self.security_settings,
+            app=self.app,
+            lifespan_state=self._lifespan_state,
         )
-
-        # Start server in a new task
-        async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
-            async with http_transport.connect() as streams:
-                read_stream, write_stream = streams
-                task_status.started()
-                dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
-                    read_stream,
-                    write_stream,
-                    inline_methods=frozenset({"initialize"}),
-                    # No session ID means a server-to-client request can be
-                    # written to this POST's response stream, but the client's
-                    # reply has nowhere to land — `can_send_request=False`
-                    # makes the per-request channel raise `NoBackChannelError`
-                    # for requests while still allowing notifications.
-                    transport_builder=lambda _md: TransportContext(kind="streamable-http", can_send_request=False),
-                )
-                # Born-ready, no standalone channel: the legacy stateless path
-                # never opens a GET stream and need not see `initialize`. The
-                # header (or the spec's default-absent value) seeds
-                # `ctx.protocol_version`.
-                connection = Connection.from_envelope(
-                    protocol_version_hint if protocol_version_hint is not None else DEFAULT_NEGOTIATED_VERSION,
-                    None,
-                    None,
-                )
-                try:
-                    await serve_connection(
-                        self.app, dispatcher, connection=connection, lifespan_state=self._lifespan_state
-                    )
-                except Exception:  # pragma: lax no cover
-                    logger.exception("Stateless session crashed")
-
-        # Assert task group is not None for type checking
-        assert self._task_group is not None
-        # Start the server task
-        await self._task_group.start(run_stateless_server)
 
         # Handle the HTTP request and return the response
         await http_transport.handle_request(scope, receive, send)
@@ -294,6 +255,10 @@ class StreamableHTTPSessionManager:
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
                     retry_interval=self.retry_interval,
+                    # The manager owns the lifespan (entered once in `run()`),
+                    # so the transport serves every request off that state.
+                    app=self.app,
+                    lifespan_state=self._lifespan_state,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -302,53 +267,41 @@ class StreamableHTTPSessionManager:
                 self._server_instances[http_transport.mcp_session_id] = http_transport
                 logger.info(f"Created new transport with session ID: {new_session_id}")
 
-                # Define the server runner
+                # Define the session task: hosts the session's request handlers,
+                # which outlive the HTTP requests that started them.
                 async def run_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
-                    async with http_transport.connect() as streams:
-                        read_stream, write_stream = streams
-                        task_status.started()
-                        try:
-                            # Use a cancel scope for idle timeout — when the
-                            # deadline passes the scope cancels the loop and
-                            # execution continues after the ``with`` block.
-                            # Incoming requests push the deadline forward.
-                            idle_scope = anyio.CancelScope()
-                            if self.session_idle_timeout is not None:
-                                idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
-                                http_transport.idle_scope = idle_scope
+                    try:
+                        # Use a cancel scope for idle timeout — when the
+                        # deadline passes the scope cancels the session and
+                        # execution continues after the ``with`` block.
+                        # Incoming requests push the deadline forward.
+                        idle_scope = anyio.CancelScope()
+                        if self.session_idle_timeout is not None:
+                            idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
+                            http_transport.idle_scope = idle_scope
 
-                            with idle_scope:
-                                # Drive via `serve_loop` (not `Server.run()`) so the
-                                # manager's already-entered lifespan is reused
-                                # rather than re-entered per session.
-                                await serve_loop(
-                                    self.app,
-                                    read_stream,
-                                    write_stream,
-                                    lifespan_state=self._lifespan_state,
-                                    session_id=http_transport.mcp_session_id,
-                                )
+                        with idle_scope:
+                            await http_transport.run(task_status=task_status)
 
-                            if idle_scope.cancelled_caught:
-                                assert http_transport.mcp_session_id is not None
-                                logger.info(f"Session {http_transport.mcp_session_id} idle timeout")
-                                self._server_instances.pop(http_transport.mcp_session_id, None)
-                                self._session_owners.pop(http_transport.mcp_session_id, None)
-                                await http_transport.terminate()
-                        except Exception:
-                            logger.exception(f"Session {http_transport.mcp_session_id} crashed")
-                        finally:
-                            if (  # pragma: no branch
-                                http_transport.mcp_session_id
-                                and http_transport.mcp_session_id in self._server_instances
-                                and not http_transport.is_terminated
-                            ):
-                                logger.info(
-                                    "Cleaning up crashed session "
-                                    f"{http_transport.mcp_session_id} from active instances."
-                                )
-                                del self._server_instances[http_transport.mcp_session_id]
-                                self._session_owners.pop(http_transport.mcp_session_id, None)
+                        if idle_scope.cancelled_caught:
+                            assert http_transport.mcp_session_id is not None
+                            logger.info(f"Session {http_transport.mcp_session_id} idle timeout")
+                            self._server_instances.pop(http_transport.mcp_session_id, None)
+                            self._session_owners.pop(http_transport.mcp_session_id, None)
+                            await http_transport.terminate()
+                    except Exception:
+                        logger.exception(f"Session {http_transport.mcp_session_id} crashed")
+                    finally:
+                        if (  # pragma: no branch
+                            http_transport.mcp_session_id
+                            and http_transport.mcp_session_id in self._server_instances
+                            and not http_transport.is_terminated
+                        ):
+                            logger.info(
+                                f"Cleaning up crashed session {http_transport.mcp_session_id} from active instances."
+                            )
+                            del self._server_instances[http_transport.mcp_session_id]
+                            self._session_owners.pop(http_transport.mcp_session_id, None)
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None
