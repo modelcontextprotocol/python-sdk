@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import KW_ONLY, dataclass, replace
 from functools import cached_property, partial
@@ -473,7 +473,6 @@ async def serve_loop(
     session_id: str | None = None,
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
-    transport_builder: Callable[[MessageMetadata], TransportContext] | None = None,
 ) -> None:
     """Drive ``server`` in handshake-only loop mode over a stream pair until the channel closes.
 
@@ -483,20 +482,10 @@ async def serve_loop(
     this; `Server.run` drives `serve_dual_era_loop`, which extends the same
     dispatcher recipe (notably the `inline_methods={"initialize"}` rule) with
     era routing.
-
-    Args:
-        transport_builder: Builds each inbound message's `TransportContext` from
-            its `SessionMessage.metadata`. Omitted, every message reads as a full
-            duplex pipe (`can_send_request=True`) - the truth for a plain stream
-            pair; a transport whose response cannot carry a server-initiated
-            request (streamable HTTP in JSON-response mode) passes its own
-            `StreamableHTTPServerTransport.transport_context_for` so the
-            request-scoped channel refuses instead of stalling.
     """
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
         read_stream,
         write_stream,
-        transport_builder=transport_builder,
         raise_handler_exceptions=raise_exceptions,
         # Handle `initialize` inline so a client that pipelines it with the
         # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized

@@ -1330,6 +1330,45 @@ async def test_ctx_message_metadata_carries_inbound_request_metadata():
 
 
 @pytest.mark.anyio
+async def test_transport_stamped_can_send_request_makes_the_request_channel_refuse():
+    """A transport that marks a message `can_send_request=False` on its metadata gets a request-scoped
+    channel that raises `NoBackChannelError` immediately - the default builder reads the transport's
+    verdict off the message, so no driver has to wire it."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    outcomes: list[bool | str] = []
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        outcomes.append(ctx.can_send_request)
+        try:
+            await ctx.send_raw_request("elicitation/create", {})
+        except NoBackChannelError as exc:
+            outcomes.append(exc.method)
+        return {}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params=None),
+                    metadata=ServerMessageMetadata(can_send_request=False),
+                )
+            )
+            with anyio.fail_after(5):
+                await s2c_recv.receive()  # response sent => the handler has run
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert outcomes == [False, "elicitation/create"]
+
+
+@pytest.mark.anyio
 async def test_ctx_message_metadata_carries_inbound_notification_metadata():
     """Notifications get the same metadata pass-through as requests."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)

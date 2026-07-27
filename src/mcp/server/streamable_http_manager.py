@@ -6,7 +6,6 @@ import contextlib
 import logging
 from collections import deque
 from collections.abc import AsyncIterator
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
@@ -215,14 +214,11 @@ class StreamableHTTPSessionManager:
                     read_stream,
                     write_stream,
                     inline_methods=frozenset({"initialize"}),
-                    # The transport says what its response stream can carry; on
-                    # top of that, no session ID means the client's reply to a
-                    # server request has nowhere to land, so the request-scoped
-                    # channel refuses (`NoBackChannelError`) even in SSE mode
-                    # while still forwarding notifications.
-                    transport_builder=lambda md: replace(
-                        http_transport.transport_context_for(md), can_send_request=False
-                    ),
+                    # No `transport_builder`: with no session ID the transport
+                    # marks each message's request-scoped channel unable to
+                    # carry a server-initiated request (the client's reply has
+                    # nowhere to land), so requests raise `NoBackChannelError`
+                    # while notifications still flow.
                 )
                 # Born-ready, no standalone channel: the legacy stateless path
                 # never opens a GET stream and need not see `initialize`. The
@@ -324,14 +320,13 @@ class StreamableHTTPSessionManager:
                                 # Drive via `serve_loop` (not `Server.run()`) so the
                                 # manager's already-entered lifespan is reused
                                 # rather than re-entered per session; the transport
-                                # rules on what each request's response can carry.
+                                # marks each message with what its channel can carry.
                                 await serve_loop(
                                     self.app,
                                     read_stream,
                                     write_stream,
                                     lifespan_state=self._lifespan_state,
                                     session_id=http_transport.mcp_session_id,
-                                    transport_builder=http_transport.transport_context_for,
                                 )
 
                             if idle_scope.cancelled_caught:

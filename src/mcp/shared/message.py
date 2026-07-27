@@ -45,6 +45,10 @@ class ServerMessageMetadata:
     # (e.g. it was cancelled), for a transport whose wire must still end the
     # request even though no response is written.
     on_request_unanswered: Callable[[], Awaitable[None]] | None = None
+    # The transport's verdict on whether this message's request-scoped channel
+    # can deliver a server-initiated request; `None` when the transport does
+    # not say, which the default `TransportContext` builder reads as True.
+    can_send_request: bool | None = None
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

@@ -44,8 +44,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
-from mcp.shared.transport_context import TransportContext
+from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -176,9 +175,9 @@ class StreamableHTTPServerTransport:
                             Must contain only visible ASCII characters (0x21-0x7E).
             is_json_response_enabled: If True, answer each request POST with a single
                                     JSON body instead of an SSE stream. The body carries
-                                    only the response, so `transport_context_for` reports
-                                    `can_send_request=False` for it: a server-initiated
-                                    request on the request-scoped channel raises
+                                    only the response, so this transport marks its messages
+                                    as having no request-scoped back-channel: a
+                                    server-initiated request on that channel raises
                                     `NoBackChannelError` and request-scoped notifications
                                     are dropped. Default is False.
             event_store: Event store for resumability support. If provided,
@@ -218,24 +217,14 @@ class StreamableHTTPServerTransport:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
 
-    def transport_context_for(self, metadata: MessageMetadata) -> TransportContext:
-        """Build the `TransportContext` for an inbound message this transport delivered.
-
-        The transport owns what a request's response can carry, so it supplies
-        the loop dispatcher's `transport_builder`. A JSON body holds exactly one
-        JSON-RPC response, so in JSON-response mode the request-scoped channel has
-        no room for a server-initiated request and `can_send_request` is `False`:
-        `ctx.elicit()` raises `NoBackChannelError` at once instead of parking a
-        waiter no reply can reach. An SSE response streams whatever the handler
-        emits. The connection's standalone GET stream is a separate channel and
-        is not described here.
+    @property
+    def _request_channel_can_send_request(self) -> bool:
+        """Whether the request-scoped channel of a message this transport delivers can carry a
+        server-initiated request. It cannot in JSON-response mode (the POST is answered with one
+        JSON body) nor with no session (the client's reply would have no session to land on);
+        stamped on each message's `ServerMessageMetadata` so any dispatcher's builder reads it.
         """
-        request = metadata.request_context if isinstance(metadata, ServerMessageMetadata) else None
-        return TransportContext(
-            kind="streamable-http",
-            can_send_request=not self.is_json_response_enabled,
-            headers=request.headers if isinstance(request, Request) else None,
-        )
+        return self.mcp_session_id is not None and not self.is_json_response_enabled
 
     def close_sse_stream(self, request_id: RequestId) -> None:
         """Close SSE connection for a specific request without terminating the stream.
@@ -312,9 +301,14 @@ class StreamableHTTPServerTransport:
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
                 on_request_unanswered=end_stream,
+                can_send_request=self._request_channel_can_send_request,
             )
         else:
-            metadata = ServerMessageMetadata(request_context=request, on_request_unanswered=end_stream)
+            metadata = ServerMessageMetadata(
+                request_context=request,
+                on_request_unanswered=end_stream,
+                can_send_request=self._request_channel_can_send_request,
+            )
 
         return SessionMessage(message, metadata=metadata)
 
@@ -582,7 +576,9 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
-                metadata = ServerMessageMetadata(request_context=request)
+                metadata = ServerMessageMetadata(
+                    request_context=request, can_send_request=self._request_channel_can_send_request
+                )
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
 
@@ -608,6 +604,7 @@ class StreamableHTTPServerTransport:
                 metadata = ServerMessageMetadata(
                     request_context=request,
                     on_request_unanswered=partial(self._terminate_unanswered_request, message.id),
+                    can_send_request=self._request_channel_can_send_request,
                 )
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
@@ -991,12 +988,6 @@ class StreamableHTTPServerTransport:
         None,
     ]:
         """Context manager that provides read and write streams for a connection.
-
-        Drive the yielded streams through a `JSONRPCDispatcher` built with
-        `transport_context_for` as its `transport_builder`, as the session
-        manager does: that is what makes the request-scoped channel refuse
-        server-initiated requests in JSON-response mode instead of parking
-        them where nothing can deliver them.
 
         Yields:
             Tuple of (read_stream, write_stream) for bidirectional communication
