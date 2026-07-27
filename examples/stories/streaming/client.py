@@ -15,7 +15,9 @@ async def main(target: Target, *, mode: str = "auto") -> None:
     async def on_log(params: LoggingMessageNotificationParams) -> None:
         logs.append(params)
 
-    async with Client(target, mode=mode, logging_callback=on_log) as client:
+    # `log_level` is the 2026-07-28 per-request opt-in: without it a modern server
+    # sends no log notifications at all (pre-2026 servers ignore it and send anyway).
+    async with Client(target, mode=mode, logging_callback=on_log, log_level="info") as client:
         # ── progress + logging: a short countdown delivers exactly `steps` of each, in order ──
         updates: list[tuple[float, float | None, str | None]] = []
 
