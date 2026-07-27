@@ -175,6 +175,11 @@ continues to re-export the type names at the top level, so `from mcp import Tool
 unchanged. Only the `mcp.types` submodule and `mcp.shared.version` were removed. The
 package's API reference is at [`mcp_types`](api/mcp_types/index.md).
 
+The supported import surface is `mcp_types`, `mcp_types.jsonrpc`, `mcp_types.methods`, and
+`mcp_types.version`. Underscore-prefixed submodules (`mcp_types._types`, and the generated
+per-protocol-version packages `mcp_types._v2025_11_25` / `mcp_types._v2026_07_28`) are internal
+validators with unstable class names; don't import from them.
+
 **Why:** keeping the wire types in their own package lets tooling and lightweight clients
 depend on the protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the
 rest of the server/transport stack.
