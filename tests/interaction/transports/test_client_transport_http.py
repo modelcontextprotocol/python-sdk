@@ -350,3 +350,46 @@ async def test_at_2025_abandoning_a_call_posts_exactly_one_cancelled_frame() -> 
     cancels = [p for p in posts if p.get("method") == "notifications/cancelled"]
     assert len(block_calls) == 1
     assert [c["params"]["requestId"] for c in cancels] == [block_calls[0]["id"]]
+
+
+@requirement("client-transport:http:cancel-posts-frame")
+async def test_at_2025_abandoning_a_resumable_call_does_not_reconnect() -> None:
+    """Abandoning a call against a resumable (event-store) server tears the call's stream down.
+
+    The server ends a cancelled request's stream without a response; a client that kept the
+    abandoned stream open would take the priming event's id back to a Last-Event-ID reconnect for
+    an answer that will never come. Releasing the stream on abandonment means no such GET
+    follows: the only requests after the tool call are the cancel frame and the closing DELETE.
+    """
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    requests: list[tuple[str, str | None]] = []
+
+    async def record(request: httpx2.Request) -> None:
+        requests.append((request.method, request.headers.get("last-event-id")))
+
+    server = _blocking_server(handler_started, handler_cancelled)
+    async with mounted_app(server, event_store=SequencedEventStore(), retry_interval=0, on_request=record) as (
+        http,
+        _,
+    ):
+        async with client_via_http(http) as client:
+            abandon = anyio.CancelScope()
+
+            async def call_and_abandon() -> None:
+                with abandon:
+                    await client.call_tool("block", {})
+                    raise NotImplementedError  # unreachable: the call never resolves
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(call_and_abandon)
+                with anyio.fail_after(5):
+                    await handler_started.wait()
+                abandon.cancel()
+                with anyio.fail_after(5):
+                    await handler_cancelled.wait()
+            # Quiesce so any reconnect the transport was going to make would have been issued.
+            await anyio.wait_all_tasks_blocked()
+
+    assert [method for method, _ in requests].count("DELETE") == 1
+    assert all(last_event_id is None for _, last_event_id in requests)

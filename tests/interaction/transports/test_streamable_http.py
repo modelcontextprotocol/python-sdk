@@ -12,9 +12,12 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
     INVALID_REQUEST,
+    CallToolRequestParams,
     CallToolResult,
     ElicitRequestParams,
     ElicitResult,
+    JSONRPCMessage,
+    JSONRPCRequest,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
     ResourceUpdatedNotification,
@@ -24,10 +27,18 @@ from mcp_types import (
 from pydantic import BaseModel
 
 from mcp.client import ClientRequestContext, IncomingMessage
+from mcp.server import Server, ServerRequestContext
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.exceptions import MCPError
-from tests.interaction._connect import connect_over_streamable_http
+from tests.interaction._connect import (
+    base_headers,
+    connect_over_streamable_http,
+    initialize_body,
+    initialize_via_http,
+    mounted_app,
+    post_jsonrpc,
+)
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -168,3 +179,78 @@ async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> 
         CallToolResult(content=[TextContent(text="confirmed=True")], structured_content={"result": "confirmed=True"})
     )
     assert [params.message for params in asked] == snapshot(["Proceed?"])
+
+
+@requirement("transport:streamable-http:cancelled-request-completes")
+@pytest.mark.parametrize("json_response", [True, False], ids=["json-response", "sse-response"])
+async def test_cancelled_request_still_completes_its_post(json_response: bool) -> None:
+    """A cancelled request has no response to send, yet its POST is not left open.
+
+    The dispatcher signals that the request settled unanswered and the transport ends the
+    per-request stream: an empty 202 in JSON-response mode, a cleanly-ended event stream carrying
+    no response event in SSE mode. Driven with raw httpx2 because the observable is the HTTP
+    exchange itself, which a Client abandoning its own call would tear down first.
+    """
+    handler_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    call_request_id = 2
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        handler_started.set()
+        try:
+            await anyio.sleep_forever()
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
+        raise NotImplementedError  # unreachable: only cancellation ends the sleep
+
+    server = Server("blocker", on_call_tool=call_tool)
+    call_body = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=call_request_id,
+        method="tools/call",
+        params=CallToolRequestParams(name="block", arguments={}).model_dump(by_alias=True, mode="json"),
+    ).model_dump(by_alias=True, exclude_none=True)
+    cancel_body = {
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"requestId": call_request_id},
+    }
+    call_status: list[int] = []
+    call_messages: list[JSONRPCMessage] = []
+
+    async with mounted_app(server, json_response=json_response) as (http, _manager):
+        if json_response:
+            # The SSE-reading handshake helper does not apply: JSON mode answers initialize with JSON.
+            initialized = await http.post("/mcp", json=initialize_body(), headers=base_headers())
+            session_id = initialized.headers["mcp-session-id"]
+            ready = await http.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=base_headers(session_id=session_id),
+            )
+            assert ready.status_code == 202
+        else:
+            session_id = await initialize_via_http(http)
+
+        async def post_call() -> None:
+            if json_response:
+                response = await http.post("/mcp", json=call_body, headers=base_headers(session_id=session_id))
+                call_status.append(response.status_code)
+                assert response.content == b""
+            else:
+                response, messages = await post_jsonrpc(http, call_body, session_id=session_id)
+                call_status.append(response.status_code)
+                call_messages.extend(messages)
+
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
+                task_group.start_soon(post_call)
+                await handler_started.wait()
+                cancelled = await http.post("/mcp", json=cancel_body, headers=base_headers(session_id=session_id))
+                assert cancelled.status_code == 202
+                await handler_cancelled.wait()
+                # The call's POST must now complete on its own; the task group waits for it.
+
+    assert call_status == [202 if json_response else 200]
+    assert call_messages == []

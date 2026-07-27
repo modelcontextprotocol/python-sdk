@@ -537,15 +537,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
-            "receiver does not send a response for the cancelled request."
+            "receiver does not send a response for the cancelled request - no result and no error."
         ),
-        divergence=Divergence(
-            note=(
-                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
-                "server for cancelled client requests, and the client for cancelled server-initiated "
-                "requests — which is what unblocks the sender's pending call."
-            ),
+        note=(
+            "Over streamable HTTP the cancelled request's own POST still completes; see "
+            "transport:streamable-http:cancelled-request-completes."
         ),
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
@@ -2559,6 +2555,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
     ),
+    "transport:streamable-http:cancelled-request-completes": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#behavior-requirements",
+        behavior=(
+            "A request cancelled through notifications/cancelled leaves no response to send, but its POST "
+            "still completes: an empty 202 in JSON-response mode, an event stream that ends with no "
+            "response event in SSE mode - the per-request stream is not left open."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Only streamable HTTP holds a per-request stream that a response would otherwise close; the "
+            "unanswered-request signal is what releases it."
+        ),
+    ),
     "transport:streamable-http:stateless": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(
@@ -3381,12 +3390,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#cancellation-flow",
         behavior=(
             "At 2025-era revisions, abandoning an in-flight request POSTs exactly one "
-            "notifications/cancelled naming its request id."
+            "notifications/cancelled naming its request id, and releases the abandoned request's own "
+            "response stream so it neither stays parked nor resumes."
         ),
         transports=("streamable-http",),
         removed_in="2026-07-28",
         superseded_by="client-transport:http:cancel-closes-stream",
-        note="HTTP-only by nature: pins that the frame travels as its own POST on the legacy HTTP wire.",
+        note=(
+            "HTTP-only by nature: pins that the frame travels as its own POST on the legacy HTTP wire. "
+            "The frame, not the released stream, is the signal - a 2025 server treats the disconnect "
+            "as nothing."
+        ),
     ),
     "client-transport:http:concurrent-streams": Requirement(
         source="sdk",

@@ -102,12 +102,12 @@ class StreamableHTTPTransport:
         # scheduling is arbitrary). Reused on outbound HTTP that carries no
         # per-message header (transport-internal GET/DELETE, and dispatcher-written
         # response/error POSTs that bypass the session's stamp), and consulted by
-        # `_consume_modern_cancellation`. Cleared when an `initialize` message is
+        # `_apply_outbound_cancellation`. Cleared when an `initialize` message is
         # dequeued so a probe-stamped value cannot leak onto the handshake.
         self._protocol_version_header: str | None = None
         # Every request's POST runs inside one of these so an outbound
-        # `notifications/cancelled` at 2026 can abort it; see
-        # `_consume_modern_cancellation`. Keys are verbatim-typed ("1" is not 1).
+        # `notifications/cancelled` can abort it; see
+        # `_apply_outbound_cancellation`. Keys are verbatim-typed ("1" is not 1).
         self._in_flight_posts: dict[RequestId, _InFlightPost] = {}
 
     def _prepare_headers(self) -> dict[str, str]:
@@ -268,20 +268,18 @@ class StreamableHTTPTransport:
                     await event_source.response.aclose()
                     break
 
-    def _consume_modern_cancellation(self, session_message: SessionMessage) -> bool:
-        """Translate an outbound `notifications/cancelled` at 2026; True means "do not POST".
+    def _apply_outbound_cancellation(self, session_message: SessionMessage) -> bool:
+        """Apply an outbound `notifications/cancelled` to this transport; True means "do not POST".
 
-        The 2026 wire defines no client-to-server notifications over streamable
-        HTTP: closing a request's response stream IS its cancellation signal.
-        The dispatcher still emits the courtesy frame as its abandon signal
-        (every outbound cancel names one of our own request ids - the spec
-        forbids cancelling a request the sender did not issue), so this
-        transport translates it: when the named request's POST is in flight,
-        that POST's own recorded era decides - abort-and-swallow at 2026, POST
-        the frame below it (where the frame is the signal and a disconnect
-        explicitly is not). With no POST to consult, the cached negotiated
-        version decides; at 2026 the frame is swallowed even unmatched, so a
-        late cancel racing the response cannot leak onto the wire.
+        The dispatcher emits the frame as its abandon signal (it only ever names
+        one of our own request ids), so the named request's in-flight POST is
+        aborted at every era: its caller is gone and the stream must not linger
+        or resume. The POST's recorded era only decides whether the frame is also
+        POSTed - at 2026 the abort IS the cancellation signal and there are no
+        client-to-server notifications (swallow); at 2025 the frame is the signal,
+        so it is POSTed too. With no POST to consult, the cached negotiated version
+        decides; at 2026 the frame is swallowed even unmatched, so a late cancel
+        racing the response cannot leak onto the wire.
         """
         message = session_message.message
         if not (isinstance(message, JSONRPCNotification) and message.method == "notifications/cancelled"):
@@ -289,11 +287,9 @@ class StreamableHTTPTransport:
         request_id = cancelled_request_id_from_params(message.params)
         post = self._in_flight_posts.get(request_id) if request_id is not None else None
         if post is not None:
-            if not post.modern:
-                return False
             logger.debug("aborting in-flight POST for cancelled request %r", request_id)
             post.scope.cancel()
-            return True
+            return post.modern
         return self._protocol_version_header in MODERN_PROTOCOL_VERSIONS
 
     async def _run_request_post(
@@ -302,7 +298,7 @@ class StreamableHTTPTransport:
         post: _InFlightPost,
         request_id: RequestId,
     ) -> None:
-        """Run one request's POST inside its abort scope (see `_consume_modern_cancellation`)."""
+        """Run one request's POST inside its abort scope (see `_apply_outbound_cancellation`)."""
         try:
             with post.scope:
                 await post_fn()
@@ -548,7 +544,7 @@ class StreamableHTTPTransport:
 
                 async def _handle_message(session_message: SessionMessage) -> None:
                     message = session_message.message
-                    if self._consume_modern_cancellation(session_message):
+                    if self._apply_outbound_cancellation(session_message):
                         return
                     metadata = (
                         session_message.metadata

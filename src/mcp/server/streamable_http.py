@@ -262,7 +262,10 @@ class StreamableHTTPServerTransport:
         The close_sse_stream callbacks are only provided when the client supports
         resumability (protocol version >= 2025-11-25). Old clients can't resume if
         the stream is closed early because they didn't receive a priming event.
+        Every request carries `on_request_unanswered`, which ends its stream
+        when the request settles without a response.
         """
+        end_stream = partial(self._end_request_stream, request_id)
         # Only provide close callbacks when client supports resumability
         if self._event_store and is_version_at_least(protocol_version, "2025-11-25"):
 
@@ -276,9 +279,10 @@ class StreamableHTTPServerTransport:
                 request_context=request,
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
+                on_request_unanswered=end_stream,
             )
         else:
-            metadata = ServerMessageMetadata(request_context=request)
+            metadata = ServerMessageMetadata(request_context=request, on_request_unanswered=end_stream)
 
         return SessionMessage(message, metadata=metadata)
 
@@ -389,6 +393,16 @@ class StreamableHTTPServerTransport:
             event_data["id"] = event_message.event_id
 
         return event_data
+
+    async def _end_request_stream(self, request_id: RequestId) -> None:
+        """End a request's stream when it settled without a response (e.g. cancelled).
+
+        Only the send side, so the reader finishes as a normal end-of-stream: JSON
+        mode answers the POST with 202, SSE mode ends the event stream. Already
+        gone if `close_sse_stream()` polling or session teardown released it first.
+        """
+        if streams := self._request_streams.get(request_id):  # pragma: no branch
+            await streams[0].aclose()
 
     async def _clean_up_memory_streams(self, request_id: RequestId) -> None:
         """Clean up memory streams for a given request ID."""
@@ -555,7 +569,10 @@ class StreamableHTTPServerTransport:
                 )
                 request_stream_reader = self._request_streams[request_id][1]
                 # Process the message
-                metadata = ServerMessageMetadata(request_context=request)
+                metadata = ServerMessageMetadata(
+                    request_context=request,
+                    on_request_unanswered=partial(self._end_request_stream, request_id),
+                )
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
                 try:
@@ -573,19 +590,15 @@ class StreamableHTTPServerTransport:
                         else:  # pragma: no cover
                             logger.debug(f"received: {event_message.message.method}")
 
-                    # At this point we should have a response
                     if response_message:
                         # Create JSON response
                         response = self._create_json_response(response_message)
-                        await response(scope, receive, send)
-                    else:  # pragma: no cover
-                        # This shouldn't happen in normal operation
-                        logger.error("No response message received before stream closed")
-                        response = self._create_error_response(
-                            "Error processing request: No response received",
-                            HTTPStatus.INTERNAL_SERVER_ERROR,
-                        )
-                        await response(scope, receive, send)
+                    else:
+                        # The stream ended without a response: the request settled
+                        # unanswered (e.g. it was cancelled). End the POST with
+                        # an empty 202 Accepted rather than leaving it open.
+                        response = self._create_json_response(None, HTTPStatus.ACCEPTED)
+                    await response(scope, receive, send)
                 except Exception:  # pragma: no cover
                     logger.exception("Error processing JSON response")
                     response = self._create_error_response(

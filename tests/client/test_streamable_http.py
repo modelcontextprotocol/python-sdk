@@ -261,10 +261,12 @@ async def test_modern_cancelled_frame_aborts_the_matching_in_flight_post() -> No
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("stamped_version", [None, "2025-11-25"], ids=["no-version-yet", "2025-11-25"])
-async def test_legacy_cancelled_frame_posts_and_leaves_the_stream_open(stamped_version: str | None) -> None:
+async def test_legacy_cancelled_frame_posts_and_releases_the_abandoned_stream(stamped_version: str | None) -> None:
     """Below 2026 — or before any stamped POST has revealed the version — the frame is
-    the spec's cancellation signal: it POSTs, and the request's stream stays open
-    (a 2025 disconnect is explicitly not a cancel)."""
+    the spec's cancellation signal, so it POSTs; the abandoned request's own response
+    stream is also released rather than left parked (or resuming) for an answer the
+    caller no longer wants. The frame, not the disconnect, carries the cancel: a 2025
+    server treats the disconnect as nothing."""
     parked = _ParkedSSEStream()
     posted: list[dict[str, Any]] = []
     frame_posted = anyio.Event()
@@ -293,8 +295,7 @@ async def test_legacy_cancelled_frame_posts_and_leaves_the_stream_open(stamped_v
                 )
             )
             await frame_posted.wait()
-            # Checked before teardown: exiting the transport cancels the parked POST.
-            assert not parked.closed.is_set()
+            await parked.closed.wait()  # the abandoned request's stream is torn down, not left open
     assert [body["method"] for body in posted] == ["tools/call", "notifications/cancelled"]
 
 
@@ -389,8 +390,8 @@ async def test_handler_scoped_cancelled_frames_are_translated_at_modern_too() ->
 async def test_cancel_for_a_request_sent_under_2025_still_posts_after_modern_adoption() -> None:
     """The translation follows the era the NAMED request was sent under, not the
     cache at cancel time: a request POSTed under 2025 keeps 2025 cancellation
-    semantics (frame on the wire, stream left open) even after a later message
-    flips the negotiated version to 2026."""
+    semantics (frame on the wire) even after a later message flips the negotiated
+    version to 2026 - the abandoned stream is released either way."""
     parked = _ParkedSSEStream()
     posted: list[dict[str, Any]] = []
     frame_posted = anyio.Event()
@@ -433,8 +434,7 @@ async def test_cancel_for_a_request_sent_under_2025_still_posts_after_modern_ado
                 )
             )
             await frame_posted.wait()
-            # Checked before teardown: exiting the transport cancels the parked POST.
-            assert not parked.closed.is_set()
+            await parked.closed.wait()  # the abandoned request's stream is released too
     assert [body["method"] for body in posted] == ["tools/call", "ping", "notifications/cancelled"]
 
 
