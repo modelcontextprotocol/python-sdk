@@ -90,9 +90,6 @@ REQUEST_STREAM_BUFFER_SIZE: Final = 16
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
 
-# Streamable HTTP transport kind for `TransportContext.kind`.
-STREAMABLE_HTTP_KIND = "streamable-http"
-
 # Type aliases
 StreamId = str
 EventId = str
@@ -562,7 +559,7 @@ class StreamableHTTPServerTransport:
         return ServerMessageMetadata(request_context=request)
 
     def _transport_context(self, request: Request, *, can_send_request: bool) -> TransportContext:
-        return TransportContext(kind=STREAMABLE_HTTP_KIND, can_send_request=can_send_request, headers=request.headers)
+        return TransportContext(kind="streamable-http", can_send_request=can_send_request, headers=request.headers)
 
     async def _mint_priming_event(self, stream_id: StreamId, protocol_version: str) -> SSEEvent | None:
         """Store the priming cursor for `stream_id` and return its SSE wire form.
