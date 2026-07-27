@@ -2,7 +2,7 @@ from urllib.parse import urlparse
 
 import anyio
 import click
-import mcp_types as types
+import mcp.types as types
 from mcp.server import Server, ServerRequestContext
 
 SAMPLE_RESOURCES = {

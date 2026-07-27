@@ -40,7 +40,7 @@ Now the test:
 import pytest
 from inline_snapshot import snapshot
 from mcp import Client
-from mcp_types import CallToolResult, TextContent
+from mcp.types import CallToolResult, TextContent
 
 from server import mcp
 

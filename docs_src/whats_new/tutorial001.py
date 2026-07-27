@@ -1,4 +1,6 @@
-from mcp_types import (
+from mcp import MCPError
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
     INVALID_PARAMS,
     CallToolRequestParams,
     CallToolResult,
@@ -7,9 +9,6 @@ from mcp_types import (
     TextContent,
     Tool,
 )
-
-from mcp import MCPError
-from mcp.server import Server, ServerRequestContext
 
 SEARCH_BOOKS = Tool(
     name="search_books",

@@ -8,7 +8,7 @@ This page is the client end: opening the stream, watching it beside your main fl
 
 A subscription is one context manager. Entering it sends the request, with your keyword arguments as the subscription filter, and waits for the server's acknowledgment, so the stream is live by the time the block starts.
 
-```python title="client.py" hl_lines="16 19 29"
+```python title="client.py" hl_lines="15 18 28"
 --8<-- "docs_src/subscriptions/tutorial003.py"
 ```
 

@@ -41,7 +41,7 @@ The model is the one calling your tool. It picked the arguments. So a tool error
 
 Now swap `ValueError` for `MCPError`.
 
-```python title="server.py" hl_lines="1 3 15"
+```python title="server.py" hl_lines="1 3 14"
 --8<-- "docs_src/handling_errors/tutorial002.py"
 ```
 
@@ -56,7 +56,7 @@ Now swap `ValueError` for `MCPError`.
 
 * There is **no result**. No `content`, no `is_error`: nothing for the model to read.
 * The **host** application gets the error instead, the same way it would if the tool didn't exist at all.
-* `code`, `message`, and `data` arrive intact. `INVALID_PARAMS` is `-32602`; `mcp_types` exports it and the other JSON-RPC error codes (`INVALID_REQUEST`, `INTERNAL_ERROR`, ...) as constants so you never type a magic number.
+* `code`, `message`, and `data` arrive intact. `INVALID_PARAMS` is `-32602`; `mcp.types` exports it and the other JSON-RPC error codes (`INVALID_REQUEST`, `INTERNAL_ERROR`, ...) as constants so you never type a magic number.
 
 !!! check
     Same lookup, same miss, but now the call *raises* on the client side instead of returning:
@@ -127,7 +127,7 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 * The deciding question: *could a smarter model have avoided this?* Yes -> exception. No -> `MCPError`.
 * `ResourceNotFoundError` from a resource handler -> the protocol's `-32602`, with the URI in `data`.
 * Bad arguments are rejected against the schema before your function runs; you don't `raise` for those.
-* `from mcp import MCPError`; the error-code constants come from `mcp_types`.
+* `from mcp import MCPError`; the error-code constants come from `mcp.types`.
 
 Errors handled. That is everything a server *exposes*. What every handler can read, and do back to the client while it runs, is the next section: **[Inside your handler](../handlers/index.md)**.
 

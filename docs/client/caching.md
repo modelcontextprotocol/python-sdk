@@ -25,7 +25,7 @@ Out of the box every result says `ttlMs: 0, cacheScope: "private"`: immediately 
 
 On the low-level `Server`, handlers build their results by hand, and `ttl_ms` / `cache_scope` are just fields on the result models. A handler that sets them explicitly always wins over the constructor map, field by field:
 
-```python title="server.py" hl_lines="11 17"
+```python title="server.py" hl_lines="10 16"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -39,7 +39,7 @@ One caveat on paginated lists: the protocol requires the **same `cacheScope` on 
 
 On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache with no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did.
 
-```python title="client.py" hl_lines="34 36 39"
+```python title="client.py" hl_lines="33 35 38"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
 

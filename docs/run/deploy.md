@@ -76,7 +76,7 @@ A **[multi-round-trip](../handlers/multi-round-trip.md)** tool needs something t
 
 Here is a tool that asks before it acts, on a server that configures nothing:
 
-```python title="server.py" hl_lines="15 21"
+```python title="server.py" hl_lines="14 20"
 --8<-- "docs_src/deploy/tutorial002.py"
 ```
 
@@ -111,7 +111,7 @@ The two rounds are two independent HTTP requests, and several ordinary things se
 
 The fix is one argument. It has **two** halves.
 
-```python title="server.py" hl_lines="3 13 15"
+```python title="server.py" hl_lines="1 12 14"
 --8<-- "docs_src/deploy/tutorial003.py"
 ```
 
