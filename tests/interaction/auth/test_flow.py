@@ -280,10 +280,13 @@ async def test_dcr_sends_a_consumer_set_application_type_verbatim() -> None:
 
     `"web"` against a loopback redirect URI is deliberately not what redirect-URI derivation
     would produce, so pass-through stays distinguishable from any future derivation strategy.
+    The registration echo returns the same value, which the SDK adopts into the persisted
+    client info, so a web client reads back web.
     """
     requests: list[httpx2.Request] = []
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
+    storage = InMemoryTokenStorage()
     client_metadata = OAuthClientMetadata(
         client_name="interaction-suite",
         redirect_uris=[AnyUrl(REDIRECT_URI)],
@@ -292,7 +295,11 @@ async def test_dcr_sends_a_consumer_set_application_type_verbatim() -> None:
 
     with anyio.fail_after(5):
         async with connect_with_oauth(
-            server, provider=provider, client_metadata=client_metadata, on_request=requests.append
+            server,
+            provider=provider,
+            storage=storage,
+            client_metadata=client_metadata,
+            on_request=requests.append,
         ) as (client, _):
             result = await client.list_tools()
 
@@ -300,6 +307,8 @@ async def test_dcr_sends_a_consumer_set_application_type_verbatim() -> None:
 
     register = next(r for r in requests if r.url.path == "/register")
     assert json.loads(register.content)["application_type"] == "web"
+    assert storage.client_info is not None
+    assert storage.client_info.application_type == "web"
 
 
 async def test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_wrapped_app() -> None:
