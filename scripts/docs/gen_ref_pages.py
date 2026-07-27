@@ -30,6 +30,10 @@ API_DIR = ROOT / "docs" / "api"
 # it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 PACKAGES = (ROOT / "src" / "mcp", ROOT / "src" / "mcp-types" / "mcp_types")
 
+# Deprecated compatibility shims: they mirror another module's namespace and
+# are documented in the migration guide, so they earn no API page of their own.
+EXCLUDED = frozenset({"mcp.types"})
+
 _KIND_SECTIONS = {
     griffe.Kind.MODULE: "Modules",
     griffe.Kind.CLASS: "Classes",
@@ -185,6 +189,8 @@ def generate() -> list[NavItem]:
                 continue
 
             ident = ".".join(parts)
+            if ident in EXCLUDED:
+                continue
             documented.add(ident)
             stubs[API_DIR / doc_path] = _stub(parts[-1], f"::: {ident}")
             pages[ident] = API_DIR / doc_path
