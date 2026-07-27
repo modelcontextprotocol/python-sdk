@@ -16,6 +16,8 @@ from mcp_types import (
     CallToolResult,
     ElicitRequestParams,
     ElicitResult,
+    ErrorData,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
     LoggingMessageNotification,
@@ -23,6 +25,7 @@ from mcp_types import (
     ResourceUpdatedNotification,
     ResourceUpdatedNotificationParams,
     TextContent,
+    jsonrpc_message_adapter,
 )
 from pydantic import BaseModel
 
@@ -30,6 +33,7 @@ from mcp.client import ClientRequestContext, IncomingMessage
 from mcp.server import Server, ServerRequestContext
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.streamable_http import REQUEST_CANCELLED
 from mcp.shared.exceptions import MCPError
 from tests.interaction._connect import (
     base_headers,
@@ -181,15 +185,15 @@ async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> 
     assert [params.message for params in asked] == snapshot(["Proceed?"])
 
 
-@requirement("transport:streamable-http:cancelled-request-completes")
+@requirement("transport:streamable-http:cancelled-request-terminated")
 @pytest.mark.parametrize("json_response", [True, False], ids=["json-response", "sse-response"])
-async def test_cancelled_request_still_completes_its_post(json_response: bool) -> None:
-    """A cancelled request has no response to send, yet its POST is not left open.
+async def test_cancelled_request_is_terminated_with_request_cancelled(json_response: bool) -> None:
+    """A cancelled request's POST completes carrying the `REQUEST_CANCELLED` terminal error.
 
-    The dispatcher signals that the request settled unanswered and the transport ends the
-    per-request stream: an empty 202 in JSON-response mode, a cleanly-ended event stream carrying
-    no response event in SSE mode. Driven with raw httpx2 because the observable is the HTTP
-    exchange itself, which a Client abandoning its own call would tear down first.
+    The 2025-era wire ends a request only with a response, so this transport answers the
+    settled-unanswered request with `REQUEST_CANCELLED` (the dispatcher writes nothing on the
+    other transports). Driven with raw httpx2 because the observable is the HTTP exchange
+    itself, which a Client abandoning its own call would tear down first.
     """
     handler_started = anyio.Event()
     handler_cancelled = anyio.Event()
@@ -216,8 +220,7 @@ async def test_cancelled_request_still_completes_its_post(json_response: bool) -
         "method": "notifications/cancelled",
         "params": {"requestId": call_request_id},
     }
-    call_status: list[int] = []
-    call_messages: list[JSONRPCMessage] = []
+    call_answers: list[JSONRPCMessage] = []
 
     async with mounted_app(server, json_response=json_response) as (http, _manager):
         if json_response:
@@ -236,12 +239,10 @@ async def test_cancelled_request_still_completes_its_post(json_response: bool) -
         async def post_call() -> None:
             if json_response:
                 response = await http.post("/mcp", json=call_body, headers=base_headers(session_id=session_id))
-                call_status.append(response.status_code)
-                assert response.content == b""
+                call_answers.append(jsonrpc_message_adapter.validate_json(response.content))
             else:
-                response, messages = await post_jsonrpc(http, call_body, session_id=session_id)
-                call_status.append(response.status_code)
-                call_messages.extend(messages)
+                _, messages = await post_jsonrpc(http, call_body, session_id=session_id)
+                call_answers.extend(messages)
 
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:  # pragma: no branch
@@ -252,5 +253,10 @@ async def test_cancelled_request_still_completes_its_post(json_response: bool) -
                 await handler_cancelled.wait()
                 # The call's POST must now complete on its own; the task group waits for it.
 
-    assert call_status == [202 if json_response else 200]
-    assert call_messages == []
+    assert call_answers == [
+        JSONRPCError(
+            jsonrpc="2.0",
+            id=call_request_id,
+            error=ErrorData(code=REQUEST_CANCELLED, message="Request cancelled"),
+        )
+    ]

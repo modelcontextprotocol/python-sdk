@@ -65,6 +65,13 @@ GET_STREAM_KEY = "_GET_stream"
 # whole session on a lazily-started `sse_writer`. See #1764.
 REQUEST_STREAM_BUFFER_SIZE: Final = 16
 
+# Error code answering a request that settled without a response (e.g. it was
+# cancelled) on this 2025-era wire, which ends a request's stream only with a
+# response. Mirrors LSP's RequestCancelled; not sent by the 2026 transports, where
+# the spec forbids answering a cancelled request. See
+# `StreamableHTTPServerTransport._terminate_unanswered_request`.
+REQUEST_CANCELLED: Final = -32800
+
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
@@ -252,7 +259,7 @@ class StreamableHTTPServerTransport:
 
     def _create_session_message(
         self,
-        message: JSONRPCMessage,
+        message: JSONRPCRequest,
         request: Request,
         request_id: RequestId,
         protocol_version: str,
@@ -262,10 +269,10 @@ class StreamableHTTPServerTransport:
         The close_sse_stream callbacks are only provided when the client supports
         resumability (protocol version >= 2025-11-25). Old clients can't resume if
         the stream is closed early because they didn't receive a priming event.
-        Every request carries `on_request_unanswered`, which ends its stream
-        when the request settles without a response.
+        Every request carries `on_request_unanswered`, so a request that settles
+        without a response is still terminated on this era's wire.
         """
-        end_stream = partial(self._end_request_stream, request_id)
+        end_stream = partial(self._terminate_unanswered_request, message.id)
         # Only provide close callbacks when client supports resumability
         if self._event_store and is_version_at_least(protocol_version, "2025-11-25"):
 
@@ -394,15 +401,19 @@ class StreamableHTTPServerTransport:
 
         return event_data
 
-    async def _end_request_stream(self, request_id: RequestId) -> None:
-        """End a request's stream when it settled without a response (e.g. cancelled).
+    async def _terminate_unanswered_request(self, request_id: RequestId) -> None:
+        """Terminate a request that settled without a response (e.g. cancelled).
 
-        Only the send side, so the reader finishes as a normal end-of-stream: JSON
-        mode answers the POST with 202, SSE mode ends the event stream. Already
-        gone if `close_sse_stream()` polling or session teardown released it first.
+        The 2025-era wire ends a request's stream only with a response for its
+        id - and stores that response so a resuming client's replay terminates
+        too - so this era answers a cancelled request with `REQUEST_CANCELLED`
+        where the dispatcher itself stays silent (the 2026 transports MUST NOT
+        answer). It is written through the same ordered channel as the request's
+        other messages, so it cannot overtake anything already queued for it.
         """
-        if streams := self._request_streams.get(request_id):  # pragma: no branch
-            await streams[0].aclose()
+        assert self._write_stream is not None  # a dispatched request implies connect() ran
+        error = ErrorData(code=REQUEST_CANCELLED, message="Request cancelled")
+        await self._write_stream.send(SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error)))
 
     async def _clean_up_memory_streams(self, request_id: RequestId) -> None:
         """Clean up memory streams for a given request ID."""
@@ -571,7 +582,7 @@ class StreamableHTTPServerTransport:
                 # Process the message
                 metadata = ServerMessageMetadata(
                     request_context=request,
-                    on_request_unanswered=partial(self._end_request_stream, request_id),
+                    on_request_unanswered=partial(self._terminate_unanswered_request, message.id),
                 )
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
@@ -590,15 +601,19 @@ class StreamableHTTPServerTransport:
                         else:  # pragma: no cover
                             logger.debug(f"received: {event_message.message.method}")
 
+                    # At this point we should have a response
                     if response_message:
                         # Create JSON response
                         response = self._create_json_response(response_message)
-                    else:
-                        # The stream ended without a response: the request settled
-                        # unanswered (e.g. it was cancelled). End the POST with
-                        # an empty 202 Accepted rather than leaving it open.
-                        response = self._create_json_response(None, HTTPStatus.ACCEPTED)
-                    await response(scope, receive, send)
+                        await response(scope, receive, send)
+                    else:  # pragma: no cover
+                        # This shouldn't happen in normal operation
+                        logger.error("No response message received before stream closed")
+                        response = self._create_error_response(
+                            "Error processing request: No response received",
+                            HTTPStatus.INTERNAL_SERVER_ERROR,
+                        )
+                        await response(scope, receive, send)
                 except Exception:  # pragma: no cover
                     logger.exception("Error processing JSON response")
                     response = self._create_error_response(

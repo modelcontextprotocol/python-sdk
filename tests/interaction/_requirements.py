@@ -540,8 +540,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "receiver does not send a response for the cancelled request - no result and no error."
         ),
         note=(
-            "Over streamable HTTP the cancelled request's own POST still completes; see "
-            "transport:streamable-http:cancelled-request-completes."
+            "The 2025-era streamable HTTP wire has no way to end a request but a response, so that "
+            "one transport terminates the settled request with REQUEST_CANCELLED (-32800) instead of "
+            "staying silent; see transport:streamable-http:cancelled-request-terminated. The 2026-07-28 "
+            "MUST NOT applies to stdio and the 2026 wire, where nothing is sent."
         ),
         arm_exclusions=(
             ArmExclusion(reason="requires-session", transport="streamable-http-stateless"),
@@ -2555,17 +2557,20 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
     ),
-    "transport:streamable-http:cancelled-request-completes": Requirement(
-        source=f"{SPEC_2026_BASE_URL}/basic/patterns/cancellation#behavior-requirements",
+    "transport:streamable-http:cancelled-request-terminated": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
-            "A request cancelled through notifications/cancelled leaves no response to send, but its POST "
-            "still completes: an empty 202 in JSON-response mode, an event stream that ends with no "
-            "response event in SSE mode - the per-request stream is not left open."
+            "A request cancelled through notifications/cancelled is terminated with a REQUEST_CANCELLED "
+            "(-32800) error response, completing its POST - the JSON body in JSON-response mode, the "
+            "final event of its stream in SSE mode."
         ),
         transports=("streamable-http",),
         note=(
-            "Only streamable HTTP holds a per-request stream that a response would otherwise close; the "
-            "unanswered-request signal is what releases it."
+            "Deliberate SHOULD-level divergence, era-scoped: the 2025-era wire ends a request's stream "
+            "only with a response for its id (and stores it so a resuming client's replay terminates "
+            "too), so this transport answers where the dispatcher writes nothing. Written through the "
+            "same ordered channel as the request's other messages, so it cannot overtake anything "
+            "already queued for the request."
         ),
     ),
     "transport:streamable-http:stateless": Requirement(

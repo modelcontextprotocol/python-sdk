@@ -241,6 +241,57 @@ async def test_peer_cancel_drops_the_error_of_a_handler_that_fails_after_cancel(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "hook_error",
+    [RuntimeError("hook failed"), anyio.ClosedResourceError()],
+    ids=["hook-bug", "connection-closing"],
+)
+async def test_a_raising_unanswered_hook_is_contained(hook_error: Exception):
+    """A transport `on_request_unanswered` hook that raises is contained, not fatal: the
+    dispatcher keeps serving (the control request written after it is still answered)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    recording = RecordingWriteStream()
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, recording)
+    handler_exited = anyio.Event()
+
+    async def failing_hook() -> None:
+        raise hook_error
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "control":
+            return {"control": True}
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
+        raise NotImplementedError
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass
+
+    request_1 = SessionMessage(
+        message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None),
+        metadata=ServerMessageMetadata(on_request_unanswered=failing_hook),
+    )
+    cancel = JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1})
+    control = SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=2, method="control", params=None))
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            with anyio.fail_after(5):
+                await c2s_send.send(request_1)
+                await c2s_send.send(SessionMessage(message=cancel))
+                await handler_exited.wait()
+                await c2s_send.send(control)
+            await anyio.wait_all_tasks_blocked()
+            tg.cancel_scope.cancel()
+    finally:
+        c2s_send.close()
+        c2s_recv.close()
+    assert [m.message for m in recording.sent] == _CONTROL_ONLY
+
+
+@pytest.mark.anyio
 async def test_send_raw_request_raises_connection_closed_when_read_stream_eofs_mid_await():
     """A blocked send_raw_request is woken with CONNECTION_CLOSED when run() exits."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
