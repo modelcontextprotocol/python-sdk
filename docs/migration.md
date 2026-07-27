@@ -744,9 +744,13 @@ transport = StreamableHTTPServerTransport(mcp_session_id=session_id, ...)
 async with transport.connect() as (read_stream, write_stream):
     await server.run(read_stream, write_stream, server.create_initialization_options())
 
-# After (v2): let the manager own transports (mount it or use streamable_http_app())
-session_manager = StreamableHTTPSessionManager(app=server, event_store=..., json_response=...)
+# After (v2): serve the app the SDK builds ...
+app = server.streamable_http_app(event_store=..., json_response=...)
 ```
+
+... or, when composing your own Starlette/FastAPI app, mount a `StreamableHTTPSessionManager` and
+enter `session_manager.run()` in the lifespan — see [Mounting the ASGI app](run/asgi.md) for the
+full wiring.
 
 Behaviour clarified in the same change:
 
@@ -757,6 +761,18 @@ Behaviour clarified in the same change:
   `related_request_id`) are unchanged and still ride the standalone GET stream.
 - A GET carrying `Last-Event-ID` on a server without an `EventStore` opens the standalone stream
   as a plain GET would, since there is nothing to replay.
+- Two concurrent POSTs that share a JSON-RPC request id each keep their own response stream; the
+  second no longer silently takes over the first's queue.
+- Stream ids handed to your `EventStore` are minted by the transport in its own session-scoped
+  namespace (previously the raw `str(request_id)` and a single global GET-stream key), so two
+  sessions sharing one store no longer collide, and a `Last-Event-ID` replay only releases frames
+  of the requesting session's own streams. Treat the ids as opaque.
+- A failing `EventStore.store_event` degrades resumability for that message rather than taking
+  the stream down: the message is still delivered live (with no event id to resume from) and the
+  store's exception is logged, never sent to the client.
+- A server-to-client request that can reach no client at all (no attached stream and nothing
+  storing it, or a request-scoped one in JSON-response mode) fails the calling handler with
+  `CONNECTION_CLOSED` instead of parking it for an answer that cannot arrive.
 
 ### `MCPServer.get_context()` removed
 

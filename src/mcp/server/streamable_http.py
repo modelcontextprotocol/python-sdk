@@ -22,11 +22,12 @@ from __future__ import annotations
 import logging
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass, field
 from functools import partial
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Final
+from uuid import uuid4
 
 import anyio
 import anyio.abc
@@ -155,7 +156,9 @@ class EventStore(ABC):
             send_callback: A callback function to send events to the client
 
         Returns:
-            The stream ID of the replayed events, or None if no events were found.
+            The stream ID of the replayed events - the same id `store_event`
+            received for them - or None if no events were found. The transport
+            only releases a replay for a stream id it minted itself.
         """
         pass  # pragma: no cover
 
@@ -165,15 +168,17 @@ class _MessageChannel:
 
     Every message is first offered to the `EventStore` (so a client that
     drops the connection can resume via `Last-Event-ID`), then forwarded to
-    the SSE response currently attached to the channel, if any. With no
-    response attached the message is only stored (or, without a store,
-    dropped with a debug log) - the client can reconnect and replay.
+    the SSE response currently attached to the channel, if any. A store that
+    fails degrades resumability - the failure is logged and the message still
+    goes out live - it never takes the stream down; `closed` means only that
+    the stream's life is over (its request finished, or the session ended).
     """
 
     def __init__(self, stream_id: StreamId, event_store: EventStore | None) -> None:
         self.stream_id = stream_id
         self._event_store = event_store
         self._writer: MemoryObjectSendStream[EventMessage] | None = None
+        self._reader: MemoryObjectReceiveStream[EventMessage] | None = None
         self._closed = False
         # Store-then-forward is one atomic step per channel, so the wire order
         # of concurrent writers always matches the order the event store saw
@@ -182,19 +187,24 @@ class _MessageChannel:
         self.terminal: JSONRPCResponse | JSONRPCError | None = None
         """The terminal outcome once the request this channel serves has finished."""
         self.finished = anyio.Event()
-        """Set once `terminal` is recorded (or the channel is closed by termination)."""
+        """Set once `terminal` is recorded, or the channel is finished/closed without one."""
 
     @property
     def attached(self) -> bool:
         """Whether an SSE response is currently draining this channel."""
         return self._writer is not None
 
-    async def write(self, message: JSONRPCMessage) -> None:
-        """Store-then-forward one outbound message. Never raises."""
+    async def write(self, message: JSONRPCMessage) -> bool:
+        """Store-then-forward one outbound message. Never raises.
+
+        Returns whether the message reached somewhere the client can still get
+        it - the event store, or the currently attached response. `False`
+        means it was dropped: the stream is over, or nothing could hold it.
+        """
         async with self._write_lock:
             if self._closed:
                 logger.debug("dropped message on closed stream %s", self.stream_id)
-                return
+                return False
             # Store the event if we have an event store,
             # regardless of whether a client is connected
             # messages will be replayed on the re-connect
@@ -203,12 +213,12 @@ class _MessageChannel:
                 try:
                     event_id = await self._event_store.store_event(self.stream_id, message)
                 except Exception:
-                    # A broken store must not leak its exception into the caller's
-                    # write (nor its text onto the wire): this stream is over.
-                    logger.exception("EventStore.store_event failed for stream %s; closing the stream", self.stream_id)
-                    self.close()
-                    return
-                logger.debug(f"Stored {event_id} from {self.stream_id}")
+                    # A broken store costs resumability for this message, not the
+                    # stream: log (its text never reaches the wire) and still
+                    # deliver live below.
+                    logger.exception("EventStore.store_event failed for stream %s", self.stream_id)
+                else:
+                    logger.debug(f"Stored {event_id} from {self.stream_id}")
             if isinstance(message, JSONRPCResponse | JSONRPCError):
                 self.terminal = message
                 self.finished.set()
@@ -219,66 +229,56 @@ class _MessageChannel:
                     for message. Still processing message as the client
                     might reconnect and replay."""
                 )
-                return
+                # Retrievable later only if the store took it.
+                return event_id is not None
             try:
                 await writer.send(EventMessage(message, event_id))
             except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-                # The SSE response went away between the attach check and the send.
-                self._detach(writer)
+                # The response's reader closed under the send; the response's
+                # own cleanup detaches this attachment.
+                return event_id is not None
+            return True
 
-    def attach(self) -> MemoryObjectReceiveStream[EventMessage]:
+    def attach(self) -> MemoryObjectReceiveStream[EventMessage] | None:
         """Attach a fresh SSE response and return the reader it drains.
 
-        Callers check `attached` first where a second reader is an error
-        (the standalone GET stream); re-attaching after a detach is how a
-        `Last-Event-ID` reconnect resumes a live stream.
+        Returns `None` when the stream's life is already over, so no response
+        can attach to a dead channel. Callers check `attached` first where a
+        second reader is an error (the standalone GET stream); re-attaching
+        after a detach is how a `Last-Event-ID` reconnect resumes a live stream.
         """
+        if self._closed:
+            return None
         assert self._writer is None, "every attach site checks `attached` first"
         writer, reader = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
-        self._writer = writer
+        self._writer, self._reader = writer, reader
         return reader
 
     def detach(self, reader: MemoryObjectReceiveStream[EventMessage] | None = None) -> None:
         """Detach the current SSE response so the request can carry on without it.
 
-        `reader` scopes the detach to one attachment: a stale response ending
-        must not knock a newer (resumed) attachment off the channel.
+        `reader` scopes the detach to the attachment that reader came from: a
+        stale response ending must not knock a newer (resumed) attachment off
+        the channel. With no `reader`, whatever is attached is detached.
         """
-        writer = self._writer
-        if writer is None:
+        if self._writer is None:
             return
-        if reader is not None and not self._is_writer_of(writer, reader):
+        if reader is not None and reader is not self._reader:
             return
-        self._detach(writer)
-
-    def _is_writer_of(
-        self, writer: MemoryObjectSendStream[EventMessage], reader: MemoryObjectReceiveStream[EventMessage]
-    ) -> bool:
-        # A memory-object stream pair shares one state object.
-        return getattr(writer, "_state", None) is getattr(reader, "_state", None)
-
-    def _detach(self, writer: MemoryObjectSendStream[EventMessage]) -> None:
-        if self._writer is writer:
-            self._writer = None
-        writer.close()
+        self._writer.close()
+        self._writer, self._reader = None, None
 
     def close(self) -> None:
-        """End the channel outright (session termination): detach and refuse further writes."""
-        self._closed = True
-        if self._writer is not None:
-            self._detach(self._writer)
-        self.finished.set()
+        """The stream is over: detach any response and drop every further write.
 
-    def finish(self) -> None:
-        """The request is over: mark it finished and end any response still attached.
-
-        Normally the terminal frame already ended the response; this covers a
-        request whose terminal write never landed (e.g. the event store raised
-        mid-stream), so the client sees the stream close rather than hanging.
+        Serves both request completion (the terminal frame normally ended the
+        response already; this covers one whose terminal write never landed, so
+        the client sees the stream close rather than hang) and session
+        termination. Frames already buffered still drain to their reader.
         """
+        self._closed = True
         self.finished.set()
-        if self._writer is not None:
-            self._detach(self._writer)
+        self.detach()
 
 
 @dataclass
@@ -381,6 +381,13 @@ async def _call_over_channel(
     """
     opts = opts or {}
 
+    async def write_request(message: JSONRPCRequest) -> None:
+        if not await channel.write(message):
+            # Neither stored nor delivered live: the request can never reach
+            # the client, so fail the caller (the correlator surfaces
+            # CONNECTION_CLOSED) rather than await an answer that cannot come.
+            raise anyio.ClosedResourceError
+
     async def send_cancel(request_id: RequestId, reason: str) -> None:
         await channel.write(_notification("notifications/cancelled", {"requestId": request_id, "reason": reason}))
 
@@ -388,7 +395,7 @@ async def _call_over_channel(
         method,
         params,
         opts,
-        write_request=channel.write,
+        write_request=write_request,
         send_cancel=send_cancel,
         cancel_on_abandon=opts.get("cancel_on_abandon", True),
     )
@@ -455,15 +462,27 @@ class StreamableHTTPServerTransport:
         # Correlates server-to-client requests with the responses the client
         # POSTs back, and lets `notifications/cancelled` find in-flight handlers.
         self._corr: RequestCorrelator[_HTTPRequestDispatchContext] = RequestCorrelator()
+        # Stream ids handed to the event store are minted here, in this
+        # session's own namespace: distinct from anything a client can name
+        # and unshared with other sessions on a common store. Stateless
+        # transports (one per request) get a fresh scope each.
+        self._stream_scope = mcp_session_id if mcp_session_id is not None else uuid4().hex
         # The standalone GET stream: server-initiated messages related to no request.
-        self._standalone = _MessageChannel(GET_STREAM_KEY, event_store)
-        # In-flight request streams, keyed by stream id (str of the request id),
-        # so `close_sse_stream()` and `Last-Event-ID` replay can find them.
-        self._channels: dict[StreamId, _MessageChannel] = {}
+        self._standalone = _MessageChannel(f"{self._stream_scope}:{GET_STREAM_KEY}", event_store)
+        # In-flight request streams, keyed by their event-store stream id
+        # (`close_sse_stream()` and `Last-Event-ID` replay both look up here).
+        self._streams: dict[StreamId, _MessageChannel] = {}
+        # While an `initialize` is being served, other requests wait for its
+        # commit: the handshake orders before every later request on the wire.
+        self._initializing: anyio.Event | None = None
         # Session-scoped task group for request handlers (stateful mode). Handlers
         # outlive the HTTP request that started them: a dropped connection does
         # not cancel a 2025-era request (the client cancels explicitly).
         self._task_group: anyio.abc.TaskGroup | None = None
+        # Whether session-bound work may still be scheduled. Cleared the moment
+        # the session starts to end - explicit terminate, idle timeout, or
+        # manager shutdown - before the task group drains its running handlers.
+        self._accepting = True
         self._closed_event = anyio.Event()
         # The stateful session's connection state and handler kernel; stateless
         # mode builds a born-ready connection per request instead.
@@ -478,6 +497,19 @@ class StreamableHTTPServerTransport:
     def is_terminated(self) -> bool:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
+
+    def _owns_stream(self, stream_id: StreamId) -> bool:
+        """Whether an event-store stream id was minted by this transport (this session)."""
+        return stream_id == self._standalone.stream_id or stream_id.startswith(f"{self._stream_scope}:request:")
+
+    def _request_stream_id(self, request_id: RequestId) -> StreamId:
+        """The event-store stream id for one request's response stream.
+
+        Minted in this session's namespace with a `request:` infix, so it is
+        neither reachable from another session sharing the store nor equal to
+        the standalone stream's id, whatever the client picks as request id.
+        """
+        return f"{self._stream_scope}:request:{request_id}"
 
     def close_sse_stream(self, request_id: RequestId) -> None:
         """Close SSE connection for a specific request without terminating the stream.
@@ -497,8 +529,7 @@ class StreamableHTTPServerTransport:
             Requires event_store to be configured for events to be stored during
             the disconnect.
         """
-        stream_id = str(request_id)
-        channel = self._standalone if stream_id == GET_STREAM_KEY else self._channels.get(stream_id)
+        channel = self._streams.get(self._request_stream_id(request_id))
         if channel is not None:
             channel.detach()
 
@@ -535,7 +566,12 @@ class StreamableHTTPServerTransport:
             async with anyio.create_task_group() as tg:
                 self._task_group = tg
                 task_status.started()
-                await self._closed_event.wait()
+                try:
+                    await self._closed_event.wait()
+                finally:
+                    # However the session ends, stop taking work before the
+                    # task group drains the handlers already running.
+                    self._accepting = False
                 tg.cancel_scope.cancel()
         finally:
             self._task_group = None
@@ -801,10 +837,13 @@ class StreamableHTTPServerTransport:
                     None,
                     HTTPStatus.ACCEPTED,
                 )
-                await response(scope, receive, send)
-
-                # Process the message after sending the response
-                await self._deliver_client_message(request, message)
+                try:
+                    await response(scope, receive, send)
+                finally:
+                    # A body that arrived in full is delivered even when the
+                    # 202 could not be (the client dropped after sending it):
+                    # a lost ack must not lose an answer or a cancellation.
+                    await self._deliver_client_message(request, message)
                 return
 
             # Extract protocol version for priming event decision.
@@ -906,7 +945,7 @@ class StreamableHTTPServerTransport:
             await fn(*args)
             return
         tg = self._task_group
-        if tg is None or self._terminated:
+        if tg is None or not self._accepting:
             logger.debug("dropped work for ended session %s", self.mcp_session_id)
             return
         tg.start_soon(fn, *args)
@@ -922,7 +961,52 @@ class StreamableHTTPServerTransport:
     ) -> None:
         """Dispatch one POSTed JSON-RPC request and stream its response."""
         request_id = message.id
-        stream_id = str(request_id)
+        stream_id = self._request_stream_id(request_id)
+        stateful = self.mcp_session_id is not None
+
+        # A request other than `initialize` waits for a handshake in progress
+        # to commit: over one stream the read loop parked to guarantee this;
+        # over HTTP the requests are concurrent, so the transport keeps the
+        # same order explicitly. This handshake's gate exists before its
+        # first await.
+        initialize_gate: anyio.Event | None = None
+        if stateful and message.method == "initialize":
+            initialize_gate = anyio.Event()
+            self._initializing = initialize_gate
+        elif stateful and (gate := self._initializing) is not None:
+            await gate.wait()
+
+        # From here the gate must be released whatever becomes of this
+        # request: by the handler task once it exists, else by this frame.
+        handler_started = False
+        try:
+            handler_started = await self._start_request(
+                scope, request, receive, send, message, protocol_version, stream_id, initialize_gate
+            )
+        finally:
+            if initialize_gate is not None and not handler_started:
+                self._release_initialize_gate(initialize_gate)
+
+    def _release_initialize_gate(self, gate: anyio.Event) -> None:
+        """Let the requests held behind this handshake proceed, and clear it if still current."""
+        gate.set()
+        if self._initializing is gate:
+            self._initializing = None
+
+    async def _start_request(
+        self,
+        scope: Scope,
+        request: Request,
+        receive: Receive,
+        send: Send,
+        message: JSONRPCRequest,
+        protocol_version: str,
+        stream_id: StreamId,
+        initialize_gate: anyio.Event | None,
+    ) -> bool:
+        """Register and start one request; returns whether a handler task took over its lifecycle."""
+        request_id = message.id
+        stateful = self.mcp_session_id is not None
 
         # Mint the priming event before any per-request state exists:
         # `EventStore.store_event` is user code and may raise, in which
@@ -936,18 +1020,17 @@ class StreamableHTTPServerTransport:
         # while this request was suspended above; a session-bound transport must
         # refuse the request instead of running it against a dead session. No
         # await from here to the dispatch, so the answer holds when we act on it.
-        stateful = self.mcp_session_id is not None
         session_task_group = self._task_group
-        if stateful and (self._terminated or session_task_group is None):
+        if stateful and (not self._accepting or session_task_group is None):
             response = self._create_error_response(
                 "Not Found: Session has been terminated",
                 HTTPStatus.NOT_FOUND,
             )
             await response(scope, receive, send)
-            return
+            return False
 
         channel = _MessageChannel(stream_id, self._event_store)
-        self._channels[stream_id] = channel
+        self._streams[stream_id] = channel
         # Attach the response's writer before the handler starts, so nothing
         # the handler emits early lands on an unattached channel.
         reader = None if self.is_json_response_enabled else channel.attach()
@@ -982,11 +1065,13 @@ class StreamableHTTPServerTransport:
                     write_error=partial(self._write_error, channel, request_id),
                 )
             finally:
+                if initialize_gate is not None:
+                    self._release_initialize_gate(initialize_gate)
                 # The channel stays registered until the handler is done, so a
                 # `Last-Event-ID` reconnect can re-attach while it still runs.
-                channel.finish()
-                if self._channels.get(stream_id) is channel:
-                    del self._channels[stream_id]
+                channel.close()
+                if self._streams.get(stream_id) is channel:
+                    del self._streams[stream_id]
                 if connection is not None:
                     await aclose_shielded(connection)
 
@@ -1010,6 +1095,7 @@ class StreamableHTTPServerTransport:
                 else:
                     await self._respond_sse(scope, receive, send, channel, reader, priming_event)
                 tg.cancel_scope.cancel()
+        return True
 
     async def _write_result(self, channel: _MessageChannel, request_id: RequestId, result: dict[str, Any]) -> None:
         await channel.write(JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result))
@@ -1023,8 +1109,16 @@ class StreamableHTTPServerTransport:
         response_message = channel.terminal
         if response_message is not None:
             response = self._create_json_response(response_message)
-        else:  # pragma: no cover
-            # This shouldn't happen in normal operation
+        elif self._terminated:
+            # The session ended underneath the request; it gets the same
+            # answer every request to a terminated session gets.
+            response = self._create_error_response(
+                "Not Found: Session has been terminated",
+                HTTPStatus.NOT_FOUND,
+            )
+        else:  # pragma: lax no cover
+            # The request finished without recording an answer (a wedged store
+            # can outlast the shutdown write bound). Nothing to send but a 500.
             logger.error("No response message received before stream closed")
             response = self._create_error_response(
                 "Error processing request: No response received",
@@ -1038,24 +1132,43 @@ class StreamableHTTPServerTransport:
         receive: Receive,
         send: Send,
         channel: _MessageChannel,
-        reader: MemoryObjectReceiveStream[EventMessage],
+        reader: MemoryObjectReceiveStream[EventMessage] | None,
         priming_event: SSEEvent | None,
     ) -> None:
         """Stream the request's channel as this POST's SSE response, until the response frame passes."""
+        assert reader is not None, "a freshly created request channel always attaches"
+        await self._run_sse_response(
+            scope, receive, send, partial(self._pump_channel, channel, reader, priming_event, stop_at_response=True)
+        )
+        # The client is gone (disconnect or delivered response): detach so the
+        # handler carries on writing to the store alone.
+        channel.detach(reader)
+
+    async def _run_sse_response(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        data_sender: Callable[[MemoryObjectSendStream[SSEEvent]], Coroutine[Any, Any, None]],
+    ) -> None:
+        """Run one SSE response fed by `data_sender`, the single containment site for all of them.
+
+        `data_sender(sse_send)` writes the events (a channel pump, or a replay
+        followed by a pump). An error escaping the started response is logged
+        here and goes no further: the response already began, so nothing may
+        answer this request a second time.
+        """
         sse_send, sse_recv = anyio.create_memory_object_stream[SSEEvent](0)
         response = EventSourceResponse(
             content=sse_recv,
-            data_sender_callable=partial(
-                self._pump_channel, channel, reader, sse_send, priming_event, stop_at_response=True
-            ),
+            data_sender_callable=partial(data_sender, sse_send),
             headers=self._sse_headers(),
         )
         try:
             await response(scope, receive, send)
+        except Exception:  # pragma: lax no cover
+            logger.exception("Error in SSE response")
         finally:
-            # The client is gone (disconnect or delivered response): detach so
-            # the handler carries on writing to the store alone.
-            channel.detach(reader)
             await sse_send.aclose()
             await sse_recv.aclose()
 
@@ -1063,8 +1176,8 @@ class StreamableHTTPServerTransport:
         self,
         channel: _MessageChannel,
         reader: MemoryObjectReceiveStream[EventMessage],
-        sse_send: MemoryObjectSendStream[SSEEvent],
         priming_event: SSEEvent | None,
+        sse_send: MemoryObjectSendStream[SSEEvent],
         *,
         stop_at_response: bool,
     ) -> None:
@@ -1122,23 +1235,24 @@ class StreamableHTTPServerTransport:
             return
 
         reader = self._standalone.attach()
-        sse_send, sse_recv = anyio.create_memory_object_stream[SSEEvent](0)
-        response = EventSourceResponse(
-            content=sse_recv,
-            data_sender_callable=partial(
-                self._pump_channel, self._standalone, reader, sse_send, None, stop_at_response=False
-            ),
-            headers=self._sse_headers(),
-        )
+        if reader is None:  # pragma: lax no cover
+            # The session was terminated between the entry check and here.
+            response = self._create_error_response(
+                "Not Found: Session has been terminated",
+                HTTPStatus.NOT_FOUND,
+            )
+            await response(request.scope, request.receive, send)
+            return
         try:
             # This will send headers immediately and establish the SSE connection
-            await response(request.scope, request.receive, send)
-        except Exception:  # pragma: lax no cover
-            logger.exception("Error in standalone SSE response")
+            await self._run_sse_response(
+                request.scope,
+                request.receive,
+                send,
+                partial(self._pump_channel, self._standalone, reader, None, stop_at_response=False),
+            )
         finally:
             self._standalone.detach(reader)
-            await sse_send.aclose()
-            await sse_recv.aclose()
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
         """Handle DELETE requests for explicit session termination."""
@@ -1170,13 +1284,14 @@ class StreamableHTTPServerTransport:
         """
 
         self._terminated = True
+        self._accepting = False
         logger.info(f"Terminating session: {self.mcp_session_id}")
 
         # Close every open response stream, wake anything awaiting a
         # client answer, and cancel in-flight handlers.
-        for channel in list(self._channels.values()):
+        for channel in list(self._streams.values()):
             channel.close()
-        self._channels.clear()
+        self._streams.clear()
         self._standalone.close()
         self._corr.close()
         self._corr.cancel_all_inbound()
@@ -1245,30 +1360,39 @@ class StreamableHTTPServerTransport:
             return  # pragma: no cover
 
         try:
-            headers = self._sse_headers()
-
             # The manager only routes supported (or absent) header values to this transport
             replay_protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
 
-            # Create SSE stream for replay
-            sse_send, sse_recv = anyio.create_memory_object_stream[SSEEvent](0)
-
-            async def replay_sender() -> None:
+            async def replay_then_tail(sse_send: MemoryObjectSendStream[SSEEvent]) -> None:
                 try:
                     async with sse_send:
-                        # Define an async callback for sending events
-                        async def send_event(event_message: EventMessage) -> None:
-                            await sse_send.send(self._create_event_data(event_message))
+                        # Buffer the replay until the store names its stream: the
+                        # event id came from the client, so only a stream in this
+                        # session's namespace is allowed onto the wire.
+                        replayed: list[EventMessage] = []
+
+                        async def collect_event(event_message: EventMessage) -> None:
+                            replayed.append(event_message)
 
                         # Replay past events and get the stream ID
-                        stream_id = await event_store.replay_events_after(last_event_id, send_event)
+                        stream_id = await event_store.replay_events_after(last_event_id, collect_event)
+                        if not stream_id:
+                            return
+                        if not self._owns_stream(stream_id):
+                            logger.warning(
+                                "Refusing to replay foreign stream %r on session %s", stream_id, self.mcp_session_id
+                            )
+                            return
+                        for event_message in replayed:
+                            await sse_send.send(self._create_event_data(event_message))
 
                         # Live-tail the stream if it is still open and no response
                         # is currently attached to it: the `close_sse_stream()`
                         # polling reconnect, and a client resuming a dropped connection.
-                        if not stream_id:
-                            return
-                        channel = self._standalone if stream_id == GET_STREAM_KEY else self._channels.get(stream_id)
+                        if stream_id == self._standalone.stream_id:
+                            channel = self._standalone
+                        else:
+                            channel = self._streams.get(stream_id)
                         if channel is None or channel.attached:
                             return
 
@@ -1278,6 +1402,10 @@ class StreamableHTTPServerTransport:
                         # stored between the replay read and the attach) is pre-existing
                         # and tracked separately.
                         reader = channel.attach()
+                        if reader is None:
+                            # The stream ended (session terminated) while the store
+                            # was read; there is nothing left to tail.
+                            return
                         try:
                             # Prime the resumed connection so the client sees the
                             # stream is re-registered.
@@ -1289,9 +1417,9 @@ class StreamableHTTPServerTransport:
                             await self._pump_channel(
                                 channel,
                                 reader,
-                                sse_send,
                                 priming_event,
-                                stop_at_response=stream_id != GET_STREAM_KEY,
+                                sse_send,
+                                stop_at_response=channel is not self._standalone,
                             )
                         finally:
                             channel.detach(reader)
@@ -1303,19 +1431,7 @@ class StreamableHTTPServerTransport:
                     logger.exception("Error in replay sender")
 
             # Create and start EventSourceResponse
-            response = EventSourceResponse(
-                content=sse_recv,
-                data_sender_callable=replay_sender,
-                headers=headers,
-            )
-
-            try:
-                await response(request.scope, request.receive, send)
-            except Exception:  # pragma: lax no cover
-                logger.exception("Error in replay response")
-            finally:
-                await sse_send.aclose()
-                await sse_recv.aclose()
+            await self._run_sse_response(request.scope, request.receive, send, replay_then_tail)
 
         except Exception:  # pragma: lax no cover
             logger.exception("Error replaying events")

@@ -5,6 +5,7 @@ correlator; these tests pin the parts of that lifecycle a real client can hit
 that the transport-agnostic interaction matrix does not reach.
 """
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import anyio
@@ -12,12 +13,14 @@ import anyio.lowlevel
 import pytest
 from httpx2 import EventSource
 from mcp_types import (
+    CONNECTION_CLOSED,
     INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
     ElicitRequest,
     ElicitRequestFormParams,
     ElicitResult,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -28,6 +31,7 @@ from starlette.requests import Request
 from starlette.types import Message, Scope
 
 from mcp.server import Server, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult
 from mcp.server.streamable_http import (
     EventCallback,
     EventId,
@@ -44,6 +48,7 @@ from mcp.shared.transport_context import TransportContext
 from tests.interaction._connect import (
     base_headers,
     connect_over_streamable_http,
+    initialize_body,
     initialize_via_http,
     mounted_app,
     parse_sse_messages,
@@ -65,7 +70,7 @@ class _StreamFailingStore(SequencedEventStore):
     """A store that breaks for every message on request ``42``'s stream (its priming row aside)."""
 
     async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
-        if stream_id == "42" and message is not None:
+        if stream_id.endswith(":request:42") and message is not None:
             raise RuntimeError("backend fell over")
         return await super().store_event(stream_id, message)
 
@@ -119,7 +124,7 @@ async def test_priming_store_failure_returns_500_without_leaking_per_request_sta
     with anyio.fail_after(5):
         await transport.handle_request(scope, receive, asgi_send)
 
-    assert transport._channels == {}  # pyright: ignore[reportPrivateUsage]
+    assert transport._streams == {}  # pyright: ignore[reportPrivateUsage]
     assert sent[0]["type"] == "http.response.start"
     assert sent[0]["status"] == 500
     payload = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
@@ -224,20 +229,21 @@ async def test_a_posted_progress_notification_reaches_the_servers_pending_reques
     assert reports == [(0.5, 1.0, "half")]
 
 
-async def test_an_event_store_failure_mid_request_costs_only_that_request() -> None:
-    """A store that raises for a request's stream fails that request cleanly, never the session.
+async def test_an_event_store_failure_costs_that_request_its_resumability_only() -> None:
+    """A store that raises for a request's stream still lets the answer through live.
 
-    Neither request 42's result nor the error frame reporting the failure can be stored, so its
-    stream ends without a terminal frame instead of hanging; request 43 on the same session is
-    served normally.
+    Request 42 cannot be stored, so its result reaches the client unstored (no event id to
+    resume from) and the store's error text never touches the wire; request 43 on the same
+    session is stored and served normally.
     """
 
     async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         return CallToolResult(content=[TextContent(text=params.name)])
 
     server = Server("resilient", on_call_tool=call_tool)
+    store = _StreamFailingStore()
 
-    async with mounted_app(server, event_store=_StreamFailingStore(), retry_interval=0) as (http, _):
+    async with mounted_app(server, event_store=store, retry_interval=0) as (http, _):
         session_id = await initialize_via_http(http)
         with anyio.fail_after(5):
             async with http.stream(
@@ -251,8 +257,14 @@ async def test_an_event_store_failure_mid_request_costs_only_that_request() -> N
                 assert healthy.status_code == 200
                 healthy_events = [event async for event in EventSource(healthy)]
 
-    # Request 42's stream carried its priming event and then ended with no terminal frame.
-    assert parse_sse_messages(failing_events) == []
+    # Request 42's answer went out live (the store never took it) and no backend text leaked.
+    stored_ids = {message.id for _, message in store._events if isinstance(message, JSONRPCResponse)}  # pyright: ignore[reportPrivateUsage]
+    assert 42 not in stored_ids and 43 in stored_ids
+    (first,) = [message for message in parse_sse_messages(failing_events) if isinstance(message, JSONRPCResponse)]
+    assert first.id == 42
+    assert first.result["content"] == [{"type": "text", "text": "first"}]
+    assert all("fell over" not in (event.data or "") for event in failing_events)
+    # Request 43 was stored and delivered as usual.
     (second,) = [message for message in parse_sse_messages(healthy_events) if isinstance(message, JSONRPCResponse)]
     assert second.id == 43
     assert second.result["content"] == [{"type": "text", "text": "second"}]
@@ -305,8 +317,10 @@ def test_detaching_a_stale_attachment_does_not_evict_the_newer_one() -> None:
     attachment off its channel."""
     channel = _MessageChannel("1", None)
     stale_reader = channel.attach()
+    assert stale_reader is not None
     channel.detach()  # e.g. close_sse_stream()
     fresh_reader = channel.attach()  # the client's reconnect re-attached
+    assert fresh_reader is not None
     channel.detach(stale_reader)  # the stale response's cleanup lands late
     assert channel.attached
     channel.detach(fresh_reader)
@@ -349,6 +363,7 @@ async def test_a_closed_request_context_drops_notifications_and_refuses_requests
     )
     assert dctx.can_send_request
     reader = channel.attach()
+    assert reader is not None
 
     dctx.close()
 
@@ -386,6 +401,7 @@ async def test_concurrent_writes_reach_the_wire_in_event_store_order() -> None:
     """
     channel = _MessageChannel("1", _SlowFirstStore())
     reader = channel.attach()
+    assert reader is not None
     first = JSONRPCNotification(jsonrpc="2.0", method="notifications/one")
     second = JSONRPCNotification(jsonrpc="2.0", method="notifications/two")
 
@@ -410,7 +426,7 @@ class _GatedPrimingStore(SequencedEventStore):
         self.release = anyio.Event()
 
     async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
-        if stream_id == "42" and message is None:
+        if stream_id.endswith(":request:42") and message is None:
             self.parked.set()
             await self.release.wait()
         return await super().store_event(stream_id, message)
@@ -509,3 +525,360 @@ async def test_a_session_bound_transport_drops_notifications_once_its_session_ha
         await transport._deliver_client_message(  # pyright: ignore[reportPrivateUsage]
             request, JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
         )
+
+
+async def test_requests_wait_for_a_handshake_in_progress_to_commit() -> None:
+    """A request POSTed while `initialize` is still running is held until the handshake commits.
+
+    The session id ships with the initialize response's headers, ahead of its result, so a
+    client can send its next request before the server committed the negotiated session state.
+    The transport orders that request behind the handshake, so it is served against the
+    initialized session rather than racing the initialization gate.
+    """
+    release_handshake = anyio.Event()
+
+    class _SlowHandshake:
+        async def __call__(self, ctx: ServerRequestContext, call_next: CallNext) -> HandlerResult:
+            if ctx.method == "initialize":
+                await release_handshake.wait()
+            return await call_next(ctx)
+
+    server = Server("gated")
+    server.middleware.append(_SlowHandshake())
+    listed: list[int] = []
+
+    async with mounted_app(server) as (http, _):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                async with http.stream(  # pragma: no branch
+                    "POST", "/mcp", json=initialize_body(), headers=base_headers()
+                ) as init:
+                    # The session id arrives with the headers, before the handshake finishes.
+                    session_id = init.headers["mcp-session-id"]
+
+                    async def list_tools() -> None:
+                        response = await http.post(
+                            "/mcp",
+                            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                            headers=base_headers(session_id=session_id),
+                        )
+                        listed.append(response.status_code)
+
+                    tg.start_soon(list_tools)
+                    await anyio.wait_all_tasks_blocked()
+                    assert listed == []  # held behind the still-running handshake
+                    release_handshake.set()
+                    [event async for event in EventSource(init)]
+
+    assert listed == [200]
+
+
+async def test_a_server_request_no_client_can_receive_fails_the_call_instead_of_hanging() -> None:
+    """A server-to-client request with nothing to carry it fails the handler right away.
+
+    With no GET stream attached and no event store there is nowhere a connection-scoped
+    request could ever reach the client, so the call is failed `CONNECTION_CLOSED` instead
+    of parking the handler for an answer that cannot arrive.
+    """
+    outcomes: list[int] = []
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        try:
+            # No `related_request_id`: this rides the connection's standalone GET stream.
+            await ctx.session.send_request(
+                ElicitRequest(
+                    params=ElicitRequestFormParams(message="ok?", requested_schema={"type": "object", "properties": {}})
+                ),
+                ElicitResult,
+            )
+        except MCPError as exc:
+            outcomes.append(exc.error.code)
+            raise
+        raise NotImplementedError
+
+    server = Server("no-back-channel", on_call_tool=call_tool)
+
+    async with mounted_app(server) as (http, _):  # no event store, and no GET stream is ever opened
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with http.stream(  # pragma: no branch
+                "POST", "/mcp", content=_tools_call(2, "ask", {}), headers=base_headers(session_id=session_id)
+            ) as response:
+                assert response.status_code == 200
+                events = [event async for event in EventSource(response)]
+
+    assert outcomes == [CONNECTION_CLOSED]
+    # The tool's failure came back on its own stream as an error frame.
+    (error,) = [message for message in parse_sse_messages(events) if isinstance(message, JSONRPCError)]
+    assert error.id == 2
+
+
+class _StandaloneFlakyStore(SequencedEventStore):
+    """The store rejects the first message written to the standalone stream, then recovers."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed_once = False
+
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+        if stream_id.endswith(":_GET_stream") and message is not None and not self.failed_once:
+            self.failed_once = True
+            raise RuntimeError("standalone backend hiccup")
+        return await super().store_event(stream_id, message)
+
+
+async def test_a_store_failure_on_the_standalone_stream_does_not_take_the_stream_down() -> None:
+    """A store that raises for a standalone notification degrades that message, not the GET stream.
+
+    The failed notification still reaches the connected client live (unstored); the next one
+    is stored and delivered too - the stream stays alive across the store's hiccup.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        await ctx.session.send_resource_updated("file:///one")
+        await ctx.session.send_resource_updated("file:///two")
+        return CallToolResult(content=[])
+
+    server = Server("standalone-flaky", on_call_tool=call_tool)
+    store = _StandaloneFlakyStore()
+
+    async with mounted_app(server, event_store=store, retry_interval=0) as (http, _):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with http.stream(  # pragma: no branch
+                "GET", "/mcp", headers=base_headers(session_id=session_id)
+            ) as sse:
+                assert sse.status_code == 200
+                events = aiter(EventSource(sse))
+                called = await http.post(
+                    "/mcp", content=_tools_call(2, "log", {}), headers=base_headers(session_id=session_id)
+                )
+                assert called.status_code == 200
+                updated = [
+                    JSONRPCNotification.model_validate_json((await anext(events)).data or "{}") for _ in range(2)
+                ]
+
+    assert [n.params and n.params["uri"] for n in updated] == ["file:///one", "file:///two"]
+    assert store.failed_once
+
+
+async def test_a_shared_event_store_keeps_sessions_replay_apart() -> None:
+    """Two sessions on one store never see each other's frames on a `Last-Event-ID` resume.
+
+    Both sessions run the same request ids, so a store keyed on the bare request id would
+    interleave them; session-scoped stream ids keep session B's replay to its own messages.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        assert params.arguments is not None
+        return CallToolResult(content=[TextContent(text=str(params.arguments["owner"]))])
+
+    server = Server("shared-store", on_call_tool=call_tool)
+    store = SequencedEventStore()
+
+    async with mounted_app(server, event_store=store, retry_interval=0) as (http, _):
+        with anyio.fail_after(5):
+            session_a = await initialize_via_http(http)
+            session_b = await initialize_via_http(http)
+            events_by_session: dict[str, list[Any]] = {}
+            for session_id, owner in ((session_a, "A"), (session_b, "B")):
+                async with http.stream(
+                    "POST",
+                    "/mcp",
+                    content=_tools_call(3, "who", {"owner": owner}),
+                    headers=base_headers(session_id=session_id),
+                ) as response:
+                    events_by_session[session_id] = [event async for event in EventSource(response)]
+            # Resume session B's request-3 stream from its priming event: only B's frames come back.
+            priming_a = [event.id for event in events_by_session[session_a] if event.id][0]
+            priming_b = [event.id for event in events_by_session[session_b] if event.id][0]
+            async with http.stream(  # pragma: no branch
+                "GET",
+                "/mcp",
+                headers=base_headers(session_id=session_b) | {"last-event-id": priming_b},
+            ) as replay:
+                replayed = [event async for event in EventSource(replay)]
+            # ... while an event id belonging to session A yields B nothing.
+            async with http.stream(  # pragma: no branch
+                "GET",
+                "/mcp",
+                headers=base_headers(session_id=session_b) | {"last-event-id": priming_a},
+            ) as poached:
+                foreign = [event async for event in EventSource(poached)]
+
+    payloads = [message for message in parse_sse_messages(replayed) if isinstance(message, JSONRPCResponse)]
+    assert [message.result["content"][0]["text"] for message in payloads] == ["B"]
+    # Presenting session A's event id from session B replays nothing at all.
+    assert [message for message in parse_sse_messages(foreign) if isinstance(message, JSONRPCResponse)] == []
+
+
+async def test_a_request_id_shaped_like_the_get_marker_keeps_its_own_stream() -> None:
+    """A request whose id is the string `_GET_stream` is served on its own stream.
+
+    Its response never lands on the standalone GET stream, and the standalone stream stays
+    attached across it.
+    """
+    server = Server("marker-id")
+
+    async with mounted_app(server) as (http, manager):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            async with http.stream(  # pragma: no branch
+                "GET", "/mcp", headers=base_headers(session_id=session_id)
+            ) as standalone:
+                assert standalone.status_code == 200
+                async with http.stream(  # pragma: no branch
+                    "POST",
+                    "/mcp",
+                    json={"jsonrpc": "2.0", "id": "_GET_stream", "method": "ping"},
+                    headers=base_headers(session_id=session_id),
+                ) as pinged:
+                    assert pinged.status_code == 200
+                    (response,) = parse_sse_messages([event async for event in EventSource(pinged)])
+                assert isinstance(response, JSONRPCResponse) and response.id == "_GET_stream"
+                # The standalone stream is still attached; the ping never touched it.
+                transport = manager._server_instances[session_id]  # pyright: ignore[reportPrivateUsage]
+                assert transport._standalone.attached  # pyright: ignore[reportPrivateUsage]
+
+
+async def test_a_json_mode_request_terminated_underneath_it_is_answered_404() -> None:
+    """DELETE while a JSON-mode request runs leaves it no answer, so the POST gets the terminated 404."""
+    started = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        started.set()
+        await anyio.sleep_forever()
+        raise NotImplementedError
+
+    server = Server("json-terminate", on_call_tool=call_tool)
+    statuses: list[int] = []
+
+    async with mounted_app(server, json_response=True) as (http, _):
+        with anyio.fail_after(5):
+            # JSON mode answers `initialize` with a plain JSON body.
+            initialized = await http.post("/mcp", json=initialize_body(), headers=base_headers())
+            assert initialized.status_code == 200
+            session_id = initialized.headers["mcp-session-id"]
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def call() -> None:
+                    response = await http.post(
+                        "/mcp", content=_tools_call(2, "wait", {}), headers=base_headers(session_id=session_id)
+                    )
+                    statuses.append(response.status_code)
+
+                tg.start_soon(call)
+                await started.wait()
+                delete = await http.delete("/mcp", headers=base_headers(session_id=session_id))
+                assert delete.status_code == 200
+
+    assert statuses == [404]
+
+
+class _GatedReplayStore(SequencedEventStore):
+    """Parks `replay_events_after` until released, so a DELETE can land mid-replay."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parked = anyio.Event()
+        self.release = anyio.Event()
+
+    async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+        self.parked.set()
+        await self.release.wait()
+        return await super().replay_events_after(last_event_id, send_callback)
+
+
+async def test_a_replay_across_termination_ends_instead_of_tailing_a_dead_stream() -> None:
+    """DELETE while a standalone-stream replay reads the store ends that response cleanly.
+
+    The resumed GET finds its stream gone once the store read returns, so it closes with no
+    live tail rather than attaching to a terminated channel.
+    """
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        await ctx.session.send_resource_updated("file:///seed")
+        return CallToolResult(content=[])
+
+    server = Server("replay-terminate", on_call_tool=call_tool)
+    store = _GatedReplayStore()
+    replayed: list[list[Any]] = []
+
+    async with mounted_app(server, event_store=store, retry_interval=0) as (http, manager):
+        session_id = await initialize_via_http(http)
+        with anyio.fail_after(5):
+            # Seed the standalone stream with one stored event, and note its id.
+            async with http.stream("GET", "/mcp", headers=base_headers(session_id=session_id)) as sse:
+                events = aiter(EventSource(sse))
+                seeded = await http.post(
+                    "/mcp", content=_tools_call(2, "seed", {}), headers=base_headers(session_id=session_id)
+                )
+                assert seeded.status_code == 200
+                last_event_id = (await anext(events)).id
+            assert last_event_id is not None
+            transport = manager._server_instances[session_id]  # pyright: ignore[reportPrivateUsage]
+            while transport._standalone.attached:  # pyright: ignore[reportPrivateUsage]
+                await anyio.wait_all_tasks_blocked()  # let the closed GET detach
+
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                async def replay() -> None:
+                    async with http.stream(
+                        "GET",
+                        "/mcp",
+                        headers=base_headers(session_id=session_id) | {"last-event-id": last_event_id},
+                    ) as response:
+                        replayed.append([event async for event in EventSource(response)])
+
+                tg.start_soon(replay)
+                await store.parked.wait()
+                delete = await http.delete("/mcp", headers=base_headers(session_id=session_id))
+                assert delete.status_code == 200
+                store.release.set()
+
+    (events,) = replayed
+    assert [event for event in events if event.data] == []
+
+
+async def test_overlapping_handshakes_each_release_their_own_gate() -> None:
+    """A second `initialize` POSTed while the first runs installs its own gate; both are answered.
+
+    Whichever handshake finishes clears only its own gate, so neither leaves a stale gate
+    holding later requests forever.
+    """
+    release_handshake = anyio.Event()
+
+    class _SlowHandshake:
+        async def __call__(self, ctx: ServerRequestContext, call_next: CallNext) -> HandlerResult:
+            if ctx.method == "initialize" and ctx.request_id != 1:  # let the session's first one through
+                await release_handshake.wait()
+            return await call_next(ctx)
+
+    server = Server("regated")
+    server.middleware.append(_SlowHandshake())
+    statuses: list[int] = []
+
+    async def handshake(http: Any, session_id: str, request_id: int) -> None:
+        response = await http.post(
+            "/mcp", json=initialize_body(request_id), headers=base_headers(session_id=session_id)
+        )
+        statuses.append(response.status_code)
+
+    async with mounted_app(server, json_response=True) as (http, _):
+        with anyio.fail_after(5):
+            first = await http.post("/mcp", json=initialize_body(), headers=base_headers())
+            session_id = first.headers["mcp-session-id"]
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(handshake, http, session_id, 2)
+                await anyio.wait_all_tasks_blocked()
+                tg.start_soon(handshake, http, session_id, 3)
+                await anyio.wait_all_tasks_blocked()
+                release_handshake.set()
+            listed = await http.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 4, "method": "tools/list"},
+                headers=base_headers(session_id=session_id),
+            )
+
+    assert statuses == [200, 200]
+    assert listed.status_code == 200

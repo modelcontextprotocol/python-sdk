@@ -423,7 +423,7 @@ async def test_stateless_requests_memory_cleanup():
             assert transport._terminated, "Transport should be terminated after stateless request"
 
             # Verify internal state is cleaned up: no request streams left open.
-            assert not transport._channels, "Transport should have no active request channels"
+            assert not transport._streams, "Transport should have no active request streams"
             assert not transport._standalone.attached, "Transport should have no standalone stream attached"
 
 

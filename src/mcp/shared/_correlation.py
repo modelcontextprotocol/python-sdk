@@ -448,6 +448,11 @@ class RequestCorrelator(Generic[DctxT]):
                 # result write above did not happen - no double response.
                 # TODO(L38): spec says SHOULD NOT respond after cancel;
                 # the existing server always has, so match that for now.
+                # This is the single site every transport shares for the
+                # cancelled-request answer policy; change it here for all
+                # of them (a transport whose response stream must still end
+                # sees this write, so a suppressed answer needs the stream
+                # terminated another way).
                 answer_write_started = True
                 await write_error(ErrorData(code=0, message="Request cancelled"))
         except anyio.get_cancelled_exc_class():

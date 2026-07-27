@@ -230,7 +230,12 @@ class ServerRunner(Generic[LifespanT]):
         result = _dump_result(await call(ctx))
         if method == "initialize":
             # Commit only on chain success, so a middleware veto leaves no state.
-            # Race-free: the read loop is parked until this call returns.
+            # Race-free for the session's first handshake: the transport runs no
+            # other request until it returns (a stream driver's read loop is
+            # parked here; streamable HTTP holds later requests behind the
+            # in-progress initialize, and the session id only ships with its
+            # response). A repeated initialize on an established session (a
+            # recorded divergence) recommits alongside whatever is running.
             # TODO: this re-reads the wire `params`, so a middleware that rewrote
             # `ctx.params` (or `ctx.method`, or short-circuited without `call_next`)
             # can leave `connection.protocol_version` out of step with the
