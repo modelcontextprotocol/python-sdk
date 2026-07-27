@@ -3798,10 +3798,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="OAuth is HTTP-only.",
         divergence=Divergence(
             note=(
-                "The SDK inserts two extra fallback steps between PRM and omit (client/auth/utils.py): "
-                "if the authorization server metadata advertises scopes_supported, that list is used; "
-                "otherwise the scope the caller configured on the provider is requested. This is beyond "
-                "the spec's two-step chain."
+                "The SDK inserts one extra fallback step between PRM and omit (client/auth/utils.py): "
+                "the scope the caller configured on the provider is requested when the challenge and "
+                "PRM yield nothing. This is beyond the spec's two-step chain; the TypeScript SDK adds "
+                "the same tier."
             ),
         ),
     ),

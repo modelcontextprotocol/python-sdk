@@ -95,6 +95,11 @@ def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, s
     return urls
 
 
+def _join_scopes(scopes: list[str] | None) -> str | None:
+    """Join a scope list into the space-separated wire format; an empty or absent list is None."""
+    return " ".join(scopes) if scopes else None
+
+
 def get_client_metadata_scopes(
     www_authenticate_scope: str | None,
     protected_resource_metadata: ProtectedResourceMetadata | None,
@@ -104,26 +109,23 @@ def get_client_metadata_scopes(
 ) -> str | None:
     """Select effective scopes and augment for refresh token support.
 
-    A source that yields no scopes (absent, null, or an empty list) offers no guidance, so
-    selection falls through to the next source rather than treating "advertised nothing" as
-    "request nothing".
+    Follows the spec's scope-selection strategy, with the scope the caller configured on the
+    provider as an SDK fallback beneath it. A source that yields no scopes (absent or an empty
+    list) offers no guidance, so selection falls through to the next source. The authorization
+    server's `scopes_supported` is its catalog, not what this resource needs, so it never
+    supplies the requested scope; it is consulted only for `offline_access` support below.
     """
-    selected_scope: str | None = None
-
-    # MCP spec scope selection priority:
+    # Scope selection priority (spec, then SDK fallback):
     #   1. WWW-Authenticate header scope
     #   2. PRM scopes_supported
-    #   3. AS scopes_supported (SDK fallback)
-    #   4. Scope the caller configured on the provider (SDK fallback)
-    #   5. Omit scope parameter
-    if www_authenticate_scope:
-        selected_scope = www_authenticate_scope
-    elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported:
-        selected_scope = " ".join(protected_resource_metadata.scopes_supported)
-    elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported:
-        selected_scope = " ".join(authorization_server_metadata.scopes_supported)
-    else:
-        selected_scope = configured_scope or None
+    #   3. Scope the caller configured on the provider (SDK fallback)
+    #   4. Omit scope parameter
+    selected_scope = (
+        www_authenticate_scope
+        or _join_scopes(protected_resource_metadata.scopes_supported if protected_resource_metadata else None)
+        or configured_scope
+        or None
+    )
 
     # SEP-2207: append offline_access when the AS supports it and the client can use refresh tokens
     if (

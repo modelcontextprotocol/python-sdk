@@ -2456,9 +2456,8 @@ class TestSEP2207OfflineAccessScope:
             authorization_server_metadata=asm,
             client_grant_types=["authorization_code", "refresh_token"],
         )
-        # When AS scopes are the only source and include offline_access,
-        # the base scope is "offline_access" and no duplication happens
-        assert scopes == "offline_access"
+        # The AS catalog never supplies the requested scope, so no base scope is selected.
+        assert scopes is None
 
     def test_offline_access_not_added_when_as_scopes_supported_is_none(self):
         """offline_access is not added when AS scopes_supported is None."""
@@ -2836,22 +2835,49 @@ def test_advertised_scopes_take_precedence_over_the_configured_scope():
     assert scopes == "read"
 
 
-def test_empty_scopes_supported_falls_through_to_the_configured_scope():
-    """An empty scopes_supported list advertises nothing, so selection continues to the next source."""
+def test_empty_scopes_supported_falls_through_to_the_configured_scope_not_the_as_catalog():
+    """An empty PRM scopes_supported offers no guidance, so the configured scope is requested.
+
+    The authorization server's scopes_supported is its catalog rather than what the resource
+    needs, so it never supplies the requested scope and cannot widen the request beyond the
+    caller's configuration.
+    """
     prm = ProtectedResourceMetadata(
         resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
         authorization_servers=[AnyHttpUrl("https://auth.example.com")],
         scopes_supported=[],
     )
+    asm = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+        scopes_supported=["read", "write", "admin"],
+    )
 
     scopes = get_client_metadata_scopes(
         www_authenticate_scope=None,
         protected_resource_metadata=prm,
-        authorization_server_metadata=None,
+        authorization_server_metadata=asm,
         configured_scope="user",
     )
 
     assert scopes == "user"
+
+
+def test_provider_does_not_mutate_the_callers_client_metadata(mock_storage: MockTokenStorage):
+    """Scope selection is written to the provider's own copy of the metadata, never the caller's model.
+
+    Two providers built from one metadata object each snapshot the caller's configured scope,
+    so scopes discovered by the first cannot leak into the second's fallback tier.
+    """
+    metadata = OAuthClientMetadata(redirect_uris=[AnyUrl("http://localhost:3030/callback")], scope="user")
+
+    first = OAuthClientProvider(server_url="https://a.example.com/mcp", client_metadata=metadata, storage=mock_storage)
+    first.context.client_metadata.scope = "discovered read write"
+    second = OAuthClientProvider(server_url="https://b.example.com/mcp", client_metadata=metadata, storage=mock_storage)
+
+    assert metadata.scope == "user"
+    assert second.context.configured_scope == "user"
 
 
 def test_credentials_match_issuer_same_issuer():

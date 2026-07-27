@@ -20,7 +20,7 @@ from pydantic import AnyHttpUrl, AnyUrl
 from mcp import MCPError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, ProtectedResourceMetadata
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
@@ -33,6 +33,7 @@ from tests.interaction.auth._harness import (
     metadata_body,
     record_requests,
     shim,
+    shimmed_app,
     step_up_shim,
 )
 from tests.interaction.auth._provider import InMemoryAuthorizationServerProvider
@@ -403,14 +404,26 @@ async def test_client_credentials_provider_obtains_a_token_without_an_authorize_
 async def test_client_credentials_provider_requests_its_configured_scope_when_the_server_advertises_none() -> None:
     """With no scopes advertised, the provider's configured `scope` reaches the `/token` body.
 
-    The server publishes no `scopes_supported` (empty `required_scopes`), so the spec's
-    WWW-Authenticate/PRM chain yields nothing and the SDK falls back to the scope the caller
-    configured on the provider — an SDK-defined tier below the spec's chain (see the divergence
-    on the requirement).
+    Both metadata documents omit `scopes_supported` (absent, not empty - an empty list would
+    itself mean "request none"), so the spec's WWW-Authenticate/PRM chain yields nothing and
+    the SDK falls back to the scope the caller configured on the provider — an SDK-defined tier
+    below the spec's chain (see the divergence on the requirement).
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
     server = Server("guarded", on_list_tools=list_tools)
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[AnyHttpUrl(f"{BASE_URL}/")]
+    )
+    asm = OAuthMetadata(
+        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
+        token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
+        grant_types_supported=["client_credentials"],
+    )
+    assert prm.scopes_supported is None and asm.scopes_supported is None
+    serve = {PRM_PATH: metadata_body(prm), ASM_PATH: metadata_body(asm)}
 
     auth = ClientCredentialsOAuthProvider(
         server_url=f"{BASE_URL}/mcp",
@@ -424,9 +437,9 @@ async def test_client_credentials_provider_requests_its_configured_scope_when_th
         async with connect_with_oauth(
             server,
             provider=provider,
-            settings=auth_settings(required_scopes=[]),
+            settings=auth_settings(required_scopes=["ops"]),
             auth=auth,
-            app_shim=m2m_token_shim(provider, scopes=["ops"]),
+            app_shim=lambda app: shimmed_app(m2m_token_shim(provider, scopes=["ops"])(app), serve=serve),
             on_request=on_request,
         ) as (client, _):
             result = await client.list_tools()

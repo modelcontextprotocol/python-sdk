@@ -59,7 +59,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
                 Either "client_secret_basic" (default) or "client_secret_post".
             scope: Optional space-separated list of scopes to request. Used when the server
                 advertises no scopes; a scope from the `WWW-Authenticate` challenge or the
-                server's published `scopes_supported` takes precedence.
+                protected resource's `scopes_supported` takes precedence.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
@@ -275,7 +275,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
                 callback for workload identity federation.
             scope: Optional space-separated list of scopes to request. Used when the server
                 advertises no scopes; a scope from the `WWW-Authenticate` challenge or the
-                server's published `scopes_supported` takes precedence.
+                protected resource's `scopes_supported` takes precedence.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(

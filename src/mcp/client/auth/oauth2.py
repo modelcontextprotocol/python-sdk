@@ -272,7 +272,9 @@ class OAuthClientProvider(httpx2.Auth):
 
         self.context = OAuthContext(
             server_url=server_url,
-            client_metadata=client_metadata,
+            # The flow writes its selected scope into client_metadata, so work on a copy
+            # rather than mutating the caller's model out from under them.
+            client_metadata=client_metadata.model_copy(),
             storage=storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,

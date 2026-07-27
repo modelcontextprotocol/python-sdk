@@ -112,7 +112,7 @@ A nightly job, a CI step, another service. There is no browser and nobody to cli
 What changed:
 
 * No `OAuthClientMetadata`, no handlers. You pass `client_id` and `client_secret`; the provider builds a minimal `client_credentials` registration around them and skips dynamic registration entirely.
-* `scope` is a space-separated string, the OAuth wire format. It is the fallback: a scope the server names in its `WWW-Authenticate` challenge or publishes in `scopes_supported` takes precedence.
+* `scope` is a space-separated string, the OAuth wire format. It is the fallback: a scope the server names in its `WWW-Authenticate` challenge or its protected-resource `scopes_supported` takes precedence.
 * Everything downstream is identical: the same `TokenStorage`, the same `httpx2.AsyncClient(auth=...)`, the same `streamable_http_client`.
 
 By default the secret travels as HTTP Basic auth on the token request (`client_secret_basic`). Pass `token_endpoint_auth_method="client_secret_post"` to put it in the form body instead. Some authorization servers only accept one of the two.

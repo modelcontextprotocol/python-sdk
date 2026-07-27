@@ -1991,6 +1991,13 @@ ClientCredentialsOAuthProvider(..., scopes="read write")
 ClientCredentialsOAuthProvider(..., scope="read write")
 ```
 
+### Scope selection follows the spec's chain, with the configured scope as the fallback
+
+The client selects the scope to request from the `WWW-Authenticate` challenge, then the protected resource's `scopes_supported`, then the scope the caller configured on the provider (`ClientCredentialsOAuthProvider(scope=...)`, `PrivateKeyJWTOAuthProvider(scope=...)`, or `OAuthClientMetadata(scope=...)`), and otherwise omits it. Two v1 behaviours changed:
+
+* The configured scope is now requested when the server advertises no scopes. v1 silently dropped it and sent the token request scope-less. If a strict authorization server now answers `invalid_scope` for a configured scope it does not allowlist, drop or correct the `scope=` argument.
+* The authorization server's `scopes_supported` no longer supplies the requested scope. v1 fell back to that list, which is the server's whole catalog rather than what the resource needs, so a resource publishing an empty `scopes_supported` could trigger a request for every scope the authorization server supports. If you relied on it, configure the scope on the provider explicitly. The list is still consulted to decide whether `offline_access` may be added ([SEP-2207](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2207)).
+
 ### Client rejects authorization server metadata with a mismatched `issuer`
 
 During OAuth discovery, `OAuthClientProvider` now validates that the authorization server
