@@ -4,13 +4,13 @@ Two things happened at once in v2. The **SDK was rebuilt**: a new engine under b
 
 This page is the tour of both halves, one section per headline, each ending in the page that owns the topic. It is not the porting manual. That is the **[Migration Guide](migration.md)**: every breaking change, with before and after code.
 
-!!! note "v2 is a beta"
+!!! note "v2 is a release candidate"
     `pip install mcp` still installs v1.x: you opt into v2 with an exact version pin, and the
     API can still move before the stable release, which lands alongside the spec release.
     **[Installation](get-started/installation.md)** has the copy-paste install line and the
     pinning rules. And if anything in v2 breaks, surprises, or slows you down,
     [tell us](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml):
-    while v2 is in beta, that is the most useful thing you can send us.
+    before the stable release, that is the most useful thing you can send us.
 
 ## The SDK: v1 to v2
 
@@ -197,7 +197,7 @@ At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are repla
 
 ### The rest, quickly
 
-* **Identity is optional, per-message metadata.** The request-side `clientInfo` `_meta` key is optional (the required pair is `protocolVersion` + `clientCapabilities`), and `serverInfo` moved out of the `server/discover` result body: servers stamp it into every 2026-era result's `_meta` instead (since `2.0.0b3`; [spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). The SDK always stamps; `client.server_info` is `None` when a server does not identify itself (for example, a middleware stripped the key). **[The low-level Server](advanced/low-level-server.md)** shows the stamp on the wire.
+* **Identity is optional, per-message metadata.** The request-side `clientInfo` `_meta` key is optional (the required pair is `protocolVersion` + `clientCapabilities`), and `serverInfo` moved out of the `server/discover` result body: servers stamp it into every 2026-era result's `_meta` instead (since `2.0.0rc1`; [spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). The SDK always stamps; `client.server_info` is `None` when a server does not identify itself (for example, a middleware stripped the key). **[The low-level Server](advanced/low-level-server.md)** shows the stamp on the wire.
 * **Requests are routable without parsing bodies.** Modern HTTP requests carry `Mcp-Method` (and, for the three tool-ish calls, `Mcp-Name`); a tool input-schema property annotated with `x-mcp-header` is mirrored into an `Mcp-Param-*` header and cross-checked by the server ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways and rate limiters can route on headers alone; the **[Migration Guide](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** has the rules.
 * **Results carry cache hints.** List and read results declare `ttlMs` and `cacheScope` ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); you set them per method with `cache_hints=`, and `Client` honors them with a built-in response cache. A server that sends no hints (every pre-2026 server) sees identical, uncached traffic. **[Caching hints](client/caching.md)**.
 * **Extensions are first class.** Servers and clients declare optional capability bundles under reverse-DNS identifiers ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); the built-in `Apps` extension (MCP Apps) is the reference. **[Extensions](advanced/extensions.md)** and **[MCP Apps](advanced/apps.md)**.
