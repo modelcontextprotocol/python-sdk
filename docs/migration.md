@@ -721,6 +721,43 @@ When serving streamable HTTP (stateful or `stateless_http=True`), the server's `
 
 Lifespans that set up process-wide state (connection pools, caches, background tasks) are unaffected — they now run once instead of per session/request. If your lifespan was acquiring per-connection resources, move that acquisition into the handler body; per-connection cleanup belongs on the connection's `exit_stack` (a public way to reach it from high-level `@mcp.tool()` handlers is planned).
 
+### Streamable HTTP: `StreamableHTTPServerTransport` is driven per request, not per stream
+
+`StreamableHTTPServerTransport` no longer exposes a `connect()` context manager yielding a
+`(read_stream, write_stream)` pair for you to run a server loop over. Each HTTP request is now
+dispatched to the server's handlers directly: a request's outbound messages ride that request's
+own response stream (backed by the optional `EventStore` for `Last-Event-ID` resumability), the
+client's POSTed answers to server-initiated requests are correlated back by request id, and the
+standalone GET stream is a further per-connection channel. The transport is the per-session
+core; `StreamableHTTPSessionManager` binds one to the `Server` for each session (via the new
+keyword-only `app` / `lifespan_state` constructor arguments) and routes requests to it.
+
+Nothing changes if you serve through `streamable_http_app()` / `run(transport="streamable-http")`
+or mount `StreamableHTTPSessionManager` — the wire behaviour (session ids, GET stream, event
+store, `ctx.close_sse_stream()`, `related_request_id` routing) is unchanged. Only code that
+constructed a transport and consumed `transport.connect()` by hand needs to move to the session
+manager:
+
+```python
+# Before (v1)
+transport = StreamableHTTPServerTransport(mcp_session_id=session_id, ...)
+async with transport.connect() as (read_stream, write_stream):
+    await server.run(read_stream, write_stream, server.create_initialization_options())
+
+# After (v2): let the manager own transports (mount it or use streamable_http_app())
+session_manager = StreamableHTTPSessionManager(app=server, event_store=..., json_response=...)
+```
+
+Behaviour clarified in the same change:
+
+- In JSON-response mode a server-to-client request (sampling, elicitation) now raises
+  `NoBackChannelError` — a JSON response has no stream to carry the request, and previously the
+  call would hang waiting for an answer that could never be delivered.
+- Stateful streamable-HTTP handlers see `TransportContext(kind="streamable-http")` carrying the
+  request `headers`; the stream-pair path previously reported `kind="jsonrpc"` with no headers.
+- A GET carrying `Last-Event-ID` on a server without an `EventStore` opens the standalone stream
+  as a plain GET would, since there is nothing to replay.
+
 ### `MCPServer.get_context()` removed
 
 `MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.
