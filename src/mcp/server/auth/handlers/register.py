@@ -50,6 +50,18 @@ class RegistrationHandler:
         # If auth method is None, default to client_secret_post
         if client_metadata.token_endpoint_auth_method is None:
             client_metadata.token_endpoint_auth_method = "client_secret_post"
+        # This server authenticates token requests with the client secret it mints; it holds
+        # no client key to verify a private_key_jwt assertion, so confirming that method would
+        # register a client whose every token request is then rejected. Refuse it instead
+        # (RFC 7591 §3.2.2), before minting credentials the client could never use.
+        if client_metadata.token_endpoint_auth_method == "private_key_jwt":
+            return PydanticJSONResponse(
+                content=RegistrationErrorResponse(
+                    error="invalid_client_metadata",
+                    error_description="token_endpoint_auth_method 'private_key_jwt' is not supported",
+                ),
+                status_code=400,
+            )
 
         client_secret = None
         if client_metadata.token_endpoint_auth_method != "none":  # pragma: no branch
@@ -106,33 +118,27 @@ class RegistrationHandler:
             )
 
         client_id_issued_at = int(time.time())
-        client_secret_expires_at = (
-            client_id_issued_at + self.options.client_secret_expiry_seconds
-            if self.options.client_secret_expiry_seconds is not None
-            else None
-        )
+        # RFC 7591 §3.2.1: client_secret_expires_at is REQUIRED whenever a client_secret is
+        # issued, with 0 (not omission) meaning it never expires; a public client gets none.
+        client_secret_expires_at = None
+        if client_secret is not None:
+            client_secret_expires_at = (
+                client_id_issued_at + self.options.client_secret_expiry_seconds
+                if self.options.client_secret_expiry_seconds is not None
+                else 0
+            )
 
-        client_info = OAuthClientInformationFull(
-            client_id=client_id,
-            client_id_issued_at=client_id_issued_at,
-            client_secret=client_secret,
-            client_secret_expires_at=client_secret_expires_at,
-            # passthrough information from the client request
-            redirect_uris=client_metadata.redirect_uris,
-            token_endpoint_auth_method=client_metadata.token_endpoint_auth_method,
-            grant_types=client_metadata.grant_types,
-            response_types=client_metadata.response_types,
-            client_name=client_metadata.client_name,
-            client_uri=client_metadata.client_uri,
-            logo_uri=client_metadata.logo_uri,
-            scope=client_metadata.scope,
-            contacts=client_metadata.contacts,
-            tos_uri=client_metadata.tos_uri,
-            policy_uri=client_metadata.policy_uri,
-            jwks_uri=client_metadata.jwks_uri,
-            jwks=client_metadata.jwks,
-            software_id=client_metadata.software_id,
-            software_version=client_metadata.software_version,
+        # RFC 7591 §3.2.1: the response returns all registered metadata about the client, so
+        # the record is the whole validated request plus the credentials minted here - built
+        # from the request's dump so no metadata field can be silently omitted from the echo.
+        client_info = OAuthClientInformationFull.model_validate(
+            {
+                **client_metadata.model_dump(),
+                "client_id": client_id,
+                "client_id_issued_at": client_id_issued_at,
+                "client_secret": client_secret,
+                "client_secret_expires_at": client_secret_expires_at,
+            }
         )
         try:
             # Register client
