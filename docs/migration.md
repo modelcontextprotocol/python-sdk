@@ -203,10 +203,11 @@ package depends on `mcp-types` and continues to re-export the type names at the 
 `from mcp import Tool` is unchanged. The package's API reference is at
 [`mcp_types`](api/mcp_types/index.md).
 
-`import mcp.types` and `from mcp.types import ...` keep working: `mcp.types` is a permanent
-alias that mirrors `mcp_types` exactly (every name is the same object), so v1's most common
-import line needs no change if you already depend on `mcp`. Only `mcp.shared.version` was
-removed; import from `mcp_types.version` instead. Reading a name that no longer exists (listed
+`import mcp.types`, `from mcp.types import ...`, and `import mcp` followed by `mcp.types.Tool`
+all keep working: `mcp.types` is a permanent alias that mirrors `mcp_types` exactly (every
+name is the same object), so v1's import lines need no change if you already depend on `mcp`.
+The old `mcp.shared.version` module was removed; import from `mcp_types.version` instead.
+Reading a name that no longer exists (listed
 under [Removed type aliases and classes](#removed-type-aliases-and-classes)) as
 `mcp.types.Content` raises an `AttributeError` that names its replacement; a
 `from mcp.types import Content` of one raises a plain `ImportError` (Python discards the hint on

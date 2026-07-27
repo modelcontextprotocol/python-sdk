@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from typing import Any
 
 import mcp_types
@@ -484,3 +486,20 @@ def test_mcp_types_unknown_attribute_raises_attribute_error():
     with pytest.raises(AttributeError):
         getattr(mcp.types, "not_a_protocol_type")
     assert not hasattr(mcp.types, "not_a_protocol_type")
+
+
+def test_bare_import_mcp_binds_the_types_submodule():
+    """SDK-defined: `import mcp` alone binds `mcp.types`, so v1's `mcp.types.Tool` idiom works.
+
+    A fresh interpreter is required to observe `import mcp` in isolation: this test process
+    has already imported `mcp.types`, and reloading `mcp` here would rebind classes that other
+    tests hold references to.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", "import mcp; print(mcp.types.Tool.__name__)"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == snapshot("Tool\n")
