@@ -562,6 +562,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        mirror_structured_content: bool = True,
     ) -> None:
         """Add a tool to the server.
 
@@ -580,6 +581,10 @@ class MCPServer(Generic[LifespanResultT]):
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
+            mirror_structured_content: Whether structured output is also serialized into a
+                `content` text block alongside `structuredContent` (the spec's SHOULD,
+                default True). Set False to send `structuredContent` only, without the
+                duplicate serialized copy on the wire.
         """
         self._tool_manager.add_tool(
             fn,
@@ -590,6 +595,7 @@ class MCPServer(Generic[LifespanResultT]):
             icons=icons,
             meta=meta,
             structured_output=structured_output,
+            mirror_structured_content=mirror_structured_content,
         )
 
     def remove_tool(self, name: str) -> None:
@@ -612,6 +618,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        mirror_structured_content: bool = True,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a tool.
 
@@ -630,6 +637,10 @@ class MCPServer(Generic[LifespanResultT]):
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
+            mirror_structured_content: Whether structured output is also serialized into a
+                `content` text block alongside `structuredContent` (the spec's SHOULD,
+                default True). Set False to send `structuredContent` only, without the
+                duplicate serialized copy on the wire.
 
         Example:
             ```python
@@ -668,6 +679,7 @@ class MCPServer(Generic[LifespanResultT]):
                 icons=icons,
                 meta=meta,
                 structured_output=structured_output,
+                mirror_structured_content=mirror_structured_content,
             )
             return fn
 

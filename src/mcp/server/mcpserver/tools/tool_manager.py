@@ -46,6 +46,7 @@ class ToolManager:
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        mirror_structured_content: bool = True,
     ) -> Tool:
         """Add a tool to the server."""
         tool = Tool.from_function(
@@ -57,6 +58,7 @@ class ToolManager:
             icons=icons,
             meta=meta,
             structured_output=structured_output,
+            mirror_structured_content=mirror_structured_content,
         )
         existing = self._tools.get(tool.name)
         if existing:
