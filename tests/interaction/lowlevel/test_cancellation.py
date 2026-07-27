@@ -117,6 +117,8 @@ async def test_no_notifications_for_a_request_arrive_after_its_cancellation(conn
     async def collect(progress: float, total: float | None, message: str | None) -> None:
         progress_updates.append((progress, total, message))
 
+    outcomes: list[object] = []
+
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "block"
         assert ctx.request_id is not None
@@ -141,23 +143,28 @@ async def test_no_notifications_for_a_request_arrive_after_its_cancellation(conn
 
     async with connect(server) as client:
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as task_group:
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
 
-                async def call_and_swallow_cancellation_error() -> None:
-                    with pytest.raises(MCPError):
-                        await client.call_tool("block", {}, progress_callback=collect)
+                async def await_doomed_call() -> None:
+                    try:
+                        outcomes.append(await client.call_tool("block", {}, progress_callback=collect))
+                    except MCPError as exc:
+                        outcomes.append(exc.error)
 
-                task_group.start_soon(call_and_swallow_cancellation_error)
+                task_group.start_soon(await_doomed_call)
                 await started.wait()
                 await client.session.send_notification(
                     types.CancelledNotification(
                         params=types.CancelledNotificationParams(request_id=request_ids[0], reason="user aborted")
                     )
                 )
+                await handler_cancelled.wait()
+                # Let anything the server was going to send be delivered before checking.
+                await anyio.wait_all_tasks_blocked()
+                assert outcomes in ([], [_LEGACY_HTTP_TERMINATOR])
+                task_group.cancel_scope.cancel()  # abandon the call if it is still parked
 
-            await handler_cancelled.wait()
-
-    # Progress shares the ordered stream with the error response: a sent "too late" would already be here.
+    # The "too late" send was itself cancelled before it could be written, so it never reached the wire.
     assert progress_updates == [(1.0, 2.0, "started")]
     assert attempted == ["send-cancelled"]
 
