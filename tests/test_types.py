@@ -521,11 +521,14 @@ def test_bare_import_mcp_binds_the_types_submodule():
     has already imported `mcp.types`, and reloading `mcp` here would rebind classes that other
     tests hold references to.
     """
+    # A regression hangs forever, so the bound only has to beat never (matches the suite's
+    # other subprocess.run calls).
     result = subprocess.run(
         [sys.executable, "-c", "import mcp; print(mcp.types.Tool.__name__)"],
         capture_output=True,
         text=True,
         check=False,
+        timeout=20,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == snapshot("Tool\n")
