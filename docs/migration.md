@@ -12,7 +12,7 @@ Every section heading below names the API it affects, so searching this page for
 
 | Change | First symptom | Section |
 |---|---|---|
-| `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
+| `FastMCP` renamed to `MCPServer` | `MCPDeprecationWarning: mcp.server.fastmcp is deprecated`, or `ModuleNotFoundError` for its submodules | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
 | Fields renamed from camelCase to snake_case | `AttributeError: 'Tool' object has no attribute 'inputSchema'` | [snake_case fields](#field-names-changed-from-camelcase-to-snake_case) |
 | `mcp.types` moved to the `mcp-types` package | `ModuleNotFoundError: No module named 'mcp.types'` | [`mcp.types` moved](#mcptypes-moved-to-the-mcp-types-package) |
 | `McpError` renamed to `MCPError` | `ImportError: cannot import name 'McpError' from 'mcp'` | [`McpError` renamed](#mcperror-renamed-to-mcperror) |
@@ -552,6 +552,8 @@ mcp = MCPServer("Demo")
 
 `Context` is the type annotation for the `ctx` parameter injected into tools, resources, and prompts (see [`get_context()` removed](#mcpserverget_context-removed) below). The `ctx.fastmcp` property is now `ctx.mcp_server`.
 
+The old import path is not gone entirely: `from mcp.server.fastmcp import FastMCP` (and `Context`, `Image`, `Audio`, `Icon` — the names v1 exported there) still resolves, to the v2 objects, and emits an `MCPDeprecationWarning` at import. That is a bridge, not a compatibility layer: `FastMCP` is `MCPServer` under its old name, with every v2 change on this page in effect, and the warning names the ones that don't announce themselves. The path is removed in v3. Nothing beneath it is shimmed, so `mcp.server.fastmcp.server`, `mcp.server.fastmcp.prompts.base`, and the rest raise `ModuleNotFoundError`.
+
 All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.*` with the same structure. Common imports:
 
 - `Image`, `Audio` — from `mcp.server.mcpserver` (or `.utilities.types`)
@@ -581,11 +583,13 @@ mcp = MCPServer()  # serverInfo.name == "mcp-server"
 
 If test suites assert on the initialize result, or anything keys configuration or allow-lists off `serverInfo.name`, pass a name explicitly: `MCPServer("FastMCP")` preserves the old value, though a real name for your server is better.
 
-### `MCPServer` constructor: `title`, `description`, and `version` added to the positional parameters
+### `MCPServer` constructor: parameters after `name` are now keyword-only
 
-The constructor's positional parameter order changed. v2 inserts `title` and `description` before `instructions`, and `version` after `icons`, so the order is now `name`, `title`, `description`, `instructions`, `website_url`, `icons`, `version`. In v1 the order was `name`, `instructions`, `website_url`, `icons`.
+As with the [lowlevel `Server`](#lowlevel-server-constructor-parameters-are-now-keyword-only), only `name` is positional. `title` and `description` were added to the constructor and `version` moved off the installed package (see below), which reshuffled the parameter order relative to v1's `name`, `instructions`, `website_url`, `icons`. Rather than let a v1 call that passed `instructions` positionally quietly land its text in `title`, v2 makes every parameter after `name` keyword-only, so that call raises instead:
 
-A v1 call that passed `instructions` positionally still runs without error on v2, because both slots are `str | None`. The text silently lands in `title` instead: the server sends it as `serverInfo.title` and stops sending `instructions` in the initialize result, which clients feed to the model.
+```text
+TypeError: MCPServer.__init__() takes from 1 to 2 positional arguments but 3 were given
+```
 
 **Before (v1):**
 
@@ -603,8 +607,6 @@ from mcp.server.mcpserver import MCPServer
 
 mcp = MCPServer("Demo", instructions="You answer questions about the weather.")
 ```
-
-Keep `name` positional and pass everything else by keyword.
 
 ### Unversioned servers report an empty version
 

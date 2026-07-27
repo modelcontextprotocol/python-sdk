@@ -148,6 +148,7 @@ class MCPServer(Generic[LifespanResultT]):
     def __init__(
         self,
         name: str | None = None,
+        *,
         title: str | None = None,
         description: str | None = None,
         instructions: str | None = None,
@@ -156,7 +157,6 @@ class MCPServer(Generic[LifespanResultT]):
         version: str = "",
         auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
-        *,
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
         extensions: Sequence[Extension] | None = None,

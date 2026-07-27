@@ -30,6 +30,10 @@ API_DIR = ROOT / "docs" / "api"
 # it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 PACKAGES = (ROOT / "src" / "mcp", ROOT / "src" / "mcp-types" / "mcp_types")
 
+# Deprecated import shims that warn on import and only re-export names whose
+# canonical documentation lives elsewhere. They get no API page of their own.
+DEPRECATED_MODULES = frozenset({"mcp.server.fastmcp"})
+
 _KIND_SECTIONS = {
     griffe.Kind.MODULE: "Modules",
     griffe.Kind.CLASS: "Classes",
@@ -185,6 +189,8 @@ def generate() -> list[NavItem]:
                 continue
 
             ident = ".".join(parts)
+            if ident in DEPRECATED_MODULES:
+                continue
             documented.add(ident)
             stubs[API_DIR / doc_path] = _stub(parts[-1], f"::: {ident}")
             pages[ident] = API_DIR / doc_path
