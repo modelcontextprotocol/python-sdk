@@ -196,31 +196,39 @@ nothing on PyPI to pin to, keep the unpinned form.
 
 ### `mcp.types` moved to the `mcp-types` package
 
-The protocol wire types now live in a standalone distribution, `mcp-types`, imported as
-`mcp_types`. Its only runtime dependencies are `pydantic` and `typing-extensions`, so code
-that just needs to (de)serialize MCP traffic can install it without the full SDK. The `mcp`
-package depends on `mcp-types` and continues to re-export the type names at the top level, so
-`from mcp import Tool` is unchanged. The package's API reference is at
-[`mcp_types`](api/mcp_types/index.md).
+The protocol wire types now live in a standalone distribution, `mcp-types` (import package
+`mcp_types`). Its only runtime dependencies are `pydantic` and `typing-extensions`, so code
+that just needs to (de)serialize MCP traffic can install it without the full SDK. Its API
+reference is at [`mcp_types`](api/mcp_types/index.md).
 
-`import mcp.types`, `from mcp.types import ...`, and `import mcp` followed by `mcp.types.Tool`
-all keep working: `mcp.types` is a permanent alias that mirrors `mcp_types` exactly (every
-name is the same object), so v1's import lines need no change if you already depend on `mcp`.
-The old `mcp.shared.version` module was removed; import from `mcp_types.version` instead.
-Reading a name that no longer exists (listed
-under [Removed type aliases and classes](#removed-type-aliases-and-classes)) as
+**If your project depends on `mcp`, nothing changes for you.** `import mcp.types`,
+`from mcp.types import ...`, `from mcp import types`, and `import mcp` followed by
+`mcp.types.Tool` all keep working: `mcp.types` is a permanent alias that mirrors `mcp_types`
+exactly (every name is the same object), and `mcp.types.version` mirrors
+`mcp_types.version` the same way. Keep importing through `mcp` — the package you actually
+depend on — rather than writing `import mcp_types`, which would reach past your declared
+dependency into a transitive one. The old `mcp.shared.version` module was removed; import the
+version registry from `mcp.types.version` instead. The top-level `from mcp import Tool`
+re-exports are unchanged too.
+
+**Import `mcp_types` directly only in a project that depends on `mcp-types` without the
+SDK.** That is the point of the split: tooling and lightweight clients can depend on the
+protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the rest of the
+server/transport stack.
+
+Reading a name that no longer exists (listed under
+[Removed type aliases and classes](#removed-type-aliases-and-classes)) as
 `mcp.types.Content` raises an `AttributeError` that names its replacement; a
 `from mcp.types import Content` of one raises a plain `ImportError` (Python discards the hint on
 that path, but it still fails fast).
 
-The supported import surface is `mcp_types`, `mcp_types.jsonrpc`, `mcp_types.methods`, and
-`mcp_types.version`. Underscore-prefixed submodules (`mcp_types._types`, and the generated
+The supported import surface is the package plus its `jsonrpc`, `methods`, and `version`
+submodules, and each has both spellings: `mcp.types` / `mcp_types`, `mcp.types.jsonrpc` /
+`mcp_types.jsonrpc`, `mcp.types.methods` / `mcp_types.methods`, and `mcp.types.version` /
+`mcp_types.version` (each `mcp.types` module mirrors its `mcp_types` counterpart, name for
+name, the same objects). Underscore-prefixed submodules (`mcp_types._types`, and the generated
 per-protocol-version packages `mcp_types._v2025_11_25` / `mcp_types._v2026_07_28`) are internal
-validators with unstable class names; don't import from them.
-
-**Why:** keeping the wire types in their own package lets tooling and lightweight clients
-depend on the protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the
-rest of the server/transport stack.
+validators with unstable class names; don't import from them, under either spelling.
 
 **Before (v1):**
 
@@ -229,21 +237,23 @@ from mcp.types import Tool, Resource
 from mcp.shared.version import LATEST_PROTOCOL_VERSION
 ```
 
-**After (v2):**
+**After (v2), depending on `mcp`:**
 
 ```python
-# Unchanged if you depend on the SDK:
-from mcp.types import Tool, Resource
-from mcp import Tool, Resource
+from mcp.types import Tool, Resource  # unchanged
+from mcp.types.version import LATEST_PROTOCOL_VERSION
+```
 
-# Or the standalone package, which installs without the SDK's transport stack:
+**After (v2), depending only on `mcp-types` (no SDK):**
+
+```python
 from mcp_types import Tool, Resource
 from mcp_types.version import LATEST_PROTOCOL_VERSION
 ```
 
 ### Removed type aliases and classes
 
-The following type aliases and classes have been removed from `mcp_types`:
+The following type aliases and classes have been removed from the protocol types (`mcp.types` / `mcp_types`):
 
 | Removed | Replacement |
 |---------|-------------|
@@ -266,13 +276,13 @@ from mcp.types import Content, ResourceReference, Cursor
 **After (v2):**
 
 ```python
-from mcp_types import ContentBlock, ResourceTemplateReference
+from mcp.types import ContentBlock, ResourceTemplateReference
 # Use `str` instead of `Cursor` for pagination cursors
 ```
 
 ### Field names changed from camelCase to snake_case
 
-All Pydantic model fields in `mcp_types` now use snake_case names for Python attribute access. The JSON wire format is unchanged — traffic the SDK sends still uses camelCase via Pydantic aliases, but your own `model_dump()` calls now need `by_alias=True` to produce it.
+All Pydantic model fields in the protocol types now use snake_case names for Python attribute access. The JSON wire format is unchanged — traffic the SDK sends still uses camelCase via Pydantic aliases, but your own `model_dump()` calls now need `by_alias=True` to produce it.
 
 **Before (v1):**
 
@@ -332,7 +342,7 @@ In v1, MCP protocol types were configured with `extra="allow"`: unknown fields p
 In v2, MCP types silently ignore extra fields. Unknown constructor keyword arguments and unknown keys in wire data are dropped during validation — no error is raised, and the values do not round-trip:
 
 ```python
-from mcp_types import CallToolRequestParams
+from mcp.types import CallToolRequestParams
 
 params = CallToolRequestParams(
     name="my_tool",
@@ -368,7 +378,7 @@ resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validatio
 **After (v2):**
 
 ```python
-from mcp_types import Resource
+from mcp.types import Resource
 
 # Plain strings accepted
 resource = Resource(name="test", uri="users/me")  # Works
@@ -438,7 +448,7 @@ actual_notification = notification.root
 **After (v2):**
 
 ```python
-from mcp_types import client_request_adapter, server_notification_adapter
+from mcp.types import client_request_adapter, server_notification_adapter
 
 # Using TypeAdapter.validate_python()
 request = client_request_adapter.validate_python(data)
@@ -481,7 +491,7 @@ await session.send_notification(
 | `ServerResult` | `server_result_adapter` |
 | `JSONRPCMessage` | `jsonrpc_message_adapter` |
 
-All adapters are exported from `mcp_types`.
+All adapters are exported from `mcp.types`.
 
 These are ordinary `X | Y` unions of the concrete pydantic classes, so `isinstance(msg, ServerNotification)`, `isinstance(msg, LoggingMessageNotification)`, and `match`/`case` on the member classes keep working (unlike `ElicitationResult`, which became a `TypeAliasType` — see [`isinstance()` checks against `ElicitationResult` raise `TypeError`](#isinstance-checks-against-elicitationresult-raise-typeerror)).
 
@@ -537,7 +547,7 @@ attribute access. The JSON wire format is unchanged.
 
 ### `SUPPORTED_PROTOCOL_VERSIONS` deprecated; `LATEST_PROTOCOL_VERSION` changed meaning
 
-`SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`. Named scalars derived from these tuples are now exported alongside them — `LATEST_HANDSHAKE_VERSION`, `LATEST_MODERN_VERSION`, `OLDEST_SUPPORTED_VERSION` — so prefer those over indexing the tuples directly. All of these live in `mcp_types.version` (previously `mcp.shared.version`): `from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS`.
+`SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`. Named scalars derived from these tuples are now exported alongside them — `LATEST_HANDSHAKE_VERSION`, `LATEST_MODERN_VERSION`, `OLDEST_SUPPORTED_VERSION` — so prefer those over indexing the tuples directly. All of these live in `mcp.types.version` (an alias of `mcp_types.version`; previously `mcp.shared.version`): `from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS`.
 
 `LATEST_PROTOCOL_VERSION` also changed value and meaning. In v1 it was `"2025-11-25"`, the version the client offered during initialization. In v2 it is the newest revision the SDK speaks in any era, currently `"2026-07-28"`, which the initialize handshake cannot negotiate. If you offered it in a hand-built `initialize` request or compared the negotiated version against it, use `LATEST_HANDSHAKE_VERSION` instead. These tuples really are tuples now (`SUPPORTED_PROTOCOL_VERSIONS` was a `list` in v1), so list-only operations such as concatenating with a list raise `TypeError`.
 
@@ -588,7 +598,7 @@ raise McpError(ErrorData(code=INVALID_REQUEST, message="bad input"))
 
 ```python
 from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_REQUEST
+from mcp.types import INVALID_REQUEST
 
 raise MCPError(INVALID_REQUEST, "bad input")
 # or, if you already have an ErrorData:
@@ -613,7 +623,7 @@ JSONRPCMessage.model_validate(
 **After (v2):**
 
 ```python
-from mcp_types import PARSE_ERROR, ErrorData, JSONRPCError, jsonrpc_message_adapter
+from mcp.types import PARSE_ERROR, ErrorData, JSONRPCError, jsonrpc_message_adapter
 
 message = jsonrpc_message_adapter.validate_python(
     {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
@@ -653,7 +663,7 @@ mcp = MCPServer("Demo")
 All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.*` with the same structure. Common imports:
 
 - `Image`, `Audio` — from `mcp.server.mcpserver` (or `.utilities.types`)
-- `Icon` — from `mcp.server.mcpserver` or `mcp_types` (not a top-level `mcp` export); its `mimeType` field is now `mime_type` per the [snake_case renames](#field-names-changed-from-camelcase-to-snake_case), though the `mimeType=` kwarg still constructs
+- `Icon` — from `mcp.server.mcpserver` or `mcp.types` (not a top-level `mcp` export); its `mimeType` field is now `mime_type` per the [snake_case renames](#field-names-changed-from-camelcase-to-snake_case), though the `mimeType=` kwarg still constructs
 - `Message`, `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver.prompts.base`
 - `ToolError`, `ResourceError` — from `mcp.server.mcpserver.exceptions`
 - `MCPServerError` (renamed from `FastMCPError`) — from `mcp.server.mcpserver.exceptions`
@@ -856,7 +866,7 @@ Lifespans that set up process-wide state (connection pools, caches, background t
 
 Beyond the constructor parameters that moved to `run()`/`streamable_http_app()` and the lifespan change above, the server-side Streamable HTTP machinery is as in v1:
 
-- `mcp.server.streamable_http` still exports the `EventStore` ABC (`store_event()`, `replay_events_after()`), `EventMessage`, `EventCallback`, `EventId`, and `StreamId` with unchanged signatures; a custom `EventStore` only needs `JSONRPCMessage` imported from `mcp_types` instead of `mcp.types`.
+- `mcp.server.streamable_http` still exports the `EventStore` ABC (`store_event()`, `replay_events_after()`), `EventMessage`, `EventCallback`, `EventId`, and `StreamId` with unchanged signatures; a custom `EventStore` keeps importing `JSONRPCMessage` from `mcp.types`, unchanged.
 - `StreamableHTTPSessionManager` keeps its constructor and its `run()` / `handle_request()` methods (see [Lowlevel `Server`: what did not change](#lowlevel-server-what-did-not-change)); its `stateless=` parameter is unrelated to the removed [`Server.run(stateless=)` flag](#serverrun-no-longer-takes-a-stateless-flag).
 - `mcp.session_manager` still returns the manager once `streamable_http_app()` has been called, with the same `stateless`, `json_response`, `event_store`, and `retry_interval` attributes.
 - `stateless_http=True` still serves each request with a fresh transport, no `Mcp-Session-Id`, and no state carried between requests; `ctx.close_sse_stream()` and `ctx.close_standalone_sse_stream()` are still available on the handler `Context`.
@@ -1217,7 +1227,7 @@ if isinstance(result, AcceptedElicitation):
     ...  # result.data is a Confirm
 ```
 
-Narrowing on `result.action` (`"accept"` / `"decline"` / `"cancel"`) is unaffected. The `TypeError` is specific to `TypeAliasType` aliases like `ElicitationResult`; the `mcp_types` message unions (`ClientRequest`, `ServerNotification`, `JSONRPCMessage`, ...) are ordinary unions and stay `isinstance`-compatible (see [Replace `RootModel` by union types with `TypeAdapter` validation](#replace-rootmodel-by-union-types-with-typeadapter-validation)).
+Narrowing on `result.action` (`"accept"` / `"decline"` / `"cancel"`) is unaffected. The `TypeError` is specific to `TypeAliasType` aliases like `ElicitationResult`; the `mcp.types` message unions (`ClientRequest`, `ServerNotification`, `JSONRPCMessage`, ...) are ordinary unions and stay `isinstance`-compatible (see [Replace `RootModel` by union types with `TypeAdapter` validation](#replace-rootmodel-by-union-types-with-typeadapter-validation)).
 
 ### Registering lowlevel handlers from `MCPServer`
 
@@ -1239,7 +1249,7 @@ In v2, the lowlevel `Server` supports arbitrary request handlers directly via `a
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp_types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
+from mcp.types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
 
 
 async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
@@ -1308,7 +1318,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp_types import (
+from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -1357,13 +1367,13 @@ All handlers receive `ctx: ServerRequestContext` as the first argument. The seco
 | `@server.progress_notification()` | `on_progress` | `ProgressNotificationParams` | `None` |
 | — | `on_roots_list_changed` | `NotificationParams \| None` | `None` |
 
-All `params` and return types are importable from `mcp_types`.
+All `params` and return types are importable from `mcp.types`.
 
 **Notification handlers:**
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp_types import ProgressNotificationParams
+from mcp.types import ProgressNotificationParams
 
 
 async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
@@ -1486,7 +1496,7 @@ async def call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import Server
-from mcp_types import CallToolResult, TextContent
+from mcp.types import CallToolResult, TextContent
 
 
 async def handle_call_tool(ctx, params) -> CallToolResult:
@@ -1630,7 +1640,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp_types import CallToolRequestParams, CallToolResult, TextContent
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -1825,7 +1835,7 @@ result = await session.list_tools(cursor="next_page_token")
 **After (v2):**
 
 ```python
-from mcp_types import PaginatedRequestParams
+from mcp.types import PaginatedRequestParams
 
 result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
@@ -1913,7 +1923,7 @@ To migrate, replace `timedelta(...)` with plain seconds, or mechanically append 
 
 ### Client request timeouts now raise `-32001` (`REQUEST_TIMEOUT`) instead of `408`
 
-A client request that exceeds `read_timeout_seconds` still raises the SDK's protocol error (`MCPError`, previously `McpError`), but the error code changed from the HTTP status `408` (`httpx.codes.REQUEST_TIMEOUT`) to the JSON-RPC code `-32001` (`REQUEST_TIMEOUT`, importable from `mcp_types`), matching the TypeScript SDK. The message changed too: v1 said `"Timed out while waiting for response to ClientRequest. Waited 5.0 seconds."`, v2 says `"Request 'tools/call' timed out"`. `MCPError.error` still exists, so a migrated `e.error.code == 408` check runs without error and silently never matches; timeouts fall through to whatever generic-error handling follows. Code that matched on the old message text breaks too. Compare against `REQUEST_TIMEOUT` instead.
+A client request that exceeds `read_timeout_seconds` still raises the SDK's protocol error (`MCPError`, previously `McpError`), but the error code changed from the HTTP status `408` (`httpx.codes.REQUEST_TIMEOUT`) to the JSON-RPC code `-32001` (`REQUEST_TIMEOUT`, importable from `mcp.types`), matching the TypeScript SDK. The message changed too: v1 said `"Timed out while waiting for response to ClientRequest. Waited 5.0 seconds."`, v2 says `"Request 'tools/call' timed out"`. `MCPError.error` still exists, so a migrated `e.error.code == 408` check runs without error and silently never matches; timeouts fall through to whatever generic-error handling follows. Code that matched on the old message text breaks too. Compare against `REQUEST_TIMEOUT` instead.
 
 **Before (v1):**
 
@@ -1934,7 +1944,7 @@ except McpError as e:
 
 ```python
 from mcp.shared.exceptions import MCPError
-from mcp_types import REQUEST_TIMEOUT  # -32001
+from mcp.types import REQUEST_TIMEOUT  # -32001
 
 try:
     result = await client.call_tool("slow_tool", {})
@@ -1945,7 +1955,7 @@ except MCPError as e:
         raise
 ```
 
-`e.error.code` also still works; `e.code` is the v2 convenience property. The constant is importable from `mcp_types` or, equivalently, `mcp.types`. The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
+`e.error.code` also still works; `e.code` is the v2 convenience property. The constant is importable from `mcp.types` or, equivalently, `mcp.types`. The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
 
 ### `ClientSession` now runs on `JSONRPCDispatcher`; `BaseSession` removed
 
@@ -1963,7 +1973,7 @@ Behavior changes:
 - **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the `mcp.shared.context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession, Any]` become `ClientRequestContext` (details in [`RequestContext` type parameters simplified](#requestcontext-type-parameters-simplified)). Otherwise the callback surface is unchanged: the `sampling_callback=`, `elicitation_callback=`, `list_roots_callback=`, `logging_callback=`, and `message_handler=` keywords; the `SamplingFnT`, `ElicitationFnT`, `ListRootsFnT`, `LoggingFnT`, and `MessageHandlerFnT` protocols (still in `mcp.client.session`); and the params/result types (`CreateMessageRequestParams` → `CreateMessageResult | CreateMessageResultWithTools | ErrorData`, `ElicitRequestParams` → `ElicitResult | ErrorData`, `ListRootsResult | ErrorData` — returning `ErrorData` is not new). The `mcp.client.session`, `mcp.client.stdio`, `mcp.client.sse`, and `mcp.client.streamable_http` module paths are unchanged too, so `unittest.mock.patch` string targets still resolve.
 - **`message_handler` no longer receives requests.** Server-initiated requests are answered by the typed callbacks (`sampling_callback`, `elicitation_callback`, `list_roots_callback`), so the handler's parameter is now `IncomingMessage = ServerNotification | Exception`, exported from `mcp.client`. Replace the hand-written v1 union `RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception` with `IncomingMessage`; `RequestResponder` is gone (below), so the old annotation no longer imports. Delivered notifications are the concrete member instances rather than the v1 `RootModel` wrapper, so drop `.root` (`message.params`, not `message.root.params`); see [Replace `RootModel` by union types with `TypeAdapter` validation](#replace-rootmodel-by-union-types-with-typeadapter-validation).
 
-The `mcp.shared.session` module is gone. `RequestResponder` is removed — `respond()`, the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) and `BaseSession._in_flight` have no replacement; inbound cancellation is handled by `JSONRPCDispatcher`. `ProgressFnT` now lives only in `mcp.shared.dispatcher`, and `RequestId` in `mcp_types`. The module's generic typing helpers (`SendRequestT`, `SendResultT`, `SendNotificationT`, `ReceiveRequestT`, `ReceiveResultT`, `ReceiveNotificationT`) went with it and have no re-export — the sessions are no longer generic; `ClientSession.send_request` takes a concrete request model plus a result model class (or `pydantic.TypeAdapter`), so an override that needs a type parameter can declare its own `TypeVar` bound to `pydantic.BaseModel`.
+The `mcp.shared.session` module is gone. `RequestResponder` is removed — `respond()`, the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) and `BaseSession._in_flight` have no replacement; inbound cancellation is handled by `JSONRPCDispatcher`. `ProgressFnT` now lives only in `mcp.shared.dispatcher`, and `RequestId` in `mcp.types`. The module's generic typing helpers (`SendRequestT`, `SendResultT`, `SendNotificationT`, `ReceiveRequestT`, `ReceiveResultT`, `ReceiveNotificationT`) went with it and have no re-export — the sessions are no longer generic; `ClientSession.send_request` takes a concrete request model plus a result model class (or `pydantic.TypeAdapter`), so an override that needs a type parameter can declare its own `TypeVar` bound to `pydantic.BaseModel`.
 
 Subclassing `ClientSession` remains a valid interception point: every typed helper routes through `send_request`, and the notification helpers through `send_notification`, so overriding those two still sees that traffic (the 2026-era `discover()`/`send_discover()` are the exception — they call the dispatcher directly). For wire-level interception, use the `dispatcher=` argument instead (with the caveat above on hand-written dispatchers).
 
@@ -1981,7 +1991,7 @@ async def elicitation_callback(
 
 ```python
 from mcp.client import ClientRequestContext
-from mcp_types import ElicitRequestParams, ElicitResult, ErrorData
+from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
 
 
 async def elicitation_callback(
@@ -1991,7 +2001,7 @@ async def elicitation_callback(
 
 ### Experimental Tasks support removed
 
-Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions, except the `TaskExecutionMode` alias, whose literal is now inlined on `ToolExecution.task_support`.
+Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp.types` as types-only definitions, except the `TaskExecutionMode` alias, whose literal is now inlined on `ToolExecution.task_support`.
 
 The 2026-07-28 revision reintroduces Tasks as an official extension: [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), `io.modelcontextprotocol/tasks`, redesigned around polling (`tasks/get`) instead of a blocking `tasks/result`. This SDK does not implement the extension yet.
 
@@ -2037,7 +2047,7 @@ result = await client.call_tool("long_running_task", {}, progress_callback=on_pr
 
 **Detached work** (create the task now, fetch its result on a later connection or after a client restart) has no v2 equivalent until the SEP-2663 extension is implemented.
 
-Also drop `execution=ToolExecution(taskSupport=types.TASK_REQUIRED)` from tool definitions: the `TASK_REQUIRED` / `TASK_OPTIONAL` / `TASK_FORBIDDEN` constants are gone from `mcp_types` (`ToolExecution.task_support` takes the plain `"required"` / `"optional"` / `"forbidden"` literal), and no v2 client or server reads the field.
+Also drop `execution=ToolExecution(taskSupport=types.TASK_REQUIRED)` from tool definitions: the `TASK_REQUIRED` / `TASK_OPTIONAL` / `TASK_FORBIDDEN` constants are gone from `mcp.types` (`ToolExecution.task_support` takes the plain `"required"` / `"optional"` / `"forbidden"` literal), and no v2 client or server reads the field.
 
 ## Transports
 
@@ -2199,7 +2209,7 @@ while True:
 ```python
 from mcp import ClientSession, MCPError
 from mcp.client.streamable_http import streamable_http_client
-from mcp_types import INVALID_REQUEST  # -32600
+from mcp.types import INVALID_REQUEST  # -32600
 
 async with streamable_http_client(url) as (read, write):
     async with ClientSession(read, write) as session:
@@ -2638,7 +2648,7 @@ Validation runs when the result is serialized onto the wire, not when the model 
 
 ### Client validates inbound traffic against the protocol schema
 
-`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp_types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
+`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
 
 ### Unknown request methods now return `-32601` (Method not found)
 

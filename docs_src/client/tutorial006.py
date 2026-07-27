@@ -1,7 +1,6 @@
-from mcp_types import Completion, CompletionArgument, CompletionContext, PromptReference, ResourceTemplateReference
-
 from mcp import Client
 from mcp.server import MCPServer
+from mcp.types import Completion, CompletionArgument, CompletionContext, PromptReference, ResourceTemplateReference
 
 mcp = MCPServer("Bookshop")
 

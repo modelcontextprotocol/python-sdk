@@ -7,6 +7,9 @@ same object), so SDK users can keep the familiar v1 spelling:
 
     types.TextContent(type="text", text="hi")
 
+The protocol-version registry lives in the `mcp.types.version` submodule,
+mirroring `mcp_types.version` the same way.
+
 Depend on and import `mcp_types` directly instead when you only need to
 (de)serialize MCP traffic and don't want the SDK's transport stack: its only
 runtime dependencies are `pydantic` and `typing-extensions`.

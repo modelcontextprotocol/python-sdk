@@ -1,7 +1,6 @@
-from mcp_types import TextResourceContents
-
 from mcp import Client
 from mcp.client.subscriptions import ResourceUpdated, ToolsListChanged
+from mcp.types import TextResourceContents
 
 BOARD = "board://sprint"
 

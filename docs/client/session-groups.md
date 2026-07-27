@@ -42,7 +42,7 @@ Create a `ClientSessionGroup` and call **`connect_to_server`** once per server:
 
 You fix this at the group, not at the servers. Pass a function of `(name, server_info)` and the group runs it on every name it registers:
 
-```python title="client.py" hl_lines="8-9 16"
+```python title="client.py" hl_lines="7-8 15"
 --8<-- "docs_src/session_groups/tutorial004.py"
 ```
 

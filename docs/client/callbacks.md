@@ -19,7 +19,7 @@ That is the server half, and the **[Elicitation](../handlers/elicitation.md)** p
 
 ## The elicitation callback
 
-```python title="client.py" hl_lines="7-11 17-18"
+```python title="client.py" hl_lines="6-10 16-17"
 --8<-- "docs_src/client_callbacks/tutorial002.py"
 ```
 

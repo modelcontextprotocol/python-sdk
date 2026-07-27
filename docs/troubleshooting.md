@@ -291,7 +291,7 @@ async def main() -> None:
 !!! info
     `-32021` is `MISSING_REQUIRED_CLIENT_CAPABILITY`, one of three error codes the 2026-07-28
     spec adds. None of them is an exception class: they all arrive as `MCPError`, and
-    `e.error.code` is where to look. `mcp_types` exports the constants. The other two are
+    `e.error.code` is where to look. `mcp.types` exports the constants. The other two are
     `-32020` `HEADER_MISMATCH` (an HTTP header disagrees with the request body it accompanies)
     and `-32022` `UNSUPPORTED_PROTOCOL_VERSION` (the request named a version this server does not
     speak). A conforming SDK client cannot produce either, so if you see one, look at whatever is

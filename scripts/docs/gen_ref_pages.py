@@ -30,9 +30,10 @@ API_DIR = ROOT / "docs" / "api"
 # it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 PACKAGES = (ROOT / "src" / "mcp", ROOT / "src" / "mcp-types" / "mcp_types")
 
-# Alias modules that mirror another module's namespace (`mcp.types` mirrors
-# `mcp_types`): the mirrored package's pages are the canonical rendering, so
-# the alias earns no page of its own.
+# Alias packages that mirror another package's namespaces (`mcp.types` mirrors
+# `mcp_types`, `mcp.types.version` mirrors `mcp_types.version`): the mirrored
+# package's pages are the canonical rendering, so an alias, and every module
+# under it, earns no page of its own.
 EXCLUDED = frozenset({"mcp.types"})
 
 _KIND_SECTIONS = {
@@ -190,7 +191,7 @@ def generate() -> list[NavItem]:
                 continue
 
             ident = ".".join(parts)
-            if ident in EXCLUDED:
+            if any(ident == e or ident.startswith(f"{e}.") for e in EXCLUDED):
                 continue
             documented.add(ident)
             stubs[API_DIR / doc_path] = _stub(parts[-1], f"::: {ident}")

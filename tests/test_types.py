@@ -3,6 +3,7 @@ import sys
 from typing import Any
 
 import mcp_types
+import mcp_types.version
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -43,6 +44,7 @@ from pydantic import ValidationError
 
 import mcp
 import mcp.types
+import mcp.types.version
 
 
 @pytest.mark.anyio
@@ -503,3 +505,11 @@ def test_bare_import_mcp_binds_the_types_submodule():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == snapshot("Tool\n")
+
+
+def test_mcp_types_version_mirrors_mcp_types_version_exactly():
+    """SDK-defined: `mcp.types.version` is a permanent alias whose every name is the `mcp_types.version` object."""
+    assert mcp.types.version.__all__ == mcp_types.version.__all__
+    assert all(
+        getattr(mcp.types.version, name) is getattr(mcp_types.version, name) for name in mcp_types.version.__all__
+    )

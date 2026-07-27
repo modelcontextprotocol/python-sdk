@@ -9,6 +9,18 @@ ordering questions go through KNOWN_PROTOCOL_VERSIONS.
 
 from typing import Final
 
+__all__ = [
+    "KNOWN_PROTOCOL_VERSIONS",
+    "HANDSHAKE_PROTOCOL_VERSIONS",
+    "MODERN_PROTOCOL_VERSIONS",
+    "SUPPORTED_PROTOCOL_VERSIONS",
+    "LATEST_PROTOCOL_VERSION",
+    "LATEST_HANDSHAKE_VERSION",
+    "LATEST_MODERN_VERSION",
+    "OLDEST_SUPPORTED_VERSION",
+    "is_version_at_least",
+]
+
 KNOWN_PROTOCOL_VERSIONS: Final[tuple[str, ...]] = (
     "2024-11-05",
     "2025-03-26",
