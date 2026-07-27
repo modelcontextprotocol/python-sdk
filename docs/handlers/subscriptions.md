@@ -43,14 +43,36 @@ Two things the stream is *not*:
 * **It is not a replay log.** A dropped stream is gone, and events published while nobody was connected are not queued. Clients re-listen and refetch.
 * **It is not the 2025 path.** Clients that called `resources/subscribe` are served by `ctx.session.send_resource_updated(uri)`. The `notify_*` methods reach `subscriptions/listen` streams only.
 
-!!! warning
-    Don't publish sensitive per-user URIs through `notify_resource_updated` on a multi-tenant
-    server. Any client may name any URI in its filter, and `MCPServer` honors it. The exposure
-    is narrow but real: a subscriber learns that a URI it can guess changed, and when. It never
-    learns content, and it cannot probe what exists, because an unknown URI is honored too and
-    simply never fires. To narrow the filter per client today, serve the method with your own
-    handler on the low-level `Server` and acknowledge a smaller filter than the client asked
-    for; the acknowledgment is how the client learns what it actually got.
+## Deciding what a caller may watch
+
+By default every requested kind and URI is honored: any caller may watch any URI you publish. On a multi-tenant server, decide per caller with a narrowing hook. It runs once per `subscriptions/listen`, before the acknowledgment, with the request context and the filter the client asked for, and returns the filter to grant:
+
+```python
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.context import ServerRequestContext
+from mcp.server.mcpserver import MCPServer
+from mcp_types import SubscriptionFilter
+
+
+async def owned_only(ctx: ServerRequestContext, requested: SubscriptionFilter) -> SubscriptionFilter:
+    token = get_access_token()
+    prefix = f"user://{token.subject}/" if token and token.subject else ""
+    watchable = [uri for uri in requested.resource_subscriptions or [] if prefix and uri.startswith(prefix)]
+    return requested.model_copy(update={"resource_subscriptions": watchable})
+
+
+mcp = MCPServer("Sprint Board", narrow_subscriptions=owned_only)
+```
+
+* The grant is intersected with the request, so a hook can drop kinds and URIs but never add them.
+* The acknowledgment reports the grant; that is how the client learns it got less than it asked for.
+* Decide by pattern, not by lookup. `owned_only` prunes everything outside the caller's own prefix without checking whether a URI exists, so the acknowledgment reveals the shape of the policy and nothing about which URIs are real.
+* To refuse the whole subscription, raise `MCPError` from the hook: the client gets the error and no stream. Any other exception refuses too - a broken policy never grants.
+* The decision holds for the stream's lifetime. There is no per-event re-check, so if a caller's access can lapse mid-stream (an expiring token), end that caller's connection when it does. `ListenHandler.close()` is not the tool for that: it ends every open stream at once, which you want at shutdown, not for one caller.
+
+On the low-level `Server` the same hook is `ListenHandler(bus, narrow=owned_only)`.
+
+Without a hook the exposure is narrow but real, so weigh it before publishing per-user URIs from a multi-tenant server: a subscriber learns that a URI it can guess changed, and when. It never learns content, and it cannot probe what exists, because an unknown URI is honored too and simply never fires.
 
 ## The client end
 

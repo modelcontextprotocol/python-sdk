@@ -20,12 +20,17 @@ the stream), tags every frame with the listen request's JSON-RPC id under
 `_meta["io.modelcontextprotocol/subscriptionId"]`, and never delivers an
 event kind the client did not request. Delivery is fire-and-forget with no
 replay: a dropped stream is not resumable - clients re-listen and refetch.
+
+A `NarrowSubscription` hook, when supplied, decides per request what the
+server actually grants: it can narrow the requested filter (fewer kinds, a
+subset of the URIs) or refuse the subscription outright, and the acknowledged
+filter tells the client what it got.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 import anyio
@@ -58,6 +63,7 @@ __all__ = [
     "SUBSCRIPTION_ID_META_KEY",
     "InMemorySubscriptionBus",
     "ListenHandler",
+    "NarrowSubscription",
     "PromptsListChanged",
     "ResourceUpdated",
     "ResourcesListChanged",
@@ -67,6 +73,24 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+NarrowSubscription = Callable[[ServerRequestContext[Any, Any], SubscriptionFilter], Awaitable[SubscriptionFilter]]
+"""Per-request hook deciding what a `subscriptions/listen` request is granted.
+
+Called once, before the acknowledgment, with the request context and the
+filter the client asked for. Return the filter to grant - typically the
+request itself, possibly with kinds cleared or `resource_subscriptions` cut
+down to the URIs this caller may watch - or raise `MCPError` to refuse the
+subscription (the client gets an in-band error and no stream). The grant is
+intersected with the request, so the hook can narrow but never widen, and the
+acknowledgment reports the result so the client can see what it got. Any
+other exception refuses the subscription: a raising policy never grants.
+
+The decision holds for the stream's lifetime; there is no per-event re-check,
+so revoking one caller's access mid-stream (an expired credential, say)
+means ending that caller's connection - `ListenHandler.close` is not the
+tool for it: it ends every open stream at once (server shutdown).
+"""
 
 
 class SubscriptionBus(Protocol):
@@ -138,19 +162,24 @@ def _safe_unsubscribe(unsubscribe: Callable[[], None]) -> None:
         logger.exception("bus unsubscribe raised; continuing stream cleanup")
 
 
-def _honored_subset(requested: SubscriptionFilter) -> SubscriptionFilter:
+def _honored_subset(requested: SubscriptionFilter, granted: SubscriptionFilter) -> SubscriptionFilter:
     """The subset of `requested` the server will deliver, for the ack.
 
-    Every requested kind is honored - whether an event kind ever fires
-    depends on what the server publishes, exactly as a subscription to a
-    nonexistent resource URI is honored and never fires. Non-true flags and
+    A kind is honored only when both the request and the grant carry it, and
+    the URI list keeps the requested URIs the grant also names, so a grant can
+    narrow the request but never widen it. With no narrowing policy the grant
+    is the request itself and nothing is dropped. Whether an honored kind ever
+    fires depends on what the server publishes, exactly as a subscription to
+    a nonexistent resource URI is honored and never fires. Non-true flags and
     an empty URI list are dropped rather than echoed as falsy values.
     """
+    granted_uris = frozenset(granted.resource_subscriptions or ())
+    uris = [uri for uri in requested.resource_subscriptions or () if uri in granted_uris]
     return SubscriptionFilter(
-        tools_list_changed=True if requested.tools_list_changed else None,
-        prompts_list_changed=True if requested.prompts_list_changed else None,
-        resources_list_changed=True if requested.resources_list_changed else None,
-        resource_subscriptions=list(requested.resource_subscriptions) if requested.resource_subscriptions else None,
+        tools_list_changed=True if requested.tools_list_changed and granted.tools_list_changed else None,
+        prompts_list_changed=True if requested.prompts_list_changed and granted.prompts_list_changed else None,
+        resources_list_changed=True if requested.resources_list_changed and granted.resources_list_changed else None,
+        resource_subscriptions=uris or None,
     )
 
 
@@ -167,16 +196,27 @@ class ListenHandler:
     Served on any transport that can carry the request's response stream:
     streamable HTTP's SSE mode, or a duplex stream pair such as stdio.
 
-    `max_subscriptions` bounds concurrent streams (further listen requests are
-    rejected with `INTERNAL_ERROR`, before the ack). `max_buffered_events`
-    bounds each stream's event backlog: a stream whose client has stopped
-    reading is ended at the cap (the client re-listens and refetches - there
-    is no replay, so ending the stream loses nothing the backlog wasn't
-    already losing).
+    Without a `narrow` hook every requested kind and resource URI is
+    honored: any caller may watch any URI the server publishes. Pass one to
+    grant per request - see `NarrowSubscription`. `max_subscriptions` bounds
+    concurrent streams (further listen requests are rejected with
+    `INTERNAL_ERROR`, before the ack). `max_buffered_events` bounds each
+    stream's event backlog: a stream whose client has stopped reading is
+    ended at the cap (the client re-listens and refetches - there is no
+    replay, so ending the stream loses nothing the backlog wasn't already
+    losing).
     """
 
-    def __init__(self, bus: SubscriptionBus, *, max_subscriptions: int = 1024, max_buffered_events: int = 1024) -> None:
+    def __init__(
+        self,
+        bus: SubscriptionBus,
+        *,
+        narrow: NarrowSubscription | None = None,
+        max_subscriptions: int = 1024,
+        max_buffered_events: int = 1024,
+    ) -> None:
         self._bus = bus
+        self._narrow = narrow
         self._max_subscriptions = max_subscriptions
         self._max_buffered_events = max_buffered_events
         self._streams: set[anyio.streams.memory.MemoryObjectSendStream[ServerEvent]] = set()
@@ -190,9 +230,10 @@ class ListenHandler:
         subscription_id = ctx.request_id
         if subscription_id is None:
             raise MCPError(INVALID_REQUEST, "subscriptions/listen requires a request id")
+        granted = await self._grant(ctx, params.notifications)
         if len(self._streams) >= self._max_subscriptions:
             raise MCPError(INTERNAL_ERROR, "Subscription limit reached")
-        honored = _honored_subset(params.notifications)
+        honored = _honored_subset(params.notifications, granted)
         honored_uris = frozenset(honored.resource_subscriptions or ())
         meta: dict[str, Any] = {SUBSCRIPTION_ID_META_KEY: subscription_id}
 
@@ -239,6 +280,23 @@ class ListenHandler:
             send.close()
             recv.close()
         return SubscriptionsListenResult(_meta=meta)
+
+    async def _grant(self, ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> SubscriptionFilter:
+        """The filter to grant this request: the request itself unless a `narrow` hook decides.
+
+        The hook's `MCPError` is its explicit refusal and propagates as the
+        pre-ack error. Any other exception fails closed - the subscription is
+        refused, never granted - so a broken policy cannot hand out access.
+        """
+        if self._narrow is None:
+            return requested
+        try:
+            return await self._narrow(ctx, requested)
+        except MCPError:
+            raise
+        except Exception as exc:  # deny-on-error: a raising policy must never grant
+            logger.exception("subscription narrow hook raised; refusing subscriptions/listen")
+            raise MCPError(INTERNAL_ERROR, "Subscription authorization failed") from exc
 
     def close(self) -> None:
         """Initiate graceful closure of every open listen stream.
