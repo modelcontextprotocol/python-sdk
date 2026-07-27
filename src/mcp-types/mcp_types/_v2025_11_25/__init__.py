@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from mcp_types._wire_base import WireModel
+from mcp_types._wire_base import KeepRequiredNullable, WireModel
 from pydantic import ConfigDict, Field, RootModel
 
 
@@ -579,7 +579,7 @@ class LoggingLevel(
     """
 
 
-class LoggingMessageNotificationParams(WireModel):
+class LoggingMessageNotificationParams(WireModel, KeepRequiredNullable):
     """
     Parameters for a `notifications/message` notification.
     """
@@ -2517,7 +2517,7 @@ class SubscribeRequest(WireModel):
     params: SubscribeRequestParams
 
 
-class Task(WireModel):
+class Task(WireModel, KeepRequiredNullable):
     """
     Data associated with a task.
     """
@@ -3524,3 +3524,6 @@ class ServerRequest(
         | ListRootsRequest
         | ElicitRequest
     )
+
+
+AnyCallToolResult = CallToolResult | CreateTaskResult
