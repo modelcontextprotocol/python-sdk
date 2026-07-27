@@ -15,10 +15,15 @@ permissions:
 
 env:
   # Pinned conformance harness package spec (passed verbatim to `npx --yes`).
-  # Use a published version, e.g. @modelcontextprotocol/conformance@0.2.0-alpha.7.
-  # Bump deliberately and reconcile both
-  # .github/actions/conformance/expected-failures*.yml files in the same change.
-  CONFORMANCE_PKG: "@modelcontextprotocol/conformance@0.2.0-alpha.10"
+  # Pinned to the published release tarball by registry URL, with
+  # CONFORMANCE_PKG_SHA256 pinning the bytes (registry version specs and
+  # dist-tags are movable; the digest is not) — the fetch-and-verify step
+  # below downloads, checks the digest, and repoints CONFORMANCE_PKG at the
+  # verified local copy. Bump deliberately: update both values and reconcile
+  # both .github/actions/conformance/expected-failures*.yml files in the same
+  # change.
+  CONFORMANCE_PKG: "https://registry.npmjs.org/@modelcontextprotocol/conformance/-/conformance-0.2.0-alpha.10.tgz"
+  CONFORMANCE_PKG_SHA256: "fd3795fd3f55ee7c3395710282c3f9739ec8bffe98898bd36eca0c142e2a4234"
 
 jobs:
   server-conformance:
@@ -34,6 +39,19 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        # Only when CONFORMANCE_PKG is a URL: download, check the recorded
+        # sha256, and re-point CONFORMANCE_PKG at the verified local tarball.
+        # When CONFORMANCE_PKG is a registry spec, this step is a no-op (npm's
+        # own integrity check applies).
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
       - run: uv sync --frozen --all-extras --package mcp-everything-server
       - name: Run server conformance (active suite)
         run: >-
@@ -93,6 +111,21 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 24
+      - name: Fetch and verify conformance harness
+        # Only when CONFORMANCE_PKG is a URL: download, check the recorded
+        # sha256, and re-point CONFORMANCE_PKG at the verified local tarball.
+        # When CONFORMANCE_PKG is a registry spec, this step is a no-op (npm's
+        # own integrity check applies).
+        run: |
+          case "$CONFORMANCE_PKG" in
+            https://*)
+              curl -fsSL "$CONFORMANCE_PKG" -o /tmp/conformance.tgz
+              echo "$CONFORMANCE_PKG_SHA256  /tmp/conformance.tgz" | sha256sum -c -
+              echo "CONFORMANCE_PKG=file:/tmp/conformance.tgz" >> "$GITHUB_ENV"
+              ;;
+          esac
+      # --compile-bytecode: without it, ~40 concurrently spawned interpreters
+      # race to byte-compile site-packages during the timing-sensitive window.
       - run: uv sync --frozen --all-extras --package mcp --compile-bytecode
       - name: Pre-compile bytecode (editable sources)
         run: uv run --frozen python -m compileall -q src .github/actions/conformance
