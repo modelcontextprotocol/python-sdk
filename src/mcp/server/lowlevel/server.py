@@ -704,8 +704,9 @@ class Server(Generic[LifespanResultT]):
         Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
         then drives the loop, serving the legacy handshake era and the modern
         per-request-envelope era (the client's first request decides which).
-        Transports with their own lifespan owner (the streamable-HTTP manager)
-        call `serve_loop` directly instead.
+        Transports with their own lifespan owner call `serve_loop` directly
+        instead (or, without a stream pair - the streamable-HTTP manager -
+        dispatch each request themselves).
         """
         async with self.lifespan(self) as lifespan_context:
             await serve_dual_era_loop(

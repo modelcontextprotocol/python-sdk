@@ -1,8 +1,10 @@
 """JSON-RPC `Dispatcher` over the `SessionMessage` stream contract all transports speak.
 
-Owns request-id correlation, the receive loop, per-request task isolation,
-cancellation/progress wiring, and the single exception-to-wire boundary;
-methods and params are otherwise opaque strings and dicts.
+Owns the receive loop and per-request task isolation over a duplex stream
+pair; request-id correlation, cancellation/progress wiring, and the single
+exception-to-wire boundary live in the shared `RequestCorrelator` so the
+streamable-HTTP transport (which has no stream pair) applies the same
+semantics. Methods and params are otherwise opaque strings and dicts.
 """
 
 from __future__ import annotations
@@ -16,13 +18,8 @@ from typing import Any, Generic, Literal, cast
 
 import anyio
 import anyio.abc
-import anyio.lowlevel
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp_types import (
-    CONNECTION_CLOSED,
     INTERNAL_ERROR,
-    INVALID_PARAMS,
-    REQUEST_TIMEOUT,
     ErrorData,
     JSONRPCError,
     JSONRPCMessage,
@@ -32,12 +29,16 @@ from mcp_types import (
     ProgressToken,
     RequestId,
 )
-from opentelemetry.trace import SpanKind
-from pydantic import ValidationError
 from typing_extensions import TypeVar
 
 from mcp.shared._compat import resync_tracer
-from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._correlation import (
+    InFlight,
+    Outcome,
+    Pending,
+    RequestCorrelator,
+    handler_exception_to_error_data,
+)
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import (
     CallOptions,
@@ -46,12 +47,10 @@ from mcp.shared.dispatcher import (
     OnNotify,
     OnNotifyIntercept,
     OnRequest,
-    ProgressFnT,
     as_request_id,
-    coerce_request_id,
     run_notify_intercept,
 )
-from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.message import (
     ClientMessageMetadata,
     MessageMetadata,
@@ -69,13 +68,6 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_ABANDON_WRITE_TIMEOUT: float = 5
-"""Bound for courtesy-cancel writes on the abandon paths; the caller-cancel
-arm shields its write, so a wedged transport would otherwise hang it uncancellably."""
-
-_SHUTDOWN_WRITE_TIMEOUT: float = 1
-"""Tighter bound for the shutdown-arm error write so a wedged transport can't hold session close."""
-
 TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
 
 PeerCancelMode = Literal["interrupt", "signal"]
@@ -84,22 +76,8 @@ the handler's scope; `"signal"` only sets `ctx.cancel_requested` and lets the
 handler run to completion. Either way the cancelled request is never
 answered - the handler's eventual result or error is dropped, not written."""
 
-
-def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
-    """Map a handler-raised exception to its wire `ErrorData`.
-
-    The two rungs every dispatcher shares: an `MCPError` carries its own
-    `ErrorData`; a pydantic `ValidationError` is the spec's INVALID_PARAMS
-    with empty ``data`` (no pydantic text on the wire). Returns ``None`` for
-    any other exception so each caller applies its own catch-all -
-    `JSONRPCDispatcher` currently pins ``code=0`` for v1 compat,
-    the modern HTTP entry uses `INTERNAL_ERROR`.
-    """
-    if isinstance(exc, MCPError):
-        return exc.error
-    if isinstance(exc, ValidationError):
-        return ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
-    return None
+_Pending = Pending
+"""Outbound-waiter record; owned by `RequestCorrelator` (aliased here for white-box tests)."""
 
 
 def progress_token_from_params(params: Mapping[str, Any] | None) -> ProgressToken | None:
@@ -114,23 +92,6 @@ def progress_token_from_params(params: Mapping[str, Any] | None) -> ProgressToke
 def cancelled_request_id_from_params(params: Mapping[str, Any] | None) -> RequestId | None:
     """Read `params.requestId` from a `notifications/cancelled` (`as_request_id` shape rules)."""
     return as_request_id((params or {}).get("requestId"))
-
-
-@dataclass(slots=True)
-class _Pending:
-    """An outbound request awaiting its response."""
-
-    send: MemoryObjectSendStream[dict[str, Any] | ErrorData]
-    receive: MemoryObjectReceiveStream[dict[str, Any] | ErrorData]
-    on_progress: ProgressFnT | None = None
-
-
-@dataclass(slots=True)
-class _InFlight(Generic[TransportT]):
-    """An inbound request currently being handled."""
-
-    scope: anyio.CancelScope
-    dctx: _JSONRPCDispatchContext[TransportT]
 
 
 @dataclass
@@ -188,20 +149,8 @@ def _default_transport_builder(_meta: MessageMetadata) -> TransportContext:
     return TransportContext(kind="jsonrpc", can_send_request=True)
 
 
-def _shielded_progress(fn: ProgressFnT) -> ProgressFnT:
-    """Wrap a user progress callback so an exception can't cancel the dispatcher's task group."""
-
-    async def _wrapped(progress: float, total: float | None, message: str | None) -> None:
-        try:
-            await fn(progress, total, message)
-        except Exception:
-            logger.exception("progress callback raised")
-
-    return _wrapped
-
-
 def _contained_notify(fn: OnNotify) -> OnNotify:
-    """Wrap a notification handler so it can't crash the dispatcher (same boundary as `_shielded_progress`)."""
+    """Wrap a notification handler so it can't crash the dispatcher's task group."""
 
     async def _wrapped(dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
         try:
@@ -295,13 +244,14 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         bind it after the dispatcher is built (e.g. ``ClientSession`` routing into
         ``message_handler``); only consulted inside ``run()`` so pre-enter assignment is safe."""
 
-        self._next_id = 0
-        self._pending: dict[RequestId, _Pending] = {}
-        self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
+        # The correlation kernel owns the pending/in-flight tables; the
+        # aliases keep the historical private names white-box tests read.
+        self._corr: RequestCorrelator[_JSONRPCDispatchContext[TransportT]] = RequestCorrelator()
+        self._pending: dict[RequestId, Pending] = self._corr.pending
+        self._in_flight: dict[RequestId, InFlight[_JSONRPCDispatchContext[TransportT]]] = self._corr.in_flight
         self._on_notify_intercept: OnNotifyIntercept | None = None
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
-        self._closed = False
 
     async def send_raw_request(
         self,
@@ -322,118 +272,19 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 transport closed or the dispatcher shut down.
             RuntimeError: Called before `run()`.
         """
-        # Post-close sends get the same CONNECTION_CLOSED contract as in-flight waiters.
-        if self._closed:
-            raise MCPError(code=CONNECTION_CLOSED, message="Connection closed")
-        if not self._running:
+        # Post-close sends get the same CONNECTION_CLOSED contract as in-flight
+        # waiters (raised by the correlator); only a never-run dispatcher is a usage error.
+        if not self._running and not self._corr.closed:
             raise RuntimeError("JSONRPCDispatcher.send_raw_request called before run()")
-        opts = opts or {}
-        supplied_id = opts.get("request_id")
-        if supplied_id is not None:
-            request_id: RequestId = supplied_id
-            # The pending key gets the same coercion `_resolve_pending` applies
-            # to inbound response ids, so a supplied "7" still correlates
-            # whether the peer echoes "7" or 7. The wire id stays verbatim.
-            pending_key = coerce_request_id(request_id)
-            if pending_key in self._pending:
-                raise ValueError(f"request id {request_id!r} is already in flight")
-        else:
-            # Mint past any key a supplied id occupies: the collision error is
-            # reserved for the caller who actually chose the id.
-            request_id = self._allocate_id()
-            while request_id in self._pending:
-                request_id = self._allocate_id()
-            pending_key = request_id
-        out_params = dict(params) if params is not None else {}
-        out_meta = dict(out_params.get("_meta") or {})
-        on_progress = opts.get("on_progress")
-        if on_progress is not None:
-            # The request id doubles as the progress token, so `_pending[token]` finds `on_progress` directly.
-            out_meta["progressToken"] = request_id
-        out_params["_meta"] = out_meta
-
-        # buffer=1: a close signal can arrive before the waiter parks in receive();
-        # a WouldBlock later just means the waiter already has its one outcome.
-        send, receive = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
-        pending = _Pending(send=send, receive=receive, on_progress=on_progress)
-        self._pending[pending_key] = pending
-
         plan = _plan_outbound(_related_request_id, opts)
-        # Spec MUST: only previously-issued requests may be cancelled. A write
-        # interrupted by cancellation may still have delivered (a memory-stream
-        # send can hand its item to the receiver and still raise), so a started
-        # write counts as issued: the peer ignores a cancel for an id it never
-        # saw, while skipping it would leak a delivered request's handler.
-        request_write_started = False
-        timeout_armed = False
-
-        target = out_params.get("name")
-        span_name = f"MCP send {method}{f' {target}' if isinstance(target, str) else ''}"
-        # TODO(maxisbey): move the otel span + inject into an outbound
-        # middleware once that seam exists; the dispatcher should not own otel.
-        try:
-            with otel_span(
-                span_name,
-                kind=SpanKind.CLIENT,
-                attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
-            ):
-                # SEP-414: inject W3C trace context; `_meta` stays on the wire even with a no-op tracer.
-                inject_trace_context(out_meta)
-                msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
-                # Surface a pre-existing cancellation while the request provably
-                # never started; past this point a cancelled write counts as issued.
-                await anyio.lowlevel.checkpoint_if_cancelled()
-                request_write_started = True
-                try:
-                    await self._write(msg, plan.metadata)
-                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-                    # Transport tore down before run() noticed EOF; surface the documented contract.
-                    raise MCPError(code=CONNECTION_CLOSED, message="Connection closed") from None
-                with anyio.fail_after(opts.get("timeout")):
-                    timeout_armed = True
-                    outcome = await receive.receive()
-        except TimeoutError:
-            if not timeout_armed:
-                # `fail_after` arms only after the write, so this TimeoutError is the
-                # transport's own bounded send() failing - a transport error, not
-                # `opts["timeout"]` elapsing. Propagate it raw (v1 kept the write
-                # outside the timeout-catching try and did the same).
-                raise
-            # Courtesy cancel (spec-recommended, new vs v1) so the peer stops work;
-            # unshielded so an outer caller cancellation can still interrupt the write.
-            if plan.cancel_on_abandon:
-                await self._final_write(
-                    partial(
-                        self._cancel_outbound,
-                        request_id,
-                        f"timed out after {opts.get('timeout')}s",
-                        _related_request_id,
-                    ),
-                    shield=False,
-                    timeout=_ABANDON_WRITE_TIMEOUT,
-                    describe=f"courtesy cancel for timed-out request {request_id!r}",
-                )
-            raise MCPError(code=REQUEST_TIMEOUT, message=f"Request {method!r} timed out") from None
-        except anyio.get_cancelled_exc_class():
-            # Caller cancelled: bare awaits re-raise here, so the shielded helper
-            # lets the courtesy cancel go out before we propagate.
-            if plan.cancel_on_abandon and request_write_started:
-                await self._final_write(
-                    partial(self._cancel_outbound, request_id, "caller cancelled", _related_request_id),
-                    shield=True,
-                    timeout=_ABANDON_WRITE_TIMEOUT,
-                    describe=f"courtesy cancel for caller-cancelled request {request_id!r}",
-                )
-            raise
-        finally:
-            # Remove the waiter on every path so a late response is dropped, not leaked.
-            self._pending.pop(pending_key, None)
-            send.close()
-            receive.close()
-
-        if isinstance(outcome, ErrorData):
-            raise MCPError(code=outcome.code, message=outcome.message, data=outcome.data)
-        return outcome
+        return await self._corr.call(
+            method,
+            params,
+            opts,
+            write_request=partial(self._write, metadata=plan.metadata),
+            send_cancel=partial(self._cancel_outbound, related_request_id=_related_request_id),
+            cancel_on_abandon=plan.cancel_on_abandon,
+        )
 
     async def notify(
         self,
@@ -449,7 +300,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         torn-down transport drops the notification with a debug log instead
         of raising (same policy as the response writes and `ctx.notify`).
         """
-        if self._closed:
+        if self._corr.closed:
             logger.debug("dropped %s: dispatcher closed", method)
             return
         # Leave `params` unset when None: with `exclude_unset=True` an explicit
@@ -500,18 +351,16 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                                 logger.debug("read stream closed by transport; treating as EOF")
                         # EOF: wake blocked `send_raw_request` waiters with CONNECTION_CLOSED.
                         self._running = False
-                        self._closed = True
-                        self._fan_out_closed()
+                        self._corr.close()
                     finally:
                         # Cancel in-flight handlers; otherwise the task-group join
                         # waits on handlers whose callers are already gone.
                         tg.cancel_scope.cancel()
         finally:
-            # Covers cancel/crash paths that skip the inline fan-out; idempotent.
+            # Covers cancel/crash paths that skip the inline close; idempotent.
             self._running = False
-            self._closed = True
             self._tg = None
-            self._fan_out_closed()
+            self._corr.close()
             await resync_tracer()
 
     async def _dispatch(
@@ -576,10 +425,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             _progress_token=progress_token,
         )
         scope = anyio.CancelScope()
-        # TODO(maxisbey): duplicate ids blind-overwrite (v1/TS parity); revisit
-        # rejecting with INVALID_REQUEST. Key coerced so a stringified
-        # `notifications/cancelled` id still correlates.
-        self._in_flight[coerce_request_id(req.id)] = _InFlight(scope=scope, dctx=dctx)
+        self._corr.enter_inbound(req.id, scope, dctx)
         if req.method in self._inline_methods:
             # Spawn so `sender_ctx` applies, but park the read loop until the
             # handler returns - that's the inline ordering guarantee.
@@ -606,36 +452,21 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """Route one inbound notification.
 
         `notifications/cancelled` and `notifications/progress` are intercepted
-        here (they correlate against the `_in_flight`/`_pending` tables this
-        layer owns) and still teed to `on_notify` afterwards. The caller's
+        here (they correlate against the correlator's in-flight/pending
+        tables) and still teed to `on_notify` afterwards. The caller's
         `on_notify_intercept` then runs in receive order; only unconsumed
         notifications reach the spawned `on_notify`.
         """
         if msg.method == "notifications/cancelled":
-            rid = cancelled_request_id_from_params(msg.params)
-            if rid is not None and (in_flight := self._in_flight.get(coerce_request_id(rid))) is not None:
-                in_flight.dctx.cancel_requested.set()
-                if self._peer_cancel_mode == "interrupt":
-                    in_flight.scope.cancel()
+            self._corr.peer_cancel(
+                cancelled_request_id_from_params(msg.params),
+                interrupt=self._peer_cancel_mode == "interrupt",
+            )
         elif msg.method == "notifications/progress":
-            match msg.params:
-                case {"progressToken": str() | int() as token, "progress": int() | float() as progress} if (
-                    not isinstance(token, bool)
-                    and not isinstance(progress, bool)
-                    and (pending := self._pending.get(coerce_request_id(token))) is not None
-                    and pending.on_progress is not None
-                ):
-                    total = msg.params.get("total")
-                    message = msg.params.get("message")
-                    self._spawn(
-                        _shielded_progress(pending.on_progress),
-                        float(progress),
-                        float(total) if isinstance(total, int | float) else None,
-                        message if isinstance(message, str) else None,
-                        sender_ctx=sender_ctx,
-                    )
-                case _:
-                    pass
+            delivery = self._corr.progress_callback(msg.params)
+            if delivery is not None:
+                fn, progress, total, message = delivery
+                self._spawn(fn, progress, total, message, sender_ctx=sender_ctx)
         if run_notify_intercept(self._on_notify_intercept, msg.method, msg.params):
             return
         try:
@@ -649,15 +480,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         )
         self._spawn(_contained_notify(on_notify), dctx, msg.method, msg.params, sender_ctx=sender_ctx)
 
-    def _resolve_pending(self, request_id: RequestId | None, outcome: dict[str, Any] | ErrorData) -> None:
-        pending = self._pending.get(coerce_request_id(request_id)) if request_id is not None else None
-        if pending is None:
-            logger.debug("dropping response for unknown/late request id %r", request_id)
-            return
-        try:
-            pending.send.send_nowait(outcome)
-        except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
-            logger.debug("waiter for request id %r already gone", request_id)
+    def _resolve_pending(self, request_id: RequestId | None, outcome: Outcome) -> None:
+        self._corr.resolve(request_id, outcome)
 
     def _spawn(
         self,
@@ -677,17 +501,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             self._tg.start_soon(fn, *args)
 
     def _fan_out_closed(self) -> None:
-        """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`.
-
-        Synchronous: callers may be inside a cancelled scope. Idempotent.
-        """
-        closed = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
-        for pending in self._pending.values():
-            try:
-                pending.send.send_nowait(closed)
-            except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
-                pass
-        self._pending.clear()
+        """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`. Idempotent."""
+        self._corr.fan_out_closed()
 
     async def _handle_request(
         self,
@@ -698,72 +513,22 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     ) -> None:
         """Run `on_request` for one inbound request and write its response.
 
-        The single exception-to-wire boundary: handler exceptions become
-        `JSONRPCError` here. A request the peer cancelled is never answered
-        (spec: MUST NOT send further messages for it) - it settles unanswered
-        instead, and `_settle_unanswered` tells the transport.
+        The exception-to-wire policy lives in `RequestCorrelator.serve_inbound`;
+        this only binds the wire writes for a stream-pair transport. A request
+        the peer cancelled is never answered (spec: MUST NOT send further
+        messages for it) - it settles unanswered instead, and `_settle_unanswered`
+        tells the transport.
         """
-        answer_write_started = False
-        handler_failure: BaseException | None = None  # re-raised once the request settles
-        try:
-            with scope:
-                try:
-                    result = await on_request(dctx, req.method, req.params)
-                finally:
-                    # Close the back-channel and drop from `_in_flight`; no checkpoint
-                    # since handler return, so a peer cancel can't interleave.
-                    # Identity guard: don't evict a duplicate id's newer entry.
-                    dctx.close()
-                    key = coerce_request_id(req.id)
-                    if (entry := self._in_flight.get(key)) is not None and entry.dctx is dctx:
-                        del self._in_flight[key]
-                if not dctx.cancel_requested.is_set():
-                    # A write interrupted by cancellation may still have delivered
-                    # (a memory-stream send can hand its item to the receiver and
-                    # still raise), so a started answer write counts as sent below:
-                    # peers drop late responses, while a second answer for one id
-                    # would break JSON-RPC.
-                    answer_write_started = True
-                    await self._write_result(req.id, result)
-        except anyio.get_cancelled_exc_class():
-            # Shutdown: answer the request so the peer isn't left waiting - unless
-            # an answer write already started (it may have reached the transport;
-            # prefer possibly-zero answers over possibly-two), or the peer already
-            # cancelled it and stopped waiting. The shielded helper is needed
-            # because bare awaits re-raise here.
-            if not answer_write_started and not dctx.cancel_requested.is_set():
-                await self._final_write(
-                    partial(self._write_error, req.id, ErrorData(code=CONNECTION_CLOSED, message="Connection closed")),
-                    shield=True,
-                    timeout=_SHUTDOWN_WRITE_TIMEOUT,
-                    describe=f"shutdown error response for request {req.id!r}",
-                )
-            raise
-        except Exception as e:
-            error = handler_exception_to_error_data(e)
-            if error is None:
-                logger.exception("handler for %r raised", req.method)
-                # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
-                # INTERNAL_ERROR. Revisit per the suite's divergence entry.
-                error = ErrorData(code=0, message=str(e))
-                if self._raise_handler_exceptions:
-                    handler_failure = e
-            # A cancel silences only the wire; the failure stays as visible as before.
-            if not dctx.cancel_requested.is_set():
-                answer_write_started = True
-                await self._write_error(req.id, error)
-        # The one place a cancelled request settles: the handler is done (any
-        # mode) with nothing written. A peer-interrupt cancel is absorbed at
-        # scope __exit__ and lands here too.
-        if not answer_write_started:
-            await self._settle_unanswered(dctx)
-        if handler_failure is not None:
-            raise handler_failure
-        # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
-
-    def _allocate_id(self) -> int:
-        self._next_id += 1
-        return self._next_id
+        await self._corr.serve_inbound(
+            req.id,
+            dctx,
+            scope,
+            partial(on_request, dctx, req.method, req.params),
+            write_result=partial(self._write_result, req.id),
+            write_error=partial(self._write_error, req.id),
+            settle_unanswered=partial(self._settle_unanswered, dctx),
+            raise_handler_exceptions=self._raise_handler_exceptions,
+        )
 
     async def _write(self, message: JSONRPCMessage, metadata: MessageMetadata = None) -> None:
         await self._write_stream.send(SessionMessage(message=message, metadata=metadata))
@@ -784,37 +549,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """Run the transport's `on_request_unanswered` hook: this request settled with no response.
 
         The dispatcher writes nothing for it; a transport whose wire must still
-        end the request (2025-era streamable HTTP) does so from this hook. A
-        raising hook is contained here, like the other callback boundaries.
+        end the request (2025-era streamable HTTP) does so from this hook.
+        `RequestCorrelator.serve_inbound` invokes and contains it.
         """
         metadata = dctx.message_metadata
         if not isinstance(metadata, ServerMessageMetadata) or metadata.on_request_unanswered is None:
             return
-        try:
-            await metadata.on_request_unanswered()
-        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-            logger.debug("on_request_unanswered dropped: connection closing")
-        except Exception:
-            logger.exception("on_request_unanswered hook raised")
-
-    async def _final_write(
-        self,
-        write: Callable[[], Awaitable[None]],
-        *,
-        shield: bool,
-        timeout: float,
-        describe: str,
-    ) -> None:
-        """Attempt one last write under the shared abandon/teardown policy.
-
-        `shield=True` is for arms already inside a cancelled scope (a bare
-        `await` would re-raise); the bound keeps a wedged transport write
-        from becoming an uncancellable hang.
-        """
-        with anyio.move_on_after(timeout, shield=shield) as scope:
-            await write()
-        if scope.cancelled_caught:
-            logger.warning("%s gave up: transport write blocked", describe)
+        await metadata.on_request_unanswered()
 
     async def _cancel_outbound(self, request_id: RequestId, reason: str, related_request_id: RequestId | None) -> None:
         # Thread `related_request_id` so streamable HTTP routes the cancel onto

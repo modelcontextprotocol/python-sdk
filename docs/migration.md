@@ -863,7 +863,7 @@ Lifespans that set up process-wide state (connection pools, caches, background t
 
 ### Streamable HTTP: session manager, `EventStore`, and stateless mode unchanged
 
-Beyond the constructor parameters that moved to `run()`/`streamable_http_app()` and the lifespan change above, the server-side Streamable HTTP machinery is as in v1:
+Beyond the constructor parameters that moved to `run()`/`streamable_http_app()`, the lifespan change above, and the transport rework in the next section (which does not touch the public surface), the server-side Streamable HTTP API is as in v1:
 
 - `mcp.server.streamable_http` still exports the `EventStore` ABC (`store_event()`, `replay_events_after()`), `EventMessage`, `EventCallback`, `EventId`, and `StreamId` with unchanged signatures; a custom `EventStore` keeps importing `JSONRPCMessage` from `mcp.types`, unchanged.
 - `StreamableHTTPSessionManager` keeps its constructor and its `run()` / `handle_request()` methods (see [Lowlevel `Server`: what did not change](#lowlevel-server-what-did-not-change)); its `stateless=` parameter is unrelated to the removed [`Server.run(stateless=)` flag](#serverrun-no-longer-takes-a-stateless-flag).
@@ -871,6 +871,59 @@ Beyond the constructor parameters that moved to `run()`/`streamable_http_app()` 
 - `stateless_http=True` still serves each request with a fresh transport, no `Mcp-Session-Id`, and no state carried between requests; `ctx.close_sse_stream()` and `ctx.close_standalone_sse_stream()` are still available on the handler `Context`.
 
 Only private attributes moved: `mcp._mcp_server` is now `mcp._lowlevel_server` (see [Registering lowlevel handlers from `MCPServer`](#registering-lowlevel-handlers-from-mcpserver)), and `_session_manager` now lives on that lowlevel `Server`. Prefer the public `mcp.session_manager` property to either.
+
+### Streamable HTTP: `StreamableHTTPServerTransport` is driven per request, not per stream
+
+`StreamableHTTPServerTransport` no longer exposes a `connect()` context manager yielding a
+`(read_stream, write_stream)` pair for you to run a server loop over. Each HTTP request is now
+dispatched to the server's handlers directly: a request's outbound messages ride that request's
+own response stream (backed by the optional `EventStore` for `Last-Event-ID` resumability), the
+client's POSTed answers to server-initiated requests are correlated back by request id, and the
+standalone GET stream is a further per-connection channel. The transport is the per-session
+core; `StreamableHTTPSessionManager` binds one to the `Server` for each session (via the new
+keyword-only `app` / `lifespan_state` constructor arguments) and routes requests to it.
+
+Nothing changes if you serve through `streamable_http_app()` / `run(transport="streamable-http")`
+or mount `StreamableHTTPSessionManager` — the wire behaviour (session ids, GET stream, event
+store, `ctx.close_sse_stream()`, `related_request_id` routing) is unchanged. Only code that
+constructed a transport and consumed `transport.connect()` by hand needs to move to the session
+manager:
+
+```python
+# Before (v1)
+transport = StreamableHTTPServerTransport(mcp_session_id=session_id, ...)
+async with transport.connect() as (read_stream, write_stream):
+    await server.run(read_stream, write_stream, server.create_initialization_options())
+
+# After (v2): serve the app the SDK builds ...
+app = server.streamable_http_app(event_store=..., json_response=...)
+```
+
+... or, when composing your own Starlette/FastAPI app, mount a `StreamableHTTPSessionManager` and
+enter `session_manager.run()` in the lifespan — see [Mounting the ASGI app](run/asgi.md) for the
+full wiring.
+
+Behaviour clarified in the same change:
+
+- In JSON-response mode a *request-scoped* server-to-client request (`ctx.elicit()`, or any
+  `ctx.session` call carrying `related_request_id`) now raises `NoBackChannelError` — the POST's
+  single JSON body has no stream to carry the nested request, and previously the call would hang
+  waiting for an answer that could never be delivered. Connection-scoped sends (calls without
+  `related_request_id`) are unchanged and still ride the standalone GET stream.
+- A GET carrying `Last-Event-ID` on a server without an `EventStore` opens the standalone stream
+  as a plain GET would, since there is nothing to replay.
+- Two concurrent POSTs that share a JSON-RPC request id each keep their own response stream; the
+  second no longer silently takes over the first's queue.
+- Stream ids handed to your `EventStore` are minted by the transport in its own session-scoped
+  namespace (previously the raw `str(request_id)` and a single global GET-stream key), so two
+  sessions sharing one store no longer collide, and a `Last-Event-ID` replay only releases frames
+  of the requesting session's own streams. Treat the ids as opaque.
+- A failing `EventStore.store_event` degrades resumability for that message rather than taking
+  the stream down: the message is still delivered live (with no event id to resume from) and the
+  store's exception is logged, never sent to the client.
+- A server-to-client request that can reach no client at all (no attached stream and nothing
+  storing it, or a request-scoped one in JSON-response mode) fails the calling handler with
+  `CONNECTION_CLOSED` instead of parking it for an answer that cannot arrive.
 
 ### `MCPServer.get_context()` removed
 

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import anyio
 import httpx2
 import pytest
+from anyio.abc import TaskStatus
 from mcp_types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 from starlette.types import Message, Receive, Scope, Send
 
@@ -252,10 +253,14 @@ async def running_manager():
 async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, _app = running_manager
 
-    # The manager's `run_server` task drives `serve_loop` directly (the manager
-    # owns lifespan); patch that seam so the loop returns immediately and we
-    # can observe the cleanup that follows.
-    mock_serve = AsyncMock(return_value=None)
+    # The manager's `run_server` task drives the transport's session task
+    # (`run()`); patch that seam so it returns immediately and we can observe
+    # the cleanup that follows.
+    run_calls: list[None] = []
+
+    async def mock_run(self: StreamableHTTPServerTransport, *, task_status: TaskStatus[None]) -> None:
+        run_calls.append(None)
+        task_status.started()
 
     sent_messages: list[Message] = []
 
@@ -273,7 +278,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
-    with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
+    with patch.object(StreamableHTTPServerTransport, "run", mock_run):
         await manager.handle_request(scope, mock_receive, mock_send)
 
     # Extract session ID from response headers
@@ -289,9 +294,9 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
 
     assert session_id is not None, "Session ID not found in response headers"
 
-    mock_serve.assert_called_once()
+    assert len(run_calls) == 1
 
-    # At this point, mock_serve has completed, and the finally block in
+    # At this point, mock_run has completed, and the finally block in
     # StreamableHTTPSessionManager's run_server should have executed.
 
     # To ensure the task spawned by handle_request finishes and cleanup occurs:
@@ -308,7 +313,12 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
 async def test_stateful_session_cleanup_on_exception(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, _app = running_manager
 
-    mock_serve = AsyncMock(side_effect=TestException("Simulated crash"))
+    run_calls: list[None] = []
+
+    async def mock_run(self: StreamableHTTPServerTransport, *, task_status: TaskStatus[None]) -> None:
+        run_calls.append(None)
+        task_status.started()
+        raise TestException("Simulated crash")
 
     sent_messages: list[Message] = []
 
@@ -331,7 +341,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
-    with patch("mcp.server.streamable_http_manager.serve_loop", mock_serve):
+    with patch.object(StreamableHTTPServerTransport, "run", mock_run):
         await manager.handle_request(scope, mock_receive, mock_send)
 
     session_id = None
@@ -346,7 +356,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
 
     assert session_id is not None, "Session ID not found in response headers"
 
-    mock_serve.assert_called_once()
+    assert len(run_calls) == 1
 
     # Give other tasks a chance to run to ensure the finally block executes
     await anyio.sleep(0.01)
@@ -412,8 +422,9 @@ async def test_stateless_requests_memory_cleanup():
             # The key assertion - transport should be terminated
             assert transport._terminated, "Transport should be terminated after stateless request"
 
-            # Verify internal state is cleaned up
-            assert len(transport._request_streams) == 0, "Transport should have no active request streams"
+            # Verify internal state is cleaned up: no request streams left open.
+            assert not transport._streams, "Transport should have no active request streams"
+            assert not transport._standalone.attached, "Transport should have no standalone stream attached"
 
 
 @pytest.mark.anyio
