@@ -50,7 +50,7 @@ from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
 
-__all__ = ["Connection", "allowed_log_levels"]
+__all__ = ["Connection"]
 
 logger = logging.getLogger(__name__)
 # `Connection.log`'s `logger` parameter (public API, the spec's logger-name
