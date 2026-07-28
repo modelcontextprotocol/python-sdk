@@ -76,3 +76,20 @@ jobs:
 
       - name: Check doc snippets are up to date
         run: uv run --frozen scripts/update_doc_snippets.py --check
+
+  # The published site is built and deployed from main, which builds this
+  # branch's docs (via scripts/docs/build.sh) under /v1/; this branch has no
+  # deploy workflow of its own. This job runs that same script so a change
+  # that breaks the v1 docs fails here rather than at main's next deploy.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          version: 0.9.5
+
+      - name: Build docs
+        run: bash scripts/docs/build.sh

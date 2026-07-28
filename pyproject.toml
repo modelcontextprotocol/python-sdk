@@ -91,7 +91,7 @@ bump = true
 
 [project.urls]
 Homepage = "https://modelcontextprotocol.io"
-Documentation = "https://py.sdk.modelcontextprotocol.io/"
+Documentation = "https://py.sdk.modelcontextprotocol.io/v1/"
 Repository = "https://github.com/modelcontextprotocol/python-sdk"
 Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
 
