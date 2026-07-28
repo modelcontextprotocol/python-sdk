@@ -346,6 +346,54 @@ class TestRequireAuthMiddleware:
         assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
+    async def test_missing_required_scope_includes_scope_in_challenge(self, valid_access_token: AccessToken):
+        """RFC 6750 3.1: an insufficient_scope challenge MAY include the required scope."""
+        app = MockApp()
+        middleware = RequireAuthMiddleware(app, required_scopes=["admin", "superuser"])
+
+        # Create a user with read/write scopes but neither required scope
+        user = AuthenticatedUser(valid_access_token)
+        auth = AuthCredentials(["read", "write"])
+
+        scope: Scope = {"type": "http", "user": user, "auth": auth}
+
+        async def receive() -> Message:  # pragma: no cover
+            return {"type": "http.request"}
+
+        sent_messages: list[Message] = []
+
+        async def send(message: Message) -> None:
+            sent_messages.append(message)
+
+        await middleware(scope, receive, send)
+
+        assert sent_messages[0]["status"] == 403
+        www_authenticate = next(h[1] for h in sent_messages[0]["headers"] if h[0] == b"www-authenticate")
+        assert www_authenticate == (
+            b'Bearer error="insufficient_scope", error_description="Required scope: admin", scope="admin superuser"'
+        )
+        assert not app.called
+
+    async def test_no_user_challenge_omits_scope(self):
+        """RFC 6750 3.1: scope is specific to insufficient_scope; a bare 401 challenge should not carry it."""
+        app = MockApp()
+        middleware = RequireAuthMiddleware(app, required_scopes=["read"])
+        scope: Scope = {"type": "http"}
+
+        async def receive() -> Message:  # pragma: no cover
+            return {"type": "http.request"}
+
+        sent_messages: list[Message] = []
+
+        async def send(message: Message) -> None:
+            sent_messages.append(message)
+
+        await middleware(scope, receive, send)
+
+        assert sent_messages[0]["status"] == 401
+        www_authenticate = next(h[1] for h in sent_messages[0]["headers"] if h[0] == b"www-authenticate")
+        assert b"scope=" not in www_authenticate
+
     async def test_no_auth_credentials(self, valid_access_token: AccessToken):
         """Test middleware with no auth credentials in scope."""
         app = MockApp()
