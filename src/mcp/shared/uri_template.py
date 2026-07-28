@@ -53,8 +53,8 @@ from urllib.parse import quote, unquote
 
 __all__ = [
     "DEFAULT_MAX_TEMPLATE_LENGTH",
-    "DEFAULT_MAX_VARIABLES",
     "DEFAULT_MAX_URI_LENGTH",
+    "DEFAULT_MAX_VARIABLES",
     "InvalidUriTemplate",
     "Operator",
     "UriTemplate",

@@ -11,16 +11,16 @@ from .types import (
 )
 
 __all__ = [
-    "Resource",
-    "TextResource",
+    "DEFAULT_RESOURCE_SECURITY",
     "BinaryResource",
-    "FunctionResource",
-    "FileResource",
-    "HttpResource",
     "DirectoryResource",
-    "ResourceTemplate",
+    "FileResource",
+    "FunctionResource",
+    "HttpResource",
+    "Resource",
     "ResourceManager",
     "ResourceSecurity",
     "ResourceSecurityError",
-    "DEFAULT_RESOURCE_SECURITY",
+    "ResourceTemplate",
+    "TextResource",
 ]

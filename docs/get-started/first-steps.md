@@ -46,10 +46,6 @@ Three plain functions, three decorators. Each decorator is the entire registrati
 
 Everything else (the name, the description, the argument schema) the SDK reads from the function itself: its name, its docstring, its type hints. You never declared any of it separately.
 
-!!! tip
-    The two halves of the SDK have two import paths: `from mcp import Client` and
-    `from mcp.server import MCPServer`. There is no `from mcp import MCPServer`.
-
 ### Try it
 
 Run it with the MCP Inspector:

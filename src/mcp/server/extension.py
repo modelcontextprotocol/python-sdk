@@ -28,9 +28,7 @@ from mcp_types.methods import SPEC_CLIENT_METHODS
 from pydantic import BaseModel
 
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
-
-# Re-exported from `mcp.shared.extension` (shared with the client surface) for existing importers.
-from mcp.shared.extension import validate_extension_identifier as validate_extension_identifier
+from mcp.shared.extension import validate_extension_identifier
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.resources import Resource

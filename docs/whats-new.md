@@ -24,6 +24,8 @@ from mcp.server import MCPServer  # v1: from mcp.server.fastmcp import FastMCP
 mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 ```
 
+Both halves of the SDK are also on the top-level package, so `from mcp import MCPServer, Client` works.
+
 It is also, for a decorator-built server, most of the port. `@mcp.tool()`, `@mcp.resource()`, and `@mcp.prompt()` accept what they accepted in v1 (`@mcp.resource()` adds one optional `security=` keyword), and the input schema still comes from your type hints. Around the edges: everything under `mcp.server.fastmcp.*` now lives under `mcp.server.mcpserver.*`, `ctx.fastmcp` is `ctx.mcp_server`, `get_context()` is gone (declare a `ctx: Context` parameter instead), and the exception base `FastMCPError` is `MCPServerError`. The **[Migration Guide](migration.md#fastmcp-renamed-to-mcpserver)** has the import table.
 
 ### `Resolve`: the new way to ask the user for input

@@ -265,6 +265,7 @@ The following type aliases and classes have been removed from the protocol types
 | `AnyFunction` | Use `Callable[..., Any]` directly |
 | `ClientRequestType`, `ClientNotificationType`, `ClientResultType`, `ServerRequestType`, `ServerNotificationType`, `ServerResultType` | The union is now the bare name: `ClientRequest`, `ClientNotification`, `ClientResult`, `ServerRequest`, `ServerNotification`, `ServerResult` |
 | `TaskExecutionMode`, `TASK_FORBIDDEN`, `TASK_OPTIONAL`, `TASK_REQUIRED`, `TASK_STATUS_*` | Use string literals; `TaskStatus` remains as the literal-union type |
+| `SamplingRole` (a top-level `mcp` alias for `Role`, never a `mcp.types` name) | `mcp.types.Role` |
 
 **Before (v1):**
 
@@ -656,6 +657,8 @@ from mcp.server.mcpserver import MCPServer, Context
 
 mcp = MCPServer("Demo")
 ```
+
+`MCPServer` is also exported from the top-level `mcp` package, next to `Client` (`from mcp import MCPServer, Client`); `mcp.server` and `mcp.server.mcpserver` keep working as import paths.
 
 `Context` is the type annotation for the `ctx` parameter injected into tools, resources, and prompts (see [`get_context()` removed](#mcpserverget_context-removed) below). The `ctx.fastmcp` property is now `ctx.mcp_server`.
 
@@ -2166,6 +2169,12 @@ The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been re
 
 `sse_client` is unchanged apart from the `httpx2` retyping: it still takes `url`, `headers`, `timeout`, `sse_read_timeout`, `httpx_client_factory` (which must now return an `httpx2.AsyncClient`), `auth` (now `httpx2.Auth | None`), and `on_session_created`. Only the streamable HTTP transport dropped its transport-level parameters; `StreamableHTTPTransport(url)` now takes just the URL.
 
+### `StreamableHTTPError`, `ResumptionError`, and `StreamableHTTPTransport.get_session_id()` removed
+
+`mcp.client.streamable_http` no longer defines `StreamableHTTPError` or its `ResumptionError` subclass: the transport never raised either from a code path a caller could catch, so `from mcp.client.streamable_http import StreamableHTTPError, ResumptionError` now raises `ImportError`. Transport failures surface as per-request JSON-RPC errors (see [Streamable HTTP: non-2xx responses now surface as per-request JSON-RPC errors](#streamable-http-non-2xx-responses-now-surface-as-per-request-json-rpc-errors)) or as the underlying `httpx2` exception; catch those instead.
+
+The unused `StreamableHTTPTransport.get_session_id()` method is gone as well; read the `session_id` attribute directly (or capture the header, as in [`get_session_id` callback removed](#get_session_id-callback-removed-from-streamable_http_client) above).
+
 ### `StreamableHTTPTransport.protocol_version` attribute removed
 
 The transport no longer holds per-connection protocol state; era-dependent headers (e.g. `MCP-Protocol-Version`) are now supplied per-message by the session. If you were reading `transport.protocol_version` to learn the negotiated version, read `session.protocol_version` (or `client.protocol_version` on the high-level `Client`) instead.
@@ -2771,7 +2780,7 @@ The user-facing methods for these features now carry `typing_extensions.deprecat
 
 - Sampling: `ServerSession.create_message()`, `ClientPeer.sample()`
 - Roots: `ServerSession.list_roots()`, `ClientPeer.list_roots()`, `ClientSession.send_roots_list_changed()`, `Client.send_roots_list_changed()`
-- Logging: `ServerSession.send_log_message()`, `Connection.log()`, `ClientSession.set_logging_level()`, `Client.set_logging_level()`, `mcp.server.context.Context.log()` (the lowlevel `Context`), and the `MCPServer` `Context` helpers `log()`, `debug()`, `info()`, `warning()`, `error()`
+- Logging: `ServerSession.send_log_message()`, `Connection.log()`, `ClientSession.set_logging_level()`, `Client.set_logging_level()`, and the `MCPServer` `Context` helpers `log()`, `debug()`, `info()`, `warning()`, `error()`
 
 Registering a handler for a deprecated capability is deprecated too. The `Server.__init__` parameters `on_set_logging_level` (Logging) and `on_roots_list_changed` (Roots) are now split out into a `typing_extensions.deprecated` overload, so passing either is flagged by type checkers and emits `mcp.MCPDeprecationWarning` at construction time. `on_progress` follows the same pattern (see below). The non-deprecated overload omits these parameters, so the common case stays warning-free.
 
@@ -2804,7 +2813,7 @@ rest of this guide stays focused on the v1-to-v2 upgrade itself.
 
 The 2026-07-28 protocol has no server-initiated requests, so a handler that reaches back to the client mid-request — `ctx.elicit()`, `ctx.elicit_url()`, `ctx.session.create_message()`, `ctx.session.list_roots()`, or any other `ServerSession` request helper — raises `NoBackChannelError` on such a connection instead of sending. An in-process `Client(server)` negotiates 2026-07-28 by default (see [`Client` defaults to `mode='auto'`](#client-defaults-to-modeauto)), so the first smoke test of an unchanged v1 sampling or elicitation tool fails, and setting `sampling_callback=` / `elicitation_callback=` on the client changes nothing because no request ever reaches the client.
 
-`NoBackChannelError` lives in `mcp.shared.exceptions` and subclasses `MCPError` (code `-32600`, message `Cannot send '<method>': this transport context has no back-channel for server-initiated requests.`). Raised inside an `@mcp.tool()` it reaches the client as a top-level JSON-RPC error, not `CallToolResult(is_error=True)` — see [`MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error](#mcperror-raised-from-an-mcptool-handler-now-surfaces-as-a-json-rpc-error) — and the [Troubleshooting](troubleshooting.md) page walks through the client-side traceback. The same exception is raised on a legacy session against a `stateless_http=True` server, and on the request-scoped channel of a stateful legacy session against a `json_response=True` server (a JSON body carries exactly one response, so a mid-request `ctx.elicit()` cannot ride it; the session's standalone `GET` stream still carries unrelated messages) — both places v1 dropped the message and stalled ([`Server.run()` no longer takes a `stateless` flag](#serverrun-no-longer-takes-a-stateless-flag)). Notifications never raise it: `send_log_message()`, `send_tool_list_changed()`, and the other notification helpers are dropped with a debug log where no channel exists, and `UrlElicitationRequiredError` from a tool is unaffected (it is an error response, not a request).
+`NoBackChannelError` is exported from the top-level `mcp` package (`from mcp import NoBackChannelError`; it lives in `mcp.shared.exceptions`) and subclasses `MCPError` (code `-32600`, message `Cannot send '<method>': this transport context has no back-channel for server-initiated requests.`). Raised inside an `@mcp.tool()` it reaches the client as a top-level JSON-RPC error, not `CallToolResult(is_error=True)` — see [`MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error](#mcperror-raised-from-an-mcptool-handler-now-surfaces-as-a-json-rpc-error) — and the [Troubleshooting](troubleshooting.md) page walks through the client-side traceback. The same exception is raised on a legacy session against a `stateless_http=True` server, and on the request-scoped channel of a stateful legacy session against a `json_response=True` server (a JSON body carries exactly one response, so a mid-request `ctx.elicit()` cannot ride it; the session's standalone `GET` stream still carries unrelated messages) — both places v1 dropped the message and stalled ([`Server.run()` no longer takes a `stateless` flag](#serverrun-no-longer-takes-a-stateless-flag)). Notifications never raise it: `send_log_message()`, `send_tool_list_changed()`, and the other notification helpers are dropped with a debug log where no channel exists, and `UrlElicitationRequiredError` from a tool is unaffected (it is an error response, not a request).
 
 Two ways to migrate:
 

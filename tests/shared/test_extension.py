@@ -4,14 +4,7 @@ from typing import Any
 
 import pytest
 
-import mcp.server.extension
-import mcp.shared.extension
 from mcp.shared.extension import validate_extension_identifier
-
-
-def test_server_extension_module_reexports_shared_validator() -> None:
-    """SDK-defined: `mcp.server.extension` re-exports the shared validator as the same function object."""
-    assert mcp.server.extension.validate_extension_identifier is mcp.shared.extension.validate_extension_identifier
 
 
 @pytest.mark.parametrize(

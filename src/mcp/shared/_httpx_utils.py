@@ -4,7 +4,7 @@ from typing import Any, Protocol
 
 import httpx2
 
-__all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT"]
+__all__ = ["MCP_DEFAULT_SSE_READ_TIMEOUT", "MCP_DEFAULT_TIMEOUT", "create_mcp_http_client"]
 
 # Default MCP timeout configuration
 MCP_DEFAULT_TIMEOUT = 30.0  # General operations (seconds)

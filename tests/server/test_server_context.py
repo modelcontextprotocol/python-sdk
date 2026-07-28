@@ -14,8 +14,8 @@ import pytest
 from mcp_types import LOG_LEVEL_META_KEY
 from mcp_types.version import LATEST_MODERN_VERSION
 
+from mcp.server._context import Context
 from mcp.server.connection import Connection
-from mcp.server.context import Context
 from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.transport_context import TransportContext
 

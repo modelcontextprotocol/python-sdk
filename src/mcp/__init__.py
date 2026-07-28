@@ -56,7 +56,6 @@ from mcp_types import (
     ToolUseContent,
     UnsubscribeRequest,
 )
-from mcp_types import Role as SamplingRole
 
 # Bind the `mcp.types` submodule on the package, as v1's `from .types import
 # ...` did, so `import mcp` followed by `mcp.types.Tool` keeps working.
@@ -66,9 +65,10 @@ from .client.client import Client
 from .client.session import ClientSession
 from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
+from .server.mcpserver import MCPServer
 from .server.session import ServerSession
 from .server.stdio import stdio_server
-from .shared.exceptions import MCPDeprecationWarning, MCPError, UrlElicitationRequiredError
+from .shared.exceptions import MCPDeprecationWarning, MCPError, NoBackChannelError, UrlElicitationRequiredError
 from .shared.uri_template import InvalidUriTemplate, UriTemplate
 
 __all__ = [
@@ -93,6 +93,7 @@ __all__ = [
     "InitializeResult",
     "InitializedNotification",
     "InputRequiredRoundsExceededError",
+    "InvalidUriTemplate",
     "JSONRPCError",
     "JSONRPCRequest",
     "JSONRPCResponse",
@@ -105,6 +106,8 @@ __all__ = [
     "LoggingMessageNotification",
     "MCPDeprecationWarning",
     "MCPError",
+    "MCPServer",
+    "NoBackChannelError",
     "Notification",
     "PingRequest",
     "ProgressNotification",
@@ -112,15 +115,14 @@ __all__ = [
     "ReadResourceRequest",
     "ReadResourceResult",
     "Resource",
-    "ResourcesCapability",
     "ResourceUpdatedNotification",
+    "ResourcesCapability",
     "RootsCapability",
     "SamplingCapability",
     "SamplingContent",
     "SamplingContextCapability",
     "SamplingMessage",
     "SamplingMessageContentBlock",
-    "SamplingRole",
     "SamplingToolsCapability",
     "ServerCapabilities",
     "ServerNotification",
@@ -134,12 +136,11 @@ __all__ = [
     "Tool",
     "ToolChoice",
     "ToolResultContent",
-    "ToolsCapability",
     "ToolUseContent",
+    "ToolsCapability",
     "UnsubscribeRequest",
     "UriTemplate",
     "UrlElicitationRequiredError",
-    "InvalidUriTemplate",
     "stdio_client",
     "stdio_server",
 ]

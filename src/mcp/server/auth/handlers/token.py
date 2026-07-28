@@ -74,19 +74,13 @@ class TokenErrorResponse(BaseModel):
     error_uri: AnyHttpUrl | None = None
 
 
-# this is just an alias over OAuthToken; the only reason we do this
-# is to have some separation between the HTTP response type, and the
-# type returned by the provider
-TokenSuccessResponse = OAuthToken
-
-
 @dataclass
 class TokenHandler:
     provider: OAuthAuthorizationServerProvider[Any, Any, Any]
     client_authenticator: ClientAuthenticator
     identity_assertion_enabled: bool = False
 
-    def response(self, obj: TokenSuccessResponse | TokenErrorResponse):
+    def response(self, obj: OAuthToken | TokenErrorResponse):
         status_code = 200
         if isinstance(obj, TokenErrorResponse):
             status_code = 400

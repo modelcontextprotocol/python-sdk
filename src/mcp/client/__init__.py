@@ -21,6 +21,7 @@ from mcp.client.extension import (
     advertise,
 )
 from mcp.client.session import ClientSession, IncomingMessage
+from mcp.client.subscriptions import ListenNotSupportedError, Subscription, SubscriptionLost
 
 __all__ = [
     "CacheConfig",
@@ -32,12 +33,15 @@ __all__ = [
     "ClientExtension",
     "ClientRequestContext",
     "ClientSession",
-    "IncomingMessage",
     "InMemoryResponseCacheStore",
+    "IncomingMessage",
     "InputRequiredRoundsExceededError",
+    "ListenNotSupportedError",
     "NotificationBinding",
     "ResponseCacheStore",
     "ResultClaim",
+    "Subscription",
+    "SubscriptionLost",
     "Transport",
     "UnexpectedClaimedResult",
     "advertise",

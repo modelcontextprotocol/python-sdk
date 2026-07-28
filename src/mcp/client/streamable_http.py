@@ -54,14 +54,6 @@ DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't pr
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
 
 
-class StreamableHTTPError(Exception):
-    """Base exception for StreamableHTTP transport errors."""
-
-
-class ResumptionError(StreamableHTTPError):
-    """Raised when resumption request is invalid."""
-
-
 @dataclass
 class RequestContext:
     """Context for a request operation."""
@@ -240,13 +232,10 @@ class StreamableHTTPTransport:
             logger.info(f"GET stream disconnected, reconnecting in {delay_ms}ms...")
             await anyio.sleep(delay_ms / 1000.0)
 
-    async def _handle_resumption_request(self, ctx: RequestContext) -> None:
+    async def _handle_resumption_request(self, ctx: RequestContext, resumption_token: str) -> None:
         """Handle a resumption request using GET with SSE."""
         headers = self._prepare_headers()
-        if ctx.metadata and ctx.metadata.resumption_token:
-            headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
-        else:
-            raise ResumptionError("Resumption request requires a resumption token")  # pragma: no cover
+        headers[LAST_EVENT_ID] = resumption_token
 
         # Extract original request ID to map responses
         original_request_id = None
@@ -556,8 +545,8 @@ class StreamableHTTPTransport:
                         else None
                     )
 
-                    # Check if this is a resumption request
-                    is_resumption = bool(metadata and metadata.resumption_token)
+                    # A resumption token routes this send to a GET+Last-Event-ID replay
+                    resumption_token = metadata.resumption_token if metadata else None
 
                     logger.debug(f"Sending client message: {message}")
 
@@ -583,8 +572,8 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
+                        if resumption_token:
+                            await self._handle_resumption_request(ctx, resumption_token)
                         else:
                             await self._handle_post_request(ctx)
 
@@ -635,15 +624,7 @@ class StreamableHTTPTransport:
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")
 
-    # TODO(Marcelo): Check the TODO below, and cover this with tests if necessary.
-    def get_session_id(self) -> str | None:
-        """Get the current session ID."""
-        return self.session_id  # pragma: no cover
 
-
-# TODO(Marcelo): I've dropped the `get_session_id` callback because it breaks the Transport protocol. Is that needed?
-# It's a completely wrong abstraction, so removal is a good idea. But if we need the client to find the session ID,
-# we should think about a better way to do it. I believe we can achieve it with other means.
 @asynccontextmanager
 async def streamable_http_client(
     url: str,

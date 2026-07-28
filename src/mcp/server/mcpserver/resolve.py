@@ -823,16 +823,16 @@ def _restore_outcome(res: _Resolution, key: str, marker: _Marker, q: str) -> Eli
 
 
 __all__ = [
-    "Resolve",
-    "Elicit",
-    "Sample",
-    "ListRoots",
-    "ElicitationResult",
     "AcceptedElicitation",
-    "DeclinedElicitation",
     "CancelledElicitation",
-    "find_resolved_parameters",
+    "DeclinedElicitation",
+    "Elicit",
+    "ElicitationResult",
+    "ListRoots",
+    "Resolve",
+    "Sample",
     "build_resolver_plans",
+    "find_resolved_parameters",
     "resolve_arguments",
     "returns_input_required",
 ]

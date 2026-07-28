@@ -8,7 +8,7 @@ from typing import Protocol
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.message import SessionMessage
 
-__all__ = ["ReadStream", "WriteStream", "Transport", "TransportStreams"]
+__all__ = ["ReadStream", "Transport", "TransportStreams", "WriteStream"]
 
 TransportStreams = tuple[ReadStream[SessionMessage | Exception], WriteStream[SessionMessage]]
 
