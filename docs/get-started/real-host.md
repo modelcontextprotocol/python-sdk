@@ -23,17 +23,12 @@ That is the last line of Python on this page. From here down it is all host conf
 Every host below gets the same command:
 
 ```bash
-uv run --with "mcp[cli]==2.0.0rc1" mcp run /absolute/path/to/server.py
+uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 ```
 
-One command for all of them because `uv run --with` resolves the pinned SDK into a fresh environment on the spot: it works from any directory, needs no project and no virtual environment to activate, and always gets the exact `mcp` version these docs describe. That matters here more than anywhere else, because a host launches your server from *its* working directory with a near-empty environment, not from your shell.
+One command for all of them because `uv run --with` resolves the SDK into a fresh environment on the spot: it works from any directory and needs no project and no virtual environment to activate. That matters here more than anywhere else, because a host launches your server from *its* working directory with a near-empty environment, not from your shell.
 
-It is also the command `mcp install` writes into Claude Desktop's config for you (below), so what you type by hand and what the tool generates agree.
-
-!!! warning "The version pin is not optional"
-    v2 of this SDK is a release candidate, and installers never select a pre-release unless you name one. An
-    unpinned `--with "mcp[cli]"` gives you the latest **v1.x**, which these docs do not describe.
-    Use the exact pin from **[Installation](installation.md)**.
+It is also the command `mcp install` writes into Claude Desktop's config for you (below), so what you type by hand and what the tool generates agree, apart from the exact version pin the tool adds.
 
 !!! tip "If a host can't find `uv`"
     A host spawns your server with a minimal `PATH`, and `uv` may not be on it. Replace the bare
@@ -74,7 +69,7 @@ There is nothing to be mystified by. This is the entry it writes:
         "run",
         "--frozen",
         "--with",
-        "mcp[cli]==2.0.0rc1",
+        "mcp[cli]==2.0.0",
         "mcp",
         "run",
         "/absolute/path/to/server.py"
@@ -84,12 +79,12 @@ There is nothing to be mystified by. This is the entry it writes:
 }
 ```
 
-That's the launch command from the section above with two additions: the absolute path to `uv`, and `--frozen` so `uv` never rewrites a lockfile it happens to be near. It lands in `claude_desktop_config.json`, which lives at:
+That's the launch command from the section above with three additions: the absolute path to `uv`, `--frozen` so `uv` never rewrites a lockfile it happens to be near, and an exact pin to the `mcp` version you have installed. It lands in `claude_desktop_config.json`, which lives at:
 
 * **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 * **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
-You can write that file by hand. `mcp install` exists so you don't make the two classic mistakes (a relative path, a missing version pin) while doing it.
+You can write that file by hand. `mcp install` exists so you don't make the classic mistake (a relative path) while doing it.
 
 Fully quit Claude Desktop (not just its window) and reopen it.
 
@@ -107,7 +102,7 @@ Fully quit Claude Desktop (not just its window) and reopen it.
 There is no file to edit. Register the server with the `claude` CLI; everything after `--` is the launch command.
 
 ```bash
-claude mcp add bookshop -- uv run --with "mcp[cli]==2.0.0rc1" mcp run /absolute/path/to/server.py
+claude mcp add bookshop -- uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 ```
 
 Run `/mcp` inside a Claude Code session to confirm `bookshop` is connected and its tools are listed.
@@ -121,7 +116,7 @@ Create `.cursor/mcp.json` in your project root.
   "mcpServers": {
     "bookshop": {
       "command": "uv",
-      "args": ["run", "--with", "mcp[cli]==2.0.0rc1", "mcp", "run", "/absolute/path/to/server.py"]
+      "args": ["run", "--with", "mcp[cli]", "mcp", "run", "/absolute/path/to/server.py"]
     }
   }
 }
@@ -139,7 +134,7 @@ Create `.vscode/mcp.json` in your project root.
     "bookshop": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--with", "mcp[cli]==2.0.0rc1", "mcp", "run", "/absolute/path/to/server.py"]
+      "args": ["run", "--with", "mcp[cli]", "mcp", "run", "/absolute/path/to/server.py"]
     }
   }
 }
@@ -156,7 +151,7 @@ Two differences from Cursor's file, and they are the only two: the wrapper key i
 Before you touch any host config, run the launch command yourself:
 
 ```bash
-uv run --with "mcp[cli]==2.0.0rc1" mcp run /absolute/path/to/server.py
+uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 ```
 
 Nothing prints, and it doesn't return. That silence is correct: a stdio server is waiting for a host to speak first on stdin (`Ctrl-C` to stop it). A traceback or an immediate exit is the real bug, and now you can read it instead of guessing at it through a host.
@@ -174,8 +169,8 @@ For anything past those three, **[Troubleshooting](../troubleshooting.md)** is t
 ## Recap
 
 * A **host** (Claude Desktop, an IDE) runs an MCP client that launches your server as a child process over stdio. Connecting means giving it one launch command.
-* That command is `uv run --with "mcp[cli]==2.0.0rc1" mcp run /absolute/path/to/server.py`: version-pinned, no venv to activate, works from any directory. The pin is mandatory while v2 is pre-release.
-* **Claude Desktop** is the one host `mcp install` configures for you. It writes that same command (plus the absolute path to `uv`) into `claude_desktop_config.json`, so you never have to.
+* That command is `uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py`: no venv to activate, works from any directory.
+* **Claude Desktop** is the one host `mcp install` configures for you. It writes that same command (plus the absolute path to `uv`, `--frozen`, and an exact pin to the version you have installed) into `claude_desktop_config.json`, so you never have to.
 * **Claude Code** is `claude mcp add bookshop -- <launch command>`. **Cursor** is `.cursor/mcp.json` under `mcpServers`. **VS Code** is `.vscode/mcp.json` under `servers`, each entry with a `type`.
 * Absolute paths everywhere, restart the host after editing its config, and never let anything but the SDK write to stdout.
 
