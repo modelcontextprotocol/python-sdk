@@ -5,12 +5,14 @@ A **middleware** is one async function that wraps every message your server rece
 You write it as `async (ctx, call_next)` and append it to `server.middleware`. That is the whole API.
 
 !!! warning
-    `Server.middleware` is marked **provisional** in the source. The signature and semantics are
-    expected to change before v2 is final. Use it to *observe*: timing, logging, tracing.
-    Do not make it the foundation your server stands on.
+    The middleware list is marked **provisional** in the source. The signature and semantics are
+    expected to change before v2 is final. Use it to *observe* (timing, logging, tracing) and to
+    *refuse* messages; do not make it the foundation your server stands on.
 
-This is a **low-level `Server`** feature. `MCPServer` does not expose a middleware list.
-If `Server(name, on_call_tool=...)` is new to you, read **[The low-level Server](low-level-server.md)** first.
+`MCPServer` takes the list at construction (`MCPServer(name, middleware=[...])`) and exposes it as
+`mcp.middleware`; the low-level `Server` exposes the same list as `server.middleware`. The example
+below uses the low-level `Server`; if `Server(name, on_call_tool=...)` is new to you, read
+**[The low-level Server](low-level-server.md)** first.
 
 ## A timing middleware
 
@@ -57,7 +59,10 @@ In increasing order of how much you should hesitate:
 
 * **Observe.** Time it, count it, log it. The example above.
 * **Refuse.** Raise an `MCPError` *instead of* calling `call_next(ctx)` and that one message is
-  answered with a JSON-RPC error. The connection stays up; the next message goes through.
+  answered with a JSON-RPC error. The connection stays up; the next message goes through. This is
+  how a server gates `subscriptions/listen` per caller:
+  **[Deciding who may watch](../handlers/subscriptions.md#deciding-who-may-watch)** on the
+  Subscriptions page walks through it.
 * **Rewrite.** `ctx` is a dataclass: `await call_next(dataclasses.replace(ctx, params=...))`
   hands the rest of the chain different params than the client sent. Never do this to
   `initialize`: the result the client gets back is built from your rewritten params, but the
@@ -98,8 +103,8 @@ don't think about it. It is a no-op until you install an exporter, and it has it
 
 ## Recap
 
-* A middleware is `async (ctx, call_next) -> result`, appended to `server.middleware` on the
-  low-level `Server`.
+* A middleware is `async (ctx, call_next) -> result`, passed as `MCPServer(middleware=[...])` (or
+  appended to `mcp.middleware`), and appended to `server.middleware` on the low-level `Server`.
 * It wraps **every** inbound message (`server/discover`, `initialize`, requests, notifications,
   unknown methods) and runs outermost-first.
 * `ctx.request_id is None` is how you tell a notification from a request.

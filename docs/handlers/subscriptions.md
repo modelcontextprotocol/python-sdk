@@ -43,14 +43,22 @@ Two things the stream is *not*:
 * **It is not a replay log.** A dropped stream is gone, and events published while nobody was connected are not queued. Clients re-listen and refetch.
 * **It is not the 2025 path.** Clients that called `resources/subscribe` are served by `ctx.session.send_resource_updated(uri)`. The `notify_*` methods reach `subscriptions/listen` streams only.
 
-!!! warning
-    Don't publish sensitive per-user URIs through `notify_resource_updated` on a multi-tenant
-    server. Any client may name any URI in its filter, and `MCPServer` honors it. The exposure
-    is narrow but real: a subscriber learns that a URI it can guess changed, and when. It never
-    learns content, and it cannot probe what exists, because an unknown URI is honored too and
-    simply never fires. To narrow the filter per client today, serve the method with your own
-    handler on the low-level `Server` and acknowledge a smaller filter than the client asked
-    for; the acknowledgment is how the client learns what it actually got.
+## Deciding who may watch
+
+By default every requested kind and URI is honored: any caller may watch any URI you publish. Nothing consults your read handler, because nobody is reading — a caller your `files://{name}` handler would turn away can still open a stream on `files://payroll.csv` and learn that it changed, and when. It never learns content, and it cannot probe what exists, because an unknown URI is honored too and simply never fires. Narrow but real, so gate it before you publish per-user URIs from a multi-tenant server.
+
+The gate is a middleware. It sees the `subscriptions/listen` request before the SDK acknowledges it and refuses when the caller asks for anything they may not read:
+
+```python title="server.py" hl_lines="19-26 29"
+--8<-- "docs_src/subscriptions/tutorial006.py"
+```
+
+* `ctx.params` is the raw request, so the middleware validates it into `SubscriptionsListenRequestParams` itself and reads the filter the client asked for.
+* Refusal is a raised `MCPError` before `call_next(ctx)`: the client gets that error and no stream, and the connection carries on. Keep the message uniform, naming no URI, so a refusal never confirms which URIs are protected.
+* One `can_access(user, uri)` answers both questions. The resource handler asks it on `resources/read`; the middleware asks it on `subscriptions/listen`. Swap the table for a database or your RBAC system and both stay in step.
+* The decision holds for the stream's lifetime. There is no per-event re-check, so if a caller's access can lapse mid-stream (an expiring token), end that caller's connection when it does.
+
+The full middleware contract, including what else it wraps and why it is marked provisional, is on **[Middleware](../advanced/middleware.md)**.
 
 ## The client end
 

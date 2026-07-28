@@ -107,7 +107,7 @@ Tools, resources, prompts, structured output, progress, errors: none of them car
 There is exactly one thing left, and it is **change notifications**, because the two eras listen on different pipes:
 
 * A `2026-07-28` client opens a `subscriptions/listen` stream and reads the subscriptions bus. `ctx.notify_resource_updated()` (and `notify_tools_changed()`, `notify_prompts_changed()`, `notify_resources_changed()`) publish there, and *only* there. **[Subscriptions](../handlers/subscriptions.md)** is that page.
-* A legacy client reads the standalone stream its session keeps open. `ctx.session.send_resource_updated()` (and `send_tool_list_changed()` and friends) write to the *connection* that carried the request: for a legacy session, that is its standalone stream. For a modern HTTP request there is no such channel, and the notification is quietly dropped.
+* A legacy client reads the standalone stream its session keeps open. `ctx.session.send_resource_updated()` (and `send_tool_list_changed()` and friends) write to the *connection* that carried the request: for a legacy session, that is its standalone stream. A modern connection has no place for it: over HTTP there is no such channel, and over stdio the four change-notification kinds ride `subscriptions/listen` streams only, so on a modern connection the notification is quietly dropped.
 
 Over HTTP, neither call reaches the other era's clients. To tell everyone, call both:
 
