@@ -170,7 +170,7 @@ For anything past those three, **[Troubleshooting](../troubleshooting.md)** is t
 
 * A **host** (Claude Desktop, an IDE) runs an MCP client that launches your server as a child process over stdio. Connecting means giving it one launch command.
 * That command is `uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py`: no venv to activate, works from any directory.
-* **Claude Desktop** is the one host `mcp install` configures for you. It writes that same command (plus the absolute path to `uv`) into `claude_desktop_config.json`, so you never have to.
+* **Claude Desktop** is the one host `mcp install` configures for you. It writes that same command (plus the absolute path to `uv`, `--frozen`, and an exact pin to the version you have installed) into `claude_desktop_config.json`, so you never have to.
 * **Claude Code** is `claude mcp add bookshop -- <launch command>`. **Cursor** is `.cursor/mcp.json` under `mcpServers`. **VS Code** is `.vscode/mcp.json` under `servers`, each entry with a `type`.
 * Absolute paths everywhere, restart the host after editing its config, and never let anything but the SDK write to stdout.
 
