@@ -284,108 +284,53 @@ async def test_event_published_during_ack_send_is_delivered_after_the_ack() -> N
 
 
 @pytest.mark.anyio
-async def test_narrow_hook_narrows_the_ack_and_the_delivered_events() -> None:
-    """SDK-defined: a `narrow` hook grants a subset - it can drop a kind and
-    prune the URI list - and the ack and the stream both reflect the grant."""
+async def test_authorize_hook_accepts_and_the_request_is_honored_unchanged() -> None:
+    """SDK-defined: an `authorize` hook that returns accepts the request as
+    asked - it sees the requested filter and the ack echoes it unmodified."""
     bus = InMemorySubscriptionBus()
     seen: list[SubscriptionFilter] = []
 
-    async def narrow(ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> SubscriptionFilter:
+    async def allow(ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> None:
         seen.append(requested)
-        return SubscriptionFilter(resources_list_changed=True, resource_subscriptions=["r://mine"])
 
-    handler = ListenHandler(bus, narrow=narrow)
+    handler = ListenHandler(bus, authorize=allow)
     session = _RecordingSession()
 
     async with anyio.create_task_group() as tg:
 
         async def run() -> None:
-            await handler(
-                _ctx(session),
-                _params(
-                    tools_list_changed=True,
-                    resources_list_changed=True,
-                    resource_subscriptions=["r://mine", "r://theirs"],
-                ),
-            )
+            await handler(_ctx(session), _params(tools_list_changed=True, resource_subscriptions=["r://a", "r://b"]))
 
         tg.start_soon(run)
         await session.wait_for(1)
-        assert seen == [
-            SubscriptionFilter(
-                tools_list_changed=True, resources_list_changed=True, resource_subscriptions=["r://mine", "r://theirs"]
-            )
-        ]
+        assert seen == [SubscriptionFilter(tools_list_changed=True, resource_subscriptions=["r://a", "r://b"])]
 
         ack, _ = session.sent[0]
         assert isinstance(ack, SubscriptionsAcknowledgedNotification)
-        # tools_list_changed was requested but not granted, and r://theirs was pruned.
         assert ack.params.notifications == SubscriptionFilter(
-            resources_list_changed=True, resource_subscriptions=["r://mine"]
+            tools_list_changed=True, resource_subscriptions=["r://a", "r://b"]
         )
 
-        await bus.publish(ToolsListChanged())  # requested but not granted
-        await bus.publish(ResourceUpdated(uri="r://theirs"))  # pruned URI
-        await bus.publish(ResourcesListChanged())
-        await bus.publish(ResourceUpdated(uri="r://mine"))
-        await session.wait_for(3)
-        handler.close()
-
-    delivered = [notification for notification, _ in session.sent[1:]]
-    assert isinstance(delivered[0], ResourceListChangedNotification)
-    assert isinstance(delivered[1], ResourceUpdatedNotification)
-    assert delivered[1].params.uri == "r://mine"
-    assert len(delivered) == 2
-
-
-@pytest.mark.anyio
-async def test_narrow_hook_can_only_narrow_never_widen() -> None:
-    """SDK-defined: the grant is intersected with the request, so a hook returning
-    kinds or URIs the client never asked for cannot cause them to be delivered -
-    the spec's never-send-unrequested-types rule holds by construction."""
-    bus = InMemorySubscriptionBus()
-
-    async def widen(ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> SubscriptionFilter:
-        return SubscriptionFilter(
-            tools_list_changed=True, prompts_list_changed=True, resource_subscriptions=["r://a", "r://extra"]
-        )
-
-    handler = ListenHandler(bus, narrow=widen)
-    session = _RecordingSession()
-
-    async with anyio.create_task_group() as tg:
-
-        async def run() -> None:
-            await handler(_ctx(session), _params(tools_list_changed=True, resource_subscriptions=["r://a"]))
-
-        tg.start_soon(run)
-        await session.wait_for(1)
-
-        ack, _ = session.sent[0]
-        assert isinstance(ack, SubscriptionsAcknowledgedNotification)
-        assert ack.params.notifications == SubscriptionFilter(tools_list_changed=True, resource_subscriptions=["r://a"])
-
-        await bus.publish(PromptsListChanged())  # granted but never requested
-        await bus.publish(ResourceUpdated(uri="r://extra"))  # granted but never requested
-        await bus.publish(ToolsListChanged())
+        await bus.publish(ResourceUpdated(uri="r://b"))
         await session.wait_for(2)
         handler.close()
 
     delivered = [notification for notification, _ in session.sent[1:]]
-    assert isinstance(delivered[0], ToolListChangedNotification)
+    assert isinstance(delivered[0], ResourceUpdatedNotification)
+    assert delivered[0].params.uri == "r://b"
     assert len(delivered) == 1
 
 
 @pytest.mark.anyio
-async def test_narrow_hook_mcp_error_refuses_the_subscription_pre_ack() -> None:
+async def test_authorize_hook_mcp_error_refuses_the_subscription_pre_ack() -> None:
     """SDK-defined: a hook that raises `MCPError` refuses the whole request -
     the error reaches the client and no ack or stream is opened."""
     bus = _SpyBus()
 
-    async def refuse(ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> SubscriptionFilter:
+    async def refuse(ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> None:
         raise MCPError(INVALID_REQUEST, "not allowed to watch these resources")
 
-    handler = ListenHandler(bus, narrow=refuse)
+    handler = ListenHandler(bus, authorize=refuse)
     session = _RecordingSession()
 
     with pytest.raises(MCPError) as exc_info:
@@ -396,15 +341,15 @@ async def test_narrow_hook_mcp_error_refuses_the_subscription_pre_ack() -> None:
 
 
 @pytest.mark.anyio
-async def test_a_broken_narrow_hook_fails_closed(caplog: pytest.LogCaptureFixture) -> None:
+async def test_a_broken_authorize_hook_fails_closed(caplog: pytest.LogCaptureFixture) -> None:
     """SDK-defined: a hook that raises anything other than `MCPError` is a
     policy error and must never grant - the subscription is refused with an
     internal error rather than falling back to honoring the request."""
 
-    async def broken(ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> SubscriptionFilter:
+    async def broken(ctx: ServerRequestContext[Any, Any], requested: SubscriptionFilter) -> None:
         raise RuntimeError("policy database unavailable")
 
-    handler = ListenHandler(InMemorySubscriptionBus(), narrow=broken)
+    handler = ListenHandler(InMemorySubscriptionBus(), authorize=broken)
     session = _RecordingSession()
 
     with pytest.raises(MCPError) as exc_info:
@@ -412,7 +357,7 @@ async def test_a_broken_narrow_hook_fails_closed(caplog: pytest.LogCaptureFixtur
     assert exc_info.value.error.code == INTERNAL_ERROR
     assert exc_info.value.error.message == "Subscription authorization failed"
     assert session.sent == []
-    assert "subscription narrow hook raised" in caplog.text
+    assert "subscription authorize hook raised" in caplog.text
 
 
 @pytest.mark.anyio

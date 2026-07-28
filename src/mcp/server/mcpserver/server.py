@@ -88,7 +88,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
-from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, NarrowSubscription, SubscriptionBus
+from mcp.server.subscriptions import AuthorizeSubscription, InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
@@ -172,7 +172,7 @@ class MCPServer(Generic[LifespanResultT]):
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         subscriptions: SubscriptionBus | None = None,
-        narrow_subscriptions: NarrowSubscription | None = None,
+        authorize_subscriptions: AuthorizeSubscription | None = None,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -194,9 +194,9 @@ class MCPServer(Generic[LifespanResultT]):
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # The subscriptions/listen fan-out seam (2026-07-28). The default bus is
         # in-process; pass an `SubscriptionBus` implementation over an external pub/sub
-        # backend to fan events out across replicas. `narrow_subscriptions` is the
-        # per-request grant hook (see `NarrowSubscription`); without it every
-        # requested kind and resource URI is honored.
+        # backend to fan events out across replicas. `authorize_subscriptions` is
+        # the per-request accept-or-refuse hook (see `AuthorizeSubscription`);
+        # without it every requested kind and resource URI is honored.
         self._subscriptions: SubscriptionBus = subscriptions if subscriptions is not None else InMemorySubscriptionBus()
         self._lowlevel_server = Server(
             name=name or "mcp-server",
@@ -214,7 +214,7 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
-            on_subscriptions_listen=ListenHandler(self._subscriptions, narrow=narrow_subscriptions),
+            on_subscriptions_listen=ListenHandler(self._subscriptions, authorize=authorize_subscriptions),
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
