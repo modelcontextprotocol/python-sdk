@@ -5,8 +5,6 @@ Notification ordering: await-free callbacks finish in arrival order, and passing
 streamable HTTP, so plain-list collection is deterministic on every transport leg.
 """
 
-from unittest.mock import AsyncMock
-
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -160,33 +158,28 @@ def _siren_server() -> Server:
 
 
 @requirement("logging:per-request:opt-in")
-async def test_no_log_messages_are_sent_for_a_request_without_a_log_level(connect: Connect) -> None:
-    """A request whose _meta carries no io.modelcontextprotocol/logLevel gets no log messages at all.
-
-    The handler emits at every severity, but the client never opts in, so the server must send
-    nothing: the log calls are dropped rather than delivered on some other stream.
-    """
-    logging_callback = AsyncMock()
-
-    async with connect(_siren_server(), logging_callback=logging_callback) as client:
-        result = await client.call_tool("siren", {})
-
-    assert isinstance(result.content[0], TextContent) and result.content[0].text == "logged"
-    logging_callback.assert_not_awaited()
-
-
 @requirement("logging:per-request:threshold")
-async def test_log_messages_below_the_requested_level_are_dropped(connect: Connect) -> None:
-    """A request opting in at `warning` receives only warning and above, in order."""
-    received: list[LoggingMessageNotificationParams] = []
+async def test_log_delivery_follows_the_per_request_log_level(connect: Connect) -> None:
+    """Without io.modelcontextprotocol/logLevel in _meta a request gets no log messages;
+    with it, only entries at or above the requested level are delivered, in order.
+
+    The handler emits at every severity in both phases: the un-opted request receives
+    nothing (the log calls are dropped, not delivered on some other stream), and the request
+    opting in at `warning` receives warning and above.
+    """
+    received: list[types.LoggingLevel] = []
 
     async def collect(params: LoggingMessageNotificationParams) -> None:
-        received.append(params)
+        received.append(params.level)
+
+    async with connect(_siren_server(), logging_callback=collect) as client:
+        result = await client.call_tool("siren", {})
+    assert isinstance(result.content[0], TextContent) and result.content[0].text == "logged"
+    assert received == []
 
     async with connect(_siren_server(), logging_callback=collect, log_level="warning") as client:
         await client.call_tool("siren", {})
-
-    assert [params.level for params in received] == ["warning", "error", "critical", "alert", "emergency"]
+    assert received == ["warning", "error", "critical", "alert", "emergency"]
 
 
 @requirement("logging:per-request:invalid-level")

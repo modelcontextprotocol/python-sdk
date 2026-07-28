@@ -25,6 +25,7 @@ from mcp_types import (
     INVALID_PARAMS,
     INVALID_REQUEST,
     LATEST_PROTOCOL_VERSION,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
@@ -1757,6 +1758,26 @@ async def test_dual_era_loop_legacy_notifications_reach_the_loop_runner(server: 
         await client.send_raw_request("initialize", _initialize_params())
         await client.notify("notifications/custom", None)
         await handled.wait()
+
+
+@pytest.mark.anyio
+async def test_dual_era_loop_a_notifications_meta_never_opens_the_log_gate(server: SrvT):
+    """The 2026 log-delivery opt-in is a request's `_meta`: an inbound notification
+    has no request to opt in, so a handler logging in response to one - even
+    with the log-level key in the notification's own `_meta` - sends nothing."""
+    logged = anyio.Event()
+
+    async def log_it(ctx: Ctx, params: NotificationParams | None) -> None:
+        await ctx.session.send_log_message("emergency", "no request opted in")  # pyright: ignore[reportDeprecated]
+        logged.set()
+
+    server.add_notification_handler("notifications/custom", NotificationParams, log_it)
+    async with dual_era_client(server) as (client, recorder):
+        await client.send_raw_request("tools/list", _modern_params())
+        meta = {**_modern_envelope(), LOG_LEVEL_META_KEY: "debug"}
+        await client.notify("notifications/custom", {"_meta": meta})
+        await logged.wait()
+    assert [method for method, _ in recorder.notifications] == []
 
 
 @pytest.mark.anyio
