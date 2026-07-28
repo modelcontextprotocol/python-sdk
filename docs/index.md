@@ -1,7 +1,7 @@
 # MCP Python SDK
 
-!!! info "You are viewing the in-development v2 documentation"
-    For the current stable release, see the [v1.x documentation](https://py.sdk.modelcontextprotocol.io/).
+!!! info "You are viewing the v2 documentation"
+    The v1.x documentation is at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/).
     New to v2, or coming from v1? **[What's new in v2](whats-new.md)** is the five-minute tour of what changed.
     Trying v2? [Tell us what you find](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) — it is the most useful thing you can do for the SDK right now.
 
