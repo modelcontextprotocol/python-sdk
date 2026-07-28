@@ -184,8 +184,17 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
         self._closed = True
 
 
-def _default_transport_builder(_meta: MessageMetadata) -> TransportContext:
-    return TransportContext(kind="jsonrpc", can_send_request=True)
+def _default_transport_builder(metadata: MessageMetadata) -> TransportContext:
+    """The `TransportContext` for a message, honoring the transport's own verdict when it stamps one.
+
+    A message reads as riding a full duplex pipe (`can_send_request=True`)
+    unless the transport that framed it says otherwise on the metadata it
+    attached, so a transport whose response has no room for a server request
+    (streamable HTTP in JSON-response mode) needs no wiring from whoever drives
+    its streams.
+    """
+    can_send_request = metadata.can_send_request if isinstance(metadata, ServerMessageMetadata) else True
+    return TransportContext(kind="jsonrpc", can_send_request=can_send_request)
 
 
 def _shielded_progress(fn: ProgressFnT) -> ProgressFnT:

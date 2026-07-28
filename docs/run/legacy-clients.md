@@ -72,6 +72,13 @@ Two things about it matter more than what it does.
 
 **It costs both server-to-client channels on that leg.** A session that lives for one `POST` has no stream for the server to push a request down and no standalone stream for it to push notifications down. Every server-initiated request raises `NoBackChannelError`: `ctx.elicit()`, the retired sampling and roots calls (**[Deprecated features](../deprecated.md)**), and, yes, `Resolve` asking a *legacy* client its question. Notifications don't even get an error; they are silently dropped.
 
+!!! note
+    `json_response=True` is not that knob, but it takes half the same cost on *every* legacy
+    session: a `POST` answered with one JSON body has no stream for the request-scoped channel,
+    so a mid-request `ctx.elicit()` raises the same `NoBackChannelError` and notifications tied to
+    the request are dropped. The session's standalone stream is untouched: unrelated notifications
+    still arrive.
+
 !!! check
     Do the wrong thing. `reserve` is the exact tool that just served both clients. Deploy it with
     `stateless_http=True`, connect the same two clients over HTTP, and call it from each.

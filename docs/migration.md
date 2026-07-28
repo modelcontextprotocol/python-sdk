@@ -749,7 +749,7 @@ Transport-specific parameters have been moved off the `MCPServer` constructor an
 - `host`, `port` - HTTP server binding, on `run()` only. The app factories have no `port` (`streamable_http_app(port=...)` raises `TypeError`; a mounted app binds wherever the outer ASGI server does) but do take `host` (default `"127.0.0.1"`), used only to decide whether DNS rebinding protection auto-enables (see the note below)
 - `sse_path`, `message_path` - SSE transport paths, on `run(transport="sse", ...)` and `sse_app()`
 - `streamable_http_path` - StreamableHTTP endpoint path, on `run(transport="streamable-http", ...)` and `streamable_http_app()`
-- `json_response`, `stateless_http` - StreamableHTTP behavior, same two places
+- `json_response`, `stateless_http` - StreamableHTTP behavior, same two places; each also removes a server-to-client channel, see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror)
 - `max_request_body_size` - StreamableHTTP request-body limit, same two places
 - `event_store`, `retry_interval` - StreamableHTTP event handling, same two places
 - `transport_security` - DNS rebinding protection, on `run()` for both HTTP transports and on both app methods
@@ -963,8 +963,11 @@ enforce the spec's egress rule: an undeclared capability (form-mode `elicitation
 or `tool_choice`) fails the call with a `-32021`
 `MISSING_REQUIRED_CLIENT_CAPABILITY` JSON-RPC error instead of sending a
 request the client cannot handle. This applies on 2025-11-25 sessions with a
-live back-channel too; a session with no back-channel keeps failing with its
-no-back-channel error. To migrate, declare the capability: the SDK client
+live back-channel too; a pre-`2026-07-28` session with no back-channel
+(stateless HTTP, or streamable HTTP with `json_response=True`) keeps failing
+with its no-back-channel error. At `2026-07-28` a resolver never uses a
+back-channel — it answers with an `InputRequiredResult` — so the `-32021`
+check applies there unconditionally. To migrate, declare the capability: the SDK client
 declares `elicitation`, `sampling`, and `roots` when the matching callback is
 set, and `sampling.tools` needs an explicit
 `Client(sampling_capabilities=SamplingCapability(tools=...))`. Direct
@@ -1617,7 +1620,7 @@ Nothing changes for callers of the built-in client: abandoning a call (cancellin
 
 The `stateless: bool` parameter on the lowlevel `Server.run()` has been removed. Stateless serving is now a property of how the connection is constructed (the streamable-HTTP manager builds a born-ready `Connection` per request), not a flag the loop driver inspects.
 
-Server-initiated requests that have no channel to travel on — a legacy session against a `stateless_http=True` server, or any connection negotiated at 2026-07-28 — now raise `NoBackChannelError` instead of stalling as they did in v1 (the transport silently dropped the outbound message), so a stateless-HTTP `ctx.elicit()` that used to hang now fails fast; see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror) for the exception and the migration paths.
+Server-initiated requests that have no channel to travel on — a legacy session against a `stateless_http=True` server, the request-scoped channel of a stateful legacy session against a `json_response=True` server, or any connection negotiated at 2026-07-28 — now raise `NoBackChannelError` instead of stalling as they did in v1 (the transport silently dropped the outbound message), so a stateless-HTTP or JSON-mode `ctx.elicit()` that used to hang now fails fast; see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror) for the exception and the migration paths.
 
 ### Lowlevel `Server`: `request_context` property removed
 
@@ -2801,7 +2804,7 @@ rest of this guide stays focused on the v1-to-v2 upgrade itself.
 
 The 2026-07-28 protocol has no server-initiated requests, so a handler that reaches back to the client mid-request — `ctx.elicit()`, `ctx.elicit_url()`, `ctx.session.create_message()`, `ctx.session.list_roots()`, or any other `ServerSession` request helper — raises `NoBackChannelError` on such a connection instead of sending. An in-process `Client(server)` negotiates 2026-07-28 by default (see [`Client` defaults to `mode='auto'`](#client-defaults-to-modeauto)), so the first smoke test of an unchanged v1 sampling or elicitation tool fails, and setting `sampling_callback=` / `elicitation_callback=` on the client changes nothing because no request ever reaches the client.
 
-`NoBackChannelError` lives in `mcp.shared.exceptions` and subclasses `MCPError` (code `-32600`, message `Cannot send '<method>': this transport context has no back-channel for server-initiated requests.`). Raised inside an `@mcp.tool()` it reaches the client as a top-level JSON-RPC error, not `CallToolResult(is_error=True)` — see [`MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error](#mcperror-raised-from-an-mcptool-handler-now-surfaces-as-a-json-rpc-error) — and the [Troubleshooting](troubleshooting.md) page walks through the client-side traceback. The same exception is raised on a legacy session against a `stateless_http=True` server, where v1 dropped the message and stalled ([`Server.run()` no longer takes a `stateless` flag](#serverrun-no-longer-takes-a-stateless-flag)). Notifications never raise it: `send_log_message()`, `send_tool_list_changed()`, and the other notification helpers are dropped with a debug log where no channel exists, and `UrlElicitationRequiredError` from a tool is unaffected (it is an error response, not a request).
+`NoBackChannelError` lives in `mcp.shared.exceptions` and subclasses `MCPError` (code `-32600`, message `Cannot send '<method>': this transport context has no back-channel for server-initiated requests.`). Raised inside an `@mcp.tool()` it reaches the client as a top-level JSON-RPC error, not `CallToolResult(is_error=True)` — see [`MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error](#mcperror-raised-from-an-mcptool-handler-now-surfaces-as-a-json-rpc-error) — and the [Troubleshooting](troubleshooting.md) page walks through the client-side traceback. The same exception is raised on a legacy session against a `stateless_http=True` server, and on the request-scoped channel of a stateful legacy session against a `json_response=True` server (a JSON body carries exactly one response, so a mid-request `ctx.elicit()` cannot ride it; the session's standalone `GET` stream still carries unrelated messages) — both places v1 dropped the message and stalled ([`Server.run()` no longer takes a `stateless` flag](#serverrun-no-longer-takes-a-stateless-flag)). Notifications never raise it: `send_log_message()`, `send_tool_list_changed()`, and the other notification helpers are dropped with a debug log where no channel exists, and `UrlElicitationRequiredError` from a tool is unaffected (it is an error response, not a request).
 
 Two ways to migrate:
 
