@@ -28,9 +28,10 @@ from mcp_types import (
     Tool,
 )
 
-from mcp import MCPError
+from mcp import Client, MCPError
 from mcp.client import ClientRequestContext, ClientSession, IncomingMessage
 from mcp.server import Server, ServerRequestContext
+from mcp.server.streamable_http import REQUEST_CANCELLED
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from tests._stamp import Unstamp
@@ -39,20 +40,39 @@ from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
+_LEGACY_HTTP_TERMINATOR = ErrorData(code=REQUEST_CANCELLED, message="Request cancelled")
+"""The one wire where a cancelled request is still answered: the 2025-era streamable HTTP
+transport ends a request only with a response, so it terminates the settled request with
+`REQUEST_CANCELLED`. Every other transport sends nothing at all."""
+
+
+async def _await_doomed_call(client: Client, outcomes: list[object]) -> None:
+    """Await the doomed `block` call and record whatever, if anything, the caller receives.
+
+    On the stream transports nothing ever arrives, so this parks until the task is abandoned;
+    over legacy streamable HTTP the transport's terminator arrives as an MCPError.
+    """
+    try:
+        outcomes.append(await client.call_tool("block", {}))
+    except MCPError as exc:
+        outcomes.append(exc.error)
+
 
 @requirement("protocol:cancel:in-flight")
 @requirement("protocol:cancel:handler-abort-propagates")
 async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
-    """Cancelling an in-flight request interrupts its handler and fails the pending call.
+    """Cancelling an in-flight request interrupts its handler, and the server sends no response for it.
 
-    The server answers the cancelled request with an error response (the spec says it should
-    not respond at all; see the divergence note on the requirement), so the caller's pending
-    request raises rather than hanging.
+    The cancellation is scripted by hand while a sibling task still awaits the call, which is
+    something a well-behaved sender never does (per spec it stops waiting once it cancels). That
+    lets the test prove the negative: after the handler is interrupted and the connection has
+    quiesced, no server response has reached the still-parked call - except the legacy
+    streamable HTTP terminator (`_LEGACY_HTTP_TERMINATOR`).
     """
     started = anyio.Event()
     handler_cancelled = anyio.Event()
     request_ids: list[types.RequestId] = []
-    errors: list[ErrorData] = []
+    outcomes: list[object] = []
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "block"
@@ -70,30 +90,26 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
 
     async with connect(server) as client:
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as task_group:
-
-                async def call_and_capture_error() -> None:
-                    with pytest.raises(MCPError) as exc_info:
-                        await client.call_tool("block", {})
-                    errors.append(exc_info.value.error)
-
-                task_group.start_soon(call_and_capture_error)
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
+                task_group.start_soon(_await_doomed_call, client, outcomes)
                 await started.wait()
                 await client.session.send_notification(
                     types.CancelledNotification(
                         params=types.CancelledNotificationParams(request_id=request_ids[0], reason="user aborted")
                     )
                 )
-
-            await handler_cancelled.wait()
-
-    assert errors == snapshot([ErrorData(code=0, message="Request cancelled")])
+                await handler_cancelled.wait()
+                # Let anything the server was going to send be delivered before checking.
+                await anyio.wait_all_tasks_blocked()
+                assert outcomes in ([], [_LEGACY_HTTP_TERMINATOR])
+                task_group.cancel_scope.cancel()  # abandon the call if it is still parked
 
 
 @requirement("protocol:cancel:server-survives")
 async def test_session_serves_requests_after_cancellation(connect: Connect) -> None:
     """A request cancelled mid-flight does not poison the session: the next request succeeds."""
     started = anyio.Event()
+    handler_cancelled = anyio.Event()
     request_ids: list[types.RequestId] = []
 
     async def list_tools(
@@ -112,7 +128,11 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
         assert ctx.request_id is not None
         request_ids.append(ctx.request_id)
         started.set()
-        await anyio.Event().wait()  # blocks until cancelled
+        try:
+            await anyio.Event().wait()  # blocks until cancelled
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            raise
         raise NotImplementedError  # unreachable
 
     server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -120,16 +140,13 @@ async def test_session_serves_requests_after_cancellation(connect: Connect) -> N
     async with connect(server) as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:
-
-                async def call_and_swallow_cancellation_error() -> None:
-                    with pytest.raises(MCPError):
-                        await client.call_tool("block", {})
-
-                task_group.start_soon(call_and_swallow_cancellation_error)
+                task_group.start_soon(_await_doomed_call, client, list[object]())
                 await started.wait()
                 await client.session.send_notification(
                     types.CancelledNotification(params=types.CancelledNotificationParams(request_id=request_ids[0]))
                 )
+                await handler_cancelled.wait()
+                task_group.cancel_scope.cancel()  # abandon the parked call
 
             result = await client.call_tool("echo", {})
 
@@ -393,8 +410,9 @@ async def test_abandoning_a_call_stops_the_server_handler(connect: Connect, unst
             with anyio.fail_after(5):
                 await handler_cancelled.wait()
 
-        # Let the abandoned call's late error response (sent on the legacy arms) arrive and be
-        # dropped while the client is still open, so teardown never races its delivery.
+        # Let anything still owed the abandoned call (the REQUEST_CANCELLED terminator over
+        # legacy streamable HTTP; nothing elsewhere) arrive and be dropped while the client is
+        # still open, so teardown never races its delivery.
         await anyio.wait_all_tasks_blocked()
         result = await client.call_tool("echo", {})
         assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
@@ -460,8 +478,9 @@ async def test_abandoning_one_call_leaves_a_concurrent_call_running(connect: Con
                 await doomed_cancelled.wait()
             release_survivor.set()
 
-        # Let the abandoned call's late error response (sent on the legacy arms) arrive and be
-        # dropped while the client is still open, so teardown never races its delivery.
+        # Let anything still owed the abandoned call (the REQUEST_CANCELLED terminator over
+        # legacy streamable HTTP; nothing elsewhere) arrive and be dropped while the client is
+        # still open, so teardown never races its delivery.
         await anyio.wait_all_tasks_blocked()
 
     assert [unstamped(result) for result in results] == snapshot(

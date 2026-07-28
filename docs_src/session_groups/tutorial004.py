@@ -1,8 +1,7 @@
 import asyncio
 
-from mcp_types import Implementation
-
 from mcp import ClientSessionGroup, StdioServerParameters
+from mcp.types import Implementation
 
 
 def by_server(name: str, server_info: Implementation) -> str:

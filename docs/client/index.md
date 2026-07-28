@@ -135,7 +135,7 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
 
 The resource verbs come in pairs: two ways to list, one way to read.
 
-```python title="client.py" hl_lines="23-32"
+```python title="client.py" hl_lines="22-31"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -174,7 +174,7 @@ A host hands those messages straight to the model. That is the whole feature.
 
 A server with a completion handler can autocomplete prompt and resource-template arguments as the user types.
 
-```python title="client.py" hl_lines="28-32"
+```python title="client.py" hl_lines="27-31"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -187,7 +187,7 @@ The answer is in `result.completion.values`. Type `"p"` and the server comes bac
 
 Every `list_*` method takes a `cursor=` keyword and every result carries a `next_cursor`. When `next_cursor` is `None`, you have everything.
 
-```python title="client.py" hl_lines="23-31"
+```python title="client.py" hl_lines="22-30"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 

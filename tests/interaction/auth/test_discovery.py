@@ -17,14 +17,16 @@ import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import ListToolsResult, Tool
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, ProtectedResourceMetadata
 from tests.interaction._connect import BASE_URL, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
+    REDIRECT_URI,
+    InMemoryTokenStorage,
     RecordedRequest,
     auth_settings,
     connect_with_oauth,
@@ -171,6 +173,91 @@ async def test_a_400_from_the_registration_endpoint_surfaces_as_a_registration_e
         ):
             await connect_with_oauth(server, provider=provider, app_shim=app_shim, on_request=on_request).__aenter__()
 
+    assert [r.path for r in recorded if r.path in ("/authorize", "/token")] == []
+
+
+@requirement("client-auth:dcr:substituted-metadata")
+async def test_a_registration_response_with_substituted_metadata_completes_the_flow() -> None:
+    """A 201 whose echoed metadata differs from the request still yields a working client.
+
+    The shim replaces the real `/register` with a body that echoes an `application_type`
+    outside OIDC Registration's set, a null `redirect_uris`, and an extra grant type - a
+    substitution RFC 7591 §3.2.1 permits. The registration proceeds and, after `/register`
+    stopped answering, the client authorizes and exchanges a token as normal.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    client_id = "substituted-client"
+    provider.clients[client_id] = OAuthClientInformationFull(
+        client_id=client_id,
+        client_secret="s3cr3t",
+        redirect_uris=[AnyUrl(REDIRECT_URI)],
+        token_endpoint_auth_method="client_secret_post",
+        scope="mcp",
+    )
+    body = json.dumps(
+        {
+            "client_id": client_id,
+            "client_secret": "s3cr3t",
+            "token_endpoint_auth_method": "client_secret_post",
+            "application_type": "confidential",
+            "redirect_uris": None,
+            "grant_types": ["authorization_code", "refresh_token", "client_credentials"],
+        }
+    ).encode()
+    app_shim = shim(serve={"/register": (201, body)})
+    storage = InMemoryTokenStorage()
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server, provider=provider, storage=storage, app_shim=app_shim, on_request=on_request
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == snapshot("probe")
+    assert storage.client_info is not None
+    assert storage.client_info.client_id == client_id
+    assert storage.client_info.application_type == "confidential"
+    assert [r.path for r in recorded].index("/register") < [r.path for r in recorded].index("/token")
+
+
+@requirement("client-auth:dcr:substituted-metadata")
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        pytest.param(
+            {"client_secret": "s3cr3t", "token_endpoint_auth_method": "client_secret_jwt"}, id="unimplemented"
+        ),
+        pytest.param({"client_secret": "s3cr3t", "token_endpoint_auth_method": "private_key_jwt"}, id="unsignable"),
+        pytest.param({"token_endpoint_auth_method": "client_secret_post"}, id="secret-not-issued"),
+    ],
+)
+async def test_a_registration_assigning_unusable_credentials_surfaces_as_a_registration_error(
+    credentials: dict[str, str],
+) -> None:
+    """A 201 assigning credentials this flow cannot apply is a registration error.
+
+    RFC 7591 §3.2.1 leaves it to the client to judge whether a substituted value makes the
+    registration usable. The authorization-code flow authenticates with the minted secret, so
+    an unimplemented method, `private_key_jwt` (an assertion it has no key to sign), and a
+    secret-based method with no secret issued are all unusable; each is reported before
+    the record is stored or any authorize/token request is made.
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    server = Server("guarded", on_list_tools=list_tools)
+    body = json.dumps({"client_id": "unusable", **credentials}).encode()
+    app_shim = shim(serve={"/register": (201, body)})
+    storage = InMemoryTokenStorage()
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(pytest.RaisesExc(OAuthRegistrationError), flatten_subgroups=True):
+            await connect_with_oauth(
+                server, provider=provider, storage=storage, app_shim=app_shim, on_request=on_request
+            ).__aenter__()
+
+    assert storage.client_info is None
     assert [r.path for r in recorded if r.path in ("/authorize", "/token")] == []
 
 

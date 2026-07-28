@@ -3,7 +3,7 @@
 One model per protocol construct, carrying every field from every supported
 protocol version, so application code sees a single set of types regardless of
 the negotiated version. Per-field docstrings note version availability. The
-`mcp_types.v*` surface packages carry the schema-exact wire shapes.
+`mcp_types._v*` surface packages carry the schema-exact wire shapes.
 """
 
 from __future__ import annotations

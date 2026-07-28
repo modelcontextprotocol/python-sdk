@@ -56,7 +56,7 @@ Two things the stream is *not*:
 
 Here is a client on the other side of that stream, following the board:
 
-```python title="client.py" hl_lines="16"
+```python title="client.py" hl_lines="15"
 --8<-- "docs_src/subscriptions/tutorial003.py"
 ```
 
@@ -119,7 +119,7 @@ async def tools_reloaded() -> None:
 
 Down on the low-level `Server` there is no pre-wired anything, and the same parts assemble in three lines:
 
-```python title="server.py" hl_lines="9-10 48"
+```python title="server.py" hl_lines="8-9 47"
 --8<-- "docs_src/subscriptions/tutorial002.py"
 ```
 

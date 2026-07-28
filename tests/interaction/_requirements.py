@@ -537,14 +537,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
-            "receiver does not send a response for the cancelled request."
+            "receiver does not send a response for the cancelled request - no result and no error."
         ),
         divergence=Divergence(
             note=(
-                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
-                "server for cancelled client requests, and the client for cancelled server-initiated "
-                "requests — which is what unblocks the sender's pending call."
+                "The 2025-era streamable HTTP transport still answers a cancelled request, with a "
+                "REQUEST_CANCELLED (-32800) error - deliberate and era-scoped: that wire ends a request's "
+                "stream only with a response for its id, so silence would leave the POST (and any "
+                "resuming client's replay) open. Every other transport sends nothing, and the "
+                "2026-07-28 MUST NOT applies only there. Retires with the legacy transport; see "
+                "transport:streamable-http:cancelled-request-terminated."
             ),
         ),
         arm_exclusions=(
@@ -2559,6 +2561,22 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
     ),
+    "transport:streamable-http:cancelled-request-terminated": Requirement(
+        source="sdk",
+        behavior=(
+            "A request cancelled through notifications/cancelled is terminated with a REQUEST_CANCELLED "
+            "(-32800) error response, completing its POST - the JSON body in JSON-response mode, the "
+            "final event of its stream in SSE mode."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "An SDK choice, not spec-mandated (the spec-side gap is the Divergence on "
+            "protocol:cancel:in-flight): this era's wire ends a request's stream only with a response "
+            "for its id, and stores it so a resuming client's replay terminates too. The terminator is "
+            "written through the same ordered channel as the request's other messages, so it cannot "
+            "overtake anything already queued for the request."
+        ),
+    ),
     "transport:streamable-http:stateless": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(
@@ -2939,6 +2957,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=("Every token-endpoint response carries `Cache-Control: no-store` and `Pragma: no-cache`."),
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; Cache-Control is an HTTP header.",
+    ),
+    "hosting:auth:as:register-echo": Requirement(
+        source="sdk",
+        behavior=(
+            "The bundled registration endpoint returns all registered metadata about the client "
+            "in its 201 response (RFC 7591 §3.2.1) - the client's `application_type` rather than a "
+            "substituted default, and `client_secret_expires_at` (0 when the secret never expires) "
+            "whenever a `client_secret` is issued."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
     "hosting:auth:as:register-error-response": Requirement(
         source="sdk",
@@ -3656,6 +3685,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A 400 from the registration endpoint surfaces to the caller as an OAuthRegistrationError "
             "carrying the status and the server's RFC 7591 error body."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
+    "client-auth:dcr:substituted-metadata": Requirement(
+        source="sdk",
+        behavior=(
+            "A 201 registration response whose echoed metadata the server substituted (RFC 7591 §3.2.1) - "
+            "an unregistered application_type, null redirect_uris, extra grant types - completes the flow; "
+            "substituted credentials the authorization-code flow cannot apply (an unimplemented "
+            "token_endpoint_auth_method; private_key_jwt, whose assertion it has no key to sign; or a "
+            "secret-based method with no client_secret issued) are instead reported as an "
+            "OAuthRegistrationError before the record is persisted or authorization begins."
         ),
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",

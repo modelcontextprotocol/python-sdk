@@ -1,8 +1,9 @@
 """Regenerate the per-version wire-shape surface packages from vendored schemas.
 
 Runs `datamodel-code-generator` over each `schema/PINNED.json` entry and
-writes the result to `src/mcp-types/mcp_types/v<version>/__init__.py` with only the
-fixes the raw output needs: a small JSON pre-patch for the known
+writes the result to `src/mcp-types/mcp_types/_v<version>/__init__.py` (the
+underscore marks these as internal validators, not public API) with only
+the fixes the raw output needs: a small JSON pre-patch for the known
 `number`-as-`integer` schema.json defect, a header, full URLs for the spec's
 site-absolute doc links, and per-version epilogue aliases. Run with
 `uv run --frozen --group codegen python scripts/gen_surface_types.py [--check]`.
@@ -270,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
 
     drift = False
     for entry in load_pinned():
-        target = TYPES_DIR / ("v" + entry["protocol_version"].replace("-", "_")) / "__init__.py"
+        target = TYPES_DIR / ("_v" + entry["protocol_version"].replace("-", "_")) / "__init__.py"
         candidate = build(entry)
         if not args.check:
             target.parent.mkdir(parents=True, exist_ok=True)

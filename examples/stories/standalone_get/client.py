@@ -1,8 +1,8 @@
 """Receive `notifications/resources/list_changed` over the standalone GET stream, then re-list."""
 
 import anyio
-import mcp_types as types
 
+import mcp.types as types
 from mcp.client import Client, IncomingMessage
 from stories._harness import Target, run_client
 

@@ -72,7 +72,9 @@ TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportCont
 
 PeerCancelMode = Literal["interrupt", "signal"]
 """How `notifications/cancelled` is applied: `"interrupt"` (default) cancels
-the handler's scope; `"signal"` only sets `ctx.cancel_requested`."""
+the handler's scope; `"signal"` only sets `ctx.cancel_requested` and lets the
+handler run to completion. Either way the cancelled request is never
+answered - the handler's eventual result or error is dropped, not written."""
 
 _Pending = Pending
 """Outbound-waiter record; owned by `RequestCorrelator` (aliased here for white-box tests)."""
@@ -512,7 +514,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """Run `on_request` for one inbound request and write its response.
 
         The exception-to-wire policy lives in `RequestCorrelator.serve_inbound`;
-        this only binds the wire writes for a stream-pair transport.
+        this only binds the wire writes for a stream-pair transport. A request
+        the peer cancelled is never answered (spec: MUST NOT send further
+        messages for it) - it settles unanswered instead, and `_settle_unanswered`
+        tells the transport.
         """
         await self._corr.serve_inbound(
             req.id,
@@ -521,6 +526,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             partial(on_request, dctx, req.method, req.params),
             write_result=partial(self._write_result, req.id),
             write_error=partial(self._write_error, req.id),
+            settle_unanswered=partial(self._settle_unanswered, dctx),
             raise_handler_exceptions=self._raise_handler_exceptions,
         )
 
@@ -538,6 +544,18 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             await self._write(JSONRPCError(jsonrpc="2.0", id=request_id, error=error))
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped error for %r: write stream closed", request_id)
+
+    async def _settle_unanswered(self, dctx: _JSONRPCDispatchContext[TransportT]) -> None:
+        """Run the transport's `on_request_unanswered` hook: this request settled with no response.
+
+        The dispatcher writes nothing for it; a transport whose wire must still
+        end the request (2025-era streamable HTTP) does so from this hook.
+        `RequestCorrelator.serve_inbound` invokes and contains it.
+        """
+        metadata = dctx.message_metadata
+        if not isinstance(metadata, ServerMessageMetadata) or metadata.on_request_unanswered is None:
+            return
+        await metadata.on_request_unanswered()
 
     async def _cancel_outbound(self, request_id: RequestId, reason: str, related_request_id: RequestId | None) -> None:
         # Thread `related_request_id` so streamable HTTP routes the cancel onto

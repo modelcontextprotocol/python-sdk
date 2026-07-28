@@ -6,8 +6,8 @@ from types import MappingProxyType, UnionType
 from typing import Any, get_args
 
 import mcp_types as types
-import mcp_types.v2025_11_25 as v2025
-import mcp_types.v2026_07_28 as v2026
+import mcp_types._v2025_11_25 as v2025
+import mcp_types._v2026_07_28 as v2026
 import pydantic
 import pytest
 from mcp_types import methods
@@ -295,11 +295,11 @@ EMPTY_CLIENT_RESPONSE_METHODS = frozenset({"ping"})
 
 # Pre-2026 versions share the 2025-11-25 surface package.
 PACKAGE_BY_VERSION = {
-    "2024-11-05": "mcp_types.v2025_11_25",
-    "2025-03-26": "mcp_types.v2025_11_25",
-    "2025-06-18": "mcp_types.v2025_11_25",
-    "2025-11-25": "mcp_types.v2025_11_25",
-    "2026-07-28": "mcp_types.v2026_07_28",
+    "2024-11-05": "mcp_types._v2025_11_25",
+    "2025-03-26": "mcp_types._v2025_11_25",
+    "2025-06-18": "mcp_types._v2025_11_25",
+    "2025-11-25": "mcp_types._v2025_11_25",
+    "2026-07-28": "mcp_types._v2026_07_28",
 }
 
 # The reserved `params._meta` entries the 2026 surface accepts on every request.

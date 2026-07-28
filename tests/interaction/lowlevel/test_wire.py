@@ -353,8 +353,8 @@ async def test_abandoning_a_call_on_a_modern_stream_wire_sends_one_cancelled_fra
             with anyio.fail_after(5):
                 await handler_cancelled.wait()
 
-        # Let the cancelled call's late error response arrive and be dropped while the client
-        # is still open, so teardown never races its delivery.
+        # Let any in-flight delivery for the abandoned call settle while the client is still
+        # open, so teardown never races it (nothing arrives here: a cancelled request is not answered).
         await anyio.wait_all_tasks_blocked()
 
     call, cancel = [message.message for message in recording.sent]

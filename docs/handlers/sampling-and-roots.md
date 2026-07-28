@@ -11,7 +11,7 @@ Both still work, on every protocol version the SDK speaks. But read the warning 
 
 A resolver returns `Sample(...)` and the tool receives the completion, through the same dependency mechanism that runs `Elicit` in **[Dependencies](dependencies.md)**:
 
-```python title="server.py" hl_lines="11-16 20"
+```python title="server.py" hl_lines="10-15 19"
 --8<-- "docs_src/sampling_and_roots/tutorial001.py"
 ```
 
@@ -24,7 +24,7 @@ A resolver returns `Sample(...)` and the tool receives the completion, through t
 
 Roots are the folders the client says the server may operate on. They are informational guidance, not an access-control mechanism. A resolver returns `ListRoots()`:
 
-```python title="server.py" hl_lines="11-12 16"
+```python title="server.py" hl_lines="10-11 15"
 --8<-- "docs_src/sampling_and_roots/tutorial002.py"
 ```
 

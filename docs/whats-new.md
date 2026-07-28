@@ -117,7 +117,7 @@ Underneath, the v1 `BaseSession` receive loop was replaced by a dispatcher engin
 
 ### The wire types moved to `mcp-types`, and every field is snake_case
 
-The protocol types now live in their own distribution, `mcp-types`, imported as `mcp_types`. It depends on nothing but pydantic and typing-extensions, so a gateway, a proxy, or a code generator can consume MCP's wire shapes without installing an HTTP stack. `mcp` depends on it at an exact version and re-exports the common names, so `from mcp import Tool` still works; `import mcp.types` does not.
+The protocol types now live in their own distribution, `mcp-types`. It depends on nothing but pydantic and typing-extensions, so a gateway, a proxy, or a code generator can consume MCP's wire shapes without installing an HTTP stack: such a project installs `mcp-types` and imports `mcp_types`. `mcp` itself depends on that package at an exact version and re-exposes it, so code that depends on the SDK keeps writing `import mcp.types as types` and `from mcp.types import Tool` (a permanent alias, every name the same object) and declares only its one real dependency, `mcp`. The rule of thumb: import through whichever package you actually depend on.
 
 On those types, every Python attribute is now snake_case: `result.is_error`, `tool.input_schema`, `listing.next_cursor`. The JSON on the wire is camelCase, exactly as before; only the attribute spelling changed. Two stricter defaults ride along: unknown fields are ignored instead of round-tripped (put extras in `_meta`), and both sides validate traffic against the protocol version they negotiated. See the **[Migration Guide](migration.md#field-names-changed-from-camelcase-to-snake_case)** for the rename table.
 
@@ -146,7 +146,7 @@ Each of these is a section in the **[Migration Guide](migration.md)**:
 
 * The **WebSocket transport**, both sides, and the `mcp[ws]` extra. It was never part of the MCP specification.
 * The **experimental Tasks** API (`mcp.*.experimental`). 2026-07-28 moves tasks out of the core protocol and into an official extension ([SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663)), which this SDK does not implement yet.
-* `mcp.types`, `mcp.shared.version`, `mcp.shared.progress`, and `mcp.shared.session` (with the `RequestResponder` stub v1 `message_handler` annotations imported) as import paths.
+* `mcp.shared.version`, `mcp.shared.progress`, and `mcp.shared.session` (with the `RequestResponder` stub v1 `message_handler` annotations imported) as import paths. (`mcp.types` is *not* removed: it remains as a permanent alias for the standalone `mcp_types` package.)
 * The deprecated `streamablehttp_client` spelling, and the `get_session_id` callback from `streamable_http_client` (which now yields exactly two streams).
 * `McpError`, renamed **`MCPError`** with a direct `(code, message, data)` constructor.
 * `MCPServer.get_context()`, `mount_path=`, and the lowlevel `Server`'s decorator methods, ContextVar, and handler dicts.

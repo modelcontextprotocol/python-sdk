@@ -411,18 +411,24 @@ class RequestCorrelator(Generic[DctxT]):
         *,
         write_result: Callable[[dict[str, Any]], Awaitable[None]],
         write_error: Callable[[ErrorData], Awaitable[None]],
+        settle_unanswered: Callable[[], Awaitable[None]] | None = None,
         raise_handler_exceptions: bool = False,
     ) -> None:
-        """Run one registered inbound request and write exactly one terminal outcome.
+        """Run one registered inbound request and write at most one terminal outcome.
 
         The single exception-to-wire boundary for inbound requests. `run` is
         the handler invocation; `write_result`/`write_error` put the terminal
         response on whatever channel the transport uses (they must not raise
-        for a torn-down channel). The caller registers `(request_id, scope,
-        dctx)` via `enter_inbound` *before* scheduling this, so a peer
-        cancel that races the handler's start still lands.
+        for a torn-down channel). A request the peer cancelled is never
+        answered (spec: MUST NOT send further messages for it): its result or
+        error is dropped and it settles through `settle_unanswered` - the
+        transport's hook for a wire that must still end the request another
+        way. The caller registers `(request_id, scope, dctx)` via
+        `enter_inbound` *before* scheduling this, so a peer cancel that races
+        the handler's start still lands.
         """
         answer_write_started = False
+        handler_failure: BaseException | None = None  # re-raised once the request settles
         try:
             with scope:
                 try:
@@ -435,32 +441,21 @@ class RequestCorrelator(Generic[DctxT]):
                     key = coerce_request_id(request_id)
                     if (entry := self.in_flight.get(key)) is not None and entry.dctx is dctx:
                         del self.in_flight[key]
-                # A write interrupted by cancellation may still have delivered
-                # (a memory-stream send can hand its item to the receiver and
-                # still raise), so a started answer write counts as sent below:
-                # peers drop late responses, while a second answer for one id
-                # would break JSON-RPC.
-                answer_write_started = True
-                await write_result(result)
-            if scope.cancelled_caught:
-                # anyio absorbs the scope's own cancel at __exit__, and
-                # `cancelled_caught` (unlike `cancel_called`) guarantees the
-                # result write above did not happen - no double response.
-                # TODO(L38): spec says SHOULD NOT respond after cancel;
-                # the existing server always has, so match that for now.
-                # This is the single site every transport shares for the
-                # cancelled-request answer policy; change it here for all
-                # of them (a transport whose response stream must still end
-                # sees this write, so a suppressed answer needs the stream
-                # terminated another way).
-                answer_write_started = True
-                await write_error(ErrorData(code=0, message="Request cancelled"))
+                if not dctx.cancel_requested.is_set():
+                    # A write interrupted by cancellation may still have delivered
+                    # (a memory-stream send can hand its item to the receiver and
+                    # still raise), so a started answer write counts as sent below:
+                    # peers drop late responses, while a second answer for one id
+                    # would break JSON-RPC.
+                    answer_write_started = True
+                    await write_result(result)
         except anyio.get_cancelled_exc_class():
             # Shutdown: answer the request so the peer isn't left waiting - unless
             # an answer write already started (it may have reached the channel;
-            # prefer possibly-zero answers over possibly-two). The shielded helper
-            # is needed because bare awaits re-raise here.
-            if not answer_write_started:
+            # prefer possibly-zero answers over possibly-two), or the peer already
+            # cancelled it and stopped waiting. The shielded helper is needed
+            # because bare awaits re-raise here.
+            if not answer_write_started and not dctx.cancel_requested.is_set():
                 await final_write(
                     partial(write_error, ErrorData(code=CONNECTION_CLOSED, message="Connection closed")),
                     shield=True,
@@ -470,13 +465,27 @@ class RequestCorrelator(Generic[DctxT]):
             raise
         except Exception as e:
             error = handler_exception_to_error_data(e)
-            if error is not None:
-                await write_error(error)
-            else:
+            if error is None:
                 logger.exception("handler for request %r raised", request_id)
                 # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
                 # INTERNAL_ERROR. Revisit per the suite's divergence entry.
-                await write_error(ErrorData(code=0, message=str(e)))
+                error = ErrorData(code=0, message=str(e))
                 if raise_handler_exceptions:
-                    raise
+                    handler_failure = e
+            # A cancel silences only the wire; the failure stays as visible as before.
+            if not dctx.cancel_requested.is_set():
+                answer_write_started = True
+                await write_error(error)
+        # The one place a cancelled request settles: the handler is done (any
+        # mode) with nothing written. A peer-interrupt cancel is absorbed at
+        # scope __exit__ and lands here too.
+        if not answer_write_started and settle_unanswered is not None:
+            try:
+                await settle_unanswered()
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                logger.debug("on_request_unanswered dropped: connection closing")
+            except Exception:
+                logger.exception("on_request_unanswered hook raised")
+        if handler_failure is not None:
+            raise handler_failure
         # No `in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.

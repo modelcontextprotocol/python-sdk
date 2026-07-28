@@ -14,7 +14,7 @@ For everything else, stay on `MCPServer`.
 
 This is the `search_books` tool that **[Tools](../servers/tools.md)** writes in nine lines of `@mcp.tool()`, with the sugar removed:
 
-```python title="server.py" hl_lines="23 27 33"
+```python title="server.py" hl_lines="22 26 32"
 --8<-- "docs_src/lowlevel/tutorial001.py"
 ```
 
@@ -80,7 +80,7 @@ That generalises. An exception raised from a low-level handler is **always** a p
 
 `on_call_tool` is the single entry point for every tool on the server. You route on `params.name`:
 
-```python title="server.py" hl_lines="39-44"
+```python title="server.py" hl_lines="38-43"
 --8<-- "docs_src/lowlevel/tutorial002.py"
 ```
 
@@ -91,7 +91,7 @@ That generalises. An exception raised from a low-level handler is **always** a p
 
 Declare `output_schema` on the `Tool` and put `structured_content` on the result. Both are yours:
 
-```python title="server.py" hl_lines="20-24 37"
+```python title="server.py" hl_lines="19-23 36"
 --8<-- "docs_src/lowlevel/tutorial003.py"
 ```
 
@@ -117,7 +117,7 @@ The server never compares the two fields. This SDK's `Client` does: return `stru
 
 Use it for record IDs, trace IDs, anything your UI needs and your prompt doesn't:
 
-```python title="server.py" hl_lines="38"
+```python title="server.py" hl_lines="37"
 --8<-- "docs_src/lowlevel/tutorial004.py"
 ```
 
@@ -144,7 +144,7 @@ No `resources`, no `prompts`: there is nothing to back them. Pass `on_list_promp
 
 `Server` is generic in the type its lifespan yields. Annotate it once and the object is typed everywhere it surfaces:
 
-```python title="server.py" hl_lines="25-27 45-46 51"
+```python title="server.py" hl_lines="24-26 44-45 50"
 --8<-- "docs_src/lowlevel/tutorial005.py"
 ```
 

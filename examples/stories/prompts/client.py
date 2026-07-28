@@ -1,8 +1,7 @@
 """List prompts, autocomplete an argument, then render both prompts."""
 
-from mcp_types import PromptReference, TextContent
-
 from mcp.client import Client
+from mcp.types import PromptReference, TextContent
 from stories._harness import Target, run_client
 
 

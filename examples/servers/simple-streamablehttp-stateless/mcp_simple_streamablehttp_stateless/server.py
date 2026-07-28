@@ -2,7 +2,7 @@ import logging
 
 import anyio
 import click
-import mcp_types as types
+import mcp.types as types
 import uvicorn
 from mcp.server import Server, ServerRequestContext
 from starlette.middleware.cors import CORSMiddleware

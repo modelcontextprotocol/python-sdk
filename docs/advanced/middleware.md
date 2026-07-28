@@ -16,7 +16,7 @@ If `Server(name, on_call_tool=...)` is new to you, read **[The low-level Server]
 
 One server, one tool, one middleware that logs how long each message took:
 
-```python title="server.py" hl_lines="40-46 50"
+```python title="server.py" hl_lines="39-45 49"
 --8<-- "docs_src/middleware/tutorial001.py"
 ```
 

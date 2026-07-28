@@ -1,9 +1,8 @@
 """Drive `handle_one` directly to assert the raw result-dict shape, then over the wire."""
 
-import mcp_types as types
-from mcp_types.version import LATEST_MODERN_VERSION
-
+import mcp.types as types
 from mcp.client import Client
+from mcp.types.version import LATEST_MODERN_VERSION
 from stories._harness import Target, run_client
 from stories.serve_one.server import build_server, handle_one
 

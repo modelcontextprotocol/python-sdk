@@ -131,7 +131,7 @@ There is one more no-human situation: the client belongs to an enterprise whose 
 
 ## When it fails
 
-When the OAuth flow goes wrong, the provider raises an `OAuthFlowError` from `mcp.client.auth`. It has two subclasses. `OAuthRegistrationError` means the authorization server refused to register you. `OAuthTokenError` means the token endpoint said no. One `except OAuthFlowError:` covers discovery, registration, authorization, and exchange.
+When the OAuth flow goes wrong, the provider raises an `OAuthFlowError` from `mcp.client.auth`. It has two subclasses. `OAuthRegistrationError` means registration did not yield a client you can use: the authorization server refused to register you, or it did register you but with credentials this flow cannot use (for instance an authentication method it does not implement). `OAuthTokenError` means a token could not be obtained: the token endpoint said no, or a stored client record carries an authentication method this client cannot apply, which is reported while building the token request rather than sent. One `except OAuthFlowError:` covers discovery, registration, authorization, and exchange.
 
 Not everything is a flow error. The network can still fail; those are ordinary `httpx2` exceptions and pass through untouched.
 

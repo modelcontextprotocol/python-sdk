@@ -1,8 +1,7 @@
 """Multi-round tool result (2026 era): a tool returns input_required and resumes from echoed state."""
 
-from mcp_types import ElicitRequest, ElicitRequestedSchema, ElicitRequestFormParams, ElicitResult, InputRequiredResult
-
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import ElicitRequest, ElicitRequestedSchema, ElicitRequestFormParams, ElicitResult, InputRequiredResult
 from stories._hosting import run_server_from_args
 
 CONFIRM_SCHEMA: ElicitRequestedSchema = {

@@ -87,6 +87,13 @@ GET_STREAM_KEY = "_GET_stream"
 # run this far ahead of a slow client before its own writes apply backpressure.
 REQUEST_STREAM_BUFFER_SIZE: Final = 16
 
+# Error code answering a request that settled without a response (e.g. it was
+# cancelled) on this 2025-era wire, which ends a request's stream only with a
+# response. Mirrors LSP's RequestCancelled; not sent by the 2026 transports, where
+# the spec forbids answering a cancelled request. See
+# `StreamableHTTPServerTransport._settle_unanswered_request`.
+REQUEST_CANCELLED: Final = -32800
+
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
@@ -583,14 +590,24 @@ class StreamableHTTPServerTransport:
             await aclose_shielded(connection)
 
     def _build_message_metadata(
-        self, request: Request, request_id: RequestId, protocol_version: str
+        self,
+        request: Request,
+        request_id: RequestId,
+        protocol_version: str,
+        *,
+        channel: _MessageChannel | None = None,
     ) -> ServerMessageMetadata:
         """Build the per-request metadata the handler kernel lifts onto its request context.
 
         The close_sse_stream callbacks are only provided when the client supports
         resumability (protocol version >= 2025-11-25). Old clients can't resume if
         the stream is closed early because they didn't receive a priming event.
+        With the request's `channel`, the metadata also carries the hook that
+        terminates a request settling without a response on this era's wire.
         """
+        on_request_unanswered = (
+            partial(self._settle_unanswered_request, channel, request_id) if channel is not None else None
+        )
         if self._event_store and is_version_at_least(protocol_version, "2025-11-25"):
 
             async def close_stream_callback() -> None:
@@ -603,8 +620,9 @@ class StreamableHTTPServerTransport:
                 request_context=request,
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
+                on_request_unanswered=on_request_unanswered,
             )
-        return ServerMessageMetadata(request_context=request)
+        return ServerMessageMetadata(request_context=request, on_request_unanswered=on_request_unanswered)
 
     def _transport_context(self, request: Request, *, can_send_request: bool) -> TransportContext:
         return TransportContext(kind="streamable-http", can_send_request=can_send_request, headers=request.headers)
@@ -1046,7 +1064,7 @@ class StreamableHTTPServerTransport:
             _corr=self._corr,
             _channel=channel,
             _request_id=request_id,
-            message_metadata=self._build_message_metadata(request, request_id, protocol_version),
+            message_metadata=self._build_message_metadata(request, request_id, protocol_version, channel=channel),
             _progress_token=progress_token_from_params(message.params),
         )
         cancel_scope = anyio.CancelScope()
@@ -1063,6 +1081,7 @@ class StreamableHTTPServerTransport:
                     partial(runner.on_request, dctx, message.method, message.params),
                     write_result=partial(self._write_result, channel, request_id),
                     write_error=partial(self._write_error, channel, request_id),
+                    settle_unanswered=dctx.message_metadata.on_request_unanswered if dctx.message_metadata else None,
                 )
             finally:
                 if initialize_gate is not None:
@@ -1096,6 +1115,18 @@ class StreamableHTTPServerTransport:
                     await self._respond_sse(scope, receive, send, channel, reader, priming_event)
                 tg.cancel_scope.cancel()
         return True
+
+    async def _settle_unanswered_request(self, channel: _MessageChannel, request_id: RequestId) -> None:
+        """Terminate a request that settled without a response (e.g. it was cancelled).
+
+        The 2025-era wire ends a request's stream only with a response for its
+        id - and stores that response so a resuming client's replay terminates
+        too - so this era answers a cancelled request with `REQUEST_CANCELLED`
+        where the dispatch layer itself stays silent (the 2026 transports MUST
+        NOT answer). It goes through the request's own ordered channel, so it
+        cannot overtake anything already queued for it.
+        """
+        await self._write_error(channel, request_id, ErrorData(code=REQUEST_CANCELLED, message="Request cancelled"))
 
     async def _write_result(self, channel: _MessageChannel, request_id: RequestId, result: dict[str, Any]) -> None:
         await channel.write(JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result))

@@ -12,7 +12,7 @@ from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -1006,6 +1006,91 @@ class TestRegistrationResponse:
         assert mock_response._aread_called
         # Verify the error message includes the response text
         assert "Registration failed: 400" in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_registration_response_with_substituted_metadata_yields_the_credentials():
+    """A 201 whose echoed metadata differs from the request still registers the client.
+
+    The authorization server returned an application_type outside OIDC Registration's set,
+    a null redirect_uris, and an auth method the SDK does not implement. RFC 7591 §3.2.1
+    permits the server to substitute values; the client keeps the credentials it minted.
+    """
+    body = (
+        b'{"client_id": "issued-id", "client_secret": "issued-secret", '
+        b'"application_type": "confidential", "redirect_uris": null, '
+        b'"token_endpoint_auth_method": "client_secret_jwt"}'
+    )
+    response = httpx2.Response(201, content=body)
+
+    client_info = await handle_registration_response(response)
+
+    assert client_info.client_id == "issued-id"
+    assert client_info.client_secret == "issued-secret"
+    assert client_info.application_type == "confidential"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("echoed_issuer", ["https://not-the-flow.example", 12345], ids=["string", "not-a-string"])
+async def test_registration_response_does_not_seed_the_issuer_binding_from_the_body(echoed_issuer: object):
+    """The issuer binding (SEP-2352) is the SDK's record of which server it registered with,
+    stamped by the auth flow; an "issuer" member in the untrusted response body is dropped
+    before parsing - never populating the binding, and never failing the parse either, so a
+    mismatched or malformed value cannot discard the credentials on every 401."""
+    body = json.dumps({"client_id": "issued-id", "issuer": echoed_issuer}).encode()
+
+    client_info = await handle_registration_response(httpx2.Response(201, content=body))
+
+    assert client_info.client_id == "issued-id"
+    assert client_info.issuer is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "content",
+    [b"<html>not json</html>", b'["json", "but", "not", "an", "object"]', '{"client_id": "café"}'.encode("latin-1")],
+    ids=["not-json", "not-an-object", "not-utf8"],
+)
+async def test_a_2xx_body_that_is_not_client_information_is_an_oauth_registration_error(content: bytes):
+    """A success status whose body is not client information - unparseable, not an object, or
+    not valid UTF-8 - surfaces as OAuthRegistrationError rather than a raw parse failure, so a
+    single OAuthFlowError handler still covers registration."""
+    response = httpx2.Response(201, content=content)
+
+    with pytest.raises(OAuthRegistrationError):
+        await handle_registration_response(response)
+
+
+@pytest.mark.anyio
+async def test_token_exchange_reports_an_unimplemented_registered_auth_method(oauth_provider: OAuthClientProvider):
+    """A server-assigned auth method the SDK cannot apply (RFC 7591 §3.2.1 lets the server
+    substitute one) is reported at the token exchange rather than sending the request
+    unauthenticated for the server to reject as invalid_client."""
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="registered-id",
+        client_secret="registered-secret",
+        token_endpoint_auth_method="client_secret_jwt",
+    )
+
+    with pytest.raises(OAuthTokenError):
+        await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
+
+
+def test_prepare_token_auth_leaves_a_private_key_jwt_client_to_its_provider(oauth_provider: OAuthClientProvider):
+    """private_key_jwt is recognized, so the base leaves the request untouched rather than
+    raising - PrivateKeyJWTOAuthProvider's inherited refresh path passes through here, and a
+    refresh the server then rejects (no assertion is signed on it) falls back to a fresh,
+    signed client-credentials exchange instead of aborting the flow."""
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="registered-id",
+        client_secret="registered-secret",
+        token_endpoint_auth_method="private_key_jwt",
+    )
+
+    data, headers = oauth_provider.context.prepare_token_auth({"grant_type": "refresh_token"}, {})
+
+    assert data == {"grant_type": "refresh_token"}
+    assert headers == {}
 
 
 class TestCreateClientRegistrationRequest:

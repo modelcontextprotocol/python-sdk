@@ -1,10 +1,10 @@
 """Drive the sticky-notes board end to end and prove `remove_all` clears only on a confirmed elicitation."""
 
 import anyio
-import mcp_types as types
-from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 
+import mcp.types as types
 from mcp.client import Client, ClientRequestContext, IncomingMessage
+from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from stories._harness import Target, run_client
 
 
