@@ -443,13 +443,21 @@ async def test_unknown_session_id_returns_404():
         assert error_data["error"]["message"] == "Session not found"
 
 
+@pytest.mark.parametrize(
+    "encoding",
+    ["cp1252", "utf-16", "utf-32"],
+)
 @pytest.mark.anyio
-async def test_non_utf8_body_returns_parse_error(caplog: pytest.LogCaptureFixture):
+async def test_non_utf8_body_returns_parse_error(caplog: pytest.LogCaptureFixture, encoding: str):
     """A POST body that is not valid UTF-8 is a client error, not a server error.
 
-    json.loads() raises UnicodeDecodeError rather than json.JSONDecodeError for such a
-    body, so it used to escape the parse-error branch and surface as HTTP 500 with an
+    For cp1252, json.loads() raises UnicodeDecodeError rather than json.JSONDecodeError,
+    so it used to escape the parse-error branch and surface as HTTP 500 with an
     ERROR-level traceback.
+
+    For utf-16/utf-32, json.loads() auto-detects the encoding (per RFC 4627 sec. 3) and
+    parses the body successfully even though the MCP spec requires UTF-8, so it used to
+    bypass error handling entirely.
     """
     app = Server("test-non-utf8-body")
     manager = StreamableHTTPSessionManager(app=app, stateless=True)
@@ -474,8 +482,11 @@ async def test_non_utf8_body_returns_parse_error(caplog: pytest.LogCaptureFixtur
             ],
         }
 
-        # Valid JSON syntax, but encoded as Windows-1252: the em dash is byte 0x97.
-        body = '{"jsonrpc": "2.0", "id": 1, "method": "x — y"}'.encode("cp1252")
+        # Valid JSON syntax, but encoded as something other than UTF-8. For cp1252 the
+        # em dash (byte 0x97) makes the body invalid UTF-8; for utf-16/utf-32 the body
+        # is well-formed under that encoding and would otherwise be auto-detected and
+        # accepted by json.loads().
+        body = '{"jsonrpc": "2.0", "id": 1, "method": "x — y"}'.encode(encoding)
 
         async def mock_receive():
             return {"type": "http.request", "body": body, "more_body": False}
