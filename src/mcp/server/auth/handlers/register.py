@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from mcp.server.auth.errors import stringify_pydantic_error
+from mcp.server.auth.routes import validate_redirect_uri
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
@@ -34,6 +35,20 @@ class RegistrationHandler:
         try:
             body = await request.body()
             client_metadata = OAuthClientMetadata.model_validate_json(body)
+
+            # Validate redirect_uris per RFC 7591 section 2
+            if client_metadata.redirect_uris:
+                for uri in client_metadata.redirect_uris:
+                    try:
+                        validate_redirect_uri(uri)
+                    except ValueError as e:
+                        return PydanticJSONResponse(
+                            content=RegistrationErrorResponse(
+                                error="invalid_redirect_uri",
+                                error_description=str(e),
+                            ),
+                            status_code=400,
+                        )
 
             # Scope validation is handled below
         except ValidationError as validation_error:
