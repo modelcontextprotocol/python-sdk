@@ -1347,14 +1347,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Log notifications emitted by a tool handler during execution reach the client's logging "
             "callback before the tool result returns."
         ),
-        divergence=Divergence(
-            note=(
-                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
-                "io.modelcontextprotocol/logLevel opt-in; the session's send_log_message never reads that "
-                "key and the tool handler's mid-call messages are delivered unconditionally, so a bound "
-                "test pins the un-gated delivery on the live 2026-07-28 cells."
-            ),
-        ),
     ),
     "tools:call:progress": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -2048,13 +2040,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "The Context logging helpers (debug/info/warning/error) send log message notifications at the "
             "corresponding severity."
-        ),
-        divergence=Divergence(
-            note=(
-                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
-                "io.modelcontextprotocol/logLevel opt-in; the Context helpers never read that key and emit "
-                "unconditionally, so a bound test pins the un-gated delivery on the live 2026-07-28 cells."
-            ),
         ),
     ),
     "mcpserver:context:progress": Requirement(
@@ -2872,28 +2857,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
-        divergence=Divergence(
-            note=(
-                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
-                "io.modelcontextprotocol/logLevel opt-in; the session's send_log_message never reads that "
-                "key and all eight severity levels are delivered unconditionally, so a bound test pins the "
-                "un-gated delivery on the live 2026-07-28 cells."
-            ),
-        ),
     ),
     "logging:message:fields": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
         behavior=(
             "A log message sent by a server handler is delivered to the client's logging callback with its "
             "severity level, logger name, and data."
-        ),
-        divergence=Divergence(
-            note=(
-                "At 2026-07-28 the spec forbids notifications/message for a request whose _meta lacks the "
-                "io.modelcontextprotocol/logLevel opt-in; the session's send_log_message never reads that "
-                "key and the handler's messages are delivered unconditionally, so a bound test pins the "
-                "un-gated delivery on the live 2026-07-28 cells."
-            ),
         ),
     ),
     "logging:message:filtered": Requirement(
