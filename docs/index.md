@@ -22,13 +22,13 @@ Python 3.10+.
 === "uv"
 
     ```bash
-    uv add "mcp[cli]==2.0.0rc1"
+    uv add "mcp[cli]==2.0.0rc2"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]==2.0.0rc1"
+    pip install "mcp[cli]==2.0.0rc2"
     ```
 
 The `[cli]` extra gives you the `mcp` command; you'll want it for development.

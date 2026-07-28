@@ -7,13 +7,13 @@ These docs describe **v2**, currently a release candidate, so the version pin is
 === "uv"
 
     ```bash
-    uv add "mcp[cli]==2.0.0rc1"
+    uv add "mcp[cli]==2.0.0rc2"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]==2.0.0rc1"
+    pip install "mcp[cli]==2.0.0rc2"
     ```
 
 !!! warning "Why the pin"
@@ -22,7 +22,7 @@ These docs describe **v2**, currently a release candidate, so the version pin is
     [release history](https://pypi.org/project/mcp/#history) for the newest pre-release before you copy
     the line above.
 
-    The same applies to one-off commands: `uv run --with "mcp==2.0.0rc1" ...`, not `uv run --with mcp ...`.
+    The same applies to one-off commands: `uv run --with "mcp==2.0.0rc2" ...`, not `uv run --with mcp ...`.
 
     If your *package* depends on `mcp`, add a `<2` upper bound (for example `mcp>=1.27,<2`) before
     the stable v2 lands so the major version bump doesn't surprise you.
