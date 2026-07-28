@@ -25,16 +25,20 @@ own: a `main` tag builds and publishes two distributions (`mcp` and
 The `Development Status` classifier in both `pyproject.toml` files is
 permanently `5 - Production/Stable`; it is not bumped as part of any release.
 The `mcp-types` PyPI project carries the same trusted publisher as `mcp` (this
-repository, workflow `publish-pypi.yml`, environment `release`). If only some
-of the four files upload, fix the cause and re-run the publish job —
-`skip-existing` makes it skip whatever already landed.
+repository, workflow `publish-pypi.yml`, environment `release`). For a release
+cut from `main`, if only some of the four files upload, fix the cause and
+re-run the publish job — its `skip-existing` setting makes it skip whatever
+already landed (the `v1.x` workflow publishes a single distribution and has no
+such setting).
 
 ## Stable release from `main` (`v2.X.Y`)
 
 The stable line's README and docs carry no version pin (`pip install "mcp[cli]"`
-installs the newest stable release), so a stable release needs no pin-flip
-commit. `README.md` at the tagged commit is the PyPI long description, so any
-README fix has to merge before the tag.
+installs the newest stable release), so a routine stable release needs no
+pin-flip commit; the exception is the first stable release of a new major,
+whose pre-release banner and pins are replaced by that flip. `README.md` at the
+tagged commit is the PyPI long description, so any README fix has to merge
+before the tag.
 
 1. Check the full test matrix is green on the release commit. The publish
    workflow re-runs the same checks and blocks publishing until they pass, so a
@@ -57,12 +61,13 @@ README fix has to merge before the tag.
    gh release create v2.X.Y --title v2.X.Y --target <commit-sha> --notes-file <notes.md>
    ```
 
-4. Curate the release notes above the auto-generated `## What's Changed` list:
-   the highlights, anything known-incomplete, and links to the docs and
-   migration guide. Use absolute URLs (relative links don't resolve in GitHub
-   release bodies), and set the generated list's **Previous tag** to the
-   previous release on this line by hand — the auto-picked baseline is the
-   newest tag, which may sit on the other line.
+4. Curate the release notes: the highlights, anything known-incomplete, and
+   links to the docs and migration guide, above a `## What's Changed` list.
+   Generate that list with the release UI's "Generate release notes" (setting
+   its **Previous tag** to the previous release on this line by hand — the
+   auto-picked baseline is the newest tag, which may sit on the other line), or
+   assemble the whole body in the file passed to `--notes-file`. Use absolute
+   URLs (relative links don't resolve in GitHub release bodies).
 5. If a stable release turns out to be broken, yank it on PyPI and release the
    fix as the next patch version. Never delete a release from PyPI — version
    numbers cannot be reused. Yank `mcp` and `mcp-types` together (they are one
@@ -76,9 +81,11 @@ Land the `[v1.x]`-prefixed backport PRs (and any README banner update, which is
 the README PyPI shows for that version), verify the branch tip green, then
 create the release the same way with two differences:
 
-- **The tag's target is the `v1.x` branch.** The UI and CLI default the target
-  to `main`, which is the v2 codebase — a v1 tag created there would publish v2
-  code as a v1 stable release.
+- **The tag's target is the verified commit on the `v1.x` branch.** The UI and
+  CLI default the target to `main`, which is the v2 codebase — a v1 tag created
+  there would publish v2 code as a v1 stable release. Pass the exact commit
+  verified green in the previous step rather than the branch name, for the
+  same moving-HEAD reason as above.
 - **It must not take "Latest" back from the 2.x line.** The UI ticks "Set as
   the latest release" by default for the newest non-pre-release; untick it, or
   pass `--latest=false`, and afterwards confirm `/releases/latest` still names
@@ -86,7 +93,7 @@ create the release the same way with two differences:
   fixes it — release metadata only, no re-cut.
 
 ```shell
-gh release create v1.28.Z --title v1.28.Z --target v1.x --latest=false --notes-file <notes.md>
+gh release create v1.28.Z --title v1.28.Z --target <commit-sha> --latest=false --notes-file <notes.md>
 ```
 
 When generating notes, set **Previous tag** to the previous `v1.*` release by
@@ -97,8 +104,8 @@ hand for the same reason as above. Then ask someone to review the release.
 Pre-releases of the next version are cut from `main` with a PEP 440
 pre-release tag: `aN` for alphas, later `bN`/`rcN` for betas and release
 candidates. The PEP 440 suffix is what keeps `pip install mcp` on the stable
-version — installers only select a pre-release when it is requested by exact
-pin.
+version — installers only select a pre-release when it is requested explicitly (an
+exact pin, a specifier that names a pre-release version, or `--pre`).
 
 1. During a pre-release phase the README and docs pin the exact pre-release
    version, so update those examples first (grep the outgoing version — the
@@ -119,6 +126,6 @@ pin.
 4. Curate the release notes: what changed since the previous pre-release, what
    is known-incomplete, the install line (`pip install mcp==2.X.YbN`), and a
    link to the migration guide, with absolute URLs.
-5. If a pre-release turns out to be broken, yank it on PyPI and cut the next
-   one, pointing the yank reason and the GitHub release notes at the
-   replacement version.
+5. If a pre-release turns out to be broken, yank both `mcp` and `mcp-types` on PyPI
+   and cut the next one, pointing the yank reason and the GitHub release notes
+   at the replacement version.
