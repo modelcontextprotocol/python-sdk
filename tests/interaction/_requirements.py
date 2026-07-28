@@ -1522,6 +1522,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:threshold",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1531,6 +1532,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
         behavior="logging/setLevel delivers the requested level to the server's handler and returns an empty result.",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:opt-in",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1540,10 +1542,39 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#error-handling",
         behavior="logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:invalid-level",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
         ),
+    ),
+    "logging:per-request:opt-in": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#per-request-log-level",
+        behavior=(
+            "The server does not send log message notifications for a request unless the request opts in by "
+            "carrying io.modelcontextprotocol/logLevel in _meta; a handler's log calls on an un-opted "
+            "request are dropped, not delivered on another stream."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level",),
+    ),
+    "logging:per-request:threshold": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#per-request-log-level",
+        behavior=(
+            "A request that opts in receives log message notifications only at or above the level named in "
+            "its io.modelcontextprotocol/logLevel; entries below the level are dropped."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:message:filtered",),
+    ),
+    "logging:per-request:invalid-level": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#error-handling",
+        behavior=(
+            "A request whose io.modelcontextprotocol/logLevel is not a recognized log level is rejected with "
+            "JSON-RPC error -32602 (Invalid params)."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level:invalid-level",),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Sampling (server → client)

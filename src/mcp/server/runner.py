@@ -321,7 +321,10 @@ class ServerRunner(Generic[LifespanT]):
         # Per-request session: `dctx` is the request-scoped channel (auto-threads
         # its own request_id on streamable HTTP); the standalone channel is read
         # off `connection.outbound`. `related_request_id` on the public API selects.
-        session = ServerSession(dctx, self.connection)
+        # `meta` carries a request's log-level opt-in for the session's log gate. A
+        # notification has no request to opt in (and no response stream to carry
+        # the log entry), so its `_meta` never opens the gate.
+        session = ServerSession(dctx, self.connection, request_meta=meta if dctx.request_id is not None else None)
         return ServerRequestContext(
             session=session,
             lifespan_context=self.lifespan_state,

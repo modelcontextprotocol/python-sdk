@@ -12,6 +12,7 @@ from typing import Any
 import mcp_types as types
 import pytest
 from mcp_types import (
+    LOG_LEVEL_META_KEY,
     ClientCapabilities,
     Implementation,
     SamplingCapability,
@@ -155,6 +156,54 @@ async def test_send_notification_routes_by_related_request_id():
     await session.send_progress_notification("tok", 0.5, related_request_id="req-1")
     assert [m for m, _ in standalone_ch.notifications] == ["notifications/tools/list_changed"]
     assert [m for m, _ in request_ch.notifications] == ["notifications/progress"]
+
+
+def _modern_session(
+    request_ch: StubOutbound, standalone_ch: StubOutbound, *, request_meta: types.RequestParamsMeta | None = None
+) -> ServerSession:
+    """A 2026-era session with distinct channels, carrying the inbound request's `_meta`."""
+    conn = Connection.from_envelope(LATEST_MODERN_VERSION, None, None, outbound=standalone_ch)
+    return ServerSession(request_ch, conn, request_meta=request_meta)
+
+
+@pytest.mark.anyio
+async def test_send_log_message_drops_everything_without_a_log_level_opt_in_at_2026():
+    """No `_meta` log-level opt-in on a 2026 request means no `notifications/message` at all."""
+    request_ch, standalone_ch = StubOutbound(), StubOutbound()
+    session = _modern_session(request_ch, standalone_ch)
+    await session.send_log_message("emergency", "on fire", related_request_id="req-1")  # pyright: ignore[reportDeprecated]
+    assert request_ch.notifications == [] and standalone_ch.notifications == []
+
+
+@pytest.mark.anyio
+async def test_send_log_message_drops_levels_below_the_requested_one_at_2026():
+    request_ch, standalone_ch = StubOutbound(), StubOutbound()
+    session = _modern_session(request_ch, standalone_ch, request_meta={LOG_LEVEL_META_KEY: "warning"})
+    await session.send_log_message("info", "quiet")  # pyright: ignore[reportDeprecated]
+    await session.send_log_message("error", "loud")  # pyright: ignore[reportDeprecated]
+    assert [p["level"] for _, p in request_ch.notifications if p is not None] == ["error"]
+
+
+@pytest.mark.anyio
+async def test_send_log_message_is_request_scoped_at_2026_even_without_related_request_id():
+    """The spec forbids 2026 log delivery on any stream but the requesting one, so
+    `related_request_id` no longer selects the standalone channel there."""
+    request_ch, standalone_ch = StubOutbound(), StubOutbound()
+    session = _modern_session(request_ch, standalone_ch, request_meta={LOG_LEVEL_META_KEY: "debug"})
+    await session.send_log_message("info", "hello")  # pyright: ignore[reportDeprecated]
+    assert [m for m, _ in request_ch.notifications] == ["notifications/message"]
+    assert standalone_ch.notifications == []
+
+
+@pytest.mark.anyio
+async def test_send_log_message_on_a_handshake_version_still_routes_by_related_request_id():
+    """Handshake versions keep the pre-2026 semantics: every level sends, channel by `related_request_id`."""
+    request_ch, standalone_ch = StubOutbound(), StubOutbound()
+    session = _two_channel_session(request_ch, standalone_ch)
+    await session.send_log_message("debug", "loose")  # pyright: ignore[reportDeprecated]
+    await session.send_log_message("debug", "tied", related_request_id="req-1")  # pyright: ignore[reportDeprecated]
+    assert [m for m, _ in standalone_ch.notifications] == ["notifications/message"]
+    assert [m for m, _ in request_ch.notifications] == ["notifications/message"]
 
 
 @pytest.mark.anyio

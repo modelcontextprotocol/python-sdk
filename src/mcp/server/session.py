@@ -6,20 +6,28 @@ Handlers reach it as `ctx.session` and use the typed helpers (`elicit_form`,
 `send_log_message`, ...) to call back to the client.
 """
 
+import logging
 from typing import Any, TypeVar, overload
 
 import mcp_types as types
 from mcp_types import methods as _methods
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
 
-from mcp.server.connection import Connection
+from mcp.server.connection import Connection, allowed_log_levels
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages, wants_sampling_tools
 from mcp.shared.dispatcher import CallOptions, DispatchContext, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import ServerMessageMetadata
 
 __all__ = ["ServerSession"]
+
+logger = logging.getLogger(__name__)
+# `send_log_message`'s `logger` parameter (public API, the spec's logger-name
+# field) shadows the module logger inside that method; this alias keeps it
+# reachable there.
+_logger = logger
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
@@ -36,9 +44,22 @@ class ServerSession:
     never crosses the `Outbound` Protocol.
     """
 
-    def __init__(self, request_outbound: DispatchContext[Any], connection: Connection) -> None:
+    def __init__(
+        self,
+        request_outbound: DispatchContext[Any],
+        connection: Connection,
+        *,
+        request_meta: types.RequestParamsMeta | None = None,
+    ) -> None:
         self._request_outbound = request_outbound
         self._connection = connection
+        # The per-request log-delivery contract, fixed at construction: on
+        # 2026-07-28+ the inbound request's `_meta` log-level opt-in decides
+        # which `notifications/message` levels may be sent for this request
+        # (and they ride this request's stream only); on handshake versions
+        # every level may be sent (`logging/setLevel`-era semantics).
+        self._log_is_request_scoped = connection.protocol_version in MODERN_PROTOCOL_VERSIONS
+        self._allowed_log_levels = allowed_log_levels(connection.protocol_version, request_meta)
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -106,7 +127,10 @@ class ServerSession:
         related_request_id: types.RequestId | None = None,
     ) -> None:
         """Send a typed server-to-client notification."""
-        channel = self._request_outbound if related_request_id is not None else self._connection.outbound
+        await self._notify(notification, request_scoped=related_request_id is not None)
+
+    async def _notify(self, notification: types.ServerNotification, *, request_scoped: bool) -> None:
+        channel = self._request_outbound if request_scoped else self._connection.outbound
         data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
         await channel.notify(data["method"], data.get("params"))
 
@@ -122,8 +146,20 @@ class ServerSession:
         logger: str | None = None,
         related_request_id: types.RequestId | None = None,
     ) -> None:
-        """Send a log message notification."""
-        await self.send_notification(
+        """Send a log message notification.
+
+        On 2026-07-28+ delivery is a per-request opt-in: nothing is sent
+        unless this request's `_meta` carried the reserved log-level key, and
+        entries below the requested level are dropped (debug-logged). What is
+        sent rides this request's stream regardless of `related_request_id` -
+        the spec forbids `notifications/message` on any stream but the one
+        carrying the response. Handshake versions send unconditionally on the
+        channel `related_request_id` selects, as before.
+        """
+        if level not in self._allowed_log_levels:
+            _logger.debug("dropped notifications/message at %r: not opted in at that level on this request", level)
+            return
+        await self._notify(
             types.LoggingMessageNotification(
                 params=types.LoggingMessageNotificationParams(
                     level=level,
@@ -131,7 +167,7 @@ class ServerSession:
                     logger=logger,
                 ),
             ),
-            related_request_id,
+            request_scoped=self._log_is_request_scoped or related_request_id is not None,
         )
 
     async def send_resource_updated(self, uri: str | AnyUrl) -> None:

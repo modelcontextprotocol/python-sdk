@@ -312,6 +312,16 @@ class Client:
     logging_callback: LoggingFnT | None = None
     """Callback for handling logging notifications."""
 
+    log_level: LoggingLevel | None = None
+    """The log level to opt in to on 2026-07-28+ connections (deprecated logging feature, SEP-2577).
+
+    Modern (2026-07-28+) servers send `notifications/message` only for requests that opt in by
+    carrying `io.modelcontextprotocol/logLevel` in `_meta`, and only at or above that level. Setting
+    this stamps that opt-in on every request; `None` (the default) means no opt-in, so no log
+    messages arrive - a `logging_callback` alone is not an opt-in. No effect on handshake-era
+    connections, where the deprecated `logging/setLevel` request governs delivery instead. A
+    per-request `_meta` entry with the same key overrides this default."""
+
     # TODO(Marcelo): Why do we have both "callback" and "handler"?
     message_handler: MessageHandlerFnT | None = None
     """Callback for handling raw messages."""
@@ -425,6 +435,7 @@ class Client:
             sampling_capabilities=self.sampling_capabilities,
             list_roots_callback=self.list_roots_callback,
             logging_callback=self.logging_callback,
+            log_level=self.log_level,
             message_handler=message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,

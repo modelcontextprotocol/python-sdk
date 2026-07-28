@@ -19,6 +19,7 @@ from mcp_types import (
     CLIENT_INFO_META_KEY,
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
@@ -121,6 +122,8 @@ def _make_modern_stamp(
     client_info: dict[str, Any],
     capabilities: dict[str, Any],
     resolve_param_headers: Callable[[str, Mapping[str, Any]], dict[str, str]],
+    *,
+    log_level: types.LoggingLevel | None = None,
 ) -> Callable[[dict[str, Any], CallOptions], None]:
     def stamp(data: dict[str, Any], opts: CallOptions) -> None:
         params = data.setdefault("params", {})
@@ -128,6 +131,11 @@ def _make_modern_stamp(
         meta[PROTOCOL_VERSION_META_KEY] = protocol_version
         meta[CLIENT_INFO_META_KEY] = client_info
         meta[CLIENT_CAPABILITIES_META_KEY] = capabilities
+        # The per-request log-delivery opt-in (2026 logging is opt-in per
+        # request). A default the caller can override on any single call by
+        # supplying the key in that request's `_meta`, hence setdefault.
+        if log_level is not None:
+            meta.setdefault(LOG_LEVEL_META_KEY, log_level)
         # `cancel_on_abandon` stays at the dispatcher default (True): the
         # courtesy `notifications/cancelled` is the abandon signal. On the
         # stream transports it is the 2026 wire's cancellation spelling; the
@@ -372,6 +380,7 @@ class ClientSession:
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
+        log_level: types.LoggingLevel | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
         extensions: dict[str, dict[str, Any]] | None = None,
         result_claims: Mapping[str, Sequence[ResultClaim[Any]]] | None = None,
@@ -393,6 +402,7 @@ class ClientSession:
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
+        self._log_level: types.LoggingLevel | None = log_level
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
@@ -645,7 +655,9 @@ class ClientSession:
             version = mutual[-1]
             client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
             capabilities = self._build_capabilities(version).model_dump(by_alias=True, mode="json", exclude_none=True)
-            self._stamp = _make_modern_stamp(version, client_info, capabilities, self._resolve_param_headers)
+            self._stamp = _make_modern_stamp(
+                version, client_info, capabilities, self._resolve_param_headers, log_level=self._log_level
+            )
             self._discover_result = result
             self._discover_server_info = _parse_server_info_stamp(result)
             self._initialize_result = None
