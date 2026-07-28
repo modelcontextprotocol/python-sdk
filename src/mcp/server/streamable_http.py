@@ -44,7 +44,7 @@ from mcp.server.transport_security import TransportSecurityMiddleware, Transport
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.message import CloseSSEStreamCallback, ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -174,12 +174,11 @@ class StreamableHTTPServerTransport:
             mcp_session_id: Optional session identifier for this connection.
                             Must contain only visible ASCII characters (0x21-0x7E).
             is_json_response_enabled: If True, answer each request POST with a single
-                                    JSON body instead of an SSE stream. The body carries
-                                    only the response, so this transport marks its messages
-                                    as having no request-scoped back-channel: a
-                                    server-initiated request on that channel raises
-                                    `NoBackChannelError` and request-scoped notifications
-                                    are dropped. Default is False.
+                                    JSON body instead of an SSE stream, which removes
+                                    the request-scoped back-channel: a server-initiated
+                                    request tied to the call raises `NoBackChannelError`
+                                    and its notifications are dropped (see
+                                    `TransportContext.can_send_request`). Default is False.
             event_store: Event store for resumability support. If provided,
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
@@ -217,15 +216,28 @@ class StreamableHTTPServerTransport:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
 
-    @property
-    def _request_channel_can_send_request(self) -> bool:
-        """Whether the request-scoped channel of a message this transport delivers can carry a
-        server-initiated request. It cannot in JSON-response mode: the POST is answered with one
-        JSON body, which holds only the response. Stamped on each message's
-        `ServerMessageMetadata` so any dispatcher's builder reads it; whether a reply has a session
-        to land on is the session manager's fact, not the transport's, so it is not decided here.
+    def _message_metadata(
+        self,
+        request: Request,
+        *,
+        close_sse_stream: CloseSSEStreamCallback | None = None,
+        close_standalone_sse_stream: CloseSSEStreamCallback | None = None,
+        on_request_unanswered: Callable[[], Awaitable[None]] | None = None,
+    ) -> ServerMessageMetadata:
+        """The metadata this transport frames every inbound message with.
+
+        The one place `can_send_request` is stamped, so no construction site can
+        forget it: a JSON body carries only the response, so in JSON-response mode
+        the request-scoped channel cannot carry a server-initiated request (see
+        `TransportContext.can_send_request`).
         """
-        return not self.is_json_response_enabled
+        return ServerMessageMetadata(
+            request_context=request,
+            close_sse_stream=close_sse_stream,
+            close_standalone_sse_stream=close_standalone_sse_stream,
+            on_request_unanswered=on_request_unanswered,
+            can_send_request=not self.is_json_response_enabled,
+        )
 
     def close_sse_stream(self, request_id: RequestId) -> None:
         """Close SSE connection for a specific request without terminating the stream.
@@ -297,19 +309,14 @@ class StreamableHTTPServerTransport:
             async def close_standalone_stream_callback() -> None:
                 self.close_standalone_sse_stream()
 
-            metadata = ServerMessageMetadata(
-                request_context=request,
+            metadata = self._message_metadata(
+                request,
                 close_sse_stream=close_stream_callback,
                 close_standalone_sse_stream=close_standalone_stream_callback,
                 on_request_unanswered=end_stream,
-                can_send_request=self._request_channel_can_send_request,
             )
         else:
-            metadata = ServerMessageMetadata(
-                request_context=request,
-                on_request_unanswered=end_stream,
-                can_send_request=self._request_channel_can_send_request,
-            )
+            metadata = self._message_metadata(request, on_request_unanswered=end_stream)
 
         return SessionMessage(message, metadata=metadata)
 
@@ -577,10 +584,7 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
 
                 # Process the message after sending the response
-                metadata = ServerMessageMetadata(
-                    request_context=request, can_send_request=self._request_channel_can_send_request
-                )
-                session_message = SessionMessage(message, metadata=metadata)
+                session_message = SessionMessage(message, metadata=self._message_metadata(request))
                 await writer.send(session_message)
 
                 return
@@ -602,10 +606,8 @@ class StreamableHTTPServerTransport:
                 )
                 request_stream_reader = self._request_streams[request_id][1]
                 # Process the message
-                metadata = ServerMessageMetadata(
-                    request_context=request,
-                    on_request_unanswered=partial(self._terminate_unanswered_request, message.id),
-                    can_send_request=self._request_channel_can_send_request,
+                metadata = self._message_metadata(
+                    request, on_request_unanswered=partial(self._terminate_unanswered_request, message.id)
                 )
                 session_message = SessionMessage(message, metadata=metadata)
                 await writer.send(session_message)
@@ -1030,15 +1032,10 @@ class StreamableHTTPServerTransport:
                         ):
                             related_request_id = session_message.metadata.related_request_id
                             if self.is_json_response_enabled:
-                                # A JSON body carries exactly the one response: a
-                                # message that only rides this request's stream
-                                # has no wire form (and no POST could replay it),
-                                # so drop it before storing or queueing - never
-                                # park it in a queue nothing drains (#1764).
-                                logger.debug(
-                                    f"Dropped message related to request {related_request_id}: "
-                                    "a JSON response carries only its own response"
-                                )
+                                # A JSON body carries only the response: this message
+                                # has no wire form (nor a replay), so drop it before
+                                # storing or queueing rather than park it (#1764).
+                                logger.debug(f"Dropped message related to request {related_request_id} in JSON mode")
                                 continue
                             target_request_id = str(related_request_id)
 

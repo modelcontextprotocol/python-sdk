@@ -55,13 +55,10 @@ class MCPError(Exception):
 class NoBackChannelError(MCPError):
     """Raised when a server-initiated request has no channel that can deliver it.
 
-    The request-scoped channel is a dead end when the response has no room
-    (streamable HTTP in JSON-response mode, the 2026-07-28 single-exchange
-    entry), when the client's reply has nowhere to land (stateless HTTP), or
-    when the protocol forbids server-initiated requests (2026-07-28). Raised by
-    `DispatchContext.send_raw_request` when `can_send_request` is `False`, and
-    by a connection's standalone channel when it has none; serializes to an
-    `INVALID_REQUEST` error response.
+    Raised by `DispatchContext.send_raw_request` when its request-scoped channel
+    reports `TransportContext.can_send_request` as `False` (the cases are
+    documented on that field), and by a connection's standalone channel when it
+    has none; serializes to an `INVALID_REQUEST` error response.
     """
 
     def __init__(self, method: str):

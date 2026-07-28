@@ -46,9 +46,10 @@ class ServerMessageMetadata:
     # request even though no response is written.
     on_request_unanswered: Callable[[], Awaitable[None]] | None = None
     # The transport's verdict on whether this message's request-scoped channel
-    # can deliver a server-initiated request; `None` when the transport does
-    # not say, which the default `TransportContext` builder reads as True.
-    can_send_request: bool | None = None
+    # can deliver a server-initiated request (see
+    # `TransportContext.can_send_request`); a transport that says nothing leaves
+    # it True.
+    can_send_request: bool = True
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None
