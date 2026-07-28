@@ -10,8 +10,8 @@ import mcp_types as types
 
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.session import ClientSession, IncomingMessage
-from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.message import SessionMessage
 
 if not sys.warnoptions:
@@ -49,8 +49,8 @@ async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]])
     env_dict = dict(env)
 
     if urlparse(command_or_url).scheme in ("http", "https"):
-        # Use SSE client for HTTP(S) URLs
-        async with sse_client(command_or_url) as streams:
+        # Use Streamable HTTP client for HTTP(S) URLs
+        async with streamable_http_client(command_or_url) as streams:
             await run_session(*streams)
     else:
         # Use stdio client for commands

@@ -102,7 +102,7 @@ Leaving the `async with` block also shuts the subprocess down: close stdin, wait
 
 ## SSE
 
-`sse_client(url)`, from `mcp.client.sse`, is the HTTP transport that Streamable HTTP superseded. Wrap it the same way, `Client(sse_client("http://localhost:8000/sse"))`, to talk to a server that still speaks it, and don't build anything new on it.
+`sse_client(url)`, from `mcp.client.sse`, is the HTTP transport that Streamable HTTP superseded, and it is now formally deprecated ([SEP-2596](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2596)): calling it emits `MCPDeprecationWarning` (see **[Deprecated features](../deprecated.md)**). Wrap it the same way, `Client(sse_client("http://localhost:8000/sse"))`, to talk to a server that still speaks it, and don't build anything new on it.
 
 ## The `Transport` protocol
 

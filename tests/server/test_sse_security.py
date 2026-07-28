@@ -1,4 +1,6 @@
 """Tests for SSE server request validation."""
+# The HTTP+SSE transport is deprecated (SEP-2596); these tests keep it working while it ships.
+# pyright: reportDeprecated=false
 
 import logging
 import re

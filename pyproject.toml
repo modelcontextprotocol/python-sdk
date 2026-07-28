@@ -266,6 +266,9 @@ filterwarnings = [
     # 2026-07-28 drops ping; Client.send_ping() is advisory-deprecated and the
     # legacy interaction/transport tests still drive it.
     "ignore:ping is removed as of 2026-07-28.*:mcp.MCPDeprecationWarning",
+    # SEP-2596 deprecates the HTTP+SSE transport; the SDK still ships it for
+    # servers/clients that haven't migrated, and the tests still exercise it.
+    "ignore:.*HTTP\\+SSE transport is deprecated as of 2025-03-26.*:mcp.MCPDeprecationWarning",
 ]
 
 [tool.markdown.lint]

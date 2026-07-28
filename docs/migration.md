@@ -27,6 +27,7 @@ Every section heading below names the API it affects, so searching this page for
 | Lowlevel return value wrapping removed | bare list or dict returns fail result validation instead of being wrapped | [wrapping removed](#lowlevel-server-automatic-return-value-wrapping-removed) |
 | Lowlevel tool exceptions no longer become `isError: true` results | clients raise a JSON-RPC error instead of seeing the error text | [tool exceptions](#lowlevel-server-tool-handler-exceptions-no-longer-become-calltoolresultis_errortrue) |
 | Roots, Sampling, and Logging deprecated (SEP-2577) | `MCPDeprecationWarning` at call sites | [SEP-2577](#roots-sampling-and-logging-methods-deprecated-sep-2577) |
+| HTTP+SSE transport deprecated (SEP-2596) | `MCPDeprecationWarning` from `sse_client`, `sse_app`, `run(transport="sse")` | [SEP-2596](#httpsse-transport-deprecated-sep-2596) |
 
 ### Find your area
 
@@ -41,7 +42,7 @@ Every section heading below names the API it affects, so searching this page for
 | maintain OAuth client auth or a protected server | [OAuth and server auth](#oauth-and-server-auth) |
 | relied on lenient handling of off-schema traffic, or assert on exact wire bytes | [Stricter protocol validation and wire behavior](#stricter-protocol-validation-and-wire-behavior) |
 | test against in-memory server/client pairs | [Testing utilities](#testing-utilities) |
-| use roots, sampling, logging, or client-to-server progress | [Deprecations](#deprecations) |
+| use roots, sampling, logging, client-to-server progress, or the HTTP+SSE transport | [Deprecations](#deprecations) |
 | operate servers that 2026-era clients will also connect to | [Notes for 2026-era connections](#notes-for-2026-era-connections) |
 
 ## Suggested migration order
@@ -2791,6 +2792,15 @@ No migration is required during the deprecation window. New code should avoid bu
 The 2026-07-28 spec restricts `notifications/progress` to the server-to-client direction only — `ProgressNotification` is no longer in the spec's `ClientNotification`. `Client.send_progress_notification()` and `ClientSession.send_progress_notification()` now carry `typing_extensions.deprecated` and emit `mcp.MCPDeprecationWarning` at runtime. They continue to work against servers negotiating 2025-11-25 or earlier. Registering a lowlevel `Server` `on_progress` handler is deprecated the same way as the SEP-2577 handler parameters above: it sits in the `typing_extensions.deprecated` `Server.__init__` overload and passing it emits `mcp.MCPDeprecationWarning` at construction time.
 
 On the server side, prefer the new dispatcher-agnostic `ServerSession.report_progress(progress, total, message)` (and `Context.report_progress()` on `MCPServer`) over the raw `ServerSession.send_progress_notification(progress_token, …)`. `report_progress` encapsulates the "no-op when the caller did not request progress" rule and works on every dispatcher; the raw token-taking form remains for handlers that read `_meta.progressToken` directly.
+
+### HTTP+SSE transport deprecated (SEP-2596)
+
+The legacy HTTP+SSE transport (a `GET` that opens an event stream, plus a separate `POST` message endpoint) was superseded by Streamable HTTP in protocol revision 2025-03-26, and the spec's feature-lifecycle policy ([SEP-2596](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2596)) now formally classifies it as Deprecated with Streamable HTTP as the migration path. The SDK still ships it, and every entry point now carries `typing_extensions.deprecated` and emits `mcp.MCPDeprecationWarning`:
+
+- Client: `mcp.client.sse.sse_client()`, and `SseServerParameters` for `ClientSessionGroup.connect_to_server()`.
+- Server: `MCPServer.sse_app()`, `MCPServer.run_sse_async()`, `mcp.run(transport="sse")`, and the lowlevel `mcp.server.sse.SseServerTransport`.
+
+Streamable HTTP is not deprecated: `streamable_http_client()` / `Client(url)` on the client, `streamable_http_app()` / `mcp.run(transport="streamable-http")` on the server. Migrate when you can; a deployment that must keep answering unmigrated SSE clients can keep serving `sse_app()` alongside the Streamable HTTP app and filter the warning as [above](#roots-sampling-and-logging-methods-deprecated-sep-2577). Two adjacent housekeeping changes: `mcp run --transport` now advertises `stdio` and `streamable-http` only, and `python -m mcp.client <url>` connects with Streamable HTTP (it previously used SSE for any `http(s)` URL).
 
 ## Notes for 2026-era connections
 

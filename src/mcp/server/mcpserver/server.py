@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import inspect
+import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
@@ -53,6 +54,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
+from typing_extensions import deprecated
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
@@ -84,13 +86,13 @@ from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
-from mcp.server.sse import SseServerTransport
+from mcp.server.sse import SseServerTransport  # pyright: ignore[reportDeprecated]
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.uri_template import UriTemplate
 
 logger = get_logger(__name__)
@@ -357,6 +359,11 @@ class MCPServer(Generic[LifespanResultT]):
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
 
     @overload
+    @deprecated(
+        'transport="sse" is deprecated: the HTTP+SSE transport is deprecated as of 2025-03-26 '
+        '(SEP-2596). Use transport="streamable-http" instead.',
+        category=MCPDeprecationWarning,
+    )
     def run(
         self,
         transport: Literal["sse"],
@@ -392,7 +399,8 @@ class MCPServer(Generic[LifespanResultT]):
         """Run the MCP server. Note this is a synchronous function.
 
         Args:
-            transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
+            transport: Transport protocol to use ("stdio" or "streamable-http"; "sse" is the
+                deprecated HTTP+SSE transport and warns).
             **kwargs: Transport-specific options (see overloads for details)
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
@@ -403,7 +411,7 @@ class MCPServer(Generic[LifespanResultT]):
             case "stdio":
                 anyio.run(self.run_stdio_async)
             case "sse":  # pragma: no cover
-                anyio.run(lambda: self.run_sse_async(**kwargs))
+                anyio.run(lambda: self.run_sse_async(**kwargs))  # pyright: ignore[reportDeprecated]
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
@@ -1024,6 +1032,10 @@ class MCPServer(Generic[LifespanResultT]):
                 self._lowlevel_server.create_initialization_options(),
             )
 
+    @deprecated(
+        "The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use run_streamable_http_async instead.",
+        category=MCPDeprecationWarning,
+    )
     async def run_sse_async(  # pragma: no cover
         self,
         *,
@@ -1033,15 +1045,22 @@ class MCPServer(Generic[LifespanResultT]):
         message_path: str = "/messages/",
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
-        """Run the server using SSE transport."""
+        """Run the server using the deprecated HTTP+SSE transport.
+
+        Deprecated: use `run_streamable_http_async()`.
+        """
         import uvicorn
 
-        starlette_app = self.sse_app(
-            sse_path=sse_path,
-            message_path=message_path,
-            transport_security=transport_security,
-            host=host,
-        )
+        # This method already emitted its own deprecation warning; suppress the
+        # nested one from sse_app so the caller sees exactly one.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MCPDeprecationWarning)
+            starlette_app = self.sse_app(  # pyright: ignore[reportDeprecated]
+                sse_path=sse_path,
+                message_path=message_path,
+                transport_security=transport_security,
+                host=host,
+            )
 
         config = uvicorn.Config(
             starlette_app,
@@ -1088,6 +1107,10 @@ class MCPServer(Generic[LifespanResultT]):
         server = uvicorn.Server(config)
         await server.serve()
 
+    @deprecated(
+        "The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use streamable_http_app instead.",
+        category=MCPDeprecationWarning,
+    )
     def sse_app(
         self,
         *,
@@ -1096,7 +1119,10 @@ class MCPServer(Generic[LifespanResultT]):
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
-        """Return an instance of the SSE server app."""
+        """Return an instance of the deprecated HTTP+SSE server app.
+
+        Deprecated: use `streamable_http_app()`.
+        """
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(
@@ -1105,7 +1131,13 @@ class MCPServer(Generic[LifespanResultT]):
                 allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
             )
 
-        sse = SseServerTransport(message_path, security_settings=transport_security)
+        # This method already emitted its own deprecation warning; suppress the
+        # nested one from SseServerTransport so the caller sees exactly one.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MCPDeprecationWarning)
+            sse = SseServerTransport(  # pyright: ignore[reportDeprecated]
+                message_path, security_settings=transport_security
+            )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available

@@ -110,7 +110,7 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
     "--transport",
     default="streamable-http",
     type=click.Choice(["sse", "streamable-http"]),
-    help="Transport protocol to use ('sse' or 'streamable-http')",
+    help="Transport protocol to use ('streamable-http', or the deprecated 'sse')",
 )
 def main(port: int, transport: Literal["sse", "streamable-http"]) -> int:
     """Run the simple auth MCP server."""
@@ -129,7 +129,8 @@ def main(port: int, transport: Literal["sse", "streamable-http"]) -> int:
 
     mcp_server = create_simple_mcp_server(server_settings, auth_settings)
     logger.info(f"🚀 MCP Legacy Server running on {server_url}")
-    mcp_server.run(transport=transport, host=host, port=port)
+    # transport may be the deprecated HTTP+SSE transport, kept here for legacy clients
+    mcp_server.run(transport=transport, host=host, port=port)  # pyright: ignore[reportDeprecated]
     return 0
 
 
