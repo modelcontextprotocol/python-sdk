@@ -59,7 +59,7 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint
-from mcp.server.context import HandlerResult, ServerRequestContext
+from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.extension import (
     Extension,
     MethodBinding,
@@ -172,6 +172,7 @@ class MCPServer(Generic[LifespanResultT]):
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         subscriptions: SubscriptionBus | None = None,
+        middleware: Sequence[ServerMiddleware[Any]] | None = None,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -228,6 +229,9 @@ class MCPServer(Generic[LifespanResultT]):
                 raise ValueError(_MISSING_AUDIENCE)
             security = request_state_security
         self._lowlevel_server.middleware.append(RequestStateBoundary(security, default_audience=self.name))
+        # User middleware runs inside the SDK's built-ins (OpenTelemetry, then the
+        # request-state boundary), outermost-first in the order given.
+        self._lowlevel_server.middleware.extend(middleware or ())
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -256,6 +260,17 @@ class MCPServer(Generic[LifespanResultT]):
     @property
     def name(self) -> str:
         return self._lowlevel_server.name
+
+    @property
+    def middleware(self) -> list[ServerMiddleware[Any]]:
+        """The middleware chain wrapping every inbound message, outermost-first.
+
+        The same list as the low-level `Server.middleware`: append an
+        `async (ctx, call_next)` callable to observe, refuse, or rewrite
+        messages before they reach a handler. Provisional - the signature is
+        expected to change before v2 is final; see the middleware guide.
+        """
+        return self._lowlevel_server.middleware
 
     @property
     def title(self) -> str | None:

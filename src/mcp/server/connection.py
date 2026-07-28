@@ -49,6 +49,7 @@ from typing_extensions import deprecated
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
+from mcp.shared.subscriptions import LISTEN_STREAM_METHODS
 
 __all__ = ["Connection"]
 
@@ -159,12 +160,25 @@ class NotifyOnlyOutbound(_NoChannelOutbound):
     over duplex stream transports: the pipe is real, so server notifications
     ride it, but the modern protocol forbids server-initiated JSON-RPC
     requests, so `send_raw_request` (inherited) refuses by construction.
+
+    Change notifications (`notifications/*/list_changed`,
+    `notifications/resources/updated`) are dropped with a debug log: at this
+    era they reach a client only through a `subscriptions/listen` stream it
+    opened, so a bare copy on the shared channel would be an unrequested
+    notification. Publish them on the server's `SubscriptionBus` instead.
     """
 
     def __init__(self, outbound: Outbound) -> None:
         self._outbound = outbound
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        # At the 2026-07-28 era these are `subscriptions/listen` stream goods
+        # only: the spec forbids sending a change notification a subscription
+        # did not request, and listen streams deliver them (stamped, filtered)
+        # via the request-scoped outbound, never this connection-scoped channel.
+        if method in LISTEN_STREAM_METHODS:
+            logger.debug("dropped %s: delivered via subscriptions/listen at this era", method)
+            return
         await self._outbound.notify(method, params, opts)
 
 

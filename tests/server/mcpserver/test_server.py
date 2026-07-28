@@ -10,6 +10,7 @@ from inline_snapshot import snapshot
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     AudioContent,
     BlobResourceContents,
@@ -2345,3 +2346,53 @@ def test_remove_prompt_removes_and_unknown_name_raises() -> None:
     assert mcp._prompt_manager.list_prompts() == []
     with pytest.raises(ValueError, match="Unknown prompt: greeting"):
         mcp.remove_prompt("greeting")
+
+
+@pytest.mark.anyio
+async def test_middleware_kwarg_and_property_share_the_low_level_chain() -> None:
+    """SDK-defined: `MCPServer(middleware=[...])` appends to the low-level chain after
+    the SDK's built-ins, and `mcp.middleware` is that same live list, so a
+    middleware appended later still wraps requests."""
+    seen: list[str] = []
+
+    async def from_ctor(ctx: ServerRequestContext[Any, Any], call_next: Any) -> Any:
+        seen.append(f"ctor:{ctx.method}")
+        return await call_next(ctx)
+
+    async def appended(ctx: ServerRequestContext[Any, Any], call_next: Any) -> Any:
+        seen.append(f"appended:{ctx.method}")
+        return await call_next(ctx)
+
+    mcp = MCPServer("mw", middleware=[from_ctor])
+    assert mcp.middleware is mcp._lowlevel_server.middleware
+    assert mcp.middleware[-1] is from_ctor  # after the built-ins, outermost-first
+    mcp.middleware.append(appended)
+
+    @mcp.tool()
+    def ping() -> str:
+        return "pong"
+
+    async with Client(mcp) as client:
+        await client.call_tool("ping", {})
+    assert "ctor:tools/call" in seen
+    assert seen.index("ctor:tools/call") < seen.index("appended:tools/call")
+
+
+@pytest.mark.anyio
+async def test_middleware_can_refuse_subscriptions_listen_before_the_ack() -> None:
+    """Spec-adjacent: a middleware that raises on `subscriptions/listen` refuses the
+    request in-band - the client gets the error and no stream is opened."""
+
+    async def refuse_listen(ctx: ServerRequestContext[Any, Any], call_next: Any) -> Any:
+        if ctx.method == "subscriptions/listen":
+            raise MCPError(INVALID_REQUEST, "not permitted to watch the requested resources")
+        return await call_next(ctx)
+
+    mcp = MCPServer("mw", middleware=[refuse_listen])
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            async with client.listen(resource_subscriptions=["files://payroll.csv"]):
+                pass  # pragma: no cover - the refusal precedes the stream
+    assert exc_info.value.error.code == INVALID_REQUEST
+    assert exc_info.value.error.message == "not permitted to watch the requested resources"
