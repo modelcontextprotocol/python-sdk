@@ -13,11 +13,9 @@
 
 </div>
 
-> **This documents v1.x, the stable release line of the MCP Python SDK. v2 is in alpha.**
+> **This documents v1.x, the maintenance line of the MCP Python SDK.** v2 is the current stable release: `pip install mcp` now installs 2.x. See the [v2 documentation](https://py.sdk.modelcontextprotocol.io/) and the [migration guide](https://py.sdk.modelcontextprotocol.io/migration/) for what changed and how to upgrade.
 >
-> v2 pre-releases are published to PyPI as `2.0.0aN`. Installers never select a pre-release unless you opt in (for example `pip install mcp==2.0.0a1`), so v1.x users are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable v2 release lands.** See the [v2 documentation](https://github.com/modelcontextprotocol/python-sdk/blob/main/README.v2.md) and the [migration guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md) for what's changing.
->
-> v1.x remains recommended for production use. It is in maintenance mode and continues to receive critical bug fixes and security patches.
+> **Staying on v1.x?** Keep a `<2` upper bound on your requirement (for example `mcp>=1.28,<2`) so an unpinned resolve stays on the 1.x line. v1.x remains supported for existing deployments and continues to receive critical bug fixes and security patches; its documentation is at <https://py.sdk.modelcontextprotocol.io/v1/>.
 
 <!-- omit in toc -->
 ## Table of Contents
@@ -38,7 +36,7 @@
 [python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
 [python-url]: https://www.python.org/downloads/
 [docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
-[docs-url]: https://modelcontextprotocol.github.io/python-sdk/
+[docs-url]: https://py.sdk.modelcontextprotocol.io/v1/
 [protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
 [protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
@@ -69,13 +67,13 @@ If you haven't created a uv-managed project yet, create one:
    Then add MCP to your project dependencies:
 
    ```bash
-   uv add "mcp[cli]"
+   uv add "mcp[cli]<2"
    ```
 
 Alternatively, for projects using pip for dependencies:
 
 ```bash
-pip install "mcp[cli]"
+pip install "mcp[cli]<2"
 ```
 
 ### Running the standalone MCP development tools
@@ -143,7 +141,7 @@ _Full example: [examples/snippets/servers/fastmcp_quickstart.py](https://github.
 You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
 
 ```bash
-uv run --with mcp examples/snippets/servers/fastmcp_quickstart.py
+uv run --with "mcp<2" examples/snippets/servers/fastmcp_quickstart.py
 ```
 
 Then add it to Claude Code:
@@ -177,8 +175,8 @@ The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you bui
 - [Low-Level Server](docs/low-level-server.md) -- direct handler registration for advanced use cases
 - [Protocol Features](docs/protocol.md) -- MCP primitives, server capabilities
 - [Testing](docs/testing.md) -- in-memory transport testing with pytest
-- [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
-- [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
+- [API Reference](https://py.sdk.modelcontextprotocol.io/v1/api/)
+- [Experimental Features (Tasks)](https://py.sdk.modelcontextprotocol.io/v1/experimental/tasks/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)

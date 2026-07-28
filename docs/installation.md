@@ -1,16 +1,18 @@
 # Installation
 
-The Python SDK is available on PyPI as [`mcp`](https://pypi.org/project/mcp/) so installation is as simple as:
+The Python SDK is available on PyPI as [`mcp`](https://pypi.org/project/mcp/). These docs describe the **v1.x maintenance line**;
+the `<2` bound keeps you on it now that `pip install mcp` selects the 2.x stable release by default (the
+[v2 documentation](https://py.sdk.modelcontextprotocol.io/) covers that line):
 
 === "pip"
 
     ```bash
-    pip install mcp
+    pip install "mcp<2"
     ```
 === "uv"
 
     ```bash
-    uv add mcp
+    uv add "mcp<2"
     ```
 
 The following dependencies are automatically installed:
