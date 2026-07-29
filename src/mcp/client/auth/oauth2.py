@@ -483,6 +483,31 @@ class OAuthClientProvider(httpx.Auth):
         if self.context.current_tokens and self.context.current_tokens.access_token:  # pragma: no branch
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
 
+    async def prepare_request_with_refresh(self, client: httpx.AsyncClient, request: httpx.Request) -> None:
+        """Refresh stored tokens and add an auth header for requests sent outside the auth flow."""
+        async with self.context.lock:
+            if not self._initialized:
+                await self._initialize()
+
+            protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
+            if protocol_version is not None:
+                self.context.protocol_version = protocol_version
+
+            if self.context.is_token_valid():
+                self._add_auth_header(request)
+                return
+
+            if not self.context.can_refresh_token():
+                return
+
+            refresh_request = await self._refresh_token()
+            refresh_response = await client.send(refresh_request, auth=None)
+
+            if not await self._handle_refresh_response(refresh_response):
+                return
+
+            self._add_auth_header(request)
+
     async def _handle_oauth_metadata_response(self, response: httpx.Response) -> None:
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
