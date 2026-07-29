@@ -15,15 +15,17 @@ first time that row is read (see `_LazyWireMap`)."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+import time
+from collections.abc import Iterable, Iterator, Mapping
 from functools import cache
 from importlib import import_module
 from types import MappingProxyType, ModuleType, UnionType
-from typing import TYPE_CHECKING, Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
 import mcp_types as types
+from mcp_types import jsonrpc
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 if TYPE_CHECKING:
@@ -52,6 +54,7 @@ __all__ = [
     "SERVER_RESULTS",
     "SPEC_CLIENT_METHODS",
     "SPEC_CLIENT_NOTIFICATION_METHODS",
+    "WarmReport",
     "is_input_required",
     "parse_client_notification",
     "parse_client_request",
@@ -64,6 +67,7 @@ __all__ = [
     "validate_client_request",
     "validate_client_result",
     "validate_server_result",
+    "warm",
 ]
 
 
@@ -849,3 +853,130 @@ def parse_client_result(
     validate_client_result(method, version, data, surface=surface)
     result: types.Result = _adapter(_monolith_row(monolith, method)).validate_python(data, by_name=False)
     return result
+
+
+# --- Opt-in prewarm ---
+
+_ALL_SURFACES: Final = (
+    CLIENT_REQUESTS,
+    CLIENT_NOTIFICATIONS,
+    CLIENT_RESULTS,
+    SERVER_REQUESTS,
+    SERVER_NOTIFICATIONS,
+    SERVER_RESULTS,
+)
+"""Every surface map, for `warm(version)` (rows of one version import one wire package)."""
+
+_ALL_MONOLITHS: Final = (MONOLITH_REQUESTS, MONOLITH_NOTIFICATIONS, MONOLITH_RESULTS)
+"""Every monolith map, for `warm()`."""
+
+
+class WarmReport(NamedTuple):
+    """What one `warm()` call built (already-built work is skipped and not counted)."""
+
+    models: int
+    """Deferred model classes whose validators this call built."""
+
+    adapters: int
+    """Deferred TypeAdapters (union / routing adapters) this call built."""
+
+    elapsed_ms: float
+    """Wall-clock milliseconds the call took."""
+
+
+def _model_classes(target: object) -> Iterator[type[BaseModel]]:
+    """The model classes in a surface/monolith row: the class itself, or a union's arms."""
+    if isinstance(target, type):
+        if issubclass(target, BaseModel):
+            yield target
+        return
+    for arg in get_args(target):
+        yield from _model_classes(arg)
+
+
+def _warm_models(rows: Iterable[object]) -> int:
+    """Complete every not-yet-built model class among `rows`; return how many were built."""
+    built = 0
+    for row in rows:
+        for cls in _model_classes(row):
+            if not cls.__pydantic_complete__:
+                cls.model_rebuild()
+                built += 1
+    return built
+
+
+def _warm_adapter(adapter: TypeAdapter[Any]) -> int:
+    """Build a deferred TypeAdapter's validator if it is not built yet; return 0 or 1."""
+    return 0 if adapter.rebuild() is None else 1
+
+
+def warm(version: str | None = None, *, everything: bool = False) -> WarmReport:
+    """Build the SDK's deferred validators up front, before the first message needs them.
+
+    Importing the SDK stays fast because pydantic validators build on first use
+    and each protocol version's wire schemas load with the first message parsed
+    at that version. A long-running host that would rather pay that once, at
+    startup, calls this from a startup hook; nothing in the SDK calls it, and
+    steady-state behaviour is identical either way.
+
+    * `warm()` builds the version-independent set: the monolith `mcp_types`
+      models a session routes through, the JSON-RPC envelopes and the
+      module-level union adapters.
+    * `warm(version)` additionally imports that protocol version's wire
+      package and builds its routing surface (the wire models and the cached
+      adapters a connection at that version routes through).
+    * `warm(everything=True)` does that for every known protocol version.
+
+    Model classes are completed before the adapters that reference them are
+    built, so no schema is generated twice; anything already built is skipped,
+    so the call is idempotent and repeat calls are cheap.
+
+    Args:
+        version: The protocol version whose routing surface to build too.
+        everything: Warm every known protocol version (benchmarks, tests).
+
+    Returns:
+        Counts of what this call built and the milliseconds it took.
+
+    Raises:
+        ValueError: `version` is not a known protocol version.
+    """
+    started = time.perf_counter()
+    versions: list[str] = []
+    if everything:
+        versions = sorted(KNOWN_PROTOCOL_VERSIONS)
+    elif version is not None:
+        _check_known_version(version)
+        versions = [version]
+
+    # Model classes first (the exported monolith models, the JSON-RPC
+    # envelopes, then the wire packages and their routing rows), so the
+    # adapters below never generate a referenced model's schema inline.
+    models = _warm_models(getattr(types, name) for name in types.__all__)
+    models += _warm_models(row for monolith in _ALL_MONOLITHS for row in monolith.values())
+    models += _warm_models(get_args(jsonrpc.JSONRPCMessage))
+    rows: list[Any] = []
+    for warmed_version in versions:
+        package = _wire_package(warmed_version)  # imports the package once
+        models += _warm_models(vars(package).values())
+        for surface in _ALL_SURFACES:
+            rows.extend(surface[key] for key in surface if key[1] == warmed_version)
+    models += _warm_models(rows)
+
+    adapters = _warm_adapter(jsonrpc.jsonrpc_message_adapter)
+    for adapter in (
+        types.client_request_adapter,
+        types.client_notification_adapter,
+        types.client_result_adapter,
+        types.server_request_adapter,
+        types.server_notification_adapter,
+        types.server_result_adapter,
+    ):
+        adapters += _warm_adapter(adapter)
+    for row in rows:
+        # `_adapter` is the cached routing-adapter builder the parse/serialize
+        # functions use; warming it here (and completing the adapter's own
+        # core schema from the now-complete row model) leaves nothing for the
+        # first message at that version to build.
+        adapters += _warm_adapter(_adapter(row))
+    return WarmReport(models=models, adapters=adapters, elapsed_ms=round((time.perf_counter() - started) * 1000, 1))

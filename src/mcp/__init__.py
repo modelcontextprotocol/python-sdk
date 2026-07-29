@@ -67,6 +67,7 @@ if TYPE_CHECKING:
         UnsubscribeRequest,
     )
     from mcp_types import Role as SamplingRole
+    from mcp_types.methods import warm as warm
 
     # Bind the `mcp.types` submodule on the package, as v1's `from .types import
     # ...` did, so `import mcp` followed by `mcp.types.Tool` keeps working. The
@@ -159,6 +160,7 @@ __all__ = [
     "InvalidUriTemplate",
     "stdio_client",
     "stdio_server",
+    "warm",
 ]
 
 # ---------------------------------------------------------------------------
@@ -253,6 +255,7 @@ _LAZY_ATTRS = {
     "UrlElicitationRequiredError": ("mcp.shared.exceptions", "UrlElicitationRequiredError"),
     "InvalidUriTemplate": ("mcp.shared.uri_template", "InvalidUriTemplate"),
     "UriTemplate": ("mcp.shared.uri_template", "UriTemplate"),
+    "warm": ("mcp_types.methods", "warm"),
 }
 
 # Submodules a bare `import mcp` used to bind on the package as a side effect
