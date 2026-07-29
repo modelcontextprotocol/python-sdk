@@ -40,6 +40,7 @@ Every section heading below names the API it affects, so searching this page for
 | use stdio or streamable HTTP directly, or maintain a custom transport | [Transports](#transports) |
 | maintain OAuth client auth or a protected server | [OAuth and server auth](#oauth-and-server-auth) |
 | relied on lenient handling of off-schema traffic, or assert on exact wire bytes | [Stricter protocol validation and wire behavior](#stricter-protocol-validation-and-wire-behavior) |
+| rely on `import mcp` importing submodules, patch SDK internals, or subclass SDK pydantic models | [Import graph and startup](#import-graph-and-startup) |
 | test against in-memory server/client pairs | [Testing utilities](#testing-utilities) |
 | use roots, sampling, logging, or client-to-server progress | [Deprecations](#deprecations) |
 | operate servers that 2026-era clients will also connect to | [Notes for 2026-era connections](#notes-for-2026-era-connections) |
@@ -2677,6 +2678,57 @@ v2 sends `"_meta": {}` in the params of every request it emits, at every negotia
 The envelope exists for OpenTelemetry trace propagation ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)), which now ships enabled: every server installs a tracing middleware and the client opens a span per outbound request. With no OpenTelemetry SDK configured these are no-ops and only the empty envelope is visible. If your application already configures a global tracer provider, it starts recording MCP client and server spans with no code change, and a W3C `traceparent` field is injected into outbound `_meta`, propagating your trace ids to the servers you call. To suppress the spans, filter the `mcp-python-sdk` tracer in your pipeline; [OpenTelemetry](run/opentelemetry.md) has the recipe for removing the server middleware. There is no public switch for the client-side span and `traceparent` injection.
 
 The SDK's new `opentelemetry-api` runtime dependency is covered under [Packaging, dependencies, and CLI](#packaging-dependencies-and-cli).
+
+## Import graph and startup
+
+### Imports are lazy; explicit imports are the supported form
+
+`import mcp` no longer imports the SDK's whole module graph: the `mcp` package resolves each
+export from its home module on first access, and every entry point loads only its own stack
+(no server code behind a client, no web framework behind a stdio server, no wire schemas
+before a message needs them). Nothing you import changes name or location, and
+`from mcp import Client`, `mcp.types.Tool`, `from mcp import *` and object identity behave as
+before. See [Imports & startup time](advanced/import-cost.md) for what loads when and how to
+prewarm it.
+
+Two incidental things did change:
+
+* **Attribute chains that were never imported explicitly.** `import mcp` used to bind most
+  submodules as a side effect, so `import mcp` followed by `mcp.client.stdio.stdio_client(...)`
+  happened to work. It still resolves (the packages import a submodule on attribute access), but
+  the supported form is to import what you use: `from mcp.client.stdio import stdio_client`, or
+  `import mcp.client.stdio`.
+* **Namespace bindings that tests used to patch.** Modules stopped re-binding names they only
+  imported: patch or import each object where it is defined. In particular,
+  `mcp.client.client.streamable_http_client` is `mcp.client.streamable_http.streamable_http_client`,
+  the HTTP-app pieces formerly bound in `mcp.server.lowlevel.server` / `mcp.server.mcpserver.server`
+  (`SseServerTransport`, `StreamableHTTPSessionManager`, the auth middleware and route builders)
+  live in `mcp.server.sse`, `mcp.server.streamable_http_manager` and `mcp.server.auth.*`, and
+  `get_access_token` / `auth_context_var` are defined in the transport-agnostic
+  `mcp.server.auth.access_token` (still importable from `mcp.server.auth.middleware.auth_context`).
+* **Two web-framework-free homes.** The resumability contract (`EventStore`, `EventMessage`,
+  `EventCallback`, `EventId`, `StreamId`) is defined in `mcp.server.event_store`, and
+  `TransportSecurityMiddleware` now lives beside the transports rather than in
+  `mcp.server.transport_security`; both keep their previous import paths
+  (`mcp.server.streamable_http.EventStore`, `mcp.server.transport_security.TransportSecurityMiddleware`,
+  same objects). Only code introspecting `Class.__module__` or pickling those *class objects* by
+  reference notices.
+* **Introspecting the app-builder signatures.** `typing.get_type_hints()` on the HTTP app
+  builders (`MCPServer.sse_app`, `MCPServer.streamable_http_app`, `Server.streamable_http_app`,
+  `MCPServer.custom_route`'s handler type) raises `NameError` for the Starlette-owned annotations
+  (`Starlette`, `Route`, `Request`, `Response`), which are typing-only now; every SDK-owned name in
+  those signatures still evaluates, and `inspect.signature()` is unaffected. Import starlette's
+  names into your own namespace and pass `localns=` if you need those hints evaluated.
+
+### Pydantic models build on first use (`defer_build=True`)
+
+The SDK's models and `TypeAdapter`s defer their validator build to first construction or
+validation instead of building at import; `inspect.signature(Model)`, `model_fields` and
+`model_json_schema()` report what they always did. A model you subclass from the SDK
+(`Tool`, `Resource`, `AuthSettings`, ...) inherits the deferral, so an annotation that cannot
+resolve in your subclass now surfaces at first use rather than at class creation. Set
+`model_config = ConfigDict(defer_build=False)` in your subclass, or call `Model.model_rebuild()`
+after defining it, if you want the build (and its errors) up front.
 
 ## Testing utilities
 

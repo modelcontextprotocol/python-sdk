@@ -124,6 +124,10 @@ On those types, every Python attribute is now snake_case: `result.is_error`, `to
 
 **[Running your server](run/index.md)** covers the options; **[Add to an existing app](run/asgi.md)** covers mounting.
 
+### Imports pay for what you use
+
+`import mcp` is now nearly free, and every entry point loads only its own stack: a stdio server never loads the web framework, client code never loads the server, and the protocol's wire schemas load per negotiated version. The work did not vanish, it moved to first use (the first URL `Client`, the first HTTP app, the first message per protocol version), each a one-time cost. **[Imports & startup time](advanced/import-cost.md)** lists what loads when, and how to prewarm all of it at startup if that is where you want it.
+
 ### Behavior that changes without an import error
 
 The renames announce themselves. These do not:
