@@ -34,7 +34,7 @@ from mcp_types.version import (
     LATEST_MODERN_VERSION,
     MODERN_PROTOCOL_VERSIONS,
 )
-from pydantic import BaseModel, Discriminator, Tag, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Discriminator, Tag, TypeAdapter, ValidationError
 from typing_extensions import Self, TypeVar, deprecated
 
 from mcp.client._transport import ReadStream, WriteStream
@@ -248,17 +248,23 @@ async def _default_logging_callback(
     pass
 
 
-ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
+# `defer_build`: these adapters wrap `defer_build` monolith models, so build
+# each validator on first use (once) instead of at import.
+_DEFER: Final = ConfigDict(defer_build=True)
+
+ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
+    types.ClientResult | types.ErrorData, config=_DEFER
+)
 
 # Typed against the wide parse union so adopt-built claim adapters share this attribute type.
 _CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult | types.Result] = TypeAdapter(
-    types.CallToolResult | types.InputRequiredResult
+    types.CallToolResult | types.InputRequiredResult, config=_DEFER
 )
 _GetPromptResultAdapter: TypeAdapter[types.GetPromptResult | types.InputRequiredResult] = TypeAdapter(
-    types.GetPromptResult | types.InputRequiredResult
+    types.GetPromptResult | types.InputRequiredResult, config=_DEFER
 )
 _ReadResourceResultAdapter: TypeAdapter[types.ReadResourceResult | types.InputRequiredResult] = TypeAdapter(
-    types.ReadResourceResult | types.InputRequiredResult
+    types.ReadResourceResult | types.InputRequiredResult, config=_DEFER
 )
 
 

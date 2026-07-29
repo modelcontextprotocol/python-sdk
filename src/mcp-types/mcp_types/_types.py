@@ -21,6 +21,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 from typing_extensions import NotRequired, Self, TypedDict
 
+from mcp_types._deferred import install_deferred_signature, new_deferred_signature
 from mcp_types.jsonrpc import RequestId
 
 DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
@@ -45,7 +46,20 @@ IconTheme = Literal["light", "dark"]
 class MCPModel(BaseModel):
     """Base class for all MCP protocol types."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    # defer_build: the core schema / validator / serializer for each model is
+    # built on first use instead of at class creation, so importing this module
+    # does not pay for ~150 models most processes never touch.
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, defer_build=True)
+
+    # Complete the deferred build on the first `inspect.signature()` access, so a
+    # never-used model still reports its real field signature. (Bound without an
+    # annotation, like `BaseModel.__signature__`, so it is not a type hint.)
+    __signature__ = new_deferred_signature()
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        install_deferred_signature(cls)
+        super().__pydantic_init_subclass__(**kwargs)
 
 
 Meta: TypeAlias = dict[str, Any]
@@ -868,35 +882,6 @@ class ListResourceTemplatesResult(PaginatedResult, CacheableResult):
     """See `ResultType`. Always serialized; older peers ignore it."""
 
 
-class InputResponseRequestParams(RequestParams):
-    """Base params for client requests that can carry responses to a server's
-    input requests (2026-07-28 multi-round-trip flow).
-
-    When a request returns an `InputRequiredResult`, the client retries the
-    original request with these fields populated.
-    """
-
-    input_responses: InputResponses | None = None
-    """Responses to the server's `InputRequiredResult.input_requests`, keyed identically."""
-    request_state: str | None = None
-    """Opaque state from the `InputRequiredResult`, passed back verbatim on retry."""
-
-
-class ReadResourceRequestParams(InputResponseRequestParams):
-    uri: str
-    """
-    The URI of the resource. The URI can use any protocol; it is up to the server
-    how to interpret it.
-    """
-
-
-class ReadResourceRequest(Request[ReadResourceRequestParams, Literal["resources/read"]]):
-    """Sent from the client to the server, to read a specific resource URI."""
-
-    method: Literal["resources/read"] = "resources/read"
-    params: ReadResourceRequestParams
-
-
 class ResourceContents(MCPModel):
     """The contents of a specific resource or sub-resource."""
 
@@ -1133,20 +1118,6 @@ class ListPromptsResult(PaginatedResult, CacheableResult):
     """See `ResultType`. Always serialized; older peers ignore it."""
 
 
-class GetPromptRequestParams(InputResponseRequestParams):
-    name: str
-    """The name of the prompt or prompt template."""
-    arguments: dict[str, str] | None = None
-    """Arguments to use for templating the prompt."""
-
-
-class GetPromptRequest(Request[GetPromptRequestParams, Literal["prompts/get"]]):
-    """Used by the client to get a prompt provided by the server."""
-
-    method: Literal["prompts/get"] = "prompts/get"
-    params: GetPromptRequestParams
-
-
 class TextContent(MCPModel):
     """Text provided to or from an LLM."""
 
@@ -1197,6 +1168,37 @@ class AudioContent(MCPModel):
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
+
+
+class EmbeddedResource(MCPModel):
+    """The contents of a resource, embedded into a prompt or tool call result.
+
+    It is up to the client how best to render embedded resources for the benefit
+    of the LLM and/or the user.
+    """
+
+    type: Literal["resource"] = "resource"
+    resource: TextResourceContents | BlobResourceContents
+    annotations: Annotations | None = None
+    """Optional annotations for the client."""
+    meta: Meta | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
+
+
+class ResourceLink(Resource):
+    """A resource that the server is capable of reading, included in a prompt or tool call result.
+
+    Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
+    """
+
+    type: Literal["resource_link"] = "resource_link"
+
+
+ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+"""A content block that can be used in prompts and tool results."""
 
 
 class ToolUseContent(MCPModel):
@@ -1287,37 +1289,6 @@ class SamplingMessage(MCPModel):
         """Returns the content as a list of content blocks, regardless of whether
         it was originally a single block or a list."""
         return self.content if isinstance(self.content, list) else [self.content]
-
-
-class EmbeddedResource(MCPModel):
-    """The contents of a resource, embedded into a prompt or tool call result.
-
-    It is up to the client how best to render embedded resources for the benefit
-    of the LLM and/or the user.
-    """
-
-    type: Literal["resource"] = "resource"
-    resource: TextResourceContents | BlobResourceContents
-    annotations: Annotations | None = None
-    """Optional annotations for the client."""
-    meta: Meta | None = Field(alias="_meta", default=None)
-    """
-    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
-    for notes on _meta usage.
-    """
-
-
-class ResourceLink(Resource):
-    """A resource that the server is capable of reading, included in a prompt or tool call result.
-
-    Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
-    """
-
-    type: Literal["resource_link"] = "resource_link"
-
-
-ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
-"""A content block that can be used in prompts and tool results."""
 
 
 class PromptMessage(MCPModel):
@@ -1444,20 +1415,6 @@ class ListToolsResult(PaginatedResult, CacheableResult):
 
     result_type: ResultType = "complete"
     """See `ResultType`. Always serialized; older peers ignore it."""
-
-
-class CallToolRequestParams(InputResponseRequestParams):
-    name: str
-    arguments: dict[str, Any] | None = None
-    task: TaskMetadata | None = None
-    """If specified, the caller requests task-augmented execution (2025-11-25 only)."""
-
-
-class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
-    """Used by the client to invoke a tool provided by the server."""
-
-    method: Literal["tools/call"] = "tools/call"
-    params: CallToolRequestParams
 
 
 class CallToolResult(Result):
@@ -2071,6 +2028,68 @@ tasks extension's `tasks/update` params.
 """
 
 
+# The request params below carry `InputResponses`, so they are defined after it:
+# a forward reference would leave their fields (and camelCase aliases)
+# unresolved until first use now that models are `defer_build`.
+
+
+class InputResponseRequestParams(RequestParams):
+    """Base params for client requests that can carry responses to a server's
+    input requests (2026-07-28 multi-round-trip flow).
+
+    When a request returns an `InputRequiredResult`, the client retries the
+    original request with these fields populated.
+    """
+
+    input_responses: InputResponses | None = None
+    """Responses to the server's `InputRequiredResult.input_requests`, keyed identically."""
+    request_state: str | None = None
+    """Opaque state from the `InputRequiredResult`, passed back verbatim on retry."""
+
+
+class ReadResourceRequestParams(InputResponseRequestParams):
+    uri: str
+    """
+    The URI of the resource. The URI can use any protocol; it is up to the server
+    how to interpret it.
+    """
+
+
+class ReadResourceRequest(Request[ReadResourceRequestParams, Literal["resources/read"]]):
+    """Sent from the client to the server, to read a specific resource URI."""
+
+    method: Literal["resources/read"] = "resources/read"
+    params: ReadResourceRequestParams
+
+
+class GetPromptRequestParams(InputResponseRequestParams):
+    name: str
+    """The name of the prompt or prompt template."""
+    arguments: dict[str, str] | None = None
+    """Arguments to use for templating the prompt."""
+
+
+class GetPromptRequest(Request[GetPromptRequestParams, Literal["prompts/get"]]):
+    """Used by the client to get a prompt provided by the server."""
+
+    method: Literal["prompts/get"] = "prompts/get"
+    params: GetPromptRequestParams
+
+
+class CallToolRequestParams(InputResponseRequestParams):
+    name: str
+    arguments: dict[str, Any] | None = None
+    task: TaskMetadata | None = None
+    """If specified, the caller requests task-augmented execution (2025-11-25 only)."""
+
+
+class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):
+    """Used by the client to invoke a tool provided by the server."""
+
+    method: Literal["tools/call"] = "tools/call"
+    params: CallToolRequestParams
+
+
 class InputRequiredResult(Result):
     """The server needs additional input before the original request can complete (2026-07-28).
 
@@ -2097,14 +2116,11 @@ class InputRequiredResult(Result):
         return self
 
 
-# Forward refs to InputResponses; rebuild at import time rather than first use.
-InputResponseRequestParams.model_rebuild()
-ReadResourceRequestParams.model_rebuild()
-GetPromptRequestParams.model_rebuild()
-CallToolRequestParams.model_rebuild()
-
 # Top-level message unions: superset across all supported protocol versions.
 # Per-version validity is recorded in `mcp_types.methods`, not enforced here.
+
+_DEFER = ConfigDict(defer_build=True)
+"""TypeAdapter config: build the union validator on first use, not at import."""
 
 ClientRequest = (
     PingRequest
@@ -2128,7 +2144,7 @@ ClientRequest = (
 The 2025-11-25 task requests are deliberately excluded (types-only).
 """
 
-client_request_adapter = TypeAdapter[ClientRequest](ClientRequest)
+client_request_adapter = TypeAdapter[ClientRequest](ClientRequest, config=_DEFER)
 
 
 ClientNotification = (
@@ -2139,11 +2155,11 @@ ClientNotification = (
 `TaskStatusNotification` is deliberately excluded (types-only).
 """
 
-client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification)
+client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification, config=_DEFER)
 
 
 ClientResult = EmptyResult | CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult
-client_result_adapter = TypeAdapter[ClientResult](ClientResult)
+client_result_adapter = TypeAdapter[ClientResult](ClientResult, config=_DEFER)
 
 
 ServerRequest = PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest
@@ -2153,7 +2169,7 @@ Live through 2025-11-25 only: 2026-07-28 has no server-to-client JSON-RPC
 requests (these payloads are embedded in `InputRequiredResult` instead).
 """
 
-server_request_adapter = TypeAdapter[ServerRequest](ServerRequest)
+server_request_adapter = TypeAdapter[ServerRequest](ServerRequest, config=_DEFER)
 
 
 ServerNotification = (
@@ -2172,7 +2188,7 @@ ServerNotification = (
 `TaskStatusNotification` is deliberately excluded (types-only).
 """
 
-server_notification_adapter = TypeAdapter[ServerNotification](ServerNotification)
+server_notification_adapter = TypeAdapter[ServerNotification](ServerNotification, config=_DEFER)
 
 
 ServerResult = (
@@ -2195,4 +2211,4 @@ ServerResult = (
 `InputRequiredResult` is deliberately last: both of its fields are optional,
 so an earlier position would shadow other members during union resolution.
 """
-server_result_adapter = TypeAdapter[ServerResult](ServerResult)
+server_result_adapter = TypeAdapter[ServerResult](ServerResult, config=_DEFER)

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Final, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+from mcp_types._deferred import deferred_model
 
 __all__ = [
     "CONNECTION_CLOSED",
@@ -36,8 +38,11 @@ JSONRPC_VERSION: Final[Literal["2.0"]] = "2.0"
 """The JSON-RPC version string carried by every MCP message envelope."""
 
 
+@deferred_model
 class JSONRPCRequest(BaseModel):
     """A JSON-RPC request that expects a response."""
+
+    model_config = ConfigDict(defer_build=True)
 
     jsonrpc: Literal["2.0"]
     id: RequestId
@@ -45,19 +50,25 @@ class JSONRPCRequest(BaseModel):
     params: dict[str, Any] | None = None
 
 
+@deferred_model
 class JSONRPCNotification(BaseModel):
     """A JSON-RPC notification which does not expect a response."""
+
+    model_config = ConfigDict(defer_build=True)
 
     jsonrpc: Literal["2.0"]
     method: str
     params: dict[str, Any] | None = None
 
 
+@deferred_model
 class JSONRPCResponse(BaseModel):
     """A successful (non-error) response to a request.
 
     Named `JSONRPCResultResponse` in the 2025-11-25+ schemas; the SDK keeps the original name.
     """
+
+    model_config = ConfigDict(defer_build=True)
 
     jsonrpc: Literal["2.0"]
     id: RequestId
@@ -110,8 +121,11 @@ The SDK uses the generic `ErrorData` envelope; the schema's per-code wrapper typ
 """
 
 
+@deferred_model
 class ErrorData(BaseModel):
     """Error information for JSON-RPC error responses."""
+
+    model_config = ConfigDict(defer_build=True)
 
     code: int
     """The error type that occurred."""
@@ -129,8 +143,11 @@ class ErrorData(BaseModel):
     """
 
 
+@deferred_model
 class JSONRPCError(BaseModel):
     """A response to a request that indicates an error occurred."""
+
+    model_config = ConfigDict(defer_build=True)
 
     jsonrpc: Literal["2.0"]
     id: RequestId | None
@@ -145,4 +162,4 @@ class JSONRPCError(BaseModel):
 JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
 """Any JSON-RPC envelope that can be decoded off the wire or encoded to be sent."""
 
-jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(JSONRPCMessage)
+jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(JSONRPCMessage, config=ConfigDict(defer_build=True))
