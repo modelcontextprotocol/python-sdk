@@ -1004,6 +1004,18 @@ class TestServerResourceTemplates:
                 )
             )
 
+    async def test_add_resource_template(self):
+        """Test that a resource template can be added without using the @resource decorator."""
+        from mcp.server.mcpserver.resources import ResourceTemplate
+
+        mcp = MCPServer()
+
+        def get_data(param: str) -> str:  # type: ignore  # pragma: no cover
+            return "Data"
+
+        template = ResourceTemplate.from_function(get_data, "resource://{param}")
+        mcp.add_resource_template(template)
+
 
 class TestServerResourceMetadata:
     """Test MCPServer @resource decorator meta parameter for list operations.
