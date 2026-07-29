@@ -6,6 +6,7 @@ import contextvars
 import json
 import subprocess
 import sys
+import typing
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
@@ -444,6 +445,16 @@ def test_client_entry_points_load_the_server_stack_and_http_transports_only_when
     on_import, after_url_client = json.loads(result.stdout)
     assert on_import == []
     assert after_url_client == ["httpx2"]
+
+
+def test_client_annotations_still_evaluate_at_runtime():
+    """SDK-defined: `typing.get_type_hints(Client)` resolves even though the server stack is
+    a typing-only import in the client module; the `server` annotation is qualified through
+    the lazy `mcp.server` namespace, which imports it only when the hints are evaluated."""
+    hints = typing.get_type_hints(Client)
+    server_targets = typing.get_args(hints["server"])
+    assert MCPServer in server_targets
+    assert str in server_targets
 
 
 async def test_client_uses_transport_directly(app: MCPServer):

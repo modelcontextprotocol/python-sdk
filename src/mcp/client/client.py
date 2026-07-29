@@ -43,6 +43,7 @@ from mcp_types import (
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from typing_extensions import TypeIs, deprecated
 
+import mcp
 from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
@@ -321,7 +322,11 @@ class Client:
         ```
     """
 
-    server: Server[Any] | MCPServer | Transport | str
+    # Spelled through the `mcp.server` namespace (not the TYPE_CHECKING-only
+    # `Server`/`MCPServer` names above) so `typing.get_type_hints(Client)`
+    # still resolves at runtime: the lazy `mcp` package imports `mcp.server`
+    # only when the annotation is actually evaluated.
+    server: mcp.server.Server[Any] | mcp.server.MCPServer | Transport | str
     """The MCP server to connect to.
 
     If the server is a `Server` or `MCPServer` instance, it will be connected in-process.

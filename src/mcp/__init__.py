@@ -68,7 +68,14 @@ if TYPE_CHECKING:
     from mcp_types import Role as SamplingRole
 
     # Bind the `mcp.types` submodule on the package, as v1's `from .types import
-    # ...` did, so `import mcp` followed by `mcp.types.Tool` keeps working.
+    # ...` did, so `import mcp` followed by `mcp.types.Tool` keeps working. The
+    # other subpackages are mirrored too: at runtime `__getattr__` imports them
+    # on first attribute access (`_LAZY_SUBMODULES`), so `mcp.server.Server`
+    # style chains resolve, and type checkers must see the same members.
+    from . import client as client
+    from . import os as os
+    from . import server as server
+    from . import shared as shared
     from . import types as types
     from .client._input_required import InputRequiredRoundsExceededError
     from .client.client import Client
