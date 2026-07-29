@@ -115,8 +115,9 @@ def deferred_model(cls: type[_ModelT]) -> type[_ModelT]:
       pydantic API; `_parent_namespace_depth + 1` accounts for this extra
       frame);
     * a `model_json_schema` classmethod that completes the (deferred) model
-      under that lock before pydantic generates the schema, so concurrent first
-      schema calls do not race on the not-yet-built class.
+      and generates the schema under that lock, so concurrent first schema
+      calls race neither on the not-yet-built class nor on a referenced
+      (e.g. mutually recursive) model that another thread is completing.
 
     Raises:
         TypeError: `cls` does not set `defer_build=True` in its `model_config`,
@@ -150,12 +151,17 @@ def deferred_model(cls: type[_ModelT]) -> type[_ModelT]:
             )
 
     def model_json_schema(sub: type[BaseModel], *args: Any, **kwargs: Any) -> Any:
-        # Complete the class before pydantic reads its (mock) core schema:
-        # pydantic re-reads that attribute around the build, which is not safe
-        # against a concurrent first build; a complete class is only read.
-        if not sub.__pydantic_complete__:
-            sub.model_rebuild(raise_errors=False)
-        return cast(Any, super(cls, sub)).model_json_schema(*args, **kwargs)
+        # Complete the class AND generate under the lock: pydantic re-reads a
+        # class's (mock) core schema around a concurrent first build, and the
+        # generation for one model reads the core schema of every model it
+        # references (a mutually recursive family such as the wire JSON models
+        # references its siblings) while another thread may still be
+        # completing one of those. Schema generation is a cold path, so it
+        # simply serializes with the deferred first builds.
+        with REBUILD_LOCK:
+            if not sub.__pydantic_complete__:
+                sub.model_rebuild(raise_errors=False)
+            return cast(Any, super(cls, sub)).model_json_schema(*args, **kwargs)
 
     setattr(cls, "__pydantic_init_subclass__", classmethod(__pydantic_init_subclass__))
     setattr(cls, "model_rebuild", classmethod(model_rebuild))

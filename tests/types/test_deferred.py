@@ -126,6 +126,7 @@ sys.setswitchinterval(1e-6)  # maximize preemption inside the builds
 import pydantic
 import mcp_types._types as _types
 import mcp_types._v2025_11_25 as v2025
+import mcp_types._v2026_07_28 as v2026
 import mcp_types.jsonrpc as jsonrpc
 from mcp_types import methods
 import mcp.client.session as session          # deferred module-level TypeAdapters
@@ -140,7 +141,8 @@ def own_models(mod):
     return [o for o in vars(mod).values() if isinstance(o, type) and issubclass(o, pydantic.BaseModel)
             and o.__module__ == mod.__name__ and not o.__pydantic_complete__]
 
-MODULES = (_types, v2025, jsonrpc, mcpserver, prompts_base, tools_base, resource_types, auth_settings, shared_auth)
+MODULES = (_types, v2025, v2026, jsonrpc, mcpserver, prompts_base, tools_base, resource_types, auth_settings,
+           shared_auth)
 CLASSES = [cls for mod in MODULES for cls in own_models(mod)]
 ADAPTERS = [v for m in (_types, jsonrpc, session, prompts_base) for v in vars(m).values()
             if isinstance(v, pydantic.TypeAdapter)]
@@ -149,6 +151,11 @@ barrier = threading.Barrier(N)
 errors, lock = [], threading.Lock()
 
 def first_use_everything():
+    # The mutually recursive 2026 JSON models first: a FIRST json-schema generation
+    # reads the core schema of each sibling it references while another thread may
+    # still be completing that sibling.
+    for cls in (v2026.JSONObject, v2026.JSONArray, v2026.JSONValue):
+        cls.model_json_schema()
     for cls in CLASSES:
         try:
             cls.model_validate({"__probe__": 1})
@@ -185,9 +192,10 @@ print(json.dumps({"n_classes": len(CLASSES), "errors": errors, "incomplete": inc
 
 
 def test_concurrent_first_use_of_deferred_models_never_raises() -> None:
-    """Eight threads first-using a broad set of never-built models (monolith, wire package,
-    JSON-RPC envelopes, the SDK's own models, the module-level adapters, first schema and
-    signature access) build every class exactly once and raise nothing.
+    """Eight threads first-using a broad set of never-built models (monolith, both wire
+    packages incl. the mutually recursive JSON models' first schema, JSON-RPC envelopes, the
+    SDK's own models, the module-level adapters, first schema and signature access) build
+    every class exactly once and raise nothing.
 
     The models must be unbuilt when the race starts, so the probe runs in fresh interpreters.
     """
