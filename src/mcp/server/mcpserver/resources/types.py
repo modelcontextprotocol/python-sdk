@@ -196,7 +196,7 @@ class HttpResource(Resource):
     url: str = Field(description="URL to fetch content from")
     mime_type: str = Field(default="application/json", description="MIME type of the resource content")
 
-    async def read(self) -> str | bytes:  # pragma: no cover
+    async def read(self) -> str | bytes:
         """Read the HTTP content."""
         # httpx2 is imported here rather than at module top: this is the only
         # resource type that needs the HTTP client stack, and a server that
