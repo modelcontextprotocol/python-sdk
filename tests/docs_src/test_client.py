@@ -55,6 +55,7 @@ async def test_list_tools_returns_the_full_definition() -> None:
         assert tool.input_schema == snapshot(
             {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {
                     "query": {"title": "Query", "type": "string"},
                     "limit": {"default": 10, "title": "Limit", "type": "integer"},

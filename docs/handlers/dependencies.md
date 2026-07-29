@@ -35,7 +35,7 @@ Here is the input schema `tools/list` reports for `reserve_book`:
 }
 ```
 
-One property. Like the `Context` in **[The Context](context.md)**, a resolved parameter is a contract between you and the SDK: `stock` is not in the schema, the model is never told about it, and a client that sends a `stock` value anyway is ignored. The resolver's value is the only one your tool can receive.
+One property. Like the `Context` in **[The Context](context.md)**, a resolved parameter is a contract between you and the SDK: `stock` is not in the schema, the model is never told about it, and a client that sends a `stock` value anyway is rejected. The resolver's value is the only one your tool can receive.
 
 That last part is the point. A parameter the model cannot supply is a parameter the model cannot get wrong.
 
