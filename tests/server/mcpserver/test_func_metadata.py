@@ -267,6 +267,33 @@ def test_structured_output_dict_str_types():
     assert "result" in meta.output_schema["properties"]
 
 
+def test_structured_output_dict_str_preserves_annotated_metadata():
+    """dict[str, T] return types should preserve Annotated/Field metadata in output schema.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2935
+    """
+
+    def get_config() -> Annotated[dict[str, int], Field(description="Configuration values")]:  # pragma: no cover
+        return {"timeout": 30}
+
+    meta = func_metadata(get_config)
+    assert meta.output_schema is not None
+    assert meta.output_schema.get("description") == "Configuration values", (
+        f"Expected 'description' in schema, got: {meta.output_schema}"
+    )
+
+    # Additional metadata (title, max_length, etc.) should also be preserved
+    def get_headers() -> Annotated[
+        dict[str, str], Field(description="HTTP headers", title="Headers")
+    ]:  # pragma: no cover
+        return {"Content-Type": "application/json"}
+
+    meta2 = func_metadata(get_headers)
+    assert meta2.output_schema is not None
+    assert meta2.output_schema.get("description") == "HTTP headers"
+    assert meta2.output_schema.get("title") == "Headers"
+
+
 @pytest.mark.anyio
 async def test_lambda_function():
     """Test lambda function schema and validation"""
