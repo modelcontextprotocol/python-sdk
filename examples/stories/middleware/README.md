@@ -31,12 +31,13 @@ uv run python -m stories.middleware.client --http
 
 ## Caveats
 
-- **Lowlevel-only.** `Server.middleware` on `mcp.server.lowlevel.Server` is the
-  one public hook; `MCPServer` has no public accessor for it yet (a
-  `MCPServer.middleware` accessor is planned before beta).
+- **One list, two accessors.** `Server.middleware` on
+  `mcp.server.lowlevel.Server` is the hook this story uses; `MCPServer`
+  exposes the same list as `MCPServer.middleware` (or takes it at
+  construction as `MCPServer(name, middleware=[...])`).
 - The middleware signature is **provisional** (see the TODO in
-  `src/mcp/server/lowlevel/server.py`): it tightens to a covariant `Context[L]`
-  and gains an outbound seam before v2 final.
+  `src/mcp/server/lowlevel/server.py`): it may change in a 2.x minor release,
+  tightening to a covariant `Context[L]` and gaining an outbound seam.
 - `ServerMiddleware` / `CallNext` / `HandlerResult` are imported from
   `mcp.server.context` (helper tier); not re-exported at `mcp.server.lowlevel`.
 - Do **not** `await ctx.session.send_request(...)` while wrapping `initialize`

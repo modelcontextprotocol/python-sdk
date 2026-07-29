@@ -660,7 +660,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "The dispatcher drops null-id error responses with a debug log; in v1, JSONRPCError.id was "
                 "non-nullable, so a null-id error response failed transport validation and the resulting "
                 "ValidationError was surfaced to message_handler as an exception. A typed fault channel "
-                "restoring visibility is planned before v2 stable."
+                "restoring visibility is planned."
             ),
         ),
         deferred=(
