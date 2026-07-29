@@ -21,6 +21,7 @@ from mcp.client.extension import (
     advertise,
 )
 from mcp.client.session import ClientSession, IncomingMessage
+from mcp.shared._lazy_submodules import submodule_getattr as _submodule_getattr
 
 __all__ = [
     "CacheConfig",
@@ -42,3 +43,8 @@ __all__ = [
     "UnexpectedClaimedResult",
     "advertise",
 ]
+
+# `mcp.client.<submodule>` (stdio, sse, session_group, auth, ...) resolves by
+# attribute access even before that submodule was imported: the lazy `mcp`
+# package no longer imports them all up front. See mcp.shared._lazy_submodules.
+__getattr__ = _submodule_getattr(__name__)
