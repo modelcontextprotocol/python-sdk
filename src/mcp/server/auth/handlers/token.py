@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from starlette.requests import Request
 
@@ -23,7 +23,7 @@ from mcp.shared.auth import OAuthToken
 # import (import-time cost); the build is transparent at first construction/validation.
 
 
-@deferred_model
+@_deferred_model
 class AuthorizationCodeRequest(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -40,7 +40,7 @@ class AuthorizationCodeRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
-@deferred_model
+@_deferred_model
 class RefreshTokenRequest(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -55,7 +55,7 @@ class RefreshTokenRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
-@deferred_model
+@_deferred_model
 class JwtBearerRequest(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -79,7 +79,7 @@ TokenRequest = Annotated[
 token_request_adapter = TypeAdapter[TokenRequest](TokenRequest, config=ConfigDict(defer_build=True))
 
 
-@deferred_model
+@_deferred_model
 class TokenErrorResponse(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2"""
 

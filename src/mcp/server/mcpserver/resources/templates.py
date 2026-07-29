@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import anyio.to_thread
 from mcp_types import Annotations, Icon, InputRequiredResult
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, Field, validate_call
 
 from mcp.server.mcpserver.exceptions import ResourceError
@@ -105,7 +105,7 @@ class ResourceSecurityError(ValueError):
         self.param = param
 
 
-@deferred_model
+@_deferred_model
 class ResourceTemplate(BaseModel):
     """A template for dynamically creating resources."""
 

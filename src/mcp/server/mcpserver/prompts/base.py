@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import anyio.to_thread
 import pydantic_core
 from mcp_types import ContentBlock, Icon, InputRequiredResult, TextContent
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, validate_call
 
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 # import (import-time cost); the build is transparent at first construction/validation.
 
 
-@deferred_model
+@_deferred_model
 class Message(BaseModel):
     """Base class for all prompt messages."""
 
@@ -67,7 +67,7 @@ SyncPromptResult = str | Message | dict[str, Any] | InputRequiredResult | Sequen
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
 
-@deferred_model
+@_deferred_model
 class PromptArgument(BaseModel):
     """An argument that can be passed to a prompt."""
 
@@ -78,7 +78,7 @@ class PromptArgument(BaseModel):
     required: bool = Field(default=False, description="Whether the argument is required")
 
 
-@deferred_model
+@_deferred_model
 class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
 

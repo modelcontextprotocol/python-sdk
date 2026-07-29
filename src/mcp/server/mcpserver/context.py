@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, cast
 
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import AnyUrl, BaseModel, ConfigDict
 from typing_extensions import deprecated
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
 
 
-@deferred_model
+@_deferred_model
 class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
 

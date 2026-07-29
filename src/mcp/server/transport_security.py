@@ -9,7 +9,7 @@ importable from here.
 
 from typing import TYPE_CHECKING
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.shared._lazy import lazy_module_attrs as _lazy_module_attrs
@@ -23,7 +23,7 @@ __all__ = ["TransportSecurityMiddleware", "TransportSecuritySettings"]
 
 
 # TODO(Marcelo): We should flatten these settings. To be fair, I don't think we should even have this middleware.
-@deferred_model
+@_deferred_model
 class TransportSecuritySettings(BaseModel):
     """Settings for MCP transport security features.
 

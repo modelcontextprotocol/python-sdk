@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 # TODO(Marcelo): We should drop the `RootModel`.
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field, RootModel, ValidationError  # noqa: TID251
 from starlette.datastructures import FormData, QueryParams
 from starlette.requests import Request
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # import (import-time cost); the build is transparent at first construction/validation.
 
 
-@deferred_model
+@_deferred_model
 class AuthorizationRequest(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -50,7 +50,7 @@ class AuthorizationRequest(BaseModel):
     )
 
 
-@deferred_model
+@_deferred_model
 class AuthorizationErrorResponse(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -70,7 +70,7 @@ def best_effort_extract_string(key: str, params: None | FormData | QueryParams) 
     return None
 
 
-@deferred_model
+@_deferred_model
 class AnyUrlModel(RootModel[AnyUrl]):
     model_config = ConfigDict(defer_build=True)
 

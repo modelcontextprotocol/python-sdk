@@ -16,7 +16,7 @@ from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
 import httpx2
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -110,7 +110,7 @@ def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
         )
 
 
-@deferred_model
+@_deferred_model
 class PKCEParameters(BaseModel):
     """PKCE (Proof Key for Code Exchange) parameters."""
 

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Generic, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import AnyUrl, BaseModel, ConfigDict
 
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
@@ -11,7 +11,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 # rather than at import (import-time cost); the build is transparent at first construction.
 
 
-@deferred_model
+@_deferred_model
 class AuthorizationParams(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -23,7 +23,7 @@ class AuthorizationParams(BaseModel):
     resource: str | None = None  # RFC 8707 resource indicator
 
 
-@deferred_model
+@_deferred_model
 class IdentityAssertionParams(BaseModel):
     """Validated parameters of a SEP-990 identity-assertion (RFC 7523 jwt-bearer) request.
 
@@ -39,7 +39,7 @@ class IdentityAssertionParams(BaseModel):
     resource: str | None = None  # RFC 8707 resource indicator from the token request
 
 
-@deferred_model
+@_deferred_model
 class AuthorizationCode(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -54,7 +54,7 @@ class AuthorizationCode(BaseModel):
     subject: str | None = None  # resource owner; propagate to the issued AccessToken
 
 
-@deferred_model
+@_deferred_model
 class RefreshToken(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -65,7 +65,7 @@ class RefreshToken(BaseModel):
     subject: str | None = None  # resource owner; propagate to refreshed AccessTokens
 
 
-@deferred_model
+@_deferred_model
 class AccessToken(BaseModel):
     model_config = ConfigDict(defer_build=True)
 

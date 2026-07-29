@@ -5,7 +5,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from mcp_types import Icon, InputRequiredResult, ToolAnnotations
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver.context import Context
 
 
-@deferred_model
+@_deferred_model
 class Tool(BaseModel):
     """Internal tool registration info."""
 

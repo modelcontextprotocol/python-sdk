@@ -21,7 +21,7 @@ import anyio.lowlevel
 import mcp_types as types
 from anyio.abc import AsyncResource, Process
 from anyio.streams.text import TextReceiveStream
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.client._transport import TransportStreams
@@ -91,7 +91,7 @@ def get_default_environment() -> dict[str, str]:
     return env
 
 
-@deferred_model
+@_deferred_model
 class StdioServerParameters(BaseModel):
     # defer_build: build the validator on first use rather than at import (import-time cost).
     model_config = ConfigDict(defer_build=True)

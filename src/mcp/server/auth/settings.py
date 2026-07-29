@@ -1,11 +1,11 @@
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
 
 # `defer_build=True` below: pydantic builds each validator on first use rather than at
 # import (import-time cost); the build is transparent at first construction/validation.
 
 
-@deferred_model
+@_deferred_model
 class ClientRegistrationOptions(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
@@ -15,14 +15,14 @@ class ClientRegistrationOptions(BaseModel):
     default_scopes: list[str] | None = None
 
 
-@deferred_model
+@_deferred_model
 class RevocationOptions(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
     enabled: bool = False
 
 
-@deferred_model
+@_deferred_model
 class AuthSettings(BaseModel):
     # Preserve empty URL paths so a path-less issuer/resource passed as a string keeps its
     # canonical form (no trailing slash). RFC 8414/9207 issuer comparison is exact string

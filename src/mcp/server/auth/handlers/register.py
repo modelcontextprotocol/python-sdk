@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
@@ -20,7 +20,7 @@ from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, O
 RegistrationRequest = OAuthClientMetadata
 
 
-@deferred_model
+@_deferred_model
 class RegistrationErrorResponse(BaseModel):
     # defer_build: build the validator on first use rather than at import (import-time cost).
     model_config = ConfigDict(defer_build=True)

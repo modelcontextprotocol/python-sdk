@@ -44,7 +44,7 @@ from mcp_types import PromptArgument as MCPPromptArgument
 from mcp_types import Resource as MCPResource
 from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict
 from pydantic.networks import AnyUrl
 
@@ -107,7 +107,7 @@ logger = get_logger(__name__)
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
-@deferred_model
+@_deferred_model
 class Settings(BaseModel, Generic[LifespanResultT]):
     """MCPServer settings, as passed to the `MCPServer` constructor."""
 

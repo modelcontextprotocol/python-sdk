@@ -4,7 +4,7 @@ import abc
 from typing import Any
 
 from mcp_types import Annotations, Icon
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 
-@deferred_model
+@_deferred_model
 class Resource(BaseModel, abc.ABC):
     """Base class for all resources."""
 

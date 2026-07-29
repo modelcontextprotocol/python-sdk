@@ -1,6 +1,6 @@
 from typing import Any, Literal, cast
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # RFC 7523 JWT bearer grant; SEP-990 leg 2 uses this to present the ID-JAG.
@@ -24,7 +24,7 @@ def _empty_str_to_none(v: object) -> object:
     return v
 
 
-@deferred_model
+@_deferred_model
 class OAuthToken(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1"""
 
@@ -47,7 +47,7 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
-@deferred_model
+@_deferred_model
 class AuthorizationCodeResult(BaseModel):
     """Authorization-code-grant redirect parameters returned by a callback handler.
 
@@ -72,7 +72,7 @@ class InvalidRedirectUriError(Exception):
         self.message = message
 
 
-@deferred_model
+@_deferred_model
 class OAuthClientMetadataBase(BaseModel):
     """RFC 7591 OAuth 2.0 Dynamic Client Registration metadata shared verbatim by the
     registration request (`OAuthClientMetadata`) and the authorization server's record of a
@@ -207,7 +207,7 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
             )
 
 
-@deferred_model
+@_deferred_model
 class OAuthMetadata(BaseModel):
     """RFC 8414 OAuth 2.0 Authorization Server Metadata.
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
@@ -243,7 +243,7 @@ class OAuthMetadata(BaseModel):
     authorization_grant_profiles_supported: list[str] | None = None
 
 
-@deferred_model
+@_deferred_model
 class ProtectedResourceMetadata(BaseModel):
     """RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2

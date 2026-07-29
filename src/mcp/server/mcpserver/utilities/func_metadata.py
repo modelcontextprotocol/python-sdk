@@ -10,7 +10,7 @@ import anyio
 import anyio.to_thread
 import pydantic_core
 from mcp_types import CallToolResult, ContentBlock, InputRequiredResult, TextContent
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -64,7 +64,7 @@ class ArgModelBase(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-@deferred_model
+@_deferred_model
 class FuncMetadata(BaseModel):
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
     output_schema: dict[str, Any] | None = None

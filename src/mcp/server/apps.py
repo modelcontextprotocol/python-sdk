@@ -32,7 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypeVar
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
@@ -53,7 +53,7 @@ Visibility = Literal["model", "app"]
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
-@deferred_model
+@_deferred_model
 class ResourcePermissions(BaseModel):
     """Iframe permissions a `ui://` resource requests (`_meta.ui.permissions`)."""
 
@@ -66,7 +66,7 @@ class ResourcePermissions(BaseModel):
     clipboard_write: dict[str, Any] | None = None
 
 
-@deferred_model
+@_deferred_model
 class ResourceCsp(BaseModel):
     """Content-Security-Policy domains for a `ui://` resource (`_meta.ui.csp`)."""
 

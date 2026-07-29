@@ -6,7 +6,7 @@ from typing import Annotated, Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 
 __all__ = [
     "CONNECTION_CLOSED",
@@ -38,7 +38,7 @@ JSONRPC_VERSION: Final[Literal["2.0"]] = "2.0"
 """The JSON-RPC version string carried by every MCP message envelope."""
 
 
-@deferred_model
+@_deferred_model
 class JSONRPCRequest(BaseModel):
     """A JSON-RPC request that expects a response."""
 
@@ -50,7 +50,7 @@ class JSONRPCRequest(BaseModel):
     params: dict[str, Any] | None = None
 
 
-@deferred_model
+@_deferred_model
 class JSONRPCNotification(BaseModel):
     """A JSON-RPC notification which does not expect a response."""
 
@@ -61,7 +61,7 @@ class JSONRPCNotification(BaseModel):
     params: dict[str, Any] | None = None
 
 
-@deferred_model
+@_deferred_model
 class JSONRPCResponse(BaseModel):
     """A successful (non-error) response to a request.
 
@@ -121,7 +121,7 @@ The SDK uses the generic `ErrorData` envelope; the schema's per-code wrapper typ
 """
 
 
-@deferred_model
+@_deferred_model
 class ErrorData(BaseModel):
     """Error information for JSON-RPC error responses."""
 
@@ -143,7 +143,7 @@ class ErrorData(BaseModel):
     """
 
 
-@deferred_model
+@_deferred_model
 class JSONRPCError(BaseModel):
     """A response to a request that indicates an error occurred."""
 

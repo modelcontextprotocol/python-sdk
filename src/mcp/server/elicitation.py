@@ -6,7 +6,7 @@ from functools import cache
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from mcp_types import RequestId
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
@@ -26,7 +26,7 @@ ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
 # first use instead of at import; the build happens once, transparently.
 
 
-@deferred_model
+@_deferred_model
 class AcceptedElicitation(BaseModel, Generic[ElicitSchemaModelT]):
     """Result when user accepts the elicitation."""
 
@@ -36,7 +36,7 @@ class AcceptedElicitation(BaseModel, Generic[ElicitSchemaModelT]):
     data: ElicitSchemaModelT
 
 
-@deferred_model
+@_deferred_model
 class DeclinedElicitation(BaseModel):
     """Result when user declines the elicitation."""
 
@@ -45,7 +45,7 @@ class DeclinedElicitation(BaseModel):
     action: Literal["decline"] = "decline"
 
 
-@deferred_model
+@_deferred_model
 class CancelledElicitation(BaseModel):
     """Result when user cancels the elicitation."""
 
@@ -61,7 +61,7 @@ ElicitationResult = TypeAliasType(
 )
 
 
-@deferred_model
+@_deferred_model
 class AcceptedUrlElicitation(BaseModel):
     """Result when user accepts a URL mode elicitation."""
 

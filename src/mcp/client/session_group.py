@@ -16,7 +16,7 @@ from typing import Any, Literal, TypeAlias, overload
 import anyio
 import httpx2
 import mcp_types as types
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Self
 
@@ -33,7 +33,7 @@ from mcp.shared.exceptions import MCPError
 # import (import-time cost); the build is transparent at first construction/validation.
 
 
-@deferred_model
+@_deferred_model
 class SseServerParameters(BaseModel):
     """Parameters for initializing an sse_client."""
 
@@ -52,7 +52,7 @@ class SseServerParameters(BaseModel):
     sse_read_timeout: float = 300.0
 
 
-@deferred_model
+@_deferred_model
 class StreamableHttpParameters(BaseModel):
     """Parameters for initializing a streamable_http_client."""
 
@@ -111,7 +111,7 @@ class ClientSessionGroup:
         ```
     """
 
-    @deferred_model
+    @_deferred_model
     class _ComponentNames(BaseModel):
         """Used for reverse index to find components."""
 

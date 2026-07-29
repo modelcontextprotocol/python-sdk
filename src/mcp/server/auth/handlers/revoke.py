@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, Literal
 
-from mcp_types._deferred import deferred_model
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
@@ -18,7 +18,7 @@ from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvid
 # import (import-time cost); the build is transparent at first construction/validation.
 
 
-@deferred_model
+@_deferred_model
 class RevocationRequest(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1"""
 
@@ -30,7 +30,7 @@ class RevocationRequest(BaseModel):
     client_secret: str | None
 
 
-@deferred_model
+@_deferred_model
 class RevocationErrorResponse(BaseModel):
     model_config = ConfigDict(defer_build=True)
 
