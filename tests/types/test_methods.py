@@ -1,6 +1,8 @@
 """Tests for the wire-method maps and two-step parse functions in `mcp_types.methods`."""
 
 import importlib.util
+import subprocess
+import sys
 from collections.abc import Mapping
 from types import MappingProxyType, UnionType
 from typing import Any, get_args
@@ -547,6 +549,52 @@ def test_built_in_maps_are_immutable():
         assert isinstance(built_in, MappingProxyType), map_name
         with pytest.raises(TypeError):
             _assign_item(built_in)
+
+
+def test_importing_methods_defers_each_wire_package_until_one_of_its_rows_is_read():
+    """SDK-defined: the per-version wire packages load on first row read, not at import.
+
+    A fresh interpreter is required: this test process has already imported both packages.
+    """
+    script = "\n".join(
+        [
+            "import sys",
+            "from mcp_types import methods",
+            "wire = lambda: sorted(m for m in sys.modules if m.startswith('mcp_types._v'))",
+            "assert wire() == [], wire()",
+            "assert ('tools/list', '2025-11-25') in methods.CLIENT_REQUESTS",
+            "assert len(methods.CLIENT_REQUESTS) and methods.SPEC_CLIENT_METHODS",
+            "assert wire() == [], wire()",
+            "assert methods.parse_client_request('ping', '2025-11-25', None).method == 'ping'",
+            "assert wire() == ['mcp_types._v2025_11_25'], wire()",
+            "methods.CLIENT_REQUESTS[('server/discover', '2026-07-28')]",
+            "assert wire() == ['mcp_types._v2025_11_25', 'mcp_types._v2026_07_28'], wire()",
+        ]
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=20)
+    assert result.returncode == 0, result.stderr
+
+
+def test_surface_maps_keep_the_read_only_mapping_extras_of_a_proxied_dict():
+    """SDK-defined: repr, `copy()`, `|`, `reversed()` and equality match a proxied dict of the rows."""
+    surface_map = methods.CLIENT_REQUESTS
+    resolved = dict(surface_map)
+    assert isinstance(surface_map, MappingProxyType)
+    assert surface_map == resolved
+    assert repr(surface_map) == repr(MappingProxyType(resolved))
+    assert surface_map.copy() == resolved
+    assert (surface_map | {}) == resolved
+    assert ({} | surface_map) == resolved
+    assert list(reversed(surface_map)) == list(reversed(resolved))
+    assert surface_map.get(("ping", "2025-11-25")) is v2025.PingRequest
+    assert surface_map.get(("ping", "2026-07-28")) is None
+
+
+def test_surface_rows_for_a_version_with_no_wire_package_fail_at_map_construction():
+    """SDK-defined: an unregistered protocol version fails loudly at import, not as a version-gate KeyError."""
+    with pytest.raises(ValueError) as excinfo:
+        methods._LazyWireMap({("ping", "2099-01-01"): "PingRequest"})
+    assert "2099-01-01" in str(excinfo.value)
 
 
 def test_cacheable_methods_mirror_the_cacheable_method_literal():

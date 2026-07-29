@@ -5,9 +5,6 @@ from __future__ import annotations
 from typing import Any, Generic, Literal, TypeVar
 
 from mcp_types import RequestId
-
-# Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
-from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
 from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
@@ -77,6 +74,12 @@ def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
     Catches whatever the renderer let through that isn't spec-valid: bare
     `list[str]` (no enum), multi-primitive unions, nested models.
     """
+    # The gate's source of truth is the internal surface package's spec-valid
+    # property schema. Imported here rather than at module top on purpose: the
+    # generated package costs ~100 ms of pydantic model construction, and only
+    # servers that actually elicit should pay for it, at first use.
+    from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
+
     for field_name, prop in json_schema.get("properties", {}).items():
         try:
             PrimitiveSchemaDefinition.model_validate(prop)
