@@ -124,7 +124,8 @@ async def test_streamable_http_security_get_request() -> None:
         assert response.text == "Invalid Host header"
 
         response = await client.get("/", headers={"Accept": "text/event-stream", "Host": "127.0.0.1"})
-        # An allowed host passes security and fails on session validation instead.
-        assert response.status_code == 400
+        # An allowed host passes security; a session-less GET the server cannot serve
+        # as an SSE stream then gets the spec-mandated 405 (not 400).
+        assert response.status_code == 405
         body = response.json()
-        assert "Missing session ID" in body["error"]["message"]
+        assert "Method Not Allowed" in body["error"]["message"]
