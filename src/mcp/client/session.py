@@ -63,7 +63,9 @@ if TYPE_CHECKING:
     # `attrs`/`referencing` tree) in at module scope costs every client that never validates.
     from jsonschema.protocols import Validator
 
-DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+# Trusted literal: `model_construct` skips validation so importing this module does not
+# force-build the deferred `Implementation` model; equal to the validated instance.
+DEFAULT_CLIENT_INFO = types.Implementation.model_construct(name="mcp", version="0.1.0")
 DISCOVER_TIMEOUT_SECONDS = 10.0
 _NOTIFICATION_QUEUE_SIZE: Final = 256
 
