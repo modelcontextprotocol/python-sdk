@@ -9,6 +9,7 @@ import sys
 import typing
 
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import Implementation, Tool
 from mcp_types._deferred import deferred_model
 from mcp_types._types import MCPModel
@@ -87,10 +88,12 @@ def test_the_decorator_refuses_a_root_that_would_not_defer_or_that_owns_a_subcla
         def __pydantic_init_subclass__(cls, **kwargs: object) -> None:
             raise NotImplementedError  # never runs: the decorator refuses the class first
 
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError) as eager_error:
         deferred_model(Eager)
-    with pytest.raises(TypeError):
+    assert str(eager_error.value) == snapshot("@deferred_model expects Eager to set model_config['defer_build'] = True")
+    with pytest.raises(TypeError) as hook_error:
         deferred_model(OwnsHook)
+    assert str(hook_error.value) == snapshot("@deferred_model would replace OwnsHook's own __pydantic_init_subclass__")
 
 
 def test_unresolvable_model_falls_back_to_the_generic_signature() -> None:

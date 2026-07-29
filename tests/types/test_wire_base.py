@@ -7,6 +7,9 @@ from pydantic import BaseModel
 
 
 def test_wire_model_defers_the_pydantic_build_to_first_use() -> None:
+    """SDK-defined: a `WireModel` subclass creates its class without building a validator;
+    the first `model_validate` builds it, once."""
+
     class Probe(WireModel):
         x: int
 
@@ -16,6 +19,9 @@ def test_wire_model_defers_the_pydantic_build_to_first_use() -> None:
 
 
 def test_wire_root_model_defers_the_parameterized_base_and_the_alias() -> None:
+    """SDK-defined: a `WireRootModel[T]` alias defers both itself and its generic
+    parameterization, and still validates through the root on first use."""
+
     class Payload(WireModel):
         x: int
 
