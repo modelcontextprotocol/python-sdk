@@ -49,6 +49,11 @@ StreamReader = ContextReceiveStream[SessionMessage]
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
 
+# Key under which the originating HTTP status is carried in `ErrorData.data` when a
+# non-2xx response is synthesized into a JSON-RPC error. Lets callers tell a terminal
+# 401/403 from a retryable 5xx, which the JSON-RPC error code alone cannot express.
+HTTP_STATUS_KEY = "httpStatus"
+
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
 MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
@@ -363,13 +368,23 @@ class StreamableHTTPTransport:
                             # No session yet → 404 is the HTTP-level spelling of
                             # METHOD_NOT_FOUND (gateway / legacy server doesn't know
                             # this method); "Session terminated" would be a lie here.
-                            error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
+                            code, error_message = METHOD_NOT_FOUND, "Not Found"
                         else:
-                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                            code, error_message = INVALID_REQUEST, "Session terminated"
                     else:
-                        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                        code, error_message = INTERNAL_ERROR, "Server returned an error response"
+                    # The status is what tells a caller whether to retry: 401/403 are
+                    # terminal, 5xx are worth another attempt. The JSON-RPC code above
+                    # cannot express that distinction, so carry the status itself.
+                    error_data = ErrorData(
+                        code=code, message=error_message, data={HTTP_STATUS_KEY: response.status_code}
+                    )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
+                else:
+                    # Nothing to resolve — a notification/response POST has no waiter. Log
+                    # it, or a server rejecting every write fails completely silently.
+                    logger.warning("Server returned HTTP %d to a %s", response.status_code, type(message).__name__)
                 return
 
             if self._is_initialization_request(message):

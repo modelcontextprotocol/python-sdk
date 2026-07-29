@@ -8,6 +8,7 @@ the public client never exposes.
 
 import base64
 import json
+import logging
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
@@ -19,6 +20,7 @@ from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     CONNECTION_CLOSED,
+    INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
@@ -31,6 +33,7 @@ from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.types import Receive, Scope, Send
 
 from mcp.client.streamable_http import (
+    HTTP_STATUS_KEY,
     MAX_RECONNECTION_ATTEMPTS,
     RequestContext,
     StreamableHTTPTransport,
@@ -130,6 +133,87 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.error.code == METHOD_NOT_FOUND
+    assert reply.message.error.data == {HTTP_STATUS_KEY: 404}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [401, 403, 500, 503])
+async def test_a_non_2xx_status_reaches_the_caller_in_the_errors_data(status: int) -> None:
+    """The originating HTTP status rides along in `ErrorData.data`.
+
+    The JSON-RPC code is INTERNAL_ERROR for every one of these, so it alone cannot tell a
+    caller whether to retry. The status can: 401/403 are terminal, 5xx are worth retrying.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.code == INTERNAL_ERROR
+    assert reply.message.error.data == {HTTP_STATUS_KEY: status}
+
+
+@pytest.mark.anyio
+async def test_a_servers_own_jsonrpc_error_body_survives_the_non_2xx_status() -> None:
+    """A JSON-RPC error in the body wins: the server said what went wrong, so don't overwrite its `data`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        error = {"code": INVALID_REQUEST, "message": "no", "data": {"detail": "from the server"}}
+        return httpx.Response(400, json={"jsonrpc": "2.0", "id": body["id"], "error": error})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.data == {"detail": "from the server"}
+
+
+@pytest.mark.anyio
+async def test_a_non_2xx_to_a_notification_is_logged() -> None:
+    """A notification has no waiter to resolve, so a rejected write can only be logged — but it must be.
+
+    Waiting on the log record itself (not on the POST) is what makes this deterministic: the
+    warning is emitted after the response returns, so the handler is too early a signal.
+    """
+    logged = anyio.Event()
+    records: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+            logged.set()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    transport_logger = logging.getLogger("mcp.client.streamable_http")
+    capture = _Capture(level=logging.WARNING)
+    transport_logger.addHandler(capture)
+    try:
+        with anyio.fail_after(5):
+            async with (
+                httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http,
+                streamable_http_client("http://test/mcp", http_client=http) as (_, write),
+            ):
+                await write.send(SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/progress")))
+                await logged.wait()
+    finally:
+        transport_logger.removeHandler(capture)
+    assert [r.getMessage() for r in records] == ["Server returned HTTP 500 to a JSONRPCNotification"]
 
 
 @pytest.mark.anyio
