@@ -19,12 +19,23 @@ from collections.abc import Iterator, Mapping
 from functools import cache
 from importlib import import_module
 from types import MappingProxyType, ModuleType, UnionType
-from typing import Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
 import mcp_types as types
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
+
+if TYPE_CHECKING:
+    # The wire packages are imported by module name at runtime (below), which a
+    # static bundler (PyInstaller and friends) cannot see; these compiled-in but
+    # never-executed imports keep the dependency discoverable for such tools
+    # (else add the packages to the bundler's hidden imports; see
+    # docs/advanced/import-cost.md).
+    import mcp_types._v2025_11_25 as _v2025_11_25
+    import mcp_types._v2026_07_28 as _v2026_07_28
+
+    _WIRE_PACKAGE_MODULES: Final = (_v2025_11_25, _v2026_07_28)
 
 __all__ = [
     "CACHEABLE_METHODS",
