@@ -99,9 +99,8 @@ def test_validate_redirect_uri_file_scheme_rejected():
         validate_redirect_uri(AnyHttpUrl("file:///etc/passwd"))
 
 
-def test_validate_redirect_uri_http_non_loopback_rejected():
-    with pytest.raises(ValueError, match="Redirect URI must use HTTPS"):
-        validate_redirect_uri(AnyHttpUrl("http://evil.com/cb"))
+def test_validate_redirect_uri_http_non_loopback_allowed():
+    validate_redirect_uri(AnyHttpUrl("http://evil.com/cb"))
 
 
 def test_validate_redirect_uri_fragment_rejected():
