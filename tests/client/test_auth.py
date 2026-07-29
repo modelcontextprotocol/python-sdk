@@ -597,6 +597,7 @@ class TestOAuthFallback:
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
         assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+        assert request.headers["Accept"] == "application/json"
 
         # Check form data
         content = request.content.decode()
@@ -623,6 +624,7 @@ class TestOAuthFallback:
         assert request.method == "POST"
         assert str(request.url) == "https://api.example.com/token"
         assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+        assert request.headers["Accept"] == "application/json"
 
         # Check form data
         content = request.content.decode()
@@ -655,6 +657,7 @@ class TestOAuthFallback:
         request = await oauth_provider._exchange_token_authorization_code("test_auth_code", "test_verifier")
 
         # Should use basic auth (registered method)
+        assert request.headers["Accept"] == "application/json"
         assert "Authorization" in request.headers
         assert request.headers["Authorization"].startswith("Basic ")
 
@@ -700,6 +703,7 @@ class TestOAuthFallback:
 
         request = await oauth_provider._refresh_token()
 
+        assert request.headers["Accept"] == "application/json"
         assert "Authorization" in request.headers
         assert request.headers["Authorization"].startswith("Basic ")
 
