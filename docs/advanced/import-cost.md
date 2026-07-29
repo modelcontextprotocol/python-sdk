@@ -24,6 +24,8 @@ From there, each stack loads with the feature that needs it, once:
 | the first `MCPServer(...)` (its default `requestState` codec) | `cryptography` | ~10 ms |
 | the first OAuth-enabled server | the OAuth provider models | ~10 ms |
 
+(The magnitudes are single-machine measurements; expect the same shape, not the same numbers.)
+
 None of these is per request. Each is a one-time cost paid where the work happens, and the
 steady state afterwards is identical to having loaded it up front. Client code never loads the
 server stack, and a stdio server never loads the web stack. Concretely, a fresh process pays
@@ -33,23 +35,38 @@ from ~600 ms to ~3 ms and a typical `from mcp.types import ...` from ~600 ms to 
 
 ## Prewarming
 
-If you would rather pay the deferred model work at startup than on the first message — a
-latency-sensitive long-running host, say — call `mcp.warm()` from your startup hook:
+A long-running host that would rather pay the deferred work at startup than on its first
+connection calls `mcp.warm(version)` from its startup hook, naming the protocol version its
+clients negotiate:
 
 ```python
 --8<-- "docs_src/import_cost/tutorial001.py"
 ```
 
-`warm()` builds the version-independent validators (the `mcp.types` models, the JSON-RPC
-envelopes and the routing union adapters, ~50 ms); pass the protocol version(s) you will serve to
-also import that version's wire package and build the routing surface a connection uses (~+100 ms
-per version); `warm(everything=True)` covers every known version. The models are always completed
-before the adapters that reference them, nothing is built twice, and repeat calls are no-ops. The
-returned `WarmReport` counts what a call built, for logging. Do it once, at startup: nothing in
-the SDK calls `warm()` for you, and importing the SDK stays fast either way.
+`warm(version)` builds the version-independent validators (the `mcp.types` models, the JSON-RPC
+envelopes and the routing union adapters, ~50 ms) and imports that protocol version's wire package
+and builds the routing surface a connection at that version uses (~+100 ms), so the first
+connection finds everything built: measured, a host's first connection (initialize plus the first
+tools/resources/prompts requests) drops from ~200 ms of one-time builds to ~65 ms, within a
+millisecond of a steady-state connection. Name the version your transport negotiates: stdio and
+streamable-HTTP sessions negotiate `2025-11-25` today, the in-memory `Client` `2026-07-28`.
+
+The two other spellings are narrower and wider:
+
+- `warm()` with no version builds only the version-independent set; the first connection still
+  imports and builds its version's routing surface.
+- `warm(all_versions=True)` warms every known version's routing surface, for a proxy or gateway
+  serving clients of both eras.
+
+The models are always completed before the adapters that reference them, nothing is built twice,
+and repeat calls are no-ops. The returned `WarmReport` (a frozen dataclass: `models`, `adapters`,
+`elapsed_ms`) counts what a call built, for logging. Do it once, at startup: nothing in the SDK
+calls `warm()` for you, and importing the SDK stays fast either way.
 
 An HTTP server needs nothing extra for its transport: building the app (`streamable_http_app()`) at
-startup is exactly the moment its web stack loads anyway.
+startup is exactly the moment its web stack loads anyway. An `MCPServer`'s own settings, tool and
+prompt models build when the server object and its tools are constructed, which is startup work in
+its own right.
 
 ## FAQ
 
@@ -80,4 +97,17 @@ and `--collect-submodules mcp` for the SDK's own lazily-resolved submodules).
 annotations of `MCPServer.sse_app` / `streamable_http_app` (and the lowlevel `Server`'s
 `streamable_http_app`) are typing-only, since evaluating them would import the web stack. Every
 SDK-owned name in those signatures still resolves; supply starlette's names via `localns=` if you
-need the full hints evaluated. See the [migration guide](../migration.md#import-graph-and-startup).
+need the full hints evaluated. Note that evaluating hints imports what they name:
+`typing.get_type_hints(mcp.Client)` resolves `Client.server`'s annotation and so imports
+`mcp.server`. See the [migration guide](../migration.md#import-graph-and-startup).
+
+**Locks around the first (deferred) build.** A model's first build - and the JSON-schema generation
+of a not-yet-built model - runs under one process-wide reentrant lock, so concurrent first uses build
+each model exactly once instead of racing (the same design pydantic itself adopted for its own
+`model_rebuild`). Two consequences: don't hold your own lock across a model's first use or inside a
+custom `__get_pydantic_core_schema__` / subclass hook and then take that same lock elsewhere while
+another thread first-uses a model (an ordinary lock-order inversion), and a thread that is mid-build
+during `os.fork()` leaves the child's lock held (the standard fork-with-threads caveat). Calling
+`mcp.warm(version)` at startup builds everything on one thread and makes concurrent first builds
+impossible in the first place. Once a pydantic release with a thread-safe `model_rebuild` is the
+SDK's dependency floor, the SDK's lock will be dropped.

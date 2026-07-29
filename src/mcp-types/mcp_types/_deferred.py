@@ -52,8 +52,20 @@ REBUILD_LOCK: Final = threading.RLock()
 
 Reentrant on purpose: completing one model rebuilds the models it references
 on the same thread, re-entering `model_rebuild()`. Held only while a model
-actually builds; a completed model's `model_rebuild()` returns before the
-lock, and no per-message path takes it.
+actually builds (and while a not-yet-built model's JSON schema is generated,
+a cold path); a completed model's `model_rebuild()` returns before the lock,
+and no per-message path takes it.
+
+The lock is held across pydantic's own build machinery, and that machinery
+runs user code: custom `__get_pydantic_core_schema__` hooks and subclass /
+metaclass hooks execute under it. So the usual lock-order rule applies - user
+code must not block on some other lock inside those hooks while another
+thread holds that lock and first-uses a model - and a thread mid-build during
+`os.fork()` leaves the child's lock held (the standard fork-with-threads
+caveat). Both are the same terms upstream pydantic adopted for its own,
+identical, process-wide rebuild lock (pydantic#13438); once a pydantic release
+containing it is our dependency floor this SDK lock can go. A host that calls
+`mcp.warm()` at startup builds everything on one thread and never contends here.
 """
 
 

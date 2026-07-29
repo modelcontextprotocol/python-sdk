@@ -2691,7 +2691,7 @@ before a message needs them). Nothing you import changes name or location, and
 before. See [Imports & startup time](advanced/import-cost.md) for what loads when and how to
 prewarm it.
 
-Two incidental things did change:
+A few incidental things did change:
 
 * **Attribute chains that were never imported explicitly.** `import mcp` used to bind most
   submodules as a side effect, so `import mcp` followed by `mcp.client.stdio.stdio_client(...)`
@@ -2718,7 +2718,9 @@ Two incidental things did change:
   `MCPServer.custom_route`'s handler type) raises `NameError` for the Starlette-owned annotations
   (`Starlette`, `Route`, `Request`, `Response`), which are typing-only now; every SDK-owned name in
   those signatures still evaluates, and `inspect.signature()` is unaffected. Import starlette's
-  names into your own namespace and pass `localns=` if you need those hints evaluated.
+  names into your own namespace and pass `localns=` if you need those hints evaluated. Relatedly,
+  evaluating hints imports what they name: `typing.get_type_hints(mcp.Client)` resolves the
+  `server` parameter's annotation and so imports `mcp.server`.
 
 ### Pydantic models build on first use (`defer_build=True`)
 
