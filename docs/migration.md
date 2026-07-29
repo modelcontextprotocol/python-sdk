@@ -2877,3 +2877,6 @@ If you encounter issues during migration:
 1. Check the [API Reference](api/mcp/index.md) for updated method signatures
 2. Review the [examples](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples) for updated usage patterns
 3. Open an issue on [GitHub](https://github.com/modelcontextprotocol/python-sdk/issues) if you find a bug or need further assistance
+
+Not ready to migrate yet? The v1.x maintenance line keeps receiving critical bug fixes and security
+patches; its documentation is at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/).
