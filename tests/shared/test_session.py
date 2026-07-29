@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from typing import Any
 
 import anyio
@@ -10,6 +11,7 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
 from mcp.shared.message import SessionMessage
+from mcp.shared.session import _extract_known_request_methods
 from mcp.types import (
     CancelledNotification,
     CancelledNotificationParams,
@@ -363,6 +365,7 @@ async def test_client_session_unknown_method_returns_method_not_found():
                 )
             )
             resp = await server_read.receive()
+            assert isinstance(resp, SessionMessage)
             assert isinstance(resp.message.root, JSONRPCError)
             assert resp.message.root.id == 1
             assert resp.message.root.error.code == types.METHOD_NOT_FOUND
@@ -373,3 +376,22 @@ async def test_client_session_unknown_method_returns_method_not_found():
             anyio.create_task_group() as tg,
         ):
             tg.start_soon(mock_server)
+
+
+def test_extract_known_request_methods_ignores_non_string_defaults():
+    class RequestWithNonStringMethod:
+        model_fields = {"method": SimpleNamespace(default=None)}
+
+    assert _extract_known_request_methods(RequestWithNonStringMethod) == frozenset()
+
+
+def test_extract_known_request_methods_fails_closed_on_schema_introspection_error():
+    class ExplodingMeta(type):
+        @property
+        def __value__(cls) -> type[Any]:
+            raise RuntimeError("broken schema")
+
+    class BrokenRequest(metaclass=ExplodingMeta):
+        pass
+
+    assert _extract_known_request_methods(BrokenRequest) == frozenset()
