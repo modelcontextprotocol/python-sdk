@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from functools import cache
 from importlib import import_module
 from types import MappingProxyType, ModuleType, UnionType
-from typing import TYPE_CHECKING, Any, Final, Literal, NamedTuple, TypeGuard, TypeVar, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -871,8 +872,13 @@ _ALL_MONOLITHS: Final = (MONOLITH_REQUESTS, MONOLITH_NOTIFICATIONS, MONOLITH_RES
 """Every monolith map, for `warm()`."""
 
 
-class WarmReport(NamedTuple):
-    """What one `warm()` call built (already-built work is skipped and not counted)."""
+@dataclass(frozen=True)
+class WarmReport:
+    """What one `warm()` call built (already-built work is skipped and not counted).
+
+    A frozen dataclass rather than a tuple, so a later field addition does not
+    change how existing fields are read.
+    """
 
     models: int
     """Deferred model classes whose validators this call built."""
@@ -910,7 +916,7 @@ def _warm_adapter(adapter: TypeAdapter[Any]) -> int:
     return 0 if adapter.rebuild() is None else 1
 
 
-def warm(version: str | None = None, *, everything: bool = False) -> WarmReport:
+def warm(version: str | None = None, *, all_versions: bool = False) -> WarmReport:
     """Build the SDK's deferred validators up front, before the first message needs them.
 
     Importing the SDK stays fast because pydantic validators build on first use
@@ -919,13 +925,17 @@ def warm(version: str | None = None, *, everything: bool = False) -> WarmReport:
     startup, calls this from a startup hook; nothing in the SDK calls it, and
     steady-state behaviour is identical either way.
 
-    * `warm()` builds the version-independent set: the monolith `mcp_types`
-      models a session routes through, the JSON-RPC envelopes and the
-      module-level union adapters.
-    * `warm(version)` additionally imports that protocol version's wire
-      package and builds its routing surface (the wire models and the cached
-      adapters a connection at that version routes through).
-    * `warm(everything=True)` does that for every known protocol version.
+    * `warm(version)` is what a host wants: it builds the version-independent
+      set (below) and imports that protocol version's wire package and builds
+      its routing surface (the wire models and the cached adapters a
+      connection at that version routes through), so the first connection at
+      that version builds nothing.
+    * `warm()` builds only the version-independent set: the monolith
+      `mcp_types` models a session routes through, the JSON-RPC envelopes and
+      the module-level union adapters. The first connection still imports and
+      builds its version's routing surface.
+    * `warm(all_versions=True)` warms every known protocol version's routing
+      surface, for a proxy or gateway that serves clients of both eras.
 
     Model classes are completed before the adapters that reference them are
     built, so no schema is generated twice; anything already built is skipped,
@@ -933,7 +943,8 @@ def warm(version: str | None = None, *, everything: bool = False) -> WarmReport:
 
     Args:
         version: The protocol version whose routing surface to build too.
-        everything: Warm every known protocol version (benchmarks, tests).
+        all_versions: Warm every known protocol version's routing surface
+            (a proxy or gateway serving both eras; benchmarks and tests).
 
     Returns:
         Counts of what this call built and the milliseconds it took.
@@ -943,7 +954,7 @@ def warm(version: str | None = None, *, everything: bool = False) -> WarmReport:
     """
     started = time.perf_counter()
     versions: list[str] = []
-    if everything:
+    if all_versions:
         versions = sorted(KNOWN_PROTOCOL_VERSIONS)
     elif version is not None:
         _check_known_version(version)

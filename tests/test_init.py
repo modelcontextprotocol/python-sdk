@@ -5,6 +5,7 @@ tests/test_import_guards.py, together with the other entry points' guards.
 """
 
 import pytest
+from mcp_types import methods
 
 import mcp
 import mcp.server.session
@@ -25,6 +26,11 @@ def test_client_and_server_reexports_are_the_defining_objects():
     assert mcp.ServerSession is mcp.server.session.ServerSession
     assert mcp.stdio_server is mcp.server.stdio.stdio_server
     assert mcp.ClientSessionGroup is ClientSessionGroup
+
+
+def test_warm_is_the_types_layer_prewarm_helper_itself():
+    """SDK-defined: `mcp.warm` is `mcp_types.methods.warm` - one helper, two spellings."""
+    assert mcp.warm is methods.warm
 
 
 def test_dir_lists_every_export_and_the_bound_submodules():

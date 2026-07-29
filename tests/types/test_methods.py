@@ -1,5 +1,6 @@
 """Tests for the wire-method maps and two-step parse functions in `mcp_types.methods`."""
 
+import dataclasses
 import importlib.util
 import json
 import os
@@ -1034,7 +1035,7 @@ def test_importing_the_module_builds_no_adapters_and_identical_rows_share_one():
 # --- warm(): the opt-in prewarm helper ---
 
 _WARM_PROBE = """
-import json, sys
+import dataclasses, json, sys
 import pydantic
 import mcp_types
 from mcp_types import methods
@@ -1069,7 +1070,7 @@ methods.serialize_server_result(
     {{"tools": [], "cacheScope": "private", "ttlMs": 0, "resultType": "complete"}},
 )
 mcp_types.jsonrpc_message_adapter.validate_python({{"jsonrpc": "2.0", "id": 1, "method": "ping"}})
-print(json.dumps({{"report": report._asdict() if report else None, "wire": loaded_wire, "built": built}}))
+print(json.dumps({{"report": dataclasses.asdict(report) if report else None, "wire": loaded_wire, "built": built}}))
 """
 
 
@@ -1115,10 +1116,19 @@ def test_warm_is_idempotent_and_gates_unknown_versions():
     """SDK-defined: repeating a `warm()` builds nothing more; an unknown version is a ValueError."""
     baseline = methods.warm()  # the version-independent set (this process may already have built it)
     assert baseline.elapsed_ms >= 0
-    methods.warm(everything=True)
-    again = methods.warm(everything=True)
+    methods.warm(all_versions=True)
+    again = methods.warm(all_versions=True)
     assert (again.models, again.adapters) == (0, 0)
     assert again.elapsed_ms >= 0
     with pytest.raises(ValueError) as excinfo:
         methods.warm("2099-01-01")
-    assert "2099-01-01" in str(excinfo.value)
+    assert str(excinfo.value) == snapshot("version must be a known protocol version, got '2099-01-01'")
+
+
+def test_warm_report_is_an_immutable_dataclass():
+    """SDK-defined: the report is a frozen dataclass (fields read by name, arity free to grow),
+    not a tuple."""
+    report = methods.warm()
+    assert dataclasses.is_dataclass(report)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(report, "models", -1)
