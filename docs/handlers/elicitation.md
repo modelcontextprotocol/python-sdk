@@ -124,6 +124,24 @@ Some things must not go through the model or the client: credentials, card numbe
 
 Look at the second tool. When your server learns the out-of-band flow finished (a webhook, a poll; here it's modelled as a second tool), `ctx.session.send_elicit_complete(...)` sends `notifications/elicitation/complete` with the same `elicitation_id`. That is how the client knows it can stop showing *"waiting for payment..."*. Without it, the client can only guess.
 
+## Ask only in a mode the client supports
+
+A client can declare one mode without the other - a terminal that renders a form but has no browser to open a URL, or a kiosk that can only open a URL. `ctx.session.check_client_capability` reads the `form` / `url` sub-capabilities, so a tool can pick a mode the client actually supports before it asks:
+
+```python
+from mcp_types import ClientCapabilities, ElicitationCapability, FormElicitationCapability
+
+
+async def book_table(ctx: Context) -> str:
+    wants_form = ClientCapabilities(elicitation=ElicitationCapability(form=FormElicitationCapability()))
+    if not ctx.session.check_client_capability(wants_form):
+        return "This client can't render a form; send a URL or return a default instead."
+    result = await ctx.elicit("Which date?", schema=AlternativeDate)
+    return "booked" if result.action == "accept" else "no change"
+```
+
+A bare `ElicitationCapability()` (no mode set) matches any client that supports elicitation at all, so name a mode only when you need that specific one. This is the same *"what if I can't ask?"* design the client-side check below calls out - now decided per mode.
+
 ## The client side
 
 Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(...)`:
