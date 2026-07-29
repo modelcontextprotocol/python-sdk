@@ -2102,7 +2102,7 @@ v1's internal client set `follow_redirects=True`; set it explicitly when supplyi
 `streamable_http_client` itself keeps a small signature — `streamable_http_client(url, *, http_client=None, terminate_on_close=True)` — and now yields a 2-tuple (next section). The removed function's other parameters map onto the client you build:
 
 - `headers`, `timeout`, `sse_read_timeout`, `auth`: set them on the `httpx2.AsyncClient` as above. `streamablehttp_client` defaulted to `httpx.Timeout(30, read=300)`; a bare `httpx2.AsyncClient()` falls back to httpx2's flat 5-second timeout, too short for the long-lived GET stream, so set `timeout=httpx2.Timeout(30, read=300)` (as shown) to keep v1's values. Omitting `http_client` still gives you a default client with those timeouts and `follow_redirects=True`.
-- `httpx_client_factory`: gone with no replacement — call your factory yourself and pass the result as `http_client`.
+- `httpx_client_factory`: gone with no replacement — call your factory yourself and pass the result as `http_client`. The `McpHttpClientFactory` protocol type is no longer re-exported from `mcp.client.streamable_http` either; annotate your factory as `Callable[..., httpx2.AsyncClient]` (or your own protocol) instead of importing it.
 - `terminate_on_close`: unchanged (default `True`).
 
 Client-side stream resumption is also unchanged: the transport reconnects a dropped GET stream with `Last-Event-ID` on its own, and `session.send_request(..., metadata=ClientMessageMetadata(resumption_token=..., on_resumption_token_update=...))` (from `mcp.shared.message`) works as in v1.
