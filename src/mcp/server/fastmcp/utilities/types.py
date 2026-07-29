@@ -2,6 +2,10 @@
 
 import base64
 from pathlib import Path
+from typing import Any
+
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import CoreSchema, core_schema
 
 from mcp.types import AudioContent, ImageContent
 
@@ -53,6 +57,23 @@ class Image:
 
         return ImageContent(type="image", data=data, mimeType=self._mime_type)
 
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        # Serialize Image as ImageContent so it round-trips through any
+        # Pydantic-driven JSON encoder (e.g. CallToolResult.model_dump_json).
+        # Validation accepts an existing Image instance unchanged; new instances
+        # are constructed through the regular __init__, not via this schema.
+        return core_schema.no_info_plain_validator_function(
+            function=lambda value: value,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda instance: instance.to_image_content().model_dump(mode="json", by_alias=True),
+            ),
+        )
+
 
 class Audio:
     """Helper class for returning audio from tools."""
@@ -99,3 +120,19 @@ class Audio:
             raise ValueError("No audio data available")
 
         return AudioContent(type="audio", data=data, mimeType=self._mime_type)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        # Serialize Audio as AudioContent so it round-trips through any
+        # Pydantic-driven JSON encoder. See ``Image.__get_pydantic_core_schema__``
+        # for the rationale.
+        return core_schema.no_info_plain_validator_function(
+            function=lambda value: value,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda instance: instance.to_audio_content().model_dump(mode="json", by_alias=True),
+            ),
+        )
