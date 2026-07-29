@@ -4,7 +4,8 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, cast
 
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
-from pydantic import AnyUrl, BaseModel
+from mcp_types._deferred import deferred_model
+from pydantic import AnyUrl, BaseModel, ConfigDict
 from typing_extensions import deprecated
 
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
 
 
+@deferred_model
 class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
 
@@ -61,6 +63,9 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     The context parameter name can be anything as long as it's annotated with Context.
     The context is optional - tools that don't need it can omit the parameter.
     """
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None

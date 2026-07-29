@@ -4,6 +4,7 @@ import abc
 from typing import Any
 
 from mcp_types import Annotations, Icon
+from mcp_types._deferred import deferred_model
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -13,10 +14,13 @@ from pydantic import (
 )
 
 
+@deferred_model
 class Resource(BaseModel, abc.ABC):
     """Base class for all resources."""
 
-    model_config = ConfigDict(validate_default=True, extra="forbid")
+    # defer_build: build the validator on first use rather than at import (import-time cost);
+    # inherited by every Resource subclass.
+    model_config = ConfigDict(validate_default=True, extra="forbid", defer_build=True)
 
     uri: str = Field(default=..., description="URI of the resource")
     name: str | None = Field(description="Name of the resource", default=None)

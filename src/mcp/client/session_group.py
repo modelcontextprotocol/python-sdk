@@ -16,7 +16,8 @@ from typing import Any, Literal, TypeAlias, overload
 import anyio
 import httpx2
 import mcp_types as types
-from pydantic import BaseModel, Field
+from mcp_types._deferred import deferred_model
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Self
 
 import mcp
@@ -28,9 +29,15 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPError
 
+# `defer_build=True` below: pydantic builds each validator on first use rather than at
+# import (import-time cost); the build is transparent at first construction/validation.
 
+
+@deferred_model
 class SseServerParameters(BaseModel):
     """Parameters for initializing an sse_client."""
+
+    model_config = ConfigDict(defer_build=True)
 
     # The endpoint URL.
     url: str
@@ -45,8 +52,11 @@ class SseServerParameters(BaseModel):
     sse_read_timeout: float = 300.0
 
 
+@deferred_model
 class StreamableHttpParameters(BaseModel):
     """Parameters for initializing a streamable_http_client."""
+
+    model_config = ConfigDict(defer_build=True)
 
     # The endpoint URL.
     url: str
@@ -103,6 +113,8 @@ class ClientSessionGroup:
 
     class _ComponentNames(BaseModel):
         """Used for reverse index to find components."""
+
+        model_config = ConfigDict(defer_build=True)
 
         prompts: set[str] = Field(default_factory=set)
         resources: set[str] = Field(default_factory=set)

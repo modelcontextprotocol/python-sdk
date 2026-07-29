@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 # TODO(Marcelo): We should drop the `RootModel`.
-from pydantic import AnyUrl, BaseModel, Field, RootModel, ValidationError  # noqa: TID251
+from mcp_types._deferred import deferred_model
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, RootModel, ValidationError  # noqa: TID251
 from starlette.datastructures import FormData, QueryParams
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
@@ -22,7 +23,14 @@ from mcp.shared.auth import InvalidRedirectUriError, InvalidScopeError
 logger = logging.getLogger(__name__)
 
 
+# `defer_build=True` below: pydantic builds each validator on first use rather than at
+# import (import-time cost); the build is transparent at first construction/validation.
+
+
+@deferred_model
 class AuthorizationRequest(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
     client_id: str = Field(..., description="The client ID")
     redirect_uri: AnyUrl | None = Field(None, description="URL to redirect to after authorization")
@@ -42,7 +50,10 @@ class AuthorizationRequest(BaseModel):
     )
 
 
+@deferred_model
 class AuthorizationErrorResponse(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     error: AuthorizationErrorCode
     error_description: str | None
     error_uri: AnyUrl | None = None
@@ -59,7 +70,10 @@ def best_effort_extract_string(key: str, params: None | FormData | QueryParams) 
     return None
 
 
+@deferred_model
 class AnyUrlModel(RootModel[AnyUrl]):
+    model_config = ConfigDict(defer_build=True)
+
     root: AnyUrl
 
 

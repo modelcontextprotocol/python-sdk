@@ -3,10 +3,15 @@ and tools.
 """
 
 from mcp_types import Icon, ServerCapabilities
-from pydantic import BaseModel
+from mcp_types._deferred import deferred_model
+from pydantic import BaseModel, ConfigDict
 
 
+@deferred_model
 class InitializationOptions(BaseModel):
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
+
     server_name: str
     server_version: str
     title: str | None = None

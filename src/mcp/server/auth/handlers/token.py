@@ -4,7 +4,8 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError
+from mcp_types._deferred import deferred_model
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from starlette.requests import Request
 
 from mcp.server.auth.errors import stringify_pydantic_error
@@ -18,8 +19,14 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthToken
 
+# `defer_build=True` below: pydantic builds each validator on first use rather than at
+# import (import-time cost); the build is transparent at first construction/validation.
 
+
+@deferred_model
 class AuthorizationCodeRequest(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     # See https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
     grant_type: Literal["authorization_code"]
     code: str = Field(..., description="The authorization code")
@@ -33,7 +40,10 @@ class AuthorizationCodeRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
+@deferred_model
 class RefreshTokenRequest(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     # See https://datatracker.ietf.org/doc/html/rfc6749#section-6
     grant_type: Literal["refresh_token"]
     refresh_token: str = Field(..., description="The refresh token")
@@ -45,7 +55,10 @@ class RefreshTokenRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
+@deferred_model
 class JwtBearerRequest(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     # RFC 7523 §2.1 JWT bearer authorization grant. SEP-990 leg 2: the client presents the
     # enterprise IdP-issued ID-JAG to the MCP authorization server as the `assertion`.
     grant_type: Literal["urn:ietf:params:oauth:grant-type:jwt-bearer"]
@@ -63,11 +76,14 @@ TokenRequest = Annotated[
     AuthorizationCodeRequest | RefreshTokenRequest | JwtBearerRequest,
     Field(discriminator="grant_type"),
 ]
-token_request_adapter = TypeAdapter[TokenRequest](TokenRequest)
+token_request_adapter = TypeAdapter[TokenRequest](TokenRequest, config=ConfigDict(defer_build=True))
 
 
+@deferred_model
 class TokenErrorResponse(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2"""
+
+    model_config = ConfigDict(defer_build=True)
 
     error: TokenErrorCode
     error_description: str | None = None

@@ -5,7 +5,8 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from mcp_types import Icon, InputRequiredResult, ToolAnnotations
-from pydantic import BaseModel, Field
+from mcp_types._deferred import deferred_model
+from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
 from mcp.server.mcpserver.resolve import (
@@ -25,8 +26,12 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver.context import Context
 
 
+@deferred_model
 class Tool(BaseModel):
     """Internal tool registration info."""
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     fn: Callable[..., Any] = Field(exclude=True)
     name: str = Field(description="Name of the tool")

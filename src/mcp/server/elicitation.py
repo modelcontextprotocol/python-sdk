@@ -6,7 +6,8 @@ from functools import cache
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from mcp_types import RequestId
-from pydantic import BaseModel, ValidationError
+from mcp_types._deferred import deferred_model
+from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 from typing_extensions import TypeAliasType
@@ -21,21 +22,34 @@ if TYPE_CHECKING:
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
 
 
+# `defer_build` on the result models below: pydantic builds each validator on
+# first use instead of at import; the build happens once, transparently.
+
+
+@deferred_model
 class AcceptedElicitation(BaseModel, Generic[ElicitSchemaModelT]):
     """Result when user accepts the elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["accept"] = "accept"
     data: ElicitSchemaModelT
 
 
+@deferred_model
 class DeclinedElicitation(BaseModel):
     """Result when user declines the elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["decline"] = "decline"
 
 
+@deferred_model
 class CancelledElicitation(BaseModel):
     """Result when user cancels the elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["cancel"] = "cancel"
 
@@ -47,8 +61,11 @@ ElicitationResult = TypeAliasType(
 )
 
 
+@deferred_model
 class AcceptedUrlElicitation(BaseModel):
     """Result when user accepts a URL mode elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["accept"] = "accept"
 

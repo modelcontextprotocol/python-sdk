@@ -13,7 +13,8 @@ from uuid import uuid4
 
 import httpx2
 import jwt
-from pydantic import BaseModel, Field
+from mcp_types._deferred import deferred_model
+from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
@@ -134,6 +135,7 @@ def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
     return provider
 
 
+@deferred_model
 class SignedJWTParameters(BaseModel):
     """Parameters for creating SDK-signed JWT assertions.
 
@@ -155,6 +157,9 @@ class SignedJWTParameters(BaseModel):
         )
         ```
     """
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     issuer: str = Field(description="Issuer for JWT assertions (typically client_id).")
     subject: str = Field(description="Subject identifier for JWT assertions (typically client_id).")

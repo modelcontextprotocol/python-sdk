@@ -9,7 +9,8 @@ importable from here.
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from mcp_types._deferred import deferred_model
+from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.shared._lazy import lazy_module_attrs as _lazy_module_attrs
 
@@ -22,11 +23,15 @@ __all__ = ["TransportSecurityMiddleware", "TransportSecuritySettings"]
 
 
 # TODO(Marcelo): We should flatten these settings. To be fair, I don't think we should even have this middleware.
+@deferred_model
 class TransportSecuritySettings(BaseModel):
     """Settings for MCP transport security features.
 
     These settings help protect against DNS rebinding attacks by validating incoming request headers.
     """
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     enable_dns_rebinding_protection: bool = True
     """Enable DNS rebinding protection (recommended for production)."""

@@ -21,7 +21,8 @@ import anyio.lowlevel
 import mcp_types as types
 from anyio.abc import AsyncResource, Process
 from anyio.streams.text import TextReceiveStream
-from pydantic import BaseModel, Field
+from mcp_types._deferred import deferred_model
+from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.client._transport import TransportStreams
 from mcp.os.posix.utilities import terminate_posix_process_tree
@@ -90,7 +91,11 @@ def get_default_environment() -> dict[str, str]:
     return env
 
 
+@deferred_model
 class StdioServerParameters(BaseModel):
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
+
     command: str
     """The executable to run to start the server."""
 

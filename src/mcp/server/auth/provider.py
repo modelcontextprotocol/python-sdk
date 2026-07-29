@@ -2,12 +2,19 @@ from dataclasses import dataclass
 from typing import Any, Generic, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from pydantic import AnyUrl, BaseModel
+from mcp_types._deferred import deferred_model
+from pydantic import AnyUrl, BaseModel, ConfigDict
 
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
+# `defer_build=True` on the models below: pydantic builds each validator on first use
+# rather than at import (import-time cost); the build is transparent at first construction.
 
+
+@deferred_model
 class AuthorizationParams(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     state: str | None
     scopes: list[str] | None
     code_challenge: str
@@ -16,6 +23,7 @@ class AuthorizationParams(BaseModel):
     resource: str | None = None  # RFC 8707 resource indicator
 
 
+@deferred_model
 class IdentityAssertionParams(BaseModel):
     """Validated parameters of a SEP-990 identity-assertion (RFC 7523 jwt-bearer) request.
 
@@ -24,12 +32,17 @@ class IdentityAssertionParams(BaseModel):
     RFC 7523 §3 and the SEP-990 §5.1 processing rules before issuing an access token.
     """
 
+    model_config = ConfigDict(defer_build=True)
+
     assertion: str  # RFC 7523 §2.1: the JWT (ID-JAG) presented as the authorization grant
     scopes: list[str] | None = None
     resource: str | None = None  # RFC 8707 resource indicator from the token request
 
 
+@deferred_model
 class AuthorizationCode(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     code: str
     scopes: list[str]
     expires_at: float
@@ -41,7 +54,10 @@ class AuthorizationCode(BaseModel):
     subject: str | None = None  # resource owner; propagate to the issued AccessToken
 
 
+@deferred_model
 class RefreshToken(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     token: str
     client_id: str
     scopes: list[str]
@@ -49,7 +65,10 @@ class RefreshToken(BaseModel):
     subject: str | None = None  # resource owner; propagate to refreshed AccessTokens
 
 
+@deferred_model
 class AccessToken(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     token: str
     client_id: str
     scopes: list[str]
