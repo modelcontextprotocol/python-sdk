@@ -90,7 +90,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -582,9 +582,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                             isError=False,
                         )
                     )
-                except UrlElicitationRequiredError:
-                    # Re-raise UrlElicitationRequiredError so it can be properly handled
-                    # by _handle_request, which converts it to an error response with code -32042
+                except McpError:
+                    # Re-raise McpError (including subclasses such as
+                    # UrlElicitationRequiredError) so it can be properly handled by
+                    # _handle_request, which converts it to a JSON-RPC error response
+                    # preserving the structured error code.
                     raise
                 except Exception as e:
                     return self._make_error_result(str(e))
@@ -774,7 +776,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                 )
                 response = await handler(req)
-            except McpError as err:  # pragma: no cover
+            except McpError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
                 if message.cancelled:
