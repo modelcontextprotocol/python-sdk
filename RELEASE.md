@@ -19,7 +19,7 @@ own: a `main` tag builds and publishes two distributions (`mcp` and
 | Line                         | Branch | Tag                       | GitHub release flags                  |
 | ---------------------------- | ------ | ------------------------- | ------------------------------------- |
 | Current stable               | `main` | `v2.X.Y`                  | not a pre-release; becomes **Latest** |
-| Maintenance (previous major) | `v1.x` | `v1.28.Z`                 | not a pre-release; **not** Latest     |
+| Maintenance (previous major) | `v1.x` | `v1.X.Y`                  | not a pre-release; **not** Latest     |
 | Pre-releases                 | `main` | `v2.X.YaN` / `bN` / `rcN` | **Pre-release** ticked, never Latest  |
 
 The `Development Status` classifier in both `pyproject.toml` files is
@@ -75,7 +75,7 @@ before the tag.
    the replacement version, since yanking doesn't stop `==` pins from installing
    the broken version.
 
-## Maintenance release from `v1.x` (`v1.28.Z`)
+## Maintenance release from `v1.x` (`v1.X.Y`)
 
 Land the `[v1.x]`-prefixed backport PRs (and any README banner update, which is
 the README PyPI shows for that version), verify the branch tip green, then
@@ -89,11 +89,11 @@ create the release the same way with two differences:
 - **It must not take "Latest" back from the 2.x line.** The UI ticks "Set as
   the latest release" by default for the newest non-pre-release; untick it, or
   pass `--latest=false`, and afterwards confirm `/releases/latest` still names
-  the newest v2 tag. If it slipped, `gh release edit v1.28.Z --latest=false`
+  the newest v2 tag. If it slipped, `gh release edit v1.X.Y --latest=false`
   fixes it — release metadata only, no re-cut.
 
 ```shell
-gh release create v1.28.Z --title v1.28.Z --target <commit-sha> --latest=false --notes-file <notes.md>
+gh release create v1.X.Y --title v1.X.Y --target <commit-sha> --latest=false --notes-file <notes.md>
 ```
 
 When generating notes, set **Previous tag** to the previous `v1.*` release by
