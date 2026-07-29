@@ -57,6 +57,18 @@ class ResourceManager:
         self._resources[str(resource.uri)] = resource
         return resource
 
+    def add_resource_template(self, template: ResourceTemplate) -> ResourceTemplate:
+        """Add a resource template to the manager.
+
+        Args:
+            template: A ResourceTemplate instance to add.
+
+        Returns:
+            The added resource template.
+        """
+        self._templates[template.uri_template] = template
+        return template
+
     def add_template(
         self,
         fn: Callable[..., Any],
@@ -83,8 +95,7 @@ class ResourceManager:
             meta=meta,
             security=security,
         )
-        self._templates[template.uri_template] = template
-        return template
+        return self.add_resource_template(template)
 
     async def get_resource(
         self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]
