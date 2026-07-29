@@ -1,5 +1,6 @@
 import gc
 import io
+import json
 import os
 import sys
 import threading
@@ -13,8 +14,11 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    INVALID_REQUEST,
+    PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
+    JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -23,7 +27,7 @@ from mcp_types import (
 from typing_extensions import Buffer
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.stdio import stdio_server
+from mcp.server.stdio import _error_response_from_parse_failure, _request_id_from_raw_message, stdio_server
 from mcp.shared.message import SessionMessage
 
 
@@ -77,24 +81,87 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
 
 @pytest.mark.anyio
 async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Non-UTF-8 stdin bytes surface as an in-stream exception without killing the stream."""
+    """Non-UTF-8 stdin bytes produce an error response without killing the stream.
+
+    Invalid bytes are replaced with U+FFFD, then fail JSON parsing and are returned
+    as a JSON-RPC parse error. Subsequent valid messages are still processed.
+    """
+    # \xff\xfe are invalid UTF-8 start bytes.
     valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     raw_stdin = io.BytesIO(b"\xff\xfe\n" + valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
 
     # stdio_server()'s default path wraps sys.stdin.buffer with errors='replace'.
     monkeypatch.setattr(sys, "stdin", TextIOWrapper(raw_stdin, encoding="utf-8"))
-    monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+    stdout = io.StringIO()
 
     with anyio.fail_after(5):
-        async with stdio_server() as (read_stream, write_stream):
-            await write_stream.aclose()
+        async with stdio_server(stdout=anyio.AsyncFile(stdout)) as (read_stream, write_stream):
             async with read_stream:  # pragma: no branch
+                # First line: \xff\xfe -> U+FFFD U+FFFD -> JSON parse fails -> error response on stdout
                 first = await read_stream.receive()
-                assert isinstance(first, Exception)
+                assert isinstance(first, SessionMessage)
+                assert first.message == valid
 
-                second = await read_stream.receive()
-                assert isinstance(second, SessionMessage)
-                assert second.message == valid
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    output = stdout.read()
+    error = jsonrpc_message_adapter.validate_json(output.strip())
+    assert isinstance(error, JSONRPCError)
+    assert error.id is None
+    assert error.error.code == PARSE_ERROR
+
+
+@pytest.mark.anyio
+async def test_stdio_server_parse_error_completes_id_bearing_request() -> None:
+    params: object = {"leaf": True}
+    for index in reversed(range(256)):
+        params = {f"p{index}": params}
+    line = json.dumps({"jsonrpc": "2.0", "id": 900256, "method": "ping", "params": params}) + "\n"
+
+    stdin = io.StringIO(line)
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                with pytest.raises(anyio.EndOfStream):
+                    await read_stream.receive()
+            await write_stream.aclose()
+
+    stdout.seek(0)
+    output_lines = stdout.readlines()
+    assert len(output_lines) == 1
+
+    response = jsonrpc_message_adapter.validate_json(output_lines[0].strip())
+    assert isinstance(response, JSONRPCError)
+    assert response.id == 900256
+    assert response.error.code == PARSE_ERROR
+    assert "Parse error" in response.error.message
+
+
+def test_stdio_request_id_recovery_edges() -> None:
+    assert _request_id_from_raw_message('{"jsonrpc":"2.0","id":"abc","method":"ping","params":[') == "abc"
+    assert _request_id_from_raw_message('{"jsonrpc":"2.0","id":42,"method":"ping","params":[') == 42
+    assert _request_id_from_raw_message('{"jsonrpc":"2.0","id":-7,"method":1}') == -7
+    assert _request_id_from_raw_message('{"jsonrpc":"2.0","id":null,"method":1}') is None
+    assert _request_id_from_raw_message("[]") is None
+
+
+def test_stdio_invalid_request_response_preserves_string_id() -> None:
+    line = '{"jsonrpc":"2.0","id":"bad-method","method":1}'
+    with pytest.raises(Exception) as exc_info:
+        jsonrpc_message_adapter.validate_json(line)
+
+    response = _error_response_from_parse_failure(line, exc_info.value)
+
+    assert isinstance(response.message, JSONRPCError)
+    assert response.message.id == "bad-method"
+    assert response.message.error.code == INVALID_REQUEST
+    assert "Invalid request" in response.message.error.message
 
 
 @contextmanager
