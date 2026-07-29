@@ -339,3 +339,37 @@ async def test_connection_closed():
                 await ev_closed.wait()
             with anyio.fail_after(1):  # pragma: no cover
                 await ev_response.wait()
+
+
+@pytest.mark.anyio
+async def test_client_session_unknown_method_returns_method_not_found():
+    """Test that ClientSession returns METHOD_NOT_FOUND (-32601) when receiving an unknown server request method."""
+    async with create_client_server_memory_streams() as (client_stream, server_stream):
+        client_read, client_write = client_stream
+        server_read, server_write = server_stream
+
+        async def mock_server():
+            # Send unknown request method to client
+            await server_write.send(
+                SessionMessage(
+                    message=JSONRPCMessage(
+                        JSONRPCRequest(
+                            jsonrpc="2.0",
+                            id=1,
+                            method="invalid/server_method",
+                            params={},
+                        )
+                    )
+                )
+            )
+            resp = await server_read.receive()
+            assert isinstance(resp.message.root, JSONRPCError)
+            assert resp.message.root.id == 1
+            assert resp.message.root.error.code == types.METHOD_NOT_FOUND
+            assert resp.message.root.error.message == "Method not found"
+
+        async with (
+            ClientSession(read_stream=client_read, write_stream=client_write),
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(mock_server)
