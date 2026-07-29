@@ -65,11 +65,14 @@ def test_bare_import_mcp_still_resolves_deep_submodule_chains():
     probe = (
         "import mcp\n"
         "print([mcp.client.stdio.stdio_client.__name__, mcp.server.stdio.stdio_server.__name__,\n"
-        "       mcp.shared.memory.__name__, mcp.os.posix.__name__,\n"
+        "       mcp.shared.memory.__name__, mcp.os.posix.utilities.__name__,\n"
+        "       mcp.os.win32.utilities.__name__, mcp.server.auth.handlers.token.__name__,\n"
+        "       mcp.server.auth.middleware.auth_context.__name__,\n"
         "       'stdio' in dir(mcp.client), 'stdio' in dir(mcp.server), 'exceptions' in dir(mcp.shared)])\n"
     )
     result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=False, timeout=20)
     assert result.returncode == 0, result.stderr
-    assert result.stdout == snapshot(
-        "['stdio_client', 'stdio_server', 'mcp.shared.memory', 'mcp.os.posix', True, True, True]\n"
-    )
+    assert result.stdout == snapshot("""\
+['stdio_client', 'stdio_server', 'mcp.shared.memory', 'mcp.os.posix.utilities', 'mcp.os.win32.utilities', \
+'mcp.server.auth.handlers.token', 'mcp.server.auth.middleware.auth_context', True, True, True]
+""")
