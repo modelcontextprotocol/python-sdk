@@ -24,7 +24,7 @@ Create a `ClientSessionGroup` and call **`connect_to_server`** once per server:
 --8<-- "docs_src/session_groups/tutorial003.py"
 ```
 
-* `connect_to_server` takes transport parameters, not a server object: `StdioServerParameters` (from `mcp`) to launch a subprocess, or `StreamableHttpParameters` / `SseServerParameters` (from `mcp.client.session_group`) for a server already listening on a URL.
+* `connect_to_server` takes transport parameters, not a server object: `StdioServerParameters` (from `mcp`) to launch a subprocess, or `StreamableHttpParameters` (from `mcp.client.session_group`) for a server already listening on a URL. `SseServerParameters` is still accepted for a server on the deprecated HTTP+SSE transport, and warns.
 * `group.tools` is a `dict[str, Tool]` of every connected server's tools. `group.resources` and `group.prompts` are the same shape.
 * `group.call_tool(name, arguments)` looks the name up, finds the session that owns it, and forwards the call. You never say which server.
 

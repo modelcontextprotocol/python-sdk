@@ -11,7 +11,7 @@ This is the official Python SDK for it. With it you can:
 
 * **Build MCP servers** that expose tools, resources, and prompts to any MCP host.
 * **Build MCP clients** that connect to any MCP server.
-* Speak every standard transport: stdio, Streamable HTTP, and SSE.
+* Speak every standard transport: stdio and Streamable HTTP, plus the deprecated legacy HTTP+SSE.
 
 ## Requirements
 

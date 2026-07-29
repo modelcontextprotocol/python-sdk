@@ -61,7 +61,7 @@ from mcp.server.subscriptions import (
     ToolsListChanged,
 )
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.uri_template import InvalidUriTemplate
 
 pytestmark = pytest.mark.anyio
@@ -100,7 +100,9 @@ class TestServer:
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
         # Use host="0.0.0.0" to avoid auto DNS protection
-        app = mcp.sse_app(host="0.0.0.0")
+        app = mcp.sse_app(  # pyright: ignore[reportDeprecated]
+            host="0.0.0.0"
+        )
 
         assert isinstance(app, Starlette)
 
@@ -186,7 +188,9 @@ class TestDnsRebindingProtection:
         # Call sse_app with host=127.0.0.1 to trigger auto-config
         # We can't directly inspect the transport_security, but we can verify
         # the app is created without error
-        app = mcp.sse_app(host="127.0.0.1")
+        app = mcp.sse_app(  # pyright: ignore[reportDeprecated]
+            host="127.0.0.1"
+        )
         assert app is not None
 
     def test_auto_enabled_for_127_0_0_1_streamable_http(self):
@@ -198,19 +202,25 @@ class TestDnsRebindingProtection:
     def test_auto_enabled_for_localhost_sse(self):
         """DNS rebinding protection should auto-enable for host=localhost in SSE app."""
         mcp = MCPServer()
-        app = mcp.sse_app(host="localhost")
+        app = mcp.sse_app(  # pyright: ignore[reportDeprecated]
+            host="localhost"
+        )
         assert app is not None
 
     def test_auto_enabled_for_ipv6_localhost_sse(self):
         """DNS rebinding protection should auto-enable for host=::1 (IPv6 localhost) in SSE app."""
         mcp = MCPServer()
-        app = mcp.sse_app(host="::1")
+        app = mcp.sse_app(  # pyright: ignore[reportDeprecated]
+            host="::1"
+        )
         assert app is not None
 
     def test_not_auto_enabled_for_other_hosts_sse(self):
         """DNS rebinding protection should NOT auto-enable for other hosts in SSE app."""
         mcp = MCPServer()
-        app = mcp.sse_app(host="0.0.0.0")
+        app = mcp.sse_app(  # pyright: ignore[reportDeprecated]
+            host="0.0.0.0"
+        )
         assert app is not None
 
     def test_explicit_settings_not_overridden_sse(self):
@@ -220,7 +230,9 @@ class TestDnsRebindingProtection:
         )
         mcp = MCPServer()
         # Explicit transport_security passed to sse_app should be used as-is
-        app = mcp.sse_app(host="127.0.0.1", transport_security=custom_settings)
+        app = mcp.sse_app(  # pyright: ignore[reportDeprecated]
+            host="127.0.0.1", transport_security=custom_settings
+        )
         assert app is not None
 
     def test_explicit_settings_not_overridden_streamable_http(self):
@@ -2396,3 +2408,14 @@ async def test_middleware_can_refuse_subscriptions_listen_before_the_ack() -> No
                 pass  # pragma: no cover - the refusal precedes the stream
     assert exc_info.value.error.code == INVALID_REQUEST
     assert exc_info.value.error.message == "not permitted to watch the requested resources"
+
+
+def test_sse_app_warns_once_that_the_http_sse_transport_is_deprecated():
+    """SDK-defined (SEP-2596): building the legacy HTTP+SSE app warns exactly once, naming the
+    method the caller used; the nested transport's own warning is suppressed."""
+    with pytest.warns(MCPDeprecationWarning, match=r"SEP-2596") as records:
+        MCPServer("test").sse_app(host="0.0.0.0")  # pyright: ignore[reportDeprecated]
+
+    assert [str(w.message) for w in records if issubclass(w.category, MCPDeprecationWarning)] == snapshot(
+        ["The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use streamable_http_app instead."]
+    )

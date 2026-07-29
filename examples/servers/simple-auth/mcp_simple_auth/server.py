@@ -103,7 +103,7 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
     "--transport",
     default="streamable-http",
     type=click.Choice(["sse", "streamable-http"]),
-    help="Transport protocol to use ('sse' or 'streamable-http')",
+    help="Transport protocol to use ('streamable-http', or the deprecated 'sse')",
 )
 @click.option(
     "--oauth-strict",
@@ -149,7 +149,8 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         logger.info(f"🔑 Using Authorization Server: {settings.auth_server_url}")
 
         # Run the server - this should block and keep running
-        mcp_server.run(transport=transport, host=host, port=port)
+        # transport may be the deprecated HTTP+SSE transport, kept here for legacy clients
+        mcp_server.run(transport=transport, host=host, port=port)  # pyright: ignore[reportDeprecated]
         logger.info("Server stopped")
         return 0
     except Exception:

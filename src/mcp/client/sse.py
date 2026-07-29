@@ -9,10 +9,12 @@ import httpx2
 import mcp_types as types
 from anyio.abc import TaskStatus
 from httpx2 import SSEError
+from typing_extensions import deprecated
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,10 @@ def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
 
 
 @asynccontextmanager
+@deprecated(
+    "The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use streamable_http_client instead.",
+    category=MCPDeprecationWarning,
+)
 async def sse_client(
     url: str,
     headers: dict[str, Any] | None = None,
@@ -37,7 +43,11 @@ async def sse_client(
     auth: httpx2.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
 ):
-    """Client transport for SSE.
+    """Client transport for the legacy HTTP+SSE protocol.
+
+    Deprecated: HTTP+SSE was superseded by Streamable HTTP in protocol revision 2025-03-26 and
+    formally deprecated by SEP-2596. It remains for connecting to servers that still speak it;
+    use `mcp.client.streamable_http.streamable_http_client` for anything new.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.

@@ -1,4 +1,6 @@
 """Tests for the SSE client and server transports, driven entirely in process."""
+# The HTTP+SSE transport is deprecated (SEP-2596); these tests keep it working while it ships.
+# pyright: reportDeprecated=false
 
 import json
 from collections.abc import AsyncGenerator
@@ -40,7 +42,7 @@ from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._httpx_utils import McpHttpClientFactory
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from tests.interaction.transports import StreamingASGITransport
 
 SERVER_NAME = "test_server_for_SSE"
@@ -480,3 +482,24 @@ async def test_sse_session_cleanup_on_disconnect() -> None:
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 404
+
+
+def test_sse_client_warns_that_the_http_sse_transport_is_deprecated() -> None:
+    """SDK-defined (SEP-2596): constructing the legacy HTTP+SSE client transport warns, before
+    any connection is attempted."""
+    with pytest.warns(MCPDeprecationWarning, match=r"SEP-2596") as records:
+        sse_client("http://localhost/sse")
+
+    assert [str(w.message) for w in records if issubclass(w.category, MCPDeprecationWarning)] == snapshot(
+        ["The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use streamable_http_client instead."]
+    )
+
+
+def test_sse_server_transport_warns_that_the_http_sse_transport_is_deprecated() -> None:
+    """SDK-defined (SEP-2596): constructing the legacy HTTP+SSE server transport warns."""
+    with pytest.warns(MCPDeprecationWarning, match=r"SEP-2596") as records:
+        SseServerTransport("/messages/")
+
+    assert [str(w.message) for w in records if issubclass(w.category, MCPDeprecationWarning)] == snapshot(
+        ["The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use Streamable HTTP instead."]
+    )

@@ -8,6 +8,7 @@ This abstraction can handle naming collisions using a custom user-provided hook.
 
 import contextlib
 import logging
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
@@ -17,20 +18,27 @@ import anyio
 import httpx2
 import mcp_types as types
 from pydantic import BaseModel, Field
-from typing_extensions import Self
+from typing_extensions import Self, deprecated
 
 import mcp
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
-from mcp.client.sse import sse_client
+from mcp.client.sse import sse_client  # pyright: ignore[reportDeprecated]
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.dispatcher import ProgressFnT
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 
 
+@deprecated(
+    "The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use StreamableHttpParameters instead.",
+    category=MCPDeprecationWarning,
+)
 class SseServerParameters(BaseModel):
-    """Parameters for initializing an sse_client."""
+    """Parameters for initializing an sse_client (the deprecated HTTP+SSE transport).
+
+    Deprecated: use `StreamableHttpParameters`.
+    """
 
     # The endpoint URL.
     url: str
@@ -64,7 +72,11 @@ class StreamableHttpParameters(BaseModel):
     terminate_on_close: bool = True
 
 
-ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
+ServerParameters: TypeAlias = (
+    StdioServerParameters
+    | SseServerParameters  # pyright: ignore[reportDeprecated]
+    | StreamableHttpParameters
+)
 
 
 # Use dataclass instead of Pydantic BaseModel
@@ -313,13 +325,17 @@ class ClientSessionGroup:
             if isinstance(server_params, StdioServerParameters):
                 client = mcp.stdio_client(server_params)
                 read, write = await session_stack.enter_async_context(client)
-            elif isinstance(server_params, SseServerParameters):
-                client = sse_client(
-                    url=server_params.url,
-                    headers=server_params.headers,
-                    timeout=server_params.timeout,
-                    sse_read_timeout=server_params.sse_read_timeout,
-                )
+            elif isinstance(server_params, SseServerParameters):  # pyright: ignore[reportDeprecated]
+                # The caller already saw the deprecation warning when they built
+                # SseServerParameters; suppress the nested one from sse_client.
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", MCPDeprecationWarning)
+                    client = sse_client(  # pyright: ignore[reportDeprecated]
+                        url=server_params.url,
+                        headers=server_params.headers,
+                        timeout=server_params.timeout,
+                        sse_read_timeout=server_params.sse_read_timeout,
+                    )
                 read, write = await session_stack.enter_async_context(client)
             else:
                 httpx_client = create_mcp_http_client(

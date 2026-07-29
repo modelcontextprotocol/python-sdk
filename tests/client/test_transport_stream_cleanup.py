@@ -19,7 +19,7 @@ from contextlib import contextmanager
 import httpx2
 import pytest
 
-from mcp.client.sse import sse_client
+from mcp.client.sse import sse_client  # pyright: ignore[reportDeprecated]
 from mcp.client.streamable_http import streamable_http_client
 
 
@@ -65,7 +65,7 @@ async def test_sse_client_closes_all_streams_on_connection_error(free_tcp_port: 
     """
     with _assert_no_memory_stream_leak():
         with pytest.raises(httpx2.ConnectError):
-            async with sse_client(f"http://127.0.0.1:{free_tcp_port}/sse"):
+            async with sse_client(f"http://127.0.0.1:{free_tcp_port}/sse"):  # pyright: ignore[reportDeprecated]
                 pytest.fail("should not reach here")  # pragma: no cover
 
 
@@ -88,7 +88,7 @@ async def test_sse_client_closes_all_streams_on_http_error() -> None:
 
     with _assert_no_memory_stream_leak():
         with pytest.raises(httpx2.HTTPStatusError):
-            async with sse_client("http://test/sse", httpx_client_factory=mock_factory):
+            async with sse_client("http://test/sse", httpx_client_factory=mock_factory):  # pyright: ignore[reportDeprecated]
                 pytest.fail("should not reach here")  # pragma: no cover
 
 

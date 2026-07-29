@@ -21,7 +21,9 @@ import httpx2
 from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.sse import (
+    sse_client,  # pyright: ignore[reportDeprecated]  # deprecated HTTP+SSE, kept for legacy servers
+)
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.message import SessionMessage
@@ -224,8 +226,8 @@ class SimpleAuthClient:
 
             # Create transport with auth handler based on transport type
             if self.transport_type == "sse":
-                print("📡 Opening SSE transport connection with auth...")
-                async with sse_client(
+                print("📡 Opening SSE transport connection with auth (deprecated transport)...")
+                async with sse_client(  # pyright: ignore[reportDeprecated]
                     url=self.server_url,
                     auth=oauth_auth,
                     timeout=60.0,
