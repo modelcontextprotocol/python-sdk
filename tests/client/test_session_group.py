@@ -402,3 +402,37 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_client_session_group_establish_session_custom_protocol_version():
+    with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
+        with mock.patch("mcp.client.session_group.mcp.stdio_client") as mock_stdio_client:
+            mock_client_cm_instance = mock.AsyncMock(name="stdioClientCM")
+            mock_read_stream = mock.AsyncMock(name="stdioRead")
+            mock_write_stream = mock.AsyncMock(name="stdioWrite")
+
+            mock_client_cm_instance.__aenter__.return_value = (mock_read_stream, mock_write_stream)
+            mock_client_cm_instance.__aexit__ = mock.AsyncMock(return_value=None)
+            mock_stdio_client.return_value = mock_client_cm_instance
+
+            mock_raw_session_cm = mock.AsyncMock(name="RawSessionCM")
+            mock_ClientSession_class.return_value = mock_raw_session_cm
+
+            mock_entered_session = mock.AsyncMock(name="EnteredSessionInstance")
+            mock_raw_session_cm.__aenter__.return_value = mock_entered_session
+            mock_raw_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
+
+            mock_initialize_result = mock.AsyncMock(name="InitializeResult")
+            mock_initialize_result.server_info = types.Implementation(name="foo", version="1")
+            mock_entered_session.initialize.return_value = mock_initialize_result
+
+            group = ClientSessionGroup()
+            server_params = StdioServerParameters(command="test_stdio_cmd")
+            session_params = ClientSessionParameters(protocol_version="2024-11-05")
+
+            async with contextlib.AsyncExitStack() as stack:
+                group._exit_stack = stack
+                await group._establish_session(server_params, session_params)
+
+            mock_entered_session.initialize.assert_awaited_once_with(protocol_version="2024-11-05")
