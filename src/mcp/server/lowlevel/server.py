@@ -50,29 +50,28 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 from typing_extensions import TypeVar, deprecated
 
+import mcp
 from mcp.server._http_defaults import DEFAULT_MAX_REQUEST_BODY_SIZE
 from mcp.server._otel import OpenTelemetryMiddleware
 from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
+from mcp.server.event_store import EventStore
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
 
 if TYPE_CHECKING:
-    # HTTP transport and auth types appear only in `streamable_http_app`'s
-    # signature and in narrowed attributes. The runtime imports live inside
-    # that method, so `import mcp.server` (and every stdio server) never
-    # loads the HTTP stack: starlette, sse_starlette, uvicorn.
+    # Starlette types appear only in `streamable_http_app`'s signature; the
+    # runtime imports live inside that method, so `import mcp.server` (and
+    # every stdio server) never loads the HTTP stack: starlette,
+    # sse_starlette, uvicorn. The auth and session-manager annotations are
+    # spelled through the lazy `mcp.server` namespace instead (below), so
+    # `typing.get_type_hints` still resolves them on demand at runtime.
     from starlette.applications import Starlette
     from starlette.routing import Route
-
-    from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
-    from mcp.server.auth.settings import AuthSettings
-    from mcp.server.streamable_http import EventStore
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-    from mcp.server.transport_security import TransportSecuritySettings
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +424,7 @@ class Server(Generic[LifespanResultT]):
         self.lifespan = lifespan
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
-        self._session_manager: StreamableHTTPSessionManager | None = None
+        self._session_manager: mcp.server.streamable_http_manager.StreamableHTTPSessionManager | None = None
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
         # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
@@ -674,7 +673,7 @@ class Server(Generic[LifespanResultT]):
         )
 
     @property
-    def session_manager(self) -> StreamableHTTPSessionManager:
+    def session_manager(self) -> mcp.server.streamable_http_manager.StreamableHTTPSessionManager:
         """Get the StreamableHTTP session manager.
 
         Raises:
@@ -727,9 +726,9 @@ class Server(Generic[LifespanResultT]):
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
-        auth: AuthSettings | None = None,
-        token_verifier: TokenVerifier | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        auth: mcp.server.auth.settings.AuthSettings | None = None,
+        token_verifier: mcp.server.auth.provider.TokenVerifier | None = None,
+        auth_server_provider: mcp.server.auth.provider.OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         custom_starlette_routes: list[Route] | None = None,
         debug: bool = False,
     ) -> Starlette:
@@ -751,7 +750,6 @@ class Server(Generic[LifespanResultT]):
             create_protected_resource_routes,
         )
         from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
-        from mcp.server.transport_security import TransportSecuritySettings
 
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
