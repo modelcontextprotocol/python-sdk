@@ -5,8 +5,8 @@ A **middleware** is one async function that wraps every message your server rece
 You write it as `async (ctx, call_next)` and append it to `server.middleware`. That is the whole API.
 
 !!! warning
-    The middleware list is marked **provisional** in the source. The signature and semantics are
-    expected to change before v2 is final. Use it to *observe* (timing, logging, tracing) and to
+    The middleware list is marked **provisional** in the source: its signature and semantics may
+    change in a 2.x minor release. Use it to *observe* (timing, logging, tracing) and to
     *refuse* messages; do not make it the foundation your server stands on.
 
 `MCPServer` takes the list at construction (`MCPServer(name, middleware=[...])`) and exposes it as

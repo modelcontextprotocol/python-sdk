@@ -55,7 +55,7 @@ uv run python -m stories.streaming.client --http --server server_lowlevel
   through the deprecation window. Migration: write to stderr or emit
   OpenTelemetry instead of `notifications/message`. It is shown here because
   servers still need to support 2025-era clients during that window. Progress
-  and cancellation are **not** deprecated. TODO(maxisbey): revisit before beta.
+  and cancellation are **not** deprecated.
 - A cancelled request is not answered: no response follows
   `notifications/cancelled`. (The 2025-era streamable HTTP transport is the one
   exception - its wire ends a request only with a response, so it terminates

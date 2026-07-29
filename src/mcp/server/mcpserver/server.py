@@ -267,8 +267,8 @@ class MCPServer(Generic[LifespanResultT]):
 
         The same list as the low-level `Server.middleware`: append an
         `async (ctx, call_next)` callable to observe, refuse, or rewrite
-        messages before they reach a handler. Provisional - the signature is
-        expected to change before v2 is final; see the middleware guide.
+        messages before they reach a handler. Provisional - the signature may
+        change in a 2.x minor release; see the middleware guide.
         """
         return self._lowlevel_server.middleware
 
