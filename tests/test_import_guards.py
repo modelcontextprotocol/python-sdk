@@ -45,8 +45,10 @@ HTTP_SERVER_STACK = ("starlette", "sse_starlette", "uvicorn", "python_multipart"
 # stack, and the auth/telemetry dependencies that only server-side code paths use.
 CLIENT_BANNED = ("mcp.server", *HTTP_SERVER_STACK, "opentelemetry", "cryptography", "jwt")
 
-# Everything a transport-agnostic server entry point must never load.
-SERVER_BANNED = (*HTTP_SERVER_STACK, "opentelemetry", "httpx2", "jwt")
+# Everything a transport-agnostic server entry point must never load. `cryptography` backs
+# the built-in request-state codec and loads with the first codec construction (`MCPServer()`
+# builds one), never at import.
+SERVER_BANNED = (*HTTP_SERVER_STACK, "opentelemetry", "httpx2", "jwt", "cryptography")
 
 # Per-version wire-schema packages: loaded only when that protocol version is used.
 WIRE_PACKAGES = ("mcp_types._v2025_11_25", "mcp_types._v2026_07_28")
@@ -144,6 +146,23 @@ def test_first_url_client_is_what_loads_the_http_client_transport():
     assert _hits(before, (*CLIENT_BANNED, "httpx2")) == []
     assert _hits(after, ("httpx2",)) == ["httpx2"]
     assert _hits(after, CLIENT_BANNED) == []
+
+
+def test_request_state_codec_is_what_loads_cryptography():
+    """The deferred load happens where it is used: importing the server does not load
+    `cryptography`; constructing an `MCPServer` (which builds the default request-state
+    codec) is what does."""
+    probe = (
+        "import json, sys\n"
+        "from mcp.server.mcpserver import MCPServer\n"
+        "before = sorted(sys.modules)\n"
+        "MCPServer('probe')\n"
+        "print(json.dumps([before, sorted(sys.modules)]))\n"
+    )
+    before, after = (set(names) for names in json.loads(_run(probe)))
+    assert _hits(before, SERVER_BANNED) == []
+    assert _hits(after, ("cryptography",)) == ["cryptography"]
+    assert _hits(after, HTTP_SERVER_STACK) == []
 
 
 @pytest.mark.parametrize("module_name", _documented_modules())

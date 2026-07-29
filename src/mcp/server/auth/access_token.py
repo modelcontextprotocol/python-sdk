@@ -1,28 +1,34 @@
 """The access token of the request being served, exposed via a contextvar.
 
-This module is deliberately transport-agnostic: it imports no HTTP framework,
-so `mcp.server.request_state` (and any tool handler) can read the caller's
-token without loading the web stack. On HTTP transports the contextvar is
-populated by `mcp.server.auth.middleware.auth_context.AuthContextMiddleware`,
-which also re-exports both names under their long-standing import path.
+This module is deliberately transport- and auth-stack-agnostic: it imports no
+HTTP framework and no OAuth model, so `mcp.server.request_state` (and any tool
+handler) can read the caller's token without loading either. On HTTP transports
+the contextvar is populated by
+`mcp.server.auth.middleware.auth_context.AuthContextMiddleware`, which also
+re-exports both names under their long-standing import path.
 """
+
+from __future__ import annotations
 
 import contextvars
 from typing import TYPE_CHECKING
 
-from mcp.server.auth.provider import AccessToken
+import mcp
 
 if TYPE_CHECKING:
     from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 
 # Create a contextvar to store the authenticated user
 # The default is None, indicating no authenticated user is present
-auth_context_var: contextvars.ContextVar["AuthenticatedUser | None"] = contextvars.ContextVar(
+auth_context_var: contextvars.ContextVar[AuthenticatedUser | None] = contextvars.ContextVar(
     "auth_context", default=None
 )
 
 
-def get_access_token() -> AccessToken | None:
+# The return type is spelled through the lazy `mcp.server` namespace so this
+# module never imports the OAuth provider models, while
+# `typing.get_type_hints(get_access_token)` still resolves it on demand.
+def get_access_token() -> mcp.server.auth.provider.AccessToken | None:
     """Get the access token from the current context.
 
     Returns:
