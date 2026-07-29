@@ -121,3 +121,48 @@ def test_check_resource_allowed_empty_paths():
     assert check_resource_allowed("https://example.com", "https://example.com") is True
     assert check_resource_allowed("https://example.com/", "https://example.com") is True
     assert check_resource_allowed("https://example.com/api", "https://example.com") is True
+
+
+def test_check_resource_allowed_dot_segment_escape():
+    """Dot-segment traversal must not bypass hierarchical scope.
+
+    Without path normalization, "/api/../admin" satisfies startswith("/api/")
+    even though the resolved path is "/admin" — a confused-deputy risk at
+    downstream resource servers that DO normalize paths. After normalization,
+    "/api/../admin" resolves to "/admin" and correctly fails the check.
+    """
+    assert check_resource_allowed("https://example.com/api/../admin", "https://example.com/api") is False
+    assert check_resource_allowed("https://example.com/api/v1/../v2", "https://example.com/api/v1") is False
+    assert check_resource_allowed("https://example.com/api/v1/../../etc", "https://example.com/api/v1") is False
+
+
+def test_check_resource_allowed_percent_encoded_escape():
+    """URL-encoded dot-segments must not bypass scope check.
+
+    "%2e%2e" decodes to ".." — without unquote+normpath, the literal string
+    "/api/%2e%2e/admin" passes startswith("/api") while resolving to "/admin"
+    on any downstream server that URL-decodes (i.e., all of them).
+    """
+    assert check_resource_allowed("https://example.com/api/%2e%2e/admin", "https://example.com/api") is False
+    assert check_resource_allowed("https://example.com/api/%2E%2E/admin", "https://example.com/api") is False
+    # Mixed-case + nested
+    assert check_resource_allowed("https://example.com/api/v1/%2e%2e/v2", "https://example.com/api/v1") is False
+
+
+def test_check_resource_allowed_double_slash_collapses():
+    """Double-slash sequences in paths must collapse before comparison.
+
+    Otherwise "/api//victim" could naively match "/api/victim2" due to literal
+    string-prefix semantics. Normalization collapses "//" to "/" so the
+    comparison happens on canonical paths.
+    """
+    # "/api//victim" normalizes to "/api/victim" — must NOT match "/api/victim2"
+    assert check_resource_allowed("https://example.com/api//victim", "https://example.com/api/victim2") is False
+
+
+def test_check_resource_allowed_legitimate_paths_still_match():
+    """Normalization must not break legitimate hierarchical matches."""
+    # Self-reference dot-segment normalizes to identity
+    assert check_resource_allowed("https://example.com/api/./v1", "https://example.com/api") is True
+    # Hierarchical descent still works
+    assert check_resource_allowed("https://example.com/api/v1/users", "https://example.com/api") is True

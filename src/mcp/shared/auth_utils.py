@@ -1,9 +1,36 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
+import posixpath
 import time
-from urllib.parse import urlparse, urlsplit, urlunsplit
+from urllib.parse import unquote, urlparse, urlsplit, urlunsplit
 
 from pydantic import AnyUrl, HttpUrl
+
+
+def _normalize_url_path(path: str) -> str:
+    """Decode percent-encoding and resolve dot-segments in a URL path.
+
+    Used by check_resource_allowed to ensure hierarchical matching operates on
+    normalized paths. Without normalization, a path like "/api/../admin" would
+    satisfy startswith("/api") even though the resolved path is "/admin",
+    enabling a confused-deputy attack at downstream resource servers that DO
+    normalize paths.
+
+    - unquote() decodes percent-encoded segments so "%2e%2e" -> ".." cannot
+      bypass the normalization step.
+    - posixpath.normpath() resolves "." and ".." segments to canonical form.
+
+    Returns a path that ends with "/" if the original did, so trailing-slash
+    semantics are preserved.
+    """
+    decoded = unquote(path)
+    normalized = posixpath.normpath(decoded) if decoded else decoded
+    # posixpath.normpath collapses "//" to "/" and strips trailing slashes.
+    # Restore trailing slash only if the original path ended with one AND the
+    # normalized form is non-empty (avoid producing "//" for root paths).
+    if path.endswith("/") and normalized != "/" and not normalized.endswith("/"):
+        normalized += "/"
+    return normalized
 
 
 def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
@@ -51,10 +78,17 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
         return False
 
+    # Normalize paths: decode percent-encoding and resolve dot-segments before
+    # comparison. This prevents bypass via "/api/../admin" (resolves to
+    # "/admin", not a child of "/api") and "/api/%2e%2e/admin" (URL-encoded
+    # equivalent). Without this, downstream resource servers that DO normalize
+    # paths would interpret the access as "/admin" while the auth check passed
+    # against the literal "/api/.." prefix.
+    requested_path = _normalize_url_path(requested.path)
+    configured_path = _normalize_url_path(configured.path)
+
     # Normalize trailing slashes before comparison so that
     # "/foo" and "/foo/" are treated as equivalent.
-    requested_path = requested.path
-    configured_path = configured.path
     if not requested_path.endswith("/"):
         requested_path += "/"
     if not configured_path.endswith("/"):
