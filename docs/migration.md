@@ -4,6 +4,11 @@ This guide covers the breaking changes introduced in v2 of the MCP Python SDK an
 
 Version 2 of the MCP Python SDK introduces several breaking changes to improve the API, align with the MCP specification, and provide better type safety.
 
+!!! note "Not ready to migrate yet?"
+    The v1.x maintenance line keeps receiving critical bug fixes and security patches, and its
+    documentation is at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/). If your package depends
+    on `mcp`, keep a `<2` upper bound until you've migrated.
+
 ## Find your changes
 
 Every section heading below names the API it affects, so searching this page for the symbol your code uses is the fastest route to the change that broke it. The guide lists changes only: an SDK API not mentioned here behaves as it did in v1, and the "what did not change" summaries — [`MCPServer`](#what-is-unchanged-on-mcpserver), [lowlevel `Server`](#lowlevel-server-what-did-not-change), and [auth](#unchanged-auth-surfaces) — spell out the surfaces most migrators stop to check.
