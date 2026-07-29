@@ -191,3 +191,21 @@ async def elicit_url(
     else:  # pragma: no cover
         # This should never happen, but handle it just in case
         raise ValueError(f"Unexpected elicitation action: {result.action}")
+
+
+def __getattr__(name: str) -> Any:
+    # `PrimitiveSchemaDefinition` used to be bound in this module by a
+    # module-level import of the internal wire package; that import now
+    # happens on first use (inside `_validate_rendered_properties`) so that
+    # importing this module does not build the wire schema. Keep the attribute
+    # resolving lazily for existing references to it.
+    if name == "PrimitiveSchemaDefinition":
+        from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
+
+        globals()[name] = PrimitiveSchemaDefinition
+        return PrimitiveSchemaDefinition
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), "PrimitiveSchemaDefinition"})
