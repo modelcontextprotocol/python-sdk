@@ -31,7 +31,7 @@ class ResourceServerSettings(BaseSettings):
     # Server settings
     host: str = "localhost"
     port: int = 8001
-    server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001/mcp")
+    server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8001")
 
     # Authorization Server settings
     auth_server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:9000")
@@ -128,7 +128,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
 
         # Create settings
         host = "localhost"
-        server_url = f"http://{host}:{port}/mcp"
+        server_url = f"http://{host}:{port}"
         settings = ResourceServerSettings(
             host=host,
             port=port,
