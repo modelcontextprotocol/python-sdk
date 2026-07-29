@@ -5,7 +5,7 @@ SDK, so its own `sys.modules` proves nothing - and asserts on the module footpri
 single import. A hoisted or newly-eager import that regresses one of these promises fails
 here instead of silently making startup slower for every downstream package.
 
-The invariants (see also the "Import performance" notes in AGENTS.md and docs/concepts.md):
+The invariants (see also the "Import cost" section of AGENTS.md and docs/advanced/import-cost.md):
 
 * `import mcp` is a lazy namespace: it loads no pydantic, no `mcp_types` and no `mcp`
   submodule; each `mcp.<name>` resolves its home module on first access.
@@ -117,9 +117,11 @@ def _documented_modules() -> list[str]:
 
 
 def test_bare_import_mcp_is_a_lazy_namespace():
-    """`import mcp` loads no protocol types, no pydantic and no `mcp` submodule."""
+    """`import mcp` loads no protocol types, no pydantic and no SDK submodule beyond the
+    tiny lazy-loading helper the namespace itself is built with."""
     loaded = _modules_after("import mcp")
-    assert sorted(m for m in loaded if m.startswith("mcp") or m.startswith("pydantic")) == ["mcp"]
+    mcpish = {m for m in loaded if m.startswith("mcp") or m.startswith("pydantic")}
+    assert mcpish <= {"mcp", "mcp.shared", "mcp.shared._lazy"}, sorted(mcpish)
 
 
 @pytest.mark.parametrize(("statement", "banned"), IMPORT_GUARDS, ids=[case[0] for case in IMPORT_GUARDS])

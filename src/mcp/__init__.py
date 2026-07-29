@@ -1,5 +1,6 @@
-from importlib import import_module
 from typing import TYPE_CHECKING
+
+from mcp.shared._lazy import lazy_module_attrs as _lazy_module_attrs
 
 # Every name below is resolved LAZILY on first access via the module
 # `__getattr__` at the bottom of this file (PEP 562), so a bare `import mcp` no
@@ -265,29 +266,18 @@ _LAZY_SUBMODULES = frozenset({"types", "client", "os", "server", "shared"})
 _LAZY_MACHINERY = frozenset(
     {
         "TYPE_CHECKING",
-        "import_module",
         "_LAZY_ATTRS",
         "_LAZY_MACHINERY",
         "_LAZY_SUBMODULES",
         "_MCP_TYPES_NAMES",
-        "__getattr__",
-        "__dir__",
+        "_lazy_module_attrs",
     }
 )
 
-
-def __getattr__(name: str) -> object:
-    lazy = _LAZY_ATTRS.get(name)
-    if lazy is not None:
-        module_name, attr = lazy
-        value = getattr(import_module(module_name), attr)
-        # Cache on the module: every later access is a plain namespace lookup.
-        globals()[name] = value
-        return value
-    if name in _LAZY_SUBMODULES:
-        return import_module(f"{__name__}.{name}")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> list[str]:
-    return sorted((globals().keys() - _LAZY_MACHINERY) | _LAZY_ATTRS.keys() | _LAZY_SUBMODULES)
+# Runtime-only: a type checker takes the real bindings from the TYPE_CHECKING
+# imports above and must not also see a `__getattr__(name) -> object`, which
+# would type every misspelled `mcp.<name>` as `object` instead of reporting it.
+if not TYPE_CHECKING:
+    __getattr__, __dir__ = _lazy_module_attrs(
+        __name__, globals(), exports=_LAZY_ATTRS, submodules=_LAZY_SUBMODULES, hidden=_LAZY_MACHINERY
+    )

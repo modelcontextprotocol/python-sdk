@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Generic, Literal, TypeVar
+from functools import cache
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from mcp_types import RequestId
 from pydantic import BaseModel, ValidationError
@@ -11,6 +12,11 @@ from pydantic_core import core_schema
 from typing_extensions import TypeAliasType
 
 from mcp.server.session import ServerSession
+from mcp.shared._lazy import lazy_module_attrs as _lazy_module_attrs
+
+if TYPE_CHECKING:
+    # Explicit re-export: the name resolves lazily on this module at runtime.
+    from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition as PrimitiveSchemaDefinition
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
 
@@ -68,21 +74,30 @@ class _ElicitationJsonSchema(GenerateJsonSchema):
         return result
 
 
+@cache
+def _primitive_schema_definition() -> type[PrimitiveSchemaDefinition]:
+    """The spec-valid property schema the elicitation gate validates against.
+
+    Its home is the internal `mcp_types._v2025_11_25` wire package (~50 ms of
+    pydantic model construction), so it is imported on the first elicitation
+    schema instead of at module import - once: this accessor is cached, so no
+    later call re-runs the import.
+    """
+    from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
+
+    return PrimitiveSchemaDefinition
+
+
 def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
     """Reject any `properties` entry the spec's `PrimitiveSchemaDefinition` won't accept.
 
     Catches whatever the renderer let through that isn't spec-valid: bare
     `list[str]` (no enum), multi-primitive unions, nested models.
     """
-    # The gate's source of truth is the internal surface package's spec-valid
-    # property schema. Imported here rather than at module top on purpose: the
-    # generated package costs ~100 ms of pydantic model construction, and only
-    # servers that actually elicit should pay for it, at first use.
-    from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
-
+    primitive_schema_definition = _primitive_schema_definition()
     for field_name, prop in json_schema.get("properties", {}).items():
         try:
-            PrimitiveSchemaDefinition.model_validate(prop)
+            primitive_schema_definition.model_validate(prop)
         except ValidationError:
             raise TypeError(
                 f"Elicitation schema field {field_name!r} rendered as {prop!r}, "
@@ -193,19 +208,12 @@ async def elicit_url(
         raise ValueError(f"Unexpected elicitation action: {result.action}")
 
 
-def __getattr__(name: str) -> Any:
-    # `PrimitiveSchemaDefinition` used to be bound in this module by a
-    # module-level import of the internal wire package; that import now
-    # happens on first use (inside `_validate_rendered_properties`) so that
-    # importing this module does not build the wire schema. Keep the attribute
-    # resolving lazily for existing references to it.
-    if name == "PrimitiveSchemaDefinition":
-        from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
-
-        globals()[name] = PrimitiveSchemaDefinition
-        return PrimitiveSchemaDefinition
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> list[str]:
-    return sorted({*globals(), "PrimitiveSchemaDefinition"})
+# `PrimitiveSchemaDefinition` used to be bound in this module by a module-level
+# import of the internal wire package; that import now happens on the first
+# rendered schema (`_primitive_schema_definition`) so importing this module does
+# not build the wire package. The name still resolves lazily for existing
+# references to it. Runtime only: the TYPE_CHECKING import above types it.
+if not TYPE_CHECKING:
+    __getattr__, __dir__ = _lazy_module_attrs(
+        __name__, globals(), exports={"PrimitiveSchemaDefinition": _primitive_schema_definition}
+    )
