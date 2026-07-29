@@ -39,8 +39,8 @@ def validate_redirect_uri(url: AnyHttpUrl):
         ValueError: If the redirect URI uses an unsafe scheme or contains
             a fragment.
     """
-    if url.scheme != "https" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
-        raise ValueError("Redirect URI must use HTTPS (or HTTP loopback for local development)")
+    if url.scheme not in ("http", "https"):
+        raise ValueError("Redirect URI must use an HTTP(S) scheme")
 
     if url.fragment is not None:
         raise ValueError("Redirect URI must not contain a fragment")
