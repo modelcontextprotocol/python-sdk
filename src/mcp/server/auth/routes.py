@@ -21,32 +21,6 @@ from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthMetadata, ProtectedResou
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 
-def validate_redirect_uri(url: AnyHttpUrl):
-    """Validate a registered redirect_uri for DCR.
-
-    RFC 9700 section 4.1.1 and RFC 7591 section 2 require HTTPS for
-    redirect_uris, with an HTTP loopback exception for local development.
-
-    Args:
-        url: The redirect URI to validate.
-
-    Raises:
-        ValueError: If the redirect URI uses an unsafe scheme or contains
-            a fragment.
-    """
-    if url.scheme != "https" and url.host not in (
-        "localhost",
-        "127.0.0.1",
-        "[::1]",
-    ):
-        raise ValueError(
-            "Redirect URI must use HTTPS (or HTTP loopback for local development)"
-        )
-
-    if url.fragment is not None:
-        raise ValueError("Redirect URI must not contain a fragment")
-
-
 def validate_issuer_url(url: AnyHttpUrl):
     """Validate that the issuer URL meets OAuth 2.0 requirements.
 

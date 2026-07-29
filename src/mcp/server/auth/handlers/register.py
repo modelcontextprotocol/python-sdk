@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from mcp.server.auth.errors import stringify_pydantic_error
-from mcp.server.auth.routes import validate_redirect_uri
+from mcp.server.auth.url_validators import validate_redirect_uri
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
