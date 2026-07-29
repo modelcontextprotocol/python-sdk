@@ -4,7 +4,7 @@ Tasks let a server defer the result of a `tools/call`: instead of blocking for t
 `CallToolResult`, the server immediately returns a `CreateTaskResult` carrying a
 task id, and the client polls `tasks/get` for status and the eventual result.
 
-SEP-2663 (https://modelcontextprotocol.io/seps/2663-tasks-extension.md) is an
+SEP-2663 (https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663) is an
 opt-in extension, wire-incompatible with the 2025-11-25 in-core Tasks design that
 still ships (types-only) in `mcp_types`. The SEP-2663-shaped wire models live in
 `mcp.shared.tasks` (re-exported here); this module is the server runtime.
@@ -50,7 +50,9 @@ excluded the call. Background execution (returning `working` tasks), the in-task
 `notifications/tasks` over `subscriptions/listen` are deferred follow-ups, each
 needing deeper SDK plumbing. (SEP-2663's `Mcp-Name: <taskId>` routing header --
 the SEP-2243 header family -- is already handled by the shared header table in
-`mcp.shared.inbound`.)
+`mcp.shared.inbound`; the `tasks/*` request types in `mcp.shared.tasks` also
+declare `name_param`, the per-request params key a client mirrors into that
+header.)
 
 Task ids are unguessable bearer capabilities: any caller presenting a valid id
 may poll the task. That is deliberate -- the modern wire has no sessions, and a
@@ -245,8 +247,10 @@ class Tasks(Extension):
         try:
             result = await call_next(ctx)
             if isinstance(result, ErrorData):
-                # A nested extension returned the error instead of raising (the
-                # runner's middleware error channel); fold it into the same arm.
+                # A handler or nested extension returned the error instead of
+                # raising (the runner folds handler-returned `ErrorData` into an
+                # `MCPError` only after this composed handler returns), so fold
+                # it into the same arm here.
                 raise MCPError.from_error_data(result)
         except MCPError as exc:
             # SEP-2663: a JSON-RPC error during execution is a `failed` task,
@@ -339,11 +343,12 @@ class Tasks(Extension):
 
 
 def _wire_payload(result: HandlerResult) -> dict[str, Any]:
-    """Normalize a `call_next` outcome to the wire dict the chain would emit.
+    """Normalize a `call_next` outcome to the wire dict it will be serialized as.
 
-    The stock composition hands the interceptor the already-serialized dict; an
-    extension or middleware nested inside this one may short-circuit with a
-    model (dumped the way the runner would) or `None` (an empty result).
+    The stock composition hands the interceptor the wrapped handler's domain
+    result (a `CallToolResult`/`InputRequiredResult` model); an extension nested
+    inside this one may instead short-circuit with a wire-shaped dict or `None`
+    (an empty result). Models are dumped the way the runner would.
     """
     if isinstance(result, BaseModel):
         return result.model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -357,6 +362,9 @@ def _client_declared_tasks(ctx: ServerRequestContext[Any, Any]) -> bool:
     # capabilities happen to include the identifier.
     if ctx.protocol_version not in MODERN_PROTOCOL_VERSIONS:
         return False
-    client_params = ctx.session.client_params
-    declared = client_params.capabilities.extensions if client_params else None
+    # Read the declared-capabilities fact, not `client_params`: on 2026-07-28 the
+    # request envelope declares capabilities while `clientInfo` stays optional,
+    # so a conformant client can be declaring with no `client_params` at all.
+    capabilities = ctx.session.client_capabilities
+    declared = capabilities.extensions if capabilities else None
     return bool(declared and EXTENSION_ID in declared)

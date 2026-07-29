@@ -1312,4 +1312,3 @@ def _version_gated(method: MethodBinding) -> RequestHandler:
         return await method.handler(ctx, params)
 
     return gated
-

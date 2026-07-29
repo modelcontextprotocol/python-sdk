@@ -59,7 +59,7 @@ table).
 
 ## Spec
 
-[SEP-2663 — Tasks extension](https://modelcontextprotocol.io/seps/2663-tasks-extension.md)
+[SEP-2663 — Tasks extension](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663)
 · [SEP-2133 — extensions capability](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2133)
 
 ## See also

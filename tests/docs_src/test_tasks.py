@@ -10,6 +10,7 @@ from mcp.client.tasks import get_task
 from mcp.server.mcpserver import MCPServer
 from mcp.server.tasks import EXTENSION_ID, CreateTaskResult, Tasks
 from mcp.shared.tasks import GetTaskResult
+from tests._stamp import unstamped
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -48,9 +49,12 @@ async def test_the_bakery_client_program_runs_as_shown(capsys: pytest.CaptureFix
 
 async def test_a_non_declaring_client_is_never_augmented() -> None:
     """tutorial001 + the degradation paragraph: a modern client that did not declare
-    the extension gets the plain `CallToolResult`, always."""
+    the extension gets the plain `CallToolResult`, always -- no task metadata. The
+    only `_meta` present is the era's `serverInfo` identity stamp, which `unstamped`
+    asserts and pops, so `meta is None` proves nothing else rode along."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("bake", {"flavor": "plain"})
+    result = unstamped(result)
     assert result.content == [TextContent(type="text", text="One plain cake, ready.")]
     assert result.meta is None
 

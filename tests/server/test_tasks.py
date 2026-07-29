@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from typing import Any, Literal, cast
 
 import anyio
-import httpx
+import httpx2
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
@@ -27,6 +27,7 @@ from mcp_types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
+    SERVER_INFO_META_KEY,
     EmptyResult,
     Result,
 )
@@ -42,6 +43,7 @@ from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import MCPServer
 from mcp.server.tasks import (
+    EXTENSION_ID,
     CancelTaskRequestParams,
     CreateTaskResult,
     GetTaskRequestParams,
@@ -54,6 +56,7 @@ from mcp.server.tasks import (
 )
 from mcp.shared.exceptions import MCPError
 from mcp.shared.tasks import CancelTaskRequest, GetTaskRequest, GetTaskResult, UpdateTaskRequest
+from tests._stamp import unstamped
 from tests.interaction._connect import BASE_URL, mounted_app
 
 pytestmark = pytest.mark.anyio
@@ -63,11 +66,27 @@ _RAW: TypeAdapter[dict[str, object]] = TypeAdapter(dict[str, object])
 _FIXED_NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
+_STAMP = {SERVER_INFO_META_KEY: {"name": "demo", "version": ""}}
+"""The 2026-era `serverInfo` identity stamp on every modern-era result envelope
+from the `MCPServer("demo")` servers under test."""
+
+
 async def _send_raw(client: Client, request: BaseModel) -> dict[str, object]:
-    """Read the raw wire dict for a non-spec `tasks/*` shape (bypasses the typed result model)."""
+    """Read the raw wire dict for a non-spec `tasks/*` shape (bypasses the typed result model).
+
+    Every result on the modern wire carries the era's `serverInfo` identity stamp
+    in `_meta`; assert it here (strictly - a lost stamp fails loudly) and drop it, so
+    every envelope snapshot in this file stays identity-free from one seam. Only
+    the outer response envelope is stamped: the payload a task inlines under
+    `result` is the stored, un-enveloped tool result and never carries it. Legacy
+    `tasks/*` sends raise `METHOD_NOT_FOUND` before returning, so no unstamped
+    envelope ever reaches this point.
+    """
     result_type = cast("type[Result]", _RAW)
     result = await client.session.send_request(cast("types.ClientRequest", request), result_type)
-    return cast("dict[str, object]", result)
+    raw = cast("dict[str, object]", result)
+    assert raw.pop("_meta") == _STAMP
+    return raw
 
 
 class _TasksResultRequest(types.Request[GetTaskRequestParams, Literal["tasks/result"]]):
@@ -248,11 +267,12 @@ async def test_default_clock_stamps_real_utc_wallclock() -> None:
 
 async def test_plain_tools_call_is_untouched_for_non_declaring_client() -> None:
     """SEP-2663: the server never augments a client that did not declare the extension;
-    a plain `call_tool` returns the ordinary `CallToolResult` with no task `_meta`."""
+    a plain `call_tool` returns the ordinary `CallToolResult` with no task `_meta` --
+    only the era's `serverInfo` identity stamp, which `unstamped` asserts and strips."""
     async with Client(_tasks_server()) as client:
         result = await client.call_tool("echo", {"text": "x"})
 
-    assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="x")]))
+    assert unstamped(result) == snapshot(types.CallToolResult(content=[types.TextContent(text="x")]))
     assert result.meta is None
 
 
@@ -419,16 +439,17 @@ async def test_client_declaring_only_another_extension_is_not_augmented() -> Non
         with pytest.raises(MCPError) as exc_info:
             await _get_task(client, "task_anything")
 
-    assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="x")]))
+    assert unstamped(result) == snapshot(types.CallToolResult(content=[types.TextContent(text="x")]))
     assert result.meta is None
     assert exc_info.value.code == MISSING_REQUIRED_CLIENT_CAPABILITY
 
 
-async def test_request_without_client_info_is_never_augmented() -> None:
-    """SDK-defined: a modern request with no client info (`session.client_params` is
-    None, e.g. an envelope-less stateless request) passes through un-augmented."""
+async def test_request_without_client_capabilities_is_never_augmented() -> None:
+    """SDK-defined: a modern request from a client that declared no capabilities
+    (`session.client_capabilities` is None, e.g. an envelope-less stateless request)
+    passes through un-augmented."""
     ctx = ServerRequestContext(
-        session=cast("Any", SimpleNamespace(client_params=None)),
+        session=cast("Any", SimpleNamespace(client_capabilities=None)),
         lifespan_context={},
         protocol_version="2026-07-28",
         method="tools/call",
@@ -443,6 +464,30 @@ async def test_request_without_client_info_is_never_augmented() -> None:
     result = await Tasks(clock=lambda: _FIXED_NOW).intercept_tool_call(params, ctx, call_next)
 
     assert result is sentinel
+
+
+async def test_declaring_client_without_client_info_is_augmented() -> None:
+    """SEP-2663 x spec #3002: augmentation gates on the declared-capabilities fact,
+    not on client info. On 2026-07-28 the request envelope carries the client's
+    capabilities while `clientInfo` stays optional, so a client that declared the
+    extension is augmented even with `session.client_params` None."""
+    declaring = types.ClientCapabilities(extensions={EXTENSION_ID: {}})
+    ctx = ServerRequestContext(
+        session=cast("Any", SimpleNamespace(client_capabilities=declaring)),
+        lifespan_context={},
+        protocol_version="2026-07-28",
+        method="tools/call",
+        params={"name": "echo", "arguments": {"text": "x"}},
+    )
+
+    async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
+        return {"resultType": "complete", "content": [{"text": "x", "type": "text"}], "isError": False}
+
+    params = types.CallToolRequestParams(name="echo", arguments={"text": "x"})
+    result = await Tasks(clock=lambda: _FIXED_NOW).intercept_tool_call(params, ctx, call_next)
+
+    assert isinstance(result, CreateTaskResult)
+    assert result.status == "completed"
 
 
 async def test_augment_predicate_scopes_augmentation_per_request() -> None:
@@ -468,7 +513,7 @@ async def test_augment_predicate_scopes_augmentation_per_request() -> None:
             client, types.CallToolRequest(params=types.CallToolRequestParams(name="slow", arguments={"text": "x"}))
         )
 
-    assert plain == snapshot(types.CallToolResult(content=[types.TextContent(text="x")]))
+    assert unstamped(plain) == snapshot(types.CallToolResult(content=[types.TextContent(text="x")]))
     assert plain.meta is None
     assert augmented["resultType"] == "task"
     assert len(recording.puts) == 1
@@ -757,7 +802,14 @@ async def test_input_required_interim_passes_through_and_only_the_completing_leg
         "inputRequests": {
             "demo:confirm": {
                 "method": "elicitation/create",
-                "params": {"message": "Proceed?", "requestedSchema": {"type": "object", "properties": {}}},
+                # Core-shaped (`mode` explicit): the runner sieves a short-circuited
+                # interim to the core shape like any handler's `input_required`
+                # result, so a core-shaped payload is what round-trips unchanged.
+                "params": {
+                    "message": "Proceed?",
+                    "mode": "form",
+                    "requestedSchema": {"type": "object", "properties": {}},
+                },
             }
         },
         "requestState": "s1",
@@ -770,8 +822,10 @@ async def test_input_required_interim_passes_through_and_only_the_completing_leg
         first = await _augmented_call(client)
         second = await _augmented_call(client)
 
-    # The RequestStateBoundary (#3032) seals the interim's requestState on the way
-    # out; everything else passes through byte-identical.
+    # The runner treats the passed-through interim like any handler's
+    # `input_required` result: the RequestStateBoundary (#3032) seals `requestState`
+    # and the outbound envelope pass stamps `serverInfo`. The core-shaped payload is
+    # otherwise unchanged -- the Tasks interceptor never rewrites the interim.
     sealed_state = first.pop("requestState")
     assert isinstance(sealed_state, str) and sealed_state != "s1"
     assert first == {k: v for k, v in interim.items() if k != "requestState"}
@@ -884,9 +938,9 @@ async def test_tasks_requests_over_streamable_http_carry_mcp_name_routing_header
     Asserted at the wire via the `mounted_app` request hook because the client never exposes
     outgoing headers; each call also round-trips successfully, so the stamped value passes the
     server's header-mismatch rung end to end."""
-    posts: list[httpx.Request] = []
+    posts: list[httpx2.Request] = []
 
-    async def on_request(request: httpx.Request) -> None:
+    async def on_request(request: httpx2.Request) -> None:
         posts.append(request)
 
     captured: list[str] = []

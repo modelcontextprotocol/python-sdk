@@ -3,7 +3,7 @@
 A **task** is a `tools/call` answered by reference: instead of the `CallToolResult`,
 the server returns a `CreateTaskResult` carrying a task id, and the client fetches
 the outcome with `tasks/get`. That is
-[SEP-2663](https://modelcontextprotocol.io/seps/2663-tasks-extension.md), and the SDK
+[SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), and the SDK
 ships it as the built-in `Tasks` extension (`io.modelcontextprotocol/tasks`).
 If [Extensions](extensions.md) are new to you, skim that page first. One minute,
 then come back.
@@ -44,7 +44,7 @@ Augmentation is the server's call, per request: the client's declaration is
 permission, not a trigger. `Tasks()` augments every call from a declaring client;
 pass `augment=` to be choosier:
 
-```python title="server.py" hl_lines="9-10 13"
+```python title="server.py" hl_lines="8-9 12"
 --8<-- "docs_src/tasks/tutorial002.py"
 ```
 

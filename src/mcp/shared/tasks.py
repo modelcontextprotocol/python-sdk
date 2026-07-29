@@ -1,6 +1,6 @@
 """Wire models for the Tasks extension (`io.modelcontextprotocol/tasks`, SEP-2663).
 
-SEP-2663 (https://modelcontextprotocol.io/seps/2663-tasks-extension.md) is an
+SEP-2663 (https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663) is an
 opt-in extension, wire-incompatible with the 2025-11-25 in-core Tasks design that
 still ships (types-only) in `mcp_types`. This module therefore defines its own
 SEP-2663-shaped models rather than reusing `mcp_types.{Task, CreateTaskResult, ...}`.
@@ -116,6 +116,7 @@ class GetTaskRequest(Request[GetTaskRequestParams, Literal["tasks/get"]]):
 
     method: Literal["tasks/get"] = "tasks/get"
     params: GetTaskRequestParams
+    name_param = "taskId"
 
 
 class CancelTaskRequest(Request[CancelTaskRequestParams, Literal["tasks/cancel"]]):
@@ -123,6 +124,7 @@ class CancelTaskRequest(Request[CancelTaskRequestParams, Literal["tasks/cancel"]
 
     method: Literal["tasks/cancel"] = "tasks/cancel"
     params: CancelTaskRequestParams
+    name_param = "taskId"
 
 
 class UpdateTaskRequest(Request[UpdateTaskRequestParams, Literal["tasks/update"]]):
@@ -130,6 +132,7 @@ class UpdateTaskRequest(Request[UpdateTaskRequestParams, Literal["tasks/update"]
 
     method: Literal["tasks/update"] = "tasks/update"
     params: UpdateTaskRequestParams
+    name_param = "taskId"
 
 
 class GetTaskResult(Task):

@@ -1,7 +1,6 @@
-from mcp_types import CallToolRequestParams
-
 from mcp.server.mcpserver import MCPServer
 from mcp.server.tasks import Tasks
+from mcp.types import CallToolRequestParams
 
 SLOW_TOOLS = {"transcode"}
 

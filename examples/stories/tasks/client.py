@@ -4,14 +4,14 @@ The client declares `io.modelcontextprotocol/tasks` (by constructing
 `TasksExtension()` into `Client(extensions=...)`),
 so the server is free to answer `tools/call` with a `CreateTaskResult`. SEP-2663
 advises clients to keep a fixed public contract and drive the polling internally —
-`Client.call_tool` does exactly that, so the modern path is the same typed call a
-task-less server would get. A compact manual leg then shows the raw wire flow:
-`session.call_tool(allow_claimed=True)` for the typed `CreateTaskResult`, and the
-typed `mcp.client.tasks` functions (`get_task`, `wait_task`) to drive `tasks/get`.
+`Client.call_tool` does exactly that, so the caller keeps one fixed
+`CallToolResult` contract whether or not the server augments. A compact manual
+leg then shows the raw wire flow: `session.call_tool(allow_claimed=True)` for the
+typed `CreateTaskResult`, and the typed `mcp.client.tasks` functions (`get_task`,
+`wait_task`) to drive `tasks/get`.
 """
 
-import mcp_types as types
-
+import mcp.types as types
 from mcp.client import Client, TasksExtension
 from mcp.client.tasks import get_task, wait_task
 from mcp.shared.tasks import EXTENSION_ID, CreateTaskResult
@@ -28,8 +28,10 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         result = await client.call_tool("render_report", {"title": "Q3", "sections": 2})
         assert isinstance(result.content[0], types.TextContent), result
         assert result.content[0].text.startswith("# Q3"), result
-        # No 2025-style related-task _meta either; the task plumbing never leaks
-        # into the surfaced result.
+        # The surfaced value is the tool's own CallToolResult - the payload the
+        # task recorded, or on the legacy wire the plain result. No task plumbing
+        # leaks in: no 2025-style related-task _meta, and no envelope-level identity
+        # stamp either, since it is the tool's result and not a response envelope.
         assert result.meta is None, result
 
         if client.server_capabilities.extensions is None:
