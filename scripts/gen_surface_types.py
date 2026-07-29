@@ -12,6 +12,7 @@ site-absolute doc links, and per-version epilogue aliases. Run with
 from __future__ import annotations
 
 import argparse
+import ast
 import difflib
 import hashlib
 import json
@@ -196,6 +197,139 @@ def run_codegen(schema_path: Path, output_path: Path) -> None:
         raise SystemExit(f"datamodel-codegen failed:\n{result.stderr}")
 
 
+def use_deferred_bases(source: str) -> str:
+    """Route generated `RootModel[T]` classes through the deferred `WireRootModel[T]` base.
+
+    Object models already derive from `WireModel` via codegen's `--base-class`;
+    RootModel classes get no such hook, so rewrite them here. Both bases carry
+    `defer_build=True` (see `mcp_types/_wire_base.py`), which is only a win if
+    EVERY class in the package is deferred: an eagerly-built union rollup would
+    regenerate the schemas of every deferred model it references.
+    """
+    source = source.replace("RootModel[", "WireRootModel[")
+    source = source.replace(
+        "from mcp_types._wire_base import WireModel", "from mcp_types._wire_base import WireModel, WireRootModel"
+    )
+    source = re.sub(r"^from pydantic import (.*), RootModel$", r"from pydantic import \1", source, flags=re.MULTILINE)
+    assert "RootModel[" not in source.replace("WireRootModel[", ""), "unrewritten RootModel base"
+    return source
+
+
+def strip_rebuild_epilogue(source: str) -> str:
+    """Drop codegen's trailing `X.model_rebuild()` calls.
+
+    codegen emits them to force-resolve forward references eagerly; with the
+    deferred bases each model is built once on first use, when its whole module
+    namespace already exists, so the calls would only re-introduce the eager
+    build cost the deferral removes.
+    """
+    return re.sub(r"^\w+\.model_rebuild\(\)\n", "", source, flags=re.MULTILINE)
+
+
+def define_before_use(source: str) -> str:
+    """Reorder the generated classes so every referenced class is defined first.
+
+    codegen's ordering leaves whole subtrees referring to not-yet-defined
+    classes (it relied on the eager `model_rebuild()` epilogue to patch them
+    up). A deferred model whose annotations name an undefined class collects
+    incomplete `model_fields` (an `Annotated[...]` alias trapped in an
+    unevaluated string) until its first-use build; defining dependencies first
+    keeps field metadata complete at import for every class. Only genuine
+    recursion cannot be linearized (the mutually-recursive JSONValue trio in
+    2026-07-28); such a cycle is kept together in codegen's own order, its
+    string self-references resolving on first use.
+    """
+    tree = ast.parse(source)
+    lines = source.splitlines(keepends=True)
+    classes = [node for node in tree.body if isinstance(node, ast.ClassDef)]
+    if not classes:
+        return source
+    names = {node.name for node in classes}
+    index = {node.name: i for i, node in enumerate(classes)}
+
+    def referenced(node: ast.ClassDef, *, quoted: bool) -> set[str]:
+        refs: set[str] = set()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and sub.id in names:
+                refs.add(sub.id)
+            elif quoted and isinstance(sub, ast.Constant) and isinstance(sub.value, str) and sub.value in names:
+                refs.add(sub.value)  # quoted forward reference
+        refs.discard(node.name)
+        return refs
+
+    deps = {node.name: referenced(node, quoted=True) for node in classes}
+
+    # Tarjan's SCC: a cycle (real recursion) is placed as one unit.
+    counter: list[int] = [0]
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    ids: dict[str, int] = {}
+    low: dict[str, int] = {}
+    comps: list[list[str]] = []
+
+    def strongconnect(v: str) -> None:
+        ids[v] = low[v] = counter[0]
+        counter[0] += 1
+        stack.append(v)
+        on_stack.add(v)
+        for w in sorted(deps[v], key=index.__getitem__):
+            if w not in ids:
+                strongconnect(w)
+                low[v] = min(low[v], low[w])
+            elif w in on_stack:
+                low[v] = min(low[v], ids[w])
+        if low[v] == ids[v]:
+            comp: list[str] = []
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                comp.append(w)
+                if w == v:
+                    break
+            comps.append(sorted(comp, key=index.__getitem__))
+
+    for name in sorted(names, key=index.__getitem__):
+        if name not in ids:
+            strongconnect(name)
+
+    # Emit each SCC once, dependencies first, stable on codegen's original order.
+    comp_of = {name: i for i, comp in enumerate(comps) for name in comp}
+    emitted: list[str] = []
+    done: set[int] = set()
+
+    def emit(ci: int) -> None:
+        if ci in done:
+            return
+        done.add(ci)
+        for name in comps[ci]:
+            for dep in sorted(deps[name], key=index.__getitem__):
+                if comp_of[dep] != ci:
+                    emit(comp_of[dep])
+        emitted.extend(comps[ci])
+
+    for name in sorted(names, key=index.__getitem__):
+        emit(comp_of[name])
+    assert set(emitted) == names
+    # Invariant: every class named by a bare identifier is defined earlier;
+    # only quoted references inside a genuine recursive cycle may still point
+    # forward. A regression here silently reintroduces incomplete
+    # `model_fields` at import, so fail generation instead.
+    position = {name: i for i, name in enumerate(emitted)}
+    unresolved = {
+        (node.name, ref)
+        for node in classes
+        for ref in referenced(node, quoted=False)
+        if position[ref] > position[node.name]
+    }
+    assert not unresolved, f"classes still name a later-defined class: {sorted(unresolved)}"
+
+    node_of = {node.name: node for node in classes}
+    blocks = ["".join(lines[node_of[name].lineno - 1 : node_of[name].end_lineno]) for name in emitted]
+    head = "".join(lines[: classes[0].lineno - 1])
+    tail = "".join(lines[max(node.end_lineno or 0 for node in classes) :])
+    return head + "\n\n\n".join(block.strip("\n") + "\n" for block in blocks) + tail
+
+
 def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
     """Restore `extra="allow"` on `open_classes` only.
 
@@ -243,12 +377,11 @@ def build(entry: dict[str, str]) -> str:
     # strict mkdocs link validation.
     source = source.replace("](/", "](https://modelcontextprotocol.io/")
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
+    source = use_deferred_bases(source)
+    source = strip_rebuild_epilogue(source)
+    source = define_before_use(source)
     if epilogue := EPILOGUES.get(version, ""):
-        # Insert before the trailing model_rebuild() block: pyright's evaluation
-        # order for the recursive RootModel block is sensitive to placement.
-        match = re.search(r"^\w+\.model_rebuild\(\)$", source, flags=re.MULTILINE)
-        cut = match.start() if match else len(source)
-        source = f"{source[:cut]}{epilogue}\n\n{source[cut:]}"
+        source = f"{source.rstrip()}\n\n\n{epilogue}"
     source = HEADER.format(version=version, sha=entry["sha256"]) + source
 
     staging = TYPES_DIR / f"_staging_{version}.py"

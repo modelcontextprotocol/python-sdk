@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from mcp_types._wire_base import WireModel
-from pydantic import ConfigDict, Field, RootModel
+from mcp_types._wire_base import WireModel, WireRootModel
+from pydantic import ConfigDict, Field
 
 
 class BaseMetadata(WireModel):
@@ -285,7 +285,7 @@ class CompleteResult(WireModel):
     completion: Completion
 
 
-class Cursor(RootModel[str]):
+class Cursor(WireRootModel[str]):
     root: str
     """
     An opaque token used to represent a cursor for pagination.
@@ -557,7 +557,7 @@ class LegacyTitledEnumSchema(WireModel):
 
 
 class LoggingLevel(
-    RootModel[
+    WireRootModel[
         Literal[
             "alert",
             "critical",
@@ -723,7 +723,7 @@ class PaginatedResult(WireModel):
     """
 
 
-class ProgressToken(RootModel[str | int]):
+class ProgressToken(WireRootModel[str | int]):
     root: str | int
     """
     A progress token, used to associate progress notifications with the original request.
@@ -853,7 +853,7 @@ class Request(WireModel):
     params: dict[str, Any] | None = None
 
 
-class RequestId(RootModel[str | int]):
+class RequestId(WireRootModel[str | int]):
     root: str | int
     """
     A uniquely identifying ID for a request in JSON-RPC.
@@ -970,7 +970,7 @@ class Result(WireModel):
     """
 
 
-class Role(RootModel[Literal["assistant", "user"]]):
+class Role(WireRootModel[Literal["assistant", "user"]]):
     root: Literal["assistant", "user"]
     """
     The sender or recipient of messages and data in a conversation.
@@ -1216,7 +1216,7 @@ class TaskMetadata(WireModel):
     """
 
 
-class TaskStatus(RootModel[Literal["cancelled", "completed", "failed", "input_required", "working"]]):
+class TaskStatus(WireRootModel[Literal["cancelled", "completed", "failed", "input_required", "working"]]):
     root: Literal["cancelled", "completed", "failed", "input_required", "working"]
     """
     The status of a task.
@@ -1867,12 +1867,12 @@ class EmbeddedResource(WireModel):
     type: Literal["resource"]
 
 
-class EmptyResult(RootModel[Result]):
+class EmptyResult(WireRootModel[Result]):
     root: Result
 
 
 class EnumSchema(
-    RootModel[
+    WireRootModel[
         UntitledSingleSelectEnumSchema
         | TitledSingleSelectEnumSchema
         | UntitledMultiSelectEnumSchema
@@ -2115,7 +2115,7 @@ class LoggingMessageNotification(WireModel):
     params: LoggingMessageNotificationParams
 
 
-class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
+class MultiSelectEnumSchema(WireRootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
     root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
 
 
@@ -2153,7 +2153,7 @@ class PingRequest(WireModel):
 
 
 class PrimitiveSchemaDefinition(
-    RootModel[
+    WireRootModel[
         StringSchema
         | NumberSchema
         | BooleanSchema
@@ -2499,7 +2499,7 @@ class SetLevelRequest(WireModel):
     params: SetLevelRequestParams
 
 
-class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
+class SingleSelectEnumSchema(WireRootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
     root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
 
@@ -2793,7 +2793,7 @@ class CompleteRequest(WireModel):
     params: CompleteRequestParams
 
 
-class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
+class ContentBlock(WireRootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
     root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 
 
@@ -2812,7 +2812,7 @@ class CreateTaskResult(WireModel):
     task: Task
 
 
-class ElicitRequestParams(RootModel[ElicitRequestURLParams | ElicitRequestFormParams]):
+class ElicitRequestParams(WireRootModel[ElicitRequestURLParams | ElicitRequestFormParams]):
     root: ElicitRequestURLParams | ElicitRequestFormParams
     """
     The parameters for a request to elicit additional information from the user via the client.
@@ -2857,14 +2857,16 @@ class InitializeRequest(WireModel):
     params: InitializeRequestParams
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCMessage(
+    WireRootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]
+):
     root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
     """
     Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
     """
 
 
-class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCResponse(WireRootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
     root: JSONRPCResultResponse | JSONRPCErrorResponse
     """
     A response to a request, containing either the result or error.
@@ -3174,7 +3176,7 @@ class CallToolResult(WireModel):
 
 
 class ClientNotification(
-    RootModel[
+    WireRootModel[
         CancelledNotification
         | InitializedNotification
         | ProgressNotification
@@ -3192,7 +3194,7 @@ class ClientNotification(
 
 
 class ClientRequest(
-    RootModel[
+    WireRootModel[
         InitializeRequest
         | PingRequest
         | ListResourcesRequest
@@ -3267,13 +3269,13 @@ class GetPromptResult(WireModel):
 
 
 class SamplingMessageContentBlock(
-    RootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
+    WireRootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
 ):
     root: TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 
 
 class ServerNotification(
-    RootModel[
+    WireRootModel[
         CancelledNotification
         | ProgressNotification
         | ResourceListChangedNotification
@@ -3299,7 +3301,7 @@ class ServerNotification(
 
 
 class ServerResult(
-    RootModel[
+    WireRootModel[
         Result
         | InitializeResult
         | ListResourcesResult
@@ -3399,7 +3401,7 @@ class SamplingMessage(WireModel):
 
 
 class ClientResult(
-    RootModel[
+    WireRootModel[
         Result
         | GetTaskResult
         | GetTaskPayloadResult
@@ -3503,7 +3505,7 @@ class CreateMessageRequest(WireModel):
 
 
 class ServerRequest(
-    RootModel[
+    WireRootModel[
         PingRequest
         | GetTaskRequest
         | GetTaskPayloadRequest
