@@ -2,8 +2,8 @@ import pytest
 from pydantic import AnyHttpUrl
 
 from mcp.server.auth.routes import build_metadata, validate_issuer_url
-from mcp.server.auth.url_validators import validate_redirect_uri
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
+from mcp.server.auth.url_validators import validate_redirect_uri
 
 
 def test_validate_issuer_url_https_allowed():
@@ -72,42 +72,43 @@ def test_build_metadata_serves_issuer_without_trailing_slash():
     assert served["authorization_endpoint"] == "https://as.example.com/authorize"
     assert served["token_endpoint"] == "https://as.example.com/token"
 
+
 def test_validate_redirect_uri_https_allowed():
-    validate_redirect_uri(AnyHttpUrl('https://example.com/cb'))
+    validate_redirect_uri(AnyHttpUrl("https://example.com/cb"))
 
 
 def test_validate_redirect_uri_http_localhost_allowed():
-    validate_redirect_uri(AnyHttpUrl('http://localhost:3000/cb'))
+    validate_redirect_uri(AnyHttpUrl("http://localhost:3000/cb"))
 
 
 def test_validate_redirect_uri_http_127_0_0_1_allowed():
-    validate_redirect_uri(AnyHttpUrl('http://127.0.0.1:8080/cb'))
+    validate_redirect_uri(AnyHttpUrl("http://127.0.0.1:8080/cb"))
 
 
 def test_validate_redirect_uri_http_ipv6_loopback_allowed():
-    validate_redirect_uri(AnyHttpUrl('http://[::1]:9090/cb'))
+    validate_redirect_uri(AnyHttpUrl("http://[::1]:9090/cb"))
 
 
 def test_validate_redirect_uri_javascript_scheme_rejected():
     with pytest.raises(ValueError, match="Redirect URI must use HTTPS"):
-        validate_redirect_uri(AnyHttpUrl('javascript:alert(1)'))
+        validate_redirect_uri(AnyHttpUrl("javascript:alert(1)"))
 
 
 def test_validate_redirect_uri_file_scheme_rejected():
     with pytest.raises(ValueError, match="Redirect URI must use HTTPS"):
-        validate_redirect_uri(AnyHttpUrl('file:///etc/passwd'))
+        validate_redirect_uri(AnyHttpUrl("file:///etc/passwd"))
 
 
 def test_validate_redirect_uri_http_non_loopback_rejected():
     with pytest.raises(ValueError, match="Redirect URI must use HTTPS"):
-        validate_redirect_uri(AnyHttpUrl('http://evil.com/cb'))
+        validate_redirect_uri(AnyHttpUrl("http://evil.com/cb"))
 
 
 def test_validate_redirect_uri_fragment_rejected():
     with pytest.raises(ValueError, match="Redirect URI must not contain a fragment"):
-        validate_redirect_uri(AnyHttpUrl('https://example.com/cb#frag'))
+        validate_redirect_uri(AnyHttpUrl("https://example.com/cb#frag"))
 
 
 def test_validate_redirect_uri_empty_fragment_rejected():
     with pytest.raises(ValueError, match="Redirect URI must not contain a fragment"):
-        validate_redirect_uri(AnyHttpUrl('https://example.com/cb#'))
+        validate_redirect_uri(AnyHttpUrl("https://example.com/cb#"))
