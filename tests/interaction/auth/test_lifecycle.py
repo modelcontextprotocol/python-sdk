@@ -8,6 +8,7 @@ opaque failure. The provider knobs that drive each scenario are documented per t
 
 import base64
 from collections import Counter
+from typing import cast
 from urllib.parse import parse_qsl, urlsplit
 
 import anyio
@@ -69,7 +70,7 @@ def path_counts(recorded: list[RecordedRequest]) -> Counter[tuple[str, str]]:
 def cimd_supported_metadata() -> bytes:
     """AS metadata advertising `client_id_metadata_document_supported: true` (the SDK server never sets it)."""
     metadata = OAuthMetadata(
-        issuer=AnyHttpUrl(f"{BASE_URL}/"),
+        issuer=cast(AnyHttpUrl, BASE_URL),
         authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),
         token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
         registration_endpoint=AnyHttpUrl(f"{BASE_URL}/register"),
@@ -239,7 +240,7 @@ async def test_credentials_bound_to_a_different_issuer_are_discarded_and_the_cli
     # The persisted client is now bound to the current AS.
     assert storage.client_info is not None
     assert storage.client_info.client_id != "stale-as-client"
-    assert storage.client_info.issuer == f"{BASE_URL}/"
+    assert storage.client_info.issuer == BASE_URL
 
 
 @requirement("client-auth:401-after-auth-throws")
@@ -437,7 +438,7 @@ async def test_private_key_jwt_provider_authenticates_the_token_request_with_an_
             result = await client.list_tools()
 
     assert result.tools[0].name == "echo"
-    assert audiences == [f"{BASE_URL}/"]
+    assert audiences == [BASE_URL]
 
     [token_req] = find(recorded, "POST", "/token")
     body = form_body(token_req)

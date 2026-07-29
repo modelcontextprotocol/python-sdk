@@ -1613,9 +1613,6 @@ async def test_403_step_up_preserves_scope_from_stored_token(
             "https://auth.example.com/register",
             "https://auth.example.com/revoke",
             id="simple-url",
-            marks=pytest.mark.xfail(
-                reason="Pydantic AnyUrl adds trailing slash to base URLs - fixed in Pydantic 2.12+"
-            ),
         ),
         pytest.param(
             "https://auth.example.com/",
@@ -1654,7 +1651,7 @@ def test_build_metadata(
 
     assert metadata.model_dump(exclude_defaults=True, mode="json") == snapshot(
         {
-            "issuer": Is(issuer_url),
+            "issuer": Is(issuer_url.rstrip("/")),
             "authorization_endpoint": Is(authorization_endpoint),
             "token_endpoint": Is(token_endpoint),
             "registration_endpoint": Is(registration_endpoint),

@@ -32,7 +32,7 @@ def build_auth(_http: httpx2.AsyncClient) -> httpx2.Auth:
 
     `issuer` is configuration, not discovery: the provider fetches metadata from this issuer's
     well-known and never asks the MCP server which authorization server to use. The string must
-    equal the `issuer` its metadata serves byte for byte (note the trailing slash).
+    equal the `issuer` its metadata serves byte for byte.
     `Client(url, auth=...)` doesn't exist yet, so the harness threads this onto the underlying
     `httpx2.AsyncClient` and hands `main` a target that is already routed through it.
     """

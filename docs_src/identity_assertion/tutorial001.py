@@ -55,7 +55,7 @@ oauth = IdentityAssertionOAuthProvider(
     storage=InMemoryTokenStorage(),
     client_id="finance-agent",
     client_secret="finance-agent-secret",
-    issuer="https://auth.example.com/",
+    issuer="https://auth.example.com",
     assertion_provider=fetch_id_jag,
     scope="notes:read",
 )
