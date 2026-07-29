@@ -1113,6 +1113,8 @@ def test_warming_a_version_leaves_nothing_for_its_first_messages_to_build():
 
 def test_warm_is_idempotent_and_gates_unknown_versions():
     """SDK-defined: repeating a `warm()` builds nothing more; an unknown version is a ValueError."""
+    baseline = methods.warm()  # the version-independent set (this process may already have built it)
+    assert baseline.elapsed_ms >= 0
     methods.warm(everything=True)
     again = methods.warm(everything=True)
     assert (again.models, again.adapters) == (0, 0)

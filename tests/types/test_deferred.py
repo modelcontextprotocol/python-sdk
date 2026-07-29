@@ -71,6 +71,28 @@ def test_decorated_root_model_covers_its_subclasses_too() -> None:
         assert str(inspect.signature(cls)) == expected
 
 
+def test_the_decorator_refuses_a_root_that_would_not_defer_or_that_owns_a_subclass_hook() -> None:
+    """`@deferred_model` marks a *deferred* hierarchy root and installs its own subclass hook:
+    a class without `defer_build`, or one defining `__pydantic_init_subclass__` itself (which
+    the installed hook would replace), is refused at decoration time."""
+
+    class Eager(BaseModel):
+        value: int
+
+    class OwnsHook(BaseModel):
+        model_config = ConfigDict(defer_build=True)
+        value: int
+
+        @classmethod
+        def __pydantic_init_subclass__(cls, **kwargs: object) -> None:
+            raise NotImplementedError  # never runs: the decorator refuses the class first
+
+    with pytest.raises(TypeError):
+        deferred_model(Eager)
+    with pytest.raises(TypeError):
+        deferred_model(OwnsHook)
+
+
 def test_unresolvable_model_falls_back_to_the_generic_signature() -> None:
     """A model whose build cannot complete (a forward reference that does not resolve at
     that point) reports the generic initializer signature, as pydantic does for any

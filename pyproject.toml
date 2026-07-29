@@ -306,6 +306,9 @@ exclude_also = [
     "@overload",
     "raise NotImplementedError",
 ]
+# `if not TYPE_CHECKING:` installs runtime-only lazy module attributes; its
+# false arc belongs to the type checker and never runs (like `if TYPE_CHECKING:`).
+partial_also = ["if not TYPE_CHECKING:"]
 
 # https://coverage.readthedocs.io/en/latest/config.html#paths
 [tool.coverage.paths]
