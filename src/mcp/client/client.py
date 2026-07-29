@@ -58,7 +58,6 @@ from mcp.client.session import (
     MessageHandlerFnT,
     SamplingFnT,
 )
-from mcp.client.streamable_http import streamable_http_client
 from mcp.client.subscriptions import ServerEvent, Subscription
 from mcp.client.subscriptions import listen as _listen
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
@@ -101,6 +100,16 @@ def _connect_transport(transport: Transport) -> _Connector:
         return JSONRPCDispatcher(read_stream, write_stream)
 
     return connect
+
+
+def _connect_url(url: str) -> _Connector:
+    """Connector for a URL string: the streamable-HTTP client transport."""
+    # Function-level import (documented exception): `httpx2` is the heaviest client-side
+    # dependency and only the HTTP transports need it, so a stdio-only client (or bare
+    # `import mcp.client`) never loads it; the first URL `Client` constructed does, once.
+    from mcp.client.streamable_http import streamable_http_client
+
+    return _connect_transport(streamable_http_client(url))
 
 
 def _loaded_class(module: str, name: str) -> type | None:
@@ -422,7 +431,7 @@ class Client:
         if _is_lowlevel_server(srv):
             self._connect = _connect_inproc(srv)
         elif isinstance(srv, str):
-            self._connect = _connect_transport(streamable_http_client(srv))
+            self._connect = _connect_url(srv)
         else:
             self._connect = _connect_transport(srv)
 

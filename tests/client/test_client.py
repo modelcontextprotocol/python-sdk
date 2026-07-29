@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import contextvars
+import json
+import subprocess
+import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
@@ -397,9 +400,50 @@ async def test_complete_with_prompt_reference(simple_server: Server):
 
 
 def test_client_with_url_initializes_streamable_http_transport():
-    with patch("mcp.client.client.streamable_http_client") as mock:
+    # `Client` imports the streamable-HTTP transport lazily (at construction of the
+    # first URL client) so a stdio-only client never loads httpx2; patch its source.
+    with patch("mcp.client.streamable_http.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
     mock.assert_called_once_with("http://localhost:8000/mcp")
+
+
+# Runs in a fresh interpreter: this process has already imported the whole SDK, so its
+# `sys.modules` can't show what the client entry points load on their own. Prints which of
+# the deferred package prefixes are loaded after the imports, then again after building a
+# URL Client (which constructs its transport but only connects on __aenter__).
+FRESH_CLIENT_IMPORT_PROBE = """
+import json, sys
+
+import mcp
+import mcp.client.stdio
+from mcp import Client
+
+DEFERRED = ("mcp.server", "httpx2", "starlette", "uvicorn", "sse_starlette", "jwt", "cryptography")
+
+
+def loaded():
+    return sorted({p for p in DEFERRED for m in sys.modules if m == p or m.startswith(p + ".")})
+
+
+on_import = loaded()
+Client("http://localhost/mcp")
+print(json.dumps([on_import, loaded()]))
+"""
+
+
+def test_client_entry_points_load_the_server_stack_and_http_transports_only_when_used():
+    """SDK-defined: `import mcp` / `import mcp.client.stdio` / `from mcp import Client` load
+    neither the server stack nor httpx2; constructing the first URL `Client` is what loads
+    its streamable-HTTP transport (httpx2), and even then the server stack stays out."""
+    # A regression hangs forever, so the bound only has to beat never (matches the suite's
+    # other subprocess.run calls).
+    result = subprocess.run(
+        [sys.executable, "-c", FRESH_CLIENT_IMPORT_PROBE], capture_output=True, text=True, check=False, timeout=20
+    )
+    assert result.returncode == 0, result.stderr
+    on_import, after_url_client = json.loads(result.stdout)
+    assert on_import == []
+    assert after_url_client == ["httpx2"]
 
 
 async def test_client_uses_transport_directly(app: MCPServer):

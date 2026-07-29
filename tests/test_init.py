@@ -7,13 +7,24 @@ import pytest
 from inline_snapshot import snapshot
 
 import mcp
+import mcp.server.session
+import mcp.server.stdio
 import mcp.shared.exceptions
+from mcp.client.session_group import ClientSessionGroup
 
 
 def test_exported_name_is_the_home_module_object_and_is_cached_on_the_package():
     """SDK-defined: `mcp.MCPError` is `mcp.shared.exceptions.MCPError`, cached after first access."""
     assert mcp.MCPError is mcp.shared.exceptions.MCPError
     assert vars(mcp)["MCPError"] is mcp.shared.exceptions.MCPError
+
+
+def test_client_and_server_reexports_are_the_defining_objects():
+    """SDK-defined: `mcp.ServerSession`, `mcp.stdio_server` and `mcp.ClientSessionGroup`
+    resolve on first access to the very objects their defining modules export."""
+    assert mcp.ServerSession is mcp.server.session.ServerSession
+    assert mcp.stdio_server is mcp.server.stdio.stdio_server
+    assert mcp.ClientSessionGroup is ClientSessionGroup
 
 
 def test_dir_lists_every_export_and_the_bound_submodules():
