@@ -2,6 +2,9 @@
 
 ## Bumping Dependencies
 
+[`DEPENDENCY_POLICY.md`](DEPENDENCY_POLICY.md) says *when* a bound should
+move; this is the mechanics.
+
 1. Change the dependency version in `pyproject.toml`. The root `mcp` project's
    runtime dependencies are dynamic and live under
    `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies`.

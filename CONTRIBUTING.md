@@ -52,6 +52,21 @@ Issues labeled `needs confirmation` or `needs maintainer action` are **not** rea
 
 Before starting, comment on the issue so we can assign it to you. This prevents duplicate effort.
 
+## Issue Triage
+
+Every new issue gets a first look from a maintainer within two business days. That first look is the *triage*: it means labeling the issue and deciding whether it is valid and actionable, not fixing it.
+
+The labels follow the shared [MCP SDK taxonomy](https://modelcontextprotocol.io/community/sdk-tiers#issue-triage-labels): one **type** (`bug`, `enhancement`, `question`), one **status** (`needs confirmation`, `needs repro`, `ready for work`, `good first issue`, `help wanted`), and — once actionable — one **priority**:
+
+| Label | Meaning | Commitment |
+|-------|---------|------------|
+| `P0` | Critical: core functionality failures (connections, message exchange, tools/resources/prompts) or a High/Critical-severity security issue | resolved within 7 days |
+| `P1` | Significant bug affecting many users | next release |
+| `P2` | Moderate issue or valuable feature request | as capacity allows |
+| `P3` | Nice-to-have or rare edge case | opportunistic |
+
+Security reports do not belong in the issue tracker; [SECURITY.md](SECURITY.md) has the private channel.
+
 ## Development Setup
 
 1. Make sure you have Python 3.10+ installed
@@ -125,6 +140,7 @@ pre-commit run --all-files
 - Follow PEP 8 style guidelines
 - Add type hints to all functions
 - Include docstrings for public APIs
+- Changing a dependency's version bound or adding a runtime dependency follows the [Dependency Policy](DEPENDENCY_POLICY.md)
 
 ## Pull Requests
 
