@@ -27,8 +27,26 @@ def test_never_used_model_reports_its_real_init_signature() -> None:
 def test_deferred_signature_is_not_a_type_hint_and_is_class_only() -> None:
     """The lazy `__signature__` never leaks into `get_type_hints`, and instances do not
     expose one (matching `BaseModel`)."""
-    assert "__signature__" not in typing.get_type_hints(Tool)
+
+    class Probe(MCPModel):
+        name: str
+
+    assert "__signature__" not in typing.get_type_hints(Probe)
+    assert not hasattr(Probe.model_construct(name="x"), "__signature__")  # still-deferred class
     assert not hasattr(Implementation(name="probe", version="1"), "__signature__")
+    assert "__signature__" not in typing.get_type_hints(Tool)
+
+
+def test_a_subclass_that_disables_defer_build_keeps_its_eager_signature() -> None:
+    """A subclass may turn `defer_build` back off; it builds at class creation and keeps the
+    signature pydantic gave it (the lazy one is only installed on still-deferred classes)."""
+
+    class Eager(MCPModel):
+        model_config = ConfigDict(defer_build=False)
+        value: int
+
+    assert Eager.__pydantic_complete__
+    assert str(inspect.signature(Eager)) == "(*, value: int) -> None"
 
 
 def test_decorated_root_model_covers_its_subclasses_too() -> None:
