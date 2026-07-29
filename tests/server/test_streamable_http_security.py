@@ -60,7 +60,11 @@ async def test_streamable_http_security_invalid_host_header() -> None:
     async with streamable_http_security_client(security_settings) as client:
         response = await client.post("/", json=_initialize_body(), headers=_base_headers() | {"Host": "evil.com"})
         assert response.status_code == 421
-        assert response.text == "Invalid Host header"
+        assert response.json() == {
+            "error": "host_not_allowed",
+            "received_host": "evil.com",
+            "configure": "TransportSecuritySettings.allowed_hosts",
+        }
 
 
 @pytest.mark.anyio
@@ -121,7 +125,11 @@ async def test_streamable_http_security_get_request() -> None:
     async with streamable_http_security_client(security_settings) as client:
         response = await client.get("/", headers={"Accept": "text/event-stream", "Host": "evil.com"})
         assert response.status_code == 421
-        assert response.text == "Invalid Host header"
+        assert response.json() == {
+            "error": "host_not_allowed",
+            "received_host": "evil.com",
+            "configure": "TransportSecuritySettings.allowed_hosts",
+        }
 
         response = await client.get("/", headers={"Accept": "text/event-stream", "Host": "127.0.0.1"})
         # An allowed host passes security and fails on session validation instead.

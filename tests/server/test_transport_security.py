@@ -49,6 +49,20 @@ async def test_validate_request_checks_host_then_origin(
 
 
 @pytest.mark.anyio
+async def test_validate_request_explains_host_rejection() -> None:
+    middleware = TransportSecurityMiddleware(SETTINGS)
+    response = await middleware.validate_request(_request("evil.example", None))
+
+    assert response is not None
+    assert response.status_code == 421
+    assert response.media_type == "application/json"
+    assert response.body == (
+        b'{"error":"host_not_allowed","received_host":"evil.example",'
+        b'"configure":"TransportSecuritySettings.allowed_hosts"}'
+    )
+
+
+@pytest.mark.anyio
 async def test_validate_request_skips_host_and_origin_when_protection_is_disabled() -> None:
     """With DNS-rebinding protection off, any Host/Origin is accepted."""
     middleware = TransportSecurityMiddleware(TransportSecuritySettings(enable_dns_rebinding_protection=False))
