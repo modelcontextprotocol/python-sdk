@@ -295,12 +295,12 @@ async def test_runner_non_spec_method_with_no_handler_raises_method_not_found(se
 
 
 @pytest.mark.anyio
-async def test_runner_malformed_params_for_unregistered_spec_method_raises_invalid_params(server: SrvT):
-    """A spec method with malformed params is INVALID_PARAMS even with no handler."""
+async def test_runner_unregistered_spec_method_raises_method_not_found(server: SrvT):
+    """An unregistered spec method returns METHOD_NOT_FOUND per JSON-RPC 2.0 (issue #3193)."""
     async with connected_runner(server) as (client, _):
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/call", {"name": 123})
-    assert exc.value.error == ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+    assert exc.value.error == ErrorData(code=METHOD_NOT_FOUND, message="Method not found", data="tools/call")
 
 
 @pytest.mark.anyio
@@ -845,6 +845,10 @@ async def test_server_add_request_handler_routes_custom_method_with_validated_pa
 
 @pytest.mark.anyio
 async def test_runner_spec_method_with_invalid_params_is_invalid_params_at_the_negotiated_version(server: SrvT):
+    async def dummy_handler(ctx: Ctx, p: CallToolRequestParams) -> None:
+        pass
+
+    server.add_request_handler("tools/call", CallToolRequestParams, dummy_handler)
     async with connected_runner(server) as (client, runner):
         assert runner.connection.protocol_version == LATEST_HANDSHAKE_VERSION
         with pytest.raises(MCPError) as exc:

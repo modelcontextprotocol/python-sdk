@@ -204,7 +204,12 @@ async def test_malformed_request_params_are_answered_with_invalid_params() -> No
     initialization handshake at the JSON-RPC layer and then sends a tools/call whose `name` is an
     integer. Reserve this pattern for behaviour the typed API cannot produce.
     """
+
+    async def dummy_handler(ctx: object, p: CallToolRequestParams) -> None:
+        pass
+
     server = Server("strict")
+    server.add_request_handler("tools/call", CallToolRequestParams, dummy_handler)
     errors: list[ErrorData] = []
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):

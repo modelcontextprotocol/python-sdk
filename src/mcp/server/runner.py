@@ -186,15 +186,9 @@ class ServerRunner(Generic[LifespanT]):
             # Read method/params off `ctx` so a middleware that rewrote them via
             # `call_next(replace(ctx, ...))` reaches lookup and the handler.
             method, params = ctx.method, ctx.params
-            # Pinned compat: spec methods are surface-validated before lookup,
-            # so malformed params are INVALID_PARAMS even with no handler
-            # registered. Custom methods miss the monolith map and fall through
-            # to `entry.params_type` exactly as before.
-            if method in _methods.SPEC_CLIENT_METHODS:
-                try:
-                    _methods.validate_client_request(method, version, params)
-                except KeyError:
-                    raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method) from None
+            # Spec version gate: if a spec method is not valid at this protocol version, reject it.
+            if method in _methods.SPEC_CLIENT_METHODS and (method, version) not in _methods.CLIENT_REQUESTS:
+                raise MCPError(code=METHOD_NOT_FOUND, message="Method not found", data=method)
             # TODO(L29): the 2026-07-28 spec drops the handshake; this branch and
             # the gate become a per-version legacy path then. Initialize runs inline
             # (read loop parked), so awaiting the peer anywhere on this path deadlocks.
@@ -211,6 +205,8 @@ class ServerRunner(Generic[LifespanT]):
             if not self.connection.initialize_accepted and method not in _INIT_EXEMPT:
                 # Pinned compat: the same error shape the union validation produced.
                 raise MCPError(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+            if method in _methods.SPEC_CLIENT_METHODS:
+                _methods.validate_client_request(method, version, params)
             # Absent params validate as {} (required fields still reject), so
             # the handler receives the model with its defaults, never None.
             typed_params = entry.params_type.model_validate({} if params is None else params, by_name=False)
