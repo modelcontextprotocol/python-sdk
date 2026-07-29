@@ -2724,11 +2724,13 @@ Two incidental things did change:
 
 The SDK's models and `TypeAdapter`s defer their validator build to first construction or
 validation instead of building at import; `inspect.signature(Model)`, `model_fields` and
-`model_json_schema()` report what they always did. A model you subclass from the SDK
-(`Tool`, `Resource`, `AuthSettings`, ...) inherits the deferral, so an annotation that cannot
-resolve in your subclass now surfaces at first use rather than at class creation. Set
-`model_config = ConfigDict(defer_build=False)` in your subclass, or call `Model.model_rebuild()`
-after defining it, if you want the build (and its errors) up front.
+`model_json_schema()` report what they always did, and the one-time build is serialized across
+threads (fixing a rare failure earlier v2 releases could hit when several threads first-used the
+same type at once). A model you subclass from the SDK (`Tool`, `Resource`, `AuthSettings`, ...)
+inherits the deferral, so an annotation that cannot resolve in your subclass now surfaces at
+first use rather than at class creation, and `Model.__pydantic_complete__` reads `False` until
+that first use. Set `model_config = ConfigDict(defer_build=False)` in your subclass, or call
+`Model.model_rebuild()` after defining it, if you want the build (and its errors) up front.
 
 ## Testing utilities
 

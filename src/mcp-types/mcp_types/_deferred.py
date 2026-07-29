@@ -1,29 +1,60 @@
-"""Keep `inspect.signature()` accurate for `defer_build` models before their first use.
+"""Support for the SDK's `defer_build=True` pydantic models.
 
 The SDK's model bases set `defer_build=True`, so pydantic builds a model's core
 schema, validator and serializer on first use instead of while the class
 statement runs; a module full of models then costs almost nothing to import in
-a process that never validates them.
+a process that never validates them. Two things need help until that first
+build happens:
 
-The one observable pydantic ties to that build is the class's `__signature__`
-(the synthesized `__init__` signature that `inspect.signature(Model)` reports):
-under `defer_build` it exists only once the model has built, and until then a
-class reports the generic `(**data)`. `DeferredSignature` is a class-level
-`__signature__` that completes the (one-time) build via the public
-`model_rebuild()` on first signature access, so runtime introspection matches an
-eagerly-built model while nothing is built at import.
+* `inspect.signature(Model)`. Under `defer_build` the synthesized `__init__`
+  signature (`__signature__`) exists only once the model has built; until then
+  a class would report the generic `(**data)`. `DeferredSignature` is a
+  class-level `__signature__` that completes the (one-time) build via the
+  public `model_rebuild()` on first signature access, so runtime introspection
+  matches an eagerly-built model while nothing is built at import.
+* The first build under concurrency. Released pydantic (<= 2.13) does not
+  lock `model_rebuild()`, so several threads first-using one model at once
+  (sync tools on worker threads, one session per thread) can raise
+  `AttributeError: __pydantic_core_schema__` or install a stale validator
+  (pydantic#13419; fixed unreleased in pydantic#13438). One process-wide
+  reentrant lock around the build closes that window: a late thread waits,
+  then finds the model complete and its own rebuild is a no-op.
+
+`deferred_model` installs both on the root class of a deferred model hierarchy
+(the type-layer bases `MCPModel` / `WireModel` / `WireRootModel`, the JSON-RPC
+envelopes, and the `mcp` package's own model roots); subclasses inherit them.
+
+This is a private module of `mcp-types`, but the `mcp` package (which
+exact-pins its `mcp-types` sibling) imports `deferred_model` for its own model
+roots too: keep the signatures stable across both packages.
 """
 
 from __future__ import annotations
 
+import threading
 from inspect import Signature
-from typing import Any, TypeVar, cast
+from typing import Any, Final, TypeVar, cast
 
 from pydantic import BaseModel
 
-__all__ = ["DeferredSignature", "deferred_model", "install_deferred_signature", "new_deferred_signature"]
+__all__ = [
+    "REBUILD_LOCK",
+    "DeferredSignature",
+    "deferred_model",
+    "install_deferred_signature",
+    "new_deferred_signature",
+]
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+REBUILD_LOCK: Final = threading.RLock()
+"""Serializes the first (deferred) build of every SDK model across threads.
+
+Reentrant on purpose: completing one model rebuilds the models it references
+on the same thread, re-entering `model_rebuild()`. Held only while a model
+actually builds; a completed model's `model_rebuild()` returns before the
+lock, and no per-message path takes it.
+"""
 
 
 class DeferredSignature:
@@ -53,9 +84,8 @@ class DeferredSignature:
 def new_deferred_signature() -> Signature:
     """A `DeferredSignature` typed as the `Signature` it stands in for.
 
-    Assign it in a model class body WITHOUT an annotation (`__signature__ =
-    new_deferred_signature()`), matching how `BaseModel` itself binds
-    `__signature__`, so it never appears in `get_type_hints(Model)`.
+    Bound in a class namespace WITHOUT an annotation (matching how `BaseModel`
+    itself binds `__signature__`), so it never appears in `get_type_hints(Model)`.
     """
     return cast(Signature, DeferredSignature())
 
@@ -63,31 +93,71 @@ def new_deferred_signature() -> Signature:
 def install_deferred_signature(cls: type[BaseModel]) -> None:
     """Give a still-deferred model class its own lazily-completing `__signature__`.
 
-    Meant for a base's `__pydantic_init_subclass__` hook: every deferred subclass
-    needs its OWN `__signature__` entry, otherwise it would inherit an
-    already-built parent's signature. A class that pydantic already completed
-    (e.g. one that turned `defer_build` off) keeps the real signature it has.
+    Every deferred subclass needs its OWN `__signature__` entry, otherwise it
+    would inherit an already-built parent's signature. A class that pydantic
+    already completed (e.g. one that turned `defer_build` off) keeps the real
+    signature it has.
     """
     if not cls.__pydantic_complete__:
         setattr(cls, "__signature__", new_deferred_signature())
 
 
 def deferred_model(cls: type[_ModelT]) -> type[_ModelT]:
-    """Class decorator for the root of a `defer_build` model hierarchy under `BaseModel`.
+    """Class decorator for the root of a `defer_build=True` model hierarchy.
 
-    Installs the lazy `__signature__` on `cls` and, via a `__pydantic_init_subclass__`
-    hook, on every model that later subclasses it (a subclass inherits the deferred
-    build through the config). Models deriving from the SDK bases (`MCPModel`,
-    `WireModel`, `WireRootModel`) get this from the base and do not need it.
+    Installs, on `cls` and (through inheritance) on every model that later
+    subclasses it - a subclass inherits the deferred build through the config:
+
+    * the lazy `__signature__`, via a `__pydantic_init_subclass__` hook that
+      stamps a fresh one on each still-deferred subclass;
+    * a `model_rebuild` classmethod that takes `REBUILD_LOCK`, so the first
+      build of any model in the hierarchy is serialized across threads (public
+      pydantic API; `_parent_namespace_depth + 1` accounts for this extra
+      frame);
+    * a `model_json_schema` classmethod that completes the (deferred) model
+      under that lock before pydantic generates the schema, so concurrent first
+      schema calls do not race on the not-yet-built class.
+
+    Raises:
+        TypeError: `cls` does not set `defer_build=True` in its `model_config`,
+            or defines its own `__pydantic_init_subclass__` (which the hook
+            installed here would silently replace).
     """
+    if not cls.model_config.get("defer_build"):
+        raise TypeError(f"@deferred_model expects {cls.__name__} to set model_config['defer_build'] = True")
+    if "__pydantic_init_subclass__" in vars(cls):
+        raise TypeError(f"@deferred_model would replace {cls.__name__}'s own __pydantic_init_subclass__")
+
     install_deferred_signature(cls)
 
     def __pydantic_init_subclass__(sub: type[BaseModel], **kwargs: Any) -> None:
         install_deferred_signature(sub)
-        # Run whatever hook `cls`'s own bases define (BaseModel's is a no-op).
-        # (`super()` from a classmethod defined outside the class body needs
-        # both arguments; the two-argument form is opaque to the type checker.)
+        # Chain to whatever hook `cls`'s bases define (BaseModel's is a no-op).
+        # (`super()` from a classmethod defined outside the class body needs the
+        # two-argument form, which is opaque to the type checker.)
         cast(Any, super(cls, sub)).__pydantic_init_subclass__(**kwargs)
 
+    def model_rebuild(sub: type[BaseModel], *args: Any, _parent_namespace_depth: int = 2, **kwargs: Any) -> Any:
+        # An already-built model is the common case: answer it like pydantic
+        # does, without touching the lock.
+        if sub.__pydantic_complete__ and not (args or kwargs.get("force")):
+            return None
+        # One process-wide lock serializes the deferred first build across
+        # threads; a late thread finds the model complete and no-ops.
+        with REBUILD_LOCK:
+            return cast(Any, super(cls, sub)).model_rebuild(
+                *args, _parent_namespace_depth=_parent_namespace_depth + 1, **kwargs
+            )
+
+    def model_json_schema(sub: type[BaseModel], *args: Any, **kwargs: Any) -> Any:
+        # Complete the class before pydantic reads its (mock) core schema:
+        # pydantic re-reads that attribute around the build, which is not safe
+        # against a concurrent first build; a complete class is only read.
+        if not sub.__pydantic_complete__:
+            sub.model_rebuild(raise_errors=False)
+        return cast(Any, super(cls, sub)).model_json_schema(*args, **kwargs)
+
     setattr(cls, "__pydantic_init_subclass__", classmethod(__pydantic_init_subclass__))
+    setattr(cls, "model_rebuild", classmethod(model_rebuild))
+    setattr(cls, "model_json_schema", classmethod(model_json_schema))
     return cls

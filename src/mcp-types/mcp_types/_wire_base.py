@@ -4,33 +4,29 @@ Both bases set `defer_build=True`: pydantic then skips core-schema, validator
 and serializer construction at class creation and builds each model once, on
 its first validation. A generated package defines ~175 models but a connection
 touches only the handful its negotiated version and methods use, so importing a
-package is class-body execution only and the schema build is paid lazily,
-per model, exactly once. `inspect.signature()` on a not-yet-built model is kept
-accurate by the lazy `__signature__` from `mcp_types._deferred`.
+package is class-body execution only and the schema build is paid lazily, per
+model, exactly once. `@deferred_model` keeps `inspect.signature()` on a
+not-yet-built model accurate and serializes that first build across threads
+(see `mcp_types._deferred`).
 """
 
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
-from mcp_types._deferred import install_deferred_signature, new_deferred_signature
+from mcp_types._deferred import deferred_model
 
 _RootT = TypeVar("_RootT")
 
 
+@deferred_model
 class WireModel(BaseModel):
     """Base for generated wire models: enables `populate_by_name`; subclasses set `extra` themselves."""
 
     model_config = ConfigDict(populate_by_name=True, defer_build=True)
 
-    __signature__ = new_deferred_signature()
 
-    @classmethod
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        install_deferred_signature(cls)
-        super().__pydantic_init_subclass__(**kwargs)
-
-
+@deferred_model
 class WireRootModel(RootModel[_RootT], Generic[_RootT]):
     """Base for generated named-alias root models (`X(WireRootModel[T])`).
 
@@ -41,10 +37,3 @@ class WireRootModel(RootModel[_RootT], Generic[_RootT]):
     """
 
     model_config = ConfigDict(defer_build=True)
-
-    __signature__ = new_deferred_signature()
-
-    @classmethod
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        install_deferred_signature(cls)
-        super().__pydantic_init_subclass__(**kwargs)

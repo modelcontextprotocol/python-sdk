@@ -111,6 +111,7 @@ class ClientSessionGroup:
         ```
     """
 
+    @deferred_model
     class _ComponentNames(BaseModel):
         """Used for reverse index to find components."""
 

@@ -1,6 +1,11 @@
-"""Deferred (`defer_build`) models keep runtime introspection identical to eagerly-built ones."""
+"""Deferred (`defer_build`) models keep runtime introspection identical to eagerly-built ones,
+and their first (lazy) build is safe under concurrency."""
 
 import inspect
+import json
+import os
+import subprocess
+import sys
 import typing
 
 import pytest
@@ -74,8 +79,10 @@ def test_unresolvable_model_falls_back_to_the_generic_signature() -> None:
     class Pending(MCPModel):
         value: "Later"
 
-    # `Later` is not defined yet, so the deferred build cannot complete here.
-    assert str(inspect.signature(Pending)) == "(**data: 'Any') -> 'None'"
+    # `Later` is not defined yet, so the deferred build cannot complete here and the
+    # class keeps pydantic's generic `(**data)` initializer signature.
+    parameters = inspect.signature(Pending).parameters
+    assert [(name, p.kind) for name, p in parameters.items()] == [("data", inspect.Parameter.VAR_KEYWORD)]
     assert not Pending.__pydantic_complete__
     with pytest.raises(NameError):
         Pending.model_rebuild()
@@ -84,3 +91,97 @@ def test_unresolvable_model_falls_back_to_the_generic_signature() -> None:
         done: bool
 
     assert Later
+
+
+# The lock only matters for the FIRST build of each model, which happens once per process:
+# race a broad set of never-used models from a barrier-released thread pool inside fresh
+# interpreters (this process built them long ago). Without the process-wide rebuild
+# lock in `mcp_types._deferred`, a round like this raises in every run (pydantic <= 2.13
+# does not lock `model_rebuild`; `AttributeError: __pydantic_core_schema__` and friends).
+_RACE_PROBE = r"""
+import inspect, json, sys, threading, traceback
+sys.setswitchinterval(1e-6)  # maximize preemption inside the builds
+import pydantic
+import mcp_types._types as _types
+import mcp_types._v2025_11_25 as v2025
+import mcp_types.jsonrpc as jsonrpc
+from mcp_types import methods
+import mcp.client.session as session          # deferred module-level TypeAdapters
+import mcp.server.mcpserver.server as mcpserver  # the SDK-layer deferred model roots
+import mcp.server.mcpserver.prompts.base as prompts_base
+import mcp.server.mcpserver.tools.base as tools_base
+import mcp.server.mcpserver.resources.types as resource_types
+import mcp.server.auth.settings as auth_settings
+import mcp.shared.auth as shared_auth
+
+def own_models(mod):
+    return [o for o in vars(mod).values() if isinstance(o, type) and issubclass(o, pydantic.BaseModel)
+            and o.__module__ == mod.__name__ and not o.__pydantic_complete__]
+
+MODULES = (_types, v2025, jsonrpc, mcpserver, prompts_base, tools_base, resource_types, auth_settings, shared_auth)
+CLASSES = [cls for mod in MODULES for cls in own_models(mod)]
+ADAPTERS = [v for m in (_types, jsonrpc, session, prompts_base) for v in vars(m).values()
+            if isinstance(v, pydantic.TypeAdapter)]
+N = int(sys.argv[1])
+barrier = threading.Barrier(N)
+errors, lock = [], threading.Lock()
+
+def first_use_everything():
+    for cls in CLASSES:
+        try:
+            cls.model_validate({"__probe__": 1})
+        except (pydantic.ValidationError, TypeError):
+            # junk payload on purpose: the first-use build is the point (TypeError = a
+            # model with a custom __init__ rejecting the junk kwargs after the build)
+            pass
+    for adapter in ADAPTERS:
+        try:
+            adapter.validate_python({"__probe__": 1})
+        except (pydantic.ValidationError, TypeError):
+            pass
+    methods.parse_client_request("ping", "2025-11-25", None)
+    _types.Tool.model_json_schema()
+    v2025.Root.model_json_schema()
+    inspect.signature(_types.CallToolRequest)
+
+def worker():
+    barrier.wait()
+    try:
+        first_use_everything()
+    except Exception as exc:
+        with lock:
+            errors.append(f"{type(exc).__name__}: {exc}"[:300])
+
+threads = [threading.Thread(target=worker) for _ in range(N)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+incomplete = [c.__name__ for c in CLASSES if not c.__pydantic_complete__]
+print(json.dumps({"n_classes": len(CLASSES), "errors": errors, "incomplete": incomplete}))
+"""
+
+
+def test_concurrent_first_use_of_deferred_models_never_raises() -> None:
+    """Eight threads first-using a broad set of never-built models (monolith, wire package,
+    JSON-RPC envelopes, the SDK's own models, the module-level adapters, first schema and
+    signature access) build every class exactly once and raise nothing.
+
+    The models must be unbuilt when the race starts, so the probe runs in fresh interpreters.
+    """
+    for _ in range(2):
+        result = subprocess.run(
+            [sys.executable, "-c", _RACE_PROBE, "8"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            # pydantic plugins (e.g. logfire) building models are the environment's cost, not ours
+            env={**os.environ, "PYDANTIC_DISABLE_PLUGINS": "__all__"},
+        )
+        assert result.returncode == 0, result.stderr
+        report = json.loads(result.stdout.strip().splitlines()[-1])
+        assert report["n_classes"] > 200  # the probe really did cover the class set
+        assert report["errors"] == []
+        assert report["incomplete"] == []

@@ -66,6 +66,7 @@ from mcp_types import (
     Tool,
     ToolChoice,
 )
+from mcp_types._deferred import deferred_model as _deferred_model
 from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, ConfigDict, ValidationError
 from typing_extensions import TypeVar
@@ -727,6 +728,7 @@ def _result_type(
 # import (import-time cost); the build is transparent at first construction/validation.
 
 
+@_deferred_model
 class _StateEntry(BaseModel):
     """One resolver's recorded outcome inside `request_state`."""
 
@@ -749,6 +751,7 @@ def _request_digest(request: InputRequest) -> str:
     return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
+@_deferred_model
 class _State(BaseModel):
     """The decoded `request_state`: resolver progress from earlier rounds."""
 

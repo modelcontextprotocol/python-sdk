@@ -21,7 +21,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 from typing_extensions import NotRequired, Self, TypedDict
 
-from mcp_types._deferred import install_deferred_signature, new_deferred_signature
+from mcp_types._deferred import deferred_model
 from mcp_types.jsonrpc import RequestId
 
 DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
@@ -43,23 +43,16 @@ IconTheme = Literal["light", "dark"]
 """Theme an icon is designed for. Wire values of `Icon.theme` (2025-11-25+)."""
 
 
+@deferred_model
 class MCPModel(BaseModel):
     """Base class for all MCP protocol types."""
 
     # defer_build: the core schema / validator / serializer for each model is
     # built on first use instead of at class creation, so importing this module
-    # does not pay for ~150 models most processes never touch.
+    # does not pay for ~150 models most processes never touch. `deferred_model`
+    # keeps `inspect.signature()` accurate before that first use and makes the
+    # first build thread-safe (see `mcp_types._deferred`).
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, defer_build=True)
-
-    # Complete the deferred build on the first `inspect.signature()` access, so a
-    # never-used model still reports its real field signature. (Bound without an
-    # annotation, like `BaseModel.__signature__`, so it is not a type hint.)
-    __signature__ = new_deferred_signature()
-
-    @classmethod
-    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        install_deferred_signature(cls)
-        super().__pydantic_init_subclass__(**kwargs)
 
 
 Meta: TypeAlias = dict[str, Any]
