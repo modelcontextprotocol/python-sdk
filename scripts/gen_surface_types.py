@@ -323,10 +323,22 @@ def define_before_use(source: str) -> str:
     }
     assert not unresolved, f"classes still name a later-defined class: {sorted(unresolved)}"
 
+    # The reorder reassembles the file from the class blocks, the text before
+    # the first class and the text after the last: any other statement between
+    # two classes would silently vanish, so codegen must never emit one there.
+    first_line = classes[0].lineno
+    last_line = max(node.end_lineno or 0 for node in classes)
+    interstitial = [
+        node.lineno
+        for node in tree.body
+        if not isinstance(node, ast.ClassDef) and first_line <= node.lineno <= last_line
+    ]
+    assert not interstitial, f"non-class statements between generated classes would be dropped: lines {interstitial}"
+
     node_of = {node.name: node for node in classes}
     blocks = ["".join(lines[node_of[name].lineno - 1 : node_of[name].end_lineno]) for name in emitted]
-    head = "".join(lines[: classes[0].lineno - 1])
-    tail = "".join(lines[max(node.end_lineno or 0 for node in classes) :])
+    head = "".join(lines[: first_line - 1])
+    tail = "".join(lines[last_line:])
     return head + "\n\n\n".join(block.strip("\n") + "\n" for block in blocks) + tail
 
 
