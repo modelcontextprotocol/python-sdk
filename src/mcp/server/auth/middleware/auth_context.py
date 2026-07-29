@@ -1,23 +1,11 @@
-import contextvars
-
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+# The contextvar and its accessor are defined in a transport-agnostic module
+# (no starlette) so request-state code can read the token without loading the
+# web stack; they are re-exported here under their long-standing import path.
+from mcp.server.auth.access_token import auth_context_var as auth_context_var
+from mcp.server.auth.access_token import get_access_token as get_access_token
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
-from mcp.server.auth.provider import AccessToken
-
-# Create a contextvar to store the authenticated user
-# The default is None, indicating no authenticated user is present
-auth_context_var = contextvars.ContextVar[AuthenticatedUser | None]("auth_context", default=None)
-
-
-def get_access_token() -> AccessToken | None:
-    """Get the access token from the current context.
-
-    Returns:
-        The access token if an authenticated user is available, None otherwise.
-    """
-    auth_user = auth_context_var.get()
-    return auth_user.access_token if auth_user else None
 
 
 class AuthContextMiddleware:

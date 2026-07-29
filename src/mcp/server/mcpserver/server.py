@@ -6,7 +6,7 @@ import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -46,16 +46,8 @@ from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
 from pydantic import BaseModel
 from pydantic.networks import AnyUrl
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Mount, Route
-from starlette.types import Receive, Scope, Send
 
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server._http_defaults import DEFAULT_MAX_REQUEST_BODY_SIZE
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint
@@ -84,14 +76,26 @@ from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
-from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
+
+if TYPE_CHECKING:
+    # HTTP transport types appear only in the SSE / streamable-HTTP methods'
+    # signatures and in narrowed attributes. Their runtime imports live inside
+    # those methods (and `custom_route`), so `import mcp.server.mcpserver`
+    # (and every stdio server) never loads starlette, sse_starlette or
+    # uvicorn - only building an HTTP app pays for the web stack, once.
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import Response
+    from starlette.routing import Route
+    from starlette.types import Receive, Scope, Send
+
+    from mcp.server.streamable_http import EventStore
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from mcp.server.transport_security import TransportSecuritySettings
 
 logger = get_logger(__name__)
 
@@ -1005,6 +1009,10 @@ class MCPServer(Generic[LifespanResultT]):
             ```
         """
 
+        # A custom route is an HTTP feature: starlette is imported here rather
+        # than at module top so stdio servers never load the HTTP stack.
+        from starlette.routing import Route
+
         def decorator(
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
@@ -1097,6 +1105,21 @@ class MCPServer(Generic[LifespanResultT]):
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Return an instance of the SSE server app."""
+        # The SSE transport stack (starlette, sse_starlette, plus this SDK's SSE
+        # transport and auth ASGI modules) is imported here rather than at module
+        # top so that stdio servers never load it: only building an SSE app
+        # pays for it, once.
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.middleware.authentication import AuthenticationMiddleware
+        from starlette.responses import Response
+        from starlette.routing import Mount, Route
+
+        from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+        from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+        from mcp.server.sse import SseServerTransport
+        from mcp.server.transport_security import TransportSecuritySettings
+
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(

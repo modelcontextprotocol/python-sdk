@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from mcp_types import INTERNAL_ERROR, INVALID_PARAMS
 from mcp_types.methods import INPUT_REQUIRED_METHODS, is_input_required
 
-from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.access_token import get_access_token
 from mcp.server.auth.provider import principal_components
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.shared.exceptions import MCPError
