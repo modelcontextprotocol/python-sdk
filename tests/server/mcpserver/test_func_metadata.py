@@ -5,7 +5,7 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Final, NamedTuple, TypedDict
+from typing import Annotated, Any, Final, NamedTuple
 
 import annotated_types
 import jsonschema
@@ -13,7 +13,10 @@ import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, InputRequiredResult
 from pydantic import BaseModel, Field
-from typing_extensions import NotRequired
+
+# Pydantic requires `typing_extensions.TypedDict` (not `typing.TypedDict`) below 3.12,
+# otherwise a `NotRequired` qualifier is rejected as invalid in the context it is defined.
+from typing_extensions import NotRequired, TypedDict
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata

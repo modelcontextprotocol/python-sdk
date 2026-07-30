@@ -4,7 +4,7 @@ import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Union, cast, get_args, get_origin
 
 import anyio
 import anyio.to_thread
@@ -13,7 +13,7 @@ from mcp_types import CallToolResult, ContentBlock, InputRequiredResult, TextCon
 from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
-from typing_extensions import is_typeddict
+from typing_extensions import get_type_hints, is_typeddict
 from typing_inspection.introspection import (
     UNKNOWN,
     AnnotationSource,
@@ -514,6 +514,9 @@ def _create_model_from_typeddict(td_type: type[Any]) -> type[BaseModel]:
 
     The created model will have the same name and fields as the TypedDict.
     """
+    # `typing_extensions.get_type_hints` strips the `Required`/`NotRequired` qualifier on
+    # every supported version; `typing.get_type_hints` only does so from 3.11, and below
+    # that the bare qualifier reaches `create_model`, which pydantic rejects outright.
     type_hints = get_type_hints(td_type)
     required_keys = getattr(td_type, "__required_keys__", set(type_hints.keys()))
 
