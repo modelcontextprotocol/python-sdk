@@ -639,7 +639,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     self._spawn(
                         _shielded_progress(pending.on_progress),
                         float(progress),
-                        float(total) if isinstance(total, int | float) else None,
+                        float(total) if isinstance(total, int | float) and not isinstance(total, bool) else None,
                         message if isinstance(message, str) else None,
                         sender_ctx=sender_ctx,
                     )

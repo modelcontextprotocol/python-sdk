@@ -2173,14 +2173,17 @@ async def test_cancelled_with_bool_request_id_does_not_cancel_request_one():
 
 
 @pytest.mark.anyio
-async def test_progress_with_bool_token_or_bool_progress_does_not_fire_callback():
-    """Bool `progressToken`/`progress` values are malformed; the callback must
-    not fire for the unrelated request keyed by id 1 (`True == 1`)."""
+async def test_progress_boolean_fields_are_not_coerced_to_numbers():
+    """Raw wire input is required because the typed API rejects boolean progress fields.
+
+    Boolean tokens and progress values are ignored, while a boolean optional
+    total is treated as absent on an otherwise valid notification.
+    """
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     on_request, on_notify = echo_handlers(Recorder())
-    seen: list[float] = []
+    seen: list[tuple[float, float | None]] = []
     try:
         async with anyio.create_task_group() as tg:
             await tg.start(client.run, on_request, on_notify)
@@ -2194,7 +2197,8 @@ async def test_progress_with_bool_token_or_bool_progress_does_not_fire_callback(
                     for params in (
                         {"progressToken": True, "progress": 0.1},  # bool token
                         {"progressToken": rid, "progress": True},  # bool progress
-                        {"progressToken": rid, "progress": 0.5},  # valid
+                        {"progressToken": rid, "progress": 0.5, "total": True},  # bool total
+                        {"progressToken": rid, "progress": 0.75, "total": 1},  # valid
                     ):
                         await s2c_send.send(
                             SessionMessage(
@@ -2208,7 +2212,7 @@ async def test_progress_with_bool_token_or_bool_progress_does_not_fire_callback(
                     )
 
                 async def on_progress(progress: float, total: float | None, message: str | None) -> None:
-                    seen.append(progress)
+                    seen.append((progress, total))
 
                 tg.start_soon(respond_with_malformed_then_valid_progress)
                 result = await client.send_raw_request("ping", None, {"on_progress": on_progress})
@@ -2217,7 +2221,7 @@ async def test_progress_with_bool_token_or_bool_progress_does_not_fire_callback(
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
-    assert seen == [0.5]  # only the well-formed progress fired the callback
+    assert seen == [(0.5, None), (0.75, 1.0)]
 
 
 @pytest.mark.anyio
