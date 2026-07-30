@@ -2942,6 +2942,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
     ),
+    "hosting:auth:as:authorize-scope": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/authorization#step-up-authorization-flow",
+        behavior=(
+            "The bundled authorize endpoint accepts a requested scope beyond the client's registered "
+            "`scope` when it is within the server's `valid_scopes`, so a client can step up without "
+            "re-registering, and rejects a scope outside `valid_scopes` with an `invalid_scope` "
+            "error redirect. Per-client scope policy is delegated to the provider's `authorize()`."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
+    ),
     "hosting:auth:as:verifier-mismatch": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
         behavior=(

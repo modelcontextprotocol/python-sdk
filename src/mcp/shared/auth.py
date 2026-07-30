@@ -54,11 +54,6 @@ class AuthorizationCodeResult(BaseModel):
     iss: str | None = None
 
 
-class InvalidScopeError(Exception):
-    def __init__(self, message: str):
-        self.message = message
-
-
 class InvalidRedirectUriError(Exception):
     def __init__(self, message: str):
         self.message = message
@@ -173,16 +168,6 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
             members = cast(dict[str, Any], data)
             return {key: value for key, value in members.items() if value is not None and value != ""}
         return data
-
-    def validate_scope(self, requested_scope: str | None) -> list[str] | None:
-        if requested_scope is None:
-            return None
-        requested_scopes = requested_scope.split(" ")
-        allowed_scopes = [] if self.scope is None else self.scope.split(" ")
-        for scope in requested_scopes:
-            if scope not in allowed_scopes:
-                raise InvalidScopeError(f"Client was not registered with scope {scope}")
-        return requested_scopes
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:

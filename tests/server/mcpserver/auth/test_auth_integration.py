@@ -1628,9 +1628,10 @@ class TestAuthorizeEndpointErrors:
     async def test_authorize_invalid_scope(
         self, test_client: httpx2.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
     ):
-        """Test authorization endpoint with invalid scope.
+        """Test authorization endpoint with a scope the server does not support.
 
-        Invalid scope should redirect with invalid_scope error.
+        A requested scope outside the server's `valid_scopes` should redirect with
+        invalid_scope error.
         """
 
         response = await test_client.get(
@@ -1654,6 +1655,116 @@ class TestAuthorizeEndpointErrors:
 
         assert "error" in query_params
         assert query_params["error"][0] == "invalid_scope"
+        assert (
+            query_params["error_description"][0] == "Requested scopes are not valid: invalid_scope_that_does_not_exist"
+        )
         # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("registered_client", [{"scope": "read"}], indirect=True)
+async def test_authorize_accepts_a_scope_beyond_the_clients_registered_scope(
+    test_client: httpx2.AsyncClient,
+    mock_oauth_provider: MockOAuthProvider,
+    registered_client: dict[str, Any],
+    pkce_challenge: dict[str, str],
+):
+    """A client registered with `read` may authorize for `read write`: `write` is within the
+    server's `valid_scopes`, and the client's registered `scope` is not an allowlist. This is the
+    request shape of the spec's step-up flow, which re-authorizes without re-registering."""
+    assert registered_client["scope"] == "read"
+
+    response = await test_client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "https://client.example.com/callback",
+            "code_challenge": pkce_challenge["code_challenge"],
+            "code_challenge_method": "S256",
+            "scope": "read write",
+            "state": "test_state",
+        },
+    )
+
+    assert response.status_code == 302
+    query_params = parse_qs(urlparse(response.headers["location"]).query)
+    assert "error" not in query_params
+    code = query_params["code"][0]
+    assert mock_oauth_provider.auth_codes[code].scopes == ["read", "write"]
+
+
+@pytest.mark.anyio
+async def test_authorize_treats_an_empty_scope_parameter_as_omitted(
+    test_client: httpx2.AsyncClient,
+    mock_oauth_provider: MockOAuthProvider,
+    registered_client: dict[str, Any],
+    pkce_challenge: dict[str, str],
+):
+    """An empty `scope=` parameter (some clients send one) is no scope request: the provider
+    receives `None` and applies its default, rather than being handed an empty scope token."""
+    response = await test_client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registered_client["client_id"],
+            "redirect_uri": "https://client.example.com/callback",
+            "code_challenge": pkce_challenge["code_challenge"],
+            "code_challenge_method": "S256",
+            "scope": "",
+            "state": "test_state",
+        },
+    )
+
+    assert response.status_code == 302
+    query_params = parse_qs(urlparse(response.headers["location"]).query)
+    code = query_params["code"][0]
+    # MockOAuthProvider substitutes its default scopes when `params.scopes` is None.
+    assert mock_oauth_provider.auth_codes[code].scopes == ["read", "write"]
+
+
+@pytest.mark.anyio
+async def test_authorize_passes_every_requested_scope_to_the_provider_when_no_valid_scopes_are_configured(
+    mock_oauth_provider: MockOAuthProvider,
+    pkce_challenge: dict[str, str],
+):
+    """With no server-wide `valid_scopes`, no scope is rejected at `/authorize` - not even for a
+    client whose registered record carries no `scope` - and the provider decides what to grant."""
+    auth_routes = create_auth_routes(
+        mock_oauth_provider,
+        AnyHttpUrl("https://auth.example.com"),
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+    async with httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=Starlette(routes=auth_routes)), base_url="https://mcptest.com"
+    ) as client:
+        registration = await client.post(
+            "/register",
+            json={
+                "redirect_uris": ["https://client.example.com/callback"],
+                "grant_types": ["authorization_code", "refresh_token"],
+            },
+        )
+        assert registration.status_code == 201
+        client_info = registration.json()
+        assert "scope" not in client_info
+
+        response = await client.get(
+            "/authorize",
+            params={
+                "response_type": "code",
+                "client_id": client_info["client_id"],
+                "redirect_uri": "https://client.example.com/callback",
+                "code_challenge": pkce_challenge["code_challenge"],
+                "code_challenge_method": "S256",
+                "scope": "any scope at all",
+                "state": "test_state",
+            },
+        )
+
+    assert response.status_code == 302
+    query_params = parse_qs(urlparse(response.headers["location"]).query)
+    code = query_params["code"][0]
+    assert mock_oauth_provider.auth_codes[code].scopes == ["any", "scope", "at", "all"]

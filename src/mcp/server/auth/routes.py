@@ -102,7 +102,7 @@ def create_auth_routes(
             AUTHORIZATION_PATH,
             # do not allow CORS for authorization endpoint;
             # clients should just redirect to this
-            endpoint=AuthorizationHandler(provider).handle,
+            endpoint=AuthorizationHandler(provider, valid_scopes=client_registration_options.valid_scopes).handle,
             methods=["GET", "POST"],
         ),
         Route(

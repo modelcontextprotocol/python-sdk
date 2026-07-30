@@ -17,7 +17,7 @@ from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     construct_redirect_uri,
 )
-from mcp.shared.auth import InvalidRedirectUriError, InvalidScopeError
+from mcp.shared.auth import InvalidRedirectUriError
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,32 @@ class AnyUrlModel(RootModel[AnyUrl]):
     root: AnyUrl
 
 
+def scope_tokens(scope: str | None) -> list[str] | None:
+    """Split an RFC 6749 §3.3 scope parameter into its space-delimited tokens.
+
+    An absent or empty parameter is no scope request at all, so both return None and the
+    provider applies its default (RFC 6749 §3.3).
+    """
+    tokens = scope.split() if scope else []
+    return tokens or None
+
+
 @dataclass
 class AuthorizationHandler:
+    """The authorization endpoint (RFC 6749 §4.1.1) of the SDK-hosted authorization server.
+
+    `valid_scopes` is the scope set this authorization server supports - the same list advertised
+    as `scopes_supported` and enforced at dynamic client registration. A request naming any other
+    scope is rejected with `invalid_scope`, whichever client sends it. `None` declares no
+    server-wide scope set, so every requested scope reaches the provider. A registered client's
+    own `scope` is not consulted: RFC 7591 §2 makes it self-asserted metadata, and enforcing it
+    would reject the step-up flow, in which a client re-authorizes for scopes beyond its
+    registration. Per-client scope policy belongs in `OAuthAuthorizationServerProvider.authorize()`,
+    which rejects a request by raising `AuthorizeError` with `error="invalid_scope"`.
+    """
+
     provider: OAuthAuthorizationServerProvider[Any, Any, Any]
+    valid_scopes: list[str] | None = None
 
     async def handle(self, request: Request) -> Response:
         # implements authorization requests for grant_type=code;
@@ -185,15 +208,16 @@ class AuthorizationHandler:
                     error_description=validation_error.message,
                 )
 
-            # Validate scope - for scope errors, we can redirect
-            try:
-                scopes = client.validate_scope(auth_request.scope)
-            except InvalidScopeError as validation_error:
-                # For scope errors, redirect with error parameters
-                return await error_response(
-                    error="invalid_scope",
-                    error_description=validation_error.message,
-                )
+            # Enforce the server-wide scope set; scope policy for the client is the provider's,
+            # in authorize(). An unsupported scope redirects back with invalid_scope.
+            scopes = scope_tokens(auth_request.scope)
+            if scopes is not None and self.valid_scopes is not None:
+                unsupported = sorted(set(scopes) - set(self.valid_scopes))
+                if unsupported:
+                    return await error_response(
+                        error="invalid_scope",
+                        error_description=f"Requested scopes are not valid: {', '.join(unsupported)}",
+                    )
 
             # Setup authorization parameters
             auth_params = AuthorizationParams(
