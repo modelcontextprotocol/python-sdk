@@ -2,37 +2,54 @@
 
 from __future__ import annotations
 
-from typing import Any, Generic, Literal, TypeVar
+from functools import cache
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from mcp_types import RequestId
-
-# Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
-from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
-from pydantic import BaseModel, ValidationError
+from mcp_types._deferred import deferred_model as _deferred_model
+from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 from typing_extensions import TypeAliasType
 
 from mcp.server.session import ServerSession
+from mcp.shared._lazy import lazy_module_attrs as _lazy_module_attrs
+
+if TYPE_CHECKING:
+    # Explicit re-export: the name resolves lazily on this module at runtime.
+    from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition as PrimitiveSchemaDefinition
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
 
 
+# `defer_build` on the result models below: pydantic builds each validator on
+# first use instead of at import; the build happens once, transparently.
+
+
+@_deferred_model
 class AcceptedElicitation(BaseModel, Generic[ElicitSchemaModelT]):
     """Result when user accepts the elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["accept"] = "accept"
     data: ElicitSchemaModelT
 
 
+@_deferred_model
 class DeclinedElicitation(BaseModel):
     """Result when user declines the elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["decline"] = "decline"
 
 
+@_deferred_model
 class CancelledElicitation(BaseModel):
     """Result when user cancels the elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["cancel"] = "cancel"
 
@@ -44,8 +61,11 @@ ElicitationResult = TypeAliasType(
 )
 
 
+@_deferred_model
 class AcceptedUrlElicitation(BaseModel):
     """Result when user accepts a URL mode elicitation."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["accept"] = "accept"
 
@@ -71,15 +91,30 @@ class _ElicitationJsonSchema(GenerateJsonSchema):
         return result
 
 
+@cache
+def _primitive_schema_definition() -> type[PrimitiveSchemaDefinition]:
+    """The spec-valid property schema the elicitation gate validates against.
+
+    Its home is the internal `mcp_types._v2025_11_25` wire package (~50 ms of
+    pydantic model construction), so it is imported on the first elicitation
+    schema instead of at module import - once: this accessor is cached, so no
+    later call re-runs the import.
+    """
+    from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
+
+    return PrimitiveSchemaDefinition
+
+
 def _validate_rendered_properties(json_schema: dict[str, Any]) -> None:
     """Reject any `properties` entry the spec's `PrimitiveSchemaDefinition` won't accept.
 
     Catches whatever the renderer let through that isn't spec-valid: bare
     `list[str]` (no enum), multi-primitive unions, nested models.
     """
+    primitive_schema_definition = _primitive_schema_definition()
     for field_name, prop in json_schema.get("properties", {}).items():
         try:
-            PrimitiveSchemaDefinition.model_validate(prop)
+            primitive_schema_definition.model_validate(prop)
         except ValidationError:
             raise TypeError(
                 f"Elicitation schema field {field_name!r} rendered as {prop!r}, "
@@ -188,3 +223,14 @@ async def elicit_url(
     else:  # pragma: no cover
         # This should never happen, but handle it just in case
         raise ValueError(f"Unexpected elicitation action: {result.action}")
+
+
+# `PrimitiveSchemaDefinition` used to be bound in this module by a module-level
+# import of the internal wire package; that import now happens on the first
+# rendered schema (`_primitive_schema_definition`) so importing this module does
+# not build the wire package. The name still resolves lazily for existing
+# references to it. Runtime only: the TYPE_CHECKING import above types it.
+if not TYPE_CHECKING:
+    __getattr__, __dir__ = _lazy_module_attrs(
+        __name__, globals(), exports={"PrimitiveSchemaDefinition": _primitive_schema_definition}
+    )

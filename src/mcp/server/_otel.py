@@ -3,11 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from mcp_types import INVALID_PARAMS, CallToolResult
-from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import ValidationError
 
 from mcp.server.context import CallNext, HandlerResult, ServerMiddleware, ServerRequestContext
-from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._otel import extract_trace_context, otel_span, set_span_error
 from mcp.shared.exceptions import MCPError
 
 
@@ -34,7 +33,7 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
 
         with otel_span(
             name=f"{ctx.method}{f' {target}' if target else ''}",
-            kind=SpanKind.SERVER,
+            kind="server",
             attributes=attributes,
             context=extract_trace_context(ctx.meta),
             record_exception=False,
@@ -45,18 +44,18 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
             except MCPError as e:
                 code = str(e.error.code)
                 span.set_attributes({"error.type": code, "rpc.response.status_code": code})
-                span.set_status(StatusCode.ERROR, e.error.message)
+                set_span_error(span, e.error.message)
                 raise
             except ValidationError:
                 # Mirror the sanitized wire response; pydantic messages carry client input.
                 code = str(INVALID_PARAMS)
                 span.set_attributes({"error.type": code, "rpc.response.status_code": code})
-                span.set_status(StatusCode.ERROR, "Invalid request parameters")
+                set_span_error(span, "Invalid request parameters")
                 raise
             except Exception as e:
                 span.set_attribute("error.type", type(e).__qualname__)
                 span.record_exception(e)
-                span.set_status(StatusCode.ERROR, str(e))
+                set_span_error(span, str(e))
                 raise
             if ctx.method == "tools/call":
                 # Tool errors are detected pre-serialization, so only shapes that reach the wire as an error
@@ -66,7 +65,7 @@ class OpenTelemetryMiddleware(ServerMiddleware[Any]):
                 match result:
                     case CallToolResult(is_error=True) | {"isError": True}:
                         span.set_attribute("error.type", "tool_error")
-                        span.set_status(StatusCode.ERROR)
+                        set_span_error(span)
                     case _:
                         pass
             return result

@@ -6,21 +6,39 @@ are internal validators and not for direct import.
 Surface maps key `(method, version)` to per-version wire types (key absence is
 the version gate; shape validation is per schema era, i.e. 2025-11-25 for every
 pre-2026 version and 2026-07-28 for 2026). Monolith maps key `method` to the
-version-free `mcp_types` models user code receives."""
+version-free `mcp_types` models user code receives.
+
+The surface maps do not import the per-version wire packages up front: each
+`mcp_types._v*` package is ~100 ms of pydantic model construction and a
+connection negotiates exactly one version, so a row's package is imported the
+first time that row is read (see `_LazyWireMap`)."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import time
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from functools import cache
-from types import MappingProxyType, UnionType
-from typing import Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
+from importlib import import_module
+from types import MappingProxyType, ModuleType, UnionType
+from typing import TYPE_CHECKING, Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
 import mcp_types as types
-import mcp_types._v2025_11_25 as v2025
-import mcp_types._v2026_07_28 as v2026
+from mcp_types import jsonrpc
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
+
+if TYPE_CHECKING:
+    # The wire packages are imported by module name at runtime (below), which a
+    # static bundler (PyInstaller and friends) cannot see; these compiled-in but
+    # never-executed imports keep the dependency discoverable for such tools
+    # (else add the packages to the bundler's hidden imports; see
+    # docs/advanced/import-cost.md).
+    import mcp_types._v2025_11_25 as _v2025_11_25
+    import mcp_types._v2026_07_28 as _v2026_07_28
+
+    _WIRE_PACKAGE_MODULES: Final = (_v2025_11_25, _v2026_07_28)
 
 __all__ = [
     "CACHEABLE_METHODS",
@@ -37,6 +55,7 @@ __all__ = [
     "SERVER_RESULTS",
     "SPEC_CLIENT_METHODS",
     "SPEC_CLIENT_NOTIFICATION_METHODS",
+    "WarmReport",
     "is_input_required",
     "parse_client_notification",
     "parse_client_request",
@@ -49,280 +68,371 @@ __all__ = [
     "validate_client_request",
     "validate_client_result",
     "validate_server_result",
+    "warm",
 ]
+
+
+# --- Lazy per-version wire package loading ---
+
+_WIRE_PACKAGE_BY_VERSION: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        # Every pre-2026 version validates against the 2025-11-25 schema era.
+        "2024-11-05": "mcp_types._v2025_11_25",
+        "2025-03-26": "mcp_types._v2025_11_25",
+        "2025-06-18": "mcp_types._v2025_11_25",
+        "2025-11-25": "mcp_types._v2025_11_25",
+        "2026-07-28": "mcp_types._v2026_07_28",
+    }
+)
+"""The internal wire package holding each protocol version's surface types (by module name)."""
+
+
+@cache
+def _wire_package(version: str) -> ModuleType:
+    """Import (once) and return the generated wire package that validates `version`.
+
+    Deliberately lazy - the documented exception to top-of-module imports: each
+    `mcp_types._v*` package costs ~100 ms of pydantic model construction, and a
+    process typically speaks a single negotiated version, so a package loads the
+    first time one of its surface rows is read rather than at `import` time.
+    """
+    return import_module(_WIRE_PACKAGE_BY_VERSION[version])
+
+
+class _LazyWireMap(Mapping[tuple[str, str], Any]):
+    """`(method, version)` -> wire-row map that resolves rows on first read.
+
+    A row is recorded as the attribute name of its wire type inside its
+    version's package (static data); reading the row imports that package via
+    `_wire_package` and caches the resolved value. Key operations (`in`,
+    iteration, `len`) never import; whole-map operations (`values()`,
+    `items()`, `==`, `repr()`) resolve every row.
+
+    Public surface maps are this class wrapped in `MappingProxyType`, so their
+    type (`mappingproxy`), read-only behaviour and repr are identical to a
+    proxied dict of the resolved rows.
+    """
+
+    __slots__ = ("_names", "_rows")
+
+    def __init__(self, names: dict[tuple[str, str], str]) -> None:
+        unmapped = {version for _, version in names} - _WIRE_PACKAGE_BY_VERSION.keys()
+        if unmapped:
+            raise ValueError(f"no wire package registered for protocol version(s) {sorted(unmapped)}")
+        self._names = names
+        self._rows: dict[tuple[str, str], Any] = {}
+
+    def __getitem__(self, key: tuple[str, str]) -> Any:
+        try:
+            return self._rows[key]
+        except KeyError:
+            pass
+        name = self._names[key]  # KeyError here is the version gate.
+        row = self._rows[key] = getattr(_wire_package(key[1]), name)
+        return row
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._names
+
+    def __iter__(self) -> Iterator[tuple[str, str]]:
+        return iter(self._names)
+
+    def __reversed__(self) -> Iterator[tuple[str, str]]:
+        return reversed(self._names)
+
+    def __len__(self) -> int:
+        return len(self._names)
+
+    def __repr__(self) -> str:
+        return repr(dict(self))
+
+    def copy(self) -> dict[tuple[str, str], Any]:
+        """A resolved plain-dict copy, matching `mappingproxy.copy()` over a dict."""
+        return dict(self)
+
+    def __or__(self, other: Mapping[Any, Any]) -> dict[Any, Any]:
+        return {**self, **other}
+
+    def __ror__(self, other: Mapping[Any, Any]) -> dict[Any, Any]:
+        return {**other, **self}
+
+
+def _surface(names: dict[tuple[str, str], str]) -> MappingProxyType[tuple[str, str], Any]:
+    """Build a read-only surface map from `(method, version)` -> wire-type name rows."""
+    return MappingProxyType(_LazyWireMap(names))
 
 
 # --- Surface maps: client-to-server ---
 
-CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
-        ("completion/complete", "2024-11-05"): v2025.CompleteRequest,
-        ("initialize", "2024-11-05"): v2025.InitializeRequest,
-        ("logging/setLevel", "2024-11-05"): v2025.SetLevelRequest,
-        ("ping", "2024-11-05"): v2025.PingRequest,
-        ("prompts/get", "2024-11-05"): v2025.GetPromptRequest,
-        ("prompts/list", "2024-11-05"): v2025.ListPromptsRequest,
-        ("resources/list", "2024-11-05"): v2025.ListResourcesRequest,
-        ("resources/read", "2024-11-05"): v2025.ReadResourceRequest,
-        ("resources/subscribe", "2024-11-05"): v2025.SubscribeRequest,
-        ("resources/templates/list", "2024-11-05"): v2025.ListResourceTemplatesRequest,
-        ("resources/unsubscribe", "2024-11-05"): v2025.UnsubscribeRequest,
-        ("tools/call", "2024-11-05"): v2025.CallToolRequest,
-        ("tools/list", "2024-11-05"): v2025.ListToolsRequest,
+        ("completion/complete", "2024-11-05"): "CompleteRequest",
+        ("initialize", "2024-11-05"): "InitializeRequest",
+        ("logging/setLevel", "2024-11-05"): "SetLevelRequest",
+        ("ping", "2024-11-05"): "PingRequest",
+        ("prompts/get", "2024-11-05"): "GetPromptRequest",
+        ("prompts/list", "2024-11-05"): "ListPromptsRequest",
+        ("resources/list", "2024-11-05"): "ListResourcesRequest",
+        ("resources/read", "2024-11-05"): "ReadResourceRequest",
+        ("resources/subscribe", "2024-11-05"): "SubscribeRequest",
+        ("resources/templates/list", "2024-11-05"): "ListResourceTemplatesRequest",
+        ("resources/unsubscribe", "2024-11-05"): "UnsubscribeRequest",
+        ("tools/call", "2024-11-05"): "CallToolRequest",
+        ("tools/list", "2024-11-05"): "ListToolsRequest",
         # 2025-03-26
-        ("completion/complete", "2025-03-26"): v2025.CompleteRequest,
-        ("initialize", "2025-03-26"): v2025.InitializeRequest,
-        ("logging/setLevel", "2025-03-26"): v2025.SetLevelRequest,
-        ("ping", "2025-03-26"): v2025.PingRequest,
-        ("prompts/get", "2025-03-26"): v2025.GetPromptRequest,
-        ("prompts/list", "2025-03-26"): v2025.ListPromptsRequest,
-        ("resources/list", "2025-03-26"): v2025.ListResourcesRequest,
-        ("resources/read", "2025-03-26"): v2025.ReadResourceRequest,
-        ("resources/subscribe", "2025-03-26"): v2025.SubscribeRequest,
-        ("resources/templates/list", "2025-03-26"): v2025.ListResourceTemplatesRequest,
-        ("resources/unsubscribe", "2025-03-26"): v2025.UnsubscribeRequest,
-        ("tools/call", "2025-03-26"): v2025.CallToolRequest,
-        ("tools/list", "2025-03-26"): v2025.ListToolsRequest,
+        ("completion/complete", "2025-03-26"): "CompleteRequest",
+        ("initialize", "2025-03-26"): "InitializeRequest",
+        ("logging/setLevel", "2025-03-26"): "SetLevelRequest",
+        ("ping", "2025-03-26"): "PingRequest",
+        ("prompts/get", "2025-03-26"): "GetPromptRequest",
+        ("prompts/list", "2025-03-26"): "ListPromptsRequest",
+        ("resources/list", "2025-03-26"): "ListResourcesRequest",
+        ("resources/read", "2025-03-26"): "ReadResourceRequest",
+        ("resources/subscribe", "2025-03-26"): "SubscribeRequest",
+        ("resources/templates/list", "2025-03-26"): "ListResourceTemplatesRequest",
+        ("resources/unsubscribe", "2025-03-26"): "UnsubscribeRequest",
+        ("tools/call", "2025-03-26"): "CallToolRequest",
+        ("tools/list", "2025-03-26"): "ListToolsRequest",
         # 2025-06-18
-        ("completion/complete", "2025-06-18"): v2025.CompleteRequest,
-        ("initialize", "2025-06-18"): v2025.InitializeRequest,
-        ("logging/setLevel", "2025-06-18"): v2025.SetLevelRequest,
-        ("ping", "2025-06-18"): v2025.PingRequest,
-        ("prompts/get", "2025-06-18"): v2025.GetPromptRequest,
-        ("prompts/list", "2025-06-18"): v2025.ListPromptsRequest,
-        ("resources/list", "2025-06-18"): v2025.ListResourcesRequest,
-        ("resources/read", "2025-06-18"): v2025.ReadResourceRequest,
-        ("resources/subscribe", "2025-06-18"): v2025.SubscribeRequest,
-        ("resources/templates/list", "2025-06-18"): v2025.ListResourceTemplatesRequest,
-        ("resources/unsubscribe", "2025-06-18"): v2025.UnsubscribeRequest,
-        ("tools/call", "2025-06-18"): v2025.CallToolRequest,
-        ("tools/list", "2025-06-18"): v2025.ListToolsRequest,
+        ("completion/complete", "2025-06-18"): "CompleteRequest",
+        ("initialize", "2025-06-18"): "InitializeRequest",
+        ("logging/setLevel", "2025-06-18"): "SetLevelRequest",
+        ("ping", "2025-06-18"): "PingRequest",
+        ("prompts/get", "2025-06-18"): "GetPromptRequest",
+        ("prompts/list", "2025-06-18"): "ListPromptsRequest",
+        ("resources/list", "2025-06-18"): "ListResourcesRequest",
+        ("resources/read", "2025-06-18"): "ReadResourceRequest",
+        ("resources/subscribe", "2025-06-18"): "SubscribeRequest",
+        ("resources/templates/list", "2025-06-18"): "ListResourceTemplatesRequest",
+        ("resources/unsubscribe", "2025-06-18"): "UnsubscribeRequest",
+        ("tools/call", "2025-06-18"): "CallToolRequest",
+        ("tools/list", "2025-06-18"): "ListToolsRequest",
         # 2025-11-25 (tasks/* deliberately absent)
-        ("completion/complete", "2025-11-25"): v2025.CompleteRequest,
-        ("initialize", "2025-11-25"): v2025.InitializeRequest,
-        ("logging/setLevel", "2025-11-25"): v2025.SetLevelRequest,
-        ("ping", "2025-11-25"): v2025.PingRequest,
-        ("prompts/get", "2025-11-25"): v2025.GetPromptRequest,
-        ("prompts/list", "2025-11-25"): v2025.ListPromptsRequest,
-        ("resources/list", "2025-11-25"): v2025.ListResourcesRequest,
-        ("resources/read", "2025-11-25"): v2025.ReadResourceRequest,
-        ("resources/subscribe", "2025-11-25"): v2025.SubscribeRequest,
-        ("resources/templates/list", "2025-11-25"): v2025.ListResourceTemplatesRequest,
-        ("resources/unsubscribe", "2025-11-25"): v2025.UnsubscribeRequest,
-        ("tools/call", "2025-11-25"): v2025.CallToolRequest,
-        ("tools/list", "2025-11-25"): v2025.ListToolsRequest,
+        ("completion/complete", "2025-11-25"): "CompleteRequest",
+        ("initialize", "2025-11-25"): "InitializeRequest",
+        ("logging/setLevel", "2025-11-25"): "SetLevelRequest",
+        ("ping", "2025-11-25"): "PingRequest",
+        ("prompts/get", "2025-11-25"): "GetPromptRequest",
+        ("prompts/list", "2025-11-25"): "ListPromptsRequest",
+        ("resources/list", "2025-11-25"): "ListResourcesRequest",
+        ("resources/read", "2025-11-25"): "ReadResourceRequest",
+        ("resources/subscribe", "2025-11-25"): "SubscribeRequest",
+        ("resources/templates/list", "2025-11-25"): "ListResourceTemplatesRequest",
+        ("resources/unsubscribe", "2025-11-25"): "UnsubscribeRequest",
+        ("tools/call", "2025-11-25"): "CallToolRequest",
+        ("tools/list", "2025-11-25"): "ListToolsRequest",
         # 2026-07-28 (lifecycle, logging, subscribe pair removed; discover/listen added)
-        ("completion/complete", "2026-07-28"): v2026.CompleteRequest,
-        ("prompts/get", "2026-07-28"): v2026.GetPromptRequest,
-        ("prompts/list", "2026-07-28"): v2026.ListPromptsRequest,
-        ("resources/list", "2026-07-28"): v2026.ListResourcesRequest,
-        ("resources/read", "2026-07-28"): v2026.ReadResourceRequest,
-        ("resources/templates/list", "2026-07-28"): v2026.ListResourceTemplatesRequest,
-        ("server/discover", "2026-07-28"): v2026.DiscoverRequest,
-        ("subscriptions/listen", "2026-07-28"): v2026.SubscriptionsListenRequest,
-        ("tools/call", "2026-07-28"): v2026.CallToolRequest,
-        ("tools/list", "2026-07-28"): v2026.ListToolsRequest,
+        ("completion/complete", "2026-07-28"): "CompleteRequest",
+        ("prompts/get", "2026-07-28"): "GetPromptRequest",
+        ("prompts/list", "2026-07-28"): "ListPromptsRequest",
+        ("resources/list", "2026-07-28"): "ListResourcesRequest",
+        ("resources/read", "2026-07-28"): "ReadResourceRequest",
+        ("resources/templates/list", "2026-07-28"): "ListResourceTemplatesRequest",
+        ("server/discover", "2026-07-28"): "DiscoverRequest",
+        ("subscriptions/listen", "2026-07-28"): "SubscriptionsListenRequest",
+        ("tools/call", "2026-07-28"): "CallToolRequest",
+        ("tools/list", "2026-07-28"): "ListToolsRequest",
     }
 )
 
-CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
-        ("notifications/cancelled", "2024-11-05"): v2025.CancelledNotification,
-        ("notifications/initialized", "2024-11-05"): v2025.InitializedNotification,
-        ("notifications/progress", "2024-11-05"): v2025.ProgressNotification,
-        ("notifications/roots/list_changed", "2024-11-05"): v2025.RootsListChangedNotification,
+        ("notifications/cancelled", "2024-11-05"): "CancelledNotification",
+        ("notifications/initialized", "2024-11-05"): "InitializedNotification",
+        ("notifications/progress", "2024-11-05"): "ProgressNotification",
+        ("notifications/roots/list_changed", "2024-11-05"): "RootsListChangedNotification",
         # 2025-03-26
-        ("notifications/cancelled", "2025-03-26"): v2025.CancelledNotification,
-        ("notifications/initialized", "2025-03-26"): v2025.InitializedNotification,
-        ("notifications/progress", "2025-03-26"): v2025.ProgressNotification,
-        ("notifications/roots/list_changed", "2025-03-26"): v2025.RootsListChangedNotification,
+        ("notifications/cancelled", "2025-03-26"): "CancelledNotification",
+        ("notifications/initialized", "2025-03-26"): "InitializedNotification",
+        ("notifications/progress", "2025-03-26"): "ProgressNotification",
+        ("notifications/roots/list_changed", "2025-03-26"): "RootsListChangedNotification",
         # 2025-06-18
-        ("notifications/cancelled", "2025-06-18"): v2025.CancelledNotification,
-        ("notifications/initialized", "2025-06-18"): v2025.InitializedNotification,
-        ("notifications/progress", "2025-06-18"): v2025.ProgressNotification,
-        ("notifications/roots/list_changed", "2025-06-18"): v2025.RootsListChangedNotification,
+        ("notifications/cancelled", "2025-06-18"): "CancelledNotification",
+        ("notifications/initialized", "2025-06-18"): "InitializedNotification",
+        ("notifications/progress", "2025-06-18"): "ProgressNotification",
+        ("notifications/roots/list_changed", "2025-06-18"): "RootsListChangedNotification",
         # 2025-11-25 (tasks/status deliberately absent)
-        ("notifications/cancelled", "2025-11-25"): v2025.CancelledNotification,
-        ("notifications/initialized", "2025-11-25"): v2025.InitializedNotification,
-        ("notifications/progress", "2025-11-25"): v2025.ProgressNotification,
-        ("notifications/roots/list_changed", "2025-11-25"): v2025.RootsListChangedNotification,
+        ("notifications/cancelled", "2025-11-25"): "CancelledNotification",
+        ("notifications/initialized", "2025-11-25"): "InitializedNotification",
+        ("notifications/progress", "2025-11-25"): "ProgressNotification",
+        ("notifications/roots/list_changed", "2025-11-25"): "RootsListChangedNotification",
         # 2026-07-28 (initialized, progress and roots/list_changed removed)
-        ("notifications/cancelled", "2026-07-28"): v2026.CancelledNotification,
+        ("notifications/cancelled", "2026-07-28"): "CancelledNotification",
     }
 )
 
 
 # --- Surface maps: server-to-client ---
 
-SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
-        ("ping", "2024-11-05"): v2025.PingRequest,
-        ("roots/list", "2024-11-05"): v2025.ListRootsRequest,
-        ("sampling/createMessage", "2024-11-05"): v2025.CreateMessageRequest,
+        ("ping", "2024-11-05"): "PingRequest",
+        ("roots/list", "2024-11-05"): "ListRootsRequest",
+        ("sampling/createMessage", "2024-11-05"): "CreateMessageRequest",
         # 2025-03-26
-        ("ping", "2025-03-26"): v2025.PingRequest,
-        ("roots/list", "2025-03-26"): v2025.ListRootsRequest,
-        ("sampling/createMessage", "2025-03-26"): v2025.CreateMessageRequest,
+        ("ping", "2025-03-26"): "PingRequest",
+        ("roots/list", "2025-03-26"): "ListRootsRequest",
+        ("sampling/createMessage", "2025-03-26"): "CreateMessageRequest",
         # 2025-06-18 (adds elicitation/create)
-        ("elicitation/create", "2025-06-18"): v2025.ElicitRequest,
-        ("ping", "2025-06-18"): v2025.PingRequest,
-        ("roots/list", "2025-06-18"): v2025.ListRootsRequest,
-        ("sampling/createMessage", "2025-06-18"): v2025.CreateMessageRequest,
+        ("elicitation/create", "2025-06-18"): "ElicitRequest",
+        ("ping", "2025-06-18"): "PingRequest",
+        ("roots/list", "2025-06-18"): "ListRootsRequest",
+        ("sampling/createMessage", "2025-06-18"): "CreateMessageRequest",
         # 2025-11-25 (tasks/* deliberately absent)
-        ("elicitation/create", "2025-11-25"): v2025.ElicitRequest,
-        ("ping", "2025-11-25"): v2025.PingRequest,
-        ("roots/list", "2025-11-25"): v2025.ListRootsRequest,
-        ("sampling/createMessage", "2025-11-25"): v2025.CreateMessageRequest,
+        ("elicitation/create", "2025-11-25"): "ElicitRequest",
+        ("ping", "2025-11-25"): "PingRequest",
+        ("roots/list", "2025-11-25"): "ListRootsRequest",
+        ("sampling/createMessage", "2025-11-25"): "CreateMessageRequest",
         # 2026-07-28: none (schema defines no ServerRequest union)
     }
 )
 
-SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
-        ("notifications/cancelled", "2024-11-05"): v2025.CancelledNotification,
-        ("notifications/message", "2024-11-05"): v2025.LoggingMessageNotification,
-        ("notifications/progress", "2024-11-05"): v2025.ProgressNotification,
-        ("notifications/prompts/list_changed", "2024-11-05"): v2025.PromptListChangedNotification,
-        ("notifications/resources/list_changed", "2024-11-05"): v2025.ResourceListChangedNotification,
-        ("notifications/resources/updated", "2024-11-05"): v2025.ResourceUpdatedNotification,
-        ("notifications/tools/list_changed", "2024-11-05"): v2025.ToolListChangedNotification,
+        ("notifications/cancelled", "2024-11-05"): "CancelledNotification",
+        ("notifications/message", "2024-11-05"): "LoggingMessageNotification",
+        ("notifications/progress", "2024-11-05"): "ProgressNotification",
+        ("notifications/prompts/list_changed", "2024-11-05"): "PromptListChangedNotification",
+        ("notifications/resources/list_changed", "2024-11-05"): "ResourceListChangedNotification",
+        ("notifications/resources/updated", "2024-11-05"): "ResourceUpdatedNotification",
+        ("notifications/tools/list_changed", "2024-11-05"): "ToolListChangedNotification",
         # 2025-03-26
-        ("notifications/cancelled", "2025-03-26"): v2025.CancelledNotification,
-        ("notifications/message", "2025-03-26"): v2025.LoggingMessageNotification,
-        ("notifications/progress", "2025-03-26"): v2025.ProgressNotification,
-        ("notifications/prompts/list_changed", "2025-03-26"): v2025.PromptListChangedNotification,
-        ("notifications/resources/list_changed", "2025-03-26"): v2025.ResourceListChangedNotification,
-        ("notifications/resources/updated", "2025-03-26"): v2025.ResourceUpdatedNotification,
-        ("notifications/tools/list_changed", "2025-03-26"): v2025.ToolListChangedNotification,
+        ("notifications/cancelled", "2025-03-26"): "CancelledNotification",
+        ("notifications/message", "2025-03-26"): "LoggingMessageNotification",
+        ("notifications/progress", "2025-03-26"): "ProgressNotification",
+        ("notifications/prompts/list_changed", "2025-03-26"): "PromptListChangedNotification",
+        ("notifications/resources/list_changed", "2025-03-26"): "ResourceListChangedNotification",
+        ("notifications/resources/updated", "2025-03-26"): "ResourceUpdatedNotification",
+        ("notifications/tools/list_changed", "2025-03-26"): "ToolListChangedNotification",
         # 2025-06-18
-        ("notifications/cancelled", "2025-06-18"): v2025.CancelledNotification,
-        ("notifications/message", "2025-06-18"): v2025.LoggingMessageNotification,
-        ("notifications/progress", "2025-06-18"): v2025.ProgressNotification,
-        ("notifications/prompts/list_changed", "2025-06-18"): v2025.PromptListChangedNotification,
-        ("notifications/resources/list_changed", "2025-06-18"): v2025.ResourceListChangedNotification,
-        ("notifications/resources/updated", "2025-06-18"): v2025.ResourceUpdatedNotification,
-        ("notifications/tools/list_changed", "2025-06-18"): v2025.ToolListChangedNotification,
+        ("notifications/cancelled", "2025-06-18"): "CancelledNotification",
+        ("notifications/message", "2025-06-18"): "LoggingMessageNotification",
+        ("notifications/progress", "2025-06-18"): "ProgressNotification",
+        ("notifications/prompts/list_changed", "2025-06-18"): "PromptListChangedNotification",
+        ("notifications/resources/list_changed", "2025-06-18"): "ResourceListChangedNotification",
+        ("notifications/resources/updated", "2025-06-18"): "ResourceUpdatedNotification",
+        ("notifications/tools/list_changed", "2025-06-18"): "ToolListChangedNotification",
         # 2025-11-25 (adds elicitation/complete; tasks/status deliberately absent)
-        ("notifications/cancelled", "2025-11-25"): v2025.CancelledNotification,
-        ("notifications/elicitation/complete", "2025-11-25"): v2025.ElicitationCompleteNotification,
-        ("notifications/message", "2025-11-25"): v2025.LoggingMessageNotification,
-        ("notifications/progress", "2025-11-25"): v2025.ProgressNotification,
-        ("notifications/prompts/list_changed", "2025-11-25"): v2025.PromptListChangedNotification,
-        ("notifications/resources/list_changed", "2025-11-25"): v2025.ResourceListChangedNotification,
-        ("notifications/resources/updated", "2025-11-25"): v2025.ResourceUpdatedNotification,
-        ("notifications/tools/list_changed", "2025-11-25"): v2025.ToolListChangedNotification,
+        ("notifications/cancelled", "2025-11-25"): "CancelledNotification",
+        ("notifications/elicitation/complete", "2025-11-25"): "ElicitationCompleteNotification",
+        ("notifications/message", "2025-11-25"): "LoggingMessageNotification",
+        ("notifications/progress", "2025-11-25"): "ProgressNotification",
+        ("notifications/prompts/list_changed", "2025-11-25"): "PromptListChangedNotification",
+        ("notifications/resources/list_changed", "2025-11-25"): "ResourceListChangedNotification",
+        ("notifications/resources/updated", "2025-11-25"): "ResourceUpdatedNotification",
+        ("notifications/tools/list_changed", "2025-11-25"): "ToolListChangedNotification",
         # 2026-07-28 (adds subscriptions/acknowledged; elicitation/complete removed)
-        ("notifications/cancelled", "2026-07-28"): v2026.CancelledNotification,
-        ("notifications/message", "2026-07-28"): v2026.LoggingMessageNotification,
-        ("notifications/progress", "2026-07-28"): v2026.ProgressNotification,
-        ("notifications/prompts/list_changed", "2026-07-28"): v2026.PromptListChangedNotification,
-        ("notifications/resources/list_changed", "2026-07-28"): v2026.ResourceListChangedNotification,
-        ("notifications/resources/updated", "2026-07-28"): v2026.ResourceUpdatedNotification,
-        ("notifications/subscriptions/acknowledged", "2026-07-28"): v2026.SubscriptionsAcknowledgedNotification,
-        ("notifications/tools/list_changed", "2026-07-28"): v2026.ToolListChangedNotification,
+        ("notifications/cancelled", "2026-07-28"): "CancelledNotification",
+        ("notifications/message", "2026-07-28"): "LoggingMessageNotification",
+        ("notifications/progress", "2026-07-28"): "ProgressNotification",
+        ("notifications/prompts/list_changed", "2026-07-28"): "PromptListChangedNotification",
+        ("notifications/resources/list_changed", "2026-07-28"): "ResourceListChangedNotification",
+        ("notifications/resources/updated", "2026-07-28"): "ResourceUpdatedNotification",
+        ("notifications/subscriptions/acknowledged", "2026-07-28"): "SubscriptionsAcknowledgedNotification",
+        ("notifications/tools/list_changed", "2026-07-28"): "ToolListChangedNotification",
     }
 )
 
 
 # --- Surface maps: results ---
 
-SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = MappingProxyType(
+SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = _surface(
     {
         # 2024-11-05
-        ("completion/complete", "2024-11-05"): v2025.CompleteResult,
-        ("initialize", "2024-11-05"): v2025.InitializeResult,
-        ("logging/setLevel", "2024-11-05"): v2025.EmptyResult,
-        ("ping", "2024-11-05"): v2025.EmptyResult,
-        ("prompts/get", "2024-11-05"): v2025.GetPromptResult,
-        ("prompts/list", "2024-11-05"): v2025.ListPromptsResult,
-        ("resources/list", "2024-11-05"): v2025.ListResourcesResult,
-        ("resources/read", "2024-11-05"): v2025.ReadResourceResult,
-        ("resources/subscribe", "2024-11-05"): v2025.EmptyResult,
-        ("resources/templates/list", "2024-11-05"): v2025.ListResourceTemplatesResult,
-        ("resources/unsubscribe", "2024-11-05"): v2025.EmptyResult,
-        ("tools/call", "2024-11-05"): v2025.CallToolResult,
-        ("tools/list", "2024-11-05"): v2025.ListToolsResult,
+        ("completion/complete", "2024-11-05"): "CompleteResult",
+        ("initialize", "2024-11-05"): "InitializeResult",
+        ("logging/setLevel", "2024-11-05"): "EmptyResult",
+        ("ping", "2024-11-05"): "EmptyResult",
+        ("prompts/get", "2024-11-05"): "GetPromptResult",
+        ("prompts/list", "2024-11-05"): "ListPromptsResult",
+        ("resources/list", "2024-11-05"): "ListResourcesResult",
+        ("resources/read", "2024-11-05"): "ReadResourceResult",
+        ("resources/subscribe", "2024-11-05"): "EmptyResult",
+        ("resources/templates/list", "2024-11-05"): "ListResourceTemplatesResult",
+        ("resources/unsubscribe", "2024-11-05"): "EmptyResult",
+        ("tools/call", "2024-11-05"): "CallToolResult",
+        ("tools/list", "2024-11-05"): "ListToolsResult",
         # 2025-03-26
-        ("completion/complete", "2025-03-26"): v2025.CompleteResult,
-        ("initialize", "2025-03-26"): v2025.InitializeResult,
-        ("logging/setLevel", "2025-03-26"): v2025.EmptyResult,
-        ("ping", "2025-03-26"): v2025.EmptyResult,
-        ("prompts/get", "2025-03-26"): v2025.GetPromptResult,
-        ("prompts/list", "2025-03-26"): v2025.ListPromptsResult,
-        ("resources/list", "2025-03-26"): v2025.ListResourcesResult,
-        ("resources/read", "2025-03-26"): v2025.ReadResourceResult,
-        ("resources/subscribe", "2025-03-26"): v2025.EmptyResult,
-        ("resources/templates/list", "2025-03-26"): v2025.ListResourceTemplatesResult,
-        ("resources/unsubscribe", "2025-03-26"): v2025.EmptyResult,
-        ("tools/call", "2025-03-26"): v2025.CallToolResult,
-        ("tools/list", "2025-03-26"): v2025.ListToolsResult,
+        ("completion/complete", "2025-03-26"): "CompleteResult",
+        ("initialize", "2025-03-26"): "InitializeResult",
+        ("logging/setLevel", "2025-03-26"): "EmptyResult",
+        ("ping", "2025-03-26"): "EmptyResult",
+        ("prompts/get", "2025-03-26"): "GetPromptResult",
+        ("prompts/list", "2025-03-26"): "ListPromptsResult",
+        ("resources/list", "2025-03-26"): "ListResourcesResult",
+        ("resources/read", "2025-03-26"): "ReadResourceResult",
+        ("resources/subscribe", "2025-03-26"): "EmptyResult",
+        ("resources/templates/list", "2025-03-26"): "ListResourceTemplatesResult",
+        ("resources/unsubscribe", "2025-03-26"): "EmptyResult",
+        ("tools/call", "2025-03-26"): "CallToolResult",
+        ("tools/list", "2025-03-26"): "ListToolsResult",
         # 2025-06-18
-        ("completion/complete", "2025-06-18"): v2025.CompleteResult,
-        ("initialize", "2025-06-18"): v2025.InitializeResult,
-        ("logging/setLevel", "2025-06-18"): v2025.EmptyResult,
-        ("ping", "2025-06-18"): v2025.EmptyResult,
-        ("prompts/get", "2025-06-18"): v2025.GetPromptResult,
-        ("prompts/list", "2025-06-18"): v2025.ListPromptsResult,
-        ("resources/list", "2025-06-18"): v2025.ListResourcesResult,
-        ("resources/read", "2025-06-18"): v2025.ReadResourceResult,
-        ("resources/subscribe", "2025-06-18"): v2025.EmptyResult,
-        ("resources/templates/list", "2025-06-18"): v2025.ListResourceTemplatesResult,
-        ("resources/unsubscribe", "2025-06-18"): v2025.EmptyResult,
-        ("tools/call", "2025-06-18"): v2025.CallToolResult,
-        ("tools/list", "2025-06-18"): v2025.ListToolsResult,
+        ("completion/complete", "2025-06-18"): "CompleteResult",
+        ("initialize", "2025-06-18"): "InitializeResult",
+        ("logging/setLevel", "2025-06-18"): "EmptyResult",
+        ("ping", "2025-06-18"): "EmptyResult",
+        ("prompts/get", "2025-06-18"): "GetPromptResult",
+        ("prompts/list", "2025-06-18"): "ListPromptsResult",
+        ("resources/list", "2025-06-18"): "ListResourcesResult",
+        ("resources/read", "2025-06-18"): "ReadResourceResult",
+        ("resources/subscribe", "2025-06-18"): "EmptyResult",
+        ("resources/templates/list", "2025-06-18"): "ListResourceTemplatesResult",
+        ("resources/unsubscribe", "2025-06-18"): "EmptyResult",
+        ("tools/call", "2025-06-18"): "CallToolResult",
+        ("tools/list", "2025-06-18"): "ListToolsResult",
         # 2025-11-25
-        ("completion/complete", "2025-11-25"): v2025.CompleteResult,
-        ("initialize", "2025-11-25"): v2025.InitializeResult,
-        ("logging/setLevel", "2025-11-25"): v2025.EmptyResult,
-        ("ping", "2025-11-25"): v2025.EmptyResult,
-        ("prompts/get", "2025-11-25"): v2025.GetPromptResult,
-        ("prompts/list", "2025-11-25"): v2025.ListPromptsResult,
-        ("resources/list", "2025-11-25"): v2025.ListResourcesResult,
-        ("resources/read", "2025-11-25"): v2025.ReadResourceResult,
-        ("resources/subscribe", "2025-11-25"): v2025.EmptyResult,
-        ("resources/templates/list", "2025-11-25"): v2025.ListResourceTemplatesResult,
-        ("resources/unsubscribe", "2025-11-25"): v2025.EmptyResult,
-        ("tools/call", "2025-11-25"): v2025.CallToolResult,
-        ("tools/list", "2025-11-25"): v2025.ListToolsResult,
+        ("completion/complete", "2025-11-25"): "CompleteResult",
+        ("initialize", "2025-11-25"): "InitializeResult",
+        ("logging/setLevel", "2025-11-25"): "EmptyResult",
+        ("ping", "2025-11-25"): "EmptyResult",
+        ("prompts/get", "2025-11-25"): "GetPromptResult",
+        ("prompts/list", "2025-11-25"): "ListPromptsResult",
+        ("resources/list", "2025-11-25"): "ListResourcesResult",
+        ("resources/read", "2025-11-25"): "ReadResourceResult",
+        ("resources/subscribe", "2025-11-25"): "EmptyResult",
+        ("resources/templates/list", "2025-11-25"): "ListResourceTemplatesResult",
+        ("resources/unsubscribe", "2025-11-25"): "EmptyResult",
+        ("tools/call", "2025-11-25"): "CallToolResult",
+        ("tools/list", "2025-11-25"): "ListToolsResult",
         # 2026-07-28 (dual-result rows use the version's union aliases)
-        ("completion/complete", "2026-07-28"): v2026.CompleteResult,
-        ("prompts/get", "2026-07-28"): v2026.AnyGetPromptResult,
-        ("prompts/list", "2026-07-28"): v2026.ListPromptsResult,
-        ("resources/list", "2026-07-28"): v2026.ListResourcesResult,
-        ("resources/read", "2026-07-28"): v2026.AnyReadResourceResult,
-        ("resources/templates/list", "2026-07-28"): v2026.ListResourceTemplatesResult,
-        ("server/discover", "2026-07-28"): v2026.DiscoverResult,
-        ("subscriptions/listen", "2026-07-28"): v2026.SubscriptionsListenResult,
-        ("tools/call", "2026-07-28"): v2026.AnyCallToolResult,
-        ("tools/list", "2026-07-28"): v2026.ListToolsResult,
+        ("completion/complete", "2026-07-28"): "CompleteResult",
+        ("prompts/get", "2026-07-28"): "AnyGetPromptResult",
+        ("prompts/list", "2026-07-28"): "ListPromptsResult",
+        ("resources/list", "2026-07-28"): "ListResourcesResult",
+        ("resources/read", "2026-07-28"): "AnyReadResourceResult",
+        ("resources/templates/list", "2026-07-28"): "ListResourceTemplatesResult",
+        ("server/discover", "2026-07-28"): "DiscoverResult",
+        ("subscriptions/listen", "2026-07-28"): "SubscriptionsListenResult",
+        ("tools/call", "2026-07-28"): "AnyCallToolResult",
+        ("tools/list", "2026-07-28"): "ListToolsResult",
     }
 )
 """Results servers send, keyed by the originating client request's (method, version)."""
 
-CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = MappingProxyType(
+CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = _surface(
     {
         # 2024-11-05
-        ("ping", "2024-11-05"): v2025.EmptyResult,
-        ("roots/list", "2024-11-05"): v2025.ListRootsResult,
-        ("sampling/createMessage", "2024-11-05"): v2025.CreateMessageResult,
+        ("ping", "2024-11-05"): "EmptyResult",
+        ("roots/list", "2024-11-05"): "ListRootsResult",
+        ("sampling/createMessage", "2024-11-05"): "CreateMessageResult",
         # 2025-03-26
-        ("ping", "2025-03-26"): v2025.EmptyResult,
-        ("roots/list", "2025-03-26"): v2025.ListRootsResult,
-        ("sampling/createMessage", "2025-03-26"): v2025.CreateMessageResult,
+        ("ping", "2025-03-26"): "EmptyResult",
+        ("roots/list", "2025-03-26"): "ListRootsResult",
+        ("sampling/createMessage", "2025-03-26"): "CreateMessageResult",
         # 2025-06-18
-        ("elicitation/create", "2025-06-18"): v2025.ElicitResult,
-        ("ping", "2025-06-18"): v2025.EmptyResult,
-        ("roots/list", "2025-06-18"): v2025.ListRootsResult,
-        ("sampling/createMessage", "2025-06-18"): v2025.CreateMessageResult,
+        ("elicitation/create", "2025-06-18"): "ElicitResult",
+        ("ping", "2025-06-18"): "EmptyResult",
+        ("roots/list", "2025-06-18"): "ListRootsResult",
+        ("sampling/createMessage", "2025-06-18"): "CreateMessageResult",
         # 2025-11-25
-        ("elicitation/create", "2025-11-25"): v2025.ElicitResult,
-        ("ping", "2025-11-25"): v2025.EmptyResult,
-        ("roots/list", "2025-11-25"): v2025.ListRootsResult,
-        ("sampling/createMessage", "2025-11-25"): v2025.CreateMessageResult,
+        ("elicitation/create", "2025-11-25"): "ElicitResult",
+        ("ping", "2025-11-25"): "EmptyResult",
+        ("roots/list", "2025-11-25"): "ListRootsResult",
+        ("sampling/createMessage", "2025-11-25"): "CreateMessageResult",
         # 2026-07-28: none (no server-to-client requests at this version)
     }
 )
@@ -744,3 +854,140 @@ def parse_client_result(
     validate_client_result(method, version, data, surface=surface)
     result: types.Result = _adapter(_monolith_row(monolith, method)).validate_python(data, by_name=False)
     return result
+
+
+# --- Opt-in prewarm ---
+
+_ALL_SURFACES: Final = (
+    CLIENT_REQUESTS,
+    CLIENT_NOTIFICATIONS,
+    CLIENT_RESULTS,
+    SERVER_REQUESTS,
+    SERVER_NOTIFICATIONS,
+    SERVER_RESULTS,
+)
+"""Every surface map, for `warm(version)` (rows of one version import one wire package)."""
+
+_ALL_MONOLITHS: Final = (MONOLITH_REQUESTS, MONOLITH_NOTIFICATIONS, MONOLITH_RESULTS)
+"""Every monolith map, for `warm()`."""
+
+
+@dataclass(frozen=True)
+class WarmReport:
+    """What one `warm()` call built (already-built work is skipped and not counted).
+
+    A frozen dataclass rather than a tuple, so a later field addition does not
+    change how existing fields are read.
+    """
+
+    models: int
+    """Deferred model classes whose validators this call built."""
+
+    adapters: int
+    """Deferred TypeAdapters (union / routing adapters) this call built."""
+
+    elapsed_ms: float
+    """Wall-clock milliseconds the call took."""
+
+
+def _model_classes(target: object) -> Iterator[type[BaseModel]]:
+    """The model classes in a surface/monolith row: the class itself, or a union's arms."""
+    if isinstance(target, type):
+        if issubclass(target, BaseModel):
+            yield target
+        return
+    for arg in get_args(target):
+        yield from _model_classes(arg)
+
+
+def _warm_models(rows: Iterable[object]) -> int:
+    """Complete every not-yet-built model class among `rows`; return how many were built."""
+    built = 0
+    for row in rows:
+        for cls in _model_classes(row):
+            if not cls.__pydantic_complete__:
+                cls.model_rebuild()
+                built += 1
+    return built
+
+
+def _warm_adapter(adapter: TypeAdapter[Any]) -> int:
+    """Build a deferred TypeAdapter's validator if it is not built yet; return 0 or 1."""
+    return 0 if adapter.rebuild() is None else 1
+
+
+def warm(version: str | None = None, *, all_versions: bool = False) -> WarmReport:
+    """Build the SDK's deferred validators up front, before the first message needs them.
+
+    Importing the SDK stays fast because pydantic validators build on first use
+    and each protocol version's wire schemas load with the first message parsed
+    at that version. A long-running host that would rather pay that once, at
+    startup, calls this from a startup hook; nothing in the SDK calls it, and
+    steady-state behaviour is identical either way.
+
+    * `warm(version)` is what a host wants: it builds the version-independent
+      set (below) and imports that protocol version's wire package and builds
+      its routing surface (the wire models and the cached adapters a
+      connection at that version routes through), so the first connection at
+      that version builds nothing.
+    * `warm()` builds only the version-independent set: the monolith
+      `mcp_types` models a session routes through, the JSON-RPC envelopes and
+      the module-level union adapters. The first connection still imports and
+      builds its version's routing surface.
+    * `warm(all_versions=True)` warms every known protocol version's routing
+      surface, for a proxy or gateway that serves clients of both eras.
+
+    Model classes are completed before the adapters that reference them are
+    built, so no schema is generated twice; anything already built is skipped,
+    so the call is idempotent and repeat calls are cheap.
+
+    Args:
+        version: The protocol version whose routing surface to build too.
+        all_versions: Warm every known protocol version's routing surface
+            (a proxy or gateway serving both eras; benchmarks and tests).
+
+    Returns:
+        Counts of what this call built and the milliseconds it took.
+
+    Raises:
+        ValueError: `version` is not a known protocol version.
+    """
+    started = time.perf_counter()
+    versions: list[str] = []
+    if all_versions:
+        versions = sorted(KNOWN_PROTOCOL_VERSIONS)
+    elif version is not None:
+        _check_known_version(version)
+        versions = [version]
+
+    # Model classes first (the exported monolith models, the JSON-RPC
+    # envelopes, then the wire packages and their routing rows), so the
+    # adapters below never generate a referenced model's schema inline.
+    models = _warm_models(getattr(types, name) for name in types.__all__)
+    models += _warm_models(row for monolith in _ALL_MONOLITHS for row in monolith.values())
+    models += _warm_models(get_args(jsonrpc.JSONRPCMessage))
+    rows: list[Any] = []
+    for warmed_version in versions:
+        package = _wire_package(warmed_version)  # imports the package once
+        models += _warm_models(vars(package).values())
+        for surface in _ALL_SURFACES:
+            rows.extend(surface[key] for key in surface if key[1] == warmed_version)
+    models += _warm_models(rows)
+
+    adapters = _warm_adapter(jsonrpc.jsonrpc_message_adapter)
+    for adapter in (
+        types.client_request_adapter,
+        types.client_notification_adapter,
+        types.client_result_adapter,
+        types.server_request_adapter,
+        types.server_notification_adapter,
+        types.server_result_adapter,
+    ):
+        adapters += _warm_adapter(adapter)
+    for row in rows:
+        # `_adapter` is the cached routing-adapter builder the parse/serialize
+        # functions use; warming it here (and completing the adapter's own
+        # core schema from the now-complete row model) leaves nothing for the
+        # first message at that version to build.
+        adapters += _warm_adapter(_adapter(row))
+    return WarmReport(models=models, adapters=adapters, elapsed_ms=round((time.perf_counter() - started) * 1000, 1))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import typing
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
@@ -397,9 +398,23 @@ async def test_complete_with_prompt_reference(simple_server: Server):
 
 
 def test_client_with_url_initializes_streamable_http_transport():
-    with patch("mcp.client.client.streamable_http_client") as mock:
+    # `Client` imports the streamable-HTTP transport lazily (at construction of the
+    # first URL client) so a stdio-only client never loads httpx2; patch its source.
+    with patch("mcp.client.streamable_http.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
     mock.assert_called_once_with("http://localhost:8000/mcp")
+
+
+def test_client_annotations_still_evaluate_at_runtime():
+    """SDK-defined: `typing.get_type_hints` on `Client` resolves even though the server stack
+    is a typing-only import in the client module; the `server` annotation is qualified
+    through the lazy `mcp.server` namespace, which imports it only when the hints are
+    evaluated. Probed via `__init__` because class-level `get_type_hints(Client)` trips a
+    CPython 3.10 bug with `KW_ONLY` dataclasses (fixed in 3.11), unrelated to the SDK."""
+    hints = typing.get_type_hints(Client.__init__)
+    server_targets = typing.get_args(hints["server"])
+    assert MCPServer in server_targets
+    assert str in server_targets
 
 
 async def test_client_uses_transport_directly(app: MCPServer):

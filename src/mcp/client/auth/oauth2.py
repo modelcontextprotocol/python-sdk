@@ -16,8 +16,9 @@ from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
 import httpx2
+from mcp_types._deferred import deferred_model as _deferred_model
 from mcp_types.version import is_version_at_least
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
@@ -109,8 +110,12 @@ def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
         )
 
 
+@_deferred_model
 class PKCEParameters(BaseModel):
     """PKCE (Proof Key for Code Exchange) parameters."""
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     code_verifier: str = Field(..., min_length=43, max_length=128)
     code_challenge: str = Field(..., min_length=43, max_length=128)

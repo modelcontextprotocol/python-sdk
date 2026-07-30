@@ -50,11 +50,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server._transport_security_middleware import TransportSecurityMiddleware
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
-from mcp.server.transport_security import (
-    TransportSecurityMiddleware,
-    TransportSecuritySettings,
-)
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._context_streams import ContextSendStream, create_context_streams
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 

@@ -32,6 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypeVar
 
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
@@ -52,10 +53,12 @@ Visibility = Literal["model", "app"]
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
+@_deferred_model
 class ResourcePermissions(BaseModel):
     """Iframe permissions a `ui://` resource requests (`_meta.ui.permissions`)."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, defer_build=True)
 
     camera: dict[str, Any] | None = None
     microphone: dict[str, Any] | None = None
@@ -63,10 +66,11 @@ class ResourcePermissions(BaseModel):
     clipboard_write: dict[str, Any] | None = None
 
 
+@_deferred_model
 class ResourceCsp(BaseModel):
     """Content-Security-Policy domains for a `ui://` resource (`_meta.ui.csp`)."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, defer_build=True)
 
     connect_domains: list[str] | None = None
     resource_domains: list[str] | None = None

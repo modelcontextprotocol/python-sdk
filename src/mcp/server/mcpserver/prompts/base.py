@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any, Literal
 import anyio.to_thread
 import pydantic_core
 from mcp_types import ContentBlock, Icon, InputRequiredResult, TextContent
-from pydantic import BaseModel, Field, TypeAdapter, validate_call
+from mcp_types._deferred import deferred_model as _deferred_model
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, validate_call
 
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
@@ -21,8 +22,15 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver.context import Context
 
 
+# `defer_build=True` below: pydantic builds each validator on first use rather than at
+# import (import-time cost); the build is transparent at first construction/validation.
+
+
+@_deferred_model
 class Message(BaseModel):
     """Base class for all prompt messages."""
+
+    model_config = ConfigDict(defer_build=True)
 
     role: Literal["user", "assistant"]
     content: ContentBlock
@@ -51,22 +59,30 @@ class AssistantMessage(Message):
         super().__init__(content=content, **kwargs)
 
 
-message_validator = TypeAdapter[UserMessage | AssistantMessage](UserMessage | AssistantMessage)
+message_validator = TypeAdapter[UserMessage | AssistantMessage](
+    UserMessage | AssistantMessage, config=ConfigDict(defer_build=True)
+)
 
 SyncPromptResult = str | Message | dict[str, Any] | InputRequiredResult | Sequence[str | Message | dict[str, Any]]
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
 
+@_deferred_model
 class PromptArgument(BaseModel):
     """An argument that can be passed to a prompt."""
+
+    model_config = ConfigDict(defer_build=True)
 
     name: str = Field(description="Name of the argument")
     description: str | None = Field(None, description="Description of what the argument does")
     required: bool = Field(default=False, description="Whether the argument is required")
 
 
+@_deferred_model
 class Prompt(BaseModel):
     """A prompt template that can be rendered with parameters."""
+
+    model_config = ConfigDict(defer_build=True)
 
     name: str = Field(description="Name of the prompt")
     title: str | None = Field(None, description="Human-readable title of the prompt")

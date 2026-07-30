@@ -17,19 +17,20 @@ import os
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
-from typing import Any, NoReturn, Protocol, cast
+from functools import cache
+from typing import TYPE_CHECKING, Any, NamedTuple, NoReturn, Protocol, cast
 
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.hashes import SHA256
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from mcp_types import INTERNAL_ERROR, INVALID_PARAMS
 from mcp_types.methods import INPUT_REQUIRED_METHODS, is_input_required
 
-from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.provider import principal_components
+from mcp.server.auth.access_token import get_access_token
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.shared.exceptions import MCPError
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    from mcp.server.auth.provider import AccessToken
 
 __all__ = [
     "AESGCMRequestStateCodec",
@@ -88,7 +89,7 @@ def authenticated_principal(ctx: ServerRequestContext[Any, Any]) -> str | None:
     token = get_access_token()
     if token is None:
         return None
-    return compact_json(principal_components(token))
+    return compact_json(_principal_components()(token))
 
 
 class RequestStateSecurity:
@@ -179,9 +180,47 @@ def _b64u_decode(text: str) -> bytes:
     return raw
 
 
+class _Crypto(NamedTuple):
+    """The `cryptography` primitives the built-in codec uses, imported together."""
+
+    aesgcm: type[AESGCM]
+    hkdf: Any
+    sha256: Any
+    invalid_tag: type[BaseException]
+
+
+@cache
+def _crypto() -> _Crypto:
+    """Import (once) the AEAD/KDF primitives from `cryptography`.
+
+    Kept off `import mcp.server*`: only a server that seals `requestState` with the
+    built-in codec needs them, so the ~20 modules load with the first codec
+    construction instead of with every server import.
+    """
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.hashes import SHA256
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    return _Crypto(AESGCM, HKDF, SHA256, InvalidTag)
+
+
+@cache
+def _principal_components() -> Callable[[AccessToken], tuple[str, str | None, str | None]]:
+    """Import (once) the auth stack's principal decomposition.
+
+    Kept off `import mcp.server*`: only an authenticated transport reaches it,
+    on the first request that binds request state to a principal.
+    """
+    from mcp.server.auth.provider import principal_components
+
+    return principal_components
+
+
 def _derive_key(secret: bytes) -> bytes:
     """Stretch an operator secret (>= 32 bytes, any format) into the AES-256 key."""
-    return HKDF(algorithm=SHA256(), length=32, salt=None, info=_KDF_INFO).derive(secret)
+    crypto = _crypto()
+    return crypto.hkdf(algorithm=crypto.sha256(), length=32, salt=None, info=_KDF_INFO).derive(secret)
 
 
 class AESGCMRequestStateCodec:
@@ -212,6 +251,7 @@ class AESGCMRequestStateCodec:
                     f"keys[{i}] is {len(k)} bytes. "
                     'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
                 )
+        crypto = self._crypto = _crypto()
         self._ring: dict[bytes, AESGCM] = {}
         self._mint_kid = b""
         for i, secret in enumerate(material):
@@ -219,7 +259,7 @@ class AESGCMRequestStateCodec:
             kid = hashlib.sha256(_KID_INFO + key).digest()[:_KID_LEN]
             if kid in self._ring:
                 raise ValueError(f"keys[{i}] duplicates an earlier ring key")
-            self._ring[kid] = AESGCM(key)
+            self._ring[kid] = crypto.aesgcm(key)
             if i == 0:
                 self._mint_kid = kid
 
@@ -244,7 +284,7 @@ class AESGCMRequestStateCodec:
             raise InvalidRequestState("unknown key")
         try:
             return aead.decrypt(nonce, sealed, _TOKEN_PREFIX.encode() + kid)
-        except InvalidTag:
+        except self._crypto.invalid_tag:
             raise InvalidRequestState("seal") from None
 
 

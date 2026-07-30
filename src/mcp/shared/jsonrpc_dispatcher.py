@@ -32,7 +32,6 @@ from mcp_types import (
     ProgressToken,
     RequestId,
 )
-from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
 from typing_extensions import TypeVar
 
@@ -383,7 +382,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         try:
             with otel_span(
                 span_name,
-                kind=SpanKind.CLIENT,
+                kind="client",
                 attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
             ):
                 # SEP-414: inject W3C trace context; `_meta` stays on the wire even with a no-op tracer.

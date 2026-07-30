@@ -1,5 +1,6 @@
 from typing import Any, Literal, cast
 
+from mcp_types._deferred import deferred_model as _deferred_model
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # RFC 7523 JWT bearer grant; SEP-990 leg 2 uses this to present the ID-JAG.
@@ -23,8 +24,12 @@ def _empty_str_to_none(v: object) -> object:
     return v
 
 
+@_deferred_model
 class OAuthToken(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1"""
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"
@@ -42,12 +47,15 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
+@_deferred_model
 class AuthorizationCodeResult(BaseModel):
     """Authorization-code-grant redirect parameters returned by a callback handler.
 
     `iss` carries the RFC 9207 authorization-response issuer when the authorization server
     includes it in the redirect; the client validates it against the expected issuer.
     """
+
+    model_config = ConfigDict(defer_build=True)
 
     code: str
     state: str | None = None
@@ -64,6 +72,7 @@ class InvalidRedirectUriError(Exception):
         self.message = message
 
 
+@_deferred_model
 class OAuthClientMetadataBase(BaseModel):
     """RFC 7591 OAuth 2.0 Dynamic Client Registration metadata shared verbatim by the
     registration request (`OAuthClientMetadata`) and the authorization server's record of a
@@ -73,7 +82,7 @@ class OAuthClientMetadataBase(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc7591#section-2
     """
 
-    model_config = ConfigDict(url_preserve_empty_path=True)
+    model_config = ConfigDict(url_preserve_empty_path=True, defer_build=True)
 
     # The MCP spec requires the "code" response type, but OAuth
     # servers may also return additional types they support
@@ -198,12 +207,13 @@ class OAuthClientInformationFull(OAuthClientMetadataBase):
             )
 
 
+@_deferred_model
 class OAuthMetadata(BaseModel):
     """RFC 8414 OAuth 2.0 Authorization Server Metadata.
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
     """
 
-    model_config = ConfigDict(url_preserve_empty_path=True)
+    model_config = ConfigDict(url_preserve_empty_path=True, defer_build=True)
 
     issuer: AnyHttpUrl
     authorization_endpoint: AnyHttpUrl
@@ -233,12 +243,13 @@ class OAuthMetadata(BaseModel):
     authorization_grant_profiles_supported: list[str] | None = None
 
 
+@_deferred_model
 class ProtectedResourceMetadata(BaseModel):
     """RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
     """
 
-    model_config = ConfigDict(url_preserve_empty_path=True)
+    model_config = ConfigDict(url_preserve_empty_path=True, defer_build=True)
 
     resource: AnyHttpUrl
     authorization_servers: list[AnyHttpUrl] = Field(..., min_length=1)

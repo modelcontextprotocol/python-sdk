@@ -11,6 +11,8 @@ layer is in the way:
   can *only* do on the low-level `Server`.
 * **[Extensions](extensions.md)** and **[MCP Apps](apps.md)**: the protocol's
   extension surface. Compose extension packages into a server, or write your own.
+* **[Imports & startup time](import-cost.md)**: what the SDK loads when, and how to
+  move its deferred first-use work to startup if you want it there.
 
 A few things you might reasonably look for here live where you'd actually use them
 instead:

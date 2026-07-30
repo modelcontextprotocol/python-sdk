@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationError
+from mcp_types._deferred import deferred_model as _deferred_model
+from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -13,9 +14,15 @@ from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.middleware.client_auth import AuthenticationError, ClientAuthenticator
 from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvider, RefreshToken
 
+# `defer_build=True` below: pydantic builds each validator on first use rather than at
+# import (import-time cost); the build is transparent at first construction/validation.
 
+
+@_deferred_model
 class RevocationRequest(BaseModel):
     """See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1"""
+
+    model_config = ConfigDict(defer_build=True)
 
     token: str
     token_type_hint: Literal["access_token", "refresh_token"] | None = None
@@ -23,7 +30,10 @@ class RevocationRequest(BaseModel):
     client_secret: str | None
 
 
+@_deferred_model
 class RevocationErrorResponse(BaseModel):
+    model_config = ConfigDict(defer_build=True)
+
     error: Literal["invalid_request", "unauthorized_client"]
     error_description: str | None = None
 

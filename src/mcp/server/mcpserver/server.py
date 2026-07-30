@@ -6,7 +6,7 @@ import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -44,22 +44,20 @@ from mcp_types import PromptArgument as MCPPromptArgument
 from mcp_types import Resource as MCPResource
 from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
-from pydantic import BaseModel
+from mcp_types._deferred import deferred_model as _deferred_model
+from pydantic import BaseModel, ConfigDict
 from pydantic.networks import AnyUrl
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Mount, Route
-from starlette.types import Receive, Scope, Send
 
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
-from mcp.server.auth.settings import AuthSettings
+import mcp
+from mcp.server._http_defaults import DEFAULT_MAX_REQUEST_BODY_SIZE
+
+# `MCPServer.__init__`'s auth-provider annotations are spelled through the lazy
+# `mcp.server.auth` namespace, so this module never imports the OAuth provider
+# stack (it loads with the first auth-enabled server instead).
+from mcp.server.auth.settings import AuthSettings  # light (pydantic-only); the Settings model needs it
 from mcp.server.caching import CacheableMethod, CacheHint
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
+from mcp.server.event_store import EventStore
 from mcp.server.extension import (
     Extension,
     MethodBinding,
@@ -84,22 +82,37 @@ from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
-from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
+
+if TYPE_CHECKING:
+    # Starlette types appear only in the SSE / streamable-HTTP methods'
+    # signatures and in narrowed attributes. Their runtime imports live inside
+    # those methods (and `custom_route`), so `import mcp.server.mcpserver`
+    # (and every stdio server) never loads starlette, sse_starlette or
+    # uvicorn - only building an HTTP app pays for the web stack, once. The
+    # session-manager annotation is spelled through the lazy `mcp.server`
+    # namespace instead, so `typing.get_type_hints` resolves it on demand.
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import Response
+    from starlette.routing import Route
+    from starlette.types import Receive, Scope, Send
 
 logger = get_logger(__name__)
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
+@_deferred_model
 class Settings(BaseModel, Generic[LifespanResultT]):
     """MCPServer settings, as passed to the `MCPServer` constructor."""
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     # Server settings
     debug: bool
@@ -154,8 +167,8 @@ class MCPServer(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[Icon] | None = None,
         version: str = "",
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
-        token_verifier: TokenVerifier | None = None,
+        auth_server_provider: mcp.server.auth.provider.OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        token_verifier: mcp.server.auth.provider.TokenVerifier | None = None,
         *,
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
@@ -246,6 +259,9 @@ class MCPServer(Generic[LifespanResultT]):
 
         # Create token verifier from provider if needed (backwards compatibility)
         if auth_server_provider and not token_verifier:
+            # The OAuth provider stack loads only for a server configured with one.
+            from mcp.server.auth.provider import ProviderTokenVerifier
+
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
 
@@ -297,7 +313,7 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.version
 
     @property
-    def session_manager(self) -> StreamableHTTPSessionManager:
+    def session_manager(self) -> mcp.server.streamable_http_manager.StreamableHTTPSessionManager:
         """Get the StreamableHTTP session manager.
 
         This is exposed to enable advanced use cases like mounting multiple
@@ -1005,6 +1021,10 @@ class MCPServer(Generic[LifespanResultT]):
             ```
         """
 
+        # A custom route is an HTTP feature: starlette is imported here rather
+        # than at module top so stdio servers never load the HTTP stack.
+        from starlette.routing import Route
+
         def decorator(
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
@@ -1097,6 +1117,20 @@ class MCPServer(Generic[LifespanResultT]):
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Return an instance of the SSE server app."""
+        # The SSE transport stack (starlette, sse_starlette, plus this SDK's SSE
+        # transport and auth ASGI modules) is imported here rather than at module
+        # top so that stdio servers never load it: only building an SSE app
+        # pays for it, once.
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.middleware.authentication import AuthenticationMiddleware
+        from starlette.responses import Response
+        from starlette.routing import Mount, Route
+
+        from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+        from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+        from mcp.server.sse import SseServerTransport
+
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(
