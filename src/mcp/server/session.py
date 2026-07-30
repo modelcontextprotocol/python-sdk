@@ -119,7 +119,15 @@ class ServerSession:
             _methods.validate_client_result(request.method, self.protocol_version, result)
         except KeyError:
             pass
-        return result_type.model_validate(result, by_name=False)
+        # A later revision's field is outside the negotiated contract and must
+        # not reach the version-free result type.
+        payload = _methods.strip_era_foreign_fields(
+            request.method,
+            self.protocol_version,
+            result,
+            surface=_methods.CLIENT_RESULTS,
+        )
+        return result_type.model_validate(payload, by_name=False)
 
     async def send_notification(
         self,

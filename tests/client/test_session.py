@@ -1759,6 +1759,37 @@ async def test_a_boolean_inbound_ttl_is_not_clamped_only_coerced_by_validation(w
     assert result.ttl_ms == int(wire_ttl)
 
 
+_LEGACY_HINTED_RESULTS: list[tuple[str, dict[str, Any]]] = [
+    ("list_tools", {"tools": []}),
+    ("list_prompts", {"prompts": []}),
+    ("list_resources", {"resources": []}),
+    ("list_resource_templates", {"resourceTemplates": []}),
+    ("read_resource", {"contents": []}),
+]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("verb", "body"), _LEGACY_HINTED_RESULTS)
+async def test_cache_hints_from_a_legacy_server_never_reach_the_result(verb: str, body: dict[str, Any]) -> None:
+    """SDK-defined: on a pre-2026 session the caching fields are outside the negotiated
+    schema, so whatever a server puts in them - even values the 2026-07-28 enum
+    rejects - is dropped and the model shows its conservative defaults."""
+    init_result = InitializeResult(
+        protocol_version=LATEST_HANDSHAKE_VERSION,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+    hinted = {**body, "ttlMs": -1, "cacheScope": "session"}
+    dispatcher = _ScriptedDispatcher(init_result, hinted)
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            call = getattr(session, verb)
+            result = await (call("mem://x") if verb == "read_resource" else call())
+    assert (result.ttl_ms, result.cache_scope) == (0, "private")
+    assert not {"ttl_ms", "cache_scope"} & result.model_fields_set
+
+
 @pytest.mark.anyio
 async def test_session_call_tool_returns_input_required_result_when_opted_in() -> None:
     """`ClientSession.call_tool(..., allow_input_required=True)` surfaces the

@@ -45,6 +45,7 @@ __all__ = [
     "parse_server_request",
     "parse_server_result",
     "serialize_server_result",
+    "strip_era_foreign_fields",
     "validate_client_notification",
     "validate_client_request",
     "validate_client_result",
@@ -631,6 +632,67 @@ def parse_server_notification(
     return _monolith_row(monolith, method).model_validate(_body(method, params), by_name=False)
 
 
+@cache
+def _wire_aliases(target: type[BaseModel] | UnionType) -> frozenset[str]:
+    """The top-level wire keys `target` declares (its members', for a union)."""
+    models: tuple[Any, ...] = get_args(target) if isinstance(target, UnionType) else (target,)
+    return frozenset(
+        field.alias or name
+        for model in models
+        if isinstance(model, type) and issubclass(model, BaseModel)
+        for name, field in model.model_fields.items()
+    )
+
+
+def _later_revision_fields(
+    method: str, version: str, surface: Mapping[tuple[str, str], type[BaseModel] | UnionType]
+) -> frozenset[str]:
+    """Wire keys a newer revision's surface declares for `method` but `version`'s does not.
+
+    Such a key is a later revision's field arriving on an earlier session
+    (e.g. 2026-07-28 `ttlMs`/`cacheScope` at 2025-11-25): outside that
+    session's contract, so it must not reach the version-free model, which
+    would otherwise apply the later revision's constraints to it. Only fields
+    a newer surface actually declares qualify - keys no surface knows
+    (extension payloads) and legal fields a strict surface merely omits
+    (e.g. `_meta` on an empty result) are never in this set.
+    """
+    later = KNOWN_PROTOCOL_VERSIONS[KNOWN_PROTOCOL_VERSIONS.index(version) + 1 :]
+    later_fields: set[str] = set()
+    for later_version in later:
+        row = surface.get((method, later_version))
+        if row is not None:
+            later_fields |= _wire_aliases(row)
+    return frozenset(later_fields) - _wire_aliases(surface[(method, version)])
+
+
+def strip_era_foreign_fields(
+    method: str,
+    version: str,
+    data: Mapping[str, Any],
+    *,
+    surface: Mapping[tuple[str, str], type[BaseModel] | UnionType] = SERVER_RESULTS,
+) -> Mapping[str, Any]:
+    """Drop a later revision's fields from a `version`-scoped result.
+
+    The version-free `mcp_types` models carry every revision's fields, so
+    parsing raw wire data into them lets a field of a revision newer than
+    `version` (and that revision's constraints) act on a session that never
+    negotiated it. This removes exactly those keys: the ones a newer surface
+    for `method` declares but `version`'s surface does not. Every other key
+    passes through untouched, so payloads the surface only gates (extension
+    result claims, open `_meta`) are unaffected, and on a session speaking the
+    newest revision the set is empty. Returns `data` itself when nothing is
+    stripped; an unknown `(method, version)` also returns `data` unchanged.
+    """
+    if version not in KNOWN_PROTOCOL_VERSIONS or (method, version) not in surface:
+        return data
+    foreign = _later_revision_fields(method, version, surface)
+    if foreign.isdisjoint(data):
+        return data
+    return {key: value for key, value in data.items() if key not in foreign}
+
+
 def serialize_server_result(
     method: str,
     version: str,
@@ -682,6 +744,10 @@ def parse_server_result(
 ) -> types.Result:
     """Validate a server result against `surface`, then parse and return its `monolith` model.
 
+    Cross-era fields (see `strip_era_foreign_fields`) are removed before the
+    monolith parse, so a later revision's field cannot reach the version-free
+    model on a session that did not negotiate it.
+
     Args:
         surface: `(method, version)` to wire-type map; the version-gate lookup
             and (per-schema-era) shape check run against this. Pass an extended
@@ -696,7 +762,8 @@ def parse_server_result(
         RuntimeError: surface matched but `method` has no monolith row.
     """
     validate_server_result(method, version, data, surface=surface)
-    result: types.Result = _adapter(_monolith_row(monolith, method)).validate_python(data, by_name=False)
+    payload = strip_era_foreign_fields(method, version, data, surface=surface)
+    result: types.Result = _adapter(_monolith_row(monolith, method)).validate_python(payload, by_name=False)
     return result
 
 
@@ -728,6 +795,10 @@ def parse_client_result(
 ) -> types.Result:
     """Validate a client result against `surface`, then parse and return its `monolith` model.
 
+    Cross-era fields (see `strip_era_foreign_fields`) are removed before the
+    monolith parse, so a later revision's field cannot reach the version-free
+    model on a session that did not negotiate it.
+
     Args:
         surface: `(method, version)` to wire-type map; the version-gate lookup
             and (per-schema-era) shape check run against this. Pass an extended
@@ -742,5 +813,6 @@ def parse_client_result(
         RuntimeError: surface matched but `method` has no monolith row.
     """
     validate_client_result(method, version, data, surface=surface)
-    result: types.Result = _adapter(_monolith_row(monolith, method)).validate_python(data, by_name=False)
+    payload = strip_era_foreign_fields(method, version, data, surface=surface)
+    result: types.Result = _adapter(_monolith_row(monolith, method)).validate_python(payload, by_name=False)
     return result

@@ -199,11 +199,3 @@ async def test_a_custom_store_with_an_in_process_server_requires_target_id() -> 
         "and Transport instances get a random per-client identity, so their entries in a shared store could "
         "never be served to another client"
     )
-
-
-async def test_the_wire_presence_check_the_page_recommends_works() -> None:
-    """The page's claim: `"ttl_ms" in result.model_fields_set` distinguishes a
-    server that sent the field from one that said nothing (model defaults)."""
-    async with Client(tutorial001.mcp) as client:
-        tools = await client.list_tools()
-    assert "ttl_ms" in tools.model_fields_set

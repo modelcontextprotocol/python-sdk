@@ -558,9 +558,13 @@ class ClientSession:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
             pass
+        # A later revision's field (e.g. 2026-07-28 cache hints on a pre-2026
+        # session) is outside the negotiated contract and must not reach the
+        # version-free result type, which would apply that revision's constraints.
+        payload = _methods.strip_era_foreign_fields(method, version, raw)
         if isinstance(result_type, TypeAdapter):
-            return result_type.validate_python(raw, by_name=False)
-        return result_type.model_validate(raw, by_name=False)
+            return result_type.validate_python(payload, by_name=False)
+        return result_type.model_validate(payload, by_name=False)
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
         """Send a one-way notification. Usable before entering the context manager.

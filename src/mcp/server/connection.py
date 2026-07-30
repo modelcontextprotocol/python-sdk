@@ -395,8 +395,16 @@ class Connection:
                 _methods.validate_client_result(req.method, self.protocol_version, raw)
             except KeyError:
                 pass
+        # A later revision's field is outside the negotiated contract and must
+        # not reach the version-free result type.
+        payload = _methods.strip_era_foreign_fields(
+            req.method,
+            self.protocol_version,
+            raw,
+            surface=_methods.CLIENT_RESULTS,
+        )
         cls = result_type if result_type is not None else _RESULT_FOR[type(req)]
-        return cls.model_validate(raw, by_name=False)
+        return cls.model_validate(payload, by_name=False)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
         """Send a best-effort notification on the standalone stream.
