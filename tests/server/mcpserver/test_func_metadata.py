@@ -5,9 +5,10 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Final, NamedTuple, TypedDict
+from typing import Annotated, Any, Final, NamedTuple, NotRequired, TypedDict
 
 import annotated_types
+import jsonschema
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, InputRequiredResult
@@ -809,6 +810,66 @@ def test_structured_output_typeddict():
         "required": ["name", "age", "email"],
         "title": "PersonTypedDictRequired",
     }
+
+
+def test_typeddict_output_omits_keys_the_tool_did_not_return():
+    """A non-required TypedDict key the tool omits stays absent from structuredContent.
+
+    SDK-defined: those keys carry a `None` default so they are optional on the generated
+    model, but the published outputSchema declares them non-nullable, so serializing them
+    as explicit nulls would make every such tool emit content violating the server's own
+    schema (and a conforming client reject the call).
+    """
+
+    class Person(TypedDict):
+        name: str
+        age: NotRequired[int]
+        nickname: NotRequired[str]
+
+    def get_person() -> Person:
+        return {"name": "Dave"}
+
+    meta = func_metadata(get_person)
+    # Call the real function rather than restating its return value: the existing
+    # tests in this file never invoke the tool body, which is why this went unnoticed.
+    result = meta.convert_result(get_person())
+
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"name": "Dave"}
+
+    # The load-bearing assertion: the payload has to satisfy the schema this same
+    # metadata published, which is the contract a client validates against.
+    assert meta.output_schema is not None
+    jsonschema.validate(instance=result.structured_content, schema=meta.output_schema)
+
+    # A key the tool DOES return still travels, including a falsy one.
+    both = meta.convert_result({"name": "Dave", "age": 0})
+    assert isinstance(both, CallToolResult)
+    assert both.structured_content == {"name": "Dave", "age": 0}
+    jsonschema.validate(instance=both.structured_content, schema=meta.output_schema)
+
+
+def test_total_false_typeddict_output_omits_every_unreturned_key():
+    """`total=False` makes every key non-required, so an empty return stays empty.
+
+    SDK-defined: pins the degenerate case, where the old behaviour turned `{}` into a
+    payload of nothing but nulls.
+    """
+
+    class Partial(TypedDict, total=False):
+        name: str
+        age: int
+
+    def get_partial() -> Partial:
+        return {}
+
+    meta = func_metadata(get_partial)
+    result = meta.convert_result(get_partial())
+
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {}
+    assert meta.output_schema is not None
+    jsonschema.validate(instance=result.structured_content, schema=meta.output_schema)
 
 
 def test_structured_output_ordinary_class():

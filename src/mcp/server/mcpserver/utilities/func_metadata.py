@@ -139,7 +139,11 @@ class FuncMetadata(BaseModel):
 
         assert self.output_model is not None, "Output model must be set if output schema is defined"
         validated = self.output_model.model_validate(result)
-        structured_content = validated.model_dump(mode="json", by_alias=True)
+        # A TypedDict's non-required keys are absent, not null, when the tool omits
+        # them -- and the published outputSchema declares them non-nullable, so
+        # emitting nulls would violate the server's own schema.
+        exclude_unset = issubclass(self.output_model, _TypedDictOutputModel)
+        structured_content = validated.model_dump(mode="json", by_alias=True, exclude_unset=exclude_unset)
 
         return CallToolResult(content=unstructured_content, structured_content=structured_content)
 
@@ -494,6 +498,17 @@ def _create_model_from_class(cls: type[Any], type_hints: dict[str, Any]) -> type
     return create_model(cls.__name__, __config__=ConfigDict(from_attributes=True), **model_fields)
 
 
+class _TypedDictOutputModel(BaseModel):
+    """Base for output models generated from a TypedDict return annotation.
+
+    Non-required TypedDict keys are given a `None` default so they are optional on
+    the generated model, but `None` is not a valid value for their declared type and
+    the published `outputSchema` does not accept it. Dumping such a model has to
+    honour TypedDict semantics -- a key the tool did not return stays absent rather
+    than becoming an explicit null -- so `convert_result` keys off this base class.
+    """
+
+
 def _create_model_from_typeddict(td_type: type[Any]) -> type[BaseModel]:
     """Create a Pydantic model from a TypedDict.
 
@@ -507,12 +522,13 @@ def _create_model_from_typeddict(td_type: type[Any]) -> type[BaseModel]:
         if field_name not in required_keys:
             # For optional TypedDict fields, set default=None
             # This makes them not required in the Pydantic model
-            # The model should use exclude_unset=True when dumping to get TypedDict semantics
+            # Dumped with exclude_unset=True (see `_TypedDictOutputModel`) so an
+            # omitted key stays omitted instead of serializing as null
             model_fields[field_name] = (field_type, None)
         else:
             model_fields[field_name] = field_type
 
-    return create_model(td_type.__name__, **model_fields)
+    return create_model(td_type.__name__, __base__=_TypedDictOutputModel, **model_fields)
 
 
 def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
