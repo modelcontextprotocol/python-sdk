@@ -352,8 +352,30 @@ class StreamableHTTPSessionManager:
                 # Start the server task
                 await self._task_group.start(run_server)
 
+                # The session above is provisional: every validation (Host, Accept,
+                # Content-Type, JSON parse, JSON-RPC shape, "Missing session ID")
+                # lives inside `handle_request`, so it runs only now. If the request
+                # that was meant to establish this session is refused, the session
+                # must not survive it -- otherwise a rejected request leaves live
+                # state behind and hands the caller a usable session id.
+                establishing_status: int | None = None
+
+                async def send_tracking_status(message: Message) -> None:
+                    nonlocal establishing_status
+                    if message["type"] == "http.response.start":
+                        establishing_status = message["status"]
+                    await send(message)
+
                 # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
+                await http_transport.handle_request(scope, receive, send_tracking_status)
+
+                if establishing_status is not None and establishing_status >= 400:
+                    logger.debug(
+                        f"Discarding session {new_session_id}: establishing request returned {establishing_status}"
+                    )
+                    self._server_instances.pop(new_session_id, None)
+                    self._session_owners.pop(new_session_id, None)
+                    await http_transport.terminate()
         else:
             # Unknown or expired session ID - return 404 per MCP spec
             # TODO(L62): Align error code once spec clarifies
