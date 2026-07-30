@@ -3278,6 +3278,19 @@ REQUIREMENTS: dict[str, Requirement] = {
             "at the transport seam."
         ),
     ),
+    "hosting:client:legacy-inbound-modern-vocabulary-dropped": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/versioning",
+        behavior=(
+            "A client on a pre-2026 session that receives 2026-07-28 result vocabulary "
+            "(resultType, ttlMs, cacheScope) drops those fields before parsing, so a value "
+            "the 2026-07-28 types reject cannot fail the call and the result shows its defaults."
+        ),
+        deferred=(
+            "Client-inbound seam, covered by tests/client/test_session.py::"
+            "test_cache_hints_from_a_legacy_server_never_reach_the_result and "
+            "test_a_2026_result_type_tag_from_a_legacy_server_never_reaches_the_result"
+        ),
+    ),
     "hosting:http:modern:tools-call-stateless": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http",
         behavior=(
