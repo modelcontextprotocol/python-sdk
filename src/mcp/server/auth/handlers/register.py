@@ -9,10 +9,10 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from mcp.server.auth.errors import stringify_pydantic_error
-from mcp.server.auth.url_validators import validate_redirect_uri
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
+from mcp.server.auth.url_validators import validate_redirect_uri
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthClientMetadata
 
 # this alias is a no-op; it's just to separate out the types exposed to the
