@@ -5,7 +5,7 @@ and registered redirect_uris, with an HTTP loopback exception for local
 development.
 """
 
-from pydantic import AnyHttpUrl
+from pydantic import AnyUrl
 
 
 def validate_issuer_url(url: AnyHttpUrl):
@@ -26,7 +26,7 @@ def validate_issuer_url(url: AnyHttpUrl):
         raise ValueError("Issuer URL must not have a query string")
 
 
-def validate_redirect_uri(url: AnyHttpUrl):
+def validate_redirect_uri(url: AnyUrl):
     """Validate a registered redirect_uri for DCR.
 
     RFC 9700 section 4.1.1 and RFC 7591 section 2 require HTTPS for

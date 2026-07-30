@@ -1,5 +1,5 @@
 import pytest
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.server.auth.routes import build_metadata, validate_issuer_url
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
@@ -90,13 +90,13 @@ def test_validate_redirect_uri_http_ipv6_loopback_allowed():
 
 
 def test_validate_redirect_uri_javascript_scheme_rejected():
-    with pytest.raises(ValueError, match="Redirect URI must use HTTPS"):
-        validate_redirect_uri(AnyHttpUrl("javascript:alert(1)"))
+    with pytest.raises(ValueError, match="Redirect URI must use an HTTP"):
+        validate_redirect_uri(AnyUrl("javascript:alert(1)"))
 
 
 def test_validate_redirect_uri_file_scheme_rejected():
-    with pytest.raises(ValueError, match="Redirect URI must use HTTPS"):
-        validate_redirect_uri(AnyHttpUrl("file:///etc/passwd"))
+    with pytest.raises(ValueError, match="Redirect URI must use an HTTP"):
+        validate_redirect_uri(AnyUrl("file:///etc/passwd"))
 
 
 def test_validate_redirect_uri_http_non_loopback_allowed():
