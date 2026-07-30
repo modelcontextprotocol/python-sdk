@@ -600,6 +600,19 @@ class StreamableHTTPServerTransport:
 
             request_id = str(message.id)
 
+            # `_request_streams` is keyed by the bare JSON-RPC id. A second concurrent
+            # POST reusing an in-flight id would overwrite that slot and cross-wire
+            # responses (one caller receives the other's payload; the other hangs).
+            # Reject the collision with 409 rather than silently re-routing. Ids may
+            # still be reused after the earlier request has completed.
+            if request_id in self._request_streams:
+                response = self._create_error_response(
+                    f"Conflict: Request id {request_id} is already in flight for this session",
+                    HTTPStatus.CONFLICT,
+                )
+                await response(scope, receive, send)
+                return
+
             if self.is_json_response_enabled:
                 self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
                     REQUEST_STREAM_BUFFER_SIZE
@@ -631,18 +644,24 @@ class StreamableHTTPServerTransport:
                     await self._clean_up_memory_streams(request_id)
                 await response(scope, receive, send)
             else:
-                # Mint the priming event before any per-request state exists:
-                # `EventStore.store_event` is user code and may raise, in which
-                # case the outer handler returns a 500 with nothing to clean up.
-                # Still strictly precedes dispatch, so storage order == wire order.
-                priming_event = await self._mint_priming_event(request_id, protocol_version)
-
-                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
-                self._sse_stream_writers[request_id] = sse_stream_writer
+                # Reserve the routing slot before any await so a concurrent POST
+                # reusing this id cannot pass the guard above while we mint the
+                # priming event (EventStore.store_event is user code and may
+                # await). Release the reservation if priming raises.
                 self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](
                     REQUEST_STREAM_BUFFER_SIZE
                 )
                 request_stream_reader = self._request_streams[request_id][1]
+
+                try:
+                    # Still strictly precedes dispatch, so storage order == wire order.
+                    priming_event = await self._mint_priming_event(request_id, protocol_version)
+                except BaseException:
+                    await self._clean_up_memory_streams(request_id)
+                    raise
+
+                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[SSEEvent](0)
+                self._sse_stream_writers[request_id] = sse_stream_writer
 
                 headers = {
                     "Cache-Control": "no-cache, no-transform",
