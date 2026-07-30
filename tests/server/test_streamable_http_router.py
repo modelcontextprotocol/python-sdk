@@ -1,5 +1,7 @@
 """Regression coverage for the StreamableHTTP per-session response router."""
 
+import logging
+
 import anyio
 import pytest
 from mcp_types import JSONRPCMessage, JSONRPCResponse
@@ -141,3 +143,23 @@ async def test_json_post_answers_500_when_session_terminates_mid_request() -> No
 
     assert post.sent[0]["type"] == "http.response.start"
     assert post.sent[0]["status"] == 500
+
+
+@pytest.mark.anyio
+async def test_router_reports_a_stream_closure_it_did_not_cause(caplog: pytest.LogCaptureFixture) -> None:
+    """A stream closed without terminating the transport is an anomaly, not a clean shutdown.
+
+    `terminate()` closes these streams deliberately and the router says so at debug level.
+    Anything else closing them is unexplained, so the router must surface it at exception
+    level instead of swallowing it as a normal end-of-stream.
+    """
+    transport = StreamableHTTPServerTransport(mcp_session_id="sid", is_json_response_enabled=True)
+    caplog.set_level(logging.ERROR, logger="mcp.server.streamable_http")
+
+    async with transport.connect():
+        assert not transport.is_terminated
+        # Close the stream the router is iterating without going through terminate().
+        assert transport._write_stream_reader is not None
+        await transport._write_stream_reader.aclose()
+
+    assert "Unexpected closure of read stream in message router" in caplog.text
