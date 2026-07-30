@@ -4,10 +4,10 @@ import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from functools import reduce
+from functools import cache, reduce
 from operator import or_
-from types import TracebackType
-from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, TypeAlias, cast, overload
+from types import TracebackType, UnionType
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, TypeAlias, cast, get_args, overload
 
 import anyio
 import anyio.abc
@@ -30,6 +30,7 @@ from mcp_types import (
 from mcp_types import methods as _methods
 from mcp_types.version import (
     HANDSHAKE_PROTOCOL_VERSIONS,
+    KNOWN_PROTOCOL_VERSIONS,
     LATEST_HANDSHAKE_VERSION,
     LATEST_MODERN_VERSION,
     MODERN_PROTOCOL_VERSIONS,
@@ -75,6 +76,39 @@ def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
     ttl = raw.get("ttlMs")
     if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl < 0:
         raw["ttlMs"] = 0
+
+
+@cache
+def _wire_fields(target: type[BaseModel] | UnionType) -> frozenset[str]:
+    """Top-level wire keys `target` declares (its members', for a union)."""
+    models: tuple[Any, ...] = get_args(target) if isinstance(target, UnionType) else (target,)
+    return frozenset(
+        field.alias or name
+        for model in models
+        if isinstance(model, type) and issubclass(model, BaseModel)
+        for name, field in model.model_fields.items()
+    )
+
+
+@cache
+def _later_revision_fields(method: str, version: str) -> frozenset[str]:
+    """Result keys a revision newer than `version` declares for `method` but `version` doesn't.
+
+    The version-free result types carry every revision's fields, so such a key
+    (e.g. 2026-07-28 `ttlMs`/`cacheScope` on a pre-2026 session) is outside the
+    negotiated contract yet would still parse into the model and trip that later
+    revision's constraints. Empty at the newest known revision.
+    """
+    current = _methods.SERVER_RESULTS.get((method, version))
+    if current is None or version not in KNOWN_PROTOCOL_VERSIONS:
+        return frozenset()
+    newer = KNOWN_PROTOCOL_VERSIONS[KNOWN_PROTOCOL_VERSIONS.index(version) + 1 :]
+    later: set[str] = set()
+    for revision in newer:
+        row = _methods.SERVER_RESULTS.get((method, revision))
+        if row is not None:
+            later |= _wire_fields(row)
+    return frozenset(later) - _wire_fields(current)
 
 
 def _same_schema(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
@@ -558,13 +592,14 @@ class ClientSession:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
             pass
-        # A later revision's field (e.g. 2026-07-28 cache hints on a pre-2026
-        # session) is outside the negotiated contract and must not reach the
-        # version-free result type, which would apply that revision's constraints.
-        payload = _methods.strip_era_foreign_fields(method, version, raw)
+        # Drop a later revision's fields (e.g. 2026-07-28 cache hints on a pre-2026
+        # session): they are outside the negotiated contract, and the version-free
+        # result type would otherwise apply that revision's constraints to them.
+        if not (foreign := _later_revision_fields(method, version)).isdisjoint(raw):
+            raw = {key: value for key, value in raw.items() if key not in foreign}
         if isinstance(result_type, TypeAdapter):
-            return result_type.validate_python(payload, by_name=False)
-        return result_type.model_validate(payload, by_name=False)
+            return result_type.validate_python(raw, by_name=False)
+        return result_type.model_validate(raw, by_name=False)
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
         """Send a one-way notification. Usable before entering the context manager.

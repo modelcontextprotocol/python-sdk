@@ -682,45 +682,15 @@ def test_empty_result_body_parses_at_versions_that_define_it():
     assert isinstance(parsed, types.EmptyResult)
 
 
-def test_2026_07_28_result_fields_never_reach_the_model_at_earlier_versions():
-    """The negotiated surface is the version's contract: 2026-07-28 keys sent at an
-    earlier version are dropped there, so the model shows defaults, not the wire values."""
+def test_2026_07_28_shaped_result_extras_pass_at_earlier_versions():
+    """The earlier surface ignores unknown keys; the monolith preserves them on fields it declares."""
     parsed = methods.parse_server_result(
         "tools/list", "2025-11-25", {"tools": [], "resultType": "complete", "ttlMs": 5, "cacheScope": "public"}
     )
     assert isinstance(parsed, types.ListToolsResult)
-    assert (parsed.result_type, parsed.ttl_ms, parsed.cache_scope) == ("complete", 0, "private")
-    assert not {"ttl_ms", "cache_scope"} & parsed.model_fields_set
-
-
-def test_stripping_removes_only_later_revision_fields_and_nothing_at_the_newest_revision():
-    """Extension payload keys neither the model nor the schema declares pass through;
-    only the model's own fields from a later revision are stripped, and the newest
-    revision's surface declares them all, so it strips nothing."""
-    body: dict[str, Any] = {"tools": [], "ttlMs": 5, "cacheScope": "public", "vendor/x": 1}
-    assert methods.strip_era_foreign_fields("tools/list", "2025-11-25", body) == {"tools": [], "vendor/x": 1}
-    assert methods.strip_era_foreign_fields("tools/list", "2026-07-28", body) is body
-
-
-def test_a_legal_field_a_strict_surface_omits_is_not_a_later_revision_field():
-    """`ping` has no 2026-07-28 surface, so nothing is foreign at 2025-11-25: the
-    `_meta` its strict (empty-dumping) surface merely omits is a legal field, not a
-    later revision's, and it survives to the model."""
-    body: dict[str, Any] = {"_meta": {"trace": "t-1"}}
-    assert methods.strip_era_foreign_fields("ping", "2025-11-25", body) is body
-    parsed = methods.parse_server_result("ping", "2025-11-25", body)
-    assert isinstance(parsed, types.EmptyResult)
-    assert parsed.meta == {"trace": "t-1"}
-
-
-def test_a_2026_07_28_value_invalid_at_that_version_still_parses_at_earlier_versions():
-    """A pre-2026 result is judged only by its own schema, so a cache-hint value the
-    2026-07-28 enum rejects (a future or non-conformant server) cannot fail the parse."""
-    body: dict[str, Any] = {"tools": [], "resultType": "complete", "ttlMs": -1, "cacheScope": "session"}
-    parsed = methods.parse_server_result("tools/list", "2025-11-25", body)
-    assert isinstance(parsed, types.ListToolsResult)
-    with pytest.raises(pydantic.ValidationError):
-        methods.parse_server_result("tools/list", "2026-07-28", body)
+    assert parsed.result_type == "complete"
+    assert parsed.ttl_ms == 5
+    assert parsed.cache_scope == "public"
 
 
 def test_embedded_input_request_entries_without_method_reject_at_the_surface_step():
