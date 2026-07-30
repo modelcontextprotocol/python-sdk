@@ -102,6 +102,11 @@ Not every shape deserves a class. A `TypedDict` produces the same schema:
 
 A `TypedDict` is a plain `dict` at runtime, so that is what you build and return. The schema, the validation, and `structured_content` are identical to the `BaseModel` version (minus the descriptions, which `TypedDict` has no place for).
 
+A key marked `NotRequired` (or any key at all under `total=False`) follows `TypedDict` semantics: if your tool leaves it out of the returned dict, it is **absent** from `structured_content` rather than present as `null`. That matches the published `outputSchema`, which declares those properties with their own type and simply omits them from `required`.
+
+!!! note
+    Below Python 3.12, import `TypedDict` from `typing_extensions` rather than `typing` whenever you use `NotRequired` — pydantic needs the `typing_extensions` variant to see the qualifier.
+
 ## A dataclass
 
 Dataclasses work too, and so does any ordinary class whose attributes have type hints. The SDK builds a Pydantic model out of the annotations behind the scenes.
