@@ -23,6 +23,7 @@ from mcp.types import (
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
+    ServerRequest,
     TextContent,
 )
 
@@ -395,3 +396,39 @@ def test_extract_known_request_methods_fails_closed_on_schema_introspection_erro
         pass
 
     assert _extract_known_request_methods(BrokenRequest) == frozenset()
+
+
+def test_extract_known_request_methods_returns_full_client_and_server_method_sets():
+    assert _extract_known_request_methods(ClientRequest) == frozenset(
+        {
+            "completion/complete",
+            "initialize",
+            "logging/setLevel",
+            "ping",
+            "prompts/get",
+            "prompts/list",
+            "resources/list",
+            "resources/read",
+            "resources/subscribe",
+            "resources/templates/list",
+            "resources/unsubscribe",
+            "tasks/cancel",
+            "tasks/get",
+            "tasks/list",
+            "tasks/result",
+            "tools/call",
+            "tools/list",
+        }
+    )
+    assert _extract_known_request_methods(ServerRequest) == frozenset(
+        {
+            "elicitation/create",
+            "ping",
+            "roots/list",
+            "sampling/createMessage",
+            "tasks/cancel",
+            "tasks/get",
+            "tasks/list",
+            "tasks/result",
+        }
+    )
