@@ -1,4 +1,4 @@
-# MCP Apps
+# MCP Apps {#mcp-apps}
 
 An **MCP App** is a tool with a face: alongside its data, the tool points at an HTML
 document the host renders as an interactive surface.
@@ -18,7 +18,7 @@ The SDK ships this as the built-in `Apps` extension (`io.modelcontextprotocol/ui
 If [Extensions](extensions.md) are new to you, skim that page first. One minute,
 then come back.
 
-## A clock with a face
+## A clock with a face {#a-clock-with-a-face}
 
 ```python title="server.py" hl_lines="19 22 30 32"
 --8<-- "docs_src/apps/tutorial001.py"
@@ -41,7 +41,7 @@ apps, use the official [`@modelcontextprotocol/ext-apps`](https://github.com/mod
 browser SDK inside your HTML. It gives you `ontoolresult`, `callServerTool`,
 `getHostContext`, and `onhostcontextchanged` instead of raw message events.
 
-## Graceful degradation
+## Graceful degradation {#graceful-degradation}
 
 Not every client renders apps. The spec is blunt about what that means for you:
 
@@ -66,7 +66,7 @@ client half of the negotiation, and the rich answer comes back.
     fallback text is useless, the tool is useless to every text-only client and to
     the model itself. Write the sentence.
 
-## Locking the iframe down
+## Locking the iframe down {#locking-the-iframe-down}
 
 The resource side carries the security metadata: what the iframe may load, which
 browser permissions it wants, how it would like to be framed:
@@ -102,7 +102,7 @@ may refuse. Feature-detect in your JS rather than assuming a grant.
     metadata has no slot for them, and hosts ignore them there. The SDK makes the
     mistake unrepresentable: `@apps.tool()` simply has no `csp` parameter.
 
-### Visibility
+### Visibility {#visibility}
 
 `visibility=["app"]` on a tool says "this exists for the iframe, not the model":
 
@@ -113,7 +113,7 @@ may refuse. Feature-detect in your JS rather than assuming a grant.
 Filtering is the **host's** job. Your server lists app-only tools in `tools/list`
 like any other; the host hides them from the model. Don't filter server-side.
 
-## The rules the SDK enforces
+## The rules the SDK enforces {#the-rules-the-sdk-enforces}
 
 All of these fail at startup, not in production:
 
@@ -130,7 +130,7 @@ All of these fail at startup, not in production:
 Neither the TypeScript ext-apps SDK nor FastMCP catches any of these today; we'd
 rather you find out before a host does.
 
-## Beyond inline HTML
+## Beyond inline HTML {#beyond-inline-html}
 
 `add_html_resource` covers the common case: a string of HTML. For anything else,
 HTML on disk or generated content, build the resource yourself and hand it over:
@@ -149,7 +149,7 @@ under any other MIME type is one no host will render.
     `@apps.tool(resource_uri="ui://x", meta={"ui/resourceUri": "ui://x"})`.
     The nested `ui` object is the spec shape; the flat key is on its way out.
 
-## See it run
+## See it run {#see-it-run}
 
 The `apps` story in `examples/stories/` is this page as a runnable pair: a server
 with a UI-bound clock tool and a client that negotiates Apps, reads the tool's

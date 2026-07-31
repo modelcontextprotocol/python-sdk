@@ -1,4 +1,4 @@
-# Advanced
+# Advanced {#advanced}
 
 Everything an ordinary server or client needs has a topical home in the sections above.
 This section is the escape hatches you reach for when `MCPServer`'s convenience

@@ -1,4 +1,4 @@
-# Extensions
+# Extensions {#extensions}
 
 An **extension** is an opt-in bundle of MCP behaviour behind one identifier.
 
@@ -8,7 +8,7 @@ notifications. Each side advertises under its own `capabilities.extensions`, and
 changes for anyone who didn't ask for it. That is the contract ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)), and
 it has one golden rule: **extensions are off by default**.
 
-## Using an extension
+## Using an extension {#using-an-extension}
 
 Pass instances at construction:
 
@@ -30,11 +30,11 @@ The capability map rides `server/discover`, which is a **2026-07-28** path. A le
 the extension. Design for that: an extension *augments* a server, it must not be the
 only way the server is usable.
 
-## Writing your own
+## Writing your own {#writing-your-own}
 
 Subclass `Extension` and override only what you need. Every method has a default.
 
-### The identifier
+### The identifier {#the-identifier}
 
 ```python
 --8<-- "docs_src/extensions/tutorial002.py"
@@ -53,7 +53,7 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 Use a domain you control as the prefix. `io.modelcontextprotocol/*` is for extensions
 specified by the MCP project itself.
 
-### Contributing tools
+### Contributing tools {#contributing-tools}
 
 The smallest useful extension is one tool and a settings map:
 
@@ -75,7 +75,7 @@ And `main()` is the proof, an in-memory client straight against `mcp`:
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
-### Serving your own methods
+### Serving your own methods {#serving-your-own-methods}
 
 An extension can register **new request methods**: its own verbs, served next to the
 spec's:
@@ -105,7 +105,7 @@ runtime:
 * An empty `protocol_versions` set raises too: a method that can never be served
   is a bug, not a configuration.
 
-### The client side
+### The client side {#the-client-side}
 
 The same file's `main()` is the whole client story, both halves of it:
 
@@ -123,7 +123,7 @@ The same file's `main()` is the whole client story, both halves of it:
   only grows first-class methods for spec verbs. `send_request` accepts any
   `Request` subclass, so the vendor request passes as-is.
 
-### Intercepting `tools/call`
+### Intercepting `tools/call` {#intercepting-toolscall}
 
 The one interceptive hook. Override `intercept_tool_call` to observe, short-circuit,
 or veto a tool call:
@@ -152,7 +152,7 @@ or veto a tool call:
 The hook wraps `tools/call` and nothing else. For every-message concerns, use
 [Middleware](middleware.md). That is what it is for.
 
-## Using a client extension
+## Using a client extension {#using-a-client-extension}
 
 A **client extension** is the same contract from the consuming side: a bundle of
 client-side behaviour behind one identifier. Pass instances to
@@ -183,7 +183,7 @@ from mcp.client import advertise
 client = Client(mcp, extensions=[advertise("com.example/search")])
 ```
 
-## Writing a client extension
+## Writing a client extension {#writing-a-client-extension}
 
 Subclass `ClientExtension` and override only what you need. Three contribution
 kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
@@ -223,7 +223,7 @@ would reject. And when you want the claimed shape yourself instead of the resolv
 call `client.session.call_tool(..., allow_claimed=True)`; without that flag, a
 claimed shape reaching a session-tier caller raises `UnexpectedClaimedResult`.
 
-### Extension verbs
+### Extension verbs {#extension-verbs}
 
 An extension's own request methods need no client-side registration. A vendor request
 type subclasses `mcp.types.Request` and goes through `client.session.send_request`,
@@ -238,7 +238,7 @@ this for their verbs), the request type declares `name_param`:
 The session mirrors `params["jobId"]` into `Mcp-Name` on every send path, and a
 missing value fails loudly rather than silently omitting a required header.
 
-## What an extension cannot do
+## What an extension cannot do {#what-an-extension-cannot-do}
 
 The contribution surface is **closed** on purpose. On the server: settings, tools,
 resources, methods, one `tools/call` interceptor. On the client: settings, result

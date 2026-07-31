@@ -1,10 +1,10 @@
-# Deprecated features
+# Deprecated features {#deprecated-features}
 
 The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**.
 
 The table below names each deprecated feature, why it is going away, and the replacement to build on.
 
-## What is deprecated
+## What is deprecated {#what-is-deprecated}
 
 | Deprecated | Why | What you do instead |
 |---|---|---|
@@ -20,7 +20,7 @@ Three things fall out of that table:
 * Sampling and roots share a deeper problem: they are places a **server** sends a **request** to the **client**. That whole direction is what 2026-07-28 replaces with **[Multi-round-trip requests](handlers/multi-round-trip.md)**. It is the standalone RPC methods (`sampling/createMessage`, `roots/list`, and push-style `elicitation/create`) that are gone; the `CreateMessageRequest` / `ListRootsRequest` / `ElicitRequest` payload types survive, embedded in `InputRequiredResult.input_requests`, and on the client they hit the same callbacks.
 * `ping` is the odd one out. The protocol does not deprecate it, it removes it. The SDK method still warns (its message says *removed*, not *deprecated*) and calling it on a modern connection answers with *"Method not found"*.
 
-## Deprecated is advisory
+## Deprecated is advisory {#deprecated-is-advisory}
 
 Nothing breaks today.
 
@@ -50,7 +50,7 @@ MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SE
     send. These two only work end-to-end on a `mode="legacy"` connection whose client
     registered the matching callback.
 
-## Silencing the warning
+## Silencing the warning {#silencing-the-warning}
 
 Don't, in new code.
 
@@ -79,7 +79,7 @@ That is the whole API. There is no per-method switch, and you don't want one: th
     One line of pytest configuration, and a deprecated call can never sneak back into your
     codebase without failing a test.
 
-## Recap
+## Recap {#recap}
 
 * The 2026-07-28 spec deprecates **roots**, server-initiated **sampling**, and protocol **logging** (all [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577)), restricts **progress** to server-to-client, and removes **`ping`**.
 * The replacement column points you onward: **[Multi-round-trip requests](handlers/multi-round-trip.md)** for sampling and roots, **[Logging](handlers/logging.md)** for logging, **[Progress](handlers/progress.md)** for progress. `ping` needs nothing at all.

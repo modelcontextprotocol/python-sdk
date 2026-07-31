@@ -1,4 +1,4 @@
-# MCP Python SDK
+# MCP Python SDK {#mcp-python-sdk}
 
 !!! info "This documents v2, the current stable release line"
     New to v2, or coming from v1? **[What's new in v2](whats-new.md)** is the five-minute tour of what changed, and the **[Migration Guide](migration.md)** covers every breaking change.
@@ -13,11 +13,11 @@ This is the official Python SDK for it. With it you can:
 * **Build MCP clients** that connect to any MCP server.
 * Speak every standard transport: stdio, Streamable HTTP, and SSE.
 
-## Requirements
+## Requirements {#requirements}
 
 Python 3.10+.
 
-## Installation
+## Installation {#installation}
 
 === "uv"
 
@@ -34,9 +34,9 @@ Python 3.10+.
 The `[cli]` extra gives you the `mcp` command; you'll want it for development.
 See [Installation](get-started/installation.md) for what each dependency is for.
 
-## Example
+## Example {#example}
 
-### Create it
+### Create it {#create-it}
 
 Create a file `server.py`:
 
@@ -48,7 +48,7 @@ That's a complete MCP server.
 
 It exposes one **tool**, `add`, and one templated **resource**, `greeting://{name}`.
 
-### Run it
+### Run it {#run-it}
 
 ```console
 uv run mcp dev server.py
@@ -59,7 +59,7 @@ This starts your server and opens the [MCP Inspector](https://github.com/modelco
 !!! note
     The Inspector is a Node.js app, so `mcp dev` needs `npx` on your `PATH`.
 
-### Try it
+### Try it {#try-it}
 
 In the Inspector, go to **Tools** and call `add` with `a=1`, `b=2`.
 
@@ -73,7 +73,7 @@ Now go to **Resources** and read `greeting://World`:
 Hello, World!
 ```
 
-### Recap
+### Recap {#recap}
 
 Look again at what you did **not** write:
 
@@ -83,7 +83,7 @@ Look again at what you did **not** write:
 
 You wrote two Python functions with type hints and a docstring. The SDK does the rest.
 
-## Where to go next
+## Where to go next {#where-to-go-next}
 
 * **[Get started](get-started/index.md)** takes you from install to a working, tested server.
 * Building an application that *uses* MCP servers? Start with **[Clients](client/index.md)**.

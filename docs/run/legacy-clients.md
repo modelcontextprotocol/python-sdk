@@ -1,4 +1,4 @@
-# Serving legacy clients
+# Serving legacy clients {#serving-legacy-clients}
 
 MCP has two protocol eras: the `initialize`-handshake era, up to spec version `2025-11-25`, and the modern era, `2026-07-28`. **[Protocol versions](../protocol-versions.md)** is the page on the split itself.
 
@@ -14,7 +14,7 @@ So a legacy client is not something you build *for*. It is something that connec
     Both eras are always on. The nearest thing to a per-era switch in that signature is
     `stateless_http`, and it is most of this page.
 
-## One handler, both eras
+## One handler, both eras {#one-handler-both-eras}
 
 Here is a tool that has to ask the user something, and both eras of client calling it:
 
@@ -41,7 +41,7 @@ It is worth pausing on *how*, because the two clients were asked the same questi
     ever works on a legacy connection. On a `2026-07-28` one the call fails. If a tool still uses
     it, the fix is the one you see above, not a version check.
 
-## What a legacy session costs you
+## What a legacy session costs you {#what-a-legacy-session-costs-you}
 
 The routing is free. The session is not.
 
@@ -56,7 +56,7 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
-## The one knob: `stateless_http`
+## The one knob: `stateless_http` {#the-one-knob-stateless_http}
 
 If stickiness is a cost you refuse to pay, there is exactly one thing you can change.
 
@@ -98,7 +98,7 @@ Two things about it matter more than what it does.
 
 So it is a real trade, and it only exists on the legacy leg: **sessionful and sticky, or stateless and one-directional.** If your tools never call back into the client, `stateless_http=True` is free and you should take it. If they do, keep the sessions and keep the routing sticky.
 
-## Where your code actually forks
+## Where your code actually forks {#where-your-code-actually-forks}
 
 Almost nowhere.
 
@@ -117,7 +117,7 @@ Over HTTP, neither call reaches the other era's clients. To tell everyone, call 
 
 Two lines, no `if`, no version check, and you are done. That is the entire list of things a handler does differently because a legacy client exists.
 
-## Recap
+## Recap {#recap}
 
 * One `streamable_http_app()` serves both protocol eras. The SDK routes each request by its `MCP-Protocol-Version` header; there is nothing to configure and no era knob to look for.
 * A legacy client costs you a session: an in-process `Mcp-Session-Id` record with no distributed store behind it. More than one worker means **sticky routing**, or the wrong worker answers `404 Session not found`. **[Deploy & scale](deploy.md)** has the multi-worker story.

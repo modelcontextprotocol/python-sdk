@@ -1,4 +1,4 @@
-# Sampling and roots
+# Sampling and roots {#sampling-and-roots}
 
 A handler can ask the connected client for two more things: a completion from the client's own model (**sampling**), and the client's workspace folders (**roots**).
 
@@ -7,7 +7,7 @@ Both still work, on every protocol version the SDK speaks. But read the warning 
 !!! warning "Deprecated by the 2026-07-28 specification"
     Sampling and roots are deprecated as of `2026-07-28` ([SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2577)). They remain fully functional and stay in the specification for at least twelve months before becoming eligible for removal, but new implementations should not build on them. The suggested migrations: integrate directly with your LLM provider's API instead of sampling, and pass directories via tool parameters, resource URIs, or server configuration instead of roots. The SDK-wide list is in **[Deprecated features](../deprecated.md)**.
 
-## Sampling: borrow the client's model
+## Sampling: borrow the client's model {#sampling-borrow-the-clients-model}
 
 A resolver returns `Sample(...)` and the tool receives the completion, through the same dependency mechanism that runs `Elicit` in **[Dependencies](dependencies.md)**:
 
@@ -20,7 +20,7 @@ A resolver returns `Sample(...)` and the tool receives the completion, through t
 * At `2026-07-28` the request is delivered inside the multi-round-trip flow (**[Multi-round-trip requests](multi-round-trip.md)**); on `2025-11-25` it is a standalone request to the client. The code is the same either way, but mind the multi-round-trip rule: the request must render identically across retry rounds, so build it only from the tool's arguments and other stable data.
 * Leave `include_context` alone: values other than `"none"` are themselves deprecated (SEP-2596) and need a capability almost no client declares.
 
-## Roots: where should this go?
+## Roots: where should this go? {#roots-where-should-this-go}
 
 Roots are the folders the client says the server may operate on. They are informational guidance, not an access-control mechanism. A resolver returns `ListRoots()`:
 
@@ -33,11 +33,11 @@ Roots are the folders the client says the server may operate on. They are inform
 
 On the other side of the wire, the client answers both requests with the callbacks it already has: `sampling_callback` and `list_roots_callback`, covered in **[Client callbacks](../client/callbacks.md)**.
 
-## On 2025-era connections
+## On 2025-era connections {#on-2025-era-connections}
 
 `ctx.session.create_message(...)` and `ctx.session.list_roots()` still exist for code that drives the session directly. They only work where a back-channel exists (2025-era, non-stateless connections), and calling them raises a deprecation warning. The resolver markers above are the supported form: they pick the delivery from the negotiated version and don't warn.
 
-## Recap
+## Recap {#recap}
 
 * Return `Sample(...)` or `ListRoots()` from a resolver; the tool receives the `CreateMessageResult` or `ListRootsResult` like any other dependency.
 * The client must declare the matching capability, or the call fails with `-32021` instead of a request being sent.

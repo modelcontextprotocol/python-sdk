@@ -1,10 +1,10 @@
-# Subscriptions
+# Subscriptions {#subscriptions}
 
 A server's catalog is not fixed. Tools appear at runtime, and the content behind a resource URI changes.
 
 **Subscriptions** are how a client hears about it. The client sends one `subscriptions/listen` request, and the response to that request *is* the stream: it stays open and carries the change notifications the client asked for.
 
-## Publish it from the tool
+## Publish it from the tool {#publish-it-from-the-tool}
 
 Your side of it is one line: publish the change.
 
@@ -32,7 +32,7 @@ Your side of it is one line: publish the change.
 
     Note what the update does *not* carry: the board. Every frame carries the listen request's JSON-RPC id under `_meta`, and that id is the subscription id. The client mints it: the Python `Client` uses strings like `"listen-1"`; other clients may use integers.
 
-## Only what was asked for
+## Only what was asked for {#only-what-was-asked-for}
 
 The filter is a contract. A stream that requested tool-list changes and one resource URI receives those two kinds and nothing else. Publish a prompt change and that stream stays silent.
 
@@ -43,7 +43,7 @@ Two things the stream is *not*:
 * **It is not a replay log.** A dropped stream is gone, and events published while nobody was connected are not queued. Clients re-listen and refetch.
 * **It is not the 2025 path.** Clients that called `resources/subscribe` are served by `ctx.session.send_resource_updated(uri)`. The `notify_*` methods reach `subscriptions/listen` streams only.
 
-## Deciding who may watch
+## Deciding who may watch {#deciding-who-may-watch}
 
 By default every requested kind and URI is honored: any caller may watch any URI you publish. Nothing consults your read handler, because nobody is reading — a caller your `files://{name}` handler would turn away can still open a stream on `files://payroll.csv` and learn that it changed, and when. It never learns content, and it cannot probe what exists, because an unknown URI is honored too and simply never fires. Narrow but real, so gate it before you publish per-user URIs from a multi-tenant server.
 
@@ -60,7 +60,7 @@ The gate is a middleware. It sees the `subscriptions/listen` request before the 
 
 The full middleware contract, including what else it wraps and why it is marked provisional, is on **[Middleware](../advanced/middleware.md)**.
 
-## The client end
+## The client end {#the-client-end}
 
 Here is a client on the other side of that stream, following the board:
 
@@ -70,7 +70,7 @@ Here is a client on the other side of that stream, following the board:
 
 Entering `client.listen(...)` sends the request and waits for your acknowledgment, so the stream is live when the block starts, and each typed event is a cue to refetch, never a payload. That is the whole contract in one screen. Everything else about the client end lives on its own page: watching beside a main flow, stream endings, and re-listening. See **[Subscriptions](../client/subscriptions.md)** under *Clients*.
 
-## Scaling past one process
+## Scaling past one process {#scaling-past-one-process}
 
 Publishes travel from your handler to the open streams over a `SubscriptionBus`. The default is in-memory: one process, every stream in it. That is the right answer until you run replicas behind a load balancer, because then a client's stream is pinned to one replica, and a publish on another replica has to reach it.
 
@@ -123,7 +123,7 @@ async def tools_reloaded() -> None:
     await bus.publish(ToolsListChanged())  # from a lifespan task, a webhook, anywhere
 ```
 
-## The low-level composition
+## The low-level composition {#the-low-level-composition}
 
 Down on the low-level `Server` there is no pre-wired anything, and the same parts assemble in three lines:
 
@@ -135,7 +135,7 @@ Down on the low-level `Server` there is no pre-wired anything, and the same part
 * `ListenHandler(bus)` is the same handler `MCPServer` registers, and `on_subscriptions_listen=` is an ordinary handler slot. Put your own callable in that slot for different semantics, and the spec obligations move to you: acknowledge first, stamp every frame with the subscription id, deliver nothing outside the filter.
 * `ListenHandler.close()` ends every open stream gracefully. Each one receives the listen request's result as its final frame, which is the spec's way of saying the server ended the subscription deliberately. It returns before those streams finish flushing, so give them a moment before you tear the transport down. Without it, streams end when the client disconnects.
 
-## Recap
+## Recap {#recap}
 
 * A client opts in with one `subscriptions/listen` request, and the response is the stream. Serving it is built in.
 * You publish with `ctx.notify_*`, and the SDK does the stamping, filtering, and lifecycle work.

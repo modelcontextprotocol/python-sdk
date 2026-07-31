@@ -1,10 +1,10 @@
-# The Client
+# The Client {#the-client}
 
 A **`Client`** is how a Python program talks to an MCP server.
 
 It is one object with one lifecycle: construct it, enter `async with`, call methods. Every protocol verb (list the tools, call one, read a resource, render a prompt) is an `async` method on it that returns a typed result.
 
-## Your first client
+## Your first client {#your-first-client}
 
 ```python title="client.py" hl_lines="14-18"
 --8<-- "docs_src/client/tutorial001.py"
@@ -16,7 +16,7 @@ The server at the top is only there so you have something to connect to. The cli
 * `async with` is the **lifecycle**. Entering it connects and negotiates; leaving it disconnects. There is no `connect()` / `close()` pair, and a `Client` cannot be reused after the block ends.
 * Inside the block the connection facts are already there as plain properties.
 
-### What you can pass to `Client`
+### What you can pass to `Client` {#what-you-can-pass-to-client}
 
 `Client` takes one positional argument and resolves the transport from its type:
 
@@ -26,7 +26,7 @@ The server at the top is only there so you have something to connect to. The cli
 
 Everything else on this page is identical across all three. Headers, subprocesses, timeouts, and the `Transport` protocol get their own page: **[Client transports](transports.md)**.
 
-### What's on a connected client
+### What's on a connected client {#whats-on-a-connected-client}
 
 Four read-only properties, populated the moment you enter the block:
 
@@ -41,7 +41,7 @@ You never picked a protocol version. By default the `Client` probes the server a
     `client.session` is the underlying `ClientSession`, the low-level escape hatch.
     You won't need it for anything on this page.
 
-## Listing tools
+## Listing tools {#listing-tools}
 
 ```python title="client.py" hl_lines="15-20"
 --8<-- "docs_src/client/tutorial002.py"
@@ -76,7 +76,7 @@ That schema is everything a UI needs to render an argument form, and everything 
     the `name` if not. `from mcp.shared.metadata_utils import get_display_name` does exactly that,
     for tools, resources, resource templates and prompts.
 
-## Calling a tool
+## Calling a tool {#calling-a-tool}
 
 `call_tool(name, arguments)` runs the tool and gives you back a `CallToolResult`.
 
@@ -94,19 +94,19 @@ result.is_error            # False
 
 One return value, three things to read. Each has a different consumer.
 
-### `content`: what the model reads
+### `content`: what the model reads {#content-what-the-model-reads}
 
 `content` is a `list` of **content blocks**, and a content block is a union: `TextContent`, `ImageContent`, `AudioContent`, `ResourceLink`, or `EmbeddedResource`. A tool can return several, of different kinds.
 
 That is why `main` narrows with `isinstance(block, TextContent)` before touching `block.text`. Notice there is no `.text` outside the `isinstance`: the type checker won't allow it, because `ImageContent` has `.data`, not `.text`. The union is honest about what a tool is allowed to send you; your code should be too.
 
-### `structured_content`: what your application reads
+### `structured_content`: what your application reads {#structured_content-what-your-application-reads}
 
 `structured_content` is the tool's return value as JSON, matching the tool's declared `output_schema`. No string parsing, no guessing.
 
 When both are present they say the same thing twice on purpose: `content` is for a model, `structured_content` is for code. Where the structured half comes from, and how to control it, is the **[Structured Output](../servers/structured-output.md)** page.
 
-### `is_error`: whether the tool failed
+### `is_error`: whether the tool failed {#is_error-whether-the-tool-failed}
 
 A tool that raises does **not** raise in your client. It comes back as an ordinary result with `is_error=True`.
 
@@ -131,7 +131,7 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
     `MCPError` only when the server answers with a JSON-RPC **error** instead of a result, and
     **[Handling errors](../servers/handling-errors.md)** covers when a server produces which.
 
-## Resources
+## Resources {#resources}
 
 The resource verbs come in pairs: two ways to list, one way to read.
 
@@ -147,7 +147,7 @@ The resource verbs come in pairs: two ways to list, one way to read.
 
 A client can also be told when a resource changes. On 2025-era connections that is `subscribe_resource(uri)` / `unsubscribe_resource(uri)` - a method pair `MCPServer` doesn't implement, so on the 2026-07-28 wire (where those verbs no longer exist) the request answers `-32601`, *Method not found*. The 2026 replacement is a `subscriptions/listen` stream, which `MCPServer` *does* serve - `server_capabilities.resources.subscribe` is `True` there - and consuming it with `client.listen(...)` is this section's **[Subscriptions](subscriptions.md)** page.
 
-## Prompts
+## Prompts {#prompts}
 
 ```python title="client.py" hl_lines="15-20"
 --8<-- "docs_src/client/tutorial005.py"
@@ -170,7 +170,7 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 A host hands those messages straight to the model. That is the whole feature.
 
-## Completions
+## Completions {#completions}
 
 A server with a completion handler can autocomplete prompt and resource-template arguments as the user types.
 
@@ -183,7 +183,7 @@ A server with a completion handler can autocomplete prompt and resource-template
 
 The answer is in `result.completion.values`. Type `"p"` and the server comes back with `['poetry']`. The server side, and how a handler uses the *other* already-filled arguments to narrow its suggestions, is the **[Completions](../servers/completions.md)** page.
 
-## Pagination
+## Pagination {#pagination}
 
 Every `list_*` method takes a `cursor=` keyword and every result carries a `next_cursor`. When `next_cursor` is `None`, you have everything.
 
@@ -193,13 +193,13 @@ Every `list_*` method takes a `cursor=` keyword and every result carries a `next
 
 This loop is correct against every server. `MCPServer` returns everything in one page, so `next_cursor` is `None` and the loop runs once, which is why most code never writes it. Servers that genuinely page, and the rules cursors obey, are in **[Pagination](../advanced/pagination.md)**.
 
-## In tests
+## In tests {#in-tests}
 
 `Client(mcp)` with no process and no port is already a test harness for your server.
 
 There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-memory connections, and **[Testing](../get-started/testing.md)** is the page that explains it and builds the whole pattern around it.
 
-## Recap
+## Recap {#recap}
 
 * `Client(x)` connects in-memory to a server object, over Streamable HTTP to a URL string, and over anything else via a transport.
 * `async with` is the whole lifecycle. Inside it, `server_capabilities` and `protocol_version` are already populated; `server_info` and `instructions` are too when the server provides them.

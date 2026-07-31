@@ -1,4 +1,4 @@
-# What's new in v2
+# What's new in v2 {#whats-new-in-v2}
 
 Two things happened at once in v2. The **SDK was rebuilt**: a new engine under both the client and the server, a first-class `Client`, and a set of renames that a v1 codebase meets on its first import. And the **protocol moved**: v2 speaks the 2026-07-28 revision of MCP, which removes the connection handshake, the session, and every server-initiated request, without stranding the clients you already have.
 
@@ -9,9 +9,9 @@ This page is the tour of both halves, one section per headline, each ending in t
     copy-paste install line. If anything in v2 breaks, surprises, or slows you down,
     [tell us](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml).
 
-## The SDK: v1 to v2
+## The SDK: v1 to v2 {#the-sdk-v1-to-v2}
 
-### `FastMCP` is now `MCPServer`
+### `FastMCP` is now `MCPServer` {#fastmcp-is-now-mcpserver}
 
 The high-level server class was renamed, and its module with it. This is the first thing every v1 server hits, because the old import path is gone rather than deprecated:
 
@@ -23,7 +23,7 @@ mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 
 It is also, for a decorator-built server, most of the port. `@mcp.tool()`, `@mcp.resource()`, and `@mcp.prompt()` accept what they accepted in v1 (`@mcp.resource()` adds one optional `security=` keyword), and the input schema still comes from your type hints. Around the edges: everything under `mcp.server.fastmcp.*` now lives under `mcp.server.mcpserver.*`, `ctx.fastmcp` is `ctx.mcp_server`, `get_context()` is gone (declare a `ctx: Context` parameter instead), and the exception base `FastMCPError` is `MCPServerError`. The **[Migration Guide](migration.md#fastmcp-renamed-to-mcpserver)** has the import table.
 
-### `Resolve`: the new way to ask the user for input
+### `Resolve`: the new way to ask the user for input {#resolve-the-new-way-to-ask-the-user-for-input}
 
 Not everything a tool needs should come from the model. New in v2, a tool parameter annotated with `Resolve(fn)` is filled by a function you write instead, invisibly to the model, and that function can return `Elicit(...)` to put a question in front of the user. This is the preferred way to get anything from the client mid-call: the SDK carries the question over whichever mechanism the connection supports (a live elicitation request for a legacy client, a multi-round-trip on 2026-07-28), so one tool body serves both eras. **[Dependencies](handlers/dependencies.md)** is the page.
 
@@ -33,7 +33,7 @@ Not everything a tool needs should come from the model. New in v2, a tool parame
     `InputRequiredResult` itself and drive the rounds by hand, which is also how sampling and
     roots requests travel at 2026-07-28 (**[Multi-round-trip requests](handlers/multi-round-trip.md)**).
 
-### A first-class `Client`
+### A first-class `Client` {#a-first-class-client}
 
 v1 handed you three nested layers: a transport context manager yielding raw streams, a `ClientSession` wrapped around them, and a hand-called `await session.initialize()`. v2 has one object:
 
@@ -45,7 +45,7 @@ v1 handed you three nested layers: a transport context manager yielding raw stre
 
 **[The Client](client/index.md)** introduces it, **[Client transports](client/transports.md)** covers the three connection forms, **[Client callbacks](client/callbacks.md)** covers the callbacks themselves, and **[Testing](get-started/testing.md)** shows the in-memory pattern that replaces v1's `create_connected_server_and_client_session()` helper.
 
-### The low-level `Server` was rebuilt, not renamed
+### The low-level `Server` was rebuilt, not renamed {#the-low-level-server-was-rebuilt-not-renamed}
 
 If you work at the JSON-RPC layer, this is the "everything is different" part of v2. Here is the same one-tool server both ways; click the markers for what moved.
 
@@ -112,19 +112,19 @@ Underneath, the v1 `BaseSession` receive loop was replaced by a dispatcher engin
 
 **[The low-level Server](advanced/low-level-server.md)** is the page; the **[Migration Guide](migration.md#lowlevel-server-decorator-based-handlers-replaced-with-constructor-on_-params)** walks every removed hook. If you never dropped below `MCPServer`, none of this touches you.
 
-### The wire types moved to `mcp-types`, and every field is snake_case
+### The wire types moved to `mcp-types`, and every field is snake_case {#the-wire-types-moved-to-mcp-types-and-every-field-is-snake_case}
 
 The protocol types now live in their own distribution, `mcp-types`. It depends on nothing but pydantic and typing-extensions, so a gateway, a proxy, or a code generator can consume MCP's wire shapes without installing an HTTP stack: such a project installs `mcp-types` and imports `mcp_types`. `mcp` itself depends on that package at an exact version and re-exposes it, so code that depends on the SDK keeps writing `import mcp.types as types` and `from mcp.types import Tool` (a permanent alias, every name the same object) and declares only its one real dependency, `mcp`. The rule of thumb: import through whichever package you actually depend on.
 
 On those types, every Python attribute is now snake_case: `result.is_error`, `tool.input_schema`, `listing.next_cursor`. The JSON on the wire is camelCase, exactly as before; only the attribute spelling changed. Two stricter defaults ride along: unknown fields are ignored instead of round-tripped (put extras in `_meta`), and both sides validate traffic against the protocol version they negotiated. See the **[Migration Guide](migration.md#field-names-changed-from-camelcase-to-snake_case)** for the rename table.
 
-### Transport configuration moved to `run()`
+### Transport configuration moved to `run()` {#transport-configuration-moved-to-run}
 
 `MCPServer(...)` is about what your server *is*: its name, its instructions, its lifespan, its auth. How it is *served* now belongs to `run()` and the app builders, which is where `host`, `port`, `stateless_http`, `json_response`, the endpoint paths, and `transport_security` went (`MCPServer("x", port=9000)` is a `TypeError`). The overloads are typed per transport, so your editor tells you which options `stdio` takes and which `streamable-http` takes. One removal worth knowing: `mount_path` is gone; mounting the ASGI app is the supported way to serve under a prefix.
 
 **[Running your server](run/index.md)** covers the options; **[Add to an existing app](run/asgi.md)** covers mounting.
 
-### Behavior that changes without an import error
+### Behavior that changes without an import error {#behavior-that-changes-without-an-import-error}
 
 The renames announce themselves. These do not:
 
@@ -133,11 +133,11 @@ The renames announce themselves. These do not:
 * **Results are validated before they leave.** A hand-built `Tool` whose `input_schema` is `{}` now fails `tools/list` (the spec requires `"type": "object"`). Servers built on `@mcp.tool()` never see this; the SDK writes their schemas.
 * **Your client validates what it receives.** `list_tools()` and `call_tool()` check the server's answer against the negotiated protocol version, so a not-quite-valid server that v1's lenient parse tolerated now raises `pydantic.ValidationError`. If you connect to servers you do not control, expect to be the one who finds them; the **[Migration Guide](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)** has the details.
 * **URI templates are real RFC 6570 now.** `{+path}`, `{?query}` and friends work, matching is exact instead of regex-loose, and path traversal in extracted values is rejected by default. Stricter templates fail at decoration time, not on the first request. **[URI templates](servers/uri-templates.md)**.
-* **The streamable HTTP lifespan runs once**, at startup, and its state is shared by every session and request. In v1 it ran once per session, and once per request under `stateless_http=True`. Pools and caches built in a lifespan get dramatically cheaper; anything that acquired a per-connection resource there belongs in the handler body now. **[Lifespan](handlers/lifespan.md)**.
+* **The Streamable HTTP lifespan runs once**, at startup, and its state is shared by every session and request. In v1 it ran once per session, and once per request under `stateless_http=True`. Pools and caches built in a lifespan get dramatically cheaper; anything that acquired a per-connection resource there belongs in the handler body now. **[Lifespan](handlers/lifespan.md)**.
 * **`mcp dev` and `mcp install` pin the environment they spawn** to your installed SDK version. Both commands run your server in a fresh `uv run --with ...` environment, which used to resolve `mcp` to the newest stable release rather than the version you are developing against. **[Migration Guide](migration.md#mcp-dev-and-mcp-install-pin-the-spawned-environment-to-your-sdk-version)**.
 * **The HTTP client is now `httpx2`, not `httpx`.** The dependency swap changes what your code catches and passes (`httpx2.AsyncClient`, `httpx2.ConnectError`), and it changes how TLS certificates are verified: `httpx2` validates through `truststore` against the operating system trust store instead of certifi's bundled CA list. Most environments never notice; a minimal container with no system CA store, or a private CA that only certifi's bundle knew about, starts failing the TLS handshake. Set `SSL_CERT_FILE`/`SSL_CERT_DIR` or pass `verify=ssl_context` to your client. **[Migration Guide](migration.md#httpx-and-httpx-sse-replaced-by-httpx2)**.
 
-### Removed outright
+### Removed outright {#removed-outright}
 
 Each of these is a section in the **[Migration Guide](migration.md)**:
 
@@ -148,11 +148,11 @@ Each of these is a section in the **[Migration Guide](migration.md)**:
 * `McpError`, renamed **`MCPError`** with a direct `(code, message, data)` constructor.
 * `MCPServer.get_context()`, `mount_path=`, and the lowlevel `Server`'s decorator methods, ContextVar, and handler dicts.
 
-## The protocol: 2025-11-25 to 2026-07-28
+## The protocol: 2025-11-25 to 2026-07-28 {#the-protocol-2025-11-25-to-2026-07-28}
 
 v2 implements the 2026-07-28 revision, and it serves **both** revisions at once: the same `streamable_http_app()` (and the same stdio server) answers a 2025-era client's `initialize` and a 2026-era client's requests with nothing to configure, no flag to flip, and no separate deployment. Serving the new revision does not strand a client on the old one. What follows is what the new revision itself changes.
 
-### No handshake, no session
+### No handshake, no session {#no-handshake-no-session}
 
 A 2026-07-28 client does not open a connection, negotiate, and then talk. Every request carries its protocol version, client info, and client capabilities in `_meta`, and the one discovery call, `server/discover`, is a plain request like any other. `Client` does the right thing by default: it probes `server/discover` once and falls back to the `initialize` handshake if the server is older.
 
@@ -160,7 +160,7 @@ Over Streamable HTTP there is no `Mcp-Session-Id` on the 2026 path, which is the
 
 **[Protocol versions](protocol-versions.md)** is the client's side of this, **[Deploy & scale](run/deploy.md)** is the operator's checklist (the Host allowlist, the `request_state` key, notifications across replicas), and **[Serving legacy clients](run/legacy-clients.md)** is the both-eras-at-once story.
 
-### The server cannot call the client: multi-round-trip requests
+### The server cannot call the client: multi-round-trip requests {#the-server-cannot-call-the-client-multi-round-trip-requests}
 
 Every server-initiated request is gone at 2026-07-28: push elicitation, sampling, `roots/list`. On a 2026 connection there is no channel for them, so `ctx.elicit()` and `ctx.session.create_message()` fail there with `NoBackChannelError` (they still work for legacy clients).
 
@@ -178,7 +178,7 @@ That file is the pitch in one place: one server, one `Resolve`-backed tool, and 
     question into a `Resolve(...)` parameter (era-portable), or pin the test client to
     `mode="legacy"` if you genuinely want the push behavior.
 
-### Roots, sampling, and protocol logging are deprecated; `ping` is removed
+### Roots, sampling, and protocol logging are deprecated; `ping` is removed {#roots-sampling-and-protocol-logging-are-deprecated-ping-is-removed}
 
 [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) deprecates three whole *capabilities*, on every protocol version: roots, sampling, and MCP-level logging (`ctx.info()` and friends). That is a separate axis from the missing back-channel above; deprecated is advisory, everything keeps working against 2025-era sessions, and nothing changes on the wire. What you notice is `MCPDeprecationWarning`, which is a `UserWarning`, so it prints by default; expect your first `ctx.info(...)` after the upgrade to say so.
 
@@ -186,13 +186,13 @@ That file is the pitch in one place: one server, one `Resolve`-backed tool, and 
 
 **[Deprecated features](deprecated.md)** has the full table, the replacement for each, and the one-line filter if you need a quiet log while you serve legacy clients.
 
-### Change notifications become one stream
+### Change notifications become one stream {#change-notifications-become-one-stream}
 
 At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), a middleware can refuse a listen request per caller, and multi-replica deployments plug in a shared `SubscriptionBus`. On the client, `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver.
 
 **[Subscriptions](handlers/subscriptions.md)** covers publishing and serving, **[its Clients twin](client/subscriptions.md)** the watching end, and **[Deploy & scale](run/deploy.md)** the bus.
 
-### The rest, quickly
+### The rest, quickly {#the-rest-quickly}
 
 * **Identity is optional, per-message metadata.** The request-side `clientInfo` `_meta` key is optional (the required pair is `protocolVersion` + `clientCapabilities`), and `serverInfo` moved out of the `server/discover` result body: servers stamp it into every 2026-era result's `_meta` instead ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). The SDK always stamps; `client.server_info` is `None` when a server does not identify itself (for example, a middleware stripped the key). **[The low-level Server](advanced/low-level-server.md)** shows the stamp on the wire.
 * **Requests are routable without parsing bodies.** Modern HTTP requests carry `Mcp-Method` (and, for the three tool-ish calls, `Mcp-Name`); a tool input-schema property annotated with `x-mcp-header` is mirrored into an `Mcp-Param-*` header and cross-checked by the server ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways and rate limiters can route on headers alone; the **[Migration Guide](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** has the rules.
@@ -202,7 +202,7 @@ At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are repla
 * **Authorization got harder to hold wrong.** The client validates the `iss` returned with the authorization code ([RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207); your `callback_handler` now returns an `AuthorizationCodeResult`), sends `application_type` when it registers, and never replays credentials against a different authorization server. New in the enterprise corner: the [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) identity-assertion flow. The **[Migration Guide](migration.md)** lists every OAuth change; **[OAuth for clients](client/oauth-clients.md)** and **[Identity assertion](client/identity-assertion.md)** are the pages.
 * **Every server is traceable.** OpenTelemetry ships on by default as middleware: every request gets a server span, at no cost until the process configures an exporter. When both ends run the SDK, the client also propagates W3C trace context in `_meta`, so the traces join up. **[OpenTelemetry](run/opentelemetry.md)**.
 
-## Upgrading from v1?
+## Upgrading from v1? {#upgrading-from-v1}
 
 * The **[Migration Guide](migration.md)** is the complete, exact list of what to change; this page was the why.
 * **v1.x is not going anywhere.** It moves to maintenance, keeps getting critical fixes and security patches, and nothing about the 2026-07-28 spec release breaks it; its docs live at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/). If you publish a library that depends on `mcp` and are not ready to migrate, keep an upper bound (for example `mcp>=1.28,<2`) so an unpinned resolve stays on 1.x.

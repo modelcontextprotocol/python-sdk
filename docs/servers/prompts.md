@@ -1,4 +1,4 @@
-# Prompts
+# Prompts {#prompts}
 
 A **prompt** is a message template the user picks.
 
@@ -6,7 +6,7 @@ Tools are for the model. A prompt is the opposite: the user chooses one from a m
 
 You declare one by putting `@mcp.prompt()` on a function that returns the text.
 
-## Your first prompt
+## Your first prompt {#your-first-prompt}
 
 ```python title="server.py" hl_lines="6-9"
 --8<-- "docs_src/prompts/tutorial001.py"
@@ -32,7 +32,7 @@ That is what a client gets back from `prompts/list`:
 
 There is no JSON Schema here. Prompt arguments are a flat list of **named string values**: a form a person fills in, not a payload a model constructs.
 
-### Rendering it
+### Rendering it {#rendering-it}
 
 The client renders the template with `prompts/get`, passing the arguments. Your function runs and the `str` you return becomes **one user message**:
 
@@ -65,7 +65,7 @@ That is the entire life of a prompt: listed by name, rendered on demand, dropped
     There is no tool-style error result to hand back to a model, because no model is in the loop:
     the call raises. The reason (`Missing required arguments: {'code'}`) lands in your server's log.
 
-### Try it
+### Try it {#try-it}
 
 Run the server with the MCP Inspector:
 
@@ -75,7 +75,7 @@ uv run mcp dev server.py
 
 Open the **Prompts** tab and select `review_code`. The Inspector draws a form with one required `code` field. Fill it in, render it, and you get back exactly the user message above.
 
-## More than one message
+## More than one message {#more-than-one-message}
 
 A code review is one message. A debugging session is a conversation, and a prompt can seed the whole thing.
 
@@ -107,7 +107,7 @@ Rendering `debug_error` now produces three messages, in order:
 
 Notice the last one. Pre-filling an `assistant` turn is how you steer the model's *next* reply without making the user type the steering themselves.
 
-## Titles and argument descriptions
+## Titles and argument descriptions {#titles-and-argument-descriptions}
 
 `review_code` is a function name, not a label. Give the client something better to put on the button, and describe each argument so the form explains itself:
 
@@ -138,7 +138,7 @@ The `prompts/list` entry now carries everything a client needs to draw a good fo
     docstring-as-description, same `Annotated`/`Field`. The only things that change are who
     triggers it (the user) and where the result goes (into the conversation).
 
-## Recap
+## Recap {#recap}
 
 * `@mcp.prompt()` on a function makes it a prompt. Name from the function, description from the docstring.
 * Prompts are **user-controlled**: the client lists them, the user picks one and fills in the arguments.

@@ -1,4 +1,4 @@
-# Resources
+# Resources {#resources}
 
 A **resource** is data you expose for the application to read.
 
@@ -6,7 +6,7 @@ That's the split. A tool is something the **model** decides to call. A resource 
 
 You declare one by putting `@mcp.resource(uri)` on a plain Python function.
 
-## Your first resource
+## Your first resource {#your-first-resource}
 
 ```python title="server.py" hl_lines="6-8"
 --8<-- "docs_src/resources/tutorial001.py"
@@ -42,7 +42,7 @@ result.contents  # [TextResourceContents(uri="config://app", mime_type="text/pla
     `resources/read`, and only for the URI that was asked for. Expose a thousand resources
     and you pay for the ones somebody opens.
 
-### Try it
+### Try it {#try-it}
 
 Run the server with the MCP Inspector:
 
@@ -52,7 +52,7 @@ uv run mcp dev server.py
 
 Open the URL it prints and go to the **Resources** tab. `config://app` is in the list with its description. Click it and the Inspector reads it: there are your two lines of config.
 
-## Resource templates
+## Resource templates {#resource-templates}
 
 One URI per record doesn't scale. Put a **placeholder** in the URI and a matching parameter on the function:
 
@@ -96,7 +96,7 @@ The placeholder syntax is [RFC 6570](https://datatracker.ietf.org/doc/html/rfc65
 
 `get_user_profile` can also take a parameter annotated `Context`. The SDK injects it without ever treating it as a URI parameter, and **[The Context](../handlers/context.md)** page covers what it gives you.
 
-## What you return
+## What you return {#what-you-return}
 
 You're not limited to `str`. Give each resource a `mime_type` and return whatever fits:
 
@@ -129,7 +129,7 @@ The same rule applies to anything else JSON-serialisable: a list, a Pydantic mod
 
 A client can also **subscribe** to a resource and be notified when it changes; that's the client's half of the story and it lives in **[The Client](../client/index.md)**.
 
-## Recap
+## Recap {#recap}
 
 * `@mcp.resource(uri)` on a function makes it a resource. The URI is the address, the return value is the content, the docstring is the description.
 * A `{placeholder}` in the URI makes it a **template**: it's listed under `resources/templates/list` and one function serves every URI that matches.

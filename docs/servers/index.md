@@ -1,4 +1,4 @@
-# Servers
+# Servers {#servers}
 
 An `MCPServer` exposes three primitives to a connected client. They differ by who
 decides to use them:

@@ -1,4 +1,4 @@
-# Middleware
+# Middleware {#middleware}
 
 A **middleware** is one async function that wraps every message your server receives.
 
@@ -14,7 +14,7 @@ You write it as `async (ctx, call_next)` and append it to `server.middleware`. T
 below uses the low-level `Server`; if `Server(name, on_call_tool=...)` is new to you, read
 **[The low-level Server](low-level-server.md)** first.
 
-## A timing middleware
+## A timing middleware {#a-timing-middleware}
 
 One server, one tool, one middleware that logs how long each message took:
 
@@ -31,7 +31,7 @@ One server, one tool, one middleware that logs how long each message took:
 * `server.middleware.append(...)` registers it. The list runs outermost-first, so
   `middleware[0]` is the one closest to the wire.
 
-### Try it
+### Try it {#try-it}
 
 Connect a client, list the tools, call one. Your log has **three** lines:
 
@@ -53,7 +53,7 @@ That is the point. Middleware wraps **every** inbound message:
 * Even a method the server has no handler for: `call_next` raises the
   `MCPError(-32601, "Method not found")` *through* your middleware on its way to the client.
 
-## What you can do inside one
+## What you can do inside one {#what-you-can-do-inside-one}
 
 In increasing order of how much you should hesitate:
 
@@ -88,7 +88,7 @@ In increasing order of how much you should hesitate:
     an elicitation) while handling `initialize` therefore **deadlocks the connection**: the
     response you are waiting for can never be read. Fire-and-forget notifications are fine.
 
-## The one middleware that ships on by default
+## The one middleware that ships on by default {#the-one-middleware-that-ships-on-by-default}
 
 The SDK ships exactly one middleware, and it is already on your server's list: the one that
 emits an OpenTelemetry span for every message. You don't append it, and most of the time you
@@ -101,7 +101,7 @@ don't think about it. It is a no-op until you install an exporter, and it has it
     the decoded message instead of the raw HTTP request. The two compose: Starlette middleware
     on `streamable_http_app()` sees HTTP; this sees MCP.
 
-## Recap
+## Recap {#recap}
 
 * A middleware is `async (ctx, call_next) -> result`, passed as `MCPServer(middleware=[...])` (or
   appended to `mcp.middleware`), and appended to `server.middleware` on the low-level `Server`.

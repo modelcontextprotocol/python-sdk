@@ -1,4 +1,4 @@
-# Troubleshooting
+# Troubleshooting {#troubleshooting}
 
 Every heading on this page is the exact text of an error the SDK produces, followed by what it means and the one-move fix. Find the last line of your traceback (or your server log) here with your browser's find-in-page, and read only that entry.
 
@@ -10,7 +10,7 @@ Several entries run against this one server. One tool and one templated resource
 
 The errors this page quotes are real: the SDK's own test suite reproduces every one of them.
 
-## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)`
+## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
 
 This is not an MCP error. It is anyio noise, and your real error is the **last line** of the paste.
 
@@ -56,7 +56,7 @@ async def main() -> None:
     down this page) escapes from `async with` itself, so there is no "inside" to catch it in.
     For those, read the bottom of the group.
 
-## `RuntimeError: Client must be used within an async context manager`
+## `RuntimeError: Client must be used within an async context manager` {#runtimeerror-client-must-be-used-within-an-async-context-manager}
 
 `Client(...)` only builds the object. Nothing connects until `async with`, so every method refuses:
 
@@ -76,7 +76,7 @@ async def main() -> None:
 
 `__aexit__` is the disconnection, which is why there is no `client.close()` to forget. **[Testing](get-started/testing.md)** is built on exactly this pattern.
 
-## `Error executing tool <name>: <message>` and `Unknown tool: <name>`
+## `Error executing tool <name>: <message>` and `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
 
 You are reading a **result**, not an exception. `call_tool` did not raise, and it never will for a failing tool.
 
@@ -92,7 +92,7 @@ result.structured_content  # None
 
 The fix is in your client: **check `result.is_error`**. A `try/except` around `call_tool` catches none of these, because there is nothing to catch. This is deliberate, and it is the single most useful thing on this page to internalise: the *model* chose the call, so the model gets the message and a chance to try again. **[Handling errors](servers/handling-errors.md)** is the whole story, including the `MCPError` path that *does* raise.
 
-## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool`
+## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
 You wrote `@mcp.tool` instead of `@mcp.tool()`. `tool()` is a decorator *factory*: without the parentheses, Python hands your function to its `name=` parameter.
 
@@ -115,7 +115,7 @@ Add the parentheses. `@mcp.resource(...)` and `@mcp.prompt()` say the same thing
     tools, has this shape: run `python server.py` yourself and read the traceback. A type checker
     also catches it: a function is not a valid `name=`.
 
-## `Tool already exists: <name>`
+## `Tool already exists: <name>` {#tool-already-exists-name}
 
 Two registrations used the same tool name. The **first** one wins, the second is silently dropped, and this warning in the *server log* is the only signal:
 
@@ -129,7 +129,7 @@ WARNING mcp.server.mcpserver.tools.tool_manager: Tool already exists: forecast
 
 `tools/list` reports one `forecast`, and it is `forecast_today`. Rename one of them. `MCPServer(..., warn_on_duplicate_tools=False)` silences the warning without changing the outcome, so leave it on. Resources and prompts have the same rule and the same log line (`Resource already exists:`, `Prompt already exists:`).
 
-## My host lists zero tools
+## My host lists zero tools {#my-host-lists-zero-tools}
 
 There is no error string for this, which is exactly why it is hard to search. The SDK never drops a registered tool from `tools/list`, so work outward:
 
@@ -141,7 +141,7 @@ There is no error string for this, which is exactly why it is hard to search. Th
 
 An "invalid" tool name is *not* on that list: a non-conforming name logs a warning but the tool is registered and listed anyway.
 
-## `MCPError: Server returned an error response`
+## `MCPError: Server returned an error response` {#mcperror-server-returned-an-error-response}
 
 The server refused the HTTP request outright, with a body that is not JSON-RPC, so the python `Client` has nothing better to show you than this stand-in.
 
@@ -180,7 +180,7 @@ The fix is `transport_security=`. Allowlist the hostname you actually serve:
 
 **[Deploy & scale](run/deploy.md)** covers what each field means, the reverse-proxy case, and everything else that changes at deploy time. And `421 Misdirected Request` / `Invalid Host header`, right below, is the same failure seen from the other side.
 
-## `421 Misdirected Request` / `Invalid Host header`
+## `421 Misdirected Request` / `Invalid Host header` {#421-misdirected-request-invalid-host-header}
 
 This is `Server returned an error response`, seen from anything that is *not* the python `Client`: curl, a browser's network tab, a reverse proxy's access log, or another SDK.
 
@@ -206,7 +206,7 @@ The fix is the same `transport_security=TransportSecuritySettings(allowed_hosts=
 
 **[Deploy & scale](run/deploy.md)** has the full treatment, including when switching the check off is the honest configuration.
 
-## `RuntimeError: Task group is not initialized. Make sure to use run().`
+## `RuntimeError: Task group is not initialized. Make sure to use run().` {#runtimeerror-task-group-is-not-initialized-make-sure-to-use-run}
 
 Your MCP app is mounted inside another ASGI app, and nothing started its **session manager**.
 
@@ -242,7 +242,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 * `StreamableHTTPSessionManager .run() can only be called once per instance. Create a new instance if you need to run again.` The manager is single-use; entering the same app's lifespan twice hits it.
 * `mcp.session_manager` only exists **after** `streamable_http_app()` has been called, so build the routes first and touch the manager only inside the lifespan.
 
-## `MCPError: Session not found`
+## `MCPError: Session not found` {#mcperror-session-not-found}
 
 The server does not recognise the `Mcp-Session-Id` your client sent, almost always because the server **restarted** (or you were routed to a different instance). Sessions live in that one process's memory.
 
@@ -258,13 +258,13 @@ If it happens *without* a restart, you are running more than one worker without 
 
 For the server operator, the matching log line is `Rejected request with unknown or expired session ID: <id>`. It is logged at `INFO`, so it is invisible at the usual `WARNING` threshold. Seeing it in bursts right after a deploy is normal; every connected client is reconnecting.
 
-## `MCPError: Method not found`
+## `MCPError: Method not found` {#mcperror-method-not-found}
 
 One side sent a JSON-RPC request the other has no handler for, and `e.error.data` names the method. The usual cause is an **era mismatch**: a method that exists in one protocol revision and not in the other, sent to a peer on the wrong one, such as a `2025`-era `resources/subscribe` arriving at a `2026-07-28` connection, or a `2026`-only `subscriptions/listen` sent by a client pinned to `mode="legacy"`. **[Protocol versions](protocol-versions.md)** is the map of which side speaks what, and the other honest cause (an optional capability you never registered a handler for) is on **[Completions](servers/completions.md)**.
 
 One thing does **not** produce this error, despite being a request the modern protocol removed: a tool calling `ctx.elicit()` on a `2026-07-28` connection. The server refuses to *send* that request at all, so what you get instead is `Cannot send 'elicitation/create': ...`, further down this page.
 
-## `MCPError: Client did not declare the form elicitation capability required by resolver '<name>'`
+## `MCPError: Client did not declare the form elicitation capability required by resolver '<name>'` {#mcperror-client-did-not-declare-the-form-elicitation-capability-required-by-resolver-name}
 
 Your server wants to ask the user something, and this client never said it can be asked.
 
@@ -297,13 +297,13 @@ async def main() -> None:
     speak). A conforming SDK client cannot produce either, so if you see one, look at whatever is
     rewriting requests between your client and your server.
 
-## `MCPError: Elicitation not supported`
+## `MCPError: Elicitation not supported` {#mcperror-elicitation-not-supported}
 
 The same gap as `Client did not declare the form elicitation capability ...`, spelled by the paths that don't check up front: the server needed an elicitation answered, and the connected client registered no `elicitation_callback`.
 
 You see this one from `ctx.elicit()` on a legacy connection, and on any connection at all from a returned multi-round-trip question (**[Multi-round-trip requests](handlers/multi-round-trip.md)**) that reaches a client with no callback to answer it. The fix is identical: pass `elicitation_callback=` to `Client(...)`. There is no version of "the user wasn't asked" that your tool receives as a `decline`; a client that cannot be asked is a failed call, so design your tools for it.
 
-## `MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.`
+## `MCPError: Cannot send 'elicitation/create': this transport context has no back-channel for server-initiated requests.` {#mcperror-cannot-send-elicitationcreate-this-transport-context-has-no-back-channel-for-server-initiated-requests}
 
 Your handler tried to reach the client mid-request, on a connection whose call has no channel that can carry a request from the server. There are three server configurations that put a call there.
 
@@ -348,7 +348,7 @@ Same question, same `elicitation_callback` on the client. The difference is unde
     channel exists there.
     **[Protocol versions](protocol-versions.md)** is the page on what each version has.
 
-## `MCPError: Invalid or expired requestState`
+## `MCPError: Invalid or expired requestState` {#mcperror-invalid-or-expired-requeststate}
 
 The server could not verify the `requestState` token your client echoed back, so it refused the round.
 
@@ -395,13 +395,13 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 
     Do what it says.
 
-## Still stuck?
+## Still stuck? {#still-stuck}
 
 * If a message the SDK produced is not on this page, that is a documentation bug worth reporting on its own.
 * Search the [issue tracker](https://github.com/modelcontextprotocol/python-sdk/issues); most error strings appearing there are already someone's write-up.
 * Found nothing? [Open an issue](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) with the full traceback, or ask in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
 
-## Recap
+## Recap {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` is never the error. Read the **last line**; catching `MCPError` *inside* the `async with Client(...)` block skips the wrapping entirely.
 * `call_tool` does not raise for a failing tool. `Error executing tool ...` and `Unknown tool: ...` are results: check `result.is_error`.

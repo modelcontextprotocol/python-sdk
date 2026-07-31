@@ -1,11 +1,11 @@
-# Get started
+# Get started {#get-started}
 
 New to MCP, or new to this SDK? Start here. These pages take you from nothing to a
 working, tested server: [install the SDK](installation.md), build your
 [first server](first-steps.md), [connect it to a real host](real-host.md), and
 [test it](testing.md) with an in-memory client.
 
-## Run the code
+## Run the code {#run-the-code}
 
 All the code blocks can be copied and used directly: they are complete, working files.
 
@@ -17,7 +17,7 @@ uv run mcp dev server.py
 
 It is **HIGHLY encouraged** that you write (or copy) the code, edit it, and run it locally. Using it in your own editor is what really shows you the point: how little you write, the autocompletion, the type checks catching mistakes before you run anything.
 
-## You will not be guessing
+## You will not be guessing {#you-will-not-be-guessing}
 
 Every example in these docs is a complete file under [`docs_src/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/docs_src) in the SDK's own repository, and every one of them is exercised by the SDK's test suite through an **in-memory client**:
 
@@ -41,7 +41,7 @@ If a change to the SDK breaks an example on one of these pages, CI goes red befo
 
 You'll use this yourself in [Testing](testing.md); it's how you test your own servers, too.
 
-## Where to go next
+## Where to go next {#where-to-go-next}
 
 Once you have a server running, the rest of these docs are a reference, not a course.
 Every page stands on its own, so jump straight to what you need:

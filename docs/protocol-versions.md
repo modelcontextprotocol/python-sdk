@@ -1,4 +1,4 @@
-# Protocol versions
+# Protocol versions {#protocol-versions}
 
 MCP has two eras.
 
@@ -6,7 +6,7 @@ Servers released before 2026-07-28 open every connection with the **`initialize`
 
 You almost never have to care, because `Client` negotiates for you. This page is about the one constructor argument that controls it, `mode=`, and the three times you change it.
 
-## `mode="auto"`
+## `mode="auto"` {#modeauto}
 
 ```python title="client.py" hl_lines="14-15"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
@@ -30,7 +30,7 @@ That is the whole feature. One `Client`, any era of server, no branching in your
     HTTP — so against your own server `auto` always lands on `2026-07-28`. The fallback only
     ever fires against a real pre-2026 server, which is exactly when you want it to.
 
-## `mode="legacy"`
+## `mode="legacy"` {#modelegacy}
 
 ```python title="client.py" hl_lines="14"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
@@ -52,7 +52,7 @@ At 2026-07-28 it is gone. The server *returns* its questions and you retry the c
 
 `mode="auto"` only gives you a handshake when the server is too old for anything else. `mode="legacy"` guarantees one. Reach for it whenever you hand `Client(...)` a `sampling_callback`, an `elicitation_callback` you want driven as a request, or a `message_handler`. **[Client callbacks](client/callbacks.md)** goes through each.
 
-## Pinning a version
+## Pinning a version {#pinning-a-version}
 
 `mode` also accepts a modern protocol version string. Today that set is exactly `["2026-07-28"]`.
 
@@ -83,7 +83,7 @@ Only modern versions are pinnable. A handshake-era string is rejected at constru
 ValueError: mode must be 'legacy', 'auto', or one of ['2026-07-28']; got '2025-06-18' ('2025-06-18' is a handshake-era version; use mode='legacy')
 ```
 
-## Reconnecting with `prior_discover`
+## Reconnecting with `prior_discover` {#reconnecting-with-prior_discover}
 
 The probe is cheap, but it is still a round trip you pay on every reconnect, and the answer almost never changes.
 
@@ -106,7 +106,7 @@ The second connection made **zero** negotiation round trips and still knows exac
     `prior_discover=` only does anything when `mode` is a version pin. Under `"auto"` the client
     probes the server anyway, and under `"legacy"` it is ignored.
 
-## The four modes
+## The four modes {#the-four-modes}
 
 | You write | Negotiation traffic | You get |
 | --- | --- | --- |
@@ -115,7 +115,7 @@ The second connection made **zero** negotiation round trips and still knows exac
 | `Client(target, mode="2026-07-28")` | none | that version, pinned, with `server_info` as `None` |
 | `Client(target, mode="2026-07-28", prior_discover=saved)` | none | that version, pinned, *and* the identity you saved last time |
 
-## Recap
+## Recap {#recap}
 
 * MCP has a handshake era (up to `2025-11-25`, the `initialize` handshake) and a modern era (`2026-07-28`, `server/discover`). `Client` bridges them.
 * `mode="auto"` is the default: probe, fall back. Leave it alone unless one of the other three rows describes you.

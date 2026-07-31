@@ -1,10 +1,10 @@
-# Subscriptions
+# Subscriptions {#subscriptions}
 
 A server's catalog is not fixed. Tools appear at runtime, and the content behind a resource URI changes. A client hears about it through `client.listen(...)`: one `subscriptions/listen` request whose response *is* the stream. It stays open and carries the change notifications the client asked for.
 
 This page is the client end: opening the stream, watching it beside your main flow, and handling its endings. Publishing changes, filtering, and serving the method are the server's side of the story, told in **[Subscriptions](../handlers/subscriptions.md)** under *Inside your handler*. The examples here talk to the sprint-board server built there.
 
-## Watching the stream
+## Watching the stream {#watching-the-stream}
 
 A subscription is one context manager. Entering it sends the request, with your keyword arguments as the subscription filter, and waits for the server's acknowledgment, so the stream is live by the time the block starts.
 
@@ -23,7 +23,7 @@ Two more properties of the handle:
 * `sub.honored` is the filter the server acknowledged: a `SubscriptionFilter` with the fields you passed, read as attributes (`sub.honored.prompts_list_changed`). `MCPServer` honors every kind you ask for, so it echoes your request back. A server that supports fewer kinds acknowledges less, and an honored kind may still never fire. A server may also refuse the whole request rather than acknowledge it (see [Deciding who may watch](../handlers/subscriptions.md#deciding-who-may-watch) on the server page), which surfaces as the request's error.
 * `sub.subscription_id` is the listen request's id, the one stamped on every frame of this stream. Several subscriptions can be open at once, each demultiplexed by its own id.
 
-## Watching without blocking
+## Watching without blocking {#watching-without-blocking}
 
 `follow_board` runs until the server closes the stream, which may be never, so on its own it owns your program. Real clients want the watcher *beside* the main flow: an agent calls tools while a watcher keeps a cache or a UI current.
 
@@ -57,9 +57,9 @@ The order is the point. Nothing is replayed, so an event published before your s
 
 Requests run freely beside an open stream, from the watcher task or any other, on the same client. Because *duplicate* unconsumed events coalesce, a busy main flow may produce one refetch rather than three. Events that differ do not coalesce: a filter naming many URIs queues one pending event per URI.
 
-To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK cancels the listen request the way the transport expects: over streamable HTTP, by closing that request's stream. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
+To stop watching, leave the block: there is no `unsubscribe` call. Cancelling the task that owns the block does that for you, and the SDK cancels the listen request the way the transport expects: over Streamable HTTP, by closing that request's stream. A watcher that runs for the life of your app never returns on its own, so cancel it, or its task group's scope, at shutdown.
 
-## Streams end
+## Streams end {#streams-end}
 
 A stream ends in one of two ways, both ordinary control flow. A graceful server close ends the `async for`; an abrupt drop raises `SubscriptionLost`.
 
@@ -75,7 +75,7 @@ Servers close streams gracefully for their own reasons, including shedding a sub
 
 `keep_following` catches only `SubscriptionLost`. Entering `listen()` can also raise `MCPError` (the connection failed, or the server does not serve the method), `TimeoutError` (no acknowledgment arrived), and `ListenNotSupportedError` (a pre-2026 connection). Decide which of those your watcher should retry: the last never heals.
 
-## Recap
+## Recap {#recap}
 
 * Enter `async with client.listen(...)`; entering waits for the acknowledgment, so nothing published after it is missed.
 * Iterate with `async for event in sub`. Events are cues to refetch, never payloads.

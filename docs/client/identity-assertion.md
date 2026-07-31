@@ -1,4 +1,4 @@
-# Identity assertion
+# Identity assertion {#identity-assertion}
 
 An ordinary OAuth provider (**[OAuth clients](oauth-clients.md)**) starts by asking the MCP server a question: *which authorization server do you trust?* It follows the answer wherever it points, and then either a person signs in or a pre-shared secret stands in for one.
 
@@ -6,7 +6,7 @@ An enterprise wants neither decided per server. It already runs an identity prov
 
 This page is both ends of that trade. The MCP server itself never changes: it is still the resource server from **[Authorization](../run/authorization.md)**, checking whatever token shows up.
 
-## Two token requests
+## Two token requests {#two-token-requests}
 
 Two different authorities are in play, and naming them apart is most of understanding this page. The **enterprise IdP** is your organization's identity provider: it knows who the employee is, it is where policy lives, and it issues the ID-JAG. The SDK never talks to it. The **MCP authorization server** is the same party it was in **[Authorization](../run/authorization.md)**: the issuer named in the MCP server's metadata, the thing that mints the tokens that MCP server accepts. In an ordinary OAuth flow, those two roles are usually one box. Here they are two, and the whole grant is the second agreeing to trust the first.
 
@@ -17,7 +17,7 @@ The client makes one token request to each.
 
 Everything below is the second request: the client that sends it and the authorization server that answers it.
 
-## The client
+## The client {#the-client}
 
 **`IdentityAssertionOAuthProvider`** lives in `mcp.client.auth.extensions.identity_assertion`. Like every provider in **[OAuth clients](oauth-clients.md)** it is an `httpx2.Auth`: construct one, put it on `auth=`, hand the `httpx2.AsyncClient` to the transport.
 
@@ -31,7 +31,7 @@ Read it from the bottom.
 * The provider takes what the other providers cannot discover: a `client_id` and `client_secret` somebody **pre-registered** with the authorization server, that authorization server's `issuer`, and `assertion_provider`, an async callback that returns a fresh ID-JAG on demand.
 * `storage` is the same `TokenStorage` protocol. Only the two token methods are ever called; there is no dynamic registration here, so there is no `client_info` to remember.
 
-### The assertion provider
+### The assertion provider {#the-assertion-provider}
 
 `fetch_id_jag(audience, resource)` is the only code you write. It is awaited once per token exchange, never at construction, and only *after* the authorization server's metadata has been fetched and validated, so a misconfigured issuer never leaks an assertion. Its two arguments are two of the claims the ID-JAG must be minted with: `audience` is the authorization server's issuer (the ID-JAG `aud`) and `resource` is the MCP server's canonical identifier (the ID-JAG `resource`). The third is one you already hold: the ID-JAG's `client_id` claim must name the `client_id` you gave the provider, or the authorization server refuses the exchange.
 
@@ -42,7 +42,7 @@ Read it from the bottom.
     minutes-lived grant, and the authorization server on this page refuses to accept the same one
     twice. Do not cache it. The access token it buys you is the thing that gets reused.
 
-### The issuer is configuration
+### The issuer is configuration {#the-issuer-is-configuration}
 
 Here is the inversion. `OAuthClientProvider` asks the resource server which authorization server to use and follows the answer wherever it points. This provider refuses to: `issuer` is required, the [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) metadata is fetched from that issuer's own well-known path, the token endpoint must be on that issuer's origin, and the resource server is never asked anything.
 
@@ -57,14 +57,14 @@ The extension does not demand this; it is a deliberately stricter choice. This c
     object. A mismatch stops the flow at `OAuthFlowError: Authorization server metadata issuer
     mismatch` before a single credential or assertion is sent.
 
-### A confidential client
+### A confidential client {#a-confidential-client}
 
 `client_secret` is required; the constructor raises `ValueError` without one. The IETF profile underneath [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) reserves this grant for confidential clients, SEP-990 requires the client to authenticate, and this SDK enforces both by insisting on a shared secret. `token_endpoint_auth_method` picks where it travels: `client_secret_post` (the default, in the form body) or `client_secret_basic` (an HTTP Basic header). The profile also permits `private_key_jwt`; this provider does not support it.
 
 !!! tip
     Read `client_secret` from the environment or a secret manager, never from source control.
 
-### What the provider does for you
+### What the provider does for you {#what-the-provider-does-for-you}
 
 The first request goes out unauthenticated, and the server's `401` starts the flow.
 
@@ -74,7 +74,7 @@ The first request goes out unauthenticated, and the server's `401` starts the fl
 
 A `403` whose `WWW-Authenticate` names `insufficient_scope` runs steps 2 and 3 again with the union of your `scope` and the challenged one. (`scope` is only ever a request; this page's authorization server grants what the ID-JAG says and nothing else.) There is no refresh token anywhere in this: when the access token expires, the next `401` mints a fresh ID-JAG and exchanges again, and *that* is the lever the IdP holds. Failures are the same two exceptions as the rest of **[OAuth clients](oauth-clients.md)**: `OAuthFlowError` for discovery and validation, its subclass `OAuthTokenError` when the token endpoint says no.
 
-## The authorization server
+## The authorization server {#the-authorization-server}
 
 Most of the time you stop here. The MCP authorization server is somebody else's product, accepting ID-JAGs is its configuration to turn on, and the SDK's half of [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) is the client above.
 
@@ -131,11 +131,11 @@ And notice what the returned `OAuthToken` does not carry: a refresh token. The I
     MCP traffic with the bearer attached. And the `sub` your validator read out of the ID-JAG is
     exactly what `get_access_token().subject` reports inside a tool.
 
-### Try it
+### Try it {#try-it}
 
 `examples/stories/identity_assertion/` in the SDK repository is this page running for real: the same `exchange_identity_assertion` validator, an MCP server gated on its tokens, a stand-in IdP, and the client, in one self-checking program. `uv run python -m stories.identity_assertion.client --http` runs the whole exchange and asserts that the user the IdP named is the user the tool sees.
 
-## Recap
+## Recap {#recap}
 
 * [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) lets the enterprise identity provider, not the end user, decide which MCP servers a client may reach. The IdP signs that decision into an **ID-JAG**.
 * Obtaining the ID-JAG is an [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693) token exchange against *your IdP*, and the SDK does not make it. Presenting it to the MCP authorization server is the [RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) `jwt-bearer` grant, and the SDK does both sides of that.

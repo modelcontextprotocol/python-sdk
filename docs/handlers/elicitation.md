@@ -1,4 +1,4 @@
-# Elicitation
+# Elicitation {#elicitation}
 
 A tool that is halfway through its job and missing one answer doesn't have to fail.
 
@@ -11,7 +11,7 @@ There are two modes:
 
 And there are two ways to ask. The one to reach for is a **resolver**: you hang the question on a parameter, and the SDK asks - on any connection, whatever protocol era the client speaks. The direct way, `await ctx.elicit(...)`, is a request from the *server* to the *client*, a channel that only exists for a client on a legacy connection (spec version 2025-11-25 or earlier). Both are on this page; start with the resolver.
 
-## Ask with a resolver
+## Ask with a resolver {#ask-with-a-resolver}
 
 A question that gates the whole tool - *are you sure? which of the three matching accounts?* - can be lifted out of the tool body into a **resolver**, and the framework asks it for you.
 
@@ -31,7 +31,7 @@ A resolver works on **every** connection. For a client on a legacy connection th
 
 Asking is only one thing a resolver can do. The general mechanism - dependencies that compute without asking, dependencies of dependencies, what the model can and cannot supply - is the **[Dependencies](dependencies.md)** page.
 
-## Ask from inside the tool
+## Ask from inside the tool {#ask-from-inside-the-tool}
 
 A tool can also stop in the middle of its own body and ask.
 
@@ -54,7 +54,7 @@ A tool can also stop in the middle of its own body and ask.
 * On any other date the tool returns straight away. It only asks when it has to.
 * The date the user accepts goes back through `book_table` itself. An answer is input like any other: an alternative that is also fully booked gets asked about again, not confirmed blind.
 
-### What the client receives
+### What the client receives {#what-the-client-receives}
 
 The client gets your message and, next to it, a JSON Schema generated from the model:
 
@@ -93,7 +93,7 @@ That schema is the form. `Field(description=...)` is the label; a default pre-fi
     You are interrupting a person mid-task. If the answer needs nesting, it should have been an
     argument to the tool.
 
-### The three answers
+### The three answers {#the-three-answers}
 
 `result.action` tells you what the user did, and there are exactly three possibilities:
 
@@ -110,7 +110,7 @@ A refusal is not an error. The tool decides what declining means (here, no booki
     `"maybe"` for a `bool` doesn't corrupt your booking: the call fails with a
     schema-mismatch error, your `if` never runs.
 
-## Send the user to a URL
+## Send the user to a URL {#send-the-user-to-a-url}
 
 Some things must not go through the model or the client: credentials, card numbers, OAuth consent. For those you don't ask for data; you ask the user to go somewhere:
 
@@ -124,7 +124,7 @@ Some things must not go through the model or the client: credentials, card numbe
 
 Look at the second tool. When your server learns the out-of-band flow finished (a webhook, a poll; here it's modelled as a second tool), `ctx.session.send_elicit_complete(...)` sends `notifications/elicitation/complete` with the same `elicitation_id`. That is how the client knows it can stop showing *"waiting for payment..."*. Without it, the client can only guess.
 
-## The client side
+## The client side {#the-client-side}
 
 Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(...)`:
 
@@ -143,7 +143,7 @@ Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(
     On a **2026-07-28** connection a tool asks by *returning* the question from the call
     instead; that flow is **[Multi-round-trip requests](multi-round-trip.md)**.
 
-### Try it
+### Try it {#try-it}
 
 Start the `ctx.elicit` form-mode `server.py` (the `book_table` one) on Streamable HTTP (**[Running your server](../run/index.md)** has the one-liner), then run the client's `main()` and ask `book_table` for Christmas day.
 
@@ -173,7 +173,7 @@ Now swap in the URL-mode `server.py` and point the same `main()` at `pay_deposit
     nobody to ask. Your tool didn't get a `"decline"`; it got an exception. Design for it: every
     elicitation needs a sensible answer to "what if I can't ask?".
 
-## Recap
+## Recap {#recap}
 
 * A parameter annotated `Annotated[T, Resolve(fn)]` is filled by a resolver, which returns `Elicit(...)` when it has to ask. It works on every connection.
 * The schema is a flat Pydantic model: primitive fields only, validated on the way back.

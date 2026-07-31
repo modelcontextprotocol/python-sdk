@@ -1,4 +1,4 @@
-# Caching hints
+# Caching hints {#caching-hints}
 
 Every result a server returns for `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, `resources/read` and `server/discover` carries two fields on the 2026-07-28 protocol: `ttlMs`, how many milliseconds a client may treat the result as fresh, and `cacheScope`, whether a cached result may be shared across users (`"public"`) or belongs to one authorization context (`"private"`).
 
@@ -21,7 +21,7 @@ Out of the box every result says `ttlMs: 0, cacheScope: "private"`: immediately 
     authenticated. Mark a result `"public"` only when it is identical for every caller, and
     never use `cacheScope` as access control: it is a label, not a lock.
 
-## Per-handler override
+## Per-handler override {#per-handler-override}
 
 On the low-level `Server`, handlers build their results by hand, and `ttl_ms` / `cache_scope` are just fields on the result models. A handler that sets them explicitly always wins over the constructor map, field by field:
 
@@ -35,7 +35,7 @@ This is also the escape hatch for dynamics the constructor can't know: a handler
 
 One caveat on paginated lists: the protocol requires the **same `cacheScope` on every page** of one list. The constructor map satisfies that by construction, since it's keyed by method, not by page. But a handler that overrides the scope itself owns that consistency: override it on *every* page, never only when a cursor is present, or page one and page two will disagree.
 
-## What the client sees
+## What the client sees {#what-the-client-sees}
 
 On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache with no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did.
 
@@ -57,7 +57,7 @@ Scope is honored automatically too: `"private"` entries are keyed to the cache's
 
 One caveat on `resources/updated`: eviction is exact-URI only. The store contract has no enumerate or scan operation (same as the reference TypeScript implementation), so a notification carrying a *sub*-resource URI does not evict a cached read of its parent. If your server signals sub-resources this way, refetch the parent with `cache_mode="refresh"`.
 
-### Configuring it: `CacheConfig`
+### Configuring it: `CacheConfig` {#configuring-it-cacheconfig}
 
 ```python
 from mcp.client import CacheConfig
@@ -82,7 +82,7 @@ Cache keys also carry the **server's identity**: the URL string you dialed, with
 !!! warning "`share_public` trusts the server, fleet-wide"
     By default even `"public"` entries stay within their partition. `share_public=True` serves entries the server marked `cacheScope: "public"` to **every** partition using the store, trusting the server's classification on behalf of all of them. A server that stamps `"public"` on per-tenant data (by bug or by malice) then leaks one tenant's response to the others. The flag is deliberately constructor-level only: the per-call `cache_mode` can narrow caching, but nothing per-call can widen sharing.
 
-### What the cache never does
+### What the cache never does {#what-the-cache-never-does}
 
 * **Session-tier calls bypass it.** `client.session.list_tools()` and friends always make the round trip; the cache lives on the `Client` verbs.
 * **`server/discover` stays out of it.** The discover result is delivered once, at connect, and never enters the response cache, even when it carries a `ttlMs`. If you persist one yourself to skip the reconnect probe ([`prior_discover`](../protocol-versions.md#reconnecting-with-prior_discover)), its freshness is your bookkeeping: `DiscoverResult` carries `ttl_ms` and `cache_scope`, already parsed, for exactly that purpose.
@@ -97,17 +97,17 @@ Cache keys also carry the **server's identity**: the URL string you dialed, with
 * On a **shared store**, clients race each other. Each client drops its own write when an eviction overtook the fetch in flight, but a *co-tenant* client can still write back an entry that an eviction it never saw had removed; and that race bookkeeping is itself bounded: past 4096 tracked keys the oldest key's guard is dropped first. Both windows are accepted, and closed by the TTL cap above.
 * **No serving across protocol eras.** Entries are scoped to the negotiated protocol version: on a shared persistent store, a session never serves an entry written under a different negotiated version (the same listing genuinely differs by era, since the SDK strips the 2026 fields for older sessions). Eviction likewise touches only the current era's entries; another era's entries simply age out by TTL.
 
-### Reading the hints yourself
+### Reading the hints yourself {#reading-the-hints-yourself}
 
 The hints are also plain fields on every cacheable result (`result.ttl_ms` and `result.cache_scope`, already parsed), in case you want to layer your own bookkeeping on top of (or instead of) the built-in cache.
 
 Against an **older server** (pre-2026 protocol), the fields are simply absent from the wire, and the models show their conservative defaults: `ttl_ms == 0` and `cache_scope == "private"`, stale and unshared, the right assumption for a server that declared nothing. The cache treats a legacy session the same way: hints are never consulted there (whatever keys appear on the wire), only `default_ttl_ms` applies, and its default of `0` caches nothing, so a pre-2026 connection behaves exactly as it did before the cache existed. If you need to distinguish "the server said 0" from "the server said nothing", check `"ttl_ms" in result.model_fields_set`: it's only set when the field actually arrived.
 
-## Older clients
+## Older clients {#older-clients}
 
 Clients on pre-2026 protocol versions never see either field; the SDK strips them at serialization for those connections. Configure your hints once; there is nothing version-specific to write.
 
-## Recap
+## Recap {#recap}
 
 * Six methods carry `ttlMs`/`cacheScope`; the SDK defaults them to `0`/`"private"`, stale and unshared, always safe.
 * `cache_hints={method: CacheHint(...)}` at construction (both `MCPServer` and `Server`) sets server-wide values per method.
