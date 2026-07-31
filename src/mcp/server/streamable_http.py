@@ -57,8 +57,31 @@ LAST_EVENT_ID_HEADER = "last-event-id"
 CONTENT_TYPE_JSON = "application/json"
 CONTENT_TYPE_SSE = "text/event-stream"
 
-# Special key for the standalone GET stream
+# Type aliases
+StreamId = str
+EventId = str
+# An SSE event-dict as accepted by sse-starlette (`event`, `data`, `id`, `retry`).
+SSEEvent = dict[str, Any]
+
+# Special key for the standalone GET stream. Request routing keys never equal
+# this value (see `_request_stream_key`), so a JSON-RPC string id of
+# `"_GET_stream"` cannot lock out or share the standalone GET slot.
 GET_STREAM_KEY = "_GET_stream"
+
+
+def _request_stream_key(request_id: RequestId) -> StreamId:
+    """Type-preserving routing key for per-request streams and the event store.
+
+    JSON-RPC treats integer ``1`` and string ``\"1\"`` as distinct ids. Using
+    ``str(id)`` collapses them (so an in-flight numeric id falsely 409s a
+    string id, or cross-wires responses) and also lets a string id equal to
+    ``GET_STREAM_KEY`` share the standalone GET slot.
+    """
+    # RequestId is int | str; exclude bool (a subclass of int) defensively.
+    if type(request_id) is int:
+        return f"i:{request_id}"
+    return f"s:{request_id}"
+
 
 # Buffer for the per-request `_request_streams` so the serial `message_router`
 # can deposit a response and move on instead of head-of-line blocking the
@@ -75,12 +98,6 @@ REQUEST_CANCELLED: Final = -32800
 # Session ID validation pattern (visible ASCII characters ranging from 0x21 to 0x7E)
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
-
-# Type aliases
-StreamId = str
-EventId = str
-# An SSE event-dict as accepted by sse-starlette (`event`, `data`, `id`, `retry`).
-SSEEvent = dict[str, Any]
 
 
 def check_accept_headers(request: Request) -> tuple[bool, bool]:
@@ -598,16 +615,22 @@ class StreamableHTTPServerTransport:
                 else request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
             )
 
-            request_id = str(message.id)
+            # Type-preserving routing key so int 1 and str "1" stay distinct, and so
+            # a string id never collides with GET_STREAM_KEY. The membership test and
+            # the assignment below must not have an await between them: with
+            # resumability on, EventStore.store_event is user code and any await
+            # re-opens a check-then-act window (#3137 / #3163).
+            request_id = _request_stream_key(message.id)
 
-            # `_request_streams` is keyed by the bare JSON-RPC id. A second concurrent
-            # POST reusing an in-flight id would overwrite that slot and cross-wire
-            # responses (one caller receives the other's payload; the other hangs).
-            # Reject the collision with 409 rather than silently re-routing. Ids may
-            # still be reused after the earlier request has completed.
+            # A second concurrent POST reusing an in-flight id would overwrite that
+            # slot and cross-wire responses (one caller receives the other's payload;
+            # the other hangs). Reject with 409 rather than silently re-routing. Ids
+            # may still be reused after the earlier request has completed; clients
+            # that retry after a timeout should send notifications/cancelled first.
             if request_id in self._request_streams:
                 response = self._create_error_response(
-                    f"Conflict: Request id {request_id} is already in flight for this session",
+                    f"Conflict: Request id {message.id!r} is already in flight for this "
+                    f"session; send notifications/cancelled before reusing the id",
                     HTTPStatus.CONFLICT,
                 )
                 await response(scope, receive, send)
@@ -1039,7 +1062,7 @@ class StreamableHTTPServerTransport:
                         # Null-id errors (e.g., parse errors) fall through to
                         # the GET stream since they can't be correlated.
                         if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
-                            target_request_id = str(message.id)
+                            target_request_id = _request_stream_key(message.id)
                         # Extract related_request_id from meta if it exists
                         elif (
                             session_message.metadata is not None
@@ -1056,7 +1079,7 @@ class StreamableHTTPServerTransport:
                                 # storing or queueing rather than park it (#1764).
                                 logger.debug(f"Dropped message related to request {related_request_id} in JSON mode")
                                 continue
-                            target_request_id = str(related_request_id)
+                            target_request_id = _request_stream_key(related_request_id)
 
                         request_stream_id = target_request_id if target_request_id is not None else GET_STREAM_KEY
 
