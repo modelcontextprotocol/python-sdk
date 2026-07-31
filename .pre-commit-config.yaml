@@ -25,6 +25,10 @@ repos:
             "/tool/markdown/lint",
           ]
         types: [markdown]
+        # Machine-translated pages are generated artefacts: corrections flow
+        # through i18n/<code>/{instructions.md,glossary.json}, never through
+        # hand or linter edits to the pages themselves.
+        exclude: ^i18n/[^/]+/pages/
 
   - repo: local
     hooks:

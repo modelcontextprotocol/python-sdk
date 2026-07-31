@@ -1,0 +1,46 @@
+# The translated documentation sites: English at docs/ is the source and each
+# entry below is one machine-translated site published next to it at /<code>/.
+# Read by the docs build (scripts/docs/build_config.py) and by the translation
+# tool (scripts/docs/translations.py). docs/translations.md and the translation
+# issue form name the languages too — keep them in step when adding one.
+
+languages:
+  - code: zh-CN # directory under i18n/ and the site's URL prefix
+    name: 简体中文 # native name shown in the language switcher
+    theme_language: zh # the theme's `theme.language` (UI strings, search)
+    hreflang: zh-Hans # announced in <link rel="alternate">
+  - code: ja
+    name: 日本語
+  - code: ko
+    name: 한국어
+  - code: pt-BR
+    name: Português (Brasil)
+
+# Pages the language sites serve in English (as written in mkdocs.yml's nav;
+# a trailing /** covers a subtree). The API reference is never translated: the
+# language sites link the single English one.
+exclude_pages:
+  - migration.md
+
+# Publicly documented Claude model IDs for the translation and the meaning
+# review; the reviewer is deliberately the stronger of the two.
+models:
+  translate: claude-opus-5
+  verify: claude-fable-5
+
+# The notices staged onto every page of a language site, in English; the
+# tool translates them with each language's UI strings. {english_url} is the
+# page's English original and {translations_url} the page explaining how the
+# translated sites work.
+banners:
+  disclosure: |
+    ??? info "This page was machine-translated"
+        Translations of this documentation are generated automatically from the English pages, and the [English version of this page]({english_url}) is the authoritative one.
+
+        Found a translation problem? See [how the translations work and how to report an issue]({translations_url}).
+  outdated: |
+    !!! warning "This translation may be behind the English page"
+        The English source changed after this page was last translated, so parts of it may be out of date. When in doubt, read the [English version of this page]({english_url}).
+  untranslated: |
+    !!! note "In English"
+        You're reading this page in English. [How the translations work]({translations_url}).

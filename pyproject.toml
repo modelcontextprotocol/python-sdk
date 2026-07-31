@@ -102,6 +102,9 @@ docs = [
     # griffe's successor distribution (same author) and still imports as
     # `griffe`; the old `griffe` distribution is the incompatible 1.x line.
     "griffelib==2.1.0",
+    # The docs translation tool (scripts/docs/translations.py) calls the Claude API in
+    # its `translate` command; the rest of the pipeline is offline.
+    "anthropic>=0.120.2",
 ]
 codegen = ["datamodel-code-generator==0.57.0"]
 
@@ -175,6 +178,7 @@ executionEnvironments = [
     { root = "tests", extraPaths = [
         ".",
         "examples",
+        "scripts/docs",
     ], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/stories", extraPaths = [
         "examples",
@@ -242,6 +246,9 @@ strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 
 [tool.pytest.ini_options]
 log_cli = true
+# tests/test_docs_i18n.py imports the docs translation tool, a top-level
+# module under scripts/docs/.
+pythonpath = ["scripts/docs"]
 xfail_strict = true
 markers = [
     "requirement(id): links a test to the entry in tests/interaction/_requirements.py it exercises",
