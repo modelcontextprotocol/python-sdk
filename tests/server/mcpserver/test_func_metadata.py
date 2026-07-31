@@ -12,7 +12,7 @@ import jsonschema
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, InputRequiredResult
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 # Pydantic requires `typing_extensions.TypedDict` (not `typing.TypedDict`) below 3.12,
 # otherwise a `NotRequired` qualifier is rejected as invalid in the context it is defined.
@@ -874,6 +874,91 @@ def test_total_false_typeddict_output_omits_every_unreturned_key():
     assert result.structured_content == {}
     assert meta.output_schema is not None
     jsonschema.validate(instance=result.structured_content, schema=meta.output_schema)
+
+
+def test_nested_typeddict_output_omits_keys_the_tool_did_not_return():
+    """The omission rule reaches a TypedDict nested inside another one.
+
+    SDK-defined: only the top-level return annotation becomes the output model, so a
+    nested TypedDict is serialized by pydantic rather than by `convert_result`. Pins
+    that an inner non-required key is still absent instead of null.
+    """
+
+    class Address(TypedDict):
+        city: str
+        postcode: NotRequired[str]
+
+    class Contact(TypedDict):
+        name: str
+        address: Address
+        phone: NotRequired[str]
+
+    def get_contact() -> Contact:
+        return {"name": "Dave", "address": {"city": "Berlin"}}
+
+    meta = func_metadata(get_contact)
+    result = meta.convert_result(get_contact())
+
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"name": "Dave", "address": {"city": "Berlin"}}
+    assert meta.output_schema is not None
+    jsonschema.validate(instance=result.structured_content, schema=meta.output_schema)
+
+
+def test_typeddict_output_distinguishes_an_explicit_none_from_an_unset_key():
+    """A key the tool set to `None` is kept; the same key left out stays absent.
+
+    SDK-defined: `exclude_unset` keys off what the tool actually returned, not off the
+    value, so a nullable key carries a deliberate `null` through while an omitted one
+    does not appear at all. Guards against a fix that strips every falsy value.
+    """
+
+    class Profile(TypedDict):
+        name: str
+        age: NotRequired[int | None]
+
+    def get_profile() -> Profile:
+        return {"name": "Dave", "age": None}
+
+    meta = func_metadata(get_profile)
+    assert meta.output_schema is not None
+
+    explicit_null = meta.convert_result(get_profile())
+    assert isinstance(explicit_null, CallToolResult)
+    assert explicit_null.structured_content == {"name": "Dave", "age": None}
+    jsonschema.validate(instance=explicit_null.structured_content, schema=meta.output_schema)
+
+    unset = meta.convert_result({"name": "Dave"})
+    assert isinstance(unset, CallToolResult)
+    assert unset.structured_content == {"name": "Dave"}
+    jsonschema.validate(instance=unset.structured_content, schema=meta.output_schema)
+
+
+def test_typeddict_output_rejects_a_none_its_schema_does_not_allow():
+    """`None` on a non-nullable key is refused rather than serialized.
+
+    SDK-defined: the `None` default that makes a non-required key optional on the
+    generated model is not a value the key accepts, so returning one fails validation
+    instead of emitting content the published outputSchema rejects.
+    """
+
+    class Person(TypedDict):
+        name: str
+        age: NotRequired[int]
+
+    def get_person() -> Person:
+        return {"name": "Dave"}
+
+    meta = func_metadata(get_person)
+
+    # Leaving the key out is the supported way to say "no age"...
+    omitted = meta.convert_result(get_person())
+    assert isinstance(omitted, CallToolResult)
+    assert omitted.structured_content == {"name": "Dave"}
+
+    # ...whereas handing back an explicit `None` is not a value `int` accepts.
+    with pytest.raises(ValidationError):
+        meta.convert_result({"name": "Dave", "age": None})
 
 
 def test_structured_output_ordinary_class():
