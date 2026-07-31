@@ -8,7 +8,7 @@ development.
 from pydantic import AnyUrl
 
 
-def validate_issuer_url(url: AnyHttpUrl):
+def validate_issuer_url(url: AnyUrl):
     """Validate that the issuer URL meets OAuth 2.0 requirements.
 
     Args:
