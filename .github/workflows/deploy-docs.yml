@@ -12,6 +12,8 @@ on:
       # docs pages include their code blocks from these files via `--8<--`, so a
       # change here changes the rendered site even when no .md file moves.
       - docs_src/**
+      # translated pages, banners and the language registry ship in the site
+      - i18n/**
       - mkdocs.yml
       - src/mcp/**
       - src/mcp-types/**

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 #
-# Serve the v2 documentation locally with live reload.
+# Serve the v2 documentation locally with live reload (the English site only).
 #
 # Regenerates the API reference and the concrete Zensical config, then serves
 # it. Re-run the script to pick up changes to `src/` (the API reference) or the
 # nav; edits to prose pages under `docs/` are picked up by live reload.
+#
+# Only the English site is built here, so the language switcher is limited to
+# English (`--switcher-languages ""`): the translated sites under /<code>/ are
+# never made locally, and offering them would only link to 404s.
 #
 # Usage:
 #   scripts/serve-docs.sh [<extra zensical serve args>...]
@@ -15,5 +19,5 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-uv run --frozen python scripts/docs/build_config.py
+uv run --frozen python scripts/docs/build_config.py --switcher-languages ""
 exec uv run --frozen zensical serve -f mkdocs.gen.yml "$@"

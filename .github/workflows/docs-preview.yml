@@ -21,6 +21,7 @@ on:
     paths:
       - docs/**
       - docs_src/**
+      - i18n/**
       - mkdocs.yml
       - scripts/docs/**
       - pyproject.toml
@@ -137,7 +138,16 @@ jobs:
       # /preview-docs, still build with MkDocs. Both arms must write the site
       # to site/. Keep the detection in sync with build_site() in
       # scripts/build-docs.sh.
-      - run: |
+      #
+      # DOCS_SITE_URL is the preview's Cloudflare branch-alias host (deploy
+      # publishes to `--branch=pr-<N>`, served at pr-<N>.<project>.pages.dev),
+      # so the absolute links the build bakes point at the preview instead of
+      # production; empty when no Pages project is configured, which makes
+      # build.sh fall back to the production site_url.
+      - env:
+          DOCS_SITE_URL: >-
+            ${{ vars.CLOUDFLARE_PAGES_PROJECT && format('https://pr-{0}.{1}.pages.dev', needs.authorize.outputs.pr_number, vars.CLOUDFLARE_PAGES_PROJECT) || '' }}
+        run: |
           if [ -f scripts/docs/build.sh ]; then
             bash scripts/docs/build.sh
           else

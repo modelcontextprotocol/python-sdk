@@ -126,6 +126,10 @@ pre-commit run --all-files
 - Add type hints to all functions
 - Include docstrings for public APIs
 
+## Documentation and Translations
+
+Documentation contributions are English only: the pages under `docs/` are the source of truth, and the translated documentation sites are generated from them, guided by the per-language style guides and glossaries under `i18n/languages/<lang>/`. Never edit the generated pages under `i18n/languages/<lang>/pages/`—the next translation run overwrites them. To fix a translation, change that language's `instructions.md` or `glossary.json` (or the English page, if that's where the problem is), and the fix carries into every future run. See [`i18n/README.md`](i18n/README.md) for the details.
+
 ## Pull Requests
 
 By the time you open a PR, the "what" and "why" should already be settled in an issue. This keeps reviews focused on implementation.

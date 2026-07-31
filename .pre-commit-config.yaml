@@ -11,6 +11,9 @@ repos:
     hooks:
       - id: prettier
         types_or: [yaml, json5]
+        # The translation tool writes each language's state.json and nav.yml
+        # in its own stable format; a formatter rewrite would fight the generator.
+        exclude: ^i18n/languages/[^/]+/(state\.json|nav\.yml)$
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.45.0
@@ -25,6 +28,10 @@ repos:
             "/tool/markdown/lint",
           ]
         types: [markdown]
+        # Machine-translated pages are generated artefacts: corrections flow
+        # through i18n/languages/<code>/{instructions.md,glossary.json}, never
+        # through hand or linter edits to the pages themselves.
+        exclude: ^i18n/languages/[^/]+/pages/
 
   - repo: local
     hooks:

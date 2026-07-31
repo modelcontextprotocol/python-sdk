@@ -14,16 +14,18 @@ Both are caught from the built site itself, so no log-wording change can
 disarm the check: an unresolved reference leaves a tell-tale bracket
 sequence in prose text (code blocks legitimately contain `][`, e.g. dict
 indexing, so only text outside `<pre>`/`<code>` counts), and every inventory
-declared in `mkdocs.yml` must contribute at least one resolved reference —
-an `autorefs-external` anchor, which hand-authored prose links to the same
-host never carry — to the site (an inventory that contributes none is dead
-config and fails too).
+declared in the site's build config must contribute at least one resolved
+reference — an `autorefs-external` anchor, which hand-authored prose links
+to the same host never carry — to the site (an inventory that contributes
+none is dead config and fails too). A language site declares no inventories
+(it links the English API reference instead of building it), so `--config`
+selects the config the site was built from.
 
 Offline contributors can skip the inventory check by setting
 `DOCS_ALLOW_INVENTORY_FAILURE=1`; CI (`CI=true`) never skips it.
 
 Usage:
-    python scripts/docs/check_crossrefs.py --site-dir site
+    python scripts/docs/check_crossrefs.py --site-dir site [--config mkdocs.gen.yml]
 """
 
 from __future__ import annotations
@@ -113,9 +115,9 @@ def unresolved_refs(html: str) -> list[str]:
     return [fragment.replace("\x00", "<code>") for fragment in _UNRESOLVED.findall("".join(parser.chunks))]
 
 
-def _inventory_origins() -> set[str]:
-    """The scheme+host origins of the inventories declared in mkdocs.yml."""
-    config = yaml.safe_load((ROOT / "mkdocs.yml").read_text(encoding="utf-8"))
+def _inventory_origins(config_path: Path) -> set[str]:
+    """The scheme+host origins of the inventories declared in the build config."""
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     for plugin in config["plugins"]:
         if isinstance(plugin, dict) and "mkdocstrings" in plugin:
             inventories = plugin["mkdocstrings"]["handlers"]["python"].get("inventories", [])
@@ -131,6 +133,7 @@ def _origin(url: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--site-dir", default=str(ROOT / "site"), help="The built site directory to scan.")
+    parser.add_argument("--config", default=str(ROOT / "mkdocs.yml"), help="The build config the site was built from.")
     args = parser.parse_args()
 
     site_dir = Path(args.site_dir)
@@ -139,7 +142,7 @@ def main() -> None:
     if not site_dir.is_dir():
         raise SystemExit(f"check_crossrefs: {site_dir} not found (run the build first)")
 
-    unlinked = _inventory_origins()
+    unlinked = _inventory_origins(Path(args.config))
     failures: list[str] = []
     for page in sorted(site_dir.rglob("*.html")):
         html = page.read_text(encoding="utf-8")

@@ -17,10 +17,8 @@ from pathlib import Path
 
 import griffe
 
-# A MkDocs/Zensical nav is a list of entries, each either `{title: url}` for a
-# page or `{title: [children]}` for a section (a bare `url` string attaches
-# a section index page, courtesy of the `navigation.indexes` feature).
-NavItem = "str | dict[str, str | list[NavItem]]"
+# Sibling module (scripts/docs is the import root); owns the nav shape.
+from navigation import NavEntry
 
 ROOT = Path(__file__).parent.parent.parent
 API_DIR = ROOT / "docs" / "api"
@@ -29,6 +27,11 @@ API_DIR = ROOT / "docs" / "api"
 # package's dotted module path is taken relative to its own parent: deriving
 # it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 PACKAGES = (ROOT / "src" / "mcp", ROOT / "src" / "mcp-types" / "mcp_types")
+
+# The reference has no bare `api/` page: it opens on the first package's
+# index (the nav lists packages in name order), so this is the page a link
+# to the API reference as a whole points at.
+ENTRY_PAGE = f"api/{min(package.name for package in PACKAGES)}/index.md"
 
 # Alias packages that mirror another package's namespaces (`mcp.types` mirrors
 # `mcp_types`, `mcp.types.version` mirrors `mcp_types.version`): the mirrored
@@ -55,11 +58,11 @@ class _Node:
     def child(self, name: str) -> _Node:
         return self.children.setdefault(name, _Node())
 
-    def to_nav(self, title: str) -> NavItem:
+    def to_nav(self, title: str) -> NavEntry:
         if not self.children:
             assert self.url is not None
             return {title: self.url}
-        items: list[NavItem] = []
+        items: list[NavEntry] = []
         if self.url is not None:
             items.append(self.url)
         items.extend(self.children[name].to_nav(name) for name in sorted(self.children))
@@ -165,7 +168,7 @@ def _stub(title: str, body: str) -> str:
     return f'---\ntitle: "{title}"\n---\n\n{body.rstrip()}\n'
 
 
-def generate() -> list[NavItem]:
+def generate() -> list[NavEntry]:
     """Write `docs/api/**.md` stubs and return the API-section navigation."""
     if API_DIR.exists():
         shutil.rmtree(API_DIR)
