@@ -103,7 +103,7 @@ docs = [
     # `griffe`; the old `griffe` distribution is the incompatible 1.x line.
     "griffelib==2.1.0",
 ]
-codegen = ["datamodel-code-generator==0.57.0"]
+codegen = ["datamodel-code-generator==0.64.0"]
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
