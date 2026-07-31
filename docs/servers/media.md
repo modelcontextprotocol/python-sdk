@@ -1,10 +1,10 @@
-# Media
+# Media {#media}
 
 Text is not the only thing a tool can return.
 
 The SDK ships two helpers for binary results (**`Image`** and **`Audio`**) and an **`Icon`** type for giving your server, tools, resources, and prompts a face in the client's UI.
 
-## Returning an image
+## Returning an image {#returning-an-image}
 
 Annotate the return type as `Image`, point it at a file, and return it:
 
@@ -33,7 +33,7 @@ Two things to notice:
     that a plain `str` result becomes (**[Tools](tools.md)**). A tool result is a list of content blocks; `Image` and `Audio` are
     the shortest way to produce the two binary kinds.
 
-### Try it
+### Try it {#try-it}
 
 Drop any PNG next to `server.py`, name it `logo.png`, and run:
 
@@ -43,7 +43,7 @@ uv run mcp dev server.py
 
 Open the **Tools** tab and call `logo`. The result is not a string: it is an `image` content block, and the Inspector renders your picture. Everything between the file on disk and the pixels on screen was the SDK.
 
-## Returning audio
+## Returning audio {#returning-audio}
 
 `Audio` is the same shape. Keep `logo.png` where it was, and put any WAV beside it as `chime.wav`:
 
@@ -60,7 +60,7 @@ result.structured_content  # None
 
 Same deal: a file on disk in, base64 and a MIME type out, no output schema.
 
-## Bytes or a file
+## Bytes or a file {#bytes-or-a-file}
 
 Both helpers also accept `data=` (raw bytes) instead of `path=`. That is the mode for bytes that never came from a file of their own — a database column, an HTTP response, something Pillow just drew:
 
@@ -81,7 +81,7 @@ A suffix it doesn't recognise falls back to `application/octet-stream`.
     `Audio` from MP3 bytes that way and the client is told `mime_type="audio/wav"`, then
     faithfully fails to decode it. When you pass `data=`, pass `format=`.
 
-## Icons
+## Icons {#icons}
 
 An `Icon` is metadata, not content. It doesn't carry the image; it points at one with a URI, and a client may fetch it and show it next to your server's name, a tool, a resource, or a prompt.
 
@@ -95,7 +95,7 @@ An `Icon` is metadata, not content. It doesn't carry the image; it points at one
 
 The same `icons=[...]` keyword is accepted by `MCPServer(...)`, `@mcp.tool()`, `@mcp.resource()`, and `@mcp.prompt()`.
 
-### Where a client sees them
+### Where a client sees them {#where-a-client-sees-them}
 
 Icons travel with whatever they decorate. The server's arrive when the client connects, on `client.server_info` (optional on 2026-era connections, so narrow it first):
 
@@ -106,7 +106,7 @@ client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_
 
 A tool's icons are on the `Tool` object from `tools/list`, a resource's on the `Resource` from `resources/list`, a prompt's on the `Prompt` from `prompts/list`. The field is always called `icons`.
 
-## Recap
+## Recap {#recap}
 
 * Return an `Image` or `Audio` from a tool and the client receives an `ImageContent` / `AudioContent` block: your bytes base64-encoded, with a MIME type.
 * Build one from a `path=` and let the suffix decide the MIME type, or from in-memory `data=` plus an explicit `format=`.

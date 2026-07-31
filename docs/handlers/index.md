@@ -1,4 +1,4 @@
-# Inside your handler
+# Inside your handler {#inside-your-handler}
 
 A handler's arguments come from the client. Everything *else* it can read, and
 everything it can do while it runs, is here.

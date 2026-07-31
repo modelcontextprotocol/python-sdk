@@ -1,10 +1,10 @@
-# Testing
+# Testing {#testing}
 
 The Python SDK ships a `Client` class with an **in-memory transport**: pass it your server object and it connects to it directly.
 
 No subprocess. No port. No transport at all. It's the same idea as FastAPI's `TestClient`.
 
-## Basic usage
+## Basic usage {#basic-usage}
 
 Let's assume you have a simple server with a single tool:
 
@@ -74,7 +74,7 @@ async def test_call_add_tool(client: Client):
 
 There you go! You can now extend your tests to cover more scenarios.
 
-## Why `raise_exceptions=True`?
+## Why `raise_exceptions=True`? {#why-raise_exceptionstrue}
 
 Two different things can go wrong, and this flag only touches one of them.
 
@@ -91,7 +91,7 @@ instead of the sanitised one.
 
 Leave it on in tests. It has no meaning in production code.
 
-## In-process by default
+## In-process by default {#in-process-by-default}
 
 !!! note
     `Client(mcp)` connects in-process and is **era-neutral** by default: it probes the server and

@@ -1,4 +1,4 @@
-# Add to an existing app
+# Add to an existing app {#add-to-an-existing-app}
 
 `mcp.run("streamable-http")` starts a web server for you. Sometimes you don't want that: your MCP server is one piece of a larger web application, or you already have an ASGI deployment.
 
@@ -6,7 +6,7 @@ For that, `mcp.streamable_http_app()` returns a **Starlette application**.
 
 A Starlette app is an ASGI app, so anything that hosts ASGI (uvicorn, Hypercorn, another Starlette, FastAPI) can host your MCP server.
 
-## The app
+## The app {#the-app}
 
 ```python title="server.py" hl_lines="12"
 --8<-- "docs_src/asgi/tutorial001.py"
@@ -35,7 +35,7 @@ Run the app on its own (`uvicorn server:app`) and you never think about either.
 
 `mcp.sse_app()` does the same for the superseded SSE transport.
 
-## Localhost only, until you say otherwise
+## Localhost only, until you say otherwise {#localhost-only-until-you-say-otherwise}
 
 Out of the box the app answers **only** requests addressed to localhost. `streamable_http_app()`
 cannot know which hostname it will be served behind, so it arms DNS-rebinding protection with the
@@ -45,7 +45,7 @@ it means **every request is rejected with `421 Misdirected Request`** until you 
 consulted first. That allowlist, and everything else between a working app and a real hostname,
 is **[Deploy & scale](deploy.md)**.
 
-## Mounting it
+## Mounting it {#mounting-it}
 
 The moment the MCP server is *part* of a bigger application, you put the app inside a `Mount`. And the moment you do that, the lifespan becomes your problem:
 
@@ -75,7 +75,7 @@ Starlette's `Host` route works the same way: swap `Mount("/", ...)` for `Host("m
 
     Nothing starts the session manager except its `run()`.
 
-## Two servers, one app
+## Two servers, one app {#two-servers-one-app}
 
 Each `MCPServer` is its own app with its own session manager. Mount as many as you like; enter every manager from the one host lifespan:
 
@@ -86,7 +86,7 @@ Each `MCPServer` is its own app with its own session manager. Mount as many as y
 * `AsyncExitStack` enters both managers; they start together and shut down in reverse order.
 * The endpoints are `/notes/mcp` and `/tasks/mcp`: the mount prefix plus the default path.
 
-## Changing the path
+## Changing the path {#changing-the-path}
 
 That trailing `/mcp` is `streamable_http_path`. Set it to `"/"` and the mount prefix becomes the whole public path:
 
@@ -96,7 +96,7 @@ That trailing `/mcp` is `streamable_http_path`. Set it to `"/"` and the mount pr
 
 Now clients connect to `/notes`, not `/notes/mcp`.
 
-## CORS for browser clients
+## CORS for browser clients {#cors-for-browser-clients}
 
 A browser-based client needs two permissions from you: to **send** its MCP request headers, and to **read** the one MCP sends back. Both are CORS configuration on the host app, and the transport-security allowlist above has to agree with it:
 
@@ -109,7 +109,7 @@ A browser-based client needs two permissions from you: to **send** its MCP reque
 * `allow_origins` is your decision, not MCP's. Be precise, and mirror it in `allowed_origins=` above: the browser enforces CORS, but the server checks `Origin` itself, and an origin the transport doesn't trust gets a `403` even after a clean preflight.
 * `allow_methods` lists the three methods Streamable HTTP uses: `POST` to send messages, `GET` to open the server-to-client stream, `DELETE` to end the session.
 
-## Custom routes
+## Custom routes {#custom-routes}
 
 `@mcp.custom_route()` registers a plain HTTP endpoint on the same app, for the things every deployed service needs that have nothing to do with MCP: a health check, an OAuth callback.
 
@@ -126,7 +126,7 @@ A browser-based client needs two permissions from you: to **send** its MCP reque
     deliberate: health checks and OAuth callbacks have to be reachable before any token exists.
     Don't put anything private behind one.
 
-## Recap
+## Recap {#recap}
 
 * `mcp.streamable_http_app()` returns a Starlette app with one route, `/mcp`. Any ASGI server can run it.
 * Out of the box the app answers only requests addressed to localhost, and behind a real hostname it rejects everything with a `421` until you pass `transport_security=` an allowlist. **[Deploy & scale](deploy.md)** owns that, and the rest of the road to production.

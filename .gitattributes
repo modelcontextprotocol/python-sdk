@@ -1,2 +1,5 @@
 # Generated
 uv.lock  linguist-generated=true
+i18n/languages/*/pages/**  linguist-generated=true
+i18n/languages/*/state.json  linguist-generated=true
+i18n/languages/*/nav.yml  linguist-generated=true

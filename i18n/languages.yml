@@ -1,0 +1,45 @@
+# Registry of the translated documentation sites. English at docs/ is the
+# source; every entry below is one machine-translated site published next to it
+# at /<code>/. The docs build and the tool under scripts/docs/i18n/ both read
+# this file — nothing else lists the languages.
+
+languages:
+  - code: zh-CN # directory under i18n/languages/ and the site's URL prefix
+    name: 简体中文 # native name shown in the language switcher
+    theme_language: zh # the theme's `theme.language` (UI strings, search)
+    hreflang: zh-Hans # value announced in <link rel="alternate">
+    script: cjk # writing system; non-latin scripts get the untranslated-English check
+    enabled: true
+  - code: ja
+    name: 日本語
+    theme_language: ja
+    hreflang: ja
+    script: cjk
+    enabled: true
+  - code: ko
+    name: 한국어
+    theme_language: ko
+    hreflang: ko
+    script: hangul
+    enabled: true
+  - code: pt-BR
+    name: Português (Brasil)
+    theme_language: pt-BR
+    hreflang: pt-BR
+    script: latin
+    enabled: true
+
+# Pages that are never translated: the language sites serve their English
+# text. Nav paths as written in mkdocs.yml; a trailing /** covers a subtree.
+# (The API reference is not a page set here: a language site does not carry
+# it at all and links to the English reference instead.)
+exclude_pages:
+  - migration.md
+
+# Model IDs for the translation and semantic-review passes. Both must be
+# publicly documented Claude model IDs; the reviewer is deliberately the
+# stronger of the two. MCP_DOCS_I18N_MODEL / MCP_DOCS_I18N_VERIFY_MODEL and the
+# CLI flags override them.
+models:
+  translate: claude-opus-5
+  verify: claude-fable-5

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "pages": {
+    "get-started/first-steps.md": {
+      "source_commit": "a4f4ccd091138771535e17191123f20b30fda68e",
+      "source_hash": "c53ca01e59b99b5b44901c7217aae06de5db25adbd725f0611531d0e5436ec1d",
+      "blocks": [
+        "27080c63432c6cde9d12ed9e5ee9bf1df3de3dbe899bbebc3fa2074ff29351d5",
+        "69a332c2d0cf2dc3502603a5308504f1f48d01aee0724faf02b52216979044be",
+        "311deb43a3377221a9e4a28b5585703ebcdc06f5673252a8b11c03f6719efec7",
+        "e5d42538a3aec2e034cdb3ec1bdd365a7bc535bc69b1a4ce0885e845c8e17865",
+        "cb562e1411ff70a409e6de703f2d7182631a17efff8819050e95cde220c668dc",
+        "4ae6f48ce3321dce8caaefa1294ba6c77df1371db0876a67e7dd47a74401d3a2",
+        "93dd15119c46d4dd84e6c66d208b1d39d8b35858499c00e5d32f8601d69cfb68"
+      ],
+      "general_prompt_hash": "83aaa955017a24c0c1d3f7b284e61d8441d58e035b60e7fe52a3d816d6cf73c7",
+      "instructions_hash": "50352b99a74d2e23cedcfa31109cfe2992c564e8d2032cc84566cec71c051bce",
+      "glossary_hash": "cb8bb6c2fda6b12eb8a90401d2041df998189536535c9714355616dcd905b10a",
+      "model": "claude-opus-5",
+      "translated_at": "2026-07-31T13:29:17Z"
+    },
+    "handlers/elicitation.md": {
+      "source_commit": "a4f4ccd091138771535e17191123f20b30fda68e",
+      "source_hash": "57397f9fc329959cedcc36cf3096987637d31f02a5295b65b3c7bf4b81191387",
+      "blocks": [
+        "cdd870979684f1f1f58c2be986a172f1d61372b8c35be35a7761296dbe482f6e",
+        "89de7c6e1d9c54aae599fb9d68228de4c88976c8e550f7b27c8901430f058ea8",
+        "71b40d76fbe23227ea8541e085def2c1643afd8ad69f808b88c518865a96d150",
+        "e5c2c4402421de493e6b676fce3becb29bc00257c4424bf5fbbfd0b378859e5c",
+        "975a9aa4360a1e41eb63cd15a583fae1fa7b170f30426dc041cdea3b2783b8cb",
+        "95af274a2f962a5fbdede98e467f37a95e4982fb363858252243618e0b00d6c5"
+      ],
+      "general_prompt_hash": "83aaa955017a24c0c1d3f7b284e61d8441d58e035b60e7fe52a3d816d6cf73c7",
+      "instructions_hash": "50352b99a74d2e23cedcfa31109cfe2992c564e8d2032cc84566cec71c051bce",
+      "glossary_hash": "cb8bb6c2fda6b12eb8a90401d2041df998189536535c9714355616dcd905b10a",
+      "model": "claude-opus-5",
+      "translated_at": "2026-07-31T13:29:17Z"
+    },
+    "index.md": {
+      "source_commit": "a4f4ccd091138771535e17191123f20b30fda68e",
+      "source_hash": "f362cda3cadc999e034be6bfcf91605ac06da78916288fc8e0403c72d6457f71",
+      "blocks": [
+        "0dc21fd9e41faaed6d3607c81c9bfc3dcd58f2e2be1a7935f74c898705ea9a8f",
+        "10b8effdf0144ac4bab1ef05d18618fa3b5d830fb5e09acf29013c80db64dc61",
+        "80334dc926af0d3eab82c8eb9691623120678c98ac4c31801e9582563a64e705",
+        "e08d3202df4e369c06508cbe5a4785a8d9bb283f09db97c33c432a83fb1e9df3",
+        "d07fcb6ff5f454dcc7c6836abe2f9103dcebac3c40f2a81980e362d75ca089b2"
+      ],
+      "general_prompt_hash": "83aaa955017a24c0c1d3f7b284e61d8441d58e035b60e7fe52a3d816d6cf73c7",
+      "instructions_hash": "50352b99a74d2e23cedcfa31109cfe2992c564e8d2032cc84566cec71c051bce",
+      "glossary_hash": "cb8bb6c2fda6b12eb8a90401d2041df998189536535c9714355616dcd905b10a",
+      "model": "claude-opus-5",
+      "translated_at": "2026-07-31T13:29:17Z"
+    }
+  }
+}

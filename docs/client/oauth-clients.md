@@ -1,4 +1,4 @@
-# OAuth clients
+# OAuth clients {#oauth-clients}
 
 Some MCP servers are protected. Send them a request without a token and they answer `401 Unauthorized`.
 
@@ -6,7 +6,7 @@ Some MCP servers are protected. Send them a request without a token and they ans
 
 This page is the client side. Making your own server demand a token is **[Authorization](../run/authorization.md)**.
 
-## The provider
+## The provider {#the-provider}
 
 ```python title="client.py" hl_lines="44-54"
 --8<-- "docs_src/oauth_clients/tutorial001.py"
@@ -21,7 +21,7 @@ You give it four things:
 
 Nothing else in the file mentions OAuth. `main()` never sees a token.
 
-### Client metadata
+### Client metadata {#client-metadata}
 
 `OAuthClientMetadata` is the real [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591) registration document, as a Pydantic model.
 
@@ -39,7 +39,7 @@ You set three fields. The defaults fill in the rest: `grant_types` is already `[
 
     No browser opened, no half-finished registration left behind on the authorization server.
 
-### Token storage
+### Token storage {#token-storage}
 
 **`TokenStorage`** is a `Protocol` with four async methods. You don't inherit from anything; write the methods and any class is a token store:
 
@@ -52,7 +52,7 @@ The in-memory version above works. It also forgets everything when the process e
     Store `client_info`, not only the tokens. The provider registers dynamically the first time it
     finds no stored `client_info`. Throw it away and you mint a fresh registration on every run.
 
-### The two handlers
+### The two handlers {#the-two-handlers}
 
 The authorization code flow needs a human exactly once: someone has to sign in and click "allow".
 
@@ -66,13 +66,13 @@ A real client runs a small local HTTP server on the redirect URI instead of call
     it generated and `iss` to the issuer it discovered, and refuses a mismatch. They are the CSRF
     and server-mix-up defences.
 
-### Into the `Client`
+### Into the `Client` {#into-the-client}
 
 Look at `main()`. The provider goes on the **httpx2 client**, the httpx2 client goes into `streamable_http_client(url, http_client=...)`, and that transport goes into `Client`.
 
 `streamable_http_client` has no `auth=` keyword. Anything HTTP-level (auth, headers, timeouts, proxies) belongs on the `httpx2.AsyncClient` you bring. That layering is **[Client transports](transports.md)**.
 
-## What the provider does for you
+## What the provider does for you {#what-the-provider-does-for-you}
 
 The first time `Client` sends a request, the server answers `401`. The provider takes over:
 
@@ -85,13 +85,13 @@ After that it is quiet. Tokens come out of storage, an expired access token is r
 
 You wrote none of it. Two keyword arguments remain (`client_metadata_url` and `validate_resource_url`), and this file needs neither. `client_metadata_url` is the one worth knowing about; it gets its own section below.
 
-### Try it
+### Try it {#try-it}
 
 Most examples in these docs you can check with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
 
 The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this page's client grown into a small CLI. Its README has the two commands: start the servers, run the client against them, and you watch the four steps go by.
 
-## Client ID Metadata Documents
+## Client ID Metadata Documents {#client-id-metadata-documents}
 
 The 2026-07-28 revision of the spec deprecates dynamic client registration in favor of **Client ID Metadata Documents** (CIMD). Instead of POSTing a fresh registration to every authorization server it meets, your client publishes one JSON document about itself at a stable HTTPS URL, and that URL *is* its `client_id`. The authorization server fetches the document; the provider never touches it.
 
@@ -99,7 +99,7 @@ The SDK already speaks it: pass the URL as `client_metadata_url=` when you const
 
 The URL must be HTTPS with a non-root path; anything else is a `ValueError` at construction, before any network happens. The shipped `examples/clients/simple-auth-client/` takes it as the `MCP_CLIENT_METADATA_URL` environment variable.
 
-## Machine to machine
+## Machine to machine {#machine-to-machine}
 
 A nightly job, a CI step, another service. There is no browser and nobody to click "allow". That is the **client credentials** grant: you already hold a `client_id` and a `client_secret`, and the token endpoint is the whole flow.
 
@@ -129,13 +129,13 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
 
 There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own page, **[Identity assertion](identity-assertion.md)**.
 
-## When it fails
+## When it fails {#when-it-fails}
 
 When the OAuth flow goes wrong, the provider raises an `OAuthFlowError` from `mcp.client.auth`. It has two subclasses. `OAuthRegistrationError` means registration did not yield a client you can use: the authorization server refused to register you, or it did register you but with credentials this flow cannot use (for instance an authentication method it does not implement). `OAuthTokenError` means a token could not be obtained: the token endpoint said no, or a stored client record carries an authentication method this client cannot apply, which is reported while building the token request rather than sent. One `except OAuthFlowError:` covers discovery, registration, authorization, and exchange.
 
 Not everything is a flow error. The network can still fail; those are ordinary `httpx2` exceptions and pass through untouched.
 
-## Recap
+## Recap {#recap}
 
 * `OAuthClientProvider` is an `httpx2.Auth`. Put it on an `httpx2.AsyncClient`, pass that to `streamable_http_client(url, http_client=...)`, and `Client` never knows OAuth happened.
 * You supply four things: the server URL, an `OAuthClientMetadata`, a `TokenStorage`, and the redirect/callback handler pair.

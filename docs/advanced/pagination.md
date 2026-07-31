@@ -1,4 +1,4 @@
-# Pagination
+# Pagination {#pagination}
 
 Most servers never need this.
 
@@ -8,7 +8,7 @@ Pagination is for the server whose resource list is really a database: thousands
 
 `@mcp.resource()` has no hook for any of that. To page, you write the list handler yourself, on the **[low-level Server](low-level-server.md)**.
 
-## A server that pages
+## A server that pages {#a-server-that-pages}
 
 ```python title="server.py" hl_lines="12 15-16"
 --8<-- "docs_src/pagination/tutorial001.py"
@@ -24,7 +24,7 @@ Pagination is for the server whose resource list is really a database: thousands
     one-line resources can afford a page of 500; a list of fat prompt templates cannot.
     The client has no say in it, and that is by design.
 
-### Try it
+### Try it {#try-it}
 
 `Client(server)` connects to a low-level `Server` in memory exactly as it connects to an `MCPServer`.
 
@@ -34,7 +34,7 @@ Hand it back with `list_resources(cursor="10")` and the first resource is `book-
 
 The tenth page comes back with `next_cursor` set to `None`. Done.
 
-## The client loop
+## The client loop {#the-client-loop}
 
 Every `list_*` method on `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) takes a `cursor=` keyword. Draining a paged list is one `while True`:
 
@@ -50,7 +50,7 @@ Run its `main()` and it prints `100 resources`: ten pages of ten, stitched toget
 
 This is the same loop **[The Client](../client/index.md)** shows for every `list_*` verb, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
 
-## The three rules
+## The three rules {#the-three-rules}
 
 **Cursors are opaque.** A client must never parse, build, or guess one. The only legal source of a cursor is the previous page's `next_cursor`, verbatim.
 
@@ -69,7 +69,7 @@ This is the same loop **[The Client](../client/index.md)** shows for every `list
 
     A cursor you didn't get from the server is a bug, not a feature request.
 
-## Recap
+## Recap {#recap}
 
 * `MCPServer` returns everything in one page. Pagination is opt-in, and you opt in on the low-level `Server`.
 * `on_list_resources` (and `on_list_tools`, `on_list_prompts`, `on_list_resource_templates`) receives `PaginatedRequestParams | None`; `params.cursor` is `None` for the first page.

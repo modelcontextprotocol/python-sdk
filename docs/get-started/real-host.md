@@ -1,10 +1,10 @@
-# Connect to a real host
+# Connect to a real host {#connect-to-a-real-host}
 
 A **host** is the application your server ends up inside: Claude Desktop, Claude Code, an IDE. The host is what the user talks to. Inside it, an MCP **client** launches your server as a child process and speaks to it over that process's stdin and stdout.
 
 Which means connecting to a host is one act: you tell it **the command that starts your server**. Everything on this page (two CLI commands, three JSON files) is a different place to put that same command.
 
-## One server, every host
+## One server, every host {#one-server-every-host}
 
 ```python title="server.py" hl_lines="3 33-34"
 --8<-- "docs_src/real_host/tutorial001.py"
@@ -18,7 +18,7 @@ Two tools and a resource, one file. Three things about that file matter to every
 
 That is the last line of Python on this page. From here down it is all host configuration.
 
-## The launch command
+## The launch command {#the-launch-command}
 
 Every host below gets the same command:
 
@@ -48,7 +48,7 @@ It is also the command `mcp install` writes into Claude Desktop's config for you
     this same file as a subprocess with `stdio_client(...)`, and **[Testing](testing.md)**
     connects to it in memory with no process at all.
 
-## Claude Desktop
+## Claude Desktop {#claude-desktop}
 
 The one host the SDK can configure for you:
 
@@ -97,7 +97,7 @@ Fully quit Claude Desktop (not just its window) and reopen it.
     not there. `uv run mcp install server.py -v API_KEY=abc123` (or `-f .env`) records them in the
     entry's `env` field. `--name` overrides the entry name; it defaults to the server's `name`.
 
-## Claude Code
+## Claude Code {#claude-code}
 
 There is no file to edit. Register the server with the `claude` CLI; everything after `--` is the launch command.
 
@@ -107,7 +107,7 @@ claude mcp add bookshop -- uv run --with "mcp[cli]" mcp run /absolute/path/to/se
 
 Run `/mcp` inside a Claude Code session to confirm `bookshop` is connected and its tools are listed.
 
-## Cursor
+## Cursor {#cursor}
 
 Create `.cursor/mcp.json` in your project root.
 
@@ -124,7 +124,7 @@ Create `.cursor/mcp.json` in your project root.
 
 The same `command` plus `args`, under the same `mcpServers` key Claude Desktop uses. The server appears in Cursor's MCP settings with both tools listed.
 
-## VS Code
+## VS Code {#vs-code}
 
 Create `.vscode/mcp.json` in your project root.
 
@@ -146,7 +146,7 @@ Two differences from Cursor's file, and they are the only two: the wrapper key i
     You need VS Code 1.99 or later with the **GitHub Copilot** extension signed in (Copilot Free is
     enough), and Copilot Chat must be in **Agent** mode, because no other mode calls tools.
 
-## It doesn't show up
+## It doesn't show up {#it-doesnt-show-up}
 
 Before you touch any host config, run the launch command yourself:
 
@@ -166,7 +166,7 @@ Claude Desktop keeps a log per server: `mcp-server-<NAME>.log` is your server's 
 
 For anything past those three, **[Troubleshooting](../troubleshooting.md)** is the page.
 
-## Recap
+## Recap {#recap}
 
 * A **host** (Claude Desktop, an IDE) runs an MCP client that launches your server as a child process over stdio. Connecting means giving it one launch command.
 * That command is `uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py`: no venv to activate, works from any directory.

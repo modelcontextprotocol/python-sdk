@@ -1,10 +1,10 @@
-# Running your server
+# Running your server {#running-your-server}
 
 `mcp.run()` starts the server.
 
 The only decision you make is the **transport**: how the bytes between your server and its client actually move.
 
-## Pick a transport
+## Pick a transport {#pick-a-transport}
 
 | Transport | What it is | When |
 |---|---|---|
@@ -17,7 +17,7 @@ The only decision you make is the **transport**: how the bytes between your serv
     `mcp.run(transport="sse")` still works, with its own `sse_path=` and `message_path=`
     options, but it exists for clients that haven't moved. Don't build anything new on it.
 
-## `mcp.run()`
+## `mcp.run()` {#mcprun}
 
 ```python title="server.py" hl_lines="12-13"
 --8<-- "docs_src/run/tutorial001.py"
@@ -27,7 +27,7 @@ The only decision you make is the **transport**: how the bytes between your serv
 * With no argument, the transport is `stdio`.
 * It sits under `if __name__ == "__main__":` because everything that loads your server (`mcp dev`, `mcp run`, `mcp install`, your tests) **imports** this file. The guard keeps an import from turning into a running server.
 
-### stdio
+### stdio {#stdio}
 
 There is nothing to configure. The host starts your file as a child process, writes requests to its stdin, and reads responses from its stdout.
 
@@ -41,7 +41,7 @@ Nothing prints, and it doesn't return. It is waiting on stdin for a host to spea
 
 That also means stdout **is the wire**. While serving, the SDK moves the wire to a private descriptor and diverts output that is *flushed* to stdout (a subprocess writing to its inherited stdout, a flushed `print()`) to stderr, where it can't corrupt the stream. Output flushed to stdout *before* serving begins (a wrapper script echoing, an unbuffered import-time print) still lands on the wire, and so does a `print()` that stays buffered until the interpreter drains it at exit. For output you actually want, the `logging` module is the right tool: its handler flushes each record to stderr as it happens. That story is in **[Logging](../handlers/logging.md)**.
 
-### Try it
+### Try it {#try-it}
 
 ```console
 uv run mcp dev server.py
@@ -51,7 +51,7 @@ The Inspector does exactly what a real host does: it launches `server.py` as a s
 
 You never gave it a port. There isn't one.
 
-## Streamable HTTP
+## Streamable HTTP {#streamable-http}
 
 To put the same server on a port instead, name the transport (and its options) in `run()`:
 
@@ -83,7 +83,7 @@ Each transport has its own keyword arguments, all on `run()`:
 
 `run()` is the short road. The moment you need more (your server mounted inside an existing app, two servers in one process, CORS for browser clients), you build the ASGI app yourself and hand it to any ASGI host. That is **[Add to an existing app](asgi.md)**.
 
-## Server settings
+## Server settings {#server-settings}
 
 A couple of things about running are not about the transport. They are constructor arguments:
 
@@ -96,7 +96,7 @@ A couple of things about running are not about the transport. They are construct
 
 Both land on `mcp.settings`, which you can read back at runtime.
 
-## The `mcp` command
+## The `mcp` command {#the-mcp-command}
 
 The `[cli]` extra installs a small command-line tool around all of this.
 
@@ -138,7 +138,7 @@ Claude Desktop is the only host `mcp install` knows. Every other host (Claude Co
     `mcp dev` and `mcp run` only understand `MCPServer`. If you build with the low-level `Server`,
     you run it yourself. See **[The low-level Server](../advanced/low-level-server.md)**.
 
-## Recap
+## Recap {#recap}
 
 * A **transport** is how bytes reach your server: `stdio` for a local subprocess, `streamable-http` for a port. SSE is superseded.
 * `mcp.run()` picks the transport. With no argument it is `stdio`, and it blocks.

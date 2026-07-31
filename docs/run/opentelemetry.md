@@ -1,4 +1,4 @@
-# OpenTelemetry
+# OpenTelemetry {#opentelemetry}
 
 Your server is already traced. You don't have to add anything.
 
@@ -13,7 +13,7 @@ call `MCPServer(...)`.
 That is a complete, traced server. Call `search_books` and a span is created for it. The same is
 true for the low-level `Server`: the tracing lives on both.
 
-## What you get
+## What you get {#what-you-get}
 
 Every inbound message becomes a `SERVER` span named after the method and its target. So a
 `tools/call` for `search_books` is the span `tools/call search_books`, and a bare `tools/list`
@@ -38,7 +38,7 @@ A `prompts/get` span gets `gen_ai.prompt.name` in the same spirit. The list meth
     Those GenAI attributes are the reason a tracing UI groups your tool calls the way it groups
     any other agent's. You get that grouping for free, with no extra code.
 
-## It costs nothing until you want it
+## It costs nothing until you want it {#it-costs-nothing-until-you-want-it}
 
 Here is the part that makes "on by default" a comfortable default.
 
@@ -60,7 +60,7 @@ creating lights up. Your server code does not change. Not one line.
     configuration for you: `pip install logfire`, `logfire.configure()`, and your MCP spans show
     up in the live view. It is built on OpenTelemetry, so anything below applies to it too.
 
-## Traces that cross the wire
+## Traces that cross the wire {#traces-that-cross-the-wire}
 
 A trace is most useful when it follows a request from the client into the server, in one
 connected picture.
@@ -75,7 +75,7 @@ If the inbound message carries no trace context, for example a request from a cl
 the SDK, the server span simply parents to whatever span is already current on the server, rather
 than starting a brand-new orphan trace.
 
-## Turning it off
+## Turning it off {#turning-it-off}
 
 Tracing is a middleware, the first one on your server's list. If you really want a server that
 emits no spans, take it off:
@@ -94,7 +94,7 @@ mcp._lowlevel_server.middleware[:] = [
     you should expect to change. You almost never need this: with no exporter installed the spans
     are free, so the usual answer is to leave them on and not install an exporter.
 
-## Recap
+## Recap {#recap}
 
 * Every `MCPServer` and every low-level `Server` emits one `SERVER` span per inbound message, out
   of the box. You write nothing.

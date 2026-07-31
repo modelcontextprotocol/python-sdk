@@ -1,4 +1,4 @@
-# Handling errors
+# Handling errors {#handling-errors}
 
 A tool can fail in two ways, and the SDK treats them very differently.
 
@@ -6,7 +6,7 @@ Raise an ordinary exception and the **model** sees it. Raise `MCPError` and the 
 
 This page is about choosing.
 
-## An error the model can fix
+## An error the model can fix {#an-error-the-model-can-fix}
 
 Take a tool that looks something up, and let the lookup miss:
 
@@ -37,7 +37,7 @@ The model is the one calling your tool. It picked the arguments. So a tool error
     model (and to every client UI) it looks like the tool worked and that string was the answer.
     `raise`. The flag is the signal.
 
-## An error the model cannot fix
+## An error the model cannot fix {#an-error-the-model-cannot-fix}
 
 Now swap `ValueError` for `MCPError`.
 
@@ -68,7 +68,7 @@ Now swap `ValueError` for `MCPError`.
     The first version handed the model a sentence it could react to. This one hands it nothing.
     For `get_author` that is strictly worse, which is the point of the next section.
 
-## Which one to raise
+## Which one to raise {#which-one-to-raise}
 
 The two paths answer two different questions.
 
@@ -84,7 +84,7 @@ By that test, the second version of `get_author` made the wrong choice: a better
     `data` payload. Whatever you put in them is what the client receives: the SDK forwards a raised
     `MCPError` verbatim instead of sanitising it.
 
-## A resource that doesn't exist
+## A resource that doesn't exist {#a-resource-that-doesnt-exist}
 
 Resources draw the same line, and ship one named exception for the common case.
 
@@ -106,7 +106,7 @@ When it can't, raise `ResourceNotFoundError`. The SDK turns it into the protocol
 
 Notice there is no `is_error=True` half-result here. A resource read either returns contents or fails: resources have only the protocol path. Templates and everything else about resources live in **[Resources](resources.md)**.
 
-## Errors you never raise
+## Errors you never raise {#errors-you-never-raise}
 
 A bad argument never reaches your function.
 
@@ -120,7 +120,7 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
     back into a traceback: by the time that flag could act, your exception is already the
     `is_error=True` result. Assert on the result. **[Testing](../get-started/testing.md)** covers the pattern.
 
-## Recap
+## Recap {#recap}
 
 * Raise **any exception** in a tool -> the call returns `is_error=True` with your message in `content`. The model reads it and can retry. This is the default.
 * Raise **`MCPError`** -> the call itself fails with a JSON-RPC error. The model sees nothing; the host deals with it. `code`, `message`, and `data` survive intact.

@@ -1,0 +1,57 @@
+name: 🌐 Translation problem
+description: Report a wrong, awkward, or misleading passage in a translated docs page
+labels: ["translation"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The translated docs are machine-generated from the English pages; https://py.sdk.modelcontextprotocol.io/translations/ explains how.
+        Fixes never go into the translated text directly. They go into that language's glossary or style guide under `i18n/languages/`, so you can also open a PR there instead of an issue.
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - Simplified Chinese (zh-CN)
+        - Japanese (ja)
+        - Korean (ko)
+        - Brazilian Portuguese (pt-BR)
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: Page URL
+      description: The translated page where you found the problem.
+      placeholder: https://py.sdk.modelcontextprotocol.io/ja/servers/tools/
+    validations:
+      required: true
+
+  - type: textarea
+    id: passage
+    attributes:
+      label: The passage
+      description: Quote the translated text that's wrong, and the English it corresponds to if you have it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong, or how it should read
+      description: A wrong term, awkward phrasing, meaning that drifted from the English, tone that's off. If you know the better rendering, give it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: native-speaker
+    attributes:
+      label: Are you a native or fluent speaker of this language?
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true

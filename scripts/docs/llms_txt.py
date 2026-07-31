@@ -30,6 +30,15 @@ from typing import Any
 
 import yaml
 
+# The nav's shape and the external-link classifier are the shared ones in
+# navigation.py, and the markdown primitives (front matter, code fences and
+# spans) the shared ones in i18n.markdown (this directory is sys.path[0]
+# when the script runs), so the page index and the code masking here read
+# exactly what the build and the translation tool read.
+from navigation import EXTERNAL, NavEntry, nav_item, nav_page_entries
+
+from i18n.markdown import CODE_SPAN, FRONTMATTER, fence_spans
+
 ROOT = Path(__file__).parent.parent.parent
 DOCS = ROOT / "docs"
 
@@ -61,25 +70,18 @@ _REF_DEFINITION = re.compile(r"^[ \t]*\[(?!\^)[^\]]+\]:", flags=re.MULTILINE)
 # Block HTML comments are inert in rendered output: python-markdown passes
 # them through verbatim, so commented-out prose must not be validated.
 _HTML_COMMENT = re.compile(r"<!--.*?-->", flags=re.DOTALL)
-# A scheme-prefixed target (https:, mailto:, tel:, ...) is external — the
-# `://` shorthand misses scheme-only URIs like mailto:.
-_EXTERNAL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
 # Fenced code blocks and inline code spans: their content is inert in the
 # rendered HTML, so links inside them are illustrative text, neither validated
-# nor rewritten. Fences are matched line-based in `_code_intervals` (closer at
-# least as long as the opener, unclosed runs to EOF, per CommonMark) and spans
-# only in the text between fences; a span cannot cross a blank line, so a
-# stray unpaired backtick cannot swallow the paragraphs (and links) after it.
-# Known approximations of the renderer's block model: 4-space-indented
-# content is treated as prose, because in this corpus indentation is
-# admonition/list body whose links must stay validated — a link in a true
-# indented code block is over-validated (fails loud or gets rewritten in the
-# rendition), never under-validated; and span pairing is bounded by blank
-# lines rather than full block structure.
-_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
-_CODE_SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)")
-# A leading YAML frontmatter block, as MkDocs/Zensical parse it (mkdocs.utils.meta).
-_FRONTMATTER = re.compile(r"\A---[ \t]*\n(?P<block>.*?)^(?:---|\.\.\.)[ \t]*(?:\n|\Z)", flags=re.MULTILINE | re.DOTALL)
+# nor rewritten. Fences come from the shared CommonMark scanner (closer at
+# least as long as the opener, unclosed runs to EOF) and spans are matched only
+# in the text between fences; a span cannot cross a blank line, so a stray
+# unpaired backtick cannot swallow the paragraphs (and links) after it. Known
+# approximations of the renderer's block model: 4-space-indented content is
+# treated as prose, because in this corpus indentation is admonition/list body
+# whose links must stay validated — a link in a true indented code block is
+# over-validated (fails loud or gets rewritten in the rendition), never
+# under-validated; and span pairing is bounded by blank lines rather than full
+# block structure.
 
 
 class _BuildError(Exception):
@@ -108,11 +110,11 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     isn't a YAML mapping is page content, not frontmatter; an empty block is
     frontmatter with no meta.
     """
-    match = _FRONTMATTER.match(text)
+    match = FRONTMATTER.match(text)
     if match is None:
         return {}, text
     try:
-        meta = yaml.safe_load(match["block"])
+        meta = yaml.safe_load(match["body"])
     except yaml.YAMLError:
         return {}, text
     if meta is not None and not isinstance(meta, dict):
@@ -120,31 +122,29 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return meta or {}, text[match.end() :].lstrip("\n")
 
 
-def _collect_pages(items: list, prose: dict[str, str | None]) -> list[str]:
+def _collect_pages(nav: list[NavEntry], prose: dict[str, str | None]) -> list[str]:
     """Collect the prose pages under a nav subtree, in nav order.
 
     Records each page in `prose` (src_uri -> nav title, or `None` to fall
     back to the page's H1). This is the single owner of the prose-page rule:
     a page entry counts when it is a local .md path (external URLs render as
-    outbound nav links and are omitted, as the MkDocs pipeline did) and is not
-    part of the generated API reference.
+    outbound nav links, so the nav walker omits them, as the MkDocs pipeline
+    did) and is not part of the generated API reference.
     """
     pages: list[str] = []
-    for entry in items:
-        title, value = next(iter(entry.items())) if isinstance(entry, dict) else (None, entry)
-        if isinstance(value, list):
-            pages.extend(_collect_pages(value, prose))
-        elif not _EXTERNAL.match(value) and value.endswith(".md") and not value.startswith("api/"):
-            # Contained values only: an escaping entry would write its
-            # rendition outside the built site.
-            if value.startswith("/") or posixpath.normpath(value).startswith(".."):
-                raise _BuildError(f"llms_txt: nav entry {value!r} escapes docs/")
-            prose[value] = title
-            pages.append(value)
+    for entry in nav_page_entries(nav):
+        if not entry.path.endswith(".md") or entry.path.startswith("api/"):
+            continue
+        # Contained values only: an escaping entry would write its
+        # rendition outside the built site.
+        if entry.path.startswith("/") or posixpath.normpath(entry.path).startswith(".."):
+            raise _BuildError(f"llms_txt: nav entry {entry.path!r} escapes docs/")
+        prose[entry.path] = entry.label
+        pages.append(entry.path)
     return pages
 
 
-def _walk_nav(nav: list, prose: dict[str, str | None], sections: list[tuple[str, list[str]]]) -> list[str]:
+def _walk_nav(nav: list[NavEntry], prose: dict[str, str | None], sections: list[tuple[str, list[str]]]) -> list[str]:
     """Split the nav into a flat list of top-level pages and titled sections.
 
     Populates `sections` ((title, [src_uri]) in nav order) and returns the
@@ -152,7 +152,7 @@ def _walk_nav(nav: list, prose: dict[str, str | None], sections: list[tuple[str,
     """
     top_level: list[str] = []
     for entry in nav:
-        title, value = next(iter(entry.items())) if isinstance(entry, dict) else (None, entry)
+        title, value = nav_item(entry)
         if isinstance(value, list):
             pages = _collect_pages(value, prose)
             if pages:
@@ -206,26 +206,13 @@ def _prose_h1(markdown: str) -> re.Match[str] | None:
 
 
 def _code_intervals(markdown: str) -> list[tuple[int, int]]:
-    """The character spans of fenced code blocks and inline code spans."""
-    fences: list[tuple[int, int]] = []
-    opener = ""
-    start = offset = 0
-    for line in markdown.splitlines(keepends=True):
-        if not opener:
-            if match := _FENCE.match(line):
-                opener, start = match[1], offset
-        elif (stripped := line.strip()).startswith(opener) and set(stripped) == {opener[0]}:
-            fences.append((start, offset + len(line)))
-            opener = ""
-        offset += len(line)
-    if opener:
-        fences.append((start, len(markdown)))
-
+    """The character spans of fenced code blocks, inline code spans, and HTML comments outside them."""
+    fences = fence_spans(markdown)
     intervals = list(fences)
     previous_end = 0
     for fence_start, fence_end in [*fences, (len(markdown), len(markdown))]:
         segment = markdown[previous_end:fence_start]
-        for pattern in (_CODE_SPAN, _HTML_COMMENT):
+        for pattern in (CODE_SPAN, _HTML_COMMENT):
             intervals += [(previous_end + m.start(), previous_end + m.end()) for m in pattern.finditer(segment)]
         previous_end = fence_end
     return intervals
@@ -243,7 +230,7 @@ def _rewrite_links(markdown: str, src_uri: str, site_url: str, prose: dict[str, 
 
     def rewrite(match: re.Match[str]) -> str:
         opening, target, anchor, title, closing = match.groups()
-        if target.startswith("#") or _EXTERNAL.match(target):
+        if target.startswith("#") or EXTERNAL.match(target):
             return match.group(0)  # in-page anchor or external URL (https:, mailto:, ...)
         if _in_code(code, match.start()):
             return match.group(0)  # illustrative link inside a code block/span

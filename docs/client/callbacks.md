@@ -1,10 +1,10 @@
-# Client callbacks
+# Client callbacks {#client-callbacks}
 
 Nearly every request in MCP goes one way: client to server.
 
 A server can also ask the **client** for things: to put a question to the user, to sample the user's model, to list the user's workspace folders. You answer those requests by passing **callbacks** to `Client(...)`.
 
-## A server that asks
+## A server that asks {#a-server-that-asks}
 
 Here is a server whose tool can't finish on its own:
 
@@ -17,7 +17,7 @@ Here is a server whose tool can't finish on its own:
 
 That is the server half, and the **[Elicitation](../handlers/elicitation.md)** page owns it. This page is the other end of the wire.
 
-## The elicitation callback
+## The elicitation callback {#the-elicitation-callback}
 
 ```python title="client.py" hl_lines="6-10 16-17"
 --8<-- "docs_src/client_callbacks/tutorial002.py"
@@ -33,7 +33,7 @@ That is the server half, and the **[Elicitation](../handlers/elicitation.md)** p
     carries `params.url` instead of a schema. One callback handles both; branch on `params.mode`.
     **[Elicitation](../handlers/elicitation.md)** shows the full pattern.
 
-### Try it
+### Try it {#try-it}
 
 Call `issue_card` and watch both ends.
 
@@ -65,7 +65,7 @@ One `tools/call` from you, one `elicitation/create` back from the server, answer
     `InputRequiredResult` carrying an `ElicitRequest`, `Client` dispatches that entry to the same
     `elicitation_callback` and retries the call for you. That flow is **[Multi-round-trip requests](../handlers/multi-round-trip.md)**.
 
-## A callback is a capability
+## A callback is a capability {#a-callback-is-a-capability}
 
 You never told the server that your client can answer elicitation requests. The SDK did.
 
@@ -111,7 +111,7 @@ Pass all three callbacks and you get `['elicitation', 'sampling', 'roots']`. Pas
     the model to read and retry. It's why `client_features` is worth having: a well-behaved server
     checks before it asks.
 
-## The deprecated pair
+## The deprecated pair {#the-deprecated-pair}
 
 `sampling_callback` answers `sampling/createMessage`: the server asking *your* model to complete something. `list_roots_callback` answers `roots/list`: the server asking which directories it may work in.
 
@@ -129,7 +129,7 @@ You still need the callbacks to talk to servers that haven't moved. The signatur
 
 Pass them to `Client(...)` exactly like `elicitation_callback`.
 
-## The notification callbacks
+## The notification callbacks {#the-notification-callbacks}
 
 Two more. Neither declares anything.
 
@@ -137,7 +137,7 @@ Two more. Neither declares anything.
 
 `message_handler` is the catch-all: every server notification the session surfaces reaches it (as well as its specific callback), and on a stream-backed transport so does every transport-level `Exception`. Two never do: `notifications/cancelled` is applied by the SDK rather than surfaced, and a subscription acknowledgment for a live `listen()` stream is consumed by that stream. Annotate the parameter with `IncomingMessage` (`ServerNotification | Exception`, exported from `mcp.client`). The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
 
-## Recap
+## Recap {#recap}
 
 * A server can send requests to the client. You answer them with callbacks passed to `Client(...)`.
 * The elicitation callback is the current one: `async (context, params) -> ElicitResult`, one function for both form and URL mode.

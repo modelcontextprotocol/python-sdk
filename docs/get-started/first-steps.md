@@ -1,10 +1,10 @@
-# First steps
+# First steps {#first-steps}
 
 The **[landing page](../index.md)** moves fast: write a server, run it, call a tool.
 
 This page takes it slowly, with all three things a server can expose, and a name for everything along the way.
 
-## Host, client, and server
+## Host, client, and server {#host-client-and-server}
 
 Three words you'll see on every page from here on:
 
@@ -14,7 +14,7 @@ Three words you'll see on every page from here on:
 
 You write the server. Hosts are someone else's product. The SDK also gives you a `Client`. You'll use it to test your servers, and it shows up later on this page.
 
-## The three primitives
+## The three primitives {#the-three-primitives}
 
 A server exposes exactly three kinds of thing. What separates them is **who decides to use them**:
 
@@ -32,7 +32,7 @@ A server exposes exactly three kinds of thing. What separates them is **who deci
     side effects). A **prompt** has no HTTP analogue; it's closer to a saved query the user runs
     by name.
 
-## One server, all three
+## One server, all three {#one-server-all-three}
 
 ```python title="server.py" hl_lines="6 12 18"
 --8<-- "docs_src/first_steps/tutorial001.py"
@@ -50,7 +50,7 @@ Everything else (the name, the description, the argument schema) the SDK reads f
     The two halves of the SDK have two import paths: `from mcp import Client` and
     `from mcp.server import MCPServer`. There is no `from mcp import MCPServer`.
 
-### Try it
+### Try it {#try-it}
 
 Run it with the MCP Inspector:
 
@@ -72,7 +72,7 @@ Hello, World!
 
 The Inspector ran your server over **stdio**, one of the transports an MCP server can speak. You don't pick one yet; **[Running your server](../run/index.md)** is the page for that.
 
-## Capabilities
+## Capabilities {#capabilities}
 
 You saw three tabs in the Inspector. How did it know there were three?
 
@@ -116,7 +116,7 @@ Notice what isn't there. `completions` (argument autocomplete for resource templ
     `Client(mcp)` is the same in-memory client every example in these docs is tested with, and
     it's how you'll test yours. It gets a whole page: **[Testing](testing.md)**.
 
-## What you did not write
+## What you did not write {#what-you-did-not-write}
 
 Look back over this page. You wrote three small Python functions. You did **not** write:
 
@@ -127,7 +127,7 @@ Look back over this page. You wrote three small Python functions. You did **not*
 
 That ratio is the whole point of the SDK.
 
-## Recap
+## Recap {#recap}
 
 * A **host** is the LLM app, a **client** is its MCP-speaking half, a **server** is what you build.
 * Tools are **model**-controlled, resources are **application**-controlled, prompts are **user**-controlled.

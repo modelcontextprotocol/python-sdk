@@ -1,10 +1,10 @@
-# Lifespan
+# Lifespan {#lifespan}
 
 Most real servers hold something for their whole life: a database pool, an HTTP client, a loaded model.
 
 You don't want to build it on every call, and you do want to close it cleanly. That's what the **lifespan** is for.
 
-## A typed lifespan
+## A typed lifespan {#a-typed-lifespan}
 
 A lifespan is an `@asynccontextmanager` that receives the server and `yield`s **one object**. Whatever you yield is available to every handler for as long as the server runs.
 
@@ -24,7 +24,7 @@ The lifespan runs **once**. It is entered when the server starts (before the fir
 !!! info
     If you've written a FastAPI `lifespan`, you already know this. Same decorator, same `yield`, same `finally`.
 
-### What the model sees
+### What the model sees {#what-the-model-sees}
 
 Nothing new. `ctx` is a **Context** parameter, so the SDK injects it and it never reaches the input schema:
 
@@ -43,7 +43,7 @@ Nothing new. `ctx` is a **Context** parameter, so the SDK injects it and it neve
 
 `@mcp.resource()` and `@mcp.prompt()` functions can take a `ctx` parameter too, written as a bare `Context` for a reason the next section gets to. Everything `ctx` carries is in **[The Context](context.md)**.
 
-### It really is typed
+### It really is typed {#it-really-is-typed}
 
 Look at the annotation again: `ctx: Context[AppContext]`.
 
@@ -69,7 +69,7 @@ Write a bare `Context` instead and `lifespan_context` is typed as `dict[str, Any
     so `ctx.request_context.lifespan_context` is `{}`, never `None`. That default is also why a
     bare `Context` types it as `dict[str, Any]`.
 
-## Watch it happen
+## Watch it happen {#watch-it-happen}
 
 "Startup runs before the first request" is the kind of sentence you should not have to take on faith.
 
@@ -90,7 +90,7 @@ Strip the server down to the lifecycle: give `Database` a `connected` flag, flip
 
     The work happened exactly where you put it: around the `yield`, not at import time and not per request.
 
-## Recap
+## Recap {#recap}
 
 * `lifespan=` takes an `@asynccontextmanager` that receives the server and `yield`s one object.
 * Code before the `yield` is startup. The `finally` after it is shutdown.

@@ -1,10 +1,10 @@
-# Completions
+# Completions {#completions}
 
 A client building a UI on top of your server wants to autocomplete argument values as the user types: language names, repository names, file paths.
 
 **Completions** are how your server supplies those suggestions.
 
-## Something worth completing
+## Something worth completing {#something-worth-completing}
 
 Completions apply to exactly two things: the arguments of a **prompt** and the parameters of a **resource template**. So start with a server that has one of each:
 
@@ -17,7 +17,7 @@ Nothing here is about completions yet.
 * `review_code` takes a `language`. A user shouldn't have to guess which spellings you accept.
 * `github_repo` takes an `owner` and a `repo`. Free-text boxes for both make a bad form.
 
-## The completion handler
+## The completion handler {#the-completion-handler}
 
 Add **one** function decorated with `@mcp.completion()`:
 
@@ -37,7 +37,7 @@ Add **one** function decorated with `@mcp.completion()`:
     `argument.value` is the prefix the user has typed. The SDK does **not** filter for you: whatever
     you put in `values` is what the UI shows. The `startswith` is yours to write.
 
-### Try it
+### Try it {#try-it}
 
 Drive it with the in-memory `Client` from **[Testing](../get-started/testing.md)**. Call
 `client.complete()` with `ref=PromptReference(name="review_code")` and
@@ -64,7 +64,7 @@ result.completion.values  # []
 
 `None` means *"no suggestions"*, never an error. A UI falls back to a plain text box.
 
-## A capability you never declared
+## A capability you never declared {#a-capability-you-never-declared}
 
 Registering the handler is the declaration. Connect a client and look:
 
@@ -85,7 +85,7 @@ You didn't list `completions` anywhere. The SDK saw the handler and declared the
     And `client.server_capabilities.completions` is `None`. That's the point of the capability: a
     well-behaved client checks it and never sends the request you can't answer.
 
-## Dependent arguments
+## Dependent arguments {#dependent-arguments}
 
 `github://repos/{owner}/{repo}` has two parameters, and the useful values for `repo` depend on which `owner` was picked first.
 
@@ -113,7 +113,7 @@ Drop `context_arguments=` and the same call returns `[]`. The handler can't know
     `Completion` also takes `total=` and `has_more=`. Set them when `values` is a slice of a longer
     list, so a UI can show *"and 200 more"*. Most handlers never need them.
 
-## Recap
+## Recap {#recap}
 
 * Completions are suggestions for **prompt arguments** and **resource template parameters**. Nothing else.
 * `@mcp.completion()` registers the one handler. It's `async def (ref, argument, context) -> Completion | None`.

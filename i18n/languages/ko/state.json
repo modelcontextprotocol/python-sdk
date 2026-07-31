@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "pages": {
+    "get-started/first-steps.md": {
+      "source_commit": "a4f4ccd091138771535e17191123f20b30fda68e",
+      "source_hash": "c53ca01e59b99b5b44901c7217aae06de5db25adbd725f0611531d0e5436ec1d",
+      "blocks": [
+        "957558ad0a913ea40c2188b9b27f0d2ff38f97a2ea6f10d5e3760ce10009de9c",
+        "9519788175c0e3bf68a8308be2269c331549eb112740700728ccd4de3fccd613",
+        "794a36150343d73aa9eb58070f2c8477c1bd3f1940ede544fd48468d0f443a5c",
+        "2396d578442021f67a33dca3154ac87c3524ebc2f1acdeb984c991165efaf4f2",
+        "eb2317541cc8b73d004e9d19caa654f802baa2d66bdaeb7a30794c4de0e23a26",
+        "2006150b64b5a716c533fe91d652bfed8ad08fae4715d59ff8d71e3f51efc9a1",
+        "f829a210ac8caa4ad935144be33d153706eef4c945dda26a9eab0a3e5e5ee20e"
+      ],
+      "general_prompt_hash": "83aaa955017a24c0c1d3f7b284e61d8441d58e035b60e7fe52a3d816d6cf73c7",
+      "instructions_hash": "f711c91054421ca22cd6983bec7c2002650a62b40d3f36b22c5920db61a55186",
+      "glossary_hash": "46445e4b8286fd4d96718e81c79be1bfecdaf74d7c66664435ed411a78111edc",
+      "model": "claude-opus-5",
+      "translated_at": "2026-07-31T13:34:29Z"
+    },
+    "handlers/elicitation.md": {
+      "source_commit": "a4f4ccd091138771535e17191123f20b30fda68e",
+      "source_hash": "57397f9fc329959cedcc36cf3096987637d31f02a5295b65b3c7bf4b81191387",
+      "blocks": [
+        "7fff67cac2af08b655f4c9075daa31f02f80a82748a04fe4adfca796aa190d17",
+        "133271187b5164f943221adcc94782dca4178c23fdcbedd8f1200e007968091e",
+        "2f0507fd7c210b0514edd33eb80f257c2e07b4def07d90e5fd1e2a90f98d91c7",
+        "c6ef424264e4872443d26bdd3905d7d67c59c426518c15f297f995ccaef45f68",
+        "5dcddd4a14d2c6fc8374947cbfcce89ce8f62ad4b81e53d65d36b4cec41af08a",
+        "b123965879830bc00ecd6536d7ed22036c168d7750c032ca0fb653bcb40b7272"
+      ],
+      "general_prompt_hash": "83aaa955017a24c0c1d3f7b284e61d8441d58e035b60e7fe52a3d816d6cf73c7",
+      "instructions_hash": "f711c91054421ca22cd6983bec7c2002650a62b40d3f36b22c5920db61a55186",
+      "glossary_hash": "46445e4b8286fd4d96718e81c79be1bfecdaf74d7c66664435ed411a78111edc",
+      "model": "claude-opus-5",
+      "translated_at": "2026-07-31T13:34:29Z"
+    },
+    "index.md": {
+      "source_commit": "a4f4ccd091138771535e17191123f20b30fda68e",
+      "source_hash": "f362cda3cadc999e034be6bfcf91605ac06da78916288fc8e0403c72d6457f71",
+      "blocks": [
+        "b84dbfa9fd427f69405da08a12833e7fdfe0a8a3fda59e646ecac0f84d158e85",
+        "4171bd811a04922c15b4a7d4ff7acb16164cc77ab8dee45c872ac22d320bae05",
+        "23a7a1ea8f41c840f16ce1419612365b24cf705478e4c0d0486391d0607ff328",
+        "32ed995fc3b03134b0babce862229a341a86dabd21953af523d7ebb478a24e0d",
+        "a9c73cfc18afc5c54b2837f0065b06aeecbdb9b4561cb3036f9b0d1aaf4345de"
+      ],
+      "general_prompt_hash": "83aaa955017a24c0c1d3f7b284e61d8441d58e035b60e7fe52a3d816d6cf73c7",
+      "instructions_hash": "f711c91054421ca22cd6983bec7c2002650a62b40d3f36b22c5920db61a55186",
+      "glossary_hash": "46445e4b8286fd4d96718e81c79be1bfecdaf74d7c66664435ed411a78111edc",
+      "model": "claude-opus-5",
+      "translated_at": "2026-07-31T13:34:29Z"
+    }
+  }
+}

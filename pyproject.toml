@@ -102,6 +102,9 @@ docs = [
     # griffe's successor distribution (same author) and still imports as
     # `griffe`; the old `griffe` distribution is the incompatible 1.x line.
     "griffelib==2.1.0",
+    # The docs translation tool (scripts/docs/i18n) calls the Claude API for
+    # the `translate` and `verify` commands; the rest of the pipeline is offline.
+    "anthropic>=0.120.2",
 ]
 codegen = ["datamodel-code-generator==0.57.0"]
 
@@ -160,6 +163,10 @@ include = [
     "examples/servers",
     "examples/snippets",
     "examples/clients",
+    "scripts/docs/i18n",
+    "scripts/docs/navigation.py",
+    "scripts/docs/build_config.py",
+    "scripts/docs/check_anchors.py",
 ]
 venvPath = "."
 venv = ".venv"
@@ -172,9 +179,13 @@ extraPaths = ["examples"]
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
+    # scripts/docs is the import root of the docs tooling: the translation tool
+    # package (i18n) imports its sibling build scripts as top-level modules.
+    { root = "scripts/docs" },
     { root = "tests", extraPaths = [
         ".",
         "examples",
+        "scripts/docs",
     ], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/stories", extraPaths = [
         "examples",
@@ -243,6 +254,9 @@ strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 [tool.pytest.ini_options]
 log_cli = true
 xfail_strict = true
+# tests/docs_i18n exercises the translation tool under scripts/docs/, whose
+# modules import each other with scripts/docs as the import root.
+pythonpath = ["scripts/docs"]
 markers = [
     "requirement(id): links a test to the entry in tests/interaction/_requirements.py it exercises",
 ]
@@ -278,6 +292,11 @@ MD033 = false    # no-inline-html Inline HTML
 MD041 = false    # first-line-heading/first-line-h1
 MD046 = false    # indented-code-blocks
 MD059 = false    # descriptive-link-text
+# link-fragments: heading anchors are pinned in the docs source ({#id},
+# scripts/docs/check_anchors.py). The custom-anchor pattern here can't express
+# an underscore that isn't word-internal, so those fragments are left to the
+# docs build's own link validation.
+MD051.ignored_pattern = "(^|-)_|_-"
 
 # https://coverage.readthedocs.io/en/latest/config.html#run
 [tool.coverage.run]

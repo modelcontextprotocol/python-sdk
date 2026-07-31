@@ -1,4 +1,4 @@
-# Authorization
+# Authorization {#authorization}
 
 Over Streamable HTTP your MCP server is an ordinary web service, and you protect it the way you protect any web service: with OAuth 2.1 bearer tokens.
 
@@ -6,7 +6,7 @@ In OAuth terms, your server is a **resource server**. It never signs anyone in a
 
 This page is the server side. A client that discovers your authorization server and fetches the token is **[OAuth clients](../client/oauth-clients.md)**.
 
-## The three parties
+## The three parties {#the-three-parties}
 
 * The **authorization server** signs people in and issues access tokens. You don't write this. It's your identity provider (Auth0, Keycloak, Entra, your own).
 * The **resource server** is your MCP server. It verifies the token on every request.
@@ -14,7 +14,7 @@ This page is the server side. A client that discovers your authorization server 
 
 That's the whole triangle. Everything on this page is the middle bullet.
 
-## A token verifier
+## A token verifier {#a-token-verifier}
 
 The SDK has no opinion about what a valid token looks like. You tell it, by implementing **`TokenVerifier`**:
 
@@ -36,7 +36,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
     `examples/servers/simple-auth/` in the SDK repository has an `IntrospectionTokenVerifier` that calls
     a real authorization server's [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) endpoint. It's the shape most production verifiers take.
 
-## What you get over HTTP
+## What you get over HTTP {#what-you-get-over-http}
 
 Authorization lives in HTTP headers, so it exists only on the HTTP transports. Run it on the one you deploy: `mcp.run(transport="streamable-http")` puts it on `http://127.0.0.1:8000/mcp`, and **[Running your server](index.md)** has the rest. The app now has two routes:
 
@@ -47,7 +47,7 @@ Authorization lives in HTTP headers, so it exists only on the HTTP transports. R
 
 You registered one tool. The second route is the SDK's.
 
-### Discovery
+### Discovery {#discovery}
 
 `GET` that well-known path and you get **[RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata**, built straight from your `AuthSettings`:
 
@@ -82,7 +82,7 @@ This document is how a client that has never heard of your server finds its way 
     goes for the in-memory `Client(mcp)` you use in tests: it connects straight to the server object
     and skips the HTTP layer, authorization included.
 
-## The caller's identity
+## The caller's identity {#the-callers-identity}
 
 Inside any handler, **`get_access_token()`** is the `AccessToken` your verifier returned for the current request:
 
@@ -100,7 +100,7 @@ Call `whoami` with `Authorization: Bearer alice-token` and the model reads:
 alice (scopes: notes:read)
 ```
 
-## The half the SDK doesn't do
+## The half the SDK doesn't do {#the-half-the-sdk-doesnt-do}
 
 The SDK gives you the resource-server half: verify, advertise, refuse. It does not give you a login page, a consent screen, or a token.
 
@@ -113,7 +113,7 @@ To watch all three parties move, run `examples/servers/simple-auth/` from the SD
 
 An authorization server can also accept an enterprise identity provider's signed assertion in place of a user clicking through a consent screen, and the SDK supports both sides of that exchange. The grant, and the client that presents it, is **[Identity assertion](../client/identity-assertion.md)**.
 
-## Recap
+## Recap {#recap}
 
 * Over Streamable HTTP your server is an OAuth 2.1 **resource server**: it verifies tokens, it never issues them.
 * `TokenVerifier` is the whole integration surface: one async method, token in, `AccessToken | None` out.

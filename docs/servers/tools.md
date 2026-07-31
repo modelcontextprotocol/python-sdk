@@ -1,10 +1,10 @@
-# Tools
+# Tools {#tools}
 
 A **tool** is a function the model can call.
 
 You declare one by putting `@mcp.tool()` on a plain Python function. That's the whole API.
 
-## Your first tool
+## Your first tool {#your-first-tool}
 
 ```python title="server.py" hl_lines="6-8"
 --8<-- "docs_src/tools/tutorial001.py"
@@ -16,7 +16,7 @@ Look at what you wrote. There are no schemas, no JSON, no protocol, just a funct
 * The **description** the model sees is the docstring: `Search the catalog by title or author.`
 * The **arguments** the model is allowed to pass come from the type hints: `query: str` and `limit: int`.
 
-### The input schema
+### The input schema {#the-input-schema}
 
 From those type hints the SDK generates a JSON Schema and sends it to the client during `tools/list`:
 
@@ -38,7 +38,7 @@ Both arguments are in `required` because neither has a default. You'll fix that 
     Type hints aren't documentation here. They are **the contract**. If a client sends `"limit": "ten"`,
     the SDK rejects it before your function ever runs.
 
-### What the model gets back
+### What the model gets back {#what-the-model-gets-back}
 
 Call the tool with `{"query": "dune", "limit": 5}` and the result has two parts:
 
@@ -51,7 +51,7 @@ result.structured_content  # {'result': "Found 3 books matching 'dune' (showing 
 
 Don't worry about `structured_content` yet. Return real Python objects from your tools and the right thing happens; the **[Structured Output](structured-output.md)** page is all about it.
 
-### Try it
+### Try it {#try-it}
 
 Run the server with the MCP Inspector:
 
@@ -63,7 +63,7 @@ Open the URL it prints, go to the **Tools** tab, and call `search_books`.
 
 The Inspector renders a form with a required `query` text field and a required `limit` number field. It built that form from your type hints. So will every other MCP client.
 
-## Optional arguments
+## Optional arguments {#optional-arguments}
 
 Give a parameter a default value and it stops being required. That's it. It's just Python.
 
@@ -87,7 +87,7 @@ The schema follows:
 
 `limit` left `required` and gained `"default": 10`. A client that omits it gets `10`, exactly as Python would.
 
-## Richer schemas with `Field`
+## Richer schemas with `Field` {#richer-schemas-with-field}
 
 Type hints get you a long way, but sometimes you want to *describe* an argument, or constrain it.
 
@@ -118,7 +118,7 @@ Three new things, all on the parameters:
     If you've used FastAPI or Pydantic, you already know all of this. It's the same `Field`,
     the same `Annotated`, the same validation. There is nothing MCP-specific to learn here.
 
-## A model as a parameter
+## A model as a parameter {#a-model-as-a-parameter}
 
 When a tool takes more than a couple of arguments, group them into a Pydantic model:
 
@@ -130,7 +130,7 @@ The `Book` schema is nested inside the tool's input schema (as a `$defs` referen
 
 You can mix and match: plain parameters next to model parameters, nested models, lists of models. It's Pydantic all the way down.
 
-## `async def`
+## `async def` {#async-def}
 
 If a tool does I/O (calls an API, reads a file, queries a database), declare it `async def` and `await` inside it. The SDK awaits it.
 
@@ -138,7 +138,7 @@ A plain `def` tool works too: the SDK runs it in a thread so it never blocks the
 
 There is nothing else to configure.
 
-## Names, titles, and annotations
+## Names, titles, and annotations {#names-titles-and-annotations}
 
 Everything the SDK infers, you can override in the decorator:
 
@@ -160,7 +160,7 @@ A well-behaved client uses them to decide things like *"do I need to ask the use
     `name=` and `description=` are also accepted by `@mcp.tool()` if you don't want to derive them
     from the function name and docstring. Most of the time you do.
 
-## Recap
+## Recap {#recap}
 
 * `@mcp.tool()` on a function makes it a tool. Name from the function, description from the docstring.
 * Type hints **are** the input schema. Defaults make arguments optional.

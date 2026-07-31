@@ -1,4 +1,4 @@
-# Structured Output
+# Structured Output {#structured-output}
 
 A tool that returns a plain `str` produces the result twice: as text in `content`, and as `{"result": "..."}` in `structured_content`.
 
@@ -6,7 +6,7 @@ This page is about that second channel: where it comes from, every shape it can 
 
 The short version: **the return type annotation is the output schema**. You already wrote it.
 
-## The output schema
+## The output schema {#the-output-schema}
 
 ```python title="server.py" hl_lines="9"
 --8<-- "docs_src/structured_output/tutorial001.py"
@@ -36,7 +36,7 @@ result.structured_content  # {"result": 17}
 
 Every scalar gets the same wrapper: `str`, `int`, `float`, `bool`, `bytes`, `None`.
 
-## Two channels
+## Two channels {#two-channels}
 
 Why send the same value twice?
 
@@ -46,7 +46,7 @@ Why send the same value twice?
 
 You return one Python value. The SDK fills in all three.
 
-## Return a model
+## Return a model {#return-a-model}
 
 Declare the shape as a Pydantic `BaseModel` and return an instance:
 
@@ -92,7 +92,7 @@ Notice the `Field(description=...)` on `temperature` and `humidity` landed in th
     response, serialized and documented for you. The only difference is that here the return annotation
     is the whole declaration.
 
-## A `TypedDict`
+## A `TypedDict` {#a-typeddict}
 
 Not every shape deserves a class. A `TypedDict` produces the same schema:
 
@@ -102,7 +102,7 @@ Not every shape deserves a class. A `TypedDict` produces the same schema:
 
 A `TypedDict` is a plain `dict` at runtime, so that is what you build and return. The schema, the validation, and `structured_content` are identical to the `BaseModel` version (minus the descriptions, which `TypedDict` has no place for).
 
-## A dataclass
+## A dataclass {#a-dataclass}
 
 Dataclasses work too, and so does any ordinary class whose attributes have type hints. The SDK builds a Pydantic model out of the annotations behind the scenes.
 
@@ -112,7 +112,7 @@ Dataclasses work too, and so does any ordinary class whose attributes have type 
 
 Three spellings, one schema. Use whichever your codebase already has.
 
-## Lists
+## Lists {#lists}
 
 A `list[...]` isn't a JSON object either, so it gets the `{"result": ...}` wrapper, with your item type as a `$defs` reference inside it:
 
@@ -147,7 +147,7 @@ Ask for a two-day forecast and `structured_content` is `{"result": [{...}, {...}
 
 `tuple[...]`, unions, and `Optional[...]` are wrapped the same way.
 
-## Dictionaries
+## Dictionaries {#dictionaries}
 
 `dict[str, ...]` is the one generic that already *is* a JSON object, so it isn't wrapped:
 
@@ -169,7 +169,7 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 
 The keys must be `str`. A `dict[int, float]` can't be a JSON object, so it falls back to the `{"result": ...}` wrapper.
 
-## Validation
+## Validation {#validation}
 
 `output_schema` is not documentation. Whatever your function returns is **validated against it** before it leaves the server.
 
@@ -196,7 +196,7 @@ The annotation promises `WeatherData`. The upstream response stopped sending `hu
 
 Returning a plain `dict` from a `-> WeatherData` tool is fine, by the way. That's exactly what `json.loads` produced. Validation is on the value, not on the Python type.
 
-## Opting out
+## Opting out {#opting-out}
 
 Sometimes the return annotation is for your type checker, not for the protocol. Pass `structured_output=False` and the tool is text-only:
 
@@ -208,7 +208,7 @@ No `output_schema`, no wrapping, no validation. `structured_content` is `None` a
 
 The opposite, `structured_output=True`, turns the automatic detection into a requirement: a tool whose return type can't produce a schema raises at import time instead of falling back to text.
 
-## A class without type hints
+## A class without type hints {#a-class-without-type-hints}
 
 There is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
 
@@ -234,7 +234,7 @@ There is one way to end up unstructured without asking for it: return a class th
     Need full control (building the `CallToolResult` yourself, or attaching `_meta` that the
     application can see but the model can't)? That's **[The low-level Server](../advanced/low-level-server.md)**.
 
-## Recap
+## Recap {#recap}
 
 * The **return type annotation** is the output schema. It's published in `tools/list` as `output_schema`.
 * Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes and `dict[str, ...]` are objects already and stay as they are.

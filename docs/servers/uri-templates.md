@@ -1,4 +1,4 @@
-# URI templates and path safety
+# URI templates and path safety {#uri-templates-and-path-safety}
 
 This is the reference for the URI-template syntax that
 [`@mcp.resource`](resources.md) accepts, and for the
@@ -15,7 +15,7 @@ outside the directory you intend to serve. For the protocol-level
 details (message formats, lifecycle, pagination) see the
 [MCP resources specification](https://modelcontextprotocol.io/specification/latest/server/resources).
 
-## The full operator set
+## The full operator set {#the-full-operator-set}
 
 The plain placeholder, `{user_id}`, is the one **[Resources](resources.md)** introduces. There are four more
 operator forms; here they are on one server so you can see them next to
@@ -28,7 +28,7 @@ each other:
 Each highlighted decorator is a different way of carving up the URI.
 The sections below walk them top to bottom.
 
-### Simple expansion: `{name}`
+### Simple expansion: `{name}` {#simple-expansion-name}
 
 `books://{isbn}` is the plain, everyday form. The placeholder maps to
 the `isbn` parameter, so a client reading `books://978-0441172719` calls
@@ -38,7 +38,7 @@ A plain `{name}` stops at the first `/`. `books://978/extra` does not
 match because the slash after `978` ends the capture and `/extra` is
 left over.
 
-### Type conversion
+### Type conversion {#type-conversion}
 
 Extracted values arrive as strings, but you can declare a more specific
 type and the SDK will convert. `orders://{order_id}` lands in a function
@@ -46,7 +46,7 @@ whose parameter is `order_id: int`, so reading `orders://12345` calls
 `get_order(12345)`, not `get_order("12345")`. The handler does
 arithmetic on it (`order_id + 1`) without a cast.
 
-### Multi-segment paths: `{+name}`
+### Multi-segment paths: `{+name}` {#multi-segment-paths-name}
 
 To capture a value that contains slashes, use `{+name}`. With
 `manuals://{+path}`:
@@ -57,7 +57,7 @@ To capture a value that contains slashes, use `{+name}`. With
 Reach for `{+name}` whenever the value is hierarchical: filesystem
 paths, nested object keys, URL paths you're proxying.
 
-### Query parameters: `{?a,b,c}`
+### Query parameters: `{?a,b,c}` {#query-parameters-abc}
 
 `reviews://{isbn}{?limit,sort}` puts `limit` and `sort` after the `?`.
 The path identifies *which* book; the query tunes *how* you read it.
@@ -67,14 +67,14 @@ ignored, and omitted params fall through to your function defaults. So
 `reviews://978-0441172719` uses `limit=10, sort="newest"`, and
 `reviews://978-0441172719?sort=top` overrides only `sort`.
 
-### Path segments as a list: `{/name*}`
+### Path segments as a list: `{/name*}` {#path-segments-as-a-list-name}
 
 If you want each path segment as a separate list item rather than one
 string with slashes, use `{/name*}`. With `shelves://browse{/path*}`, a
 client reading `shelves://browse/fiction/sci-fi` calls
 `browse_shelf(["fiction", "sci-fi"])`.
 
-### Template reference
+### Template reference {#template-reference}
 
 The most common patterns:
 
@@ -89,7 +89,7 @@ The most common patterns:
 | `{?a,b}`     | `?a=1&b=2`            | `"1"`, `"2"`            |
 | `{/path*}`   | `/a/b/c`              | `["a", "b", "c"]`       |
 
-### What the parser rejects
+### What the parser rejects {#what-the-parser-rejects}
 
 A few template shapes are caught up front rather than failing on the
 first request. `@mcp.resource` parses the template when the decorator
@@ -119,13 +119,13 @@ first request that omits it. `reviews://{isbn}{?limit,sort}` in the
 server above is the well-formed version: `limit` and `sort` both carry
 defaults.
 
-## Security
+## Security {#security}
 
 Template parameters come from the client. If they flow into filesystem
 or database operations unchecked, values like `../../etc/passwd` can
 resolve outside the directory you intended to serve.
 
-### What the SDK checks by default
+### What the SDK checks by default {#what-the-sdk-checks-by-default}
 
 Before your handler runs, the SDK rejects any parameter that:
 
@@ -153,7 +153,7 @@ regardless of how it was encoded in the URI (`../etc`, `..%2Fetc`,
     it would for a URI that matches no template at all, and
     `read_manual` never runs.
 
-### Filesystem handlers: use safe_join
+### Filesystem handlers: use safe_join {#filesystem-handlers-use-safe_join}
 
 The built-in checks stop the common cases but can't know your sandbox
 boundary. For filesystem access, use `safe_join` to resolve the path
@@ -168,7 +168,7 @@ tricks that a simple string check would miss. If the resolved path
 escapes `DOCS_ROOT`, it raises `PathEscapeError`, which surfaces to the
 client as a `ResourceError`.
 
-### When the defaults get in the way
+### When the defaults get in the way {#when-the-defaults-get-in-the-way}
 
 Sometimes the checks block legitimate values. A catalog-import tool
 might intentionally receive an absolute path, or a parameter might be a
@@ -204,14 +204,14 @@ These checks are a heuristic pre-filter; for filesystem access,
     error response. See **[Handling errors](handling-errors.md)** for the difference between a
     protocol error and a tool error.
 
-## Resources on the low-level Server
+## Resources on the low-level Server {#resources-on-the-low-level-server}
 
 If you're building on the low-level `Server` (see **[The low-level
 Server](../advanced/low-level-server.md)**), you register handlers for the `resources/list` and
 `resources/read` protocol methods directly. There's no decorator; you
 return the protocol types yourself.
 
-### Static resources
+### Static resources {#static-resources}
 
 For fixed URIs, keep a registry and dispatch on exact match:
 
@@ -223,7 +223,7 @@ The list handler tells clients what's available; the read handler
 serves the content. Check your registry first, fall through to
 templates (below) if you have any, then raise for anything else.
 
-### Templates
+### Templates {#templates}
 
 The template engine `MCPServer` uses lives in `mcp.shared.uri_template`
 and works on its own. You get the same parsing and matching; you wire
@@ -252,7 +252,7 @@ Three things are happening in the highlighted lines:
   back the original template string, so the listing and the matcher
   share one source of truth.
 
-## Recap
+## Recap {#recap}
 
 * `{name}` matches one segment; `{+name}` keeps the slashes; `{?a,b}`
   pulls from the query string; `{/name*}` splits segments into a list.

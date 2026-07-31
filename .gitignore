@@ -144,10 +144,15 @@ venv.bak/
 # documentation
 /site
 /.worktrees/
-# Generated at build time by scripts/docs/ (the API reference tree and the
-# concrete Zensical config spliced from mkdocs.yml).
+# Local scratch notes are never part of the repo.
+/notes/
+# Generated at build time by scripts/docs/ (the API reference tree, the
+# concrete Zensical configs spliced from mkdocs.yml, and the staged per-language
+# docs trees).
 /docs/api/
 /mkdocs.gen.yml
+/mkdocs.*.gen.yml
+/.build/
 
 # mypy
 .mypy_cache/

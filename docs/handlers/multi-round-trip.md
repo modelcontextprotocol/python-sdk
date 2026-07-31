@@ -1,4 +1,4 @@
-# Multi-round-trip requests
+# Multi-round-trip requests {#multi-round-trip-requests}
 
 Sometimes a tool can't finish in one round trip. It needs something only the user has: a choice, a confirmation, a credential.
 
@@ -6,7 +6,7 @@ Before 2026-07-28 the server got it by calling **back**: opening its own request
 
 Instead, the server **returns**.
 
-## Return, don't call back
+## Return, don't call back {#return-dont-call-back}
 
 The server answers `tools/call` with an **`InputRequiredResult`** instead of a `CallToolResult`. Two of its fields do the work:
 
@@ -17,7 +17,7 @@ The client fulfils each request, then calls the **same tool again**, carrying it
 
 That's the whole protocol. Every leg is an ordinary request from the client to the server. Nothing ever flows the other way.
 
-## The server side
+## The server side {#the-server-side}
 
 On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks the user (`Elicit`), samples the client's LLM (`Sample`), or lists its roots (`ListRoots`) and the SDK returns the `InputRequiredResult` for you; that form is the **[Dependencies](dependencies.md)** page. The two forms don't mix: a call has one `input_responses`/`request_state` channel, so a tool that uses `Resolve(...)` parameters cannot also return `InputRequiredResult` from its body. A declared `InputRequiredResult` return is rejected at registration (`InvalidSignature`), and an undeclared one fails the call at runtime. The manual form is the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
 
@@ -31,7 +31,7 @@ On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks t
 
 Everything else in that file (the explicit `input_schema`, the hand-built `CallToolResult`) is the ordinary low-level `Server`, covered in **[The low-level Server](../advanced/low-level-server.md)**. This page only adds the second return type.
 
-## Beyond tools
+## Beyond tools {#beyond-tools}
 
 `tools/call` is not special: at 2026-07-28 a server may answer `prompts/get` and `resources/read` the same way. On `MCPServer`, an `@mcp.prompt()` function — or an `@mcp.resource()` **template** function — returns the `InputRequiredResult` itself and reads the retry's answers off the context:
 
@@ -45,7 +45,7 @@ Everything else in that file (the explicit `input_schema`, the hand-built `CallT
 * Static `@mcp.resource()` functions don't participate: they take no `Context`, so they could never read the retry. Only template resources can ask.
 * The era rules below apply unchanged: returning an `InputRequiredResult` on a pre-2026 session is the same `-32603` the warning describes.
 
-## The client side
+## The client side {#the-client-side}
 
 `Client` runs the loop for you.
 
@@ -66,7 +66,7 @@ Register the callbacks the server might ask for (`elicitation_callback`, `sampli
 
 The loop is bounded. `Client(..., input_required_max_rounds=10)` is the default cap; a server that keeps returning `InputRequiredResult` past it makes `call_tool` raise. If a round carries only `request_state` and no `input_requests`, `Client` sleeps briefly (50ms doubling to a 250ms ceiling) before retrying, so a server that is just saying *"not done yet"* isn't busy-polled.
 
-### Driving the loop yourself
+### Driving the loop yourself {#driving-the-loop-yourself}
 
 The auto-loop is enough for a single-process client. Own the loop instead when:
 
@@ -85,7 +85,7 @@ Drop to the underlying session, where `allow_input_required=True` hands you the 
 * For every entry in `input_requests` you put an `InputResponse` under the **same key** in `input_responses`. `fulfil` is where your UI goes; this one hard-codes the answer.
 * Same tool name, same `arguments`, every leg. The retry is the original call carried out again, not a new method.
 
-## Protecting `requestState`
+## Protecting `requestState` {#protecting-requeststate}
 
 Everything above treats `request_state` as an echo, and on the wire that is all it is. But the client holds it between legs (writing it down across processes is exactly what the previous section blessed), so what comes back is **client-supplied input**: it can be modified, expired, or lifted from a different call entirely. The spec requires servers to integrity-protect this state and reject the round when verification fails, whenever the state can influence authorization, resource access, or business logic.
 
@@ -104,7 +104,7 @@ mcp = MCPServer("fleet", request_state_security=RequestStateSecurity(keys=[key])
 * **`keys=[...]`** is required whenever a retry can reach a **different instance** (multi-worker `uvicorn`, load-balanced HTTP) or must survive restarts: every instance verifies what any sibling minted. Same machinery, your secret instead of a generated one.
 * For your own crypto, such as a KMS or an existing token service, pass `RequestStateSecurity(codec=...)` instead of `keys`; **[Bring your own crypto](#bring-your-own-crypto)** below covers the contract.
 
-### What the seal carries
+### What the seal carries {#what-the-seal-carries}
 
 Default or configured, `requestState` on the wire is an encrypted, authenticated token. Your code never sees it: handlers and resolvers write plaintext and read plaintext (`ctx.request_state`); the SDK seals on the way out and verifies on the way in. Beyond integrity, each token is bound to:
 
@@ -115,7 +115,7 @@ Default or configured, `requestState` on the wire is an encrypted, authenticated
 
 All of that is the SDK's job, not yours, and not the codec's if you bring your own.
 
-### Rotating keys
+### Rotating keys {#rotating-keys}
 
 `keys[0]` seals new state; every key in the list verifies. Zero-downtime rotation is three phases, each fully rolled out before the next:
 
@@ -129,7 +129,7 @@ Never promote the minter first: minting under a key some instance can't yet veri
 
 Keys are scoped to one service. The sealed envelope also carries the server's name as an audience claim, so a token minted by a different service that happens to share a secret is rejected anyway. The claim is only as distinctive as the name, so a server given an explicit policy must have a real name or set `RequestStateSecurity(audience=...)` — an unnamed one raises at construction. `audience=` also serves deliberate multi-service topologies where one service must accept state another minted. (The no-configuration default is exempt: its key never leaves the process, so the audience claim has nothing to add.)
 
-### Bring your own crypto
+### Bring your own crypto {#bring-your-own-crypto}
 
 `RequestStateSecurity(codec=...)` takes anything with `seal(bytes) -> str` and `unseal(str) -> bytes` that raises `InvalidRequestState` for any token it did not mint. The classic shape is envelope encryption against a KMS, where you unwrap a data key once at startup and keep the per-token crypto local:
 
@@ -139,7 +139,7 @@ Keys are scoped to one service. The sealed envelope also carries the server's na
 
 TTL, principal binding, and request binding are **not** the codec's job: the SDK stamps them into the payload before `seal` and re-verifies them after `unseal`, for every codec. A codec's only obligations are integrity (tampered means raise) and, ideally, confidentiality.
 
-### When verification fails
+### When verification fails {#when-verification-fails}
 
 Every inbound failure, whether tampered, expired, replayed against a different request or principal, or sealed under a key this server doesn't know, gets the same answer:
 
@@ -149,7 +149,7 @@ Every inbound failure, whether tampered, expired, replayed against a different r
 
 One frozen message for every cause, so the wire never reveals which check failed; the real reason goes to the server log. Every inbound `requestState` on `tools/call`, `prompts/get`, and `resources/read` is checked, including one arriving for a handler that never mints state. The most common rejection in practice isn't an attacker — it's the default process-local key meeting a retry from before a restart or from another instance; the client restarts the flow, and `keys=[...]` is the fix when that matters.
 
-### Hand-built state
+### Hand-built state {#hand-built-state}
 
 A `request_state` you set yourself (returning `InputRequiredResult` from a tool, prompt, or resource-template function) is sealed and verified by the same machinery as resolver state, with zero code changes: write plaintext, read plaintext, and every binding above applies.
 
@@ -157,7 +157,7 @@ The one thing the SDK cannot pin for you, even when configured, is question iden
 
 The low-level `Server` is the no-batteries tier: unlike `MCPServer`, nothing is sealed until you append the boundary yourself, and your `request_state` crosses the wire exactly as written until you do. The one-line opt-in is shown in **[The low-level Server](../advanced/low-level-server.md#the-other-handlers)**.
 
-## A 2026-07-28 result
+## A 2026-07-28 result {#a-2026-07-28-result}
 
 `InputRequiredResult` only exists at protocol version **2026-07-28**. The in-memory `Client(server)` negotiates it for you; over the wire, `mode="auto"` discovers it. After connecting, `client.protocol_version` tells you what you got.
 
@@ -173,7 +173,7 @@ The low-level `Server` is the no-batteries tier: unlike `MCPServer`, nothing is 
     finishes the out-of-band flow and your client retries the call. Same loop, no new API. The
     high-level server half is in **[Elicitation](elicitation.md)**.
 
-## Recap
+## Recap {#recap}
 
 * At 2026-07-28 a server that needs input mid-call **returns** an `InputRequiredResult`. It never opens a request to the client.
 * `input_requests` is what it needs. `request_state` is an opaque resume token only the server reads.

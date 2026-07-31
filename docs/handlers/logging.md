@@ -1,4 +1,4 @@
-# Logging
+# Logging {#logging}
 
 Log from a tool the way you log from any other Python function: with the standard library.
 
@@ -6,7 +6,7 @@ MCP has a protocol-level **logging capability**: a server could push its log mes
 
 What you do instead is what you do in every other Python program: the standard library.
 
-## A tool that logs
+## A tool that logs {#a-tool-that-logs}
 
 ```python title="server.py" hl_lines="1 5 13"
 --8<-- "docs_src/logging/tutorial001.py"
@@ -26,7 +26,7 @@ What you do instead is what you do in every other Python program: the standard l
     The log line is nowhere in it. Logging is for **you**, the person operating the server. The model
     never sees it. If the model should read something, `return` it.
 
-## Where it goes
+## Where it goes {#where-it-goes}
 
 For a **stdio** server this question matters more than usual. The host launched your server as a subprocess and is reading MCP messages from its **stdout**. Standard error is yours.
 
@@ -41,7 +41,7 @@ The standard library already does the right thing: log output goes to `sys.stder
 
     `logger.debug("got here")` is the same one line of effort and goes to the right place.
 
-## The level
+## The level {#the-level}
 
 You don't have to call `logging.basicConfig()` yourself. Constructing an `MCPServer` already did, with a handler pointed at standard error, at the level you pass as `log_level=`, so `MCPServer("Bookshop", log_level="DEBUG")` is all it takes to see your `logger.debug(...)` lines.
 
@@ -49,7 +49,7 @@ The default is `"INFO"`.
 
 `logging.basicConfig()` never replaces handlers that already exist. If you configure logging yourself before creating the server, your configuration wins.
 
-## Try it
+## Try it {#try-it}
 
 Run the server with the MCP Inspector:
 
@@ -70,7 +70,7 @@ went to standard error: the terminal, not the wire.
     don't want log lines, you want spans. Your server already emits them: the SDK traces every
     message with OpenTelemetry out of the box. See **[OpenTelemetry](../run/opentelemetry.md)**.
 
-## Recap
+## Recap {#recap}
 
 * The MCP protocol's logging capability is deprecated by the 2026-07-28 spec and not replaced. Don't build on it.
 * `logger = logging.getLogger(__name__)` at module level, `logger.info(...)` in the tool. That's the whole pattern.

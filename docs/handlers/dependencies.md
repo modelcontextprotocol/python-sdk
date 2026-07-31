@@ -1,10 +1,10 @@
-# Dependencies
+# Dependencies {#dependencies}
 
 A tool's arguments come from the model. Some values never should: a price looked up from your records, a confirmation only a person can give, anything the model could get wrong by inventing it.
 
 **Dependencies** are parameters filled by your own functions. You annotate the parameter, name the function, and the SDK calls it before your tool runs.
 
-## Declare one
+## Declare one {#declare-one}
 
 Wrap the parameter's type in `Annotated[...]` and add `Resolve(fn)`:
 
@@ -20,7 +20,7 @@ Wrap the parameter's type in `Annotated[...]` and add `Resolve(fn)`:
     If you've used FastAPI, this is `Depends`. Same move, same reason: the function declares what
     it needs, the framework supplies it, and the wiring lives in the type annotation.
 
-### Invisible to the model
+### Invisible to the model {#invisible-to-the-model}
 
 Here is the input schema `tools/list` reports for `reserve_book`:
 
@@ -39,7 +39,7 @@ One property. Like the `Context` in **[The Context](context.md)**, a resolved pa
 
 That last part is the point. A parameter the model cannot supply is a parameter the model cannot get wrong.
 
-### Try it
+### Try it {#try-it}
 
 Run the server with the MCP Inspector:
 
@@ -61,7 +61,7 @@ The tool body never looked anything up: `check_stock` ran first, and the `Stock`
     and the SDK runs the resolver at most once per call, no matter how many declare it. The next
     sections add the rest: resolvers that depend on each other, and resolvers that ask the user.
 
-## Dependencies of dependencies
+## Dependencies of dependencies {#dependencies-of-dependencies}
 
 A resolver can declare its own dependencies, with the same annotation:
 
@@ -91,7 +91,7 @@ A resolver's parameters resolve exactly like a tool's: another `Resolve(...)`, t
     that should outlive a request - a database pool, an HTTP client - belongs in **[Lifespan](lifespan.md)**, and
     a resolver can reach it through `ctx.request_context.lifespan_context`.
 
-## Ask when you must
+## Ask when you must {#ask-when-you-must}
 
 A resolver doesn't have to know the answer. It can return `Elicit(message, Model)` and the SDK asks the user - the **[Elicitation](elicitation.md)** machinery, run for you:
 
@@ -134,7 +134,7 @@ That's the right default for a precondition: no answer, no order. When declining
     to bind to. A question built from such volatile data makes every recorded answer look stale,
     so the server re-asks it on every round until the client's round limit ends the call.
 
-## Ask the client, not the user
+## Ask the client, not the user {#ask-the-client-not-the-user}
 
 Elicitation is one of the three questions a resolver can ask, and the multi-round-trip flow allows no others. The other two go to the **client** rather than the user: return `Sample(...)` to run an LLM call through the client (a `sampling/createMessage` request), or `ListRoots()` to fetch the client's current roots. Neither has an accept/decline outcome; the consumer annotates the result type directly, `CreateMessageResult` (`CreateMessageResultWithTools` when the request carries `tools` or `tool_choice`) or `ListRootsResult`:
 
@@ -146,7 +146,7 @@ Elicitation is one of the three questions a resolver can ask, and the multi-roun
 * Everything the info box above says about questions applies unchanged: a `Sample` request is matched to its recorded result by its exact rendering, so build it deterministically from the tool's arguments and earlier answers; the client then pays for the LLM call once per tool call, not once per round. The recorded result rides `request_state` for the rest of the call, so a very large completion makes every remaining round-trip heavier.
 * The standalone sampling and roots *features* are deprecated at 2026-07-28 (SEP-2577). New servers that need the client's model ask through this carrier; servers that don't should integrate with an LLM provider directly. `include_context` values other than `"none"` are themselves deprecated; avoid them.
 
-## Recap
+## Recap {#recap}
 
 * `Annotated[T, Resolve(fn)]` on a tool parameter: the SDK runs `fn` and injects its return value.
 * A resolved parameter is invisible to the model and cannot be supplied by a client. Values the model must not invent - prices, identities, permissions - belong here.

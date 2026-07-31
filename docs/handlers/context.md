@@ -1,10 +1,10 @@
-# The Context
+# The Context {#the-context}
 
 A tool's arguments come from the model. Everything else (the request you are serving, the server you live in, a way to talk back to the client) comes from one object: the **`Context`**.
 
 You don't construct it and you don't configure it. You ask for it.
 
-## Ask for it
+## Ask for it {#ask-for-it}
 
 Add a parameter annotated with `Context` to any tool:
 
@@ -22,7 +22,7 @@ Add a parameter annotated with `Context` to any tool:
     (`Request` there, `Context` here) and the framework supplies it. Nothing to register, nothing to
     configure: the type annotation is the whole mechanism.
 
-### Invisible to the model
+### Invisible to the model {#invisible-to-the-model}
 
 This is the part to internalise. Here is the input schema `tools/list` reports for `search_books`:
 
@@ -39,7 +39,7 @@ This is the part to internalise. Here is the input schema `tools/list` reports f
 
 One property. `ctx` is not an argument: it never appears in the schema, the model is never told about it, and no client can fill it in. It's a contract between you and the SDK, invisible on the wire.
 
-### Try it
+### Try it {#try-it}
 
 Run the server with the MCP Inspector:
 
@@ -55,7 +55,7 @@ The form for `search_books` has a single `query` field. Call it with `dune`:
 
 The number is whichever request this happened to be. Call the tool again and it changes: every request gets its own `Context`.
 
-## What it gives you
+## What it gives you {#what-it-gives-you}
 
 The injected object is small. Besides `request_id`:
 
@@ -73,7 +73,7 @@ Logging is deliberately not on that list. A server logs with Python's `logging` 
     its own `Context`; pass `ctx` down as an ordinary argument. There is no ambient
     "current context" to fetch from somewhere else.
 
-## Read your own resources
+## Read your own resources {#read-your-own-resources}
 
 A server's resources aren't only for clients. A tool can read them too:
 
@@ -91,7 +91,7 @@ contents.mime_type  # 'text/plain'
 * `content` is exactly what `genres()` returned. One source of truth: the client browses the resource, your tools consume it, nobody copies the string.
 * `describe_catalog`'s only parameter is the `Context`, so its input schema has **no properties at all**. The model calls it with `{}`.
 
-## Tell the client the list changed
+## Tell the client the list changed {#tell-the-client-the-list-changed}
 
 What a server offers is not fixed at import time. Register a tool at runtime, then tell the client:
 
@@ -117,7 +117,7 @@ On a 2026-07-28 connection, clients receive change notifications only on a `subs
     Run `enable_recommendations`, and the very same call succeeds. The tool list is genuinely
     dynamic: `tools/list` reflects whatever is registered *right now*.
 
-## Recap
+## Recap {#recap}
 
 * Annotate a parameter with `Context` (in a tool, a resource, or a prompt) and the SDK injects it. The name is yours.
 * It is invisible to the model: the input schema only ever contains your real arguments.

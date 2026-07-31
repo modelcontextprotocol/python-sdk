@@ -1,10 +1,10 @@
-# Progress
+# Progress {#progress}
 
 A tool that takes thirty seconds and says nothing for thirty seconds looks broken.
 
 **Progress notifications** fix that. The tool reports how far along it is; the client decides what to draw with it: a bar, a spinner, a log line.
 
-## Report it from the tool
+## Report it from the tool {#report-it-from-the-tool}
 
 Take a **`Context`** parameter and call `report_progress`:
 
@@ -20,7 +20,7 @@ Three arguments, and you decide what they mean:
 
 `ctx` is injected because of its type hint and the model never sees it: `import_catalog`'s input schema has a single property, `urls`. **[The Context](context.md)** page is all about that object; progress is one of the things it gives you.
 
-## Listen for it from the client
+## Listen for it from the client {#listen-for-it-from-the-client}
 
 The client opts in **per call**, by passing `progress_callback=` to `call_tool`:
 
@@ -58,7 +58,7 @@ The callback is an `async` function taking exactly what the server reported: `pr
     notifications race the result, and a slow callback can still be running after `call_tool` has
     returned.
 
-### Try it
+### Try it {#try-it}
 
 Put `client.py` next to `server.py` and run it:
 
@@ -90,7 +90,7 @@ Every `await ctx.report_progress(...)` on the server became one call to `show` o
     for progress**, so you report unconditionally and never have to wonder whether anyone is
     listening.
 
-## When you don't know the total
+## When you don't know the total {#when-you-dont-know-the-total}
 
 `total` is for when you know the denominator. Often you don't: you're draining a feed, walking a cursor, downloading something with no length header.
 
@@ -106,7 +106,7 @@ The callback receives `total=None`. A client can still show *activity* ("3 impor
     `progress` doesn't have to count anything in particular. Bytes, rows, pages: pick the unit the
     user would recognise, and only promise a `total` you can keep.
 
-## Recap
+## Recap {#recap}
 
 * `await ctx.report_progress(progress, total=None, message=None)` from any tool that takes a `Context`.
 * The client passes `progress_callback=` to `call_tool`: per call, never on the `Client`.
