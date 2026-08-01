@@ -14,7 +14,7 @@ Add a parameter annotated with `Context` to any tool:
 
 * The SDK builds a fresh `Context` for every request and passes it in.
 * The parameter **name doesn't matter**. `ctx`, `context`, `c`: the SDK finds it by its annotation.
-* Resources and prompts can declare one too, the same way.
+* URI-template resource handlers and prompt handlers can declare one too, the same way.
 * `ctx.request_id` is the id of the request your function is serving right now.
 
 !!! info
@@ -119,7 +119,7 @@ On a 2026-07-28 connection, clients receive change notifications only on a `subs
 
 ## Recap
 
-* Annotate a parameter with `Context` (in a tool, a resource, or a prompt) and the SDK injects it. The name is yours.
+* Annotate a parameter with `Context` in a tool, resource-template, or prompt handler and the SDK injects it. Static resource handlers cannot accept `Context`. The name is yours.
 * It is invisible to the model: the input schema only ever contains your real arguments.
 * `ctx.request_id` identifies the request; `ctx.request_context.lifespan_context` is what your startup yielded.
 * `await ctx.read_resource(uri)` lets a tool read the server's own resources.

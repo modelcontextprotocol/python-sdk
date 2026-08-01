@@ -226,12 +226,12 @@ class TestResourceTemplate:
         """Injected context bypasses validation without changing **kwargs handling."""
         context = Context()
 
-        def my_func(ctx, **kwargs: str):  # type: ignore
+        def my_func(ctx: Context[None], **kwargs: str) -> str:
             assert ctx is context
             return kwargs["key"]
 
         template = ResourceTemplate.from_function(
-            fn=my_func,  # pyright: ignore[reportUnknownArgumentType]
+            fn=my_func,
             uri_template="test://{key}",
             context_kwarg="ctx",
         )
