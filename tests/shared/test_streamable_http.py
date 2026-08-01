@@ -93,6 +93,14 @@ def first_sse_data(response: httpx2.Response) -> dict[str, Any]:
     raise ValueError("No data event in SSE response")  # pragma: no cover
 
 
+async def next_sse_data(lines: AsyncIterator[str]) -> dict[str, Any]:
+    """Return the next SSE `data:` payload from a live line iterator, parsed as JSON."""
+    while True:
+        line = await anext(lines)
+        if line.startswith("data: "):
+            return json.loads(line.removeprefix("data: "))
+
+
 def extract_protocol_version_from_sse(response: httpx2.Response) -> str:
     """Extract the negotiated protocol version from an SSE initialization response."""
     return first_sse_data(response)["result"]["protocolVersion"]
@@ -806,6 +814,443 @@ async def test_get_sse_stream(basic_app: Starlette) -> None:
 
             # The second GET gets CONFLICT (409): only one standalone stream is allowed per session.
             assert second_get.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_post_duplicate_request_id_rejected_while_first_still_in_flight(basic_app: Starlette) -> None:
+    """A second POST reusing an in-flight request's JSON-RPC id is rejected with 409; the first still completes.
+
+    Per-request routing is keyed by request id, so overwriting an in-flight slot would
+    cross-wire responses (see #3137). Raw HTTP is required to assert the 409 status code.
+    """
+    async with make_client(basic_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: init_response.headers[MCP_SESSION_ID_HEADER],
+            MCP_PROTOCOL_VERSION_HEADER: extract_protocol_version_from_sse(init_response),
+        }
+        shared_id = "shared-request-id"
+
+        async with client.stream(
+            "POST",
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {"name": "wait_for_lock_with_notification", "arguments": {}},
+                "id": shared_id,
+            },
+        ) as first_response:
+            assert first_response.status_code == 200
+            lines = first_response.aiter_lines()
+            # First notification confirms the request is registered and blocked on the lock.
+            with anyio.fail_after(5):
+                notification = await next_sse_data(lines)
+            assert notification["params"]["data"] == "First notification before lock"
+
+            duplicate_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "test_tool", "arguments": {}},
+                    "id": shared_id,
+                },
+            )
+            assert duplicate_response.status_code == 409
+            error = duplicate_response.json()["error"]
+            assert error["code"] == INVALID_REQUEST
+            assert "already in flight" in error["message"]
+
+            release_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "release_lock", "arguments": {}},
+                    "id": "release-lock-1",
+                },
+            )
+            assert release_response.status_code == 200
+
+            with anyio.fail_after(5):
+                second_notification = await next_sse_data(lines)
+                final = await next_sse_data(lines)
+            assert second_notification["params"]["data"] == "Second notification after lock"
+            assert final["id"] == shared_id
+            assert final["result"]["content"][0]["text"] == "Completed"
+
+
+@pytest.mark.anyio
+async def test_json_response_duplicate_request_id_rejected_while_first_still_in_flight(json_app: Starlette) -> None:
+    """In JSON response mode, a second POST reusing an in-flight id is rejected with 409; the first still completes.
+
+    Same collision as the SSE case, exercised on the JSON branch of `_handle_post_request` (#3137).
+    """
+    async with make_client(json_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: init_response.headers[MCP_SESSION_ID_HEADER],
+            MCP_PROTOCOL_VERSION_HEADER: init_response.json()["result"]["protocolVersion"],
+        }
+        shared_id = "shared-json-request-id"
+        first_result: dict[str, Any] = {}
+
+        async def run_first_request() -> None:
+            response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "wait_for_lock_with_notification", "arguments": {}},
+                    "id": shared_id,
+                },
+            )
+            assert response.status_code == 200
+            first_result.update(response.json())
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run_first_request)
+            # First request registers its stream then blocks server-side on the lock;
+            # nothing else can run until that await yields.
+            await anyio.wait_all_tasks_blocked()
+
+            duplicate_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "test_tool", "arguments": {}},
+                    "id": shared_id,
+                },
+            )
+            assert duplicate_response.status_code == 409
+            error = duplicate_response.json()["error"]
+            assert error["code"] == INVALID_REQUEST
+            assert "already in flight" in error["message"]
+
+            release_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "release_lock", "arguments": {}},
+                    "id": "release-lock-json-1",
+                },
+            )
+            assert release_response.status_code == 200
+
+        assert first_result["id"] == shared_id
+        assert first_result["result"]["content"][0]["text"] == "Completed"
+
+
+@pytest.mark.anyio
+async def test_request_id_reuse_after_completion_allowed(basic_app: Starlette) -> None:
+    """A request id may be reused once the earlier request with that id has completed.
+
+    Only concurrent reuse is ambiguous to route; sequential reuse is allowed (some
+    clients send a constant id for every request).
+    """
+    async with make_client(basic_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: init_response.headers[MCP_SESSION_ID_HEADER],
+            MCP_PROTOCOL_VERSION_HEADER: extract_protocol_version_from_sse(init_response),
+        }
+
+        for _ in range(2):
+            response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "test_tool", "arguments": {}},
+                },
+            )
+            assert response.status_code == 200
+            body = first_sse_data(response)
+            assert body["id"] == 1
+            assert body["result"]["content"][0]["text"] == "Called test_tool"
+
+
+@pytest.mark.anyio
+async def test_numeric_and_string_request_ids_do_not_collide_while_in_flight(basic_app: Starlette) -> None:
+    """Integer id 1 and string id "1" are distinct JSON-RPC ids and may run concurrently.
+
+    Routing used to key streams with str(id), so an in-flight numeric 1 falsely
+    409'd a string "1" (or cross-wired responses). Raw HTTP is required to control
+    the JSON-RPC id types on the wire.
+    """
+    async with make_client(basic_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: init_response.headers[MCP_SESSION_ID_HEADER],
+            MCP_PROTOCOL_VERSION_HEADER: extract_protocol_version_from_sse(init_response),
+        }
+
+        async with client.stream(
+            "POST",
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {"name": "wait_for_lock_with_notification", "arguments": {}},
+                "id": 1,
+            },
+        ) as first_response:
+            assert first_response.status_code == 200
+            lines = first_response.aiter_lines()
+            with anyio.fail_after(5):
+                notification = await next_sse_data(lines)
+            assert notification["params"]["data"] == "First notification before lock"
+
+            string_id_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "test_tool", "arguments": {}},
+                    "id": "1",
+                },
+            )
+            assert string_id_response.status_code == 200
+            string_body = first_sse_data(string_id_response)
+            assert string_body["id"] == "1"
+            assert string_body["result"]["content"][0]["text"] == "Called test_tool"
+
+            release_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "release_lock", "arguments": {}},
+                    "id": "release-lock-type-key",
+                },
+            )
+            assert release_response.status_code == 200
+
+            with anyio.fail_after(5):
+                second_notification = await next_sse_data(lines)
+                final = await next_sse_data(lines)
+            assert second_notification["params"]["data"] == "Second notification after lock"
+            assert final["id"] == 1
+            assert final["result"]["content"][0]["text"] == "Completed"
+
+
+@pytest.mark.anyio
+async def test_request_id_matching_get_stream_key_does_not_block_standalone_get(basic_app: Starlette) -> None:
+    """A POST with string id \"_GET_stream\" must not occupy the standalone GET slot.
+
+    Pre-fix, both used the bare string as the routing key, so a client could lock
+    itself out of GET (or have GET overwrite its POST slot).
+    """
+    async with make_client(basic_app) as client:
+        init_response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=INIT_REQUEST,
+        )
+        assert init_response.status_code == 200
+        session_id = init_response.headers[MCP_SESSION_ID_HEADER]
+        negotiated_version = extract_protocol_version_from_sse(init_response)
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        }
+
+        async with client.stream(
+            "POST",
+            "/mcp",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {"name": "wait_for_lock_with_notification", "arguments": {}},
+                "id": "_GET_stream",
+            },
+        ) as post_response:
+            assert post_response.status_code == 200
+            lines = post_response.aiter_lines()
+            with anyio.fail_after(5):
+                notification = await next_sse_data(lines)
+            assert notification["params"]["data"] == "First notification before lock"
+
+            get_headers = {
+                "Accept": "text/event-stream",
+                MCP_SESSION_ID_HEADER: session_id,
+                MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+            }
+            async with client.stream("GET", "/mcp", headers=get_headers) as get_response:
+                assert get_response.status_code == 200
+                assert get_response.headers.get("Content-Type") == "text/event-stream"
+
+            release_response = await client.post(
+                "/mcp",
+                headers=headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {"name": "release_lock", "arguments": {}},
+                    "id": "release-after-get-key",
+                },
+            )
+            assert release_response.status_code == 200
+
+            with anyio.fail_after(5):
+                second_notification = await next_sse_data(lines)
+                final = await next_sse_data(lines)
+            assert second_notification["params"]["data"] == "Second notification after lock"
+            assert final["id"] == "_GET_stream"
+            assert final["result"]["content"][0]["text"] == "Completed"
+
+
+@pytest.mark.anyio
+async def test_duplicate_request_id_rejected_during_priming_event_store() -> None:
+    """The duplicate-id guard holds while the event store persists the priming event.
+
+    With an event store, the SSE branch awaits `EventStore.store_event` before the
+    response starts. The routing slot is reserved before that await so a concurrent
+    POST reusing the id cannot slip past the guard and overwrite the slot (#3137).
+    """
+
+    class GatedEventStore(SimpleEventStore):
+        """Blocks the priming write for the gated stream until released."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.entered = anyio.Event()
+            self.release = anyio.Event()
+
+        async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:
+            # Routing keys are type-tagged (`s:` for string JSON-RPC ids).
+            if stream_id == "s:gated-1" and message is None:
+                self.entered.set()
+                await self.release.wait()
+            return await super().store_event(stream_id, message)
+
+    def first_message_sse_data(response: httpx2.Response) -> dict[str, Any]:
+        """First non-empty SSE data payload; skips the empty-data priming event."""
+        for line in response.text.splitlines():
+            if line.startswith("data: ") and line.removeprefix("data: ").strip():
+                return json.loads(line.removeprefix("data: "))
+        raise ValueError("No message data event in SSE response")  # pragma: no cover
+
+    store = GatedEventStore()
+    async with running_app(event_store=store) as app:
+        async with make_client(app) as client:
+            # Priming events require protocol >= 2025-11-25.
+            init_request = {
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "test-client", "version": "1.0"},
+                    "protocolVersion": types.LATEST_PROTOCOL_VERSION,
+                    "capabilities": {},
+                },
+                "id": "init-1",
+            }
+            init_response = await client.post(
+                "/mcp",
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                },
+                json=init_request,
+            )
+            assert init_response.status_code == 200
+            headers = {
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                MCP_SESSION_ID_HEADER: init_response.headers[MCP_SESSION_ID_HEADER],
+                MCP_PROTOCOL_VERSION_HEADER: first_message_sse_data(init_response)["result"]["protocolVersion"],
+            }
+            call: dict[str, Any] = {
+                "jsonrpc": "2.0",
+                "id": "gated-1",
+                "method": "tools/call",
+                "params": {"name": "test_tool", "arguments": {}},
+            }
+            results: dict[str, httpx2.Response] = {}
+
+            async def post_first() -> None:
+                results["first"] = await client.post("/mcp", headers=headers, json=call)
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(post_first)
+                with anyio.fail_after(5):
+                    await store.entered.wait()
+
+                # Without early slot reservation this POST would also suspend in the
+                # gated store and hang; fail_after turns that regression into a fast fail.
+                with anyio.fail_after(5):
+                    duplicate = await client.post("/mcp", headers=headers, json=call)
+                assert duplicate.status_code == 409
+                error = duplicate.json()["error"]
+                assert error["code"] == INVALID_REQUEST
+                assert "already in flight" in error["message"]
+
+                store.release.set()
+
+            assert results["first"].status_code == 200
+            body = first_message_sse_data(results["first"])
+            assert body["id"] == "gated-1"
+            assert body["result"]["content"][0]["text"] == "Called test_tool"
 
 
 @pytest.mark.anyio

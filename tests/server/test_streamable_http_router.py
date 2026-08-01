@@ -13,6 +13,7 @@ from mcp.server.streamable_http import (
     EventStore,
     StreamableHTTPServerTransport,
     StreamId,
+    _request_stream_key,
 )
 from mcp.shared.message import SessionMessage
 
@@ -56,11 +57,14 @@ async def test_router_unconsumed_request_stream_does_not_block_siblings() -> Non
     async with transport.connect() as (_read_stream, write_stream):
         # Model two concurrent POSTs at the point _handle_post_request has
         # registered the per-request stream but A's sse_writer has not yet
-        # reached its first receive().
-        streams["A"] = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
-        streams["B"] = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
-        a_send, a_recv = streams["A"]
-        b_reader = streams["B"][1]
+        # reached its first receive(). Routing keys must match `_request_stream_key`
+        # (type-preserving prefixes), same as production registration.
+        key_a = _request_stream_key("A")
+        key_b = _request_stream_key("B")
+        streams[key_a] = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
+        streams[key_b] = anyio.create_memory_object_stream[EventMessage](REQUEST_STREAM_BUFFER_SIZE)
+        a_send, a_recv = streams[key_a]
+        b_reader = streams[key_b][1]
         b_received = anyio.Event()
 
         async def consume_b() -> None:
