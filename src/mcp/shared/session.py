@@ -3,7 +3,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar, cast, get_args
+from typing import Any, Generic, Protocol, TypeVar, get_args
 
 import anyio
 import httpx
@@ -175,7 +175,7 @@ def _extract_known_request_methods(request_type: type[Any]) -> frozenset[str]:
                 for arg in args:
                     _unpack_union(arg)
             elif hasattr(t, "model_fields") and "method" in t.model_fields:
-                m = cast(Any, t.model_fields["method"].default)
+                m = t.model_fields["method"].default
                 if isinstance(m, str):
                     methods.add(m)
 
