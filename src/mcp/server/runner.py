@@ -642,6 +642,7 @@ async def serve_dual_era_loop(
                     lifespan_state=lifespan_state,
                     raise_exceptions=raise_exceptions,
                     close_write_stream_on_read_close=close_write_stream_on_read_close,
+                    read_eof_drain_timeout_seconds=read_eof_drain_timeout_seconds,
                 )
             else:
                 await _serve_legacy_stream(
@@ -653,6 +654,7 @@ async def serve_dual_era_loop(
                     init_options=init_options,
                     raise_exceptions=raise_exceptions,
                     close_write_stream_on_read_close=close_write_stream_on_read_close,
+                    read_eof_drain_timeout_seconds=read_eof_drain_timeout_seconds,
                 )
     finally:
         await write_stream.aclose()
@@ -736,6 +738,7 @@ async def _serve_legacy_stream(
     init_options: InitializationOptions | None,
     raise_exceptions: bool,
     close_write_stream_on_read_close: bool,
+    read_eof_drain_timeout_seconds: float | None,
 ) -> None:
     """Serve a 2025 handshake connection; enveloped requests are refused."""
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
@@ -775,6 +778,7 @@ async def _serve_modern_stream(
     lifespan_state: LifespanT,
     raise_exceptions: bool,
     close_write_stream_on_read_close: bool,
+    read_eof_drain_timeout_seconds: float | None,
 ) -> None:
     """Serve a 2026-07-28 connection: every request carries its own envelope."""
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
@@ -782,6 +786,7 @@ async def _serve_modern_stream(
         write_stream,
         raise_handler_exceptions=raise_exceptions,
         close_write_stream_on_read_close=close_write_stream_on_read_close,
+        read_eof_drain_timeout_seconds=read_eof_drain_timeout_seconds,
     )
     outbound = NotifyOnlyOutbound(dispatcher)
 
