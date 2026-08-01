@@ -15,7 +15,7 @@ class _RaiseEventSource:
         self.response = response
 
     async def __aiter__(self):
-        yield ServerSentEvent(event="message", data="", id=None, retry=None)
+        yield ServerSentEvent(event="message", data="", id="", retry=None)
         raise RuntimeError("boom")
 
 
