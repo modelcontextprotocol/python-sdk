@@ -3,7 +3,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, get_args
 
 import anyio
 import httpx
@@ -17,6 +17,7 @@ from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
@@ -159,6 +160,31 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
+def _extract_known_request_methods(request_type: type[Any]) -> frozenset[str]:
+    """Extract default method names from a Pydantic RootModel or Union of request models."""
+    try:
+        union_type = getattr(request_type, "__value__", None) or request_type
+        if hasattr(union_type, "model_fields") and "root" in union_type.model_fields:
+            union_type = union_type.model_fields["root"].annotation
+
+        methods: set[str] = set()
+
+        def _unpack_union(t: Any) -> None:
+            args = get_args(t)
+            if args:
+                for arg in args:
+                    _unpack_union(arg)
+            elif hasattr(t, "model_fields") and "method" in t.model_fields:
+                m = t.model_fields["method"].default
+                if isinstance(m, str):
+                    methods.add(m)
+
+        _unpack_union(union_type)
+        return frozenset(methods)
+    except Exception:
+        return frozenset()
+
+
 class BaseSession(
     Generic[
         SendRequestT,
@@ -197,6 +223,7 @@ class BaseSession(
         self._request_id = 0
         self._receive_request_type = receive_request_type
         self._receive_notification_type = receive_notification_type
+        self._known_request_methods = _extract_known_request_methods(receive_request_type)
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
@@ -348,6 +375,11 @@ class BaseSession(
             session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_response))
             await self._write_stream.send(session_message)
 
+    def _get_request_validation_error(self, request: JSONRPCRequest) -> ErrorData:
+        if self._known_request_methods and request.method not in self._known_request_methods:
+            return ErrorData(code=METHOD_NOT_FOUND, message="Method not found")
+        return ErrorData(code=INVALID_PARAMS, message="Invalid request parameters")
+
     async def _receive_loop(self) -> None:
         async with (
             self._read_stream,
@@ -385,11 +417,7 @@ class BaseSession(
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
                                 id=message.message.root.id,
-                                error=ErrorData(
-                                    code=INVALID_PARAMS,
-                                    message="Invalid request parameters",
-                                    data="",
-                                ),
+                                error=self._get_request_validation_error(message.message.root),
                             )
                             session_message = SessionMessage(message=JSONRPCMessage(error_response))
                             await self._write_stream.send(session_message)

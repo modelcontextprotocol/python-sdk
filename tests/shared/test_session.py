@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from typing import Any
 
 import anyio
@@ -10,6 +11,7 @@ from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
 from mcp.shared.message import SessionMessage
+from mcp.shared.session import _extract_known_request_methods
 from mcp.types import (
     CancelledNotification,
     CancelledNotificationParams,
@@ -21,6 +23,7 @@ from mcp.types import (
     JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
+    ServerRequest,
     TextContent,
 )
 
@@ -339,3 +342,93 @@ async def test_connection_closed():
                 await ev_closed.wait()
             with anyio.fail_after(1):  # pragma: no cover
                 await ev_response.wait()
+
+
+@pytest.mark.anyio
+async def test_client_session_unknown_method_returns_method_not_found():
+    """Test that ClientSession returns METHOD_NOT_FOUND (-32601) when receiving an unknown server request method."""
+    async with create_client_server_memory_streams() as (client_stream, server_stream):
+        client_read, client_write = client_stream
+        server_read, server_write = server_stream
+
+        async def mock_server():
+            # Send unknown request method to client
+            await server_write.send(
+                SessionMessage(
+                    message=JSONRPCMessage(
+                        JSONRPCRequest(
+                            jsonrpc="2.0",
+                            id=1,
+                            method="invalid/server_method",
+                            params={},
+                        )
+                    )
+                )
+            )
+            resp = await server_read.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message.root, JSONRPCError)
+            assert resp.message.root.id == 1
+            assert resp.message.root.error.code == types.METHOD_NOT_FOUND
+            assert resp.message.root.error.message == "Method not found"
+
+        async with (
+            ClientSession(read_stream=client_read, write_stream=client_write),
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(mock_server)
+
+
+def test_extract_known_request_methods_ignores_non_string_defaults():
+    class RequestWithNonStringMethod:
+        model_fields = {"method": SimpleNamespace(default=None)}
+
+    assert _extract_known_request_methods(RequestWithNonStringMethod) == frozenset()
+
+
+def test_extract_known_request_methods_fails_closed_on_schema_introspection_error():
+    class ExplodingMeta(type):
+        @property
+        def __value__(cls) -> type[Any]:
+            raise RuntimeError("broken schema")
+
+    class BrokenRequest(metaclass=ExplodingMeta):
+        pass
+
+    assert _extract_known_request_methods(BrokenRequest) == frozenset()
+
+
+def test_extract_known_request_methods_returns_full_client_and_server_method_sets():
+    assert _extract_known_request_methods(ClientRequest) == frozenset(
+        {
+            "completion/complete",
+            "initialize",
+            "logging/setLevel",
+            "ping",
+            "prompts/get",
+            "prompts/list",
+            "resources/list",
+            "resources/read",
+            "resources/subscribe",
+            "resources/templates/list",
+            "resources/unsubscribe",
+            "tasks/cancel",
+            "tasks/get",
+            "tasks/list",
+            "tasks/result",
+            "tools/call",
+            "tools/list",
+        }
+    )
+    assert _extract_known_request_methods(ServerRequest) == frozenset(
+        {
+            "elicitation/create",
+            "ping",
+            "roots/list",
+            "sampling/createMessage",
+            "tasks/cancel",
+            "tasks/get",
+            "tasks/list",
+            "tasks/result",
+        }
+    )

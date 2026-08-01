@@ -521,3 +521,139 @@ async def test_other_requests_blocked_before_initialization():
 
     assert error_response_received
     assert error_code == types.INVALID_PARAMS
+
+
+@pytest.mark.anyio
+async def test_unknown_method_returns_method_not_found():
+    """Test that unknown request methods return METHOD_NOT_FOUND (-32601),
+    while malformed known methods return INVALID_PARAMS (-32602).
+    """
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    async def run_server():
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="mcp",
+                server_version="0.1.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ):
+            await anyio.sleep(0.2)
+
+    async def mock_client():
+        # 1. Send unknown method request
+        await client_to_server_send.send(
+            SessionMessage(
+                types.JSONRPCMessage(
+                    types.JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="totally/bogus",
+                        params={},
+                    )
+                )
+            )
+        )
+
+        resp1 = await server_to_client_receive.receive()
+        assert isinstance(resp1.message.root, types.JSONRPCError)
+        assert resp1.message.root.id == 1
+        assert resp1.message.root.error.code == types.METHOD_NOT_FOUND
+        assert resp1.message.root.error.message == "Method not found"
+
+        # 2. Send malformed known method request (initialize missing required capabilities/clientInfo)
+        await client_to_server_send.send(
+            SessionMessage(
+                types.JSONRPCMessage(
+                    types.JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=2,
+                        method="initialize",
+                        # protocolVersion is valid; capabilities/clientInfo are missing
+                        params={"protocolVersion": "2025-06-18"},
+                    )
+                )
+            )
+        )
+
+        resp2 = await server_to_client_receive.receive()
+        assert isinstance(resp2.message.root, types.JSONRPCError)
+        assert resp2.message.root.id == 2
+        assert resp2.message.root.error.code == types.INVALID_PARAMS
+        assert resp2.message.root.error.message == "Invalid request parameters"
+
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        tg.start_soon(mock_client)
+
+
+@pytest.mark.anyio
+async def test_unknown_notification_receives_no_response():
+    """Test that unknown notifications go unanswered, per JSON-RPC (notifications must not be responded to)."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    async def run_server():
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="mcp",
+                server_version="0.1.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ):
+            await anyio.sleep(0.2)
+
+    async def mock_client():
+        # 1. Send an unknown notification
+        await client_to_server_send.send(
+            SessionMessage(
+                types.JSONRPCMessage(
+                    types.JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="totally/bogus",
+                        params={},
+                    )
+                )
+            )
+        )
+
+        # 2. Send a request afterwards; the first response received must be for the
+        # request, proving the notification produced no response
+        await client_to_server_send.send(
+            SessionMessage(
+                types.JSONRPCMessage(
+                    types.JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="totally/bogus",
+                        params={},
+                    )
+                )
+            )
+        )
+
+        resp = await server_to_client_receive.receive()
+        assert isinstance(resp.message.root, types.JSONRPCError)
+        assert resp.message.root.id == 1
+        assert resp.message.root.error.code == types.METHOD_NOT_FOUND
+
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        tg.start_soon(mock_client)
