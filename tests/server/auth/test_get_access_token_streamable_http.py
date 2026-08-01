@@ -1,6 +1,6 @@
 import time
 
-import httpx
+import httpx2
 import pytest
 from mcp_types import (
     CallToolRequestParams,
@@ -41,11 +41,11 @@ async def _handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequest
     return ListToolsResult(tools=[Tool(name="whoami", input_schema={"type": "object", "properties": {}})])
 
 
-class _MutableBearerAuth(httpx.Auth):
+class _MutableBearerAuth(httpx2.Auth):
     def __init__(self, token: str | None) -> None:
         self.token = token
 
-    def auth_flow(self, request: httpx.Request):
+    def auth_flow(self, request: httpx2.Request):
         if self.token is not None:
             request.headers["Authorization"] = f"Bearer {self.token}"
         yield request
@@ -54,12 +54,12 @@ class _MutableBearerAuth(httpx.Auth):
 async def _call_whoami(asgi_app: Starlette, host: str, token: str | None) -> str:
     auth = _MutableBearerAuth(token)
     async with (
-        httpx.ASGITransport(asgi_app) as transport,
-        httpx.AsyncClient(
+        httpx2.ASGITransport(asgi_app) as transport,
+        httpx2.AsyncClient(
             transport=transport,
             base_url=f"http://{host}",
             auth=auth,
-            timeout=httpx.Timeout(30, read=30),
+            timeout=httpx2.Timeout(30, read=30),
             follow_redirects=True,
         ) as http_client,
     ):
