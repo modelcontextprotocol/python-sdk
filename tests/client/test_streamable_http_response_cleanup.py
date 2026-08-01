@@ -1,8 +1,8 @@
 import contextlib
 
-import httpx
+import httpx2
 import pytest
-from httpx_sse import ServerSentEvent
+from httpx2 import ServerSentEvent
 from mcp_types import JSONRPCRequest
 
 from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
@@ -11,10 +11,10 @@ from mcp.shared.message import ClientMessageMetadata, SessionMessage
 
 
 class _RaiseEventSource:
-    def __init__(self, response: httpx.Response) -> None:
+    def __init__(self, response: httpx2.Response) -> None:
         self.response = response
 
-    async def aiter_sse(self):
+    async def __aiter__(self):
         yield ServerSentEvent(event="message", data="", id=None, retry=None)
         raise RuntimeError("boom")
 
@@ -27,7 +27,7 @@ async def test_handle_sse_response_closes_response_on_exception(monkeypatch: pyt
         nonlocal closed
         closed = True
 
-    response = httpx.Response(200, headers={"content-type": "text/event-stream"})
+    response = httpx2.Response(200, headers={"content-type": "text/event-stream"})
     response.aclose = spy_aclose  # type: ignore[method-assign]
 
     monkeypatch.setattr("mcp.client.streamable_http.EventSource", _RaiseEventSource)
@@ -35,7 +35,7 @@ async def test_handle_sse_response_closes_response_on_exception(monkeypatch: pyt
     send_stream, receive_stream = create_context_streams[SessionMessage | Exception](1)
     async with send_stream, receive_stream:
         transport = StreamableHTTPTransport("http://example.invalid/mcp")
-        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200))) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda _: httpx2.Response(200))) as client:
             ctx = RequestContext(
                 client=client,
                 session_id=None,
@@ -49,21 +49,20 @@ async def test_handle_sse_response_closes_response_on_exception(monkeypatch: pyt
 
 
 @pytest.mark.anyio
-async def test_handle_resumption_request_closes_response_when_aconnect_sse_raises(
+async def test_handle_resumption_request_closes_response_when_sse_connect_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     @contextlib.asynccontextmanager
-    async def fake_aconnect_sse(*_args: object, **_kwargs: object):
+    async def fake_sse(*_args: object, **_kwargs: object):
         raise RuntimeError("connect failed")
         yield
-
-    monkeypatch.setattr("mcp.client.streamable_http.aconnect_sse", fake_aconnect_sse)
 
     send_stream, receive_stream = create_context_streams[SessionMessage | Exception](1)
     async with send_stream, receive_stream:
         transport = StreamableHTTPTransport("http://example.invalid/mcp")
         metadata = ClientMessageMetadata(resumption_token="1")
-        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200))) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda _: httpx2.Response(200))) as client:
+            monkeypatch.setattr(client, "sse", fake_sse)
             ctx = RequestContext(
                 client=client,
                 session_id=None,
@@ -90,24 +89,23 @@ async def test_handle_resumption_request_closes_response_on_exception(monkeypatc
         nonlocal closed
         closed = True
 
-    response = httpx.Response(
+    response = httpx2.Response(
         200,
         headers={"content-type": "text/event-stream"},
-        request=httpx.Request("GET", "http://example.invalid/mcp"),
+        request=httpx2.Request("GET", "http://example.invalid/mcp"),
     )
     response.aclose = spy_aclose  # type: ignore[method-assign]
 
     @contextlib.asynccontextmanager
-    async def fake_aconnect_sse(*_args: object, **_kwargs: object):
+    async def fake_sse(*_args: object, **_kwargs: object):
         yield _RaiseEventSource(response)
-
-    monkeypatch.setattr("mcp.client.streamable_http.aconnect_sse", fake_aconnect_sse)
 
     send_stream, receive_stream = create_context_streams[SessionMessage | Exception](1)
     async with send_stream, receive_stream:
         transport = StreamableHTTPTransport("http://example.invalid/mcp")
         metadata = ClientMessageMetadata(resumption_token="1")
-        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200))) as client:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(lambda _: httpx2.Response(200))) as client:
+            monkeypatch.setattr(client, "sse", fake_sse)
             ctx = RequestContext(
                 client=client,
                 session_id=None,
