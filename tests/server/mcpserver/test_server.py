@@ -2324,6 +2324,11 @@ def test_context_mcp_server_outside_request_raises() -> None:
         _ = Context().mcp_server
 
 
+def test_context_request_context_outside_request_raises() -> None:
+    with pytest.raises(ValueError, match="outside of a request"):
+        _ = Context().request_context
+
+
 async def test_context_notify_outside_a_request_raises() -> None:
     with pytest.raises(ValueError, match="outside of a request"):
         await Context().notify_tools_changed()
