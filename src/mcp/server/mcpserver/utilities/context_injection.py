@@ -85,9 +85,7 @@ def validate_call_with_injected_context(
     if context_parameter is None:
         return validate_call(fn)
 
-    context_annotation = context_parameter.annotation
-    if context_annotation is inspect.Parameter.empty:
-        context_annotation = Any
+    context_annotation = typing.get_type_hints(fn, include_extras=True).get(context_kwarg, Any)
     skipped_context_annotation = SkipValidation[context_annotation]
     validation_signature = signature.replace(
         parameters=[
@@ -100,9 +98,6 @@ def validate_call_with_injected_context(
         for parameter in validation_signature.parameters.values()
         if parameter.annotation is not inspect.Parameter.empty
     }
-    if validation_signature.return_annotation is not inspect.Signature.empty:
-        validation_annotations["return"] = validation_signature.return_annotation
-
     if is_async_callable(fn):
 
         @functools.wraps(fn)
