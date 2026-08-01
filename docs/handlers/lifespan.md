@@ -41,7 +41,7 @@ Nothing new. `ctx` is a **Context** parameter, so the SDK injects it and it neve
 
 `genre` is the only argument the model can pass. The lifespan is your server's business.
 
-`@mcp.resource()` and `@mcp.prompt()` functions can take the same typed `ctx` parameter. Everything `ctx` carries is in **[The Context](context.md)**.
+URI-template `@mcp.resource("scheme://{param}")` handlers and `@mcp.prompt()` handlers can take the same typed `ctx` parameter. Static resources cannot accept `Context` because context injection is available only for resource templates. Everything `ctx` carries is in **[The Context](context.md)**.
 
 ### It really is typed
 
@@ -82,8 +82,8 @@ Strip the server down to the lifecycle: give `Database` a `connected` flag, flip
 * `lifespan=` takes an `@asynccontextmanager` that receives the server and `yield`s one object.
 * Code before the `yield` is startup. The `finally` after it is shutdown.
 * It runs once, around the whole life of the server, not per request.
-* Whatever you `yield` is `ctx.request_context.lifespan_context` in every tool, resource, and prompt.
-* `ctx: Context[AppContext]` makes that access fully typed in tools, resources, and prompts.
+* Whatever you `yield` is `ctx.request_context.lifespan_context` in every tool, resource-template, and prompt handler that accepts `ctx`.
+* `ctx: Context[AppContext]` makes that access fully typed in tools, resource templates, and prompts. Static resources cannot accept `ctx`.
 * No `lifespan=` means an empty `dict`, never `None`.
 
 A handler that stops mid-call to ask the user for something only they know is **[Elicitation](elicitation.md)**.
