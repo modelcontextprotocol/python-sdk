@@ -1197,9 +1197,9 @@ class TestContextInjection:
         mcp = MCPServer()
 
         @mcp.resource("resource://context/{name}")
-        def resource_with_context(name: str, ctx: Context) -> str:
+        async def resource_with_context(name: str, ctx: Context[None]) -> str:
             """Resource that receives context."""
-            assert ctx is not None
+            assert ctx.request_context is not None
             return f"Resource {name} - context injected"
 
         # Verify template has context_kwarg set
@@ -1280,9 +1280,9 @@ class TestContextInjection:
         mcp = MCPServer()
 
         @mcp.prompt("prompt_with_ctx")
-        def prompt_with_context(text: str, ctx: Context) -> str:
+        def prompt_with_context(text: str, ctx: Context[None]) -> str:
             """Prompt that expects context."""
-            assert ctx is not None
+            assert ctx.request_context is not None
             return f"Prompt '{text}' - context injected"
 
         # Test via client

@@ -5,7 +5,7 @@ from inline_snapshot import snapshot
 from mcp_types import TextContent, TextResourceContents
 
 from docs_src.lifespan import tutorial001, tutorial002
-from mcp import Client, MCPError
+from mcp import Client
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 
@@ -74,8 +74,8 @@ async def test_bare_context_reaches_the_lifespan_object_in_resources_and_prompts
         assert message.content == TextContent(type="text", text="Summarise a shelf of 3 books.")
 
 
-async def test_parameterized_context_is_tool_only(caplog: pytest.LogCaptureFixture) -> None:
-    """`Context[AppContext]` on a resource or prompt fails every call; the server logs the `ValueError`."""
+async def test_parameterized_context_reaches_resources_and_prompts() -> None:
+    """`Context[AppContext]` preserves typed lifespan state in resources and prompts."""
     mcp = MCPServer("Bookshop", lifespan=tutorial001.app_lifespan)
 
     @mcp.resource("books://{genre}/count")
@@ -89,14 +89,13 @@ async def test_parameterized_context_is_tool_only(caplog: pytest.LogCaptureFixtu
         return f"Summarise a shelf of {ctx.request_context.lifespan_context.db.query()} books."
 
     async with Client(mcp) as client:
-        with pytest.raises(MCPError, match="Error creating resource from template"):
-            await client.read_resource("books://poetry/count")
-        assert "ValueError: Context is not available outside of a request" in caplog.text
-
-        caplog.clear()
-        with pytest.raises(MCPError):
-            await client.get_prompt("stock_report")
-        assert "ValueError: Context is not available outside of a request" in caplog.text
+        resource = await client.read_resource("books://poetry/count")
+        assert resource.contents == [
+            TextResourceContents(uri="books://poetry/count", mime_type="text/plain", text="3 books in 'poetry'.")
+        ]
+        prompt = await client.get_prompt("stock_report")
+        (message,) = prompt.messages
+        assert message.content == TextContent(type="text", text="Summarise a shelf of 3 books.")
 
 
 async def test_default_lifespan_yields_an_empty_dict() -> None:

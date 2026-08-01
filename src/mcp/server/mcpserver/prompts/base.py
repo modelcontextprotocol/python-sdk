@@ -9,9 +9,13 @@ from typing import TYPE_CHECKING, Any, Literal
 import anyio.to_thread
 import pydantic_core
 from mcp_types import ContentBlock, Icon, InputRequiredResult, TextContent
-from pydantic import BaseModel, Field, TypeAdapter, validate_call
+from pydantic import BaseModel, Field, TypeAdapter
 
-from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
+from mcp.server.mcpserver.utilities.context_injection import (
+    find_context_parameter,
+    inject_context,
+    validate_call_with_injected_context,
+)
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
@@ -126,7 +130,7 @@ class Prompt(BaseModel):
                 )
 
         # ensure the arguments are properly cast
-        fn = validate_call(fn)
+        fn = validate_call_with_injected_context(fn, context_kwarg)
 
         return cls(
             name=func_name,

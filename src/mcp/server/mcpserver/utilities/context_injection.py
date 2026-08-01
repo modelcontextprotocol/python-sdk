@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import functools
 import inspect
 import typing
 from collections.abc import Callable
 from typing import Any
 
+from pydantic import SkipValidation, validate_call
+
 from mcp.server.mcpserver.context import Context
+from mcp.shared._callable_inspection import is_async_callable
 
 
 def find_context_parameter(fn: Callable[..., Any]) -> str | None:
@@ -66,3 +70,59 @@ def inject_context(
     if context_kwarg is not None and context is not None:
         return {**kwargs, context_kwarg: context}
     return kwargs
+
+
+def validate_call_with_injected_context(
+    fn: Callable[..., Any],
+    context_kwarg: str | None,
+) -> Callable[..., Any]:
+    """Validate a handler call without re-validating its injected context."""
+    if context_kwarg is None:
+        return validate_call(fn)
+
+    signature = inspect.signature(fn, eval_str=True)
+    context_parameter = signature.parameters.get(context_kwarg)
+    if context_parameter is None:
+        return validate_call(fn)
+
+    context_annotation = context_parameter.annotation
+    if context_annotation is inspect.Parameter.empty:
+        context_annotation = Any
+    skipped_context_annotation = SkipValidation[context_annotation]
+    validation_signature = signature.replace(
+        parameters=[
+            parameter.replace(annotation=skipped_context_annotation) if parameter.name == context_kwarg else parameter
+            for parameter in signature.parameters.values()
+        ]
+    )
+    validation_annotations = {
+        parameter.name: parameter.annotation
+        for parameter in validation_signature.parameters.values()
+        if parameter.annotation is not inspect.Parameter.empty
+    }
+    if validation_signature.return_annotation is not inspect.Signature.empty:
+        validation_annotations["return"] = validation_signature.return_annotation
+
+    if is_async_callable(fn):
+
+        @functools.wraps(fn)
+        async def async_forwarding(*args: Any, **kwargs: Any) -> Any:
+            return await fn(*args, **kwargs)
+
+        forwarding: Callable[..., Any] = async_forwarding
+    else:
+
+        @functools.wraps(fn)
+        def sync_forwarding(*args: Any, **kwargs: Any) -> Any:
+            return fn(*args, **kwargs)
+
+        forwarding = sync_forwarding
+
+    # Pydantic builds its validator from these temporary annotations. Restore the
+    # handler's public signature after validation is compiled.
+    setattr(forwarding, "__signature__", validation_signature)
+    forwarding.__annotations__ = validation_annotations
+    validated = validate_call(forwarding)
+    setattr(validated, "__signature__", signature)
+    validated.__annotations__ = fn.__annotations__
+    return validated

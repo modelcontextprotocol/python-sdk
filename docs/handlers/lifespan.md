@@ -41,7 +41,7 @@ Nothing new. `ctx` is a **Context** parameter, so the SDK injects it and it neve
 
 `genre` is the only argument the model can pass. The lifespan is your server's business.
 
-`@mcp.resource()` and `@mcp.prompt()` functions can take a `ctx` parameter too, written as a bare `Context` for a reason the next section gets to. Everything `ctx` carries is in **[The Context](context.md)**.
+`@mcp.resource()` and `@mcp.prompt()` functions can take the same typed `ctx` parameter. Everything `ctx` carries is in **[The Context](context.md)**.
 
 ### It really is typed
 
@@ -50,19 +50,6 @@ Look at the annotation again: `ctx: Context[AppContext]`.
 That one type parameter is why `ctx.request_context.lifespan_context` **is** an `AppContext` to your type checker. `.db` autocompletes; `.dbb` is an error before you ever run the server.
 
 Write a bare `Context` instead and `lifespan_context` is typed as `dict[str, Any]`: the type checker has no way to know what your lifespan yielded. The object is still there at runtime; you've lost the help.
-
-!!! warning
-    `Context[AppContext]` is a **tool-only** spelling. Put it on an `@mcp.resource()` or
-    `@mcp.prompt()` function and every call to that handler fails. The client gets an error back,
-    and the server log shows why:
-
-    ```text
-    Context is not available outside of a request
-    ```
-
-    In resources and prompts, write the bare `ctx: Context`. The object your lifespan yielded is
-    still `ctx.request_context.lifespan_context` at runtime; you give up the type parameter, not
-    the object.
 
 !!! tip
     There is always a lifespan. If you don't pass one, the SDK's default yields an empty `dict`,
@@ -96,7 +83,7 @@ Strip the server down to the lifecycle: give `Database` a `connected` flag, flip
 * Code before the `yield` is startup. The `finally` after it is shutdown.
 * It runs once, around the whole life of the server, not per request.
 * Whatever you `yield` is `ctx.request_context.lifespan_context` in every tool, resource, and prompt.
-* `ctx: Context[AppContext]` makes that access fully typed in tools. Resources and prompts take the bare `Context`.
+* `ctx: Context[AppContext]` makes that access fully typed in tools, resources, and prompts.
 * No `lifespan=` means an empty `dict`, never `None`.
 
 A handler that stops mid-call to ask the user for something only they know is **[Elicitation](elicitation.md)**.
