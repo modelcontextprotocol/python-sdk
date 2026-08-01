@@ -1712,7 +1712,7 @@ async def my_tool(ctx: Context) -> str: ...
 async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 ```
 
-The parametrized `Context[MyLifespanState]` annotation currently works only on `@mcp.tool()` handlers. On `@mcp.prompt()` and templated `@mcp.resource("scheme://{param}")` handlers, annotate the parameter as bare `Context` for now: these handlers are wrapped in `pydantic.validate_call`, which re-validates the injected `Context` into a fresh `Context[MyLifespanState]` detached from the request, so the first access to `ctx.request_id`, `ctx.session`, or `ctx.request_context` raises `ValueError: Context is not available outside of a request` (the client sees an internal server error, or `Error creating resource from template ...`). Bare `Context` still exposes `ctx.request_context.lifespan_context`; only its static type is lost.
+The parametrized `Context[MyLifespanState]` annotation works on `@mcp.tool()`, `@mcp.prompt()`, and templated `@mcp.resource("scheme://{param}")` handlers. The SDK validates client-supplied arguments separately and passes the server-created context directly, preserving its request state and the static type of `ctx.request_context.lifespan_context`.
 
 ### `ServerSession` is now a thin proxy (no longer a `BaseSession`)
 

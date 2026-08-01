@@ -222,6 +222,39 @@ class TestResourceTemplate:
         assert data == {"key": "foo", "value": 123}
 
     @pytest.mark.anyio
+    async def test_create_resource_preserves_context_with_variadic_kwargs(self):
+        """Injected context bypasses validation without changing **kwargs handling."""
+        context = Context()
+
+        def my_func(ctx: Context[None], **kwargs: str) -> str:
+            assert ctx is context
+            return kwargs["key"]
+
+        template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="test://{key}",
+            context_kwarg="ctx",
+        )
+        resource = await template.create_resource("test://value", {"key": "value"}, context)
+
+        assert isinstance(resource, FunctionResource)
+        assert await resource.read() == "value"
+
+    def test_unknown_explicit_context_kwarg_keeps_normal_validation(self):
+        """An unknown explicit context parameter falls back to normal validation."""
+
+        def my_func(key: int) -> int:
+            return key
+
+        template = ResourceTemplate.from_function(
+            fn=my_func,
+            uri_template="test://{key}",
+            context_kwarg="missing",
+        )
+
+        assert template.fn(key="1") == 1
+
+    @pytest.mark.anyio
     async def test_template_error(self):
         """Test error handling in template resource creation."""
 

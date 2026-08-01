@@ -9,11 +9,15 @@ from typing import TYPE_CHECKING, Any
 
 import anyio.to_thread
 from mcp_types import Annotations, Icon, InputRequiredResult
-from pydantic import BaseModel, Field, validate_call
+from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
-from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
+from mcp.server.mcpserver.utilities.context_injection import (
+    find_context_parameter,
+    inject_context,
+    validate_call_with_injected_context,
+)
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
@@ -160,7 +164,7 @@ class ResourceTemplate(BaseModel):
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
         # ensure the arguments are properly cast
-        fn = validate_call(fn)
+        fn = validate_call_with_injected_context(fn, context_kwarg)
 
         return cls(
             uri_template=uri_template,
