@@ -76,11 +76,11 @@ uv tool install pre-commit --with pre-commit-uv --force-reinstall
 
    | Change Type | Target Branch | Example |
    |-------------|---------------|---------|
-   | New features, breaking changes | `main` | New APIs, refactors |
+   | New features and fixes for v2 | `main` | New APIs, refactors |
    | Security fixes for v1 | `v1.x` | Critical patches |
-   | Bug fixes for v1 | `v1.x` | Non-breaking fixes |
+   | Critical bug fixes for v1 | `v1.x` | Backports of severe bugs |
 
-   > **Note:** `main` is the v2 development branch. Breaking changes are welcome on `main`. The `v1.x` branch receives only security and critical bug fixes.
+   > **Note:** `main` is the current stable line (v2). The `v1.x` branch is the previous major's maintenance line and receives only security and critical bug fixes.
 
 2. Create a new branch from your chosen base branch
 

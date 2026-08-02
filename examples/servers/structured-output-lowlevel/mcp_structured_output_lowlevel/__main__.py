@@ -10,9 +10,8 @@ import json
 import random
 from datetime import datetime
 
-import mcp_types as types
-
 import mcp.server.stdio
+import mcp.types as types
 from mcp.server import Server, ServerRequestContext
 
 

@@ -2,11 +2,11 @@
 
 These exercise the closed set of extension contribution kinds - tools,
 resources, request methods, and the single `tools/call` interceptor - through
-the highest-level public surface (in-memory `Client`), plus the
-`compose_tool_call_interceptor` helper directly.
+the highest-level public surface (in-memory `Client`).
 """
 
-from typing import Any, Literal, cast
+from dataclasses import replace
+from typing import Any, Literal
 
 import mcp_types as types
 import pytest
@@ -14,6 +14,7 @@ from inline_snapshot import snapshot
 from mcp_types import (
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
+    SERVER_INFO_META_KEY,
     CallToolResult,
     TextContent,
 )
@@ -26,7 +27,6 @@ from mcp.server.extension import (
     MethodBinding,
     ResourceBinding,
     ToolBinding,
-    compose_tool_call_interceptor,
 )
 from mcp.server.mcpserver import Context, MCPServer, require_client_extension
 from mcp.server.mcpserver.resources import TextResource
@@ -150,10 +150,17 @@ async def test_additive_extension_registers_its_tool_and_resource() -> None:
 
     assert [t.name for t in tools.tools] == ["ping"]
     assert tools.tools[0].meta == _TOOL_META
-    assert called == snapshot(CallToolResult(content=[TextContent(text="pong")], structured_content={"result": "pong"}))
+    assert called == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="pong")],
+            structured_content={"result": "pong"},
+        )
+    )
     assert resources == snapshot(
         types.ListResourcesResult(
-            resources=[types.Resource(name="greeting", uri="ext://greeting", mime_type="text/plain")]
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            resources=[types.Resource(name="greeting", uri="ext://greeting", mime_type="text/plain")],
         )
     )
 
@@ -195,7 +202,9 @@ async def test_extension_method_reachable_via_session_send_request() -> None:
         request = _PingRequest(params=_PingParams())
         result = await client.session.send_request(request, _PingResult)
 
-    assert result == snapshot(_PingResult(pong=True))
+    assert result == snapshot(
+        _PingResult(_meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}}, pong=True)
+    )
 
 
 async def test_pass_through_interceptor_leaves_tool_result_unchanged() -> None:
@@ -207,7 +216,13 @@ async def test_pass_through_interceptor_leaves_tool_result_unchanged() -> None:
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"}))
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="hi")],
+            structured_content={"result": "hi"},
+        )
+    )
 
 
 async def test_short_circuiting_interceptor_replaces_tool_result() -> None:
@@ -219,26 +234,36 @@ async def test_short_circuiting_interceptor_replaces_tool_result() -> None:
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="intercepted")]))
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="intercepted")],
+        )
+    )
 
 
-def test_plain_extension_installs_no_tool_call_interceptor() -> None:
-    """SDK-defined: an extension that does not override `intercept_tool_call` adds no
-    middleware - the composed interceptor exists only when at least one extension
-    overrides it."""
-    baseline = len(MCPServer("test")._lowlevel_server.middleware)
+def test_plain_extension_leaves_the_tool_call_handler_bare() -> None:
+    """SDK-defined: an extension that does not override `intercept_tool_call` leaves
+    `tools/call` registered as the server's own handler - the interceptor chain is
+    composed only when at least one extension overrides it."""
     server = MCPServer("test", extensions=[_AdditiveExt()])
 
-    assert len(server._lowlevel_server.middleware) == baseline
+    entry = server._lowlevel_server.get_request_handler("tools/call")
+    assert entry is not None
+    assert entry.handler == server._handle_call_tool
 
 
-def test_overriding_extension_installs_one_tool_call_interceptor() -> None:
-    """SDK-defined: an extension that overrides `intercept_tool_call` composes exactly
-    one additional `tools/call` middleware."""
+def test_overriding_extension_wraps_the_tool_call_handler() -> None:
+    """SDK-defined: an extension that overrides `intercept_tool_call` re-registers
+    `tools/call` with the interceptor chain wrapped around the server's own handler,
+    and installs no middleware."""
     baseline = len(MCPServer("test")._lowlevel_server.middleware)
     server = MCPServer("test", extensions=[_ReplacingExt()])
 
-    assert len(server._lowlevel_server.middleware) == baseline + 1
+    entry = server._lowlevel_server.get_request_handler("tools/call")
+    assert entry is not None
+    assert entry.handler != server._handle_call_tool
+    assert len(server._lowlevel_server.middleware) == baseline
 
 
 async def test_default_interceptor_passes_through_alongside_an_overriding_one() -> None:
@@ -251,11 +276,17 @@ async def test_default_interceptor_passes_through_alongside_an_overriding_one() 
     async with Client(server) as client:
         result = await client.call_tool("echo", {"value": "hi"})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="hi")], structured_content={"result": "hi"}))
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="hi")],
+            structured_content={"result": "hi"},
+        )
+    )
 
 
 async def test_interceptors_run_in_registration_order_with_threaded_params() -> None:
-    """SDK-defined: `compose_tool_call_interceptor` nests extensions first-outermost, so
+    """SDK-defined: `compose_tool_call_handler` nests extensions first-outermost, so
     two passing-through interceptors record in registration order, each seeing the
     validated `tools/call` params (the real tool name)."""
     log: list[tuple[str, str]] = []
@@ -271,26 +302,48 @@ async def test_interceptors_run_in_registration_order_with_threaded_params() -> 
     assert log == [("com.example/first", "echo"), ("com.example/second", "echo")]
 
 
-async def test_compose_tool_call_interceptor_passes_through_non_tools_call() -> None:
-    """SDK-defined: the composed middleware is a no-op for any method other than
-    `tools/call` - it forwards to `call_next` without touching the interceptors."""
-    sentinel = types.EmptyResult()
+async def test_an_interceptor_context_rewrite_does_not_change_the_tool_invocation() -> None:
+    """SDK-defined: the validated `params` argument is authoritative - an
+    interceptor passing a rewritten context through `call_next` adjusts what
+    the handler observes on `ctx`, not which tool call runs. Wire-level
+    request rewriting belongs to `Server.middleware`, above params validation."""
 
-    async def call_next(ctx: ServerRequestContext[Any, Any]) -> HandlerResult:
-        return sentinel
+    class _RewritingExt(Extension):
+        identifier = "com.example/rewriting"
 
-    middleware = compose_tool_call_interceptor([_ReplacingExt()])
-    ctx = ServerRequestContext(
-        session=cast("Any", None),
-        lifespan_context={},
-        protocol_version="2026-07-28",
-        method="tasks/get",
-        params={"taskId": "t-1"},
+        async def intercept_tool_call(
+            self, params: types.CallToolRequestParams, ctx: ServerRequestContext[Any, Any], call_next: CallNext
+        ) -> HandlerResult:
+            rewritten = {**(ctx.params or {}), "arguments": {"value": "rewritten"}}
+            return await call_next(replace(ctx, params=rewritten))
+
+    server = MCPServer("test", extensions=[_RewritingExt()])
+    server.tool(name="echo")(_echo)
+
+    async with Client(server) as client:
+        result = await client.call_tool("echo", {"value": "original"})
+
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="original")],
+            structured_content={"result": "original"},
+        )
     )
 
-    result = await middleware(ctx, call_next)
 
-    assert result is sentinel
+async def test_short_circuited_interceptor_result_carries_the_server_info_stamp() -> None:
+    """Spec-mandated (2026-07-28, #3002): an interceptor that answers without running
+    the tool still produces a stamped result - interception happens at the handler
+    layer, below the runner's outbound envelope pass."""
+    server = MCPServer("test", extensions=[_ReplacingExt()])
+    server.tool(name="echo", structured_output=False)(_echo)
+
+    async with Client(server) as client:
+        result = await client.call_tool("echo", {"value": "hi"})
+
+    assert result.content == [TextContent(text="intercepted")]
+    assert result.meta == {SERVER_INFO_META_KEY: {"name": "test", "version": ""}}
 
 
 def test_extension_subclass_without_prefixed_identifier_is_rejected_at_definition() -> None:
@@ -345,7 +398,9 @@ async def test_version_pinned_method_is_served_at_an_allowed_version() -> None:
         request = _VersionPinnedRequest(params=_VersionPinnedParams())
         result = await client.session.send_request(request, _VersionPinnedResult)
 
-    assert result == snapshot(_VersionPinnedResult(ok=True))
+    assert result == snapshot(
+        _VersionPinnedResult(_meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}}, ok=True)
+    )
 
 
 async def test_version_pinned_method_is_method_not_found_at_a_disallowed_version() -> None:
@@ -425,7 +480,13 @@ async def test_require_client_extension_passes_when_client_declared_it() -> None
     async with Client(server, extensions=[advertise(_NEEDS_EXT)]) as client:
         result = await client.call_tool("guarded", {})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))
+    assert result == snapshot(
+        CallToolResult(
+            _meta={"io.modelcontextprotocol/serverInfo": {"name": "test", "version": ""}},
+            content=[TextContent(text="ok")],
+            structured_content={"result": "ok"},
+        )
+    )
 
 
 async def test_require_client_extension_raises_minus_32021_when_client_did_not_declare_it() -> None:

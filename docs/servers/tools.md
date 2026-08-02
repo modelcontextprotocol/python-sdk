@@ -142,7 +142,7 @@ There is nothing else to configure.
 
 Everything the SDK infers, you can override in the decorator:
 
-```python title="server.py" hl_lines="8-11"
+```python title="server.py" hl_lines="7-10"
 --8<-- "docs_src/tools/tutorial005.py"
 ```
 

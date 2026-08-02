@@ -21,7 +21,7 @@ That's the whole protocol. Every leg is an ordinary request from the client to t
 
 On `@mcp.tool()` you rarely build this by hand: declare a dependency that asks the user (`Elicit`), samples the client's LLM (`Sample`), or lists its roots (`ListRoots`) and the SDK returns the `InputRequiredResult` for you; that form is the **[Dependencies](dependencies.md)** page. The two forms don't mix: a call has one `input_responses`/`request_state` channel, so a tool that uses `Resolve(...)` parameters cannot also return `InputRequiredResult` from its body. A declared `InputRequiredResult` return is rejected at registration (`InvalidSignature`), and an undeclared one fails the call at runtime. The manual form is the **low-level** `Server`, whose `on_call_tool` handler is allowed to return either result type:
 
-```python title="server.py" hl_lines="44-47"
+```python title="server.py" hl_lines="43-46"
 --8<-- "docs_src/mrtr/tutorial001.py"
 ```
 
@@ -35,7 +35,7 @@ Everything else in that file (the explicit `input_schema`, the hand-built `CallT
 
 `tools/call` is not special: at 2026-07-28 a server may answer `prompts/get` and `resources/read` the same way. On `MCPServer`, an `@mcp.prompt()` function — or an `@mcp.resource()` **template** function — returns the `InputRequiredResult` itself and reads the retry's answers off the context:
 
-```python title="server.py" hl_lines="21 23 25"
+```python title="server.py" hl_lines="20 22 24"
 --8<-- "docs_src/mrtr/tutorial004.py"
 ```
 
@@ -51,7 +51,7 @@ Everything else in that file (the explicit `input_schema`, the hand-built `CallT
 
 Register the callbacks the server might ask for (`elicitation_callback`, `sampling_callback`, `list_roots_callback`) and call the tool. When an `InputRequiredResult` arrives, `Client` dispatches each entry in `input_requests` to the matching callback, retries with the answers and the echoed `request_state`, and keeps going until a `CallToolResult` comes back:
 
-```python title="client.py" hl_lines="12 13"
+```python title="client.py" hl_lines="11 12"
 --8<-- "docs_src/mrtr/tutorial003.py"
 ```
 
@@ -76,7 +76,7 @@ The auto-loop is enough for a single-process client. Own the loop instead when:
 
 Drop to the underlying session, where `allow_input_required=True` hands you the union directly:
 
-```python title="client.py" hl_lines="13 14 20"
+```python title="client.py" hl_lines="12 13 19"
 --8<-- "docs_src/mrtr/tutorial002.py"
 ```
 

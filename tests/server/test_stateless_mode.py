@@ -12,7 +12,7 @@ from typing import Any
 
 import mcp_types as types
 import pytest
-from mcp_types import LATEST_PROTOCOL_VERSION
+from mcp_types import LATEST_PROTOCOL_VERSION, LOG_LEVEL_META_KEY
 
 from mcp.server.connection import Connection
 from mcp.server.session import ServerSession
@@ -53,13 +53,15 @@ class StubOutbound:
         raise NotImplementedError  # pragma: no cover
 
 
-def _no_channel_session(request_ch: StubOutbound | None = None) -> tuple[ServerSession, StubOutbound]:
+def _no_channel_session(
+    request_ch: StubOutbound | None = None, *, request_meta: types.RequestParamsMeta | None = None
+) -> tuple[ServerSession, StubOutbound]:
     """A session whose standalone channel is the connection's no-channel
     sentinel; the request channel is a working stub."""
     conn = Connection.from_envelope(LATEST_PROTOCOL_VERSION, None, None)
     assert conn.has_standalone_channel is False
     request = request_ch if request_ch is not None else StubOutbound()
-    return ServerSession(request, conn), request
+    return ServerSession(request, conn, request_meta=request_meta), request
 
 
 @pytest.fixture
@@ -141,10 +143,11 @@ async def test_elicit_form_with_related_id_rides_the_request_channel():
 
 
 @pytest.mark.anyio
-async def test_send_log_message_with_related_id_rides_the_request_channel():
-    """SDK-defined: the deprecated ``send_log_message`` notification with a related id
-    rides the per-request channel, so it is delivered even with no standalone back-channel."""
-    session, request_ch = _no_channel_session()
+async def test_send_log_message_rides_the_request_channel_when_opted_in():
+    """SDK-defined: the deprecated `send_log_message` notification rides the per-request
+    channel on a 2026 connection (log delivery is request-scoped by spec), so it is delivered
+    even with no standalone back-channel - once the request opted in via its `_meta`."""
+    session, request_ch = _no_channel_session(request_meta={LOG_LEVEL_META_KEY: "debug"})
     await session.send_log_message(  # pyright: ignore[reportDeprecated]
         level="info", data="hello", logger="test", related_request_id=3
     )

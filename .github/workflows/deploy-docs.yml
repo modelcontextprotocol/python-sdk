@@ -3,8 +3,10 @@ name: Deploy Docs
 on:
   push:
     branches:
+      # main is the sole deployer of the combined site (v2 at / and /v2/, v1.x
+      # at /v1/); the v1.x branch has no deploy workflow. A v1.x docs change is
+      # published by the next main deploy or a manual workflow_dispatch here.
       - main
-      - v1.x
     paths:
       - docs/**
       # docs pages include their code blocks from these files via `--8<--`, so a
@@ -48,7 +50,7 @@ jobs:
           enable-cache: true
           version: 0.9.5
 
-      - name: Build combined docs (v1.x at /, main at /v2/)
+      - name: Build combined docs (main at / and /v2/, v1.x at /v1/)
         run: bash scripts/build-docs.sh site
 
       - name: Configure Pages

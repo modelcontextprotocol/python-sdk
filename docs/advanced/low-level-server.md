@@ -14,7 +14,7 @@ For everything else, stay on `MCPServer`.
 
 This is the `search_books` tool that **[Tools](../servers/tools.md)** writes in nine lines of `@mcp.tool()`, with the sugar removed:
 
-```python title="server.py" hl_lines="23 27 33"
+```python title="server.py" hl_lines="22 26 32"
 --8<-- "docs_src/lowlevel/tutorial001.py"
 ```
 
@@ -80,7 +80,7 @@ That generalises. An exception raised from a low-level handler is **always** a p
 
 `on_call_tool` is the single entry point for every tool on the server. You route on `params.name`:
 
-```python title="server.py" hl_lines="39-44"
+```python title="server.py" hl_lines="38-43"
 --8<-- "docs_src/lowlevel/tutorial002.py"
 ```
 
@@ -91,7 +91,7 @@ That generalises. An exception raised from a low-level handler is **always** a p
 
 Declare `output_schema` on the `Tool` and put `structured_content` on the result. Both are yours:
 
-```python title="server.py" hl_lines="20-24 37"
+```python title="server.py" hl_lines="19-23 36"
 --8<-- "docs_src/lowlevel/tutorial003.py"
 ```
 
@@ -102,9 +102,12 @@ Call it and the result carries both representations:
   "content": [{"type": "text", "text": "Found 3 books matching 'dune'."}],
   "structuredContent": {"matches": 3, "query": "dune"},
   "isError": false,
-  "resultType": "complete"
+  "resultType": "complete",
+  "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "Bookshop", "version": "2.0.0"}}
 }
 ```
+
+The `_meta` block is the server's identity stamp: the SDK adds it to every 2026-era result, with the `version` from the constructor (a server that sets none reports an empty string). A server that must not identify itself can strip the key with a middleware, which owns the results it returns.
 
 The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
 
@@ -114,7 +117,7 @@ The server never compares the two fields. This SDK's `Client` does: return `stru
 
 Use it for record IDs, trace IDs, anything your UI needs and your prompt doesn't:
 
-```python title="server.py" hl_lines="38"
+```python title="server.py" hl_lines="37"
 --8<-- "docs_src/lowlevel/tutorial004.py"
 ```
 
@@ -141,7 +144,7 @@ No `resources`, no `prompts`: there is nothing to back them. Pass `on_list_promp
 
 `Server` is generic in the type its lifespan yields. Annotate it once and the object is typed everywhere it surfaces:
 
-```python title="server.py" hl_lines="25-27 45-46 51"
+```python title="server.py" hl_lines="24-26 44-45 50"
 --8<-- "docs_src/lowlevel/tutorial005.py"
 ```
 

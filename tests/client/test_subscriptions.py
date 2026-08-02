@@ -408,7 +408,6 @@ async def test_listen_on_a_never_entered_session_raises_runtime_error():
         types.DiscoverResult(
             supported_versions=["2026-07-28"],
             capabilities=types.ServerCapabilities(),
-            server_info=types.Implementation(name="stub", version="0"),
         )
     )
     with pytest.raises(RuntimeError, match="entered session"):
@@ -596,7 +595,7 @@ async def test_client_listen_installs_the_cache_eviction_barrier_exactly_when_a_
         with anyio.fail_after(5):
             async with cached_client.listen(tools_list_changed=True) as sub:  # pragma: no branch
                 assert sub._on_event == cached_client._evict_for_listen_event  # pyright: ignore[reportPrivateUsage]
-    async with Client(_bus_server(bus), cache=False) as uncached_client:
+    async with Client(_bus_server(bus), cache=None) as uncached_client:
         with anyio.fail_after(5):
             async with uncached_client.listen(tools_list_changed=True) as sub:  # pragma: no branch
                 assert sub._on_event is None  # pyright: ignore[reportPrivateUsage]

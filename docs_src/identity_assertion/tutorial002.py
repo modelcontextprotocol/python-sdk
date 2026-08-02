@@ -21,7 +21,7 @@ from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, O
 ISSUER = "https://auth.example.com/"
 MCP_SERVER = "http://localhost:8001/mcp"
 IDP_ISSUER = "https://idp.example.com"
-IDP_SIGNING_KEY = "the-enterprise-idp-signing-key"
+IDP_SIGNING_KEY = "the-enterprise-idp-signing-key-for-this-demo"
 
 REGISTERED_CLIENTS = {
     "finance-agent": OAuthClientInformationFull(

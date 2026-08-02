@@ -1,7 +1,6 @@
-from mcp_types import Tool
-
 from mcp import Client
 from mcp.server import MCPServer
+from mcp.types import Tool
 
 mcp = MCPServer("Bookshop")
 

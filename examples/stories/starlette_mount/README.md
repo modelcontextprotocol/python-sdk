@@ -45,8 +45,7 @@ kill "$SERVER_PID"
   no `Origin` header. Remove it (or configure allowed hosts) for a real
   deployment.
 - The parent-lifespan dance is a known SDK ergonomics gap (other SDKs mount
-  with no extra ceremony); tracked for the beta reshape. The recipe shown here
-  is what works today.
+  with no extra ceremony). The recipe shown here is what works today.
 
 ## Spec
 

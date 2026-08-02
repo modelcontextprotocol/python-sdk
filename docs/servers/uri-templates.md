@@ -215,7 +215,7 @@ return the protocol types yourself.
 
 For fixed URIs, keep a registry and dispatch on exact match:
 
-```python title="server.py" hl_lines="18 22 28"
+```python title="server.py" hl_lines="17 21 27"
 --8<-- "docs_src/uri_templates/tutorial004.py"
 ```
 
@@ -229,7 +229,7 @@ The template engine `MCPServer` uses lives in `mcp.shared.uri_template`
 and works on its own. You get the same parsing and matching; you wire
 up the routing and security policy yourself.
 
-```python title="server.py" hl_lines="14-17 23-26 30 34 46"
+```python title="server.py" hl_lines="13-16 22-25 29 33 45"
 --8<-- "docs_src/uri_templates/tutorial005.py"
 ```
 

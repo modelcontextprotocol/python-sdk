@@ -51,7 +51,7 @@ jobs:
       - name: mcp-types installs and imports standalone
         run: |
           uv run --isolated --no-project --with ./src/mcp-types python -c \
-            "import mcp_types, mcp_types.jsonrpc, mcp_types.methods, mcp_types.version, mcp_types.v2025_11_25, mcp_types.v2026_07_28"
+            "import mcp_types, mcp_types.jsonrpc, mcp_types.methods, mcp_types.version, mcp_types._v2025_11_25, mcp_types._v2026_07_28"
 
   test:
     name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})

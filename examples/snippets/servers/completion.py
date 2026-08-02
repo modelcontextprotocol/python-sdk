@@ -1,12 +1,11 @@
-from mcp_types import (
+from mcp.server.mcpserver import MCPServer
+from mcp.types import (
     Completion,
     CompletionArgument,
     CompletionContext,
     PromptReference,
     ResourceTemplateReference,
 )
-
-from mcp.server.mcpserver import MCPServer
 
 mcp = MCPServer(name="Example")
 

@@ -19,7 +19,7 @@ That is the server half, and the **[Elicitation](../handlers/elicitation.md)** p
 
 ## The elicitation callback
 
-```python title="client.py" hl_lines="7-11 17-18"
+```python title="client.py" hl_lines="6-10 16-17"
 --8<-- "docs_src/client_callbacks/tutorial002.py"
 ```
 
@@ -55,7 +55,7 @@ result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')
 One `tools/call` from you, one `elicitation/create` back from the server, answered by your function, all inside a single tool call.
 
 !!! info
-    `mode="legacy"` on line 17 is doing real work. By default `Client(...)` negotiates the modern
+    `mode="legacy"` on the `Client(...)` call is doing real work. By default `Client(...)` negotiates the modern
     protocol path, and that path has no back-channel for server-to-client requests: `ctx.elicit`
     fails before your callback ever runs. The transport doesn't decide that; the negotiated
     protocol does, in-memory and over a URL alike. Pin `mode="legacy"` whenever your client has
@@ -133,9 +133,9 @@ Pass them to `Client(...)` exactly like `elicitation_callback`.
 
 Two more. Neither declares anything.
 
-`logging_callback` receives every `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**[Logging](../handlers/logging.md)** has what to do instead), so this callback exists for the servers that still emit it.
+`logging_callback` receives the `notifications/message` a server sends, as `LoggingMessageNotificationParams` (`level`, `logger`, `data`). Protocol logging is itself deprecated by the 2026-07-28 spec (**[Logging](../handlers/logging.md)** has what to do instead), so this callback exists for the servers that still emit it. On a 2026-era connection the callback alone gets you nothing, because 2026 servers send log messages only to requests that opt in: pass `log_level="info"` (or another level) to `Client(...)` to stamp that opt-in on every request and receive that level and above. Pre-2026 servers ignore it and keep their `logging/setLevel` behavior.
 
-`message_handler` is the catch-all: every server notification reaches it (as well as its specific callback), and on a stream-backed transport so does every transport-level `Exception`. The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
+`message_handler` is the catch-all: every server notification the session surfaces reaches it (as well as its specific callback), and on a stream-backed transport so does every transport-level `Exception`. Two never do: `notifications/cancelled` is applied by the SDK rather than surfaced, and a subscription acknowledgment for a live `listen()` stream is consumed by that stream. Annotate the parameter with `IncomingMessage` (`ServerNotification | Exception`, exported from `mcp.client`). The one pattern worth knowing is `if isinstance(message, Exception): raise message`, so a broken connection fails loudly instead of vanishing.
 
 ## Recap
 

@@ -2,10 +2,9 @@
 
 from typing import Literal
 
-import mcp_types as types
-from mcp_types import TextContent
-
+import mcp.types as types
 from mcp.client import Client, advertise
+from mcp.types import TextContent
 from stories._harness import Target, run_client
 
 EXTENSION_ID = "com.example/catalog"

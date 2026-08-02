@@ -16,7 +16,7 @@ from pydantic import (
 class Resource(BaseModel, abc.ABC):
     """Base class for all resources."""
 
-    model_config = ConfigDict(validate_default=True)
+    model_config = ConfigDict(validate_default=True, extra="forbid")
 
     uri: str = Field(default=..., description="URI of the resource")
     name: str | None = Field(description="Name of the resource", default=None)

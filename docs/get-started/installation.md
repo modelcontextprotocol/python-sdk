@@ -2,39 +2,32 @@
 
 The Python SDK is on PyPI as [`mcp`](https://pypi.org/project/mcp/). It requires **Python 3.10+**.
 
-These docs describe **v2**, which is in beta, so the version pin is not optional yet:
+These docs describe **v2**, the current stable release line:
 
 === "uv"
 
     ```bash
-    uv add "mcp[cli]==2.0.0b1"
+    uv add "mcp[cli]"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]==2.0.0b1"
+    pip install "mcp[cli]"
     ```
 
-!!! warning "Why the pin"
-    Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
-    gives you the latest **v1.x** release, which these docs do not describe. Check the
-    [release history](https://pypi.org/project/mcp/#history) for the newest beta before you copy
-    the line above.
-
-    The same applies to one-off commands: `uv run --with "mcp==2.0.0b1" ...`, not `uv run --with mcp ...`.
-
-    If your *package* depends on `mcp`, add a `<2` upper bound (for example `mcp>=1.27,<2`) before
-    the stable v2 lands so the major version bump doesn't surprise you.
+!!! note "Coming from v1?"
+    v2 is a major version with breaking changes; the **[Migration Guide](../migration.md)**
+    covers every one. If your *package* depends on `mcp` and isn't ready to migrate, keep a
+    `<2` upper bound (for example `mcp>=1.28,<2`) so an unpinned resolve stays on the 1.x line.
 
 ## What gets installed
 
 You don't need to know any of this to use the SDK, but if you're wondering what each dependency is for:
 
-* `mcp-types`: every protocol type (requests, results, content blocks) as its own package, versioned in lockstep with the SDK. Every `from mcp_types import ...` in these docs is this package.
+* `mcp-types`: every protocol type (requests, results, content blocks) as its own package, versioned in lockstep with the SDK. Code that depends on `mcp` imports it through the `mcp.types` alias (every `from mcp.types import ...` in these docs); import `mcp_types` directly only in a project that installs `mcp-types` without the SDK.
 * [`anyio`](https://anyio.readthedocs.io/): the async runtime. The whole SDK is written against anyio, so it runs on either `asyncio` or `trio`.
-* [`pydantic`](https://docs.pydantic.dev/): what every `mcp_types` model is built on, plus all schema generation and validation.
-* [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/): server configuration via `MCP_*` environment variables and `.env` files.
+* [`pydantic`](https://docs.pydantic.dev/): what every `mcp.types` model is built on, plus all schema generation and validation.
 * [`httpx2`](https://pypi.org/project/httpx2/): the HTTP client behind the Streamable HTTP and SSE *client* transports, with server-sent events support built in.
 * [`starlette`](https://www.starlette.io/), [`uvicorn`](https://www.uvicorn.org/), [`sse-starlette`](https://pypi.org/project/sse-starlette/), and [`python-multipart`](https://pypi.org/project/python-multipart/): the HTTP *server* transports.
 * [`jsonschema`](https://pypi.org/project/jsonschema/): validates a tool's structured output against its declared output schema.

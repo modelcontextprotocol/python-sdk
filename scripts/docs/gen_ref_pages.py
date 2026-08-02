@@ -30,6 +30,12 @@ API_DIR = ROOT / "docs" / "api"
 # it from `src/` would emit the unimportable `mcp-types.mcp_types.*`.
 PACKAGES = (ROOT / "src" / "mcp", ROOT / "src" / "mcp-types" / "mcp_types")
 
+# Alias packages that mirror another package's namespaces (`mcp.types` mirrors
+# `mcp_types`, `mcp.types.version` mirrors `mcp_types.version`): the mirrored
+# package's pages are the canonical rendering, so an alias, and every module
+# under it, earns no page of its own.
+EXCLUDED = frozenset({"mcp.types"})
+
 _KIND_SECTIONS = {
     griffe.Kind.MODULE: "Modules",
     griffe.Kind.CLASS: "Classes",
@@ -185,6 +191,8 @@ def generate() -> list[NavItem]:
                 continue
 
             ident = ".".join(parts)
+            if any(ident == e or ident.startswith(f"{e}.") for e in EXCLUDED):
+                continue
             documented.add(ident)
             stubs[API_DIR / doc_path] = _stub(parts[-1], f"::: {ident}")
             pages[ident] = API_DIR / doc_path
