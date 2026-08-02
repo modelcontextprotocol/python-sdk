@@ -922,6 +922,25 @@ def test_reconcile_reports_name_and_version_mismatches() -> None:
     )
 
 
+def test_reconcile_without_server_info_checks_only_the_protocol_version() -> None:
+    """SDK-defined: `Client.server_info` is `None` when the server did not identify
+    itself. An anonymous server makes no identity claim, so name and version cannot
+    mismatch, while a declared protocol version union still applies."""
+    assert reconcile_server_card(_card(), None) == []
+    card = ServerCard(
+        name="com.example/weather",
+        version="1.4.0",
+        description="Hourly forecasts.",
+        remotes=[
+            Remote(type="streamable-http", url="https://a.example.com/mcp", supported_protocol_versions=["2025-06-18"])
+        ],
+    )
+    mismatches = reconcile_server_card(card, None, protocol_version="2026-07-28")
+    assert [(m.field, m.card_value, m.runtime_value) for m in mismatches] == snapshot(
+        [("protocol_versions", "2025-06-18", "2026-07-28")]
+    )
+
+
 def test_reconcile_checks_the_protocol_version_against_declared_unions() -> None:
     """SDK-defined: with `protocol_version=` given, the union of every remote's declared
     `supportedProtocolVersions` is consulted. A member passes, a stranger mismatches."""

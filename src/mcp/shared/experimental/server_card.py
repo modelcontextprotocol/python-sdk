@@ -179,7 +179,9 @@ class ServerCard(_CardModel):
         resolved_icons = list(icons) if icons is not None else server.icons
         fields: dict[str, Any] = {
             "name": name,
-            "version": version if version is not None else server.version,
+            # A server signals "no version" as None or "" depending on its
+            # class; both must fail card validation rather than derive.
+            "version": version if version is not None else (server.version or None),
             "description": description if description is not None else server.description,
             "title": title if title is not None else server.title,
             "website_url": website_url if website_url is not None else server.website_url,

@@ -436,7 +436,7 @@ def parse_ai_catalog_response(response: httpx2.Response) -> AICatalog:
 
 def reconcile_server_card(
     card: ServerCard,
-    server_info: Implementation,
+    server_info: Implementation | None,
     *,
     protocol_version: str | None = None,
 ) -> list[CardMismatch]:
@@ -446,14 +446,17 @@ def reconcile_server_card(
     discrepancies for logging or UI. Runtime values MUST win, and cards MUST
     NOT drive security or access-control decisions. The card name matches
     when `server_info.name` equals either the full namespaced name or its
-    post-slash local part.
+    post-slash local part. A `None` `server_info` (a server that did not
+    identify itself) makes no identity claim, so only the protocol version
+    check can apply.
     """
     mismatches: list[CardMismatch] = []
-    local_name = card.name.split("/", 1)[1]
-    if server_info.name not in (card.name, local_name):
-        mismatches.append(CardMismatch(field="name", card_value=card.name, runtime_value=server_info.name))
-    if server_info.version != card.version:
-        mismatches.append(CardMismatch(field="version", card_value=card.version, runtime_value=server_info.version))
+    if server_info is not None:
+        local_name = card.name.split("/", 1)[1]
+        if server_info.name not in (card.name, local_name):
+            mismatches.append(CardMismatch(field="name", card_value=card.name, runtime_value=server_info.name))
+        if server_info.version != card.version:
+            mismatches.append(CardMismatch(field="version", card_value=card.version, runtime_value=server_info.version))
     if protocol_version is not None:
         declared = {version for remote in card.remotes or [] for version in remote.supported_protocol_versions or []}
         if declared and protocol_version not in declared:
