@@ -474,11 +474,12 @@ async def test_minted_ids_skip_a_caller_supplied_id_still_in_flight(pair_factory
 
                 tg.start_soon(parked)
                 await entered.wait()
-                # The counter mints 1 and 2, then skips the occupied 3 to 4.
+                # The counter is advanced to 3 when "3" is supplied, so
+                # subsequent mints produce 4, 5, 6 — never revisiting 3.
                 for _ in range(3):
                     await client.send_raw_request("plain", None)
                 release.set()
-            assert [request_id for request_id in seen_ids if request_id != "3"] == [1, 2, 4]
+            assert [request_id for request_id in seen_ids if request_id != "3"] == [4, 5, 6]
 
 
 @pytest.mark.anyio
@@ -510,6 +511,64 @@ async def test_supplied_numeric_string_id_collides_with_its_int_twin(pair_factor
                 release.set()
             # Completion frees the id for either spelling.
             assert await client.send_raw_request("again", None, {"request_id": "7"}) == {}
+
+
+@pytest.mark.anyio
+async def test_minted_ids_never_reuse_a_completed_caller_supplied_id(pair_factory: PairFactory):
+    """Regression: after a caller-supplied integer id completes, the mint counter
+    must have advanced past it so no future minted id collides. This is the bug
+    from GH-3126: the counter could land on a previously-used supplied id because
+    the guard only checked `_pending`/`_in_flight_ids` (cleared on completion)."""
+    seen_ids: list[RequestId | None] = []
+
+    async def track(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        seen_ids.append(ctx.request_id)
+        return {}
+
+    async with running_pair(pair_factory, server_on_request=track) as (client, *_):
+        with anyio.fail_after(5):
+            # Send a request with a caller-supplied integer id.
+            await client.send_raw_request("supplied", None, {"request_id": 5})
+            # Now send several auto-minted requests. None should reuse id 5.
+            for _ in range(6):
+                await client.send_raw_request("minted", None)
+
+    # The first id is the supplied 5; the rest are minted sequentially starting
+    # above 5 (i.e. 6, 7, 8, 9, 10, 11).
+    assert seen_ids[0] == 5
+    minted_ids = seen_ids[1:]
+    assert 5 not in minted_ids
+    # Verify they are unique and monotonically increasing integers > 5.
+    assert all(isinstance(i, int) and i > 5 for i in minted_ids)
+    assert len(minted_ids) == len(set(minted_ids))
+
+
+@pytest.mark.anyio
+async def test_minted_ids_never_reuse_a_completed_numeric_string_id(pair_factory: PairFactory):
+    """Same as above but with a numeric-string supplied id ("3"), which coerces to
+    int 3 in the collision domain. Minted ids must skip past 3."""
+    seen_ids: list[RequestId | None] = []
+
+    async def track(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        seen_ids.append(ctx.request_id)
+        return {}
+
+    async with running_pair(pair_factory, server_on_request=track) as (client, *_):
+        with anyio.fail_after(5):
+            await client.send_raw_request("supplied", None, {"request_id": "3"})
+            for _ in range(4):
+                await client.send_raw_request("minted", None)
+
+    assert seen_ids[0] == "3"
+    minted_ids = seen_ids[1:]
+    # 3 should never appear (even though "3" completed and left _pending/_in_flight).
+    assert 3 not in minted_ids
+    assert all(isinstance(i, int) and i > 3 for i in minted_ids)
+    assert len(minted_ids) == len(set(minted_ids))
 
 
 @pytest.mark.anyio
