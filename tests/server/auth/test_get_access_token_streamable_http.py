@@ -144,5 +144,5 @@ async def test_notification_handler_get_access_token_reflects_current_request_in
 
             auth.token = "token-B"
             await client.send_progress_notification("token-B", 0.2)  # pyright: ignore[reportDeprecated]
-            with anyio.fail_after(5):
+            with anyio.fail_after(5):  # pragma: no branch - coverage misreports the normal context exit arc
                 assert await receive_token.receive() == "token-B"
