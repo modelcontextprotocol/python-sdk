@@ -44,12 +44,11 @@ async def _handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequest
 
 
 class _MutableBearerAuth(httpx2.Auth):
-    def __init__(self, token: str | None) -> None:
+    def __init__(self, token: str) -> None:
         self.token = token
 
     def auth_flow(self, request: httpx2.Request):
-        if self.token is not None:
-            request.headers["Authorization"] = f"Bearer {self.token}"
+        request.headers["Authorization"] = f"Bearer {self.token}"
         yield request
 
 
