@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "name": "example-org/with-remote",
+  "version": "2.1.0",
+  "description": "Server Card with a templated remote endpoint and headers.",
+  "title": "Example Remote Server",
+  "websiteUrl": "https://example.com",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://{tenant}.example.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token for the remote endpoint.",
+          "isRequired": true,
+          "isSecret": true,
+          "value": "Bearer {token}",
+          "variables": {
+            "token": {
+              "description": "API token issued by Example Inc.",
+              "isRequired": true,
+              "isSecret": true
+            }
+          }
+        }
+      ],
+      "variables": {
+        "tenant": {
+          "description": "Tenant subdomain.",
+          "isRequired": true,
+          "default": "default"
+        }
+      },
+      "supportedProtocolVersions": ["2025-06-18", "2025-11-25"]
+    }
+  ]
+}
