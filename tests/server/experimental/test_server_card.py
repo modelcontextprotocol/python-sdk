@@ -1,4 +1,4 @@
-"""`mcp.server.experimental.server_card`: card building, discovery routes and mounts."""
+"""`mcp.server.experimental.server_card`: discovery routes, catalog entries and mounts."""
 
 from collections.abc import Callable
 from typing import Any
@@ -6,14 +6,11 @@ from typing import Any
 import httpx2
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import Icon
-from pydantic import ValidationError
 from starlette.applications import Starlette
 from starlette.requests import Request
 
-from mcp.server import MCPServer, Server
+from mcp.server import MCPServer
 from mcp.server.experimental.server_card import (
-    build_server_card,
     catalog_identifier,
     create_ai_catalog_routes,
     create_server_card_routes,
@@ -24,7 +21,7 @@ from mcp.server.experimental.server_card import (
     server_card_entry,
 )
 from mcp.shared.experimental.ai_catalog import AICatalog
-from mcp.shared.experimental.server_card import Remote, Repository, ServerCard
+from mcp.shared.experimental.server_card import Remote, ServerCard
 
 pytestmark = pytest.mark.anyio
 
@@ -49,85 +46,6 @@ def _card() -> ServerCard:
 
 def _client_for(routes_app: Starlette) -> httpx2.AsyncClient:
     return httpx2.AsyncClient(transport=httpx2.ASGITransport(app=routes_app), base_url="https://mcp.example.com")
-
-
-# -- build_server_card -------------------------------------------------------------------
-
-
-def test_build_server_card_derives_identity_from_an_mcpserver() -> None:
-    """SDK-defined: title, description, version, website URL and icons come from the
-    server object, keeping the card consistent with runtime `serverInfo`."""
-    server = MCPServer(
-        name="Weather",
-        title="Weather",
-        version="1.4.0",
-        description="Hourly forecasts.",
-        website_url="https://example.com",
-    )
-    card = build_server_card(server, name="com.example/weather")
-    assert card.model_dump(by_alias=True, exclude_none=True) == snapshot(
-        {
-            "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
-            "name": "com.example/weather",
-            "version": "1.4.0",
-            "description": "Hourly forecasts.",
-            "title": "Weather",
-            "websiteUrl": "https://example.com",
-        }
-    )
-
-
-def test_build_server_card_derives_identity_from_a_lowlevel_server() -> None:
-    """SDK-defined: the lowlevel `Server` satisfies the same identity surface as
-    `MCPServer`, via plain attributes instead of properties."""
-    server = Server("weather", version="2.0.0", description="Forecasts.", title="Weather")
-    card = build_server_card(server, name="com.example/weather")
-    assert (card.version, card.description, card.title) == ("2.0.0", "Forecasts.", "Weather")
-
-
-def test_build_server_card_explicit_kwargs_override_derived_values() -> None:
-    """SDK-defined: every explicit keyword argument beats the server-derived value, and
-    `repository`/`icons` (never derivable from a server object) land on the card."""
-    server = MCPServer(name="Weather", version="1.4.0", description="Hourly forecasts.")
-    remotes = [Remote(type="streamable-http", url="https://mcp.example.com/mcp")]
-    repository = Repository(url="https://github.com/example/weather", source="github")
-    icons = [Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48"])]
-    card = build_server_card(
-        server,
-        name="com.example/weather",
-        version="9.9.9",
-        description="Overridden.",
-        title="Custom",
-        website_url="https://override.example.com",
-        remotes=remotes,
-        repository=repository,
-        icons=icons,
-        meta={"com.example/build": 7},
-    )
-    assert card.version == "9.9.9"
-    assert card.description == "Overridden."
-    assert card.title == "Custom"
-    assert card.website_url == "https://override.example.com"
-    assert card.remotes == remotes
-    assert card.repository == repository
-    assert card.icons == icons
-    assert card.meta == {"com.example/build": 7}
-
-
-def test_build_server_card_rejects_a_server_without_a_version() -> None:
-    """SDK-defined: a card requires a version, so a server that has none and no
-    `version=` override fails card validation."""
-    server = MCPServer(name="Weather", description="Hourly forecasts.")
-    with pytest.raises(ValidationError):
-        build_server_card(server, name="com.example/weather")
-
-
-def test_build_server_card_rejects_an_overlong_derived_description() -> None:
-    """SDK-defined: the card's 100 character description cap applies to derived values
-    too, surfacing as `pydantic.ValidationError`."""
-    server = MCPServer(name="Weather", version="1.0.0", description="x" * 101)
-    with pytest.raises(ValidationError):
-        build_server_card(server, name="com.example/weather")
 
 
 # -- serving the card --------------------------------------------------------------------
@@ -351,7 +269,7 @@ async def test_mount_discovery_serves_both_endpoints_beside_a_live_transport() -
     points at the card's absolute URL."""
     server = MCPServer(name="Weather", version="1.4.0", description="Hourly forecasts.")
     app = server.streamable_http_app()
-    card = build_server_card(
+    card = ServerCard.from_server(
         server,
         name="com.example/weather",
         remotes=[Remote(type="streamable-http", url="https://mcp.example.com/mcp")],

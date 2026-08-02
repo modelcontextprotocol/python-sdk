@@ -58,9 +58,10 @@ async def test_mount_discovery_serves_both_endpoints_with_the_spec_headers() -> 
     assert (revalidated.status_code, revalidated.content) == (304, b"")
 
 
-async def test_build_server_card_keeps_the_card_consistent_with_server_info() -> None:
-    """tutorial001 + the page's derivation claim: the card carries the server's version,
-    description and websiteUrl, so `reconcile_server_card` finds no drift after connect."""
+async def test_from_server_keeps_the_card_consistent_with_server_info() -> None:
+    """tutorial001 + the page's derivation claim: `ServerCard.from_server` carries the
+    server's version, description and websiteUrl, so `reconcile_server_card` finds no
+    drift after connect."""
     assert tutorial001.card.version == "1.4.0"
     assert tutorial001.card.description == "Hourly forecasts."
     assert tutorial001.card.website_url == "https://example.com"
@@ -79,7 +80,7 @@ async def test_the_discovery_probe_finds_the_served_card(public_dns: None) -> No
     async with http_client:
         result = await discover_server_cards("https://mcp.example.com/docs", http_client=http_client)
     assert result.failures == []
-    (listing,) = result.listings
+    (listing,) = result  # the result iterates its listings, as the tutorial's loop shows
     assert listing.entry.identifier == "urn:air:mcp.example.com:mcp:weather"
     assert (listing.listing_domain, listing.hosting_domain) == ("mcp.example.com", "mcp.example.com")
     assert listing.card.endpoint_urls() == frozenset({"https://mcp.example.com/mcp"})

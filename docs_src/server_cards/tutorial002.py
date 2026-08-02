@@ -8,7 +8,7 @@ from mcp.shared.experimental.server_card import resolve_remote
 
 async def main() -> None:
     result = await discover_server_cards("https://example.com/docs")
-    for listing in result.listings:
+    for listing in result:
         print(listing.entry.identifier, "listed on", listing.listing_domain, "hosted at", listing.hosting_domain)
 
     chosen = result.listings[0]  # your host app: consent UI, dedup on chosen.card.endpoint_urls()

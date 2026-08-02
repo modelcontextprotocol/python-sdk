@@ -12,9 +12,9 @@ runtime values (`serverInfo`) whenever the two disagree.
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, Protocol
 
 from mcp_types import Icon
 from pydantic import Field, field_validator
@@ -109,6 +109,27 @@ class Remote(_CardModel):
         return frozenset(names)
 
 
+class _ServerIdentity(Protocol):
+    """The identity surface `ServerCard.from_server` reads.
+
+    Both `MCPServer` (properties) and the lowlevel `Server` (plain attributes)
+    satisfy this structurally.
+    """
+
+    @property
+    def name(self) -> str: ...
+    @property
+    def title(self) -> str | None: ...
+    @property
+    def version(self) -> str | None: ...
+    @property
+    def description(self) -> str | None: ...
+    @property
+    def website_url(self) -> str | None: ...
+    @property
+    def icons(self) -> list[Icon] | None: ...
+
+
 class ServerCard(_CardModel):
     """A Server Card document (`application/mcp-server-card+json`).
 
@@ -126,6 +147,48 @@ class ServerCard(_CardModel):
     icons: list[Icon] | None = None
     remotes: list[Remote] | None = None
     meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+    @classmethod
+    def from_server(
+        cls,
+        server: _ServerIdentity,
+        *,
+        name: str,
+        remotes: Sequence[Remote] | None = None,
+        repository: Repository | None = None,
+        description: str | None = None,
+        title: str | None = None,
+        version: str | None = None,
+        website_url: str | None = None,
+        icons: Sequence[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> "ServerCard":
+        """Build a card from a server's identity fields.
+
+        Title, description, version, website URL and icons come from the
+        server object. Explicit keyword arguments override the derived
+        values, which keeps the card consistent with what `serverInfo`
+        reports at runtime. The namespaced `name` and the public `remotes`
+        URLs are never derivable, so the caller supplies them.
+
+        Raises:
+            pydantic.ValidationError: If the result violates a card
+                constraint, for example a server description over 100
+                characters or a version that is unset and not overridden.
+        """
+        resolved_icons = list(icons) if icons is not None else server.icons
+        fields: dict[str, Any] = {
+            "name": name,
+            "version": version if version is not None else server.version,
+            "description": description if description is not None else server.description,
+            "title": title if title is not None else server.title,
+            "website_url": website_url if website_url is not None else server.website_url,
+            "icons": resolved_icons,
+            "repository": repository,
+            "remotes": list(remotes) if remotes is not None else None,
+            "meta": meta,
+        }
+        return cls.model_validate(fields)
 
     @field_validator("schema_")
     @classmethod

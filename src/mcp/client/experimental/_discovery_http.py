@@ -31,7 +31,9 @@ DiscoveryErrorReason = Literal[
 ]
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+# RFC 6598 shared address space (carrier-grade NAT). `ipaddress` reports these
+# addresses as neither private nor global, so the SSRF guard must name them explicitly.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -136,7 +138,7 @@ def _is_blocked_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) 
         # properties would miss CGNAT everywhere and, before the gh-113171
         # ipaddress fix, the private v4 ranges too.
         address = address.ipv4_mapped
-    if address.version == 4 and address in _CGNAT_NETWORK:
+    if address.version == 4 and address in _SHARED_ADDRESS_SPACE:
         return True
     # is_private covers loopback, RFC 1918, ULA and the unspecified address.
     return address.is_private or address.is_link_local or address.is_multicast or address.is_reserved

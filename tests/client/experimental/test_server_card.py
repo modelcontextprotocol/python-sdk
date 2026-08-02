@@ -21,6 +21,7 @@ from mcp.client.experimental.server_card import (
     CardListing,
     DiscoveryError,
     DiscoveryErrorReason,
+    DiscoveryFailure,
     DiscoveryPolicy,
     DiscoveryResult,
     create_ai_catalog_request,
@@ -32,11 +33,10 @@ from mcp.client.experimental.server_card import (
     parse_ai_catalog_response,
     parse_server_card_response,
     reconcile_server_card,
-    server_card_url,
     well_known_ai_catalog_url,
 )
 from mcp.server import MCPServer
-from mcp.server.experimental.server_card import build_server_card, mount_discovery
+from mcp.server.experimental.server_card import mount_discovery
 from mcp.shared.experimental.ai_catalog import AICatalog, CatalogEntry
 from mcp.shared.experimental.server_card import Remote, ServerCard
 
@@ -690,6 +690,28 @@ def test_listing_domains_are_host_and_port_never_userinfo() -> None:
     assert listing_for("https:///card").listing_domain == ""
 
 
+def test_discovery_result_iterates_its_listings() -> None:
+    """SDK-defined: iterating a `DiscoveryResult` yields its listings in order and
+    `len()` counts them, so `for listing in result:` needs no attribute hop; failures
+    stay behind their explicit accessor."""
+    entry = CatalogEntry(
+        identifier="urn:air:example.com:mcp:weather", type=CARD_MEDIA_TYPE, data=json.loads(_card_bytes())
+    )
+    listing = CardListing(
+        card=_card(), entry=entry, catalog_url="https://example.com/.well-known/ai-catalog.json", card_url=None
+    )
+    failure = DiscoveryFailure(
+        url=None, entry_identifier=None, error=DiscoveryError("boom", url="https://example.com", reason="status")
+    )
+    result = DiscoveryResult(listings=[listing], failures=[failure])
+    assert list(result) == [listing]
+    assert len(result) == 1
+    assert result.failures == [failure]
+    empty = DiscoveryResult(listings=[], failures=[])
+    assert list(empty) == []
+    assert len(empty) == 0
+
+
 async def test_discover_with_the_default_client_applies_the_same_guards() -> None:
     """SDK-defined: with no `http_client`, one fresh credential-free client serves the
     whole probe, and a blocked target still fails before any request."""
@@ -727,10 +749,10 @@ async def test_serve_discover_and_reconcile_round_trip(public_dns: None) -> None
     2. A host probes the domain with `discover_server_cards` under the default policy.
     3. The listing exposes the endpoint dedup key and the listing chain.
     4. The host connects (in memory) and `reconcile_server_card` finds no mismatch,
-       because `build_server_card` derived the card from the same identity.
+       because `ServerCard.from_server` derived the card from the same identity.
     """
     server = MCPServer(name="weather", version="1.4.0", description="Hourly forecasts.")
-    card = build_server_card(
+    card = ServerCard.from_server(
         server,
         name="com.example/weather",
         remotes=[Remote(type="streamable-http", url="https://mcp.example.com/mcp")],
@@ -789,28 +811,6 @@ def test_well_known_ai_catalog_url_rejects_non_http_input(url: str) -> None:
     """SDK-defined: a URL without an http(s) origin has no well-known path."""
     with pytest.raises(ValueError, match="absolute http"):
         well_known_ai_catalog_url(url)
-
-
-@pytest.mark.parametrize(
-    ("url", "expected"),
-    [
-        ("https://example.com/mcp", "https://example.com/mcp/server-card"),
-        ("https://example.com/mcp/", "https://example.com/mcp/server-card"),
-        ("https://example.com:8443/api/mcp", "https://example.com:8443/api/mcp/server-card"),
-        ("https://example.com", "https://example.com/server-card"),
-    ],
-)
-def test_server_card_url_appends_the_suffix_to_the_transport_url(url: str, expected: str) -> None:
-    """Spec-mandated: the reserved suffix anchors to the streamable HTTP URL, not the
-    domain root, with any trailing slash stripped first."""
-    assert server_card_url(url) == expected
-
-
-@pytest.mark.parametrize("url", ["ftp://example.com/mcp", "/mcp"])
-def test_server_card_url_rejects_non_http_input(url: str) -> None:
-    """SDK-defined: the transport URL must be absolute http(s)."""
-    with pytest.raises(ValueError, match="absolute http"):
-        server_card_url(url)
 
 
 # -- load_server_card ---------------------------------------------------------------------------

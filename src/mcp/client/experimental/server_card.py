@@ -11,6 +11,7 @@ security or access-control decisions.
 """
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -35,7 +36,7 @@ from mcp.shared.experimental.ai_catalog import (
     AICatalog,
     CatalogEntry,
 )
-from mcp.shared.experimental.server_card import RESERVED_SERVER_CARD_SUFFIX, SERVER_CARD_MEDIA_TYPE, ServerCard
+from mcp.shared.experimental.server_card import SERVER_CARD_MEDIA_TYPE, ServerCard
 
 __all__ = [
     "DiscoveryPolicy",
@@ -50,7 +51,6 @@ __all__ = [
     "discover_server_cards",
     "load_server_card",
     "well_known_ai_catalog_url",
-    "server_card_url",
     "create_server_card_request",
     "parse_server_card_response",
     "create_ai_catalog_request",
@@ -113,11 +113,19 @@ class DiscoveryResult:
     """Everything one discovery probe produced.
 
     A bad entry never kills the probe. It lands in `failures` while the
-    other entries still produce `listings`.
+    other entries still produce `listings`. Iterating the result iterates
+    the listings, so `for listing in result:` reads naturally; check
+    `failures` explicitly for what went wrong along the way.
     """
 
     listings: list[CardListing]
     failures: list[DiscoveryFailure]
+
+    def __iter__(self) -> Iterator[CardListing]:
+        return iter(self.listings)
+
+    def __len__(self) -> int:
+        return len(self.listings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,21 +149,6 @@ def well_known_ai_catalog_url(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}{AI_CATALOG_WELL_KNOWN_PATH}"
 
 
-def server_card_url(streamable_http_url: str) -> str:
-    """The spec-reserved card URL for a streamable HTTP transport URL.
-
-    The suffix is appended to the transport URL, not the domain root:
-    `https://host/mcp` becomes `https://host/mcp/server-card`.
-
-    Raises:
-        ValueError: If `streamable_http_url` is not absolute http(s).
-    """
-    parts = urlsplit(streamable_http_url)
-    if parts.scheme not in ("http", "https") or not parts.netloc:
-        raise ValueError(f"expected an absolute http(s) URL, got {streamable_http_url!r}")
-    return f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}{RESERVED_SERVER_CARD_SUFFIX}"
-
-
 def load_server_card(path: str | os.PathLike[str]) -> ServerCard:
     """Parse a Server Card from a local file. No network is involved.
 
@@ -174,6 +167,8 @@ async def fetch_server_card(
 ) -> ServerCard:
     """Fetch and parse a Server Card from `url` under `policy`.
 
+    `url` should come from an AI Catalog entry (`CatalogEntry.url`, as
+    `discover_server_cards` follows them), never be constructed client-side.
     A missing `$schema` is defaulted on ingestion. A wrong one is rejected.
     Avoid passing an `http_client` that carries cookies or ambient
     credentials. Discovery requests must never send any.

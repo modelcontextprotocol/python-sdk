@@ -28,11 +28,12 @@ and domain-level discovery reads an **AI Catalog** at `/.well-known/ai-catalog.j
 --8<-- "docs_src/server_cards/tutorial001.py"
 ```
 
-`build_server_card` derives `title`, `description`, `version`, `websiteUrl` and `icons`
-from the server object, so the card stays consistent with what `serverInfo` reports at
-runtime. Explicit keyword arguments override the derived values. The namespaced card
-`name` and the public `remotes` URLs are yours to supply, since the server object cannot
-know them.
+`ServerCard.from_server` derives `title`, `description`, `version`, `websiteUrl` and
+`icons` from the server object, so the card stays consistent with what `serverInfo`
+reports at runtime. Explicit keyword arguments override the derived values. The
+namespaced card `name` and the public `remotes` URLs are yours to supply, since the
+server object cannot know them. (A card that has nothing to derive from is plain
+`ServerCard(...)` — see static publishing below.)
 
 With the app above, `GET /mcp/server-card` and `GET /.well-known/ai-catalog.json` both
 answer with the spec's required headers: the correct `Content-Type`, the CORS headers

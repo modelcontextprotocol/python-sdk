@@ -5,13 +5,16 @@ from pathlib import Path
 
 import pytest
 from inline_snapshot import snapshot
+from mcp_types import Icon
 from pydantic import ValidationError
 
+from mcp.server import MCPServer, Server
 from mcp.shared.experimental.server_card import (
     SERVER_CARD_SCHEMA_URL,
     Input,
     KeyValueInput,
     Remote,
+    Repository,
     ServerCard,
     resolve_remote,
 )
@@ -129,6 +132,85 @@ def test_remote_url_rejects_other_schemes_and_bare_hosts(url: str) -> None:
     """Spec-mandated: anything not http(s) or `{template}`-prefixed fails the pattern."""
     with pytest.raises(ValidationError):
         Remote(type="streamable-http", url=url)
+
+
+# -- ServerCard.from_server --------------------------------------------------------------
+
+
+def test_from_server_derives_identity_from_an_mcpserver() -> None:
+    """SDK-defined: title, description, version, website URL and icons come from the
+    server object, keeping the card consistent with runtime `serverInfo`."""
+    server = MCPServer(
+        name="Weather",
+        title="Weather",
+        version="1.4.0",
+        description="Hourly forecasts.",
+        website_url="https://example.com",
+    )
+    card = ServerCard.from_server(server, name="com.example/weather")
+    assert card.model_dump(by_alias=True, exclude_none=True) == snapshot(
+        {
+            "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+            "name": "com.example/weather",
+            "version": "1.4.0",
+            "description": "Hourly forecasts.",
+            "title": "Weather",
+            "websiteUrl": "https://example.com",
+        }
+    )
+
+
+def test_from_server_derives_identity_from_a_lowlevel_server() -> None:
+    """SDK-defined: the lowlevel `Server` satisfies the same identity surface as
+    `MCPServer`, via plain attributes instead of properties."""
+    server = Server("weather", version="2.0.0", description="Forecasts.", title="Weather")
+    card = ServerCard.from_server(server, name="com.example/weather")
+    assert (card.version, card.description, card.title) == ("2.0.0", "Forecasts.", "Weather")
+
+
+def test_from_server_explicit_kwargs_override_derived_values() -> None:
+    """SDK-defined: every explicit keyword argument beats the server-derived value, and
+    `repository`/`icons` (never derivable from a server object) land on the card."""
+    server = MCPServer(name="Weather", version="1.4.0", description="Hourly forecasts.")
+    remotes = [Remote(type="streamable-http", url="https://mcp.example.com/mcp")]
+    repository = Repository(url="https://github.com/example/weather", source="github")
+    icons = [Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48"])]
+    card = ServerCard.from_server(
+        server,
+        name="com.example/weather",
+        version="9.9.9",
+        description="Overridden.",
+        title="Custom",
+        website_url="https://override.example.com",
+        remotes=remotes,
+        repository=repository,
+        icons=icons,
+        meta={"com.example/build": 7},
+    )
+    assert card.version == "9.9.9"
+    assert card.description == "Overridden."
+    assert card.title == "Custom"
+    assert card.website_url == "https://override.example.com"
+    assert card.remotes == remotes
+    assert card.repository == repository
+    assert card.icons == icons
+    assert card.meta == {"com.example/build": 7}
+
+
+def test_from_server_rejects_a_server_without_a_version() -> None:
+    """SDK-defined: a card requires a version, so a server that has none and no
+    `version=` override fails card validation."""
+    server = MCPServer(name="Weather", description="Hourly forecasts.")
+    with pytest.raises(ValidationError):
+        ServerCard.from_server(server, name="com.example/weather")
+
+
+def test_from_server_rejects_an_overlong_derived_description() -> None:
+    """SDK-defined: the card's 100 character description cap applies to derived values
+    too, surfacing as `pydantic.ValidationError`."""
+    server = MCPServer(name="Weather", version="1.0.0", description="x" * 101)
+    with pytest.raises(ValidationError):
+        ServerCard.from_server(server, name="com.example/weather")
 
 
 # -- open objects and aliasing ----------------------------------------------------------

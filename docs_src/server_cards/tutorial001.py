@@ -1,6 +1,6 @@
 from mcp.server import MCPServer
-from mcp.server.experimental.server_card import build_server_card, mount_discovery
-from mcp.shared.experimental.server_card import Remote
+from mcp.server.experimental.server_card import mount_discovery
+from mcp.shared.experimental.server_card import Remote, ServerCard
 
 mcp = MCPServer(
     name="weather",
@@ -9,7 +9,7 @@ mcp = MCPServer(
     website_url="https://example.com",
 )
 
-card = build_server_card(
+card = ServerCard.from_server(
     mcp,
     name="com.example/weather",
     remotes=[Remote(type="streamable-http", url="https://mcp.example.com/mcp")],

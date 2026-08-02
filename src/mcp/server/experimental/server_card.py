@@ -12,11 +12,9 @@ network topology or private endpoints.
 
 import hashlib
 import re
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Protocol
+from collections.abc import Awaitable, Callable
 from urllib.parse import urlsplit
 
-from mcp_types import Icon
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -34,13 +32,10 @@ from mcp.shared.experimental.ai_catalog import (
 from mcp.shared.experimental.server_card import (
     RESERVED_SERVER_CARD_SUFFIX,
     SERVER_CARD_MEDIA_TYPE,
-    Remote,
-    Repository,
     ServerCard,
 )
 
 __all__ = [
-    "build_server_card",
     "create_server_card_routes",
     "mount_server_card",
     "create_ai_catalog_routes",
@@ -56,68 +51,6 @@ _CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET",
     "Access-Control-Allow-Headers": "Content-Type",
 }
-
-
-class _ServerIdentity(Protocol):
-    """The identity surface `build_server_card` reads.
-
-    Both `MCPServer` (properties) and the lowlevel `Server` (plain attributes)
-    satisfy this structurally.
-    """
-
-    @property
-    def name(self) -> str: ...
-    @property
-    def title(self) -> str | None: ...
-    @property
-    def version(self) -> str | None: ...
-    @property
-    def description(self) -> str | None: ...
-    @property
-    def website_url(self) -> str | None: ...
-    @property
-    def icons(self) -> list[Icon] | None: ...
-
-
-def build_server_card(
-    server: _ServerIdentity,
-    *,
-    name: str,
-    remotes: Sequence[Remote] | None = None,
-    repository: Repository | None = None,
-    description: str | None = None,
-    title: str | None = None,
-    version: str | None = None,
-    website_url: str | None = None,
-    icons: Sequence[Icon] | None = None,
-    meta: dict[str, Any] | None = None,
-) -> ServerCard:
-    """Build a `ServerCard` from a server's identity fields.
-
-    Title, description, version, website URL and icons come from the server
-    object. Explicit keyword arguments override the derived values, which
-    keeps the card consistent with what `serverInfo` reports at runtime. The
-    namespaced `name` and the public `remotes` URLs are never derivable, so
-    the caller supplies them.
-
-    Raises:
-        pydantic.ValidationError: If the result violates a card constraint,
-            for example a server description over 100 characters or a version
-            that is unset and not overridden.
-    """
-    resolved_icons = list(icons) if icons is not None else server.icons
-    fields: dict[str, Any] = {
-        "name": name,
-        "version": version if version is not None else server.version,
-        "description": description if description is not None else server.description,
-        "title": title if title is not None else server.title,
-        "website_url": website_url if website_url is not None else server.website_url,
-        "icons": resolved_icons,
-        "repository": repository,
-        "remotes": list(remotes) if remotes is not None else None,
-        "meta": meta,
-    }
-    return ServerCard.model_validate(fields)
 
 
 def discovery_response(
