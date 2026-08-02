@@ -1,5 +1,6 @@
 import time
 
+import anyio
 import httpx2
 import pytest
 from mcp_types import (
@@ -7,6 +8,7 @@ from mcp_types import (
     CallToolResult,
     ListToolsResult,
     PaginatedRequestParams,
+    ProgressNotificationParams,
     TextContent,
     Tool,
 )
@@ -28,7 +30,7 @@ class _EchoTokenVerifier:
     """Accepts any bearer token and echoes it back as the verified AccessToken."""
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        return AccessToken(token=token, client_id=token, scopes=[], expires_at=int(time.time()) + 3600)
+        return AccessToken(token=token, client_id="test-client", scopes=[], expires_at=int(time.time()) + 3600)
 
 
 async def _handle_whoami(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -51,23 +53,10 @@ class _MutableBearerAuth(httpx2.Auth):
         yield request
 
 
-async def _call_whoami(asgi_app: Starlette, host: str, token: str | None) -> str:
-    auth = _MutableBearerAuth(token)
-    async with (
-        httpx2.ASGITransport(asgi_app) as transport,
-        httpx2.AsyncClient(
-            transport=transport,
-            base_url=f"http://{host}",
-            auth=auth,
-            timeout=httpx2.Timeout(30, read=30),
-            follow_redirects=True,
-        ) as http_client,
-    ):
-        transport_ctx = streamable_http_client(f"http://{host}/mcp", http_client=http_client)
-        async with Client(transport_ctx) as client:  # pragma: no branch
-            result = await client.call_tool("whoami", {})
-            assert isinstance(result.content[0], TextContent)
-            return result.content[0].text
+async def _call_whoami(client: Client) -> str:
+    result = await client.call_tool("whoami", {})
+    assert isinstance(result.content[0], TextContent)
+    return result.content[0].text
 
 
 @pytest.mark.anyio
@@ -92,6 +81,69 @@ async def test_get_access_token_reflects_current_request_in_stateful_session() -
     )
 
     async with asgi_app.router.lifespan_context(asgi_app):
-        assert await _call_whoami(asgi_app, host, "token-A") == "token-A"
-        assert await _call_whoami(asgi_app, host, "token-B") == "token-B"
-        assert await _call_whoami(asgi_app, host, None) == "<none>"
+        auth = _MutableBearerAuth("token-A")
+        async with (
+            httpx2.ASGITransport(asgi_app) as transport,
+            httpx2.AsyncClient(
+                transport=transport,
+                base_url=f"http://{host}",
+                auth=auth,
+                timeout=httpx2.Timeout(30, read=30),
+                follow_redirects=True,
+            ) as http_client,
+            Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client), mode="legacy") as client,
+        ):
+            assert await _call_whoami(client) == "token-A"
+
+            auth.token = "token-B"
+            assert await _call_whoami(client) == "token-B"
+
+
+@pytest.mark.anyio
+async def test_notification_handler_get_access_token_reflects_current_request_in_stateful_session() -> None:
+    host = "testserver"
+    send_token, receive_token = anyio.create_memory_object_stream[str](10)
+
+    async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
+        access = get_access_token()
+        await send_token.send(access.token if access else "<none>")
+
+    server = Server(
+        "auth-test-server",
+        on_call_tool=_handle_whoami,
+        on_list_tools=_handle_list_tools,
+    )
+    server.add_notification_handler("notifications/progress", ProgressNotificationParams, handle_progress)
+
+    session_manager = StreamableHTTPSessionManager(app=server, stateless=False)
+
+    asgi_app = Starlette(
+        routes=[Mount("/mcp", app=session_manager.handle_request)],
+        middleware=[
+            Middleware(AuthenticationMiddleware, backend=BearerAuthBackend(_EchoTokenVerifier())),
+            Middleware(AuthContextMiddleware),
+        ],
+        lifespan=lambda app: session_manager.run(),
+    )
+
+    async with send_token, receive_token, asgi_app.router.lifespan_context(asgi_app):
+        auth = _MutableBearerAuth("token-A")
+        async with (
+            httpx2.ASGITransport(asgi_app) as transport,
+            httpx2.AsyncClient(
+                transport=transport,
+                base_url=f"http://{host}",
+                auth=auth,
+                timeout=httpx2.Timeout(30, read=30),
+                follow_redirects=True,
+            ) as http_client,
+            Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client), mode="legacy") as client,
+        ):
+            await client.send_progress_notification("token-A", 0.1)  # pyright: ignore[reportDeprecated]
+            with anyio.fail_after(5):
+                assert await receive_token.receive() == "token-A"
+
+            auth.token = "token-B"
+            await client.send_progress_notification("token-B", 0.2)  # pyright: ignore[reportDeprecated]
+            with anyio.fail_after(5):
+                assert await receive_token.receive() == "token-B"
