@@ -52,7 +52,8 @@ async def test_mount_discovery_serves_both_endpoints_with_the_spec_headers() -> 
     assert card_response.headers["content-type"] == "application/mcp-server-card+json"
     assert card_response.headers["access-control-allow-origin"] == "*"
     assert card_response.headers["access-control-allow-methods"] == "GET"
-    assert card_response.headers["access-control-allow-headers"] == "Content-Type"
+    assert card_response.headers["access-control-allow-headers"] == "Content-Type, If-None-Match"
+    assert card_response.headers["access-control-expose-headers"] == "ETag"
     assert card_response.headers["cache-control"] == "public, max-age=3600"
     assert catalog_response.headers["content-type"] == "application/ai-catalog+json"
     assert (revalidated.status_code, revalidated.content) == (304, b"")

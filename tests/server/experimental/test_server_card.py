@@ -62,14 +62,16 @@ async def test_card_is_served_with_its_media_type_at_the_reserved_path() -> None
     assert ServerCard.model_validate_json(response.content) == card
 
 
-async def test_card_responses_carry_the_three_cors_headers() -> None:
-    """Spec-mandated MUST: `Access-Control-Allow-Origin: *`, `-Methods: GET` and
-    `-Headers: Content-Type` on the card response."""
+async def test_card_responses_carry_the_four_cors_headers() -> None:
+    """Spec-mandated MUST: `Access-Control-Allow-Origin: *`, `-Methods: GET`,
+    `-Headers: Content-Type, If-None-Match` and `Access-Control-Expose-Headers: ETag`
+    on the card response, so browser clients can revalidate cross-origin."""
     async with _client_for(Starlette(routes=create_server_card_routes(_card()))) as client:
         response = await client.get("/mcp/server-card")
     assert response.headers["access-control-allow-origin"] == "*"
     assert response.headers["access-control-allow-methods"] == "GET"
-    assert response.headers["access-control-allow-headers"] == "Content-Type"
+    assert response.headers["access-control-allow-headers"] == "Content-Type, If-None-Match"
+    assert response.headers["access-control-expose-headers"] == "ETag"
 
 
 async def test_card_responses_carry_the_default_cache_control() -> None:
@@ -90,17 +92,23 @@ async def test_options_preflight_returns_the_cors_headers_and_no_body() -> None:
 
 
 async def test_browser_preflight_through_the_cors_middleware_is_allowed() -> None:
-    """Spec-mandated: a real browser preflight (Origin plus requested method) succeeds
-    and advertises GET as the only allowed method, so web-based hosts can fetch the card
-    cross-origin. Starlette answers this one, not `discovery_response`."""
+    """Spec-mandated: a real browser preflight (Origin plus requested method) succeeds,
+    advertises GET as the only allowed method and allows the `If-None-Match` request
+    header, so web-based hosts can fetch and revalidate the card cross-origin.
+    Starlette answers this one, not `discovery_response`."""
     async with _client_for(Starlette(routes=create_server_card_routes(_card()))) as client:
         response = await client.options(
             "/mcp/server-card",
-            headers={"Origin": "https://host.example.org", "Access-Control-Request-Method": "GET"},
+            headers={
+                "Origin": "https://host.example.org",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "if-none-match",
+            },
         )
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "*"
     assert response.headers["access-control-allow-methods"] == "GET"
+    assert "if-none-match" in response.headers["access-control-allow-headers"].lower()
 
 
 # -- ETag / If-None-Match ----------------------------------------------------------------

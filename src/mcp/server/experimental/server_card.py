@@ -49,7 +49,8 @@ __all__ = [
 _CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, If-None-Match",
+    "Access-Control-Expose-Headers": "ETag",
 }
 
 
@@ -102,14 +103,15 @@ def _cors_endpoint(handler: Callable[[Request], Awaitable[Response]]) -> ASGIApp
     The middleware short-circuits real browser preflights (OPTIONS with an
     `Origin` and a requested method), answering with `GET` as the only allowed
     method; Starlette also advertises the CORS-safelisted request headers
-    beside `Content-Type` there, a valid superset of the spec's example. A
-    bare OPTIONS still reaches `discovery_response`.
+    beside `Content-Type` and `If-None-Match` there, a valid superset of the
+    spec's example. A bare OPTIONS still reaches `discovery_response`.
     """
     return CORSMiddleware(
         app=request_response(handler),
         allow_origins=["*"],
         allow_methods=["GET"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "If-None-Match"],
+        expose_headers=["ETag"],
     )
 
 
