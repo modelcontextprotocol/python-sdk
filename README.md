@@ -13,18 +13,18 @@
 
 </div>
 
-> [!CAUTION]
-> **This README documents v2 of the MCP Python SDK — a pre-release (alpha/beta) line under active development. Do not use v2 in production.** Pre-releases are published to PyPI as `2.0.0aN` / `2.0.0bN`, and **each pre-release may contain breaking changes from the previous one**. Pin an exact version and expect to update your code when you bump the pin.
+> [!NOTE]
+> **This is v2 of the MCP Python SDK, the current stable release line.** It is a major rework of the SDK, both to support the [2026-07-28 MCP specification](https://modelcontextprotocol.io/specification/2026-07-28) (and every earlier revision) and to fix long-standing architectural issues. Coming from v1? See [What's new in v2](https://py.sdk.modelcontextprotocol.io/whats-new/) for the tour of what changed and the [migration guide](https://py.sdk.modelcontextprotocol.io/migration/) for every breaking change.
 >
-> **v1.x is the only stable release line and remains recommended for production.** It lives on the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x) and continues to receive critical bug fixes and security patches; see [the v1.x README](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/README.md) for its documentation. `pip` and `uv` don't select a pre-release unless you explicitly request one, so existing installs are unaffected. **If your package depends on `mcp`, add a `<2` upper bound to your version constraint (for example `mcp>=1.27,<2`) before the stable release lands.**
+> **Not ready to migrate?** v1.x lives on the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x), continues to receive critical bug fixes and security patches, and is documented at <https://py.sdk.modelcontextprotocol.io/v1/>. Since `pip install mcp` now installs 2.x, keep a `<2` upper bound on your requirement (for example `mcp>=1.28,<2`) until you've migrated.
 >
-> v2 is a major rework of the SDK, both to support the [2026-07-28 MCP specification release](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) and to fix long-standing architectural issues. See [What's new in v2](https://py.sdk.modelcontextprotocol.io/v2/whats-new/) for the tour of what changed, and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/) for every breaking change. Stable v2 is targeted for 2026-07-27, alongside the spec release. Try the pre-releases and [tell us what breaks](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml), or discuss in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
+> Something rough, confusing, or broken? [Open an issue](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) or find us in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
 
 ## Documentation
 
-**The documentation lives at <https://py.sdk.modelcontextprotocol.io/v2/>.**
+**The documentation lives at <https://py.sdk.modelcontextprotocol.io/>.**
 
-It has a [Get started guide](https://py.sdk.modelcontextprotocol.io/v2/get-started/), [What's new in v2](https://py.sdk.modelcontextprotocol.io/v2/whats-new/), the [API reference](https://py.sdk.modelcontextprotocol.io/v2/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
+It has a [Get started guide](https://py.sdk.modelcontextprotocol.io/get-started/), [What's new in v2](https://py.sdk.modelcontextprotocol.io/whats-new/), the [API reference](https://py.sdk.modelcontextprotocol.io/api/mcp/), and the [migration guide](https://py.sdk.modelcontextprotocol.io/migration/).
 
 ## What is MCP?
 
@@ -41,10 +41,10 @@ Python 3.10+.
 ## Installation
 
 ```bash
-uv add "mcp[cli]==2.0.0b1"          # or: pip install "mcp[cli]==2.0.0b1"
+uv add "mcp[cli]"      # or: pip install "mcp[cli]"
 ```
 
-The pin matters while v2 is in pre-release: an unpinned install resolves to the latest stable v1.x, which this README does not describe. Check [PyPI](https://pypi.org/project/mcp/#history) for the newest pre-release, and use `uv run --with "mcp==2.0.0b1"` for one-off commands.
+The `cli` extra adds the `mcp` command-line tool (`mcp dev`, `mcp run`, `mcp install`) on top of the SDK; install plain `mcp` if you don't need it. For one-off commands, `uv run --with "mcp[cli]" mcp ...` works without a project.
 
 ## A server in 15 lines
 
@@ -82,7 +82,7 @@ Call `add` with `a=1`, `b=2` and you get `3` back.
 
 Notice what you did **not** write: no JSON Schema (`a: int, b: int` _is_ the schema), no request parsing, no validation code, no protocol handling. Two type-hinted Python functions and a docstring.
 
-[Get started](https://py.sdk.modelcontextprotocol.io/v2/get-started/) takes it from here.
+[Get started](https://py.sdk.modelcontextprotocol.io/get-started/) takes it from here.
 
 ## A client in 10 lines
 
@@ -122,7 +122,7 @@ This project is licensed under the MIT License. See the [LICENSE](https://github
 [python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
 [python-url]: https://www.python.org/downloads/
 [docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
-[docs-url]: https://py.sdk.modelcontextprotocol.io/v2/
+[docs-url]: https://py.sdk.modelcontextprotocol.io/
 [protocol-badge]: https://img.shields.io/badge/protocol-modelcontextprotocol.io-blue.svg
 [protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg

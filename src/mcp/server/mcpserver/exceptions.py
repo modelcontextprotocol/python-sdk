@@ -5,10 +5,6 @@ class MCPServerError(Exception):
     """Base error for MCPServer."""
 
 
-class ValidationError(MCPServerError):
-    """Error in validating parameters or return values."""
-
-
 class ResourceError(MCPServerError):
     """Error in resource operations."""
 

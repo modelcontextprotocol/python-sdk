@@ -635,15 +635,7 @@ class StreamableHTTPTransport:
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")
 
-    # TODO(Marcelo): Check the TODO below, and cover this with tests if necessary.
-    def get_session_id(self) -> str | None:
-        """Get the current session ID."""
-        return self.session_id  # pragma: no cover
 
-
-# TODO(Marcelo): I've dropped the `get_session_id` callback because it breaks the Transport protocol. Is that needed?
-# It's a completely wrong abstraction, so removal is a good idea. But if we need the client to find the session ID,
-# we should think about a better way to do it. I believe we can achieve it with other means.
 @asynccontextmanager
 async def streamable_http_client(
     url: str,

@@ -239,10 +239,42 @@ async def test_registration_with_invalid_metadata_is_rejected_with_400(
 
     bad_scope = await http.post("/register", json=body | {"scope": "forbidden"})
     assert bad_scope.status_code == 400
-    body = bad_scope.json()
-    assert body["error"] == "invalid_client_metadata"
+    bad_scope_body = bad_scope.json()
+    assert bad_scope_body["error"] == "invalid_client_metadata"
     # The description embeds a set difference whose ordering is not stable, so assert the prefix.
-    assert body["error_description"].startswith("Requested scopes are not valid: ")
+    assert bad_scope_body["error_description"].startswith("Requested scopes are not valid: ")
+
+    # The server holds no client key to verify a private_key_jwt assertion, so it refuses to
+    # confirm a registration whose every token request it would then reject (RFC 7591 §3.2.2).
+    unsignable = await http.post("/register", json=body | {"token_endpoint_auth_method": "private_key_jwt"})
+    assert unsignable.status_code == 400
+    assert unsignable.json() == snapshot(
+        {
+            "error": "invalid_client_metadata",
+            "error_description": "token_endpoint_auth_method 'private_key_jwt' is not supported",
+        }
+    )
+
+
+@requirement("hosting:auth:as:register-echo")
+@pytest.mark.parametrize("application_type", ["web", "native"])
+async def test_registration_response_echoes_the_registered_application_type(
+    as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],
+    application_type: str,
+) -> None:
+    """The 201 body reflects the application_type the client registered (RFC 7591 §3.2.1)."""
+    http, _ = as_app
+    body = oauth_client_metadata().model_dump(mode="json", exclude_none=True)
+
+    response = await http.post("/register", json=body | {"application_type": application_type})
+
+    assert response.status_code == 201
+    echoed = response.json()
+    assert echoed["application_type"] == application_type
+    # A secret was issued and no expiry is configured, so RFC 7591 §3.2.1 requires the
+    # response to carry client_secret_expires_at, with 0 (present, not omitted) for "never".
+    assert echoed["client_secret"]
+    assert echoed["client_secret_expires_at"] == 0
 
 
 @requirement("hosting:auth:as:redirect-uri-binding")

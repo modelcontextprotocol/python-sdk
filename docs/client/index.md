@@ -30,7 +30,7 @@ Everything else on this page is identical across all three. Headers, subprocesse
 
 Four read-only properties, populated the moment you enter the block:
 
-* `client.server_info`: the server's identity. `server_info.name` here is `"Bookshop"`, `server_info.version` is whatever the server reports.
+* `client.server_info`: the server's identity, or `None` for a 2026-era server that does not report one (python-sdk servers do by default). `server_info.name` here is `"Bookshop"`, `server_info.version` is whatever the server reports.
 * `client.server_capabilities`: what the server can do (`tools`, `resources`, `prompts`, `completions`, ...). A capability the server doesn't have is `None`.
 * `client.protocol_version`: the protocol version the two sides agreed on. Here it is `"2026-07-28"`.
 * `client.instructions`: the server's `instructions=` string, or `None` if it didn't set one.
@@ -135,7 +135,7 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
 
 The resource verbs come in pairs: two ways to list, one way to read.
 
-```python title="client.py" hl_lines="23-32"
+```python title="client.py" hl_lines="22-31"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -174,7 +174,7 @@ A host hands those messages straight to the model. That is the whole feature.
 
 A server with a completion handler can autocomplete prompt and resource-template arguments as the user types.
 
-```python title="client.py" hl_lines="28-32"
+```python title="client.py" hl_lines="27-31"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -187,7 +187,7 @@ The answer is in `result.completion.values`. Type `"p"` and the server comes bac
 
 Every `list_*` method takes a `cursor=` keyword and every result carries a `next_cursor`. When `next_cursor` is `None`, you have everything.
 
-```python title="client.py" hl_lines="23-31"
+```python title="client.py" hl_lines="22-30"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
@@ -202,7 +202,7 @@ There is one constructor flag built for that: `Client(mcp, raise_exceptions=True
 ## Recap
 
 * `Client(x)` connects in-memory to a server object, over Streamable HTTP to a URL string, and over anything else via a transport.
-* `async with` is the whole lifecycle. Inside it, `server_info`, `server_capabilities`, `protocol_version` and `instructions` are already populated.
+* `async with` is the whole lifecycle. Inside it, `server_capabilities` and `protocol_version` are already populated; `server_info` and `instructions` are too when the server provides them.
 * `list_tools()` gives you each tool's `name`, `title`, `description` and `input_schema`.
 * `call_tool()` returns `content` for the model, `structured_content` for your code, and `is_error`. A raising tool is a result, not an exception.
 * `content` is a union of block types; narrow with `isinstance` before reading.

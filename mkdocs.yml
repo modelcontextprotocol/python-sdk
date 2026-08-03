@@ -4,7 +4,7 @@ site_description: The official Python SDK for the Model Context Protocol
 repo_name: modelcontextprotocol/python-sdk
 repo_url: https://github.com/modelcontextprotocol/python-sdk
 edit_uri: edit/main/docs/
-site_url: https://py.sdk.modelcontextprotocol.io/v2/
+site_url: https://py.sdk.modelcontextprotocol.io/
 
 # TODO(Marcelo): Add Anthropic copyright?
 # copyright: © Model Context Protocol 2025 to present

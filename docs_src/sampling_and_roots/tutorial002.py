@@ -1,9 +1,8 @@
 from typing import Annotated
 
-from mcp_types import ListRootsResult
-
 from mcp.server import MCPServer
 from mcp.server.mcpserver import ListRoots, Resolve
+from mcp.types import ListRootsResult
 
 mcp = MCPServer("Bookshop")
 

@@ -7,7 +7,7 @@ from typing import Any, Generic, Literal, TypeVar
 from mcp_types import RequestId
 
 # Internal surface package; imported as the gate's source of truth for spec-valid property schemas.
-from mcp_types.v2025_11_25 import PrimitiveSchemaDefinition
+from mcp_types._v2025_11_25 import PrimitiveSchemaDefinition
 from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema

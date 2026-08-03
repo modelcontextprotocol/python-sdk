@@ -25,8 +25,8 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPError
-from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):

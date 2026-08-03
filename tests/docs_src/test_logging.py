@@ -9,6 +9,7 @@ from mcp_types import CallToolResult, TextContent
 from docs_src.logging import tutorial001
 from mcp import Client
 from mcp.server import MCPServer
+from tests.docs_src._helpers import strip_server_info
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -28,6 +29,7 @@ async def test_the_log_line_never_reaches_the_client() -> None:
     """tutorial001: the result is only the return value. Log output is invisible to the model."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("search_books", {"query": "dune"})
+        result = strip_server_info(result, tutorial001.mcp)
         assert result == snapshot(
             CallToolResult(
                 content=[TextContent(type="text", text="Found 3 books matching 'dune'.")],

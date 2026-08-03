@@ -25,7 +25,7 @@ Out of the box every result says `ttlMs: 0, cacheScope: "private"`: immediately 
 
 On the low-level `Server`, handlers build their results by hand, and `ttl_ms` / `cache_scope` are just fields on the result models. A handler that sets them explicitly always wins over the constructor map, field by field:
 
-```python title="server.py" hl_lines="11 17"
+```python title="server.py" hl_lines="10 16"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -39,7 +39,7 @@ One caveat on paginated lists: the protocol requires the **same `cacheScope` on 
 
 On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache with no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did.
 
-```python title="client.py" hl_lines="34 36 39"
+```python title="client.py" hl_lines="33 35 38"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
 
@@ -51,7 +51,7 @@ Four calls, three fetches. The second call found a fresh entry and never reached
 
 One rule sits above `"use"`: **calls carrying `meta` always reach the server.** A request with `meta` set (a progress token, tracing fields) expects a wire request, so under `cache_mode="use"` it is treated as `"refresh"`: the cache read is skipped, and the fetched result still replaces the cached entry. `"bypass"` and an explicit `"refresh"` behave as they always do.
 
-To turn caching off entirely, construct with `Client(server, cache=False)`: every call is a round trip again, and `cache_mode`, while still accepted, does nothing.
+To turn caching off entirely, construct with `Client(server, cache=None)`: every call is a round trip again, and `cache_mode`, while still accepted, does nothing.
 
 Scope is honored automatically too: `"private"` entries are keyed to the cache's *partition* (below), while `"public"` ones may opt into wider sharing. And **notifications beat TTL** for the exact entries they name: a `list_changed` notification evicts the matching cached listing, and `resources/updated` evicts the cached read stored under exactly its URI, however fresh they were. On a 2026-07-28 connection those notifications arrive on a `subscriptions/listen` stream you open with `client.listen(...)`, and eviction completes before your watcher sees the event; **[Subscriptions](subscriptions.md)** is that page.
 
@@ -114,4 +114,4 @@ Clients on pre-2026 protocol versions never see either field; the SDK strips the
 * A handler that sets the fields on its result overrides the map, per field.
 * `"public"` is a promise that the result is identical for every caller. It is not access control.
 * `Client` honors the hints automatically: its response cache is on by default, serves fresh entries instead of refetching, and caches nothing for servers (or sessions) that provide no hints.
-* Per call, `cache_mode="refresh"` refetches and `"bypass"` skips the cache; `cache=False` at construction turns it off entirely.
+* Per call, `cache_mode="refresh"` refetches and `"bypass"` skips the cache; `cache=None` at construction turns it off entirely.

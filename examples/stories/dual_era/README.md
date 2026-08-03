@@ -30,7 +30,9 @@ leg fails there today — run over `--http`.
   at construction; no date strings appear in the body.
 - `client.py` — `client.protocol_version` / `client.server_info` /
   `client.server_capabilities` are era-neutral: populated by `initialize` *or*
-  `server/discover`, whichever ran.
+  `server/discover`, whichever ran. On the 2026 era `server_info` comes from
+  the optional `serverInfo` `_meta` stamp (`None` for a server that does not
+  identify itself); `initialize` always carries it.
 - `server.py` — `ctx.request_context.protocol_version` is the era branch key
   (lowlevel: `ctx.protocol_version` directly). Compare against
   `MODERN_PROTOCOL_VERSIONS`, never a date literal.

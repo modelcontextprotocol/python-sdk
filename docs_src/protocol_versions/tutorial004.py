@@ -16,4 +16,5 @@ async def main() -> None:
 
     async with Client(mcp, mode="2026-07-28", prior_discover=saved) as client:
         print(client.protocol_version)
-        print(client.server_info.name)
+        if client.server_info is not None:
+            print(client.server_info.name)

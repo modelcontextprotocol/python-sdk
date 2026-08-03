@@ -2,16 +2,20 @@
 #
 # Build combined v1 + v2 documentation for GitHub Pages.
 #
-# v1 docs (from the v1.x branch) are placed at the site root.
-# v2 docs (from main) are placed under /v2/.
+# The current major (v2, from main) is placed at the site root and mirrored
+# under /v2/; the v1 maintenance line (from the v1.x branch) is placed under
+# /v1/. Per-major paths are permanent: /v2/ is a byte-identical copy of the
+# root so that /v2/... links keep resolving after a future major takes the
+# root, the way /v1/... does for v1 today.
 #
 # The two lines use different toolchains: v1.x still builds with MkDocs, while
 # main builds with Zensical (which needs a pre-build step to materialise the API
 # reference and a post-build step for llms.txt — see scripts/docs/). Each branch
-# is fetched fresh from origin and built with its own synced `docs` group, so
-# the output is identical regardless of which branch triggered the workflow.
-# This script is intended to run in CI; for a local v2 preview use
-# `scripts/serve-docs.sh`.
+# is fetched fresh from origin and built with its own synced `docs` group. Only
+# main deploys the combined site (the v1.x branch carries no deploy workflow), so
+# a v1.x docs change goes live on the next main deploy or a manual
+# `workflow_dispatch` of deploy-docs.yml. This script is intended to run in CI;
+# for a local v2 preview use `scripts/serve-docs.sh`.
 #
 # Usage:
 #   scripts/build-docs.sh [output-dir]
@@ -50,6 +54,9 @@ build_site() {
     fi
 }
 
+# Fetch a branch fresh from origin, build its docs, and copy the result to
+# `dest`. The built tree stays in `worktree/site` afterwards so a caller can
+# mirror it to a second destination.
 build_branch() {
     local branch="$1" worktree="$2" dest="$3"
 
@@ -70,7 +77,12 @@ build_branch() {
 
 rm -rf "${OUTPUT_DIR:?}"/*
 
-build_branch v1.x "$V1_WORKTREE" "$OUTPUT_DIR"
-build_branch main "$V2_WORKTREE" "$OUTPUT_DIR/v2"
+# v2 (main) at the root, then mirrored to /v2/ from the same build, then v1
+# under /v1/. The mirror is copied from the worktree's build directory rather
+# than from the root so it never picks up the /v1/ tree.
+build_branch main "$V2_WORKTREE" "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR/v2"
+cp -a "$V2_WORKTREE/site/." "$OUTPUT_DIR/v2/"
+build_branch v1.x "$V1_WORKTREE" "$OUTPUT_DIR/v1"
 
 echo "=== Combined docs built at $OUTPUT_DIR ==="

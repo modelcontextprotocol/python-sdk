@@ -23,11 +23,18 @@ class TransportContext:
     """Short identifier for the transport (e.g. `"stdio"`, `"streamable-http"`)."""
 
     can_send_request: bool
-    """Whether the transport can deliver server-initiated requests to the peer.
+    """Whether this message's request-scoped channel can deliver a server-initiated request.
 
-    `False` for stateless HTTP and HTTP with JSON response mode; `True` for
-    stdio, SSE, and stateful streamable HTTP. When `False`,
-    `DispatchContext.send_raw_request` raises `NoBackChannelError`.
+    `False` for any of three reasons: the response has no room (streamable
+    HTTP in JSON-response mode and the 2026-07-28 single-exchange entry answer
+    with one JSON-RPC reply), the client's reply has nowhere to land (stateless
+    HTTP, no session), or the protocol forbids server-initiated requests (any
+    2026-07-28 connection, whose dispatch masks the flag off). `True` for a
+    plain duplex pipe (stdio, SSE) and stateful streamable HTTP with SSE
+    responses, all pre-2026-07-28. When `False`,
+    `DispatchContext.send_raw_request` raises `NoBackChannelError` instead of
+    parking a waiter no reply can reach. Says nothing about the connection's
+    standalone channel, which refuses separately.
     """
 
     headers: Mapping[str, str] | None = None

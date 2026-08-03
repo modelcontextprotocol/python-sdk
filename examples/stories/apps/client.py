@@ -1,9 +1,8 @@
 """Negotiate MCP Apps, discover a tool's `ui://` UI, fetch it, and call the tool."""
 
-from mcp_types import TextContent, TextResourceContents
-
 from mcp.client import Client, advertise
 from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID
+from mcp.types import TextContent, TextResourceContents
 from stories._harness import Target, run_client
 
 
