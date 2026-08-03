@@ -493,6 +493,7 @@ async def test_minted_id_skips_injected_consecutive_in_flight_ids():
         return {}
 
     client, server, close = direct_pair()
+    assert isinstance(server, DirectDispatcher)
     try:
         async with anyio.create_task_group() as tg:
             await tg.start(client.run, noop, noop)
