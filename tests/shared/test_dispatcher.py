@@ -483,6 +483,38 @@ async def test_minted_ids_skip_a_caller_supplied_id_still_in_flight(pair_factory
 
 
 @pytest.mark.anyio
+async def test_minted_id_skips_injected_consecutive_in_flight_ids():
+    """Defensive guard: if _in_flight_ids contains the next sequential
+    candidates, the while-loop advances past all of them."""
+
+    async def noop(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        return {}
+
+    client, server, close = direct_pair()
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, noop, noop)
+            await tg.start(server.run, noop, noop)
+            # send_raw_request on client dispatches on the server's peer
+            # (_dispatch_request runs on server). Inject synthetic in-flight
+            # keys into the SERVER so the mint loop must skip them.
+            # _next_id is 0, so mint increments to 1, finds it occupied,
+            # increments to 2, finds it occupied, increments to 3, finds it
+            # occupied, and finally lands on 4.
+            server._in_flight_ids.update({1, 2, 3})
+            result = await client.send_raw_request("ping", None)
+            assert result == {}
+            # After completion the id is discarded from in_flight, but the
+            # counter must have advanced to 4 (skipping 1, 2, 3).
+            assert server._next_id == 4
+            tg.cancel_scope.cancel()
+    finally:
+        close()
+
+
+@pytest.mark.anyio
 async def test_supplied_numeric_string_id_collides_with_its_int_twin(pair_factory: PairFactory):
     """ "7" and 7 are one id in the collision domain on BOTH dispatchers, so the
     in-memory pair raises exactly where the wire dispatcher (whose pending keys
