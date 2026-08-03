@@ -1,5 +1,6 @@
 """Tests for StreamableHTTPSessionManager."""
 
+import inspect
 import json
 import logging
 from collections.abc import Iterator
@@ -17,6 +18,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext, streamable_http_manager
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
+from mcp.server.mcpserver import MCPServer
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_REQUEST_BODY_SIZE,
@@ -223,6 +225,18 @@ def test_request_body_limit_defaults_to_four_mib() -> None:
     """SDK-defined: Streamable HTTP request bodies are limited to 4 MiB by default."""
     manager = StreamableHTTPSessionManager(app=Server("test-default-size-limit"))
     assert manager.max_request_body_size == DEFAULT_MAX_REQUEST_BODY_SIZE == 4 * 1024 * 1024
+
+
+def test_app_signatures_default_to_the_same_request_body_limit() -> None:
+    """SDK-defined: the `max_request_body_size` defaults of the app/run entry points are spelled
+    as a value (their modules do not import the HTTP stack), so pin them to the one constant."""
+    entry_points = (
+        Server.streamable_http_app,
+        MCPServer.streamable_http_app,
+        MCPServer.run_streamable_http_async,
+    )
+    defaults = {inspect.signature(f).parameters["max_request_body_size"].default for f in entry_points}
+    assert defaults == {DEFAULT_MAX_REQUEST_BODY_SIZE}
 
 
 @pytest.mark.parametrize("max_request_body_size", [0, -1])

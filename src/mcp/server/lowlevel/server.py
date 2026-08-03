@@ -43,37 +43,41 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Generic, overload
+from typing import TYPE_CHECKING, Any, Final, Generic, overload
 
 import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.routing import Mount, Route
 from typing_extensions import TypeVar, deprecated
 
 from mcp.server._otel import OpenTelemetryMiddleware
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
-from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
-from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import (
-    DEFAULT_MAX_REQUEST_BODY_SIZE,
-    StreamableHTTPASGIApp,
-    StreamableHTTPSessionManager,
-)
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
+
+if TYPE_CHECKING:
+    # The HTTP transport stack is imported inside `streamable_http_app()`, its
+    # only user, so `import mcp.server` and stdio servers never load starlette,
+    # sse_starlette or uvicorn; these names are needed only in annotations.
+    from starlette.applications import Starlette
+    from starlette.routing import Mount, Route
+
+    from mcp.server.streamable_http import EventStore
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from mcp.server.transport_security import TransportSecuritySettings
+
+DEFAULT_MAX_REQUEST_BODY_SIZE: Final = 4 * 1024 * 1024
+"""Default maximum Streamable HTTP request body size in bytes (4 MiB).
+
+Defined in this starlette-free module so the app-builder signatures can name it without
+importing the HTTP stack; `mcp.server.streamable_http_manager` re-exports it.
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -735,6 +739,23 @@ class Server(Generic[LifespanResultT]):
         debug: bool = False,
     ) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
+        # The HTTP transport stack is imported here, in its only user, rather than
+        # at module top: import-time cost, so stdio servers never pay for it.
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.middleware.authentication import AuthenticationMiddleware
+        from starlette.routing import Route
+
+        from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+        from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+        from mcp.server.auth.routes import (
+            build_resource_metadata_url,
+            create_auth_routes,
+            create_protected_resource_routes,
+        )
+        from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
+        from mcp.server.transport_security import TransportSecuritySettings
+
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(

@@ -10,7 +10,6 @@ from typing import Any
 
 import anyio
 import anyio.to_thread
-import httpx2
 import pydantic
 import pydantic_core
 from mcp_types import Annotations, Icon, InputRequiredResult
@@ -199,7 +198,11 @@ class HttpResource(Resource):
 
     async def read(self) -> str | bytes:
         """Read the HTTP content."""
-        async with httpx2.AsyncClient() as client:  # pragma: no cover
+        # httpx2 is imported here rather than at module top: import-time cost,
+        # and this is the only resource type that needs the HTTP client stack.
+        import httpx2
+
+        async with httpx2.AsyncClient() as client:
             response = await client.get(self.url)
             response.raise_for_status()
             return response.text

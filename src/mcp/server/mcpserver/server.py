@@ -6,7 +6,7 @@ import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -46,16 +46,7 @@ from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
 from pydantic import BaseModel
 from pydantic.networks import AnyUrl
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Mount, Route
-from starlette.types import Receive, Scope, Send
 
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint
@@ -68,7 +59,7 @@ from mcp.server.extension import (
     validate_extension_identifier,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import LifespanResultT, Server
+from mcp.server.lowlevel.server import DEFAULT_MAX_REQUEST_BODY_SIZE, LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
@@ -84,14 +75,24 @@ from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
-from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
-from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
+
+if TYPE_CHECKING:
+    # The HTTP transport stack is imported inside `sse_app()` / `custom_route()`,
+    # its only users, so stdio servers never load starlette, sse_starlette or
+    # uvicorn at import; these names are needed only in annotations.
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import Response
+    from starlette.routing import Route
+    from starlette.types import Receive, Scope, Send
+
+    from mcp.server.streamable_http import EventStore
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    from mcp.server.transport_security import TransportSecuritySettings
 
 logger = get_logger(__name__)
 
@@ -1005,6 +1006,10 @@ class MCPServer(Generic[LifespanResultT]):
             ```
         """
 
+        # A custom route is an HTTP feature; starlette is imported here rather
+        # than at module top so stdio servers never pay for it at import time.
+        from starlette.routing import Route
+
         def decorator(
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
@@ -1097,6 +1102,19 @@ class MCPServer(Generic[LifespanResultT]):
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Return an instance of the SSE server app."""
+        # The SSE transport stack is imported here, in its only user, rather than
+        # at module top: import-time cost, so stdio servers never pay for it.
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.middleware.authentication import AuthenticationMiddleware
+        from starlette.responses import Response
+        from starlette.routing import Mount, Route
+
+        from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+        from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+        from mcp.server.sse import SseServerTransport
+        from mcp.server.transport_security import TransportSecuritySettings
+
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(
@@ -1342,3 +1360,9 @@ def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: st
             message=f"Client did not declare required extension {identifier!r}",
             data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
+
+
+# `Settings` names `MCPServer` (defined above) in a field annotation, so it is
+# incomplete until then; complete it at import so no thread first-builds it
+# concurrently during `MCPServer(...)` construction.
+Settings.model_rebuild()

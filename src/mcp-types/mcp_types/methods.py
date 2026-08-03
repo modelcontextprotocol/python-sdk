@@ -10,16 +10,16 @@ version-free `mcp_types` models user code receives."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from functools import cache
+from importlib import import_module
 from types import MappingProxyType, UnionType
-from typing import Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
+from typing import TYPE_CHECKING, Any, Final, Literal, TypeGuard, TypeVar, cast, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
 import mcp_types as types
-import mcp_types._v2025_11_25 as v2025
-import mcp_types._v2026_07_28 as v2026
+from mcp_types._wire_base import DeferredAdapter
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 
 __all__ = [
@@ -52,9 +52,64 @@ __all__ = [
 ]
 
 
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+class _WirePackage:
+    """Import-free stand-in for a `mcp_types._v*` package: `.Name` yields a `(module, name)` placeholder."""
+
+    def __init__(self, module: str) -> None:
+        self._module = module
+
+    def __getattr__(self, name: str) -> Any:
+        return (self._module, name)
+
+
+class _LazyRows(Mapping[Any, Any]):
+    """Surface-map store resolving `(module, name)` placeholders: `map[k]` imports; `in`/iter/len never do."""
+
+    def __init__(self, rows: dict[Any, Any]) -> None:
+        self._rows = rows
+
+    def __getitem__(self, key: Any) -> Any:
+        row = self._rows[key]  # KeyError here is the version gate.
+        if isinstance(row, tuple):  # a wire type not yet imported: load its package now (once)
+            module, name = cast("tuple[str, str]", row)
+            row = self._rows[key] = getattr(import_module(module), name)
+        return row
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._rows
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self._rows)
+
+    def __len__(self) -> int:
+        return len(self._rows)
+
+    def __repr__(self) -> str:
+        return repr(dict(self))
+
+
+def _surface(rows: dict[_K, _V]) -> MappingProxyType[_K, _V]:
+    """Wrap `rows` read-only; placeholder rows load their wire package on first read."""
+    return MappingProxyType(_LazyRows(rows))
+
+
+if TYPE_CHECKING:  # a type checker (and bundlers) see the real wire packages behind the rows below
+    import mcp_types._v2025_11_25 as v2025
+    import mcp_types._v2026_07_28 as v2026
+else:
+    # Deliberately lazy: each wire package is ~100 ms of pydantic model builds and a
+    # connection uses one version, so the rows below are placeholders until first read.
+    v2025 = _WirePackage("mcp_types._v2025_11_25")
+    v2026 = _WirePackage("mcp_types._v2026_07_28")
+
+
 # --- Surface maps: client-to-server ---
 
-CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
         ("completion/complete", "2024-11-05"): v2025.CompleteRequest,
@@ -126,7 +181,7 @@ CLIENT_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxy
     }
 )
 
-CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
         ("notifications/cancelled", "2024-11-05"): v2025.CancelledNotification,
@@ -156,7 +211,7 @@ CLIENT_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = Mapping
 
 # --- Surface maps: server-to-client ---
 
-SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
         ("ping", "2024-11-05"): v2025.PingRequest,
@@ -180,7 +235,7 @@ SERVER_REQUESTS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxy
     }
 )
 
-SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = MappingProxyType(
+SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = _surface(
     {
         # 2024-11-05
         ("notifications/cancelled", "2024-11-05"): v2025.CancelledNotification,
@@ -230,7 +285,7 @@ SERVER_NOTIFICATIONS: Final[Mapping[tuple[str, str], type[BaseModel]]] = Mapping
 
 # --- Surface maps: results ---
 
-SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = MappingProxyType(
+SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = _surface(
     {
         # 2024-11-05
         ("completion/complete", "2024-11-05"): v2025.CompleteResult,
@@ -303,7 +358,7 @@ SERVER_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = M
 )
 """Results servers send, keyed by the originating client request's (method, version)."""
 
-CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = MappingProxyType(
+CLIENT_RESULTS: Final[Mapping[tuple[str, str], type[BaseModel] | UnionType]] = _surface(
     {
         # 2024-11-05
         ("ping", "2024-11-05"): v2025.EmptyResult,
@@ -465,7 +520,8 @@ def _body(method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
 
 @cache
 def _adapter(target: type[BaseModel] | UnionType) -> TypeAdapter[Any]:
-    return TypeAdapter(target)
+    # A per-call adapter cache shared across threads: build under the type layer's lock.
+    return DeferredAdapter(target)
 
 
 _MonolithT = TypeVar("_MonolithT")
