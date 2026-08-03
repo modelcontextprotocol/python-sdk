@@ -26,6 +26,7 @@ catalog_json = catalog.model_dump_json(by_alias=True, exclude_none=True)
 
 def write_static_site(directory: Path) -> None:
     """Write the card and the well-known catalog under `directory`."""
+    directory.mkdir(parents=True, exist_ok=True)
     (directory / "server-card.json").write_text(card_json)
     well_known = directory / ".well-known"
     well_known.mkdir(parents=True, exist_ok=True)

@@ -46,6 +46,12 @@ async def _head(app: Starlette, path: str) -> httpx2.Response:
         return await client.head(path)
 
 
+async def _options(app: Starlette, path: str) -> httpx2.Response:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
+        return await client.options(path)
+
+
 async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
     catalog = AICatalog(spec_version="1.0", entries=[server_card_entry(make_card(), CARD_URL)])
     app = Starlette(routes=[ai_catalog_route(catalog)])
@@ -55,7 +61,8 @@ async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
     # Discovery requires CORS headers (MUST) and caching headers (SHOULD).
     assert response.headers["access-control-allow-origin"] == "*"
     assert response.headers["access-control-allow-methods"] == "GET"
-    assert response.headers["access-control-allow-headers"] == "Content-Type"
+    assert response.headers["access-control-allow-headers"] == "Content-Type, If-None-Match"
+    assert response.headers["access-control-expose-headers"] == "ETag"
     assert response.headers["cache-control"] == "public, max-age=3600"
     etag = response.headers["etag"]
     assert re.fullmatch(r'"[0-9a-f]{64}"', etag)
@@ -68,7 +75,7 @@ async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
     assert not_modified.headers["etag"] == etag
     assert not_modified.headers["access-control-allow-origin"] == "*"
     assert not_modified.headers["access-control-allow-methods"] == "GET"
-    assert not_modified.headers["access-control-allow-headers"] == "Content-Type"
+    assert not_modified.headers["access-control-allow-headers"] == "Content-Type, If-None-Match"
     assert not_modified.headers["cache-control"] == "public, max-age=3600"
     assert not_modified.content == b""
 
@@ -85,6 +92,20 @@ async def test_ai_catalog_route_serves_catalog_with_discovery_headers() -> None:
     assert non_matching.status_code == 200
     assert non_matching.headers["etag"] == etag
     assert non_matching.text == catalog.model_dump_json(by_alias=True, exclude_none=True)
+
+
+async def test_ai_catalog_route_answers_cors_preflight() -> None:
+    """A browser conditional GET sends `If-None-Match`, a non-safelisted header,
+    so it preflights with OPTIONS; the route must answer it with the CORS headers."""
+    catalog = AICatalog(spec_version="1.0", entries=[server_card_entry(make_card(), CARD_URL)])
+    app = Starlette(routes=[ai_catalog_route(catalog)])
+    response = await _options(app, "/.well-known/ai-catalog.json")
+    assert response.status_code == 204
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["access-control-allow-methods"] == "GET"
+    assert response.headers["access-control-allow-headers"] == "Content-Type, If-None-Match"
+    assert response.headers["access-control-expose-headers"] == "ETag"
+    assert response.content == b""
 
 
 async def test_mount_ai_catalog_on_existing_app() -> None:
