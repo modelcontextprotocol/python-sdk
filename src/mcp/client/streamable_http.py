@@ -33,6 +33,9 @@ from pydantic import ValidationError
 from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
+from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT as MCP_DEFAULT_SSE_READ_TIMEOUT
+from mcp.shared._httpx_utils import MCP_DEFAULT_TIMEOUT as MCP_DEFAULT_TIMEOUT
+from mcp.shared._httpx_utils import McpHttpClientFactory as McpHttpClientFactory
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
