@@ -1,12 +1,12 @@
 from typing import Annotated
 
-from mcp_types import ElicitRequestParams, ElicitResult
 from pydantic import BaseModel
 
 from mcp import Client
 from mcp.client import ClientRequestContext
 from mcp.server import MCPServer
 from mcp.server.mcpserver import AcceptedElicitation, Elicit, ElicitationResult, Resolve
+from mcp.types import ElicitRequestParams, ElicitResult
 
 mcp = MCPServer("Bookshop")
 

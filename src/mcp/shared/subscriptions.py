@@ -21,6 +21,7 @@ from mcp_types import (
 )
 
 __all__ = [
+    "LISTEN_STREAM_METHODS",
     "SUBSCRIPTION_ID_META_KEY",
     "PromptsListChanged",
     "ResourceUpdated",
@@ -78,6 +79,10 @@ _LIST_CHANGED_EVENTS: dict[str, ServerEvent] = {
     "notifications/prompts/list_changed": PromptsListChanged(),
     "notifications/resources/list_changed": ResourcesListChanged(),
 }
+
+LISTEN_STREAM_METHODS: frozenset[str] = frozenset({*_LIST_CHANGED_EVENTS, "notifications/resources/updated"})
+"""The notification methods that ride `subscriptions/listen` streams at 2026-07-28
+(and, at that era, nowhere else): the change-notification vocabulary."""
 
 
 def event_from_wire(method: str, params: Mapping[str, Any] | None) -> ServerEvent | None:

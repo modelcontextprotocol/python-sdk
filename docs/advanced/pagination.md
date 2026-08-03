@@ -10,7 +10,7 @@ Pagination is for the server whose resource list is really a database: thousands
 
 ## A server that pages
 
-```python title="server.py" hl_lines="13 16-17"
+```python title="server.py" hl_lines="12 15-16"
 --8<-- "docs_src/pagination/tutorial001.py"
 ```
 
@@ -38,7 +38,7 @@ The tenth page comes back with `next_cursor` set to `None`. Done.
 
 Every `list_*` method on `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) takes a `cursor=` keyword. Draining a paged list is one `while True`:
 
-```python title="client.py" hl_lines="27-33"
+```python title="client.py" hl_lines="26-32"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 

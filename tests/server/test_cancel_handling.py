@@ -22,7 +22,6 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 
 
@@ -33,6 +32,7 @@ async def test_server_remains_functional_after_cancel():
     # Track tool calls
     call_count = 0
     ev_first_call = anyio.Event()
+    ev_first_call_cancelled = anyio.Event()
     first_request_id = None
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -53,38 +53,45 @@ async def test_server_remains_functional_after_cancel():
             if call_count == 1:
                 first_request_id = ctx.request_id
                 ev_first_call.set()
-                await anyio.sleep(5)  # First call is slow
+                try:
+                    await anyio.sleep_forever()  # First call blocks until cancelled
+                except anyio.get_cancelled_exc_class():
+                    ev_first_call_cancelled.set()
+                    raise
             return CallToolResult(content=[TextContent(type="text", text=f"Call number: {call_count}")])
         raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
     server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async with Client(server, mode="legacy") as client:
-        # First request (will be cancelled)
+        # First request (will be cancelled server-side, then abandoned here: a
+        # cancelled request is never answered, so nothing would wake this call)
         async def first_request():
-            try:
-                await client.session.send_request(
-                    CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
-                    CallToolResult,
-                )
-                pytest.fail("First request should have been cancelled")  # pragma: no cover
-            except MCPError:
-                pass  # Expected
+            await client.session.send_request(
+                CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
+                CallToolResult,
+            )
+            raise NotImplementedError  # unreachable: the task is cancelled before any answer
 
         # Start first request
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(first_request)
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(first_request)
 
-            # Wait for it to start
-            await ev_first_call.wait()
+                # Wait for it to start
+                await ev_first_call.wait()
 
-            # Cancel it
-            assert first_request_id is not None
-            await client.session.send_notification(
-                CancelledNotification(
-                    params=CancelledNotificationParams(request_id=first_request_id, reason="Testing server recovery"),
+                # Cancel it
+                assert first_request_id is not None
+                await client.session.send_notification(
+                    CancelledNotification(
+                        params=CancelledNotificationParams(
+                            request_id=first_request_id, reason="Testing server recovery"
+                        ),
+                    )
                 )
-            )
+                await ev_first_call_cancelled.wait()
+                tg.cancel_scope.cancel()  # abandon the parked call
 
         # Second request (should work normally)
         result = await client.call_tool("test_tool", {})

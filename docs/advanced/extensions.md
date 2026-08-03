@@ -128,19 +128,26 @@ The same file's `main()` is the whole client story, both halves of it:
 The one interceptive hook. Override `intercept_tool_call` to observe, short-circuit,
 or veto a tool call:
 
-```python title="server.py" hl_lines="18-25"
+```python title="server.py" hl_lines="17-24"
 --8<-- "docs_src/extensions/tutorial005.py"
 ```
 
 * `params` is the validated `CallToolRequestParams`: you get `params.name` and
-  `params.arguments` without touching raw JSON.
-* `call_next(ctx)` runs the rest of the chain. Return its result unchanged (observe),
-  return something else (replace), or raise an `MCPError` (refuse).
+  `params.arguments` without touching raw JSON. It is also what decides which
+  tool call runs: passing a rewritten context through `call_next` changes what
+  the handler observes on `ctx`, not the tool invocation. Wire-level request
+  rewriting belongs to [Middleware](middleware.md).
+* `call_next(ctx)` runs the rest of the chain and returns the handler's result.
+  Return it unchanged (observe), return something else (replace), or raise an
+  `MCPError` (refuse). Whatever you return is serialized like any handler
+  result, including the 2026-era `serverInfo` identity stamp, so a
+  short-circuiting interceptor never produces an anonymous or off-schema
+  response.
 * With several extensions, interceptors nest in registration order: the first
   extension in `extensions=[...]` is outermost.
 * The default implementation is a pass-through, and a server whose extensions never
-  override this hook installs **no** middleware at all. You don't pay for what
-  you don't use.
+  override this hook keeps the bare `tools/call` handler untouched. You don't
+  pay for what you don't use.
 
 The hook wraps `tools/call` and nothing else. For every-message concerns, use
 [Middleware](middleware.md). That is what it is for.
@@ -151,7 +158,7 @@ A **client extension** is the same contract from the consuming side: a bundle of
 client-side behaviour behind one identifier. Pass instances to
 `Client(extensions=[...])` and call tools normally:
 
-```python title="client.py" hl_lines="67-69"
+```python title="client.py" hl_lines="66-68"
 --8<-- "docs_src/extensions/tutorial006.py"
 ```
 
@@ -181,7 +188,7 @@ client = Client(mcp, extensions=[advertise("com.example/search")])
 Subclass `ClientExtension` and override only what you need. Three contribution
 kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
 
-```python title="client.py" hl_lines="18-19 44-45 47-48"
+```python title="client.py" hl_lines="17-18 43-44 46-47"
 --8<-- "docs_src/extensions/tutorial006.py"
 ```
 
@@ -219,12 +226,12 @@ claimed shape reaching a session-tier caller raises `UnexpectedClaimedResult`.
 ### Extension verbs
 
 An extension's own request methods need no client-side registration. A vendor request
-type subclasses `mcp_types.Request` and goes through `client.session.send_request`,
+type subclasses `mcp.types.Request` and goes through `client.session.send_request`,
 as in [Serving your own methods](#serving-your-own-methods). One addition: when a
 params key must ride the `Mcp-Name` header (extension specs such as tasks require
 this for their verbs), the request type declares `name_param`:
 
-```python title="client.py" hl_lines="23-26 47-48"
+```python title="client.py" hl_lines="22-25 46-47"
 --8<-- "docs_src/extensions/tutorial007.py"
 ```
 

@@ -34,15 +34,15 @@ uv run python -m stories.serve_one.client
 ## Caveats
 
 - **Deep imports** — `serve_one`, `serve_connection`, and `Connection` are only
-  reachable at `mcp.server.runner` / `mcp.server.connection` today; a shorter
-  `mcp.server.*` re-export is tracked for beta.
+  reachable at `mcp.server.runner` / `mcp.server.connection`; there is no
+  shorter `mcp.server.*` re-export.
 - **Lowlevel-only.** The drivers take a `lowlevel.Server` and `MCPServer` has
   no public accessor for its underlying one (`_lowlevel_server` is private), so
   there is no `MCPServer`-tier variant of this story. Build the lowlevel
   `Server` directly until that accessor lands.
 - **No public `DispatchContext`** — `SingleExchangeContext` is hand-rolled
-  boilerplate; a public helper (or a `serve_one` overload that builds one) is
-  tracked for beta.
+  boilerplate; there is no public helper (or `serve_one` overload) that builds
+  one.
 - **Lifespan** — the transport entry enters `server.lifespan(server)` **once**
   and threads `lifespan_state` to every `handle_one()` call; never enter it
   per-request.

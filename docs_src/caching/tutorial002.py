@@ -1,8 +1,7 @@
 from typing import Any
 
-from mcp_types import ListToolsResult, PaginatedRequestParams, Tool
-
 from mcp.server import CacheHint, Server, ServerRequestContext
+from mcp.types import ListToolsResult, PaginatedRequestParams, Tool
 
 TOOLS = [Tool(name="forecast", input_schema={"type": "object"})]
 

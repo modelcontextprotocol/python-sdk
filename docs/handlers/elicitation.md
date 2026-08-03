@@ -128,7 +128,7 @@ Look at the second tool. When your server learns the out-of-band flow finished (
 
 Servers ask. Clients answer by passing an **`elicitation_callback`** to `Client(...)`:
 
-```python title="client.py" hl_lines="7-8 19"
+```python title="client.py" hl_lines="6-7 18"
 --8<-- "docs_src/elicitation/tutorial003.py"
 ```
 

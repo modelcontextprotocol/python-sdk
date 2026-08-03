@@ -16,11 +16,16 @@ from docs_src.subscriptions import (
     tutorial004_asyncio,
     tutorial004_trio,
     tutorial005,
+    tutorial006,
 )
 from mcp import Client
+from mcp.server.auth.middleware.auth_context import auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.server.subscriptions import SUBSCRIPTION_ID_META_KEY, ListenHandler, ToolsListChanged
+from mcp.shared.exceptions import MCPError
 
 _ReadResource = Callable[
     [ServerRequestContext[Any], types.ReadResourceRequestParams], Awaitable[types.ReadResourceResult]
@@ -301,3 +306,30 @@ async def test_the_follower_re_listens_after_the_stream_ends(capsys: pytest.Capt
     printed = capsys.readouterr().out
     assert "[x] design\n[ ] build" in printed  # first stream, after design
     assert "[x] design\n[x] build" in printed  # second stream, after build
+
+
+def _signed_in_as(subject: str) -> Any:
+    """Stand in for the auth middleware: put this user's token in the auth context."""
+    token = AccessToken(token="demo", client_id="docs-client", scopes=[], subject=subject)
+    return auth_context_var.set(AuthenticatedUser(token))
+
+
+async def test_the_middleware_refuses_a_listen_the_caller_could_not_read() -> None:
+    """tutorial006: one `can_access` gates both `resources/read` and `subscriptions/listen`.
+
+    Alice may read (and so watch) the report, and is refused the payroll file on both
+    paths - the listen refusal is in-band, before any acknowledgment.
+    """
+    reset = _signed_in_as("alice")
+    try:
+        async with Client(tutorial006.mcp, mode="2026-07-28") as client:
+            async with client.listen(resource_subscriptions=["files://report.pdf"]) as sub:
+                assert sub.honored.resource_subscriptions == ["files://report.pdf"]
+            with pytest.raises(MCPError) as listen_error:
+                async with client.listen(resource_subscriptions=["files://report.pdf", "files://payroll.csv"]):
+                    pass  # pragma: no cover - the refusal precedes the stream
+            assert listen_error.value.error.message == "not permitted to watch the requested resources"
+            with pytest.raises(MCPError):
+                await client.read_resource("files://payroll.csv")
+    finally:
+        auth_context_var.reset(reset)

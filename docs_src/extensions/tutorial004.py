@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 from typing import Any, Literal
 
-import mcp_types as types
 from pydantic import Field
 
+import mcp.types as types
 from mcp import Client
 from mcp.client import advertise
 from mcp.server.context import ServerRequestContext

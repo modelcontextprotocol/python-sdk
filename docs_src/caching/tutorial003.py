@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 from typing import Any
 
-from mcp_types import ListToolsResult, PaginatedRequestParams, Tool
-
 from mcp import Client
 from mcp.client import CacheConfig
 from mcp.server import CacheHint, Server, ServerRequestContext
+from mcp.types import ListToolsResult, PaginatedRequestParams, Tool
 
 
 @dataclass

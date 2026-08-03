@@ -22,6 +22,7 @@ from mcp_types import (
     CancelledNotificationParams,
     ErrorData,
     JSONRPCError,
+    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -34,10 +35,11 @@ from mcp import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream
-from mcp.shared.dispatcher import CallOptions, DispatchContext, coerce_request_id
+from mcp.shared.dispatcher import CallOptions, DispatchContext, OnRequest, coerce_request_id
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
     JSONRPCDispatcher,
+    PeerCancelMode,
     _OutboundPlan,
     _Pending,
     _plan_outbound,
@@ -122,113 +124,171 @@ async def test_handler_raising_exception_sends_code_zero_with_str_message():
     assert exc.value.__cause__ is None  # cause does not survive the wire
 
 
-@pytest.mark.anyio
-async def test_peer_cancel_interrupt_mode_writes_cancelled_error_response():
-    """Matches the existing server: a peer-cancelled request is answered with code=0."""
+async def _drive_cancelled_request(
+    on_request: OnRequest, *, peer_cancel_mode: PeerCancelMode = "interrupt", done: anyio.Event
+) -> tuple[list[JSONRPCMessage], list[RequestId]]:
+    """Send request 1, cancel it, then send an uncancelled control request 2.
+
+    Returns (answers written, ids settled unanswered). The control request proves the write
+    path is live, so an empty answer for id 1 is the suppression under test. Both requests
+    carry an `on_request_unanswered` callback; only cancelled request 1 should fire it.
+    Server-only, since the cancelled request is never answered. `done` is set by the
+    handler once request 1 reaches the state under test.
+    """
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    recording = RecordingWriteStream()
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
+        c2s_recv, recording, peer_cancel_mode=peer_cancel_mode
+    )
     handler_started = anyio.Event()
+    unanswered: list[RequestId] = []
+
+    async def on_request_with_control(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        if method == "control":
+            return {"control": True}
+        handler_started.set()
+        return await on_request(ctx, method, params)
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        pass  # the cancelled notification is teed here; nothing to observe
+
+    def request(request_id: RequestId, method: str) -> SessionMessage:
+        async def on_unanswered() -> None:
+            unanswered.append(request_id)
+
+        return SessionMessage(
+            message=JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=None),
+            metadata=ServerMessageMetadata(on_request_unanswered=on_unanswered),
+        )
+
+    cancel = JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1})
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request_with_control, on_notify)
+            await c2s_send.send(request(1, "t"))
+            with anyio.fail_after(5):
+                await handler_started.wait()
+                await c2s_send.send(SessionMessage(message=cancel))
+                await done.wait()
+                await c2s_send.send(request(2, "control"))
+            # Quiesce: let both handler tasks run to the end of `_handle_request`,
+            # so every write they were going to make has been recorded.
+            await anyio.wait_all_tasks_blocked()
+            tg.cancel_scope.cancel()
+    finally:
+        c2s_send.close()
+        c2s_recv.close()
+    return [m.message for m in recording.sent], unanswered
+
+
+_CONTROL_ONLY: list[JSONRPCMessage] = [JSONRPCResponse(jsonrpc="2.0", id=2, result={"control": True})]
+"""Everything on the wire after a cancelled request 1: only the uncancelled control request 2 is answered."""
+
+
+@pytest.mark.anyio
+async def test_peer_cancel_interrupt_mode_interrupts_handler_and_writes_no_response():
+    """Spec MUST NOT: a cancelled request is never answered - not even with an error - and settles unanswered."""
     handler_exited = anyio.Event()
     seen_ctx: list[DCtx] = []
 
-    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         seen_ctx.append(ctx)
-        handler_started.set()
         try:
             await anyio.sleep_forever()
         finally:
             handler_exited.set()
         raise NotImplementedError
 
-    seen_error: list[ErrorData] = []
-    async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
-        with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
-
-                async def call_then_record() -> None:
-                    with pytest.raises(MCPError) as exc:
-                        await client.send_raw_request("slow", None)
-                    seen_error.append(exc.value.error)
-
-                tg.start_soon(call_then_record)
-                await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": 1})
-                await handler_exited.wait()
+    assert await _drive_cancelled_request(on_request, done=handler_exited) == (_CONTROL_ONLY, [1])
     assert seen_ctx[0].cancel_requested.is_set()
-    assert seen_error == [ErrorData(code=0, message="Request cancelled")]
 
 
 @pytest.mark.anyio
-async def test_peer_cancel_landing_after_handlers_last_checkpoint_writes_only_the_result():
-    """A peer cancel that fails to interrupt the handler writes only the result: one answer per
-    id goes on the wire (SDK-defined). The recording stream is needed because a memory stream's
-    `send` checkpoints, letting the deferred cancellation land mid-write and hide a double answer."""
+async def test_peer_cancel_signal_mode_sets_event_and_drops_the_completed_handlers_result():
+    """`"signal"` mode lets the handler run to completion, but the cancelled request is still not answered."""
+    cancel_seen = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        await ctx.cancel_requested.wait()
+        cancel_seen.set()
+        return {"finished": True}
+
+    assert await _drive_cancelled_request(on_request, peer_cancel_mode="signal", done=cancel_seen) == (
+        _CONTROL_ONLY,
+        [1],
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "handler_failure",
+    [RuntimeError("cleanup failed"), MCPError(code=INTERNAL_ERROR, message="cleanup failed")],
+    ids=["unmapped-exception", "mcp-error"],
+)
+async def test_peer_cancel_drops_the_error_of_a_handler_that_fails_after_cancel(handler_failure: Exception):
+    """A handler that turns its cancellation into an exception - mapped or not - writes no error response either."""
+    handler_failed = anyio.Event()
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        try:
+            await anyio.sleep_forever()
+        except anyio.get_cancelled_exc_class():
+            handler_failed.set()
+            raise handler_failure from None
+        raise NotImplementedError
+
+    assert await _drive_cancelled_request(on_request, done=handler_failed) == (_CONTROL_ONLY, [1])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "hook_error",
+    [RuntimeError("hook failed"), anyio.ClosedResourceError()],
+    ids=["hook-bug", "connection-closing"],
+)
+async def test_a_raising_unanswered_hook_is_contained(hook_error: Exception):
+    """A transport `on_request_unanswered` hook that raises is contained, not fatal: the
+    dispatcher keeps serving (the control request written after it is still answered)."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
     recording = RecordingWriteStream()
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, recording)
-    handler_started = anyio.Event()
+    handler_exited = anyio.Event()
+
+    async def failing_hook() -> None:
+        raise hook_error
 
     async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        handler_started.set()
-        await ctx.cancel_requested.wait()
-        return {"completed": "after-cancel"}
+        if method == "control":
+            return {"control": True}
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_exited.set()
+        raise NotImplementedError
 
     async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
-        pass  # the cancelled notification is teed here; nothing to observe
+        pass
 
+    request_1 = SessionMessage(
+        message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None),
+        metadata=ServerMessageMetadata(on_request_unanswered=failing_hook),
+    )
+    cancel = JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1})
+    control = SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=2, method="control", params=None))
     try:
         async with anyio.create_task_group() as tg:
             await tg.start(server.run, on_request, on_notify)
-            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None)))
             with anyio.fail_after(5):
-                await handler_started.wait()
-            # The cancel is also the handler's wakeup, so anyio defers it and the handler completes.
-            await c2s_send.send(
-                SessionMessage(
-                    message=JSONRPCNotification(
-                        jsonrpc="2.0", method="notifications/cancelled", params={"requestId": 1}
-                    )
-                )
-            )
-            # Quiesce: the handler has resumed, completed, and exited its scope.
+                await c2s_send.send(request_1)
+                await c2s_send.send(SessionMessage(message=cancel))
+                await handler_exited.wait()
+                await c2s_send.send(control)
             await anyio.wait_all_tasks_blocked()
             tg.cancel_scope.cancel()
     finally:
         c2s_send.close()
         c2s_recv.close()
-    assert [m.message for m in recording.sent] == [
-        JSONRPCResponse(jsonrpc="2.0", id=1, result={"completed": "after-cancel"})
-    ]
-
-
-@pytest.mark.anyio
-async def test_peer_cancel_signal_mode_sets_event_but_handler_runs_to_completion():
-    handler_started = anyio.Event()
-    cancel_seen = anyio.Event()
-
-    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        handler_started.set()
-        await ctx.cancel_requested.wait()
-        cancel_seen.set()
-        return {"finished": True}
-
-    def factory(*, can_send_request: bool = True):
-        client, server, close = jsonrpc_pair(can_send_request=can_send_request)
-        assert isinstance(server, JSONRPCDispatcher)
-        server._peer_cancel_mode = "signal"  # pyright: ignore[reportPrivateUsage]
-        return client, server, close
-
-    result_box: list[dict[str, Any]] = []
-    async with running_pair(factory, server_on_request=server_on_request) as (client, *_):
-        with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:  # pragma: no branch
-
-                async def call() -> None:
-                    result_box.append(await client.send_raw_request("slow", None))
-
-                tg.start_soon(call)
-                await handler_started.wait()
-                await client.notify("notifications/cancelled", {"requestId": 1})
-                await cancel_seen.wait()
-    assert result_box == [{"finished": True}]
+    assert [m.message for m in recording.sent] == _CONTROL_ONLY
 
 
 @pytest.mark.anyio
@@ -1270,6 +1330,45 @@ async def test_ctx_message_metadata_carries_inbound_request_metadata():
 
 
 @pytest.mark.anyio
+async def test_transport_stamped_can_send_request_makes_the_request_channel_refuse():
+    """A transport that marks a message `can_send_request=False` on its metadata gets a request-scoped
+    channel that raises `NoBackChannelError` immediately - the default builder reads the transport's
+    verdict off the message, so no driver has to wire it."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    outcomes: list[bool | str] = []
+
+    async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        outcomes.append(ctx.can_send_request)
+        try:
+            await ctx.send_raw_request("elicitation/create", {})
+        except NoBackChannelError as exc:
+            outcomes.append(exc.method)
+        return {}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params=None),
+                    metadata=ServerMessageMetadata(can_send_request=False),
+                )
+            )
+            with anyio.fail_after(5):
+                await s2c_recv.receive()  # response sent => the handler has run
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert outcomes == [False, "elicitation/create"]
+
+
+@pytest.mark.anyio
 async def test_ctx_message_metadata_carries_inbound_notification_metadata():
     """Notifications get the same metadata pass-through as requests."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
@@ -1592,14 +1691,16 @@ async def test_cancelled_notification_for_in_flight_request_is_teed_to_on_notify
             async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call() -> None:
-                    with pytest.raises(MCPError):
-                        await client.send_raw_request("slow", None)
+                    # Never answered; abandoned below without a courtesy cancel so `srec` sees only the peer's.
+                    await client.send_raw_request("slow", None, {"cancel_on_abandon": False})
+                    raise NotImplementedError  # unreachable: the task is cancelled first
 
                 tg.start_soon(call)
                 await handler_started.wait()
                 await client.notify("notifications/cancelled", {"requestId": 1})
                 await handler_exited.wait()
                 await srec.notified.wait()
+                tg.cancel_scope.cancel()  # abandon the parked call
     assert srec.notifications == [("notifications/cancelled", {"requestId": 1})]
 
 
@@ -2057,8 +2158,8 @@ async def test_cancelled_with_bool_request_id_does_not_cancel_request_one():
             async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call() -> None:
-                    with pytest.raises(MCPError):
-                        await client.send_raw_request("slow", None)
+                    await client.send_raw_request("slow", None)  # never answered; abandoned below
+                    raise NotImplementedError  # unreachable: the task is cancelled first
 
                 tg.start_soon(call)
                 await handler_started.wait()
@@ -2068,6 +2169,7 @@ async def test_cancelled_with_bool_request_id_does_not_cancel_request_one():
                 assert not handler_exited.is_set()
                 await client.notify("notifications/cancelled", {"requestId": 1})
                 await handler_exited.wait()
+                tg.cancel_scope.cancel()  # abandon the parked call
 
 
 @pytest.mark.anyio
@@ -2160,11 +2262,15 @@ async def test_request_with_bool_meta_progress_token_is_not_adopted():
 async def test_cancelled_correlates_across_string_and_int_request_id_forms(request_id: RequestId, cancel_id: object):
     """A peer that stringifies the id between request and cancel still cancels (same `coerce_request_id` path)."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
-    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    recording = RecordingWriteStream()
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, recording)
+    handler_interrupted = anyio.Event()
 
     async def on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        await anyio.sleep_forever()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            handler_interrupted.set()
         raise NotImplementedError
 
     async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
@@ -2184,15 +2290,12 @@ async def test_cancelled_correlates_across_string_and_int_request_id_forms(reque
                 )
             )
             with anyio.fail_after(5):
-                resp = await s2c_recv.receive()
-            assert isinstance(resp, SessionMessage)
-            assert isinstance(resp.message, JSONRPCError)
-            assert resp.message.id == request_id  # response echoes the peer's id form verbatim
-            assert resp.message.error == ErrorData(code=0, message="Request cancelled")
+                await handler_interrupted.wait()  # the cancel reached the handler despite the id form
             tg.cancel_scope.cancel()
     finally:
-        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
-            s.close()
+        c2s_send.close()
+        c2s_recv.close()
+    assert recording.sent == []  # cancelled: no response, in either id form
 
 
 @pytest.mark.anyio
@@ -2245,11 +2348,7 @@ async def test_completed_handler_does_not_evict_reused_request_id_from_in_flight
                         )
                     )
                 )
-                resp2 = await s2c_recv.receive()
-                assert isinstance(resp2, SessionMessage)
-                assert isinstance(resp2.message, JSONRPCError)
-                assert resp2.message.error == ErrorData(code=0, message="Request cancelled")
-                assert second_exited.is_set()
+                await second_exited.wait()  # the cancel reached the surviving entry
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2308,11 +2407,7 @@ async def test_duplicate_request_id_completion_of_first_handler_keeps_second_can
                         )
                     )
                 )
-                resp2 = await s2c_recv.receive()
-                assert isinstance(resp2, SessionMessage)
-                assert isinstance(resp2.message, JSONRPCError)
-                assert resp2.message.error == ErrorData(code=0, message="Request cancelled")
-                assert second_exited.is_set()
+                await second_exited.wait()  # the cancel reached the surviving entry
             tg.cancel_scope.cancel()
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
@@ -2366,11 +2461,12 @@ async def test_server_middleware_observes_cancelled_notification():
             async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call() -> None:
-                    with pytest.raises(MCPError):
-                        await client.session.send_request(
-                            CallToolRequest(params=CallToolRequestParams(name="t", arguments={})),
-                            CallToolResult,
-                        )
+                    # Never answered once cancelled; abandoned below.
+                    await client.session.send_request(
+                        CallToolRequest(params=CallToolRequestParams(name="t", arguments={})),
+                        CallToolResult,
+                    )
+                    raise NotImplementedError  # unreachable: the task is cancelled first
 
                 tg.start_soon(call)
                 await handler_started.wait()
@@ -2381,10 +2477,8 @@ async def test_server_middleware_observes_cancelled_notification():
                     )
                 )
                 await cancel_observed.wait()
-    assert len(observed) == 1
-    assert observed[0][0] == "notifications/cancelled"
-    assert observed[0][1]["requestId"] == request_id
-    assert observed[0][1]["reason"] == "user clicked stop"
+                tg.cancel_scope.cancel()  # abandon the parked call (sends its own courtesy cancel)
+    assert observed[0] == ("notifications/cancelled", {"requestId": request_id, "reason": "user clicked stop"})
 
 
 @pytest.mark.anyio

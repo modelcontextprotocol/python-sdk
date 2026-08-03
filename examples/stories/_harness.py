@@ -19,13 +19,13 @@ from urllib.parse import urlsplit
 
 import anyio
 import httpx2
-from mcp_types.version import LATEST_MODERN_VERSION
 
 from mcp import StdioServerParameters, stdio_client
 from mcp.client import Transport
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.types.version import LATEST_MODERN_VERSION
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -162,7 +162,7 @@ def run_client(main: Callable[..., Awaitable[None]]) -> None:
     if cfg["era"] == "dual-in-body":
         # The story pins its connection modes inside ``main`` itself, so hand it "auto"
         # (the ``Client`` default) and let those in-body pins decide. A hard version pin
-        # here would skip the discover probe and leave ``server_info`` blank.
+        # here would skip the discover probe and leave `server_info` None.
         era = "in-body"
     mode = {"modern": LATEST_MODERN_VERSION, "legacy": "legacy", "in-body": "auto"}[era]
 

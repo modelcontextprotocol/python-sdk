@@ -1,9 +1,8 @@
 from typing import Annotated
 
-from mcp_types import CreateMessageResult, SamplingMessage, TextContent
-
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Resolve, Sample
+from mcp.types import CreateMessageResult, SamplingMessage, TextContent
 
 mcp = MCPServer("Bookshop")
 

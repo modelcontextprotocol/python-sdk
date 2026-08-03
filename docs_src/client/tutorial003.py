@@ -1,8 +1,8 @@
-from mcp_types import TextContent
 from pydantic import BaseModel
 
 from mcp import Client
 from mcp.server import MCPServer
+from mcp.types import TextContent
 
 mcp = MCPServer("Bookshop")
 
