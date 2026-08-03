@@ -1,13 +1,18 @@
 import contextvars
+from typing import TYPE_CHECKING
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
+
+if TYPE_CHECKING:
+    from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 
 # Create a contextvar to store the authenticated user
 # The default is None, indicating no authenticated user is present
-auth_context_var = contextvars.ContextVar[AuthenticatedUser | None]("auth_context", default=None)
+auth_context_var: "contextvars.ContextVar[AuthenticatedUser | None]" = contextvars.ContextVar(
+    "auth_context", default=None
+)
 
 
 def get_access_token() -> AccessToken | None:
@@ -30,11 +35,18 @@ class AuthContextMiddleware:
     """
 
     def __init__(self, app: ASGIApp):
+        # `AuthenticatedUser` (starlette's authentication/request stack) is
+        # imported once per app here rather than at module top: import-time
+        # cost, so `get_access_token` above stays importable by transport-
+        # agnostic code (request_state) without loading starlette's HTTP stack.
+        from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+
         self.app = app
+        self._authenticated_user = AuthenticatedUser
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         user = scope.get("user")
-        if isinstance(user, AuthenticatedUser):
+        if isinstance(user, self._authenticated_user):
             # Set the authenticated user in the contextvar
             token = auth_context_var.set(user)
             try:

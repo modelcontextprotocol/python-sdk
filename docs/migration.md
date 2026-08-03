@@ -197,6 +197,26 @@ Both commands now pin the requirement to the version you are running
 (`mcp==<installed version>`). Source builds and other unpublished versions, which have
 nothing on PyPI to pin to, keep the unpinned form.
 
+### `import mcp` no longer imports the client and server stacks
+
+`import mcp` used to import the whole client and server stack (and with it starlette,
+uvicorn, httpx2, ...) as a side effect. It now imports only the protocol types; `Client`,
+`ClientSession`, `ClientSessionGroup`, `StdioServerParameters`, `stdio_client`,
+`ServerSession`, `stdio_server`, `InputRequiredRoundsExceededError`, and the `mcp.types`
+submodule are the same names and objects, resolved on first access. This is invisible
+unless code depended on the side effects:
+
+* `sys.modules` after `import mcp` no longer contains `mcp.client*`, `mcp.server*`, or
+  their dependencies. Import what you use.
+* Attribute chains from a bare `import mcp` still reach `mcp.types`, `mcp.client`,
+  `mcp.server`, and `mcp.os`, but a module the old package init imported for you needs its
+  own `import` before `mcp.client.stdio.<name>` works — for example `mcp.client.stdio`,
+  `mcp.client.session_group`, `mcp.client.sse`, `mcp.client.streamable_http`, and
+  `mcp.shared.memory`.
+* Client entry points (`mcp.client.stdio`, `from mcp import Client`, ...) no longer import
+  the server stack, and the HTTP client stack loads with your first URL-shaped `Client`
+  rather than at import. See [Startup cost](advanced/startup.md).
+
 ## Types and wire format
 
 ### `mcp.types` moved to the `mcp-types` package
@@ -640,6 +660,45 @@ JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="
 
 Delete any shim that accepted or synthesized null-id error responses. Code that assumed `error.id` was always a `str | int` must now handle `None`, and tests that pinned v1's rejection of `"id": null` now fail because validation succeeds.
 
+### Protocol models build their validators on first use
+
+The protocol models (`mcp.types` / `mcp_types`, including the JSON-RPC envelopes) now build
+their pydantic validators on a model's first use in the process instead of at import
+(`defer_build`), which is most of the SDK's startup cost. Validation, serialization, JSON
+schemas, and everything after a model's first use are unchanged (one wrinkle: `inspect.signature`
+on the `model_rebuild` / `model_json_schema` classmethods shows the SDK's evaluated annotations
+rather than pydantic's stringised type aliases — parameter names, kinds and defaults are
+identical). Two things are observable *before* a model's first use:
+
+* `inspect.signature(Model)` / `help(Model)` show pydantic's generic `(**data)` initializer
+  and `Model.__pydantic_complete__` is `False`. A few models (`CallToolRequest`,
+  `GetPromptRequest`, `ReadResourceRequest`, `SamplingMessage`, `ToolResultContent`) already
+  behaved this way; it now applies to all of them until first use. Use the model once, or call
+  `Model.model_rebuild()`, when you need the resolved signature earlier.
+* Every model's MRO gains one private base (`mcp_types._wire_base.DeferredModel`) between it
+  and `pydantic.BaseModel`, visible only to code that walks `__mro__`.
+* The module-level parse adapters (`client_request_adapter`, ..., `jsonrpc_message_adapter`)
+  are instances of a private `TypeAdapter` subclass (`mcp_types._wire_base.DeferredAdapter`) so
+  their first-use build takes the same lock; `isinstance(adapter, TypeAdapter)` and every
+  documented `TypeAdapter` operation are unchanged.
+
+The one-time build cost moves from `import` to each model's first use — a few milliseconds
+for the first message a connection parses; see [Startup cost](advanced/startup.md).
+
+The per-version wire types behind the `mcp_types.methods` surface maps
+(`CLIENT_REQUESTS`, `SERVER_RESULTS`, ...) go further: a version's wire types load on the
+first row read for that version — in practice with the first message a connection parses —
+rather than at `import mcp_types.methods`, so a process loads only the protocol version it
+negotiates. Every documented map operation is unchanged (lookup, `in`, iteration, `len`,
+`get`, `==`, spreading into an extension map, `repr`); the whole-map reads among them
+load both versions at that moment. Three obscurities are observable: the maps'
+non-`Mapping` dict extras are gone (`.copy()`, `|`, `reversed()`, and `keys()`/`values()`/
+`items()` return view objects), the internal `mcp_types.methods.v2025`/`v2026` attributes
+are import-free stand-ins rather than the wire-package modules, and the wire types are no
+longer bound in `mcp.server.elicitation`. Import the generated packages
+(`mcp_types._v2025_11_25`, `mcp_types._v2026_07_28`) directly if you need them, though the
+version-free `mcp.types` models remain the supported surface.
+
 ## MCPServer (formerly FastMCP)
 
 ### `FastMCP` renamed to `MCPServer`
@@ -876,6 +935,27 @@ Beyond the constructor parameters that moved to `run()`/`streamable_http_app()` 
 - `stateless_http=True` still serves each request with a fresh transport, no `Mcp-Session-Id`, and no state carried between requests; `ctx.close_sse_stream()` and `ctx.close_standalone_sse_stream()` are still available on the handler `Context`.
 
 Only private attributes moved: `mcp._mcp_server` is now `mcp._lowlevel_server` (see [Registering lowlevel handlers from `MCPServer`](#registering-lowlevel-handlers-from-mcpserver)), and `_session_manager` now lives on that lowlevel `Server`. Prefer the public `mcp.session_manager` property to either.
+
+### The server modules no longer import the HTTP stack
+
+`mcp.server.lowlevel.server` and `mcp.server.mcpserver.server` used to import the Streamable
+HTTP / SSE stack at module top, so any server — including a stdio one — loaded starlette,
+`sse_starlette`, and `uvicorn` at import. That stack now loads inside `streamable_http_app()`,
+`sse_app()`, and `custom_route()`, their only users; a stdio server never pays for it. Two
+things follow:
+
+* The HTTP names that were only incidentally reachable as attributes of those two modules
+  (`Starlette`, `Route`, `Mount`, `EventStore`, `TransportSecuritySettings`,
+  `StreamableHTTPSessionManager`, `SseServerTransport`, and the auth middlewares/routes) are no
+  longer bound there. Import them from their homes (`starlette.applications`,
+  `mcp.server.streamable_http`, `mcp.server.transport_security`,
+  `mcp.server.streamable_http_manager`, `mcp.server.sse`, `mcp.server.auth.middleware.*`,
+  `mcp.server.auth.routes`).
+* `typing.get_type_hints()` on the HTTP-app methods (`streamable_http_app`, `sse_app`,
+  `run_sse_async`, `run_streamable_http_async`, and the `session_manager` properties) raises
+  `NameError`, because their annotations name types those modules import for type checkers only;
+  pass them yourself as `localns={...}` if you evaluate the hints at runtime. See
+  [Startup cost](advanced/startup.md).
 
 ### `MCPServer.get_context()` removed
 
@@ -2055,6 +2135,21 @@ result = await client.call_tool("long_running_task", {}, progress_callback=on_pr
 **Detached work** (create the task now, fetch its result on a later connection or after a client restart) has no v2 equivalent until the SEP-2663 extension is implemented.
 
 Also drop `execution=ToolExecution(taskSupport=types.TASK_REQUIRED)` from tool definitions: the `TASK_REQUIRED` / `TASK_OPTIONAL` / `TASK_FORBIDDEN` constants are gone from `mcp.types` (`ToolExecution.task_support` takes the plain `"required"` / `"optional"` / `"forbidden"` literal), and no v2 client or server reads the field.
+
+### `mcp.client.client` no longer imports the server stack
+
+The client module no longer imports the server, so names that were only incidentally
+reachable as attributes of `mcp.client.client` (`Server`, `MCPServer`, `modern_on_request`,
+`InMemoryTransport`, `streamable_http_client`) are no longer bound there. Import and
+`mock.patch` them at their own modules: `mcp.server.Server`, `mcp.server.mcpserver.MCPServer`,
+`mcp.server.runner.modern_on_request`, `mcp.client.streamable_http.streamable_http_client`
+(the in-memory transport is constructed for you by `Client(server)`).
+
+One introspection consequence: `typing.get_type_hints(mcp.Client)` (and of `Client.__init__`)
+now raises `NameError`, because the `server` field annotation names imports that exist only for
+type checkers. Static typing, `inspect.signature`, `dataclasses.fields`, and every documented
+use are unaffected; if you do evaluate those hints at runtime, pass
+`localns={"Server": mcp.server.Server, "MCPServer": mcp.server.mcpserver.MCPServer}`.
 
 ## Transports
 

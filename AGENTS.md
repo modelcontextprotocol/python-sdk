@@ -45,7 +45,21 @@
 - IMPORTANT: All imports go at the top of the file — inline imports hide
   dependencies and obscure circular-import bugs. Only exception: when a
   top-level import genuinely can't work (lazy-loading optional deps, or
-  tests that re-import a module).
+  tests that re-import a module), plus the deliberate startup-cost seams
+  below — each of those local imports carries a why-comment; don't hoist them.
+- Startup-cost seams (pinned by `tests/test_import_footprint.py`, so a
+  hoisted import fails a test rather than review): `mcp/__init__.py` binds
+  the client/server names and `mcp.types` lazily; `mcp.client.client` never
+  imports the server, and imports the streamable-HTTP client (httpx2) only
+  for a URL; `mcp.server.elicitation` imports the 2025-era wire package inside
+  its schema-validation gate; the two server hubs (`lowlevel/server.py`,
+  `mcpserver/server.py`) import the HTTP web stack inside
+  `streamable_http_app()` / `sse_app()` / `custom_route()`; the auth context
+  accessor imports its `AuthenticatedUser` type inside the middleware
+  constructor; `HttpResource.read` imports httpx2 in the method; and
+  `mcp_types.methods` resolves each version's wire package
+  (`mcp_types._v20*`) on the first surface-map row read, never at import.
+  `docs/advanced/startup.md` states the user-facing contract.
 
 ## Testing
 

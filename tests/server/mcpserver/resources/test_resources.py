@@ -2,7 +2,7 @@ import pytest
 from mcp_types import Annotations
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.resources import FunctionResource, Resource
+from mcp.server.mcpserver.resources import FunctionResource, HttpResource, Resource
 
 
 class TestResourceValidation:
@@ -238,3 +238,31 @@ class TestResourceMetadata:
         )
 
         assert resource.meta is None
+
+
+@pytest.mark.anyio
+async def test_http_resource_read_returns_the_fetched_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK-defined: `HttpResource.read` fetches its URL and returns the response text. The HTTP
+    client is stubbed at its module boundary (no network); `read` is where that stack loads."""
+
+    class _StubResponse:
+        text = "hello from http"
+
+        def raise_for_status(self) -> None:
+            pass
+
+    class _StubClient:
+        async def __aenter__(self) -> "_StubClient":
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+        async def get(self, url: str) -> _StubResponse:
+            assert url == "https://example.com/data"
+            return _StubResponse()
+
+    monkeypatch.setattr("httpx2.AsyncClient", _StubClient)
+    resource = HttpResource(uri="https://example.com/data", url="https://example.com/data", name="data")
+
+    assert await resource.read() == "hello from http"

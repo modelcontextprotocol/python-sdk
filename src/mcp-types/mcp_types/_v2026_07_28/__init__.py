@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from mcp_types._wire_base import WireModel
-from pydantic import ConfigDict, Field, RootModel
+from mcp_types._wire_base import WireModel, WireRootModel
+from pydantic import ConfigDict, Field
 
 
 class BaseMetadata(WireModel):
@@ -95,7 +95,7 @@ class Completion(WireModel):
     """
 
 
-class Cursor(RootModel[str]):
+class Cursor(WireRootModel[str]):
     root: str
     """
     An opaque token used to represent a cursor for pagination.
@@ -437,7 +437,7 @@ class LegacyTitledEnumSchema(WireModel):
 
 
 class LoggingLevel(
-    RootModel[
+    WireRootModel[
         Literal[
             "alert",
             "critical",
@@ -624,7 +624,7 @@ class ParseError(WireModel):
     """
 
 
-class ProgressToken(RootModel[str | int]):
+class ProgressToken(WireRootModel[str | int]):
     root: str | int
     """
     A progress token, used to associate progress notifications with the original request.
@@ -694,7 +694,7 @@ class Request(WireModel):
     params: dict[str, Any] | None = None
 
 
-class RequestId(RootModel[str | int]):
+class RequestId(WireRootModel[str | int]):
     root: str | int
     """
     A uniquely identifying ID for a request in JSON-RPC.
@@ -759,7 +759,7 @@ class ResultMetaObject(WireModel):
     """
 
 
-class ResultType(RootModel[str]):
+class ResultType(WireRootModel[str]):
     root: str
     """
     Indicates the type of a {@link Result} object, allowing the client to
@@ -770,7 +770,7 @@ class ResultType(RootModel[str]):
     """
 
 
-class Role(RootModel[Literal["assistant", "user"]]):
+class Role(WireRootModel[Literal["assistant", "user"]]):
     root: Literal["assistant", "user"]
     """
     The sender or recipient of messages and data in a conversation.
@@ -1468,7 +1468,7 @@ class CompleteResultResponse(WireModel):
     result: CompleteResult
 
 
-class ElicitRequestParams(RootModel[ElicitRequestFormParams | ElicitRequestURLParams]):
+class ElicitRequestParams(WireRootModel[ElicitRequestFormParams | ElicitRequestURLParams]):
     root: ElicitRequestFormParams | ElicitRequestURLParams
     """
     The parameters for a request to elicit additional information from the user via the client.
@@ -1496,7 +1496,7 @@ class EmbeddedResource(WireModel):
 
 
 class EnumSchema(
-    RootModel[
+    WireRootModel[
         UntitledSingleSelectEnumSchema
         | TitledSingleSelectEnumSchema
         | UntitledMultiSelectEnumSchema
@@ -1618,7 +1618,7 @@ class ListRootsResult(WireModel):
     roots: list[Root]
 
 
-class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
+class MultiSelectEnumSchema(WireRootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
     root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
 
 
@@ -1681,7 +1681,7 @@ class PaginatedResult(WireModel):
 
 
 class PrimitiveSchemaDefinition(
-    RootModel[
+    WireRootModel[
         StringSchema
         | NumberSchema
         | BooleanSchema
@@ -2064,7 +2064,7 @@ class Result(WireModel):
     """
 
 
-class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
+class SingleSelectEnumSchema(WireRootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
     root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
 
@@ -2256,14 +2256,14 @@ class ClientNotification(WireModel):
     params: CancelledNotificationParams
 
 
-class ClientResult(RootModel[Result]):
+class ClientResult(WireRootModel[Result]):
     root: Result
     """
     Common result fields.
     """
 
 
-class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
+class ContentBlock(WireRootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
     root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 
 
@@ -2279,7 +2279,7 @@ class ElicitRequest(WireModel):
     params: ElicitRequestParams
 
 
-class EmptyResult(RootModel[Result]):
+class EmptyResult(WireRootModel[Result]):
     root: Result
     """
     Common result fields.
@@ -2776,14 +2776,16 @@ class GetPromptResult(WireModel):
     """
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCMessage(
+    WireRootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]
+):
     root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
     """
     Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
     """
 
 
-class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCResponse(WireRootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
     root: JSONRPCResultResponse | JSONRPCErrorResponse
     """
     A response to a request, containing either the result or error.
@@ -2804,13 +2806,13 @@ class LoggingMessageNotification(WireModel):
 
 
 class SamplingMessageContentBlock(
-    RootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
+    WireRootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
 ):
     root: TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 
 
 class ServerNotification(
-    RootModel[
+    WireRootModel[
         CancelledNotification
         | ProgressNotification
         | ResourceListChangedNotification
@@ -2871,11 +2873,11 @@ class CreateMessageResult(WireModel):
     """
 
 
-class InputResponse(RootModel[CreateMessageResult | ListRootsResult | ElicitResult]):
+class InputResponse(WireRootModel[CreateMessageResult | ListRootsResult | ElicitResult]):
     root: CreateMessageResult | ListRootsResult | ElicitResult
 
 
-class InputResponses(RootModel[dict[str, InputResponse]]):
+class InputResponses(WireRootModel[dict[str, InputResponse]]):
     """
     A map of client responses to server-initiated requests.
     Keys correspond to the keys in the {@link InputRequests} map;
@@ -3625,12 +3627,12 @@ class SubscriptionsListenRequestParams(WireModel):
     """
 
 
-class InputRequest(RootModel[CreateMessageRequest | ListRootsRequest | ElicitRequest]):
+class InputRequest(WireRootModel[CreateMessageRequest | ListRootsRequest | ElicitRequest]):
     root: CreateMessageRequest | ListRootsRequest | ElicitRequest
 
 
 class ServerResult(
-    RootModel[
+    WireRootModel[
         Result
         | InputRequiredResult
         | DiscoverResult
@@ -3662,7 +3664,7 @@ class ServerResult(
 
 
 class ClientRequest(
-    RootModel[
+    WireRootModel[
         DiscoverRequest
         | ListResourcesRequest
         | ListResourceTemplatesRequest
@@ -3689,7 +3691,7 @@ class ClientRequest(
     )
 
 
-class InputRequests(RootModel[dict[str, InputRequest]]):
+class InputRequests(WireRootModel[dict[str, InputRequest]]):
     """
     A map of server-initiated requests that the client must fulfill.
     Keys are server-assigned identifiers; values are the request objects.
@@ -3698,49 +3700,18 @@ class InputRequests(RootModel[dict[str, InputRequest]]):
     root: dict[str, InputRequest]
 
 
-class JSONArray(RootModel[list["JSONValue"]]):
+class JSONArray(WireRootModel[list["JSONValue"]]):
     root: list["JSONValue"]
 
 
-class JSONObject(RootModel[dict[str, "JSONValue"]]):
+class JSONObject(WireRootModel[dict[str, "JSONValue"]]):
     root: dict[str, "JSONValue"]
 
 
-class JSONValue(RootModel[Union[JSONObject, list["JSONValue"], str | int | float | bool | None]]):
+class JSONValue(WireRootModel[Union[JSONObject, list["JSONValue"], str | int | float | bool | None]]):
     root: Union[JSONObject, list["JSONValue"], str | int | float | bool | None]
 
 
 AnyCallToolResult = CallToolResult | InputRequiredResult
 AnyGetPromptResult = GetPromptResult | InputRequiredResult
 AnyReadResourceResult = ReadResourceResult | InputRequiredResult
-
-
-CallToolRequest.model_rebuild()
-CallToolRequestParams.model_rebuild()
-CallToolResultResponse.model_rebuild()
-Elicitation.model_rebuild()
-Sampling.model_rebuild()
-ClientCapabilities.model_rebuild()
-CompleteRequest.model_rebuild()
-CompleteRequestParams.model_rebuild()
-CreateMessageRequest.model_rebuild()
-CreateMessageRequestParams.model_rebuild()
-DiscoverRequest.model_rebuild()
-DiscoverResult.model_rebuild()
-GetPromptRequest.model_rebuild()
-GetPromptRequestParams.model_rebuild()
-GetPromptResultResponse.model_rebuild()
-InputRequiredResult.model_rebuild()
-InputResponseRequestParams.model_rebuild()
-ListPromptsRequest.model_rebuild()
-ListResourceTemplatesRequest.model_rebuild()
-ListResourcesRequest.model_rebuild()
-ListToolsRequest.model_rebuild()
-PaginatedRequest.model_rebuild()
-PaginatedRequestParams.model_rebuild()
-ReadResourceRequest.model_rebuild()
-ReadResourceRequestParams.model_rebuild()
-ServerCapabilities.model_rebuild()
-SubscriptionsListenRequest.model_rebuild()
-JSONArray.model_rebuild()
-JSONObject.model_rebuild()

@@ -6,7 +6,7 @@ import contextlib
 import logging
 from collections import deque
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import anyio
@@ -21,6 +21,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.connection import Connection
+from mcp.server.lowlevel.server import DEFAULT_MAX_REQUEST_BODY_SIZE
 from mcp.server.runner import serve_connection, serve_loop
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, EventStore, StreamableHTTPServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
@@ -33,9 +34,6 @@ if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MAX_REQUEST_BODY_SIZE: Final = 4 * 1024 * 1024
-"""Default maximum Streamable HTTP request body size in bytes (4 MiB)."""
 
 
 class StreamableHTTPSessionManager:

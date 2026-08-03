@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Final, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import Field, TypeAdapter
+
+from mcp_types._wire_base import DeferredAdapter, DeferredModel
 
 __all__ = [
     "CONNECTION_CLOSED",
@@ -36,7 +38,7 @@ JSONRPC_VERSION: Final[Literal["2.0"]] = "2.0"
 """The JSON-RPC version string carried by every MCP message envelope."""
 
 
-class JSONRPCRequest(BaseModel):
+class JSONRPCRequest(DeferredModel):
     """A JSON-RPC request that expects a response."""
 
     jsonrpc: Literal["2.0"]
@@ -45,7 +47,7 @@ class JSONRPCRequest(BaseModel):
     params: dict[str, Any] | None = None
 
 
-class JSONRPCNotification(BaseModel):
+class JSONRPCNotification(DeferredModel):
     """A JSON-RPC notification which does not expect a response."""
 
     jsonrpc: Literal["2.0"]
@@ -53,7 +55,7 @@ class JSONRPCNotification(BaseModel):
     params: dict[str, Any] | None = None
 
 
-class JSONRPCResponse(BaseModel):
+class JSONRPCResponse(DeferredModel):
     """A successful (non-error) response to a request.
 
     Named `JSONRPCResultResponse` in the 2025-11-25+ schemas; the SDK keeps the original name.
@@ -110,7 +112,7 @@ The SDK uses the generic `ErrorData` envelope; the schema's per-code wrapper typ
 """
 
 
-class ErrorData(BaseModel):
+class ErrorData(DeferredModel):
     """Error information for JSON-RPC error responses."""
 
     code: int
@@ -129,7 +131,7 @@ class ErrorData(BaseModel):
     """
 
 
-class JSONRPCError(BaseModel):
+class JSONRPCError(DeferredModel):
     """A response to a request that indicates an error occurred."""
 
     jsonrpc: Literal["2.0"]
@@ -145,4 +147,4 @@ class JSONRPCError(BaseModel):
 JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
 """Any JSON-RPC envelope that can be decoded off the wire or encoded to be sent."""
 
-jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = TypeAdapter(JSONRPCMessage)
+jsonrpc_message_adapter: TypeAdapter[JSONRPCMessage] = DeferredAdapter(JSONRPCMessage)

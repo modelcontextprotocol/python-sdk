@@ -397,7 +397,7 @@ async def test_complete_with_prompt_reference(simple_server: Server):
 
 
 def test_client_with_url_initializes_streamable_http_transport():
-    with patch("mcp.client.client.streamable_http_client") as mock:
+    with patch("mcp.client.streamable_http.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
     mock.assert_called_once_with("http://localhost:8000/mcp")
 

@@ -11,6 +11,8 @@ layer is in the way:
   can *only* do on the low-level `Server`.
 * **[Extensions](extensions.md)** and **[MCP Apps](apps.md)**: the protocol's
   extension surface. Compose extension packages into a server, or write your own.
+* **[Startup cost](startup.md)**: what an import loads, and the one-time bills paid
+  on first use instead — for when you are measuring cold start.
 
 A few things you might reasonably look for here live where you'd actually use them
 instead:

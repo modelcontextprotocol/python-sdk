@@ -219,6 +219,28 @@ def allow_open_class_extras(source: str, open_classes: frozenset[str]) -> str:
     return source
 
 
+def use_deferred_bases(source: str) -> str:
+    """Route root models through the deferred `WireRootModel`; drop the trailing `model_rebuild()` calls.
+
+    Object models already defer via `--base-class WireModel`. A bare `RootModel[X]`
+    base parametrizes (and builds) eagerly, inline-generating the schema of every
+    deferred model the union references, so root models must defer too. The
+    trailing `X.model_rebuild()` block datamodel-codegen emits only force-built
+    forward references, which a deferred model resolves from the module namespace
+    on its first use.
+    """
+    source = source.replace("RootModel[", "WireRootModel[")
+    source = source.replace("import WireModel", "import WireModel, WireRootModel")
+    source = re.sub(r"^(from pydantic import .*), RootModel$", r"\1", source, flags=re.MULTILINE)
+    source = re.sub(r"^\w+\.model_rebuild\(\)\n", "", source, flags=re.MULTILINE)
+    # Drift guard: every root model routes through the deferred base and no rebuild call survives.
+    assert "WireRootModel[" in source and "RootModel[" not in source.replace("WireRootModel[", "")
+    assert ".model_rebuild()" not in source
+    # ...and no stray pydantic RootModel import survived (the strip above assumes it is trailing).
+    assert not re.search(r"^from pydantic import .*\bRootModel\b", source, flags=re.MULTILINE)
+    return source
+
+
 def build(entry: dict[str, str]) -> str:
     """Generate, post-process, and format one version's surface module text."""
     version = entry["protocol_version"]
@@ -243,12 +265,9 @@ def build(entry: dict[str, str]) -> str:
     # strict mkdocs link validation.
     source = source.replace("](/", "](https://modelcontextprotocol.io/")
     source = allow_open_class_extras(source, OPEN_CLASSES[version])
+    source = use_deferred_bases(source)
     if epilogue := EPILOGUES.get(version, ""):
-        # Insert before the trailing model_rebuild() block: pyright's evaluation
-        # order for the recursive RootModel block is sensitive to placement.
-        match = re.search(r"^\w+\.model_rebuild\(\)$", source, flags=re.MULTILINE)
-        cut = match.start() if match else len(source)
-        source = f"{source[:cut]}{epilogue}\n\n{source[cut:]}"
+        source = f"{source.rstrip()}\n\n\n{epilogue}"
     source = HEADER.format(version=version, sha=entry["sha256"]) + source
 
     staging = TYPES_DIR / f"_staging_{version}.py"

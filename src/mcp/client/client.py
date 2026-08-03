@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import sys
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 import anyio
 import anyio.lowlevel
@@ -40,10 +41,9 @@ from mcp_types import (
     ServerCapabilities,
 )
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
-from typing_extensions import deprecated
+from typing_extensions import TypeIs, deprecated
 
 from mcp.client._input_required import DEFAULT_INPUT_REQUIRED_MAX_ROUNDS, run_input_required_driver
-from mcp.client._memory import InMemoryTransport
 from mcp.client._probe import negotiate_auto
 from mcp.client._transport import Transport
 from mcp.client.caching import CacheConfig, CacheMode, ClientResponseCache, InMemoryResponseCacheStore
@@ -58,18 +58,18 @@ from mcp.client.session import (
     MessageHandlerFnT,
     SamplingFnT,
 )
-from mcp.client.streamable_http import streamable_http_client
 from mcp.client.subscriptions import ServerEvent, Subscription
 from mcp.client.subscriptions import listen as _listen
-from mcp.server import Server
-from mcp.server.mcpserver import MCPServer
-from mcp.server.runner import modern_on_request
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.subscriptions import event_to_notification
+
+if TYPE_CHECKING:  # annotations only; the client never imports the server stack at runtime
+    from mcp.server import Server
+    from mcp.server.mcpserver import MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -99,10 +99,27 @@ def _connect_transport(transport: Transport) -> _Connector:
     return connect
 
 
+# An in-process `Server`/`MCPServer` instance can only exist once its defining module has
+# run, so an exact `isinstance` needs no import — just a `sys.modules` lookup. This keeps the
+# whole server stack (starlette/uvicorn/...) out of `import mcp.client` for URL/Transport clients.
+def _is_mcpserver(obj: object) -> TypeIs[MCPServer]:
+    cls = getattr(sys.modules.get("mcp.server.mcpserver.server"), "MCPServer", None)
+    return cls is not None and isinstance(obj, cls)
+
+
+def _is_server(obj: object) -> TypeIs[Server[Any]]:
+    cls = getattr(sys.modules.get("mcp.server.lowlevel.server"), "Server", None)
+    return cls is not None and isinstance(obj, cls)
+
+
 def _connect_inproc(server: Server[Any]) -> _Connector:
     """Connector for an in-process ``Server``: legacy mode drives the stream loop via
     ``InMemoryTransport``; any other mode drives the modern per-request path through a
     ``DirectDispatcher`` peer pair (no streams, no JSON-RPC framing, no initialize handshake)."""
+    # Local imports: only an in-process `Server` (whose stack is therefore already loaded)
+    # reaches here; binding these at module top would import the server stack for every client.
+    from mcp.client._memory import InMemoryTransport
+    from mcp.server.runner import modern_on_request
 
     async def connect(exit_stack: AsyncExitStack, mode: ConnectMode, raise_exceptions: bool) -> Dispatcher[Any]:
         if mode == "legacy":
@@ -388,11 +405,15 @@ class Client:
         self._folded_extensions = _fold_extensions(self.extensions)
 
         srv = self.server
-        if isinstance(srv, MCPServer):
+        if _is_mcpserver(srv):
             srv = srv._lowlevel_server  # pyright: ignore[reportPrivateUsage]
-        if isinstance(srv, Server):
+        if _is_server(srv):
             self._connect = _connect_inproc(srv)
         elif isinstance(srv, str):
+            # Local import: httpx2 (the heavy HTTP client dep) loads with the first URL client,
+            # not for every `import mcp.client`; a stdio-only client never pays for it.
+            from mcp.client.streamable_http import streamable_http_client
+
             self._connect = _connect_transport(streamable_http_client(srv))
         else:
             self._connect = _connect_transport(srv)
