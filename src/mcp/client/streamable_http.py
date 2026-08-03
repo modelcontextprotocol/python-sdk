@@ -33,10 +33,32 @@ from pydantic import ValidationError
 from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import (
+    MCP_DEFAULT_SSE_READ_TIMEOUT,
+    MCP_DEFAULT_TIMEOUT,
+    McpHttpClientFactory,
+    create_mcp_http_client,
+)
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
+
+__all__ = [
+    "LAST_EVENT_ID",
+    "MAX_RECONNECTION_ATTEMPTS",
+    "MCP_DEFAULT_SSE_READ_TIMEOUT",
+    "MCP_DEFAULT_TIMEOUT",
+    "MCP_SESSION_ID",
+    "McpHttpClientFactory",
+    "RequestContext",
+    "ResumptionError",
+    "StreamReader",
+    "StreamWriter",
+    "StreamableHTTPError",
+    "StreamableHTTPTransport",
+    "create_mcp_http_client",
+    "streamable_http_client",
+]
 
 logger = logging.getLogger(__name__)
 

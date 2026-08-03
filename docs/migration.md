@@ -2109,6 +2109,18 @@ v1's internal client set `follow_redirects=True`; set it explicitly when supplyi
 - `httpx_client_factory`: gone with no replacement — call your factory yourself and pass the result as `http_client`.
 - `terminate_on_close`: unchanged (default `True`).
 
+If you'd rather not hand-build the `httpx2.AsyncClient`, the standardized factory and its defaults are re-exported from the public `mcp.client.streamable_http` module, so you don't need to touch the private `mcp.shared._httpx_utils`:
+
+```python
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
+
+async with create_mcp_http_client(headers={"Authorization": "Bearer token"}) as http_client:
+    async with streamable_http_client(url="http://localhost:8000/mcp", http_client=http_client) as (read_stream, write_stream):
+        ...
+```
+
+`create_mcp_http_client(headers=..., timeout=..., auth=...)` applies the MCP defaults (`follow_redirects=True` and `Timeout(30, read=300)`) for you; the `McpHttpClientFactory` protocol and the `MCP_DEFAULT_TIMEOUT` / `MCP_DEFAULT_SSE_READ_TIMEOUT` constants are available from the same module.
+
 Client-side stream resumption is also unchanged: the transport reconnects a dropped GET stream with `Last-Event-ID` on its own, and `session.send_request(..., metadata=ClientMessageMetadata(resumption_token=..., on_resumption_token_update=...))` (from `mcp.shared.message`) works as in v1.
 
 ### `get_session_id` callback removed from `streamable_http_client`
