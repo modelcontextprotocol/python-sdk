@@ -48,7 +48,7 @@ def test_build_server_card_from_server_identity() -> None:
 
 
 def test_build_server_card_requires_version() -> None:
-    server = Server("no-version", description="desc")  # version defaults to None
+    server = Server("no-version", description="desc")  # version defaults to ""
     with pytest.raises(ValueError) as excinfo:
         build_server_card(server, name="example/no-version")
     assert str(excinfo.value) == "server.version must be set to build a Server Card"
@@ -73,6 +73,12 @@ async def _head(app: Starlette, path: str) -> httpx2.Response:
         return await client.head(path)
 
 
+async def _options(app: Starlette, path: str) -> httpx2.Response:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="https://dice.example.com") as client:
+        return await client.options(path)
+
+
 async def test_server_card_route_serves_card_with_discovery_headers() -> None:
     card = build_server_card(make_server(), name="example/dice")
     app = Starlette(routes=[server_card_route(card, path=CARD_PATH)])
@@ -82,7 +88,8 @@ async def test_server_card_route_serves_card_with_discovery_headers() -> None:
     # Discovery requires CORS headers (MUST) and caching headers (SHOULD).
     assert response.headers["access-control-allow-origin"] == "*"
     assert response.headers["access-control-allow-methods"] == "GET"
-    assert response.headers["access-control-allow-headers"] == "Content-Type"
+    assert response.headers["access-control-allow-headers"] == "Content-Type, If-None-Match"
+    assert response.headers["access-control-expose-headers"] == "ETag"
     assert response.headers["cache-control"] == "public, max-age=3600"
     etag = response.headers["etag"]
     assert re.fullmatch(r'"[0-9a-f]{64}"', etag)
@@ -110,6 +117,20 @@ async def test_server_card_route_serves_card_with_discovery_headers() -> None:
     assert non_matching.status_code == 200
     assert non_matching.headers["etag"] == etag
     assert non_matching.text == card.model_dump_json(by_alias=True, exclude_none=True)
+
+
+async def test_server_card_route_answers_cors_preflight() -> None:
+    """A browser conditional GET sends `If-None-Match`, a non-safelisted header,
+    so it preflights with OPTIONS; the route must answer it with the CORS headers."""
+    card = build_server_card(make_server(), name="example/dice")
+    app = Starlette(routes=[server_card_route(card, path=CARD_PATH)])
+    response = await _options(app, CARD_PATH)
+    assert response.status_code == 204
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["access-control-allow-methods"] == "GET"
+    assert response.headers["access-control-allow-headers"] == "Content-Type, If-None-Match"
+    assert response.headers["access-control-expose-headers"] == "ETag"
+    assert response.content == b""
 
 
 async def test_mount_server_card_on_existing_app_and_client_fetch() -> None:

@@ -71,11 +71,18 @@ standard identity attributes — the low-level `Server` here, but a high-level
 unset — a card cannot exist without them. The `name` you pass is the reverse-DNS
 identifier and is validated against the `namespace/name` pattern.
 
-Because discovery happens *before* authentication, mount both routes **outside**
-any auth middleware — a client must be able to read them unauthenticated. If you
-mount the MCP endpoint at a non-default path, pass a matching `path` to
-`mount_server_card` (the convention is `<streamable-http-url>/server-card`); the
-catalog entry carries the real URL, so any reachable path works.
+Because discovery happens *before* authentication, a client must be able to read
+both routes **unauthenticated**. `mount_server_card` and `mount_ai_catalog` append
+their routes to `app.router.routes`, so they sit *inside* the same app — that
+places them ahead of any per-route auth dependencies, but it does **not** exempt
+them from authentication enforced as global ASGI middleware, which wraps every
+request the app handles. If you gate the app with auth middleware, either exclude
+the discovery paths there (e.g. skip enforcement for the card path and
+`/.well-known/ai-catalog.json`) or serve the card and catalog from a separate,
+unauthenticated sub-app mounted alongside the protected one. If you mount the MCP
+endpoint at a non-default path, pass a matching `path` to `mount_server_card` (the
+convention is `<streamable-http-url>/server-card`); the catalog entry carries the
+real URL, so any reachable path works.
 
 For mounting the MCP app itself into a larger Starlette/FastAPI application, see
 [Add to an existing app](../run/asgi.md).
@@ -101,8 +108,13 @@ with a fixed set of discovery headers (`DISCOVERY_HEADERS`):
 | --- | --- | --- |
 | `Access-Control-Allow-Origin` | `*` | Browser clients fetch cards cross-origin. |
 | `Access-Control-Allow-Methods` | `GET` | Discovery is read-only. |
-| `Access-Control-Allow-Headers` | `Content-Type` | Allows the negotiated `Accept`/content type. |
+| `Access-Control-Allow-Headers` | `Content-Type, If-None-Match` | Allows the negotiated content type and cross-origin conditional GETs. |
+| `Access-Control-Expose-Headers` | `ETag` | Lets browser scripts read the `ETag` to revalidate later. |
 | `Cache-Control` | `public, max-age=3600` | Cards change rarely; let clients and CDNs cache. |
+
+The routes also answer the `OPTIONS` preflight (with `204 No Content` and these
+headers) that a browser sends before a cross-origin conditional GET, because
+`If-None-Match` is not a CORS-safelisted request header.
 
 The card route responds with `application/mcp-server-card+json`; the catalog route
 with `application/ai-catalog+json`.

@@ -1,3 +1,5 @@
+from urllib.parse import urljoin
+
 import httpx2
 
 from mcp.client.experimental.ai_catalog import fetch_ai_catalog, well_known_ai_catalog_url
@@ -17,5 +19,7 @@ async def main() -> None:
         for entry in catalog.entries:
             if entry.media_type != MCP_SERVER_CARD_MEDIA_TYPE or entry.url is None:
                 continue
-            card = await fetch_server_card(entry.url, http_client=http_client)
+            # Entry URLs may be relative; resolve them against the catalog's
+            # location, just as `discover_server_cards` does.
+            card = await fetch_server_card(urljoin(catalog_url, entry.url), http_client=http_client)
             print(entry.identifier, "->", card.name)

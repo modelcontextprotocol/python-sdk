@@ -41,14 +41,27 @@ __all__ = ["build_server_card", "server_card_route", "mount_server_card"]
 
 
 class _ServerIdentity(Protocol):
-    """The identity attributes shared by the low-level ``Server`` and ``MCPServer``."""
+    """The identity attributes shared by the low-level ``Server`` and ``MCPServer``.
 
-    name: str
-    version: str | None
-    title: str | None
-    description: str | None
-    website_url: str | None
-    icons: list[Icon] | None
+    The members are declared read-only (via ``@property``) so the protocol is
+    satisfied by both the low-level ``Server`` (which stores ``version`` as a
+    plain ``str``) and ``MCPServer`` (which exposes read-only properties). A
+    writable attribute would be invariant and reject ``Server.version: str``
+    against ``version: str | None``.
+    """
+
+    @property
+    def name(self) -> str: ...
+    @property
+    def version(self) -> str | None: ...
+    @property
+    def title(self) -> str | None: ...
+    @property
+    def description(self) -> str | None: ...
+    @property
+    def website_url(self) -> str | None: ...
+    @property
+    def icons(self) -> list[Icon] | None: ...
 
 
 def build_server_card(
@@ -82,7 +95,7 @@ def build_server_card(
         pydantic.ValidationError: If the resulting card is invalid (e.g. ``name``
             is not reverse-DNS).
     """
-    if server.version is None:
+    if not server.version:
         raise ValueError("server.version must be set to build a Server Card")
     if not server.description:
         raise ValueError("server.description must be set to build a Server Card")
@@ -100,7 +113,7 @@ def build_server_card(
 
 
 def server_card_route(card: ServerCard, *, path: str = "/server-card") -> Route:
-    """Build a Starlette GET route that serves ``card`` at ``path``.
+    """Build a Starlette route that serves ``card`` at ``path``.
 
     ``path`` defaults to ``/server-card``, the recommended location
     (``<streamable-http-url>/server-card``). Add the route to
@@ -108,14 +121,15 @@ def server_card_route(card: ServerCard, *, path: str = "/server-card") -> Route:
     one via :func:`mount_server_card`, and advertise the resulting URL in an AI
     Catalog entry. The payload is serialized once and served as
     ``application/mcp-server-card+json`` with the CORS and caching headers
-    discovery requires.
+    discovery requires; the route also answers the ``OPTIONS`` CORS preflight
+    browsers send before a cross-origin conditional GET.
     """
     body = card.model_dump_json(by_alias=True, exclude_none=True).encode()
 
     async def endpoint(request: Request) -> Response:
         return discovery_response(request, body, MCP_SERVER_CARD_MEDIA_TYPE)
 
-    return Route(path, endpoint=endpoint, methods=["GET"], name="mcp_server_card")
+    return Route(path, endpoint=endpoint, methods=["GET", "OPTIONS"], name="mcp_server_card")
 
 
 def mount_server_card(app: Starlette, card: ServerCard, *, path: str = "/server-card") -> None:

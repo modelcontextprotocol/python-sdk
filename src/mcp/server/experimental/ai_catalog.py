@@ -37,12 +37,16 @@ from mcp.shared.experimental.server_card.types import ServerCard
 __all__ = ["DISCOVERY_HEADERS", "server_card_entry", "ai_catalog_route", "mount_ai_catalog"]
 
 #: Response headers for discovery endpoints (catalogs and the artifacts they
-#: reference): CORS headers so browser clients can read them, plus a caching
-#: hint.
+#: reference): the CORS headers the discovery spec requires so browser clients
+#: can read them and use conditional GETs, plus a caching hint. ``If-None-Match``
+#: is allowed (and ``ETag`` exposed) so a cross-origin browser can revalidate a
+#: cached card; because ``If-None-Match`` is not a CORS-safelisted request
+#: header, the routes also answer the ``OPTIONS`` preflight it triggers.
 DISCOVERY_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, If-None-Match",
+    "Access-Control-Expose-Headers": "ETag",
     "Cache-Control": "public, max-age=3600",
 }
 
@@ -62,7 +66,16 @@ def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
 
 
 def discovery_response(request: Request, body: bytes, media_type: str) -> Response:
-    """Build a cacheable discovery response with conditional ETag handling."""
+    """Build a cacheable discovery response with conditional ETag handling.
+
+    A ``GET`` returns ``body`` with the discovery headers and a strong ``ETag``,
+    or ``304 Not Modified`` when the request's ``If-None-Match`` already matches.
+    An ``OPTIONS`` request is answered as a CORS preflight (``204`` with the
+    discovery headers, no body) so browser clients may send the non-safelisted
+    ``If-None-Match`` header on the follow-up conditional ``GET``.
+    """
+    if request.method == "OPTIONS":
+        return Response(status_code=204, headers=DISCOVERY_HEADERS)
     etag = f'"{hashlib.sha256(body).hexdigest()}"'
     if _if_none_match_matches(request.headers.get("if-none-match"), etag):
         return Response(
@@ -102,18 +115,20 @@ def server_card_entry(card: ServerCard, url: str) -> CatalogEntry:
 
 
 def ai_catalog_route(catalog: AICatalog, *, path: str = AI_CATALOG_WELL_KNOWN_PATH) -> Route:
-    """Build a Starlette GET route that serves ``catalog`` at ``path``.
+    """Build a Starlette route that serves ``catalog`` at ``path``.
 
     Add it to a new app — ``Starlette(routes=[ai_catalog_route(catalog)])`` —
     or an existing one via :func:`mount_ai_catalog`. The payload is serialized
-    once and served with the CORS and caching headers discovery requires.
+    once and served with the CORS and caching headers discovery requires; the
+    route also answers the ``OPTIONS`` CORS preflight browsers send before a
+    cross-origin conditional GET.
     """
     body = catalog.model_dump_json(by_alias=True, exclude_none=True).encode()
 
     async def endpoint(request: Request) -> Response:
         return discovery_response(request, body, AI_CATALOG_MEDIA_TYPE)
 
-    return Route(path, endpoint=endpoint, methods=["GET"], name="ai_catalog")
+    return Route(path, endpoint=endpoint, methods=["GET", "OPTIONS"], name="ai_catalog")
 
 
 def mount_ai_catalog(app: Starlette, catalog: AICatalog, *, path: str = AI_CATALOG_WELL_KNOWN_PATH) -> None:

@@ -180,9 +180,9 @@ class CatalogEntry(MCPModel):
     identifier: str
     """Identifier for the artifact; SHOULD be a URN or URI.
 
-    MCP server entries use ``urn:air:{publisher}:{name}``, where ``publisher`` is
-    the forward-DNS form of the referenced Server Card's namespace and ``name``
-    is its name suffix.
+    MCP server entries use ``urn:air:{publisher}:mcp:{name}``, where ``publisher``
+    is the forward-DNS form of the referenced Server Card's namespace and
+    ``name`` is its name suffix.
     """
 
     display_name: str | None = None
