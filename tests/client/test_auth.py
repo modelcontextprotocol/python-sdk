@@ -3253,3 +3253,60 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_eager_refresh_discovers_token_endpoint_before_refreshing(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """Regression: on a cold start (cached expired token, no prior discovery) the
+    eager refresh must discover authorization-server metadata first, so it targets
+    the real token endpoint instead of the ``{origin}/token`` fallback. That
+    fallback drops any issuer path and 404s on servers whose token endpoint lives
+    under a path, which silently clears tokens and forces interactive re-auth.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 100  # expired
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="none",
+    )
+    oauth_provider._initialized = True
+    assert oauth_provider.context.oauth_metadata is None
+
+    test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
+    auth_flow = oauth_provider.async_auth_flow(test_request)
+
+    # 1) protected-resource metadata discovery
+    prm_request = await auth_flow.__anext__()
+    assert "oauth-protected-resource" in str(prm_request.url)
+    prm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+        ),
+        request=prm_request,
+    )
+
+    # 2) authorization-server metadata whose token endpoint is NOT {origin}/token
+    asm_request = await auth_flow.asend(prm_response)
+    assert "oauth-authorization-server" in str(asm_request.url)
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://auth.example.com", '
+            b'"authorization_endpoint": "https://auth.example.com/oauth2/authorize", '
+            b'"token_endpoint": "https://auth.example.com/oauth2/api/v1/token"}'
+        ),
+        request=asm_request,
+    )
+
+    # 3) the refresh must target the discovered token endpoint, not the fallback
+    refresh_request = await auth_flow.asend(asm_response)
+    assert refresh_request.method == "POST"
+    assert str(refresh_request.url) == "https://auth.example.com/oauth2/api/v1/token"
+    assert str(refresh_request.url) != "https://api.example.com/token"
+    assert "grant_type=refresh_token" in refresh_request.content.decode()
+
+    await auth_flow.aclose()

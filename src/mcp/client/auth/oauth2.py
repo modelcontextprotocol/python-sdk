@@ -577,6 +577,64 @@ class OAuthClientProvider(httpx2.Auth):
         if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
+    async def _discover_oauth_metadata(self) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        """Discover authorization server metadata and populate the context.
+
+        Yields the discovery requests so they run through the outer httpx auth flow
+        (no side-channel client). This is pure discovery: it fills in
+        ``protected_resource_metadata`` / ``auth_server_url`` / ``oauth_metadata`` and
+        does not register clients or mutate stored credentials. Used to populate the
+        token endpoint before an eager refresh, and available for the 401 path.
+        """
+        # Protected resource metadata -> authorization server URL. Best-effort: legacy
+        # servers without PRM fall through to the origin well-known in the ASM step.
+        if self.context.auth_server_url is None:
+            for url in build_protected_resource_metadata_discovery_urls(None, self.context.server_url):
+                prm = await handle_protected_resource_response((yield create_oauth_metadata_request(url)))
+                if prm:
+                    await self._validate_resource_match(prm)
+                    self.context.protected_resource_metadata = prm
+                    self.context.auth_server_url = str(prm.authorization_servers[0])
+                    break
+
+        # Authorization server metadata -> token / authorization / registration endpoints.
+        for url in build_oauth_authorization_server_metadata_discovery_urls(
+            self.context.auth_server_url, self.context.server_url
+        ):
+            ok, asm = await handle_auth_metadata_response((yield create_oauth_metadata_request(url)))
+            if not ok:
+                break
+            if asm:
+                if self.context.auth_server_url is not None:
+                    validate_metadata_issuer(asm, self.context.auth_server_url)
+                self.context.oauth_metadata = asm
+                break
+
+    async def _refresh_with_discovery(self) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        """Eager token refresh that discovers authorization-server metadata first when
+        it is not yet known.
+
+        The token endpoint comes from the AS metadata. On a cold start (e.g. reusing a
+        stored refresh token before any 401) that metadata has not been discovered, so
+        ``_refresh_token`` would fall back to ``{origin}/token`` — dropping any issuer
+        path and 404ing on servers whose token endpoint lives under a path. Yields the
+        discovery and refresh requests so they run through the outer httpx auth flow.
+        """
+        if self.context.oauth_metadata is None:
+            discovery = self._discover_oauth_metadata()
+            discovery_request = await discovery.asend(None)
+            while True:
+                discovery_response = yield discovery_request
+                try:
+                    discovery_request = await discovery.asend(discovery_response)
+                except StopAsyncIteration:
+                    break
+
+        refresh_response = yield await self._refresh_token()
+        if not await self._handle_refresh_response(refresh_response):
+            # Refresh failed, need full re-authentication
+            self._initialized = False
+
     async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
         """httpx2 auth flow integration."""
         async with self.context.lock:
@@ -587,13 +645,17 @@ class OAuthClientProvider(httpx2.Auth):
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
-                # Try to refresh token
-                refresh_request = await self._refresh_token()
-                refresh_response = yield refresh_request
-
-                if not await self._handle_refresh_response(refresh_response):
-                    # Refresh failed, need full re-authentication
-                    self._initialized = False
+                # Refresh the token, discovering authorization-server metadata first when
+                # it is not yet known (see _refresh_with_discovery). Driven here so its
+                # requests run through this httpx auth flow, not a side-channel client.
+                refresh_flow = self._refresh_with_discovery()
+                refresh_request = await refresh_flow.asend(None)
+                while True:
+                    refresh_response = yield refresh_request
+                    try:
+                        refresh_request = await refresh_flow.asend(refresh_response)
+                    except StopAsyncIteration:
+                        break
 
             if self.context.is_token_valid():
                 self._add_auth_header(request)
