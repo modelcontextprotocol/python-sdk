@@ -36,7 +36,7 @@ from mcp_types import (
 from mcp_types.version import is_version_at_least
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
@@ -534,7 +534,11 @@ class StreamableHTTPServerTransport:
                 return
 
             # Parse the body - only read it once
-            body = await request.body()
+            try:
+                body = await request.body()
+            except ClientDisconnect:
+                logger.debug("Client disconnected while sending POST request body")
+                return
 
             try:
                 raw_message = pydantic_core.from_json(body)
