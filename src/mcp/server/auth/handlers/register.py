@@ -12,6 +12,7 @@ from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
+from mcp.server.auth.url_validators import validate_redirect_uri
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthClientInformationFull, OAuthClientMetadata
 
 # this alias is a no-op; it's just to separate out the types exposed to the
@@ -34,6 +35,20 @@ class RegistrationHandler:
         try:
             body = await request.body()
             client_metadata = OAuthClientMetadata.model_validate_json(body)
+
+            # Validate redirect_uris per RFC 7591 section 2
+            if client_metadata.redirect_uris:
+                for uri in client_metadata.redirect_uris:
+                    try:
+                        validate_redirect_uri(uri)
+                    except ValueError as e:
+                        return PydanticJSONResponse(
+                            content=RegistrationErrorResponse(
+                                error="invalid_redirect_uri",
+                                error_description=str(e),
+                            ),
+                            status_code=400,
+                        )
 
             # Scope validation is handled below
         except ValidationError as validation_error:
