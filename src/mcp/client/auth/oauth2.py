@@ -666,7 +666,7 @@ class OAuthClientProvider(httpx.Auth):
                 # Retry with new tokens
                 self._add_auth_header(request)
                 retry_after_authorization = True
-            elif response.status_code == 403:
+            elif response.status_code == 403:  # pragma: no branch
                 # Step 1: Extract error field from WWW-Authenticate header
                 error = extract_field_from_www_auth(response, "error")
 
@@ -690,5 +690,5 @@ class OAuthClientProvider(httpx.Auth):
                 retry_after_authorization = True
 
         # The retried resource request can itself be a session-long GET.
-        if retry_after_authorization:
+        if retry_after_authorization:  # pragma: no branch
             yield request

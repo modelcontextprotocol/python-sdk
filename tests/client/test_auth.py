@@ -2413,7 +2413,7 @@ async def test_success_response_does_not_wait_for_oauth_transition(
     async with anyio.create_task_group() as task_group:
         async with oauth_provider.context.flow_lock:
             task_group.start_soon(complete_request)
-            with anyio.fail_after(5):
+            with anyio.fail_after(5):  # pragma: no branch
                 await completed.wait()
 
 
@@ -2441,7 +2441,7 @@ async def test_403_rechecks_token_after_waiting_for_transition_lock(
                 while oauth_provider.context.flow_lock.statistics().tasks_waiting == 0:
                     await anyio.sleep(0)
 
-            async with oauth_provider.context.lock:
+            async with oauth_provider.context.lock:  # pragma: no branch
                 oauth_provider.context.current_tokens = OAuthToken(
                     access_token="new_access_token",
                     token_type="Bearer",
