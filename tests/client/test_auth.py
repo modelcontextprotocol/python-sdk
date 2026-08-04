@@ -637,6 +637,114 @@ class TestOAuthFallback:
         assert "client_secret=test_secret" in content
 
     @pytest.mark.anyio
+    async def test_initialize_computes_token_expiry_time(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+        """`_initialize` must compute `context.token_expiry_time` from the loaded
+        token's relative `expires_in` — otherwise `is_token_valid()` short-
+        circuits to True and refresh-on-expiry never fires after a process
+        restart (see https://github.com/modelcontextprotocol/python-sdk/issues/3250)."""
+        inner_storage: MockTokenStorage = oauth_provider.context.storage  # type: ignore[assignment]
+        await inner_storage.set_tokens(valid_tokens)
+        await inner_storage.set_client_info(
+            OAuthClientInformationFull(
+                client_id="test_client",
+                redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+                token_endpoint_auth_method="none",
+            )
+        )
+
+        # token_expiry_time should be None before init, populated after init.
+        assert oauth_provider.context.token_expiry_time is None
+        await oauth_provider._initialize()
+        # valid_tokens fixture has expires_in=3600
+        assert valid_tokens.expires_in is not None
+        expected = time.time() + valid_tokens.expires_in
+        assert oauth_provider.context.token_expiry_time is not None
+        assert abs(oauth_provider.context.token_expiry_time - expected) < 5
+        assert oauth_provider.context.is_token_valid()
+
+        # An immediately-expired token (clamped `expires_in=0` from
+        # `HermesTokenStorage`-style storage rewrite of a stale on-disk token)
+        # must produce an invalid state — not short-circuit to True.
+        class _ExpiredStorage(MockTokenStorage):
+            async def get_tokens(self) -> OAuthToken | None:
+                token = await super().get_tokens()
+                if token is not None:
+                    return token.model_copy(update={"expires_in": 0})
+                return None
+
+        wrapped = _ExpiredStorage()
+        await wrapped.set_tokens(valid_tokens)
+        client_info = await inner_storage.get_client_info()
+        assert client_info is not None
+        await wrapped.set_client_info(client_info)
+        oauth_provider.context.storage = wrapped  # type: ignore[assignment]
+        oauth_provider._initialized = False
+        oauth_provider.context.token_expiry_time = None
+        await oauth_provider._initialize()
+        assert oauth_provider.context.token_expiry_time is not None
+        assert oauth_provider.context.token_expiry_time <= time.time()
+        assert not oauth_provider.context.is_token_valid()
+
+    @pytest.mark.anyio
+    async def test_initialize_loads_oauth_metadata_from_storage(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+        """`_initialize` must call `storage.load_oauth_metadata()` if the storage
+        implements it — otherwise `_refresh_token` falls back to
+        `urljoin(base, "/token")` which silently 404s against any IdP that
+        mounts its token endpoint at a non-root path (Hydra, Auth0, Keycloak)."""
+        canonical_meta = OAuthMetadata(
+            issuer=AnyHttpUrl("https://hydra.example.com/"),
+            authorization_endpoint=AnyHttpUrl("https://hydra.example.com/oauth2/auth"),
+            token_endpoint=AnyHttpUrl("https://hydra.example.com/oauth2/token"),
+            token_endpoint_auth_methods_supported=["none"],
+            response_types_supported=["code"],
+            grant_types_supported=["authorization_code", "refresh_token"],
+            code_challenge_methods_supported=["S256"],
+        )
+
+        class _MetadataStorage(MockTokenStorage):
+            def load_oauth_metadata(self) -> OAuthMetadata:
+                return canonical_meta
+
+        meta_storage = _MetadataStorage()
+        await meta_storage.set_tokens(valid_tokens)
+        await meta_storage.set_client_info(
+            OAuthClientInformationFull(
+                client_id="test_client",
+                redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+                token_endpoint_auth_method="none",
+            )
+        )
+        oauth_provider.context.storage = meta_storage  # type: ignore[assignment]
+        oauth_provider._initialized = False
+
+        await oauth_provider._initialize()
+        assert oauth_provider.context.oauth_metadata is canonical_meta
+
+        # Verify the metadata is actually used by _refresh_token — without the
+        # patch, this would build `https://api.example.com/token` (404 for Hydra).
+        oauth_provider.context.current_tokens = valid_tokens
+        request = await oauth_provider._refresh_token()
+        assert str(request.url) == "https://hydra.example.com/oauth2/token"
+
+    @pytest.mark.anyio
+    async def test_initialize_metadata_loader_failure_is_non_fatal(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+        """A misbehaving `load_oauth_metadata` must not break auth init — the
+        401-handling path will populate metadata via server discovery as a fallback."""
+        class _BrokenMetadataStorage(MockTokenStorage):
+            def load_oauth_metadata(self) -> OAuthMetadata:
+                raise RuntimeError("simulated storage failure")
+
+        broken = _BrokenMetadataStorage()
+        await broken.set_tokens(valid_tokens)
+        oauth_provider.context.storage = broken  # type: ignore[assignment]
+
+        # Should not raise — the try/except in _initialize swallows loader errors.
+        await oauth_provider._initialize()
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.token_expiry_time is not None
+        assert oauth_provider.context.oauth_metadata is None
+
+    @pytest.mark.anyio
     async def test_basic_auth_token_exchange(self, oauth_provider: OAuthClientProvider):
         """Test token exchange with client_secret_basic authentication."""
         # Set up OAuth metadata to support basic auth
