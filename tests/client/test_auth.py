@@ -1291,6 +1291,52 @@ class TestAuthFlow:
         assert oauth_provider.context.token_expiry_time is not None
 
     @pytest.mark.anyio
+    async def test_auth_flow_skips_eager_refresh_when_metadata_missing(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+    ):
+        """When oauth_metadata is None the eager refresh must be skipped.
+
+        Without metadata the token endpoint is unknown; the fallback
+        urljoin(base_url, '/token') strips the path when the AS lives under a
+        non-root path (e.g. /oauth2/api/v1/token).  The fix guards the eager
+        refresh on ``oauth_metadata is not None`` so the stale-token request
+        proceeds, gets a 401, and runs full metadata discovery instead.
+        """
+        # Set up expired tokens with a refresh token but NO oauth_metadata.
+        expired_tokens = OAuthToken(
+            access_token="expired_access_token",
+            token_type="Bearer",
+            expires_in=0,
+            refresh_token="test_refresh_token",
+            scope="read write",
+        )
+        await mock_storage.set_tokens(expired_tokens)
+        oauth_provider.context.current_tokens = expired_tokens
+        oauth_provider.context.token_expiry_time = time.time() - 100  # Expired
+        oauth_provider._initialized = True
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        # oauth_metadata is None (default) — this is the key condition.
+
+        test_request = httpx2.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # The first yield should be the original request WITHOUT an auth header,
+        # NOT a refresh request to the wrong endpoint.
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+        assert str(request.url) == "https://api.example.com/v1/mcp"
+        assert request.method == "GET"
+
+        # The token was not consumed by a failed refresh.
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.current_tokens.refresh_token == "test_refresh_token"
+
+        # Close the generator to avoid warnings.
+        await auth_flow.aclose()
+
     async def test_auth_flow_no_unnecessary_retry_after_oauth(
         self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
     ):
