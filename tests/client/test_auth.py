@@ -7,6 +7,7 @@ import time
 from unittest import mock
 from urllib.parse import unquote
 
+import anyio
 import httpx
 import pytest
 from inline_snapshot import Is, snapshot
@@ -498,6 +499,7 @@ class TestOAuthFallback:
         assert final_request.headers["Authorization"] == "Bearer new_access_token"
         assert final_request.method == "GET"
         assert str(final_request.url) == "https://api.example.com/v1/mcp"
+        assert oauth_provider.context.lock.value == 1
 
         # Send final success response to properly close the generator
         final_response = httpx.Response(200, request=final_request)
@@ -1026,6 +1028,7 @@ class TestAuthFlow:
         assert final_request.headers["Authorization"] == "Bearer new_access_token"
         assert final_request.method == "GET"
         assert str(final_request.url) == "https://api.example.com/mcp"
+        assert oauth_provider.context.lock.value == 1
 
         # Send final success response to properly close the generator
         final_response = httpx.Response(200, request=final_request)
@@ -1165,6 +1168,7 @@ class TestAuthFlow:
 
         # Should get final retry request
         final_request = await auth_flow.asend(token_response)
+        assert oauth_provider.context.lock.value == 1
 
         # Send success response - flow should complete
         success_response = httpx.Response(200, request=final_request)
@@ -2113,3 +2117,398 @@ async def test_get_resource_url_falls_back_when_prm_mismatches(
 
     # get_resource_url should return the canonical server URL, not the PRM resource
     assert provider.context.get_resource_url() == "https://api.example.com/v1/mcp"
+
+
+@pytest.mark.anyio
+async def test_concurrent_request_not_blocked_by_pending_long_running_request(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """A long-running request must not block another request's auth flow."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider._initialized = True
+
+    slow_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+    slow_flow = oauth_provider.async_auth_flow(slow_request)
+    yielded_slow = await slow_flow.__anext__()
+    assert yielded_slow.headers.get("Authorization") == "Bearer test_access_token"
+
+    fast_request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    fast_flow = oauth_provider.async_auth_flow(fast_request)
+    with anyio.fail_after(5):
+        yielded_fast = await fast_flow.__anext__()
+    assert yielded_fast.headers.get("Authorization") == "Bearer test_access_token"
+
+    await fast_flow.aclose()
+    await slow_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_concurrent_token_refresh_is_single_flight(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """Concurrent requests must share one token refresh."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 100
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider._initialized = True
+
+    request_a = httpx.Request("GET", "https://api.example.com/v1/mcp")
+    flow_a = oauth_provider.async_auth_flow(request_a)
+    refresh_request = await flow_a.__anext__()
+    assert "grant_type=refresh_token" in refresh_request.read().decode()
+
+    request_b = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow_b = oauth_provider.async_auth_flow(request_b)
+    flow_b_done = anyio.Event()
+    flow_b_result: dict[str, httpx.Request] = {}
+    request_a_after_refresh: httpx.Request | None = None
+
+    async def drive_flow_b() -> None:
+        flow_b_result["request"] = await flow_b.__anext__()
+        flow_b_done.set()
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(drive_flow_b)
+        with anyio.fail_after(5):
+            while oauth_provider.context.flow_lock.statistics().tasks_waiting == 0:
+                await anyio.sleep(0)
+
+        refresh_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer", '
+                b'"expires_in": 3600, "refresh_token": "new_refresh_token"}'
+            ),
+            request=refresh_request,
+        )
+        request_a_after_refresh = await flow_a.asend(refresh_response)
+        with anyio.fail_after(5):
+            await flow_b_done.wait()
+
+    request_b_after_refresh = flow_b_result["request"]
+    assert request_a_after_refresh is not None
+    assert request_a_after_refresh.url == request_a.url
+    assert request_b_after_refresh.url == request_b.url
+    assert request_a_after_refresh.headers["Authorization"] == "Bearer new_access_token"
+    assert request_b_after_refresh.headers["Authorization"] == "Bearer new_access_token"
+
+    await flow_b.aclose()
+    await flow_a.aclose()
+
+
+@pytest.mark.anyio
+async def test_refresh_and_401_authorization_are_single_flight(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """A 401 flow waits for an in-flight refresh, then uses its token."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider._initialized = True
+
+    waiting_request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    waiting_flow = oauth_provider.async_auth_flow(waiting_request)
+    first_attempt = await waiting_flow.__anext__()
+
+    oauth_provider.context.token_expiry_time = time.time() - 100
+    refreshing_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+    refreshing_flow = oauth_provider.async_auth_flow(refreshing_request)
+    refresh_request = await refreshing_flow.__anext__()
+
+    retry_result: dict[str, httpx.Request] = {}
+    refreshing_retry: httpx.Request | None = None
+
+    async def drive_waiting_401() -> None:
+        retry_result["request"] = await waiting_flow.asend(httpx.Response(401, request=first_attempt))
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(drive_waiting_401)
+        with anyio.fail_after(5):
+            while oauth_provider.context.flow_lock.statistics().tasks_waiting == 0:
+                await anyio.sleep(0)
+
+        refresh_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer", '
+                b'"expires_in": 3600, "refresh_token": "new_refresh_token"}'
+            ),
+            request=refresh_request,
+        )
+        refreshing_retry = await refreshing_flow.asend(refresh_response)
+
+    waiting_retry = retry_result["request"]
+    assert refreshing_retry is not None
+    assert refreshing_retry.headers["Authorization"] == "Bearer new_access_token"
+    assert waiting_retry.headers["Authorization"] == "Bearer new_access_token"
+    assert oauth_provider.context.flow_lock.value == 1
+    assert oauth_provider.context.lock.value == 1
+    await waiting_flow.aclose()
+    await refreshing_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_401_restores_request_protocol_version_before_authorization(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """Concurrent requests cannot change RFC 8707 behavior for a 401 flow."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    old_request = httpx.Request(
+        "GET",
+        "https://api.example.com/v1/mcp",
+        headers={"MCP-Protocol-Version": "2025-03-26"},
+    )
+    old_flow = oauth_provider.async_auth_flow(old_request)
+    old_attempt = await old_flow.__anext__()
+
+    new_request = httpx.Request(
+        "POST",
+        "https://api.example.com/v1/mcp",
+        headers={"MCP-Protocol-Version": "2025-06-18"},
+    )
+    new_flow = oauth_provider.async_auth_flow(new_request)
+    await new_flow.__anext__()
+    assert oauth_provider.context.protocol_version == "2025-06-18"
+
+    await old_flow.asend(httpx.Response(401, request=old_attempt))
+    assert oauth_provider.context.protocol_version == "2025-03-26"
+    assert not oauth_provider.context.should_include_resource_param(oauth_provider.context.protocol_version)
+
+    await old_flow.aclose()
+    await new_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_failed_refresh_clears_tokens(oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken) -> None:
+    """A rejected refresh clears stale credentials before the request proceeds."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 100
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    refresh_request = await flow.__anext__()
+    yielded_request = await flow.asend(httpx.Response(401, request=refresh_request))
+
+    assert yielded_request.url == request.url
+    assert "Authorization" not in yielded_request.headers
+    assert oauth_provider.context.current_tokens is None
+    assert oauth_provider._initialized is False
+
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_stale_401_retries_with_concurrently_refreshed_token_without_locking(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """A stale 401 retries with the newer token without holding the state lock."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    stale_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+    stale_flow = oauth_provider.async_auth_flow(stale_request)
+    first_attempt = await stale_flow.__anext__()
+    assert first_attempt.headers["Authorization"] == "Bearer test_access_token"
+
+    oauth_provider.context.current_tokens = OAuthToken(
+        access_token="new_access_token",
+        token_type="Bearer",
+        expires_in=3600,
+        refresh_token="new_refresh_token",
+    )
+    oauth_provider.context.token_expiry_time = time.time() + 3600
+
+    retry = await stale_flow.asend(httpx.Response(401, request=first_attempt))
+    assert retry.headers["Authorization"] == "Bearer new_access_token"
+
+    # The retry can be a session-long GET, so it must not block another flow.
+    concurrent_flow = oauth_provider.async_auth_flow(httpx.Request("POST", "https://api.example.com/v1/mcp"))
+    with anyio.fail_after(5):
+        concurrent_request = await concurrent_flow.__anext__()
+    assert concurrent_request.headers["Authorization"] == "Bearer new_access_token"
+
+    with pytest.raises(StopAsyncIteration):
+        await stale_flow.asend(httpx.Response(200, request=retry))
+    await concurrent_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_401_rechecks_token_after_waiting_for_state_lock(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """A waiting 401 flow uses a token installed while it waited."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    first_attempt = await flow.__anext__()
+    result: dict[str, httpx.Request] = {}
+
+    async def drive_401() -> None:
+        result["retry"] = await flow.asend(httpx.Response(401, request=first_attempt))
+
+    async with anyio.create_task_group() as task_group:
+        async with oauth_provider.context.lock:
+            task_group.start_soon(drive_401)
+            with anyio.fail_after(5):
+                while oauth_provider.context.lock.statistics().tasks_waiting == 0:
+                    await anyio.sleep(0)
+
+            oauth_provider.context.current_tokens = OAuthToken(
+                access_token="new_access_token",
+                token_type="Bearer",
+                expires_in=3600,
+                refresh_token="new_refresh_token",
+            )
+            oauth_provider.context.token_expiry_time = time.time() + 3600
+
+    assert result["retry"] is request
+    assert request.headers["Authorization"] == "Bearer new_access_token"
+    assert oauth_provider.context.lock.value == 1
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_success_response_does_not_wait_for_oauth_transition(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """A successful resource response bypasses OAuth transition locks."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    first_attempt = await flow.__anext__()
+    completed = anyio.Event()
+
+    async def complete_request() -> None:
+        with pytest.raises(StopAsyncIteration):
+            await flow.asend(httpx.Response(200, request=first_attempt))
+        completed.set()
+
+    async with anyio.create_task_group() as task_group:
+        async with oauth_provider.context.flow_lock:
+            task_group.start_soon(complete_request)
+            with anyio.fail_after(5):  # pragma: no branch
+                await completed.wait()
+
+
+@pytest.mark.anyio
+async def test_403_rechecks_token_after_waiting_for_transition_lock(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """A waiting 403 flow retries with a token installed while it waited."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    first_attempt = await flow.__anext__()
+    result: dict[str, httpx.Request] = {}
+
+    async def drive_403() -> None:
+        result["retry"] = await flow.asend(httpx.Response(403, request=first_attempt))
+
+    async with anyio.create_task_group() as task_group:
+        async with oauth_provider.context.flow_lock:
+            task_group.start_soon(drive_403)
+            with anyio.fail_after(5):
+                while oauth_provider.context.flow_lock.statistics().tasks_waiting == 0:
+                    await anyio.sleep(0)
+
+            async with oauth_provider.context.lock:  # pragma: no branch
+                oauth_provider.context.current_tokens = OAuthToken(
+                    access_token="new_access_token",
+                    token_type="Bearer",
+                    expires_in=3600,
+                    refresh_token="new_refresh_token",
+                )
+                oauth_provider.context.token_expiry_time = time.time() + 3600
+
+    assert result["retry"] is request
+    assert request.headers["Authorization"] == "Bearer new_access_token"
+    assert oauth_provider.context.flow_lock.value == 1
+    assert oauth_provider.context.lock.value == 1
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_401_does_not_retry_with_an_expired_unsent_token(oauth_provider: OAuthClientProvider) -> None:
+    """An expired token omitted from the request must not count as a newer token."""
+    oauth_provider.context.current_tokens = OAuthToken(
+        access_token="expired_access_token",
+        token_type="Bearer",
+        expires_in=3600,
+    )
+    oauth_provider.context.token_expiry_time = time.time() - 1
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    first_attempt = await flow.__anext__()
+    assert "Authorization" not in first_attempt.headers
+
+    discovery_request = await flow.asend(httpx.Response(401, request=first_attempt))
+    assert discovery_request is not request
+    assert "Authorization" not in request.headers
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_authorization_flow_can_close_from_a_different_task(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """HTTPX may close a suspended auth generator from another task."""
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    first_attempt = await flow.__anext__()
+
+    await flow.asend(httpx.Response(401, request=first_attempt))
+    assert oauth_provider.context.flow_lock.value == 0
+    assert oauth_provider.context.lock.value == 0
+
+    closed = anyio.Event()
+
+    async def close_flow() -> None:
+        await flow.aclose()
+        closed.set()
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(close_flow)
+        with anyio.fail_after(5):
+            await closed.wait()
+
+    assert oauth_provider.context.flow_lock.value == 1
+    assert oauth_provider.context.lock.value == 1

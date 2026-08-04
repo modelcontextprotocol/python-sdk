@@ -10,7 +10,8 @@ import logging
 import secrets
 import string
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import quote, urlencode, urljoin, urlparse
@@ -115,7 +116,13 @@ class OAuthContext:
     token_expiry_time: float | None = None
 
     # State
-    lock: anyio.Lock = field(default_factory=anyio.Lock)
+    # Semaphores are intentionally task-agnostic: HTTPX can resume or close an
+    # auth-flow generator from a different task than the one that yielded it.
+    # Normal resource requests are still yielded outside these critical sections.
+    lock: anyio.Semaphore = field(default_factory=lambda: anyio.Semaphore(1, max_value=1))
+    # Refresh and authorization transitions share one single-flight lock while
+    # normal resource requests remain independent.
+    flow_lock: anyio.Semaphore = field(default_factory=lambda: anyio.Semaphore(1, max_value=1))
 
     def get_authorization_base_url(self, server_url: str) -> str:
         """Extract base URL by removing path component."""
@@ -488,30 +495,86 @@ class OAuthClientProvider(httpx.Auth):
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
 
-    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        """HTTPX auth flow integration."""
+    async def _prepare_request(self, request: httpx.Request) -> tuple[bool, str | None]:
+        """Initialize state and capture request-specific protocol state."""
+        protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()  # pragma: no cover
 
-            # Capture protocol version from request headers
-            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
+            self.context.protocol_version = protocol_version
+            needs_refresh = not self.context.is_token_valid() and self.context.can_refresh_token()
+            return needs_refresh, protocol_version
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
-                # Try to refresh token
-                refresh_request = await self._refresh_token()  # pragma: no cover
-                refresh_response = yield refresh_request  # pragma: no cover
-
-                if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
-                    # Refresh failed, need full re-authentication
-                    self._initialized = False
-
-            if self.context.is_token_valid():
+    async def _add_valid_auth_header(self, request: httpx.Request) -> str | None:
+        """Add the current valid token and return the token that was sent."""
+        async with self.context.lock:
+            current_tokens = self.context.current_tokens
+            if self.context.is_token_valid() and current_tokens is not None:
                 self._add_auth_header(request)
+                return current_tokens.access_token
+            return None
 
-            response = yield request
+    @asynccontextmanager
+    async def _serialized_transition(self) -> AsyncIterator[None]:
+        """Serialize token-changing OAuth transitions and their state writes."""
+        async with self.context.flow_lock:
+            async with self.context.lock:
+                yield
 
-            if response.status_code == 401:
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        """HTTPX auth flow integration."""
+        needs_refresh, protocol_version = await self._prepare_request(request)
+
+        if needs_refresh:
+            async with self.context.flow_lock:
+                refresh_request: httpx.Request | None = None
+                async with self.context.lock:
+                    self.context.protocol_version = protocol_version
+                    # Another request may have refreshed the token while this
+                    # request was waiting for the single-flight refresh lock.
+                    if not self.context.is_token_valid() and self.context.can_refresh_token():
+                        refresh_request = await self._refresh_token()  # pragma: no cover
+
+                if refresh_request is not None:
+                    # Do not hold the general provider-state lock across
+                    # network I/O. ``flow_lock`` deliberately remains held to
+                    # keep all token-changing transitions single-flight.
+                    refresh_response = yield refresh_request  # pragma: no cover
+
+                    async with self.context.lock:
+                        if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
+                            # Refresh failed, need full re-authentication
+                            self._initialized = False
+
+        sent_access_token = await self._add_valid_auth_header(request)
+
+        # A GET SSE request can remain open for the session lifetime. Yield it
+        # outside the state lock so concurrent POST requests can authenticate.
+        response = yield request
+
+        if response.status_code not in (401, 403):
+            return
+
+        # Serialize the exceptional 401/403 state transitions. Their existing
+        # full authorization flow remains unchanged. Re-check the token only
+        # after acquiring the lock so concurrent 401 responses cannot start
+        # redundant authorization flows.
+        retry_after_authorization = False
+        async with self._serialized_transition():
+            self.context.protocol_version = protocol_version
+            current_tokens = self.context.current_tokens
+            token_changed_since_request = (
+                response.status_code in (401, 403)
+                and self.context.is_token_valid()
+                and current_tokens is not None
+                and current_tokens.access_token != sent_access_token
+            )
+
+            if token_changed_since_request:
+                self._add_auth_header(request)
+                retry_after_authorization = True
+            elif response.status_code == 401:
                 # Perform full OAuth flow
                 try:
                     # OAuth flow must be inline due to generator constraints
@@ -602,8 +665,8 @@ class OAuthClientProvider(httpx.Auth):
 
                 # Retry with new tokens
                 self._add_auth_header(request)
-                yield request
-            elif response.status_code == 403:
+                retry_after_authorization = True
+            elif response.status_code == 403:  # pragma: no branch
                 # Step 1: Extract error field from WWW-Authenticate header
                 error = extract_field_from_www_auth(response, "error")
 
@@ -624,4 +687,8 @@ class OAuthClientProvider(httpx.Auth):
 
                 # Retry with new tokens
                 self._add_auth_header(request)
-                yield request
+                retry_after_authorization = True
+
+        # The retried resource request can itself be a session-long GET.
+        if retry_after_authorization:  # pragma: no branch
+            yield request
