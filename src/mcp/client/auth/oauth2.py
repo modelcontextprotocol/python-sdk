@@ -586,8 +586,17 @@ class OAuthClientProvider(httpx2.Auth):
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
-                # Try to refresh token
+            if (
+                not self.context.is_token_valid()
+                and self.context.can_refresh_token()
+                and self.context.oauth_metadata is not None
+            ):
+                # Try to refresh token — only when we already have OAuth metadata.
+                # Without metadata the token endpoint is unknown; the fallback
+                # urljoin(base_url, "/token") strips the path when the AS lives
+                # under a non-root path (e.g. /oauth2/api/v1/token).  Skipping
+                # the refresh here lets the request proceed with the stale token,
+                # receive a 401, and run full metadata discovery before retrying.
                 refresh_request = await self._refresh_token()
                 refresh_response = yield refresh_request
 
