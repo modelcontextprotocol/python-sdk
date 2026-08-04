@@ -1290,7 +1290,6 @@ class TestAuthFlow:
         assert oauth_provider.context.current_tokens.access_token == "new_access_token"
         assert oauth_provider.context.token_expiry_time is not None
 
-
     @pytest.mark.anyio
     async def test_auth_flow_skips_eager_refresh_when_metadata_missing(
         self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
