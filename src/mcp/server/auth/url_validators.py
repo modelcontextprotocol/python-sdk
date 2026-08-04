@@ -1,4 +1,4 @@
-"""OAuth 2.0 URL validation helpers for MCP authorization servers.
+﻿"""OAuth 2.0 URL validation helpers for MCP authorization servers.
 
 RFC 9700 4.1.1 and RFC 7591 2 require HTTPS for authorization endpoint URLs
 and registered redirect_uris, with an HTTP loopback exception for local
@@ -17,7 +17,7 @@ def validate_issuer_url(url: AnyUrl):
     Raises:
         ValueError: If the issuer URL is invalid.
     """
-    if url.scheme != "https" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
+    if url.scheme != "https" and not (url.scheme == "http" and url.host in ("localhost", "127.0.0.1", "[::1]")):
         raise ValueError("Issuer URL must be HTTPS")
 
     if url.fragment:
