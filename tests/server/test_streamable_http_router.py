@@ -1,5 +1,7 @@
 """Regression coverage for the StreamableHTTP per-session response router."""
 
+import logging
+
 import anyio
 import pytest
 from mcp_types import JSONRPCMessage, JSONRPCResponse
@@ -14,6 +16,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
     StreamId,
 )
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 
@@ -42,6 +45,44 @@ class _AsgiPost:
 
     async def send(self, message: Message) -> None:
         self.sent.append(message)
+
+
+class _AsgiDisconnect(_AsgiPost):
+    """A POST whose body stream disconnects before the declared body is complete."""
+
+    async def receive(self) -> Message:
+        if not self._body_sent:
+            self._body_sent = True
+            return {"type": "http.request", "body": self._body, "more_body": True}
+        return {"type": "http.disconnect"}
+
+
+@pytest.mark.anyio
+async def test_post_client_disconnect_is_not_reported_as_server_error(caplog: pytest.LogCaptureFixture) -> None:
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+    post = _AsgiDisconnect(
+        b'{"jsonrpc":"2.0",',
+        [
+            (b"accept", b"application/json, text/event-stream"),
+            (b"content-type", b"application/json"),
+        ],
+    )
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](1)
+    transport._read_stream_writer = read_stream_writer
+
+    try:
+        with caplog.at_level(logging.ERROR, logger="mcp.server.streamable_http"):
+            await transport.handle_request(post.scope, post.receive, post.send)
+
+        await read_stream_writer.aclose()
+        with pytest.raises(anyio.EndOfStream):
+            await read_stream.receive()
+    finally:
+        await read_stream_writer.aclose()
+        await read_stream.aclose()
+
+    assert post.sent == []
+    assert not caplog.records
 
 
 @pytest.mark.anyio
