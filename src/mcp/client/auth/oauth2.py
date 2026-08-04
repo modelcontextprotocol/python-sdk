@@ -5,6 +5,7 @@ Implements authorization code flow with PKCE and automatic token refresh.
 
 import base64
 import hashlib
+import inspect
 import logging
 import secrets
 import string
@@ -551,6 +552,38 @@ class OAuthClientProvider(httpx2.Auth):
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
+        # Compute the absolute expiry time from the loaded token's relative
+        # `expires_in`. Without this, `is_token_valid()` short-circuits to True
+        # when `token_expiry_time` is None and the refresh-on-expiry path in
+        # `async_auth_flow` never fires — every process restart sends an
+        # expired access_token, gets a 401, and lands in the full re-auth
+        # branch. Mirrors what `set_tokens` does on the write path.
+        if self.context.current_tokens is not None:
+            self.context.update_token_expiry(self.context.current_tokens)
+        # Optionally load OAuth metadata from storage. Some downstream storage
+        # implementations (e.g. ones persisting `.meta.json` from server
+        # discovery) implement this; SDK-provided storages do not, so the
+        # `getattr` guard keeps this a no-op when absent.
+        #
+        # Without this, `_refresh_token` falls back to `urljoin(base, "/token")`
+        # which gives the wrong endpoint for any IdP that mounts its token
+        # endpoint at a non-root path (Hydra/Ory-style: /oauth/token, Auth0:
+        # /oauth/token, Keycloak: /protocol/openid-connect/token, etc.) and
+        # silently 404s the refresh grant.
+        loader = getattr(self.context.storage, "load_oauth_metadata", None)
+        if callable(loader):
+            try:
+                meta = loader()
+                if inspect.iscoroutine(meta):
+                    meta = await meta
+                if meta is not None:
+                    self.context.oauth_metadata = meta  # type: ignore[assignment]
+            except Exception:
+                # Storage implementations are user-provided; a misbehaving
+                # metadata loader must not break auth initialization. The
+                # 401-handling path will populate `oauth_metadata` via server
+                # discovery as a fallback.
+                pass
         self._initialized = True
 
     def _add_auth_header(self, request: httpx2.Request) -> None:
