@@ -32,7 +32,7 @@ from mcp_types import (
     ProgressToken,
     RequestId,
 )
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, StatusCode
 from pydantic import ValidationError
 from typing_extensions import TypeVar
 
@@ -385,7 +385,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 span_name,
                 kind=SpanKind.CLIENT,
                 attributes={"mcp.method.name": method, "jsonrpc.request.id": str(request_id)},
-            ):
+            ) as span:
                 # SEP-414: inject W3C trace context; `_meta` stays on the wire even with a no-op tracer.
                 inject_trace_context(out_meta)
                 msg = JSONRPCRequest(jsonrpc="2.0", id=request_id, method=method, params=out_params)
@@ -401,6 +401,11 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 with anyio.fail_after(opts.get("timeout")):
                     timeout_armed = True
                     outcome = await receive.receive()
+                if isinstance(outcome, ErrorData):
+                    span.set_attributes(
+                        {"error.type": str(outcome.code), "rpc.response.status_code": str(outcome.code)}
+                    )
+                    span.set_status(StatusCode.ERROR, outcome.message)
         except TimeoutError:
             if not timeout_armed:
                 # `fail_after` arms only after the write, so this TimeoutError is the
