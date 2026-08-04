@@ -2179,6 +2179,9 @@ async def test_concurrent_token_refresh_is_single_flight(
 
     async with anyio.create_task_group() as task_group:
         task_group.start_soon(drive_flow_b)
+        with anyio.fail_after(5):
+            while oauth_provider.context.flow_lock.statistics().tasks_waiting == 0:
+                await anyio.sleep(0)
 
         refresh_response = httpx.Response(
             200,
