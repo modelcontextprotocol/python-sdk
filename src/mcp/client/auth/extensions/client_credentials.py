@@ -78,6 +78,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
         """Load stored tokens and set pre-configured client_info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = self._fixed_client_info
+        self.context.restore_token_expiry()
         self._initialized = True
 
     async def _perform_authorization(self) -> httpx2.Request:
@@ -292,6 +293,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         """Load stored tokens and set pre-configured client_info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = self._fixed_client_info
+        self.context.restore_token_expiry()
         self._initialized = True
 
     async def _perform_authorization(self) -> httpx2.Request:

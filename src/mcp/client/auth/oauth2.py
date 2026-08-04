@@ -180,6 +180,19 @@ class OAuthContext:
         """Update token expiry time using shared util function."""
         self.token_expiry_time = calculate_token_expiry(token.expires_in)
 
+    def restore_token_expiry(self) -> None:
+        """Restore ``token_expiry_time`` from the persisted absolute expiry.
+
+        ``_initialize`` reloads ``current_tokens`` from storage, but the stored
+        ``OAuthToken`` only carries the relative ``expires_in``, so the absolute
+        expiry must be persisted separately (``expires_at``) and restored here.
+        Without it, ``is_token_valid()`` treats an already-expired access token
+        as valid on a fresh process and sends a stale Bearer, wasting a 401
+        round-trip before re-authentication.
+        """
+        if self.current_tokens and self.current_tokens.expires_at is not None:
+            self.token_expiry_time = self.current_tokens.expires_at
+
     def is_token_valid(self) -> bool:
         """Check if current token is valid."""
         return bool(
@@ -484,6 +497,8 @@ class OAuthClientProvider(httpx2.Auth):
         # Store tokens in context
         self.context.current_tokens = token_response
         self.context.update_token_expiry(token_response)
+        # Persist the absolute expiry so it survives a process restart
+        token_response.expires_at = self.context.token_expiry_time
         await self.context.storage.set_tokens(token_response)
 
     async def _refresh_token(self) -> httpx2.Request:
@@ -539,6 +554,7 @@ class OAuthClientProvider(httpx2.Auth):
 
             self.context.current_tokens = token_response
             self.context.update_token_expiry(token_response)
+            token_response.expires_at = self.context.token_expiry_time
             await self.context.storage.set_tokens(token_response)
 
             return True
@@ -551,6 +567,7 @@ class OAuthClientProvider(httpx2.Auth):
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
+        self.context.restore_token_expiry()
         self._initialized = True
 
     def _add_auth_header(self, request: httpx2.Request) -> None:

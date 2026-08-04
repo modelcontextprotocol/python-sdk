@@ -29,6 +29,7 @@ class OAuthToken(BaseModel):
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"
     expires_in: int | None = None
+    expires_at: float | None = None
     scope: str | None = None
     refresh_token: str | None = None
 
