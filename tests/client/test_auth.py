@@ -6,6 +6,7 @@ import time
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+import anyio
 import httpx2
 import pytest
 from inline_snapshot import Is, snapshot
@@ -3253,3 +3254,44 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_in_flight_request_does_not_block_a_concurrent_request(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A request still in flight must not hold up the next one on the same provider.
+
+    The standalone GET SSE stream lives as long as the server keeps it open, so holding
+    ``context.lock`` until its response arrived stalled the first ``tools/call`` for that
+    whole time (#3209).
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    sse_sent = anyio.Event()
+    call_done = anyio.Event()
+
+    async def get_sse_stream() -> None:
+        flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+        request = await flow.__anext__()
+        sse_sent.set()
+        # The server holds the stream open, so the response lands after the call is answered.
+        await call_done.wait()
+        with pytest.raises(StopAsyncIteration):
+            await flow.asend(httpx2.Response(200, request=request))
+
+    async def call_tool() -> None:
+        await sse_sent.wait()
+        flow = oauth_provider.async_auth_flow(httpx2.Request("POST", "https://api.example.com/v1/mcp"))
+        with anyio.fail_after(5):
+            request = await flow.__anext__()
+        assert request.headers["Authorization"] == "Bearer test_access_token"
+        with pytest.raises(StopAsyncIteration):
+            await flow.asend(httpx2.Response(200, request=request))
+        call_done.set()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(get_sse_stream)
+        tg.start_soon(call_tool)

@@ -598,9 +598,13 @@ class OAuthClientProvider(httpx2.Auth):
             if self.context.is_token_valid():
                 self._add_auth_header(request)
 
-            response = yield request
+        # Released before the request goes out: the lock serialises token acquisition, and
+        # holding it for the lifetime of the response would stall every other request on
+        # this provider until the response ends - unbounded for the standalone GET SSE stream.
+        response = yield request
 
-            if response.status_code == 401:
+        if response.status_code == 401:
+            async with self.context.lock:
                 # Perform full OAuth flow
                 try:
                     # OAuth flow must be inline due to generator constraints
@@ -751,8 +755,10 @@ class OAuthClientProvider(httpx2.Auth):
 
                 # Retry with new tokens
                 self._add_auth_header(request)
-                yield request
-            elif response.status_code == 403:
+
+            yield request
+        elif response.status_code == 403:
+            async with self.context.lock:
                 # Step 1: Extract error field from WWW-Authenticate header
                 error = extract_field_from_www_auth(response, "error")
 
@@ -782,4 +788,5 @@ class OAuthClientProvider(httpx2.Auth):
 
                 # Retry with new tokens
                 self._add_auth_header(request)
-                yield request
+
+            yield request
