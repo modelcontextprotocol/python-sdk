@@ -29,6 +29,13 @@ class OAuthToken(BaseModel):
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"
     expires_in: int | None = None
+    # Absolute unix timestamp when the access token expires. The spec's
+    # `expires_in` is relative, so a persisted token alone can't tell a fresh
+    # process whether it's already stale — that caused mcp2cli issues #50/#57
+    # (a stale Bearer sent, then a wasted 401 round-trip before re-auth).
+    # Persisting the absolute expiry and restoring it on _initialize fixes the
+    # whole class. Backwards compatible: None means "unknown, re-auth once".
+    expires_at: float | None = None
     scope: str | None = None
     refresh_token: str | None = None
 

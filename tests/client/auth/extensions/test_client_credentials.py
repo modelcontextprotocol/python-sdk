@@ -1,3 +1,4 @@
+import time
 import urllib.parse
 
 import jwt
@@ -93,6 +94,30 @@ class TestClientCredentialsOAuthProvider:
         await provider._initialize()
         assert provider.context.client_info is not None
         assert provider.context.client_info.token_endpoint_auth_method == "client_secret_post"
+
+    @pytest.mark.anyio
+    async def test_init_restores_expired_token_expiry(self, mock_storage: MockTokenStorage):
+        """_initialize must restore token_expiry_time from the persisted expires_at.
+
+        Regression for the stale-Bearer bug: without restoring the absolute
+        expiry, an already-expired access token looks valid after a restart and
+        a 401 round-trip is wasted before re-auth.
+        """
+        mock_storage._tokens = OAuthToken(
+            access_token="expired-token",
+            expires_at=time.time() - 10,  # already expired
+        )
+        provider = ClientCredentialsOAuthProvider(
+            server_url="https://api.example.com",
+            storage=mock_storage,
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+        )
+
+        await provider._initialize()
+
+        assert provider.context.token_expiry_time is not None
+        assert not provider.context.is_token_valid()
 
     @pytest.mark.anyio
     async def test_exchange_token_client_credentials(self, mock_storage: MockTokenStorage):
