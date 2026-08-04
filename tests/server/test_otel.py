@@ -71,6 +71,29 @@ async def test_emits_server_span_with_method_and_target(server: SrvT, spans: Spa
 
 
 @pytest.mark.anyio
+async def test_client_span_records_jsonrpc_error(server: SrvT, spans: SpanCapture):
+    """A JSON-RPC error marks the client span while preserving the MCPError contract."""
+
+    async def failing(ctx: Ctx, params: PaginatedRequestParams | None) -> Any:
+        raise MCPError(code=INVALID_PARAMS, message="forced failure")
+
+    server.add_request_handler("resources/list", PaginatedRequestParams, failing)
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("resources/list", None)
+
+    assert exc.value.error.code == INVALID_PARAMS
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.CLIENT]
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.status.description == "forced failure"
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == str(INVALID_PARAMS)
+    assert span.attributes["rpc.response.status_code"] == str(INVALID_PARAMS)
+    assert not [event for event in span.events if event.name == "exception"]
+
+
+@pytest.mark.anyio
 async def test_tool_error_dict_result_sets_error_type(server: SrvT, spans: SpanCapture):
     async def err_tool(ctx: Ctx, params: CallToolRequestParams) -> dict[str, Any]:
         return {"content": [], "isError": True}
