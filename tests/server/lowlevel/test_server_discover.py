@@ -181,6 +181,27 @@ async def test_capabilities_derived_from_registered_handlers() -> None:
 
 
 @pytest.mark.anyio
+async def test_experimental_capability_is_empty_dict_not_none_when_unset() -> None:
+    """SDK-defined: an unconfigured server's `experimental` capability is `{}`
+    on both discovery paths, matching `create_initialization_options()`.
+
+    `get_capabilities()` used to leave `experimental` at its own parameter
+    default (`None`) unless the caller normalized it first;
+    `create_initialization_options()` did that normalization, but
+    `server/discover` calls `get_capabilities()` directly and did not - so the
+    same unconfigured server reported `{}` via `initialize` and `None` via
+    `server/discover`. See https://github.com/modelcontextprotocol/python-sdk/issues/3254
+    """
+    server = Server("cap-server")
+
+    legacy_capabilities = server.create_initialization_options().capabilities
+    discovered = await _discover(server)
+
+    assert legacy_capabilities.experimental == {}
+    assert discovered.capabilities.experimental == {}
+
+
+@pytest.mark.anyio
 async def test_discover_result_defaults_to_immediately_stale_private_cache() -> None:
     """SDK-defined: `DiscoverResult` is cacheable; the auto-derived handler
     relies on the model defaults (immediately-stale, private)."""

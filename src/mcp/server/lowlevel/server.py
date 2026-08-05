@@ -575,6 +575,11 @@ class Server(Generic[LifespanResultT]):
         handshake-era derivation applies unchanged.
         """
         notification_options = notification_options or NotificationOptions()
+        # Normalized here rather than only at the create_initialization_options()
+        # call site, so server/discover (which calls this directly with no
+        # experimental_capabilities argument) reports {} instead of None for the
+        # same unconfigured server.
+        experimental_capabilities = experimental_capabilities or {}
         prompts_capability = None
         resources_capability = None
         tools_capability = None
