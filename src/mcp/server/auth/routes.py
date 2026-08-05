@@ -106,7 +106,10 @@ def create_auth_routes(
     # responses produced by inner layers (such as a 413) still carry CORS headers.
     routes = [
         Route(
-            issuer_path + "/.well-known/oauth-authorization-server",
+            # RFC 8414 3.1: the well-known suffix goes between the authority and
+            # the issuer's path component, not after it — "/custom/path/.well-known/..."
+            # is not a valid well-known URI per RFC 8615 3.
+            "/.well-known/oauth-authorization-server" + issuer_path,
             endpoint=cors_middleware(
                 MetadataHandler(metadata).handle,
                 ["GET", "OPTIONS"],
