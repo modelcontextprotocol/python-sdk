@@ -91,7 +91,11 @@ def test_create_auth_routes_default_paths():
 
 
 def test_create_auth_routes_custom_base_path():
-    """Auth routes are prefixed with the issuer_url path for gateway deployments."""
+    """Auth routes are prefixed with the issuer_url path for gateway deployments.
+
+    Per RFC 8414 3.1 / RFC 8615 3, the well-known discovery URI is rooted at the
+    domain and inserted *before* the issuer's path component, not after it.
+    """
     provider = MockOAuthProvider()
     routes = create_auth_routes(
         provider,
@@ -100,7 +104,7 @@ def test_create_auth_routes_custom_base_path():
         revocation_options=RevocationOptions(enabled=True),
     )
     paths = [route.path for route in routes]
-    assert "/custom/path/.well-known/oauth-authorization-server" in paths
+    assert "/.well-known/oauth-authorization-server/custom/path" in paths
     assert "/custom/path/authorize" in paths
     assert "/custom/path/token" in paths
     assert "/custom/path/register" in paths
@@ -117,6 +121,6 @@ def test_create_auth_routes_trailing_slash_stripped():
         revocation_options=RevocationOptions(enabled=True),
     )
     paths = [route.path for route in routes]
-    assert "/base/.well-known/oauth-authorization-server" in paths
+    assert "/.well-known/oauth-authorization-server/base" in paths
     assert "/base/authorize" in paths
     assert "/base/token" in paths
