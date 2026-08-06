@@ -1,4 +1,5 @@
 from typing import Any, Literal, cast
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -256,3 +257,19 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_signing_alg_values_supported: list[str] | None = None
     # dpop_bound_access_tokens_required default is False, but omitted here for clarity
     dpop_bound_access_tokens_required: bool | None = None
+
+    @field_validator("resource", mode="before")
+    @classmethod
+    def _preserve_empty_resource_path(cls, value: object) -> object:
+        """Keep the RFC 9728 root resource URI free of a synthetic slash.
+
+        ``AnyHttpUrl`` normalizes ``https://example.com`` to
+        ``https://example.com/`` before the model's ``url_preserve_empty_path``
+        setting can preserve the distinction. This is especially visible when
+        the value arrives as an already-validated ``AnyHttpUrl`` from the
+        server settings.
+        """
+        parsed = urlsplit(str(value))
+        if parsed.path == "/":
+            return urlunsplit(parsed._replace(path=""))
+        return value

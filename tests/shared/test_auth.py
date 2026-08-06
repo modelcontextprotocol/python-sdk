@@ -1,9 +1,15 @@
 """Tests for OAuth 2.0 shared code."""
 
 import pytest
-from pydantic import AnyUrl, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, ValidationError
 
-from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import (
+    InvalidRedirectUriError,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    ProtectedResourceMetadata,
+)
 
 
 def test_oauth():
@@ -107,6 +113,27 @@ def test_valid_url_passes_through_unchanged():
     }
     metadata = OAuthClientMetadata.model_validate(data)
     assert str(metadata.client_uri) == "https://udemy.com/"
+
+
+def test_protected_resource_metadata_preserves_empty_root_path():
+    metadata = ProtectedResourceMetadata.model_validate(
+        {
+            "resource": "https://example.com",
+            "authorization_servers": ["https://auth.example.com"],
+        }
+    )
+
+    assert str(metadata.resource) == "https://example.com"
+    assert '"resource":"https://example.com"' in metadata.model_dump_json()
+
+
+def test_protected_resource_metadata_strips_normalized_root_path():
+    metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://example.com"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    assert str(metadata.resource) == "https://example.com"
 
 
 def test_information_full_inherits_coercion():
