@@ -269,6 +269,55 @@ class TestOAuthFlow:
     """Test OAuth flow methods."""
 
     @pytest.mark.anyio
+    async def test_explicit_client_scope_is_not_overwritten_by_discovery(self, oauth_provider: OAuthClientProvider):
+        oauth_provider.context.client_metadata.scope = "explicit:read"
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="existing-client",
+            client_secret="client-secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        oauth_provider._initialized = True
+        oauth_provider._perform_authorization = mock.AsyncMock(
+            return_value=httpx2.Request("POST", "https://auth.example.com/token")
+        )
+
+        auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+        request = await auth_flow.__anext__()
+        prm_request = await auth_flow.asend(
+            httpx2.Response(
+                401,
+                headers={"WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/prm"'},
+                request=request,
+            )
+        )
+        prm_response = httpx2.Response(
+            200,
+            json={
+                "resource": "https://api.example.com/v1/mcp",
+                "authorization_servers": ["https://auth.example.com"],
+                "scopes_supported": ["discovered:read", "discovered:write"],
+            },
+            request=prm_request,
+        )
+        asm_request = await auth_flow.asend(prm_response)
+        asm_response = httpx2.Response(
+            200,
+            json={
+                "issuer": "https://auth.example.com",
+                "authorization_endpoint": "https://auth.example.com/authorize",
+                "token_endpoint": "https://auth.example.com/token",
+                "scopes_supported": ["discovered:read", "discovered:write"],
+            },
+            request=asm_request,
+        )
+
+        token_request = await auth_flow.asend(asm_response)
+
+        assert oauth_provider.context.client_metadata.scope == "explicit:read"
+        assert token_request.method == "POST"
+        await auth_flow.aclose()
+
+    @pytest.mark.anyio
     async def test_build_protected_resource_discovery_urls(
         self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
     ):

@@ -687,12 +687,15 @@ class OAuthClientProvider(httpx2.Auth):
                         self.context.client_info = None
                         self.context.clear_tokens()
 
-                    # Step 3: Apply scope selection strategy
+                    # Step 3: Apply scope selection strategy, preserving an explicitly
+                    # configured scope. An explicit empty string intentionally requests no
+                    # scopes, so only ``None`` opts into discovery-based selection.
                     self.context.client_metadata.scope = get_client_metadata_scopes(
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
                         self.context.client_metadata.grant_types,
+                        configured_scope=self.context.client_metadata.scope,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
