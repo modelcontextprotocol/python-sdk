@@ -754,7 +754,8 @@ async def test_empty_get_stream_exhausts_reconnection_attempts(monkeypatch: pyte
     send, receive = create_context_streams[SessionMessage | Exception](0)
 
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
-        await transport.handle_get_stream(http, send)
+        with anyio.fail_after(5):
+            await transport.handle_get_stream(http, send)
 
     assert len(requests) == MAX_RECONNECTION_ATTEMPTS
     send.close()
