@@ -102,21 +102,27 @@ def get_client_metadata_scopes(
     protected_resource_metadata: ProtectedResourceMetadata | None,
     authorization_server_metadata: OAuthMetadata | None = None,
     client_grant_types: list[str] | None = None,
+    configured_scope: str | None = None,
 ) -> str | None:
-    """Select effective scopes and augment for refresh token support."""
-    selected_scope: str | None = None
+    """Select effective scopes and augment for refresh token support.
+
+    An explicitly configured scope is preferred over discovered scopes. ``None``
+    continues to opt into the discovery-based selection strategy.
+    """
+    selected_scope: str | None = configured_scope
 
     # MCP spec scope selection priority:
     #   1. WWW-Authenticate header scope
     #   2. PRM scopes_supported
     #   3. AS scopes_supported (SDK fallback)
     #   4. Omit scope parameter
-    if www_authenticate_scope is not None:
-        selected_scope = www_authenticate_scope
-    elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
-        selected_scope = " ".join(protected_resource_metadata.scopes_supported)
-    elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported is not None:
-        selected_scope = " ".join(authorization_server_metadata.scopes_supported)
+    if selected_scope is None:
+        if www_authenticate_scope is not None:
+            selected_scope = www_authenticate_scope
+        elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
+            selected_scope = " ".join(protected_resource_metadata.scopes_supported)
+        elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported is not None:
+            selected_scope = " ".join(authorization_server_metadata.scopes_supported)
 
     # SEP-2207: append offline_access when the AS supports it and the client can use refresh tokens
     if (
@@ -126,6 +132,7 @@ def get_client_metadata_scopes(
         and "offline_access" in authorization_server_metadata.scopes_supported
         and client_grant_types is not None
         and "refresh_token" in client_grant_types
+        and selected_scope
         and "offline_access" not in selected_scope.split()
     ):
         selected_scope = f"{selected_scope} offline_access"
