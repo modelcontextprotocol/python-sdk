@@ -5,6 +5,7 @@ Implements authorization code flow with PKCE and automatic token refresh.
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
 import string
@@ -109,6 +110,21 @@ def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
         )
 
 
+def _is_expired_client_secret(client_info: OAuthClientInformationFull) -> bool:
+    """Return whether a stored registration reports an expired client secret."""
+    expires_at = client_info.client_secret_expires_at
+    return expires_at is not None and expires_at != 0 and expires_at <= int(time.time())
+
+
+def _is_invalid_client_response(body: bytes) -> bool:
+    """Identify RFC 6749 ``invalid_client`` responses independent of HTTP status."""
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return False
+    return isinstance(payload, dict) and payload.get("error") == "invalid_client"
+
+
 class PKCEParameters(BaseModel):
     """PKCE (Proof Key for Code Exchange) parameters."""
 
@@ -131,16 +147,16 @@ class TokenStorage(Protocol):
         """Get stored tokens."""
         ...
 
-    async def set_tokens(self, tokens: OAuthToken) -> None:
-        """Store tokens."""
+    async def set_tokens(self, tokens: OAuthToken | None) -> None:
+        """Store tokens, or clear them when ``tokens`` is ``None``."""
         ...
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         """Get stored client information."""
         ...
 
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        """Store client information."""
+    async def set_client_info(self, client_info: OAuthClientInformationFull | None) -> None:
+        """Store client information, or clear it when ``client_info`` is ``None``."""
         ...
 
 
@@ -468,6 +484,8 @@ class OAuthClientProvider(httpx2.Auth):
         """Handle token exchange response."""
         if response.status_code not in {200, 201}:
             body = await response.aread()
+            if _is_invalid_client_response(body):
+                await self._clear_stored_credentials()
             body_text = body.decode("utf-8")
             raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")
 
@@ -519,8 +537,12 @@ class OAuthClientProvider(httpx2.Auth):
     async def _handle_refresh_response(self, response: httpx2.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
+            body = await response.aread()
             logger.warning(f"Token refresh failed: {response.status_code}")
-            self.context.clear_tokens()
+            if _is_invalid_client_response(body):
+                await self._clear_stored_credentials()
+            else:
+                self.context.clear_tokens()
             return False
 
         try:
@@ -551,7 +573,17 @@ class OAuthClientProvider(httpx2.Auth):
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
+        if self.context.client_info and _is_expired_client_secret(self.context.client_info):
+            logger.info("Stored client registration has expired; clearing credentials and re-registering")
+            await self._clear_stored_credentials()
         self._initialized = True
+
+    async def _clear_stored_credentials(self) -> None:
+        """Clear the in-memory and persisted credentials bound to a client registration."""
+        self.context.client_info = None
+        self.context.clear_tokens()
+        await self.context.storage.set_client_info(None)
+        await self.context.storage.set_tokens(None)
 
     def _add_auth_header(self, request: httpx2.Request) -> None:
         """Add authorization header to request if we have valid tokens."""

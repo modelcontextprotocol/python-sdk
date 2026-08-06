@@ -27,13 +27,13 @@ class MockTokenStorage:
     async def get_tokens(self) -> OAuthToken | None:
         return self._tokens
 
-    async def set_tokens(self, tokens: OAuthToken) -> None:  # pragma: no cover
+    async def set_tokens(self, tokens: OAuthToken | None) -> None:  # pragma: no cover
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:  # pragma: no cover
         return self._client_info
 
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:  # pragma: no cover
+    async def set_client_info(self, client_info: OAuthClientInformationFull | None) -> None:  # pragma: no cover
         self._client_info = client_info
 
 
