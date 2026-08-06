@@ -12,7 +12,7 @@ import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol, get_args
+from typing import Any, Protocol, cast, get_args
 from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import anyio
@@ -122,7 +122,7 @@ def _is_invalid_client_response(body: bytes) -> bool:
         payload: Any = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return False
-    return isinstance(payload, dict) and payload.get("error") == "invalid_client"
+    return isinstance(payload, dict) and cast(dict[str, Any], payload).get("error") == "invalid_client"
 
 
 class PKCEParameters(BaseModel):

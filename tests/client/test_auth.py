@@ -13,6 +13,7 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.oauth2 import _is_invalid_client_response
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -76,6 +77,20 @@ def client_metadata():
         redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         scope="read write",
     )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (b"not json", False),
+        (b"\xff", False),
+        (b"[]", False),
+        (b'{"error": "invalid_grant"}', False),
+        (b'{"error": "invalid_client"}', True),
+    ],
+)
+def test_invalid_client_response_detection(body: bytes, expected: bool) -> None:
+    assert _is_invalid_client_response(body) is expected
 
 
 @pytest.fixture
