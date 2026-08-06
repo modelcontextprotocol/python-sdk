@@ -119,7 +119,7 @@ def _is_expired_client_secret(client_info: OAuthClientInformationFull) -> bool:
 def _is_invalid_client_response(body: bytes) -> bool:
     """Identify RFC 6749 ``invalid_client`` responses independent of HTTP status."""
     try:
-        payload = json.loads(body)
+        payload: Any = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return False
     return isinstance(payload, dict) and payload.get("error") == "invalid_client"
