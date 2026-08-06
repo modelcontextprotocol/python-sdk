@@ -1,4 +1,4 @@
-"""OAuth2 Authentication implementation for httpx2.
+"""OAuth2 Authentication implementation for HTTPX.
 
 Implements authorization code flow with PKCE and automatic token refresh.
 """
@@ -9,17 +9,17 @@ import logging
 import secrets
 import string
 import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol, get_args
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from typing import Any, Protocol
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunparse
 
 import anyio
-import httpx2
+import httpx
 from mcp_types.version import is_version_at_least
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -48,7 +48,6 @@ from mcp.shared.auth import (
     OAuthMetadata,
     OAuthToken,
     ProtectedResourceMetadata,
-    TokenEndpointAuthMethod,
 )
 from mcp.shared.auth_utils import (
     calculate_token_expiry,
@@ -59,54 +58,28 @@ from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
 logger = logging.getLogger(__name__)
 
-# Methods a registered client's record may carry without a token request being an error,
-# derived from the set the SDK is willing to request so the two cannot drift. `None`/"none"
-# send no client secret. `private_key_jwt` sends none from here either: only
-# `PrivateKeyJWTOAuthProvider` signs the assertion, and only in its client-credentials
-# exchange, so its inherited refresh path must pass through here without raising - a refresh
-# the server then rejects falls back to a fresh client-credentials exchange, which signs.
-# Anything else is a method no client here can apply.
-_KNOWN_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = (None, *get_args(TokenEndpointAuthMethod))
 
-# Methods that authenticate the token request with the minted `client_secret`; a
-# registration assigning one is only usable if the server issued that secret.
-_SECRET_TOKEN_ENDPOINT_AUTH_METHODS = ("client_secret_post", "client_secret_basic")
+def _build_authorization_url(auth_endpoint: str, auth_params: Mapping[str, str | None]) -> str:
+    """Build an authorization URL, preserving any query params already on the endpoint.
 
-# Methods a registration completed by the authorization-code flow can act on. That flow
-# authenticates the token request with the minted client secret (or nothing); it holds no key
-# to sign a `private_key_jwt` assertion, so a server assigning that method has registered a
-# client this flow cannot use. `PrivateKeyJWTOAuthProvider` never registers dynamically.
-_REGISTRATION_USABLE_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = tuple(
-    method for method in _KNOWN_TOKEN_ENDPOINT_AUTH_METHODS if method != "private_key_jwt"
-)
-
-
-def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
-    """Confirm a registration this flow completed is one it can act on.
-
-    RFC 7591 §3.2.1 lets the authorization server replace requested metadata and leaves it to
-    the client to "check the values in the response to determine if the registration is
-    sufficient for use". Two substitutions make the minted credentials unusable, and both are
-    judged here - before the record is persisted or any interactive authorization begins -
-    rather than surfacing later as an opaque failure at the token endpoint: a token-endpoint
-    auth method the authorization-code flow cannot apply (one it does not implement, or
-    `private_key_jwt`, whose assertion this flow has no key to sign), and a secret-based
-    method the flow could apply but for which the server issued no `client_secret`.
-
-    Raises:
-        OAuthRegistrationError: The server registered the client with a
-            `token_endpoint_auth_method` this flow cannot apply, or with a secret-based
-            method but no `client_secret`.
+    Servers may advertise an ``authorization_endpoint`` that already carries query
+    parameters (e.g. ``https://example.com/authorize?prompt=select_account``).
+    Naively appending ``?<params>`` would produce an invalid URL with two ``?``
+    separators, so the existing query is parsed and merged with ``auth_params``.
+    Flow-generated params take precedence on key conflicts; ``None`` values are
+    dropped rather than serialized as the literal string ``"None"``. Existing
+    multi-value query params (e.g. ``?scope=a&scope=b``) are preserved rather
+    than collapsed, except for keys that the flow overrides.
     """
-    method = client_info.token_endpoint_auth_method
-    if method not in _REGISTRATION_USABLE_TOKEN_ENDPOINT_AUTH_METHODS:
-        raise OAuthRegistrationError(
-            f"Authorization server registered the client with unsupported token_endpoint_auth_method {method!r}"
-        )
-    if method in _SECRET_TOKEN_ENDPOINT_AUTH_METHODS and client_info.client_secret is None:
-        raise OAuthRegistrationError(
-            f"Authorization server registered the client for {method!r} but issued no client_secret"
-        )
+    parsed = urlparse(auth_endpoint)
+    flow_params = {key: value for key, value in auth_params.items() if value is not None}
+    # Keep existing endpoint params (including duplicate keys) except those the
+    # flow overrides, then append the authoritative flow params.
+    existing = [
+        (key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key not in flow_params
+    ]
+    merged_params = existing + list(flow_params.items())
+    return urlunparse(parsed._replace(query=urlencode(merged_params)))
 
 
 class PKCEParameters(BaseModel):
@@ -153,6 +126,7 @@ class OAuthContext:
     storage: TokenStorage
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None
+    timeout: float = 300.0
     client_metadata_url: str | None = None
 
     # Discovered metadata
@@ -240,12 +214,6 @@ class OAuthContext:
 
         Returns:
             Tuple of (updated_data, updated_headers)
-
-        Raises:
-            OAuthTokenError: The client record carries a `token_endpoint_auth_method` this
-                client does not know. A dynamic registration assigning an unusable method is
-                rejected earlier, by `check_registration_usable`; this fires for a stored or
-                pre-registered record that reaches a token request with such a method.
         """
         if headers is None:
             headers = {}  # pragma: no cover
@@ -255,7 +223,7 @@ class OAuthContext:
 
         auth_method = self.client_info.token_endpoint_auth_method
 
-        if auth_method == "client_secret_basic" and self.client_info.client_secret:
+        if auth_method == "client_secret_basic" and self.client_info.client_id and self.client_info.client_secret:
             # URL-encode client ID and secret per RFC 6749 Section 2.3.1
             encoded_id = quote(self.client_info.client_id, safe="")
             encoded_secret = quote(self.client_info.client_secret, safe="")
@@ -264,20 +232,17 @@ class OAuthContext:
             headers["Authorization"] = f"Basic {encoded_credentials}"
             # Don't include client_secret in body for basic auth
             data = {k: v for k, v in data.items() if k != "client_secret"}
-        elif auth_method == "client_secret_post" and self.client_info.client_secret:
+        elif auth_method == "client_secret_post" and self.client_info.client_id and self.client_info.client_secret:
             # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id
             data["client_secret"] = self.client_info.client_secret
-        elif auth_method not in _KNOWN_TOKEN_ENDPOINT_AUTH_METHODS:
-            raise OAuthTokenError(f"Registered client uses unsupported token_endpoint_auth_method {auth_method!r}")
-        # For "none" (or absent), don't add any client_secret; "private_key_jwt" adds its
-        # assertion in the provider that implements it, not here.
+        # For auth_method == "none", don't add any client_secret
 
         return data, headers
 
 
-class OAuthClientProvider(httpx2.Auth):
-    """OAuth2 authentication for httpx2.
+class OAuthClientProvider(httpx.Auth):
+    """OAuth2 authentication for httpx.
 
     Handles OAuth flow with automatic client registration and token storage.
     """
@@ -291,6 +256,7 @@ class OAuthClientProvider(httpx2.Auth):
         storage: TokenStorage,
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
         callback_handler: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
+        timeout: float = 300.0,
         client_metadata_url: str | None = None,
         validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
     ):
@@ -302,6 +268,7 @@ class OAuthClientProvider(httpx2.Auth):
             storage: Token storage implementation.
             redirect_handler: Handler for authorization redirects.
             callback_handler: Handler for authorization callbacks.
+            timeout: Timeout for the OAuth flow.
             client_metadata_url: URL-based client ID. When provided and the server
                 advertises client_id_metadata_document_supported=True, this URL will be
                 used as the client_id instead of performing dynamic client registration.
@@ -327,12 +294,13 @@ class OAuthClientProvider(httpx2.Auth):
             storage=storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
+            timeout=timeout,
             client_metadata_url=client_metadata_url,
         )
         self._validate_resource_url_callback = validate_resource_url
         self._initialized = False
 
-    async def _handle_protected_resource_response(self, response: httpx2.Response) -> bool:
+    async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
         """Handle protected resource metadata discovery response.
 
         Per SEP-985, supports fallback when discovery fails at one URL.
@@ -363,7 +331,7 @@ class OAuthClientProvider(httpx2.Auth):
                 f"Protected Resource Metadata request failed: {response.status_code}"
             )  # pragma: no cover
 
-    async def _perform_authorization(self) -> httpx2.Request:
+    async def _perform_authorization(self) -> httpx.Request:
         """Perform the authorization flow."""
         auth_code, code_verifier = await self._perform_authorization_code_grant()
         token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
@@ -412,7 +380,7 @@ class OAuthClientProvider(httpx2.Auth):
             if "offline_access" in self.context.client_metadata.scope.split():
                 auth_params["prompt"] = "consent"
 
-        authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
+        authorization_url = _build_authorization_url(auth_endpoint, auth_params)
         await self.context.redirect_handler(authorization_url)
 
         # Wait for callback
@@ -438,7 +406,9 @@ class OAuthClientProvider(httpx2.Auth):
             token_url = urljoin(auth_base_url, "/token")
         return token_url
 
-    async def _exchange_token_authorization_code(self, auth_code: str, code_verifier: str) -> httpx2.Request:
+    async def _exchange_token_authorization_code(
+        self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
+    ) -> httpx.Request:
         """Build token exchange request for authorization_code flow."""
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided for authorization code grant")  # pragma: no cover
@@ -446,13 +416,16 @@ class OAuthClientProvider(httpx2.Auth):
             raise OAuthFlowError("Missing client info")  # pragma: no cover
 
         token_url = self._get_token_endpoint()
-        token_data: dict[str, Any] = {
-            "grant_type": "authorization_code",
-            "code": auth_code,
-            "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
-            "client_id": self.context.client_info.client_id,
-            "code_verifier": code_verifier,
-        }
+        token_data = token_data or {}
+        token_data.update(
+            {
+                "grant_type": "authorization_code",
+                "code": auth_code,
+                "redirect_uri": str(self.context.client_metadata.redirect_uris[0]),
+                "client_id": self.context.client_info.client_id,
+                "code_verifier": code_verifier,
+            }
+        )
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
@@ -462,9 +435,9 @@ class OAuthClientProvider(httpx2.Auth):
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
-        return httpx2.Request("POST", token_url, data=token_data, headers=headers)
+        return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
-    async def _handle_token_response(self, response: httpx2.Response) -> None:
+    async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
         if response.status_code not in {200, 201}:
             body = await response.aread()
@@ -486,7 +459,7 @@ class OAuthClientProvider(httpx2.Auth):
         self.context.update_token_expiry(token_response)
         await self.context.storage.set_tokens(token_response)
 
-    async def _refresh_token(self) -> httpx2.Request:
+    async def _refresh_token(self) -> httpx.Request:
         """Build token refresh request."""
         if not self.context.current_tokens or not self.context.current_tokens.refresh_token:
             raise OAuthTokenError("No refresh token available")  # pragma: no cover
@@ -514,9 +487,9 @@ class OAuthClientProvider(httpx2.Auth):
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         refresh_data, headers = self.context.prepare_token_auth(refresh_data, headers)
 
-        return httpx2.Request("POST", token_url, data=refresh_data, headers=headers)
+        return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
 
-    async def _handle_refresh_response(self, response: httpx2.Response) -> bool:
+    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
@@ -553,12 +526,12 @@ class OAuthClientProvider(httpx2.Auth):
         self.context.client_info = await self.context.storage.get_client_info()
         self._initialized = True
 
-    def _add_auth_header(self, request: httpx2.Request) -> None:
+    def _add_auth_header(self, request: httpx.Request) -> None:
         """Add authorization header to request if we have valid tokens."""
         if self.context.current_tokens and self.context.current_tokens.access_token:  # pragma: no branch
             request.headers["Authorization"] = f"Bearer {self.context.current_tokens.access_token}"
 
-    async def _handle_oauth_metadata_response(self, response: httpx2.Response) -> None:
+    async def _handle_oauth_metadata_response(self, response: httpx.Response) -> None:
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
@@ -577,8 +550,8 @@ class OAuthClientProvider(httpx2.Auth):
         if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
-    async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
-        """httpx2 auth flow integration."""
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        """HTTPX auth flow integration."""
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()
@@ -723,7 +696,6 @@ class OAuthClientProvider(httpx2.Auth):
                             )
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
-                            check_registration_usable(client_information)
                             # Only record the issuer when the registration above actually targeted
                             # the discovered AS — either via its published registration_endpoint,
                             # or because the resource-origin /register fallback is on the issuer's
