@@ -13,6 +13,7 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.oauth2 import _is_invalid_client_response
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -53,13 +54,13 @@ class MockTokenStorage:
     async def get_tokens(self) -> OAuthToken | None:
         return self._tokens
 
-    async def set_tokens(self, tokens: OAuthToken) -> None:
+    async def set_tokens(self, tokens: OAuthToken | None) -> None:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         return self._client_info
 
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+    async def set_client_info(self, client_info: OAuthClientInformationFull | None) -> None:
         self._client_info = client_info
 
 
@@ -76,6 +77,20 @@ def client_metadata():
         redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         scope="read write",
     )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (b"not json", False),
+        (b"\xff", False),
+        (b"[]", False),
+        (b'{"error": "invalid_grant"}', False),
+        (b'{"error": "invalid_client"}', True),
+    ],
+)
+def test_invalid_client_response_detection(body: bytes, expected: bool) -> None:
+    assert _is_invalid_client_response(body) is expected
 
 
 @pytest.fixture
@@ -263,6 +278,26 @@ class TestOAuthContext:
         # Verify cleared
         assert context.current_tokens is None
         assert context.token_expiry_time is None
+
+    @pytest.mark.anyio
+    async def test_initialize_discards_expired_client_registration(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+    ):
+        expired_client = OAuthClientInformationFull(
+            client_id="expired-client",
+            client_secret="expired-secret",
+            client_secret_expires_at=int(time.time()) - 1,
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        await mock_storage.set_client_info(expired_client)
+        await mock_storage.set_tokens(valid_tokens)
+
+        await oauth_provider._initialize()
+
+        assert oauth_provider.context.client_info is None
+        assert oauth_provider.context.current_tokens is None
+        assert await mock_storage.get_client_info() is None
+        assert await mock_storage.get_tokens() is None
 
 
 class TestOAuthFlow:
@@ -2956,6 +2991,34 @@ async def test_handle_token_response_raises_on_non_2xx_with_body(oauth_provider:
 
 
 @pytest.mark.anyio
+async def test_handle_token_response_invalid_client_clears_stored_credentials(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+):
+    client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        client_secret="stale-secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider.context.client_info = client_info
+    oauth_provider.context.current_tokens = valid_tokens
+    await mock_storage.set_client_info(client_info)
+    await mock_storage.set_tokens(valid_tokens)
+    response = httpx2.Response(
+        401,
+        json={"error": "invalid_client"},
+        request=httpx2.Request("POST", "https://auth.example.com/token"),
+    )
+
+    with pytest.raises(OAuthTokenError, match=r"Token exchange failed \(401\).*invalid_client"):
+        await oauth_provider._handle_token_response(response)
+
+    assert oauth_provider.context.client_info is None
+    assert oauth_provider.context.current_tokens is None
+    assert await mock_storage.get_client_info() is None
+    assert await mock_storage.get_tokens() is None
+
+
+@pytest.mark.anyio
 async def test_handle_refresh_response_carries_prior_scope_and_refresh_token_when_omitted(
     oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
 ):
@@ -3005,6 +3068,34 @@ async def test_handle_refresh_response_adopts_rotated_refresh_token_when_returne
     stored = await mock_storage.get_tokens()
     assert stored is not None
     assert stored.refresh_token == "rotated"
+
+
+@pytest.mark.anyio
+async def test_handle_refresh_response_invalid_client_clears_stored_credentials(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+):
+    client_info = OAuthClientInformationFull(
+        client_id="stale-client",
+        client_secret="stale-secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider.context.client_info = client_info
+    oauth_provider.context.current_tokens = valid_tokens
+    await mock_storage.set_client_info(client_info)
+    await mock_storage.set_tokens(valid_tokens)
+    response = httpx2.Response(
+        400,
+        json={"error": "invalid_client"},
+        request=httpx2.Request("POST", "https://auth.example.com/token"),
+    )
+
+    ok = await oauth_provider._handle_refresh_response(response)
+
+    assert ok is False
+    assert oauth_provider.context.client_info is None
+    assert oauth_provider.context.current_tokens is None
+    assert await mock_storage.get_client_info() is None
+    assert await mock_storage.get_tokens() is None
 
 
 @pytest.mark.anyio

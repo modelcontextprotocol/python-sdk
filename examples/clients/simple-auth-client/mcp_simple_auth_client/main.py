@@ -37,13 +37,13 @@ class InMemoryTokenStorage(TokenStorage):
     async def get_tokens(self) -> OAuthToken | None:
         return self._tokens
 
-    async def set_tokens(self, tokens: OAuthToken) -> None:
+    async def set_tokens(self, tokens: OAuthToken | None) -> None:
         self._tokens = tokens
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         return self._client_info
 
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+    async def set_client_info(self, client_info: OAuthClientInformationFull | None) -> None:
         self._client_info = client_info
 
 
