@@ -737,6 +737,31 @@ async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error
 
 
 @pytest.mark.anyio
+async def test_empty_get_stream_exhausts_reconnection_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty, cleanly closed GET stream must not reset the reconnection budget."""
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
+
+    async def no_sleep(_delay: float) -> None:
+        pass
+
+    monkeypatch.setattr("mcp.client.streamable_http.anyio.sleep", no_sleep)
+    transport = StreamableHTTPTransport("http://test/mcp")
+    transport.session_id = "session-1"
+    send, receive = create_context_streams[SessionMessage | Exception](0)
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
+        await transport.handle_get_stream(http, send)
+
+    assert len(requests) == MAX_RECONNECTION_ATTEMPTS
+    send.close()
+    receive.close()
+
+
+@pytest.mark.anyio
 async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contained() -> None:
     """Teardown race: a stream dying after the reader closed resolves best-effort and must not crash."""
     transport = StreamableHTTPTransport("http://test/mcp")

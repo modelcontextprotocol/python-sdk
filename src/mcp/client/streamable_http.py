@@ -214,7 +214,9 @@ class StreamableHTTPTransport:
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
+                    saw_event = False
                     async for sse in event_source:
+                        saw_event = True
                         # Track last event ID for reconnection
                         if sse.id:
                             last_event_id = sse.id
@@ -224,8 +226,9 @@ class StreamableHTTPTransport:
 
                         await self._handle_sse_event(sse, read_stream_writer)
 
-                    # Stream ended normally (server closed) - reset attempt counter
-                    attempt = 0
+                    # A clean stream close is retryable only when the server sent an event.
+                    # An empty stream is a terminated endpoint, so count it against the retry budget.
+                    attempt = 0 if saw_event else attempt + 1
 
             except Exception:
                 logger.debug("GET stream error", exc_info=True)
