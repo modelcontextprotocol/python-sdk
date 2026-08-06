@@ -25,25 +25,6 @@ class _PrimingFailingStore(EventStore):
         raise NotImplementedError
 
 
-class _AsgiPost:
-    """A one-shot POST driven straight at `handle_request`, capturing what the transport sends."""
-
-    def __init__(self, body: bytes, headers: list[tuple[bytes, bytes]]) -> None:
-        self.scope: Scope = {"type": "http", "method": "POST", "path": "/", "query_string": b"", "headers": headers}
-        self.sent: list[Message] = []
-        self._body = body
-        self._body_sent = False
-
-    async def receive(self) -> Message:
-        if not self._body_sent:
-            self._body_sent = True
-            return {"type": "http.request", "body": self._body, "more_body": False}
-        raise NotImplementedError
-
-    async def send(self, message: Message) -> None:
-        self.sent.append(message)
-
-
 @pytest.mark.anyio
 async def test_router_unconsumed_request_stream_does_not_block_siblings() -> None:
     """A response whose `sse_writer` is not yet receiving must not park the router (#1764).
@@ -92,18 +73,35 @@ async def test_priming_store_failure_leaves_no_per_request_state() -> None:
         event_store=_PrimingFailingStore(),
     )
 
-    post = _AsgiPost(
-        b'{"jsonrpc":"2.0","id":"req-1","method":"tools/list","params":{}}',
-        [
+    body = b'{"jsonrpc":"2.0","id":"req-1","method":"tools/list","params":{}}'
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "query_string": b"",
+        "headers": [
             (b"accept", b"application/json, text/event-stream"),
             (b"content-type", b"application/json"),
             (b"mcp-protocol-version", b"2025-11-25"),
         ],
-    )
+    }
+    body_sent = False
+
+    async def receive() -> Message:
+        nonlocal body_sent
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        raise NotImplementedError
+
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
 
     async with transport.connect() as (read_stream, _write_stream):
         async with anyio.create_task_group() as tg:
-            tg.start_soon(transport.handle_request, post.scope, post.receive, post.send)
+            tg.start_soon(transport.handle_request, scope, receive, asgi_send)
             with anyio.fail_after(5):
                 forwarded = await read_stream.receive()
             assert isinstance(forwarded, Exception)
@@ -112,32 +110,63 @@ async def test_priming_store_failure_leaves_no_per_request_state() -> None:
         assert transport._request_streams == {}
         assert transport._sse_stream_writers == {}
 
-    assert post.sent[0]["type"] == "http.response.start"
-    assert post.sent[0]["status"] == 500
-    body = b"".join(m.get("body", b"") for m in post.sent if m["type"] == "http.response.body")
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 500
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
     assert b"backend unavailable" not in body
 
 
 @pytest.mark.anyio
-async def test_json_post_answers_500_when_session_terminates_mid_request() -> None:
-    """A JSON-mode POST whose session is torn down before the handler answers gets a 500, not a stall."""
-    transport = StreamableHTTPServerTransport(mcp_session_id="sid", is_json_response_enabled=True)
-    post = _AsgiPost(
-        b'{"jsonrpc":"2.0","id":"req-1","method":"tools/list","params":{}}',
-        [
-            (b"accept", b"application/json"),
-            (b"content-type", b"application/json"),
-            (b"mcp-session-id", b"sid"),
-            (b"mcp-protocol-version", b"2025-11-25"),
-        ],
+async def test_post_error_path_tolerates_closed_session_stream() -> None:
+    """The error path must not raise a secondary error when the read stream is gone (#2741).
+
+    When a session task crashes it tears down its read stream before the concurrent
+    POST handler reaches its `except` block. The trailing ``writer.send(Exception(err))``
+    then targets a closed/broken stream. Without a guard that raises a secondary
+    ``ClosedResourceError``/``BrokenResourceError`` out of the ASGI app, masking the
+    original error and surfacing as "Exception in ASGI application". The 500 response
+    must already be delivered and ``handle_request`` must return cleanly.
+    """
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+        event_store=_PrimingFailingStore(),
     )
 
-    async with transport.connect() as (read_stream, _write_stream):
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(transport.handle_request, post.scope, post.receive, post.send)
-            with anyio.fail_after(5):
-                await read_stream.receive()  # the request reached the session; the POST is parked
-            await transport.terminate()
+    body = b'{"jsonrpc":"2.0","id":"req-1","method":"tools/list","params":{}}'
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "query_string": b"",
+        "headers": [
+            (b"accept", b"application/json, text/event-stream"),
+            (b"content-type", b"application/json"),
+            (b"mcp-protocol-version", b"2025-11-25"),
+        ],
+    }
+    body_sent = False
 
-    assert post.sent[0]["type"] == "http.response.start"
-    assert post.sent[0]["status"] == 500
+    async def receive() -> Message:
+        nonlocal body_sent
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        raise NotImplementedError
+
+    sent: list[Message] = []
+
+    async def asgi_send(message: Message) -> None:
+        sent.append(message)
+
+    async with transport.connect() as (read_stream, _write_stream):
+        # Model the crashed-session teardown: the read stream the POST handler would
+        # send the wrapped error into is already closed before the handler runs.
+        await read_stream.aclose()
+        # Must not raise out of the ASGI app despite the closed stream.
+        await transport.handle_request(scope, receive, asgi_send)
+
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 500
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    assert b"backend unavailable" not in body
