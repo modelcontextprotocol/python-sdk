@@ -234,7 +234,7 @@ class StreamableHTTPTransport:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
 
-            if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+            if attempt >= MAX_RECONNECTION_ATTEMPTS:
                 logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
                 return
 
