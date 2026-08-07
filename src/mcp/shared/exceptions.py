@@ -51,6 +51,16 @@ class MCPError(Exception):
     def __str__(self) -> str:
         return self.message
 
+    def __reduce__(self) -> tuple[Any, tuple[type[MCPError], tuple[Any, ...]], dict[str, Any]]:
+        return (_restore_mcp_error, (type(self), self.args), self.__dict__)
+
+
+def _restore_mcp_error(error_type: type[MCPError], args: tuple[Any, ...]) -> MCPError:
+    """Reconstruct an MCPError without invoking a subclass constructor."""
+    restored = MCPError.__new__(error_type)
+    Exception.__init__(restored, *args)
+    return restored
+
 
 class NoBackChannelError(MCPError):
     """Raised when a server-initiated request has no channel that can deliver it.
