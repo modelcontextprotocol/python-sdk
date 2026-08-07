@@ -16,6 +16,7 @@ import signal
 import sys
 from collections.abc import Callable
 from contextlib import AsyncExitStack, suppress
+from io import StringIO
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -127,6 +128,10 @@ class _FakeStdout:
         # Real async closes yield; keeps the fake honest and shutdown scheduling realistic.
         await anyio.lowlevel.checkpoint()
 
+    def close(self) -> None:
+        """Release the read end, as the kernel does when the process's pipe goes away."""
+        self._inner.close()
+
 
 class FakeProcess:
     """In-memory stand-in for the spawned server process.
@@ -145,7 +150,15 @@ class FakeProcess:
         stdout_eof_error: Exception | None = None,
         stdout_aclose_error: Exception | None = None,
         on_stdout_receive: Callable[[], None] | None = None,
+        stderr_eof_error: Exception | None = None,
     ) -> None:
+        self._stderr_send, stderr_receive = anyio.create_memory_object_stream[bytes](math.inf)
+        # Only read when errlog has no descriptor to inherit, so the client pipes stderr.
+        self.stderr = _FakeStdout(
+            stderr_receive,
+            eof_error=stderr_eof_error,
+            on_receive=lambda: None,
+        )
         self._stdout_send, stdout_receive = anyio.create_memory_object_stream[bytes](math.inf)
         self.stdout = _FakeStdout(
             stdout_receive,
@@ -178,10 +191,24 @@ class FakeProcess:
         """End the fake process's stdout, as the kernel does when it dies."""
         self._stdout_send.close()
 
+    async def feed_stderr(self, data: bytes) -> None:
+        """Make `data` readable on the fake process's stderr."""
+        await self._stderr_send.send(data)
+
+    def close_stderr(self) -> None:
+        """End the fake process's stderr, as the kernel does when it dies.
+
+        Closes both ends: unlike stdout, stderr goes unread whenever errlog owns a
+        descriptor, so nothing else would ever release the read end.
+        """
+        self._stderr_send.close()
+        self.stderr.close()
+
     def exit(self, code: int = 0) -> None:
-        """Die: set the exit code and EOF stdout, as the kernel does."""
+        """Die: set the exit code and EOF both output pipes, as the kernel does."""
         self.returncode = code
         self.close_stdout()
+        self.close_stderr()
 
     def pending_stdout_chunks(self) -> int:
         """How many fed chunks the client has not yet pulled off the fake stdout."""
@@ -975,6 +1002,71 @@ async def test_a_process_surviving_the_kill_escalation_is_logged_and_abandoned(
     # The fake "survived", so nothing ever EOF'd its stdout pipe; release it here
     # or its GC-time ResourceWarning would fail a later test.
     process.close_stdout()
+    process.close_stderr()
+
+
+class _UnwritableErrlog(StringIO):
+    """A log sink that rejects writes, as a closed notebook cell's stream does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.attempted = anyio.Event()
+
+    def write(self, s: str, /) -> int:
+        self.attempted.set()
+        raise ValueError("I/O operation on closed file")
+
+
+@pytest.mark.anyio
+async def test_a_closed_errlog_stops_stderr_forwarding_without_failing_the_session(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Losing the log sink mid-session costs the diagnostics, never the session.
+
+    A notebook cell that finishes closes the stream underneath the forwarder; the
+    server's own traffic has to survive that.
+    """
+    errlog = _UnwritableErrlog()
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    install_fake_process(monkeypatch, process)
+    ping = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+
+    with caplog.at_level(logging.DEBUG, logger="mcp.client.stdio"):
+        with anyio.fail_after(5):
+            async with stdio_client(FAKE_PARAMS, errlog=cast(TextIO, errlog)) as (read_stream, _):
+                await process.feed_stderr(b"server diagnostics no one will read\n")
+                await errlog.attempted.wait()
+
+                # The failed write must not have disturbed the message path.
+                await process.feed(_line(ping))
+                assert await _next_message(read_stream) == ping
+
+    assert "the log stream was closed" in caplog.text
+    assert process.returncode == 0
+
+
+@pytest.mark.anyio
+async def test_a_stderr_pipe_dying_with_the_server_ends_forwarding_quietly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stderr pipe torn down with the process is shutdown noise, not an error.
+
+    The proactor loop reports a hard-killed pipe as a reset rather than EOF, which
+    must not propagate out of the transport.
+    """
+    errlog = StringIO()
+    process = FakeProcess(
+        on_stdin_close=lambda: process.exit(0),
+        stderr_eof_error=anyio.BrokenResourceError(),
+    )
+    install_fake_process(monkeypatch, process)
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS, errlog=cast(TextIO, errlog)) as (_, _write):
+            await process.feed_stderr(b"last words\n")
+
+    assert errlog.getvalue() == "last words\n"
+    assert process.returncode == 0
 
 
 # ---------------------------------------------------------------------------
