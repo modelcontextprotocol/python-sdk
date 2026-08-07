@@ -3354,3 +3354,48 @@ async def test_expired_stored_registration_is_discarded_and_the_flow_re_register
     assert register_req.method == "POST"
     assert str(register_req.url) == "https://api.example.com/register"
     await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_registration_that_expires_mid_session_is_discarded_by_the_401_flow(
+    oauth_provider: OAuthClientProvider,
+):
+    """A secret that lapses after load (long-lived process) is also discarded, in-flow.
+
+    ``_initialize`` runs once per provider instance, so a registration that expires while
+    the process is running would otherwise be reused by the 401 flow: Step 4 would skip
+    re-registration and the interactive authorization would burn a user consent only to
+    fail ``invalid_client`` at the token exchange. The 401 handler re-checks the expiry
+    and discards the dead record so Step 4 re-registers instead.
+    """
+    oauth_provider._initialized = True  # already initialized while the secret was live
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,  # lapsed after load
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 → discovery; the lapsed registration is discarded, so the flow re-registers.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    register_req = await auth_flow.asend(asm_response)
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()

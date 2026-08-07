@@ -634,6 +634,18 @@ class OAuthClientProvider(httpx2.Auth):
                 # Perform full OAuth flow
                 try:
                     # OAuth flow must be inline due to generator constraints
+
+                    # A registration whose minted secret lapsed mid-session (after
+                    # _initialize already loaded it) can no longer authenticate either —
+                    # discard it here too, so Step 4 re-registers instead of running an
+                    # interactive authorization doomed to fail `invalid_client` at the
+                    # token endpoint.
+                    if self.context.client_info is not None and stored_registration_expired(self.context.client_info):
+                        logger.debug(
+                            "Stored client registration secret has expired; discarding so this flow re-registers"
+                        )
+                        self.context.client_info = None
+
                     www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
 
                     # Step 1: Discover protected resource metadata (SEP-985 with fallback support)
