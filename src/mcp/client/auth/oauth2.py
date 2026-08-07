@@ -579,12 +579,14 @@ class OAuthClientProvider(httpx2.Auth):
 
     async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
         """httpx2 auth flow integration."""
+        # Capture protocol version from request headers
+        protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
+
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()
 
-            # Capture protocol version from request headers
-            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
+            self.context.protocol_version = protocol_version
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Try to refresh token
@@ -605,6 +607,10 @@ class OAuthClientProvider(httpx2.Auth):
 
         if response.status_code == 401:
             async with self.context.lock:
+                # Another request may have stamped its own version while this one was in
+                # flight; re-authorization has to use the version this request carried.
+                self.context.protocol_version = protocol_version
+
                 # Perform full OAuth flow
                 try:
                     # OAuth flow must be inline due to generator constraints
@@ -759,6 +765,8 @@ class OAuthClientProvider(httpx2.Auth):
             yield request
         elif response.status_code == 403:
             async with self.context.lock:
+                self.context.protocol_version = protocol_version
+
                 # Step 1: Extract error field from WWW-Authenticate header
                 error = extract_field_from_www_auth(response, "error")
 
