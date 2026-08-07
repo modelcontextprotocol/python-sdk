@@ -13,6 +13,7 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.oauth2 import stored_registration_expired
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -3253,3 +3254,103 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+def test_stored_registration_expired_only_for_lapsed_secret_backed_registrations():
+    """RFC 7591: only a non-zero, past `client_secret_expires_at` on a secret-authenticating
+    registration marks the stored record as expired; `0` means the secret never expires, and
+    methods that send no secret (`none`) are unaffected by the lapse.
+    """
+    base: dict[str, object] = {
+        "client_id": "c",
+        "client_secret": "s",
+        "redirect_uris": [AnyUrl("http://localhost:3030/callback")],
+    }
+    lapsed = int(time.time()) - 3600
+    live = int(time.time()) + 3600
+
+    expired = OAuthClientInformationFull.model_validate(
+        {**base, "token_endpoint_auth_method": "client_secret_post", "client_secret_expires_at": lapsed}
+    )
+    assert stored_registration_expired(expired)
+    assert stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "client_secret_basic", "client_secret_expires_at": lapsed}
+        )
+    )
+
+    # 0 means "never expires" (RFC 7591); absent means no expiry was declared.
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "client_secret_post", "client_secret_expires_at": 0}
+        )
+    )
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate({**base, "token_endpoint_auth_method": "client_secret_post"})
+    )
+
+    # Still-live secret, and methods that never present the secret.
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "client_secret_post", "client_secret_expires_at": live}
+        )
+    )
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "none", "client_secret_expires_at": lapsed}
+        )
+    )
+
+
+@pytest.mark.anyio
+async def test_expired_stored_registration_is_discarded_and_the_flow_re_registers(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+):
+    """Regression for #3256: a stored DCR registration whose secret has lapsed is not reused.
+
+    Reusing it makes every token-endpoint interaction fail with ``invalid_client`` — even a
+    fresh interactive authorization ends in the same failure, so the client is permanently
+    stuck (\"I re-authenticated and nothing changed\"). The lapsed record must be treated as
+    absent on load, so the next 401 flow re-registers instead of presenting the dead secret;
+    stored tokens are kept (a live access token still works without client authentication).
+    """
+    await mock_storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="dead-client",
+            client_secret="expired-secret",
+            client_secret_expires_at=int(time.time()) - 3600,
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_post",
+        )
+    )
+    await mock_storage.set_tokens(valid_tokens)
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+
+    # The lapsed registration is treated as absent; the stored access token is kept and used.
+    request = await auth_flow.__anext__()
+    assert oauth_provider.context.client_info is None
+    assert oauth_provider.context.current_tokens is not None
+    assert request.headers["Authorization"] == f"Bearer {valid_tokens.access_token}"
+
+    # Server rejects the stale token: the 401 flow re-registers instead of reusing the record.
+    response_401 = httpx2.Response(401, request=request)
+    prm_req = await auth_flow.asend(response_401)
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    register_req = await auth_flow.asend(asm_response)
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()

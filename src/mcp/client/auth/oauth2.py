@@ -109,6 +109,22 @@ def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
         )
 
 
+def stored_registration_expired(client_info: OAuthClientInformationFull) -> bool:
+    """Whether a stored registration's minted secret has lapsed and can no longer authenticate.
+
+    RFC 7591 requires `client_secret_expires_at` whenever a secret is issued, with ``0``
+    meaning the secret never expires. Once a non-zero expiry passes, every token-endpoint
+    interaction authenticating with that secret fails with ``invalid_client`` — and with no
+    RFC 7592 rotation endpoint, re-registration is the only standard recovery. The lapse
+    only matters for registrations that authenticate with the minted secret: ``none`` (or
+    an absent method) sends no secret, and `private_key_jwt` signs an assertion instead.
+    """
+    if client_info.token_endpoint_auth_method not in _SECRET_TOKEN_ENDPOINT_AUTH_METHODS:
+        return False
+    expires_at = client_info.client_secret_expires_at
+    return expires_at is not None and expires_at != 0 and expires_at < int(time.time())
+
+
 class PKCEParameters(BaseModel):
     """PKCE (Proof Key for Code Exchange) parameters."""
 
@@ -548,9 +564,23 @@ class OAuthClientProvider(httpx2.Auth):
             return False
 
     async def _initialize(self) -> None:
-        """Load stored tokens and client info."""
+        """Load stored tokens and client info.
+
+        Stored client information whose minted secret has expired (RFC 7591
+        `client_secret_expires_at`) is treated as absent: reusing it can only produce
+        `invalid_client` at the token endpoint — even interactive re-authorization ends in
+        the same failure, permanently — so it is discarded here and the next 401 flow
+        re-registers (or resolves CIMD), overwriting the dead record in storage. Any still
+        stored tokens are kept: a live access token keeps working without client
+        authentication, and with no client info the refresh path (which would present the
+        lapsed secret) is skipped.
+        """
         self.context.current_tokens = await self.context.storage.get_tokens()
-        self.context.client_info = await self.context.storage.get_client_info()
+        client_info = await self.context.storage.get_client_info()
+        if client_info is not None and stored_registration_expired(client_info):
+            logger.debug("Stored client registration secret has expired; discarding so the next flow re-registers")
+            client_info = None
+        self.context.client_info = client_info
         self._initialized = True
 
     def _add_auth_header(self, request: httpx2.Request) -> None:
