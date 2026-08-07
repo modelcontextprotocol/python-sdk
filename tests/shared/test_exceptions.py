@@ -5,7 +5,7 @@ import pickle
 import pytest
 from mcp_types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
-from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, NoBackChannelError, UrlElicitationRequiredError
 
 
 def test_url_elicitation_required_error_create_with_single_elicitation() -> None:
@@ -184,7 +184,21 @@ def test_mcp_error_pickle_roundtrip() -> None:
     restored = pickle.loads(pickle.dumps(original))
 
     assert type(restored) is MCPError
+    assert restored.args == original.args
     assert restored.error == original.error
+    assert str(restored) == str(original)
+
+
+def test_no_back_channel_error_pickle_roundtrip_preserves_method() -> None:
+    """NoBackChannelError preserves its method and structured payload when pickled."""
+    original = NoBackChannelError("sampling/createMessage")
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(restored, NoBackChannelError)
+    assert restored.args == original.args
+    assert restored.error == original.error
+    assert restored.method == original.method
 
 
 def test_url_elicitation_required_error_pickle_roundtrip() -> None:
@@ -208,5 +222,6 @@ def test_url_elicitation_required_error_pickle_roundtrip() -> None:
     restored = pickle.loads(pickle.dumps(original))
 
     assert type(restored) is UrlElicitationRequiredError
+    assert restored.args == original.args
     assert restored.error == original.error
     assert restored.elicitations == original.elicitations
