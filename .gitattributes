@@ -1,2 +1,4 @@
 # Generated
 uv.lock  linguist-generated=true
+i18n/*/pages/**  linguist-generated=true
+i18n/*/state.json  linguist-generated=true
