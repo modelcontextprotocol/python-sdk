@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 from contextlib import AsyncExitStack
+from io import StringIO
 from pathlib import Path
 from textwrap import dedent
 
@@ -170,8 +171,9 @@ async def test_server_stderr_output_reaches_the_errlog_file(
 ) -> None:
     """What the server writes to stderr lands in the file passed as `errlog`.
 
-    The spawn hands over errlog's file descriptor as the child's stderr, so it must
-    be a real file -- an in-memory StringIO has no fileno.
+    A real file has a descriptor, so the spawn hands it straight to the child and no
+    forwarding task is involved. The descriptor-less case is covered by
+    test_server_stderr_output_reaches_an_errlog_without_a_file_descriptor.
     """
     marker = "stdio-lifecycle stderr marker 4242"
 
@@ -203,6 +205,45 @@ async def test_server_stderr_output_reaches_the_errlog_file(
             content = errlog.read()
 
     assert marker in content
+    assert spawned_processes[0].returncode == 0
+
+
+@pytest.mark.anyio
+async def test_server_stderr_output_reaches_an_errlog_without_a_file_descriptor(
+    spawned_processes: list[anyio.abc.Process | FallbackProcess],
+) -> None:
+    """Server stderr reaches an `errlog` that a child process cannot inherit.
+
+    Jupyter replaces sys.stderr with an ipykernel stream that has no descriptor to
+    hand over, which used to drop the server's diagnostics entirely (#156). StringIO
+    stands in for it here: same missing fileno, no notebook needed.
+    """
+    marker = "stdio-lifecycle fd-less stderr marker 4243"
+    errlog = StringIO()
+
+    async with AsyncExitStack() as stack:
+        sock, port = await open_liveness_listener()
+        stack.push_async_callback(sock.aclose)
+
+        server = (
+            f"import socket, sys\n"
+            f"s = socket.create_connection(('127.0.0.1', {port}))\n"
+            f"s.sendall(b'alive')\n"
+            f"sys.stderr.write({marker!r} + '\\n')\n"
+            f"sys.stderr.flush()\n"
+            f"sys.stdin.read()\n"
+        )
+        params = StdioServerParameters(command=sys.executable, args=["-c", server])
+
+        # The bound covers one interpreter cold start on a loaded runner; a
+        # healthy run takes well under a second.
+        with anyio.fail_after(10.0):
+            async with stdio_client(params, errlog=errlog):
+                stream = await accept_alive(sock)
+                stack.push_async_callback(stream.aclose)
+
+    # Shutdown drains the forwarder after the server dies, so the write has landed.
+    assert marker in errlog.getvalue()
     assert spawned_processes[0].returncode == 0
 
 
