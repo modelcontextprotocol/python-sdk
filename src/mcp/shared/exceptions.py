@@ -107,6 +107,10 @@ class UrlElicitationRequiredError(MCPError):
         """The list of URL elicitations required before the request can proceed."""
         return self._elicitations
 
+    def __reduce__(self) -> tuple[type, tuple[list[ElicitRequestURLParams], str]]:
+        """Support pickling by reconstructing with the original constructor signature."""
+        return (self.__class__, (self._elicitations, self.message))
+
     @classmethod
     def from_error(cls, error: ErrorData) -> UrlElicitationRequiredError:
         """Reconstruct from an ErrorData received over the wire."""

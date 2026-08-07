@@ -1,5 +1,7 @@
 """Tests for MCP exception classes."""
 
+import pickle
+
 import pytest
 from mcp_types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
@@ -173,3 +175,38 @@ def test_from_jsonrpc_error_preserves_code_message_and_data() -> None:
     )
     error = MCPError.from_jsonrpc_error(wire)
     assert error.error == ErrorData(code=URL_ELICITATION_REQUIRED, message="go elsewhere", data={"hint": "y"})
+
+
+def test_mcp_error_pickle_roundtrip() -> None:
+    """MCPError preserves its structured payload across a pickle round-trip."""
+    original = MCPError(code=-32600, message="Invalid request", data={"detail": "bad"})
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert type(restored) is MCPError
+    assert restored.error == original.error
+
+
+def test_url_elicitation_required_error_pickle_roundtrip() -> None:
+    """UrlElicitationRequiredError preserves its typed state when pickled."""
+    elicitations = [
+        ElicitRequestURLParams(
+            mode="url",
+            message="First authorization",
+            url="https://example.com/auth/first",
+            elicitation_id="auth-1",
+        ),
+        ElicitRequestURLParams(
+            mode="url",
+            message="Second authorization",
+            url="https://example.com/auth/second",
+            elicitation_id="auth-2",
+        ),
+    ]
+    original = UrlElicitationRequiredError(elicitations, message="Authorization required")
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert type(restored) is UrlElicitationRequiredError
+    assert restored.error == original.error
+    assert restored.elicitations == original.elicitations
