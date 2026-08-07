@@ -593,8 +593,9 @@ class OAuthClientProvider(httpx2.Auth):
         Unlike the 401 path, this discovery is unanchored: there is no WWW-Authenticate
         ``resource_metadata`` hint, only blind well-known probes, so a co-hosted origin
         can legitimately serve some *other* resource's documents. Results are therefore
-        treated as best-effort, never authoritative: a resource-mismatched PRM counts as
-        a failed discovery rather than an error, and a SEP-2352 issuer-binding mismatch
+        treated as best-effort, never authoritative: a resource-mismatched PRM or an
+        issuer-mismatched ASM counts as a failed discovery rather than an error, and a
+        SEP-2352 issuer-binding mismatch
         skips the eager refresh (so stored credentials are never presented to an
         unvalidated authorization server) while leaving the credentials themselves for
         the anchored 401 path to judge — that path re-discovers with the server's hint
@@ -605,8 +606,6 @@ class OAuthClientProvider(httpx2.Auth):
         rather than a side-channel client.
         """
         if self.context.oauth_metadata is None and not self.context.eager_discovery_attempted:
-            self.context.eager_discovery_attempted = True
-
             # Step 1: protected resource metadata -> authorization server URL (SEP-985).
             # Best-effort: a PRM that fails resource validation is some other co-hosted
             # resource's document, not ours — skip it; a legacy server without PRM falls
@@ -645,6 +644,7 @@ class OAuthClientProvider(httpx2.Auth):
                 )
                 self.context.protected_resource_metadata = None
                 self.context.auth_server_url = None
+                self.context.eager_discovery_attempted = True
                 return
 
             # Step 2: authorization server metadata -> the token endpoint (with fallback
@@ -656,9 +656,13 @@ class OAuthClientProvider(httpx2.Auth):
                 if not ok:
                     break
                 if asm:
-                    # SEP-2468: metadata issuer must match the discovery issuer
                     if self.context.auth_server_url is not None:
-                        validate_metadata_issuer(asm, self.context.auth_server_url)
+                        try:
+                            # SEP-2468: metadata issuer must match the discovery issuer
+                            validate_metadata_issuer(asm, self.context.auth_server_url)
+                        except OAuthFlowError:
+                            logger.debug(f"Ignoring authorization server metadata with mismatched issuer: {url}")
+                            continue
                     self.context.oauth_metadata = asm
                     break
                 else:
@@ -684,7 +688,13 @@ class OAuthClientProvider(httpx2.Auth):
                     "skipping refresh and deferring to 401 discovery"
                 )
                 self.context.oauth_metadata = None
+                self.context.eager_discovery_attempted = True
                 return
+
+            # Mark completion only now: an interrupted probe sequence (the transport
+            # failing mid-discovery closes this generator) is retried on the next
+            # refresh instead of being recorded as done.
+            self.context.eager_discovery_attempted = True
 
         refresh_response = yield await self._refresh_token()
         if not await self._handle_refresh_response(refresh_response):
