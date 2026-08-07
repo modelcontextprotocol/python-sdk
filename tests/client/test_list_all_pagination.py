@@ -306,3 +306,72 @@ async def test_drain_raises_when_cursors_cycle():
     async with Client(server) as client:
         with pytest.raises(RuntimeError, match="already returned"):
             await client.list_all_tools()
+
+
+# ---- interaction with the SEP-2549 response cache --------------------------
+#
+# These run on the default (2026-07-28) client path rather than `mode="legacy"`
+# used above: `ttlMs` is a 2026-07-28 field, so the legacy wire path strips the
+# server's freshness hint and nothing is ever cached.
+
+
+def _relisting_tools_server(state: dict[str, int]) -> Server[Any]:
+    """Build a server whose tool listing is replaced when `state["version"]` flips to 2.
+
+    Version 1 serves [a, b] with cursor "1"; version 2 serves [x, y] -> [z].
+    Version 2 still honors version 1's cursor, so a drain that starts from a
+    stale first page gets a plausible answer rather than an error. Both tests
+    flip to version 2 before draining, so version 1 only ever serves page one.
+    """
+    # A freshness hint is what makes the client cache the first page at all (SEP-2549).
+    hint: dict[str, Any] = {"ttl_ms": 60_000, "cache_scope": "private"}
+
+    async def handle_list_tools(
+        _ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        cursor = params.cursor if params else None
+        if state["version"] == 1:
+            assert cursor is None
+            return types.ListToolsResult(tools=[_make_tool("a"), _make_tool("b")], next_cursor="1", **hint)
+        if cursor is None:
+            return types.ListToolsResult(tools=[_make_tool("x"), _make_tool("y")], next_cursor="2", **hint)
+        if cursor == "1":  # version 1's cursor, carried over on a stale first page
+            return types.ListToolsResult(tools=[_make_tool("c")], **hint)
+        assert cursor == "2"
+        return types.ListToolsResult(tools=[_make_tool("z")], **hint)
+
+    return Server("relisting-tools", on_list_tools=handle_list_tools)
+
+
+async def test_drain_refetches_a_cached_first_page():
+    """A drain returns the current listing even when the first page is already cached.
+
+    Continuation pages bypass the response cache, so serving a cached first page
+    would pair its stale cursor with freshly fetched later pages and return a
+    listing the server never served. SDK-defined: the drains default to
+    `cache_mode="refresh"` to avoid that.
+    """
+    state = {"version": 1}
+    server = _relisting_tools_server(state)
+
+    async with Client(server) as client:
+        await client.list_tools()  # caches page 0 of the first listing
+        state["version"] = 2
+
+        assert [t.name for t in await client.list_all_tools()] == ["x", "y", "z"]
+
+
+async def test_drain_reuses_a_cached_first_page_when_asked():
+    """`cache_mode="use"` opts back into serving the drain's first page from cache.
+
+    SDK-defined escape hatch: the caller accepts a stale first page (and the
+    stale cursor it carries) in exchange for one fewer request.
+    """
+    state = {"version": 1}
+    server = _relisting_tools_server(state)
+
+    async with Client(server) as client:
+        await client.list_tools()  # caches page 0 of the first listing
+        state["version"] = 2
+
+        assert [t.name for t in await client.list_all_tools(cache_mode="use")] == ["a", "b", "c"]

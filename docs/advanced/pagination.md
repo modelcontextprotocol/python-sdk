@@ -71,6 +71,27 @@ That loop is the same one in every client that pages, so `Client` ships it. The 
     repeats. A repeated cursor is a broken server, and a loud failure beats a silent hang or a
     half-read list.
 
+### Drains and the response cache
+
+A server may attach a `ttlMs` freshness hint to a list result (**[Caching](../client/caching.md)**), and the
+client will serve a later `list_*` call for that method from cache instead of going back to the
+server. Only the first page is ever cached; a call carrying a cursor always goes to the wire.
+
+That split matters for a drain. If it started from a cached first page, it would take that
+page's `next_cursor` — minted against a listing that may since have changed — and pair it with
+freshly fetched later pages, returning a stitched-together listing the server never served. So
+the drains default to `cache_mode="refresh"`: the first page is re-fetched, and the fresh copy
+is written back to the cache for later single-page callers.
+
+```python
+async def list_the_tools(client: Client) -> None:
+    fresh = await client.list_all_tools()  # re-fetches the first page: always current
+    saved = await client.list_all_tools(cache_mode="use")  # one fewer request, may be stale
+```
+
+Pass `cache_mode="use"` when you would rather have the saved copy than the current one. The
+single-page `list_*` methods still default to `"use"`, unchanged.
+
 ## The three rules
 
 **Cursors are opaque.** A client must never parse, build, or guess one. The only legal source of a cursor is the previous page's `next_cursor`, verbatim.

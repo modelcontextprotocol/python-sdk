@@ -964,11 +964,22 @@ class Client:
             ),
         )
 
-    async def iter_all_tools(self, *, meta: RequestParamsMeta | None = None) -> AsyncIterator[Tool]:
+    async def iter_all_tools(
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
+    ) -> AsyncIterator[Tool]:
         """Yield every tool from the server, paging through `next_cursor`.
 
         Useful for streaming consumers that want to process tools without
         materializing the full list in memory.
+
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see `CacheMode`).
+                Defaults to `"refresh"`, unlike the single-page `list_tools`:
+                continuation pages bypass the cache unconditionally, so a
+                cached first page would pair a stale cursor with freshly
+                fetched later pages and silently return a listing the server
+                never served. Pass `"use"` to accept a cached first page.
 
         Raises:
             RuntimeError: The server returned a pagination cursor it already
@@ -977,7 +988,7 @@ class Client:
         seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
-            result = await self.list_tools(cursor=cursor, meta=meta)
+            result = await self.list_tools(cursor=cursor, meta=meta, cache_mode=cache_mode)
             for tool in result.tools:
                 yield tool
             if result.next_cursor is None:
@@ -987,21 +998,35 @@ class Client:
             seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
-    async def list_all_tools(self, *, meta: RequestParamsMeta | None = None) -> list[Tool]:
+    async def list_all_tools(
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
+    ) -> list[Tool]:
         """List every tool from the server, draining `next_cursor` across pages.
 
         Unlike `list_tools`, which returns one page, this walks pagination
         until the server reports no further pages and returns the combined
         list.
 
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see
+                `iter_all_tools`); defaults to `"refresh"`.
+
         Raises:
             RuntimeError: The server returned a pagination cursor it already
                 returned, which would page forever.
         """
-        return [tool async for tool in self.iter_all_tools(meta=meta)]
+        return [tool async for tool in self.iter_all_tools(meta=meta, cache_mode=cache_mode)]
 
-    async def iter_all_prompts(self, *, meta: RequestParamsMeta | None = None) -> AsyncIterator[Prompt]:
+    async def iter_all_prompts(
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
+    ) -> AsyncIterator[Prompt]:
         """Yield every prompt from the server, paging through `next_cursor`.
+
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see
+                `iter_all_tools`); defaults to `"refresh"`.
 
         Raises:
             RuntimeError: The server returned a pagination cursor it already
@@ -1010,7 +1035,7 @@ class Client:
         seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
-            result = await self.list_prompts(cursor=cursor, meta=meta)
+            result = await self.list_prompts(cursor=cursor, meta=meta, cache_mode=cache_mode)
             for prompt in result.prompts:
                 yield prompt
             if result.next_cursor is None:
@@ -1020,17 +1045,31 @@ class Client:
             seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
-    async def list_all_prompts(self, *, meta: RequestParamsMeta | None = None) -> list[Prompt]:
+    async def list_all_prompts(
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
+    ) -> list[Prompt]:
         """List every prompt from the server, draining `next_cursor` across pages.
+
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see
+                `iter_all_tools`); defaults to `"refresh"`.
 
         Raises:
             RuntimeError: The server returned a pagination cursor it already
                 returned, which would page forever.
         """
-        return [prompt async for prompt in self.iter_all_prompts(meta=meta)]
+        return [prompt async for prompt in self.iter_all_prompts(meta=meta, cache_mode=cache_mode)]
 
-    async def iter_all_resources(self, *, meta: RequestParamsMeta | None = None) -> AsyncIterator[Resource]:
+    async def iter_all_resources(
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
+    ) -> AsyncIterator[Resource]:
         """Yield every resource from the server, paging through `next_cursor`.
+
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see
+                `iter_all_tools`); defaults to `"refresh"`.
 
         Raises:
             RuntimeError: The server returned a pagination cursor it already
@@ -1039,7 +1078,7 @@ class Client:
         seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
-            result = await self.list_resources(cursor=cursor, meta=meta)
+            result = await self.list_resources(cursor=cursor, meta=meta, cache_mode=cache_mode)
             for resource in result.resources:
                 yield resource
             if result.next_cursor is None:
@@ -1049,19 +1088,31 @@ class Client:
             seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
-    async def list_all_resources(self, *, meta: RequestParamsMeta | None = None) -> list[Resource]:
+    async def list_all_resources(
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
+    ) -> list[Resource]:
         """List every resource from the server, draining `next_cursor` across pages.
+
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see
+                `iter_all_tools`); defaults to `"refresh"`.
 
         Raises:
             RuntimeError: The server returned a pagination cursor it already
                 returned, which would page forever.
         """
-        return [resource async for resource in self.iter_all_resources(meta=meta)]
+        return [resource async for resource in self.iter_all_resources(meta=meta, cache_mode=cache_mode)]
 
     async def iter_all_resource_templates(
-        self, *, meta: RequestParamsMeta | None = None
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
     ) -> AsyncIterator[ResourceTemplate]:
         """Yield every resource template from the server, paging through `next_cursor`.
+
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see
+                `iter_all_tools`); defaults to `"refresh"`.
 
         Raises:
             RuntimeError: The server returned a pagination cursor it already
@@ -1070,7 +1121,7 @@ class Client:
         seen_cursors: set[str] = set()
         cursor: str | None = None
         while True:
-            result = await self.list_resource_templates(cursor=cursor, meta=meta)
+            result = await self.list_resource_templates(cursor=cursor, meta=meta, cache_mode=cache_mode)
             for template in result.resource_templates:
                 yield template
             if result.next_cursor is None:
@@ -1080,14 +1131,21 @@ class Client:
             seen_cursors.add(result.next_cursor)
             cursor = result.next_cursor
 
-    async def list_all_resource_templates(self, *, meta: RequestParamsMeta | None = None) -> list[ResourceTemplate]:
+    async def list_all_resource_templates(
+        self, *, meta: RequestParamsMeta | None = None, cache_mode: CacheMode = "refresh"
+    ) -> list[ResourceTemplate]:
         """List every resource template from the server, draining `next_cursor` across pages.
+
+        Args:
+            meta: Additional metadata for the request.
+            cache_mode: Cache behavior for the first page (see
+                `iter_all_tools`); defaults to `"refresh"`.
 
         Raises:
             RuntimeError: The server returned a pagination cursor it already
                 returned, which would page forever.
         """
-        return [template async for template in self.iter_all_resource_templates(meta=meta)]
+        return [template async for template in self.iter_all_resource_templates(meta=meta, cache_mode=cache_mode)]
 
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
