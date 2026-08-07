@@ -730,7 +730,7 @@ def load_state(code: str) -> dict[str, Any]:
 
 def save_state(code: str, state: dict[str, Any]) -> None:
     text = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    (I18N / code / "state.json").write_text(text, encoding="utf-8")
+    (I18N / code / "state.json").write_text(text, encoding="utf-8", newline="")
 
 
 def page_status(page: str, code: str, state: dict[str, Any], inputs: Inputs) -> str:
@@ -802,7 +802,7 @@ def stage(language: Language, site_url: str, registry: Registry) -> Path:
             "translations_url": relative(page, "translations.md"),
         }
         banner = "\n\n".join(banners[kind].strip().format(**variables) for kind in kinds)
-        (target / page).write_text(inject_banner(body, banner), encoding="utf-8")
+        (target / page).write_text(inject_banner(body, banner), encoding="utf-8", newline="")
     return target
 
 
@@ -952,7 +952,7 @@ def command_translate(registry: Registry, args: argparse.Namespace) -> int:
                 print("\n".join(f"  {problem}" for problem in problems), file=sys.stderr)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
+            target.write_text(text, encoding="utf-8", newline="")
             state["pages"][page] = {"source_hash": sha256(english), "block_hashes": block_hashes(source), **stamp}
             save_state(language.code, state)
             print(f"{'unchanged' if text == previous else 'translated'}: {page}")

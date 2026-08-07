@@ -176,28 +176,35 @@ def test_a_page_the_reviewer_still_flags_after_the_correction_round_is_not_publi
     assert "words the translation never contained" not in model.requests[2]
 
 
+def write(path: Path, text: str) -> None:
+    """Write a repo file the way the tool reads it: UTF-8 with `\\n` line endings, on every platform."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="")
+
+
 @pytest.fixture
 def docs_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A repository tree with two English pages, one Japanese translation and the ja UI strings."""
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "index.md").write_text("# Home\n\nSee [tools](tools.md) and the [API](api/mcp/index.md).\n")
-    (tmp_path / "docs" / "tools.md").write_text("# Tools\n\nEnglish body.\n")
-    (tmp_path / "docs" / "translations.md").write_text("# Translations\n")
-    (tmp_path / "mkdocs.yml").write_text(
+    write(tmp_path / "docs" / "index.md", "# Home\n\nSee [tools](tools.md) and the [API](api/mcp/index.md).\n")
+    write(tmp_path / "docs" / "tools.md", "# Tools\n\nEnglish body.\n")
+    write(tmp_path / "docs" / "translations.md", "# Translations\n")
+    write(
+        tmp_path / "mkdocs.yml",
         "site_url: https://docs.example/\nnav:\n  - Home: index.md\n  - Tools: tools.md\n"
-        "  - Translations: translations.md\n  - API Reference: api/\n"
+        "  - Translations: translations.md\n  - API Reference: api/\n",
     )
-    (tmp_path / "i18n" / "ja" / "pages").mkdir(parents=True)
-    (tmp_path / "i18n" / "languages.yml").write_text(
+    write(
+        tmp_path / "i18n" / "languages.yml",
         "languages:\n  - {code: ja, name: 日本語}\nexclude_pages: [translations.md]\n"
         "models: {translate: t, verify: v}\nbanners:\n  disclosure: 'MT: [English]({english_url})'\n"
-        "  outdated: 'behind'\n  untranslated: 'English shown, see [how]({translations_url})'\n"
+        "  outdated: 'behind'\n  untranslated: 'English shown, see [how]({translations_url})'\n",
     )
-    (tmp_path / "i18n" / "general-prompt.md").write_text("rules")
-    (tmp_path / "i18n" / "ja" / "instructions.md").write_text("instructions")
-    (tmp_path / "i18n" / "ja" / "glossary.json").write_text(json.dumps(GLOSSARY))
-    (tmp_path / "i18n" / "ja" / "pages" / "index.md").write_text(
-        "# ホーム {#home}\n\n[ツール](tools.md) と [API](api/mcp/index.md) を参照。\n"
+    write(tmp_path / "i18n" / "general-prompt.md", "rules")
+    write(tmp_path / "i18n" / "ja" / "instructions.md", "instructions")
+    write(tmp_path / "i18n" / "ja" / "glossary.json", json.dumps(GLOSSARY))
+    write(
+        tmp_path / "i18n" / "ja" / "pages" / "index.md",
+        "# ホーム {#home}\n\n[ツール](tools.md) と [API](api/mcp/index.md) を参照。\n",
     )
     for name, path in (("ROOT", tmp_path), ("DOCS", tmp_path / "docs"), ("I18N", tmp_path / "i18n")):
         monkeypatch.setattr(i18n, name, path)
@@ -216,7 +223,7 @@ def docs_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "model": "t",
         "translated_at": "now",
     }
-    (tmp_path / "i18n" / "ja" / "state.json").write_text(json.dumps({"pages": {"index.md": page_record}, "ui": ui}))
+    write(tmp_path / "i18n" / "ja" / "state.json", json.dumps({"pages": {"index.md": page_record}, "ui": ui}))
     return tmp_path
 
 
@@ -255,7 +262,7 @@ def test_status_marks_pages_current_outdated_and_missing_from_content_and_input_
 ) -> None:
     """SDK-defined: a page is current only while both the English text and the prompt inputs it was translated from
     are unchanged; editing the English makes it outdated, and a page with no translation is missing."""
-    (docs_repo / "docs" / "index.md").write_text("# Home\n\nThe English changed since translation.\n")
+    write(docs_repo / "docs" / "index.md", "# Home\n\nThe English changed since translation.\n")
 
     exit_code = i18n.command_status(i18n.load_registry(), None)
 
