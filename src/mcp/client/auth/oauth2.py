@@ -10,6 +10,7 @@ import secrets
 import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any, Protocol, get_args
 from urllib.parse import quote, urlencode, urljoin, urlparse
@@ -160,6 +161,9 @@ class OAuthContext:
     oauth_metadata: OAuthMetadata | None = None
     auth_server_url: str | None = None
     protocol_version: str | None = None
+    # Whether the eager (pre-401) refresh already ran its blind discovery probes, so a
+    # server that publishes no metadata is not re-probed on every in-process refresh.
+    eager_discovery_attempted: bool = False
 
     # Client registration
     client_info: OAuthClientInformationFull | None = None
@@ -584,23 +588,38 @@ class OAuthClientProvider(httpx2.Auth):
         token reused before any 401) that metadata has not been discovered yet, so
         ``_refresh_token`` would fall back to ``{origin}/token`` — dropping any issuer
         path and 404ing on servers whose token endpoint lives elsewhere. Discovery runs
-        first, applying the same SEP-2352 issuer-binding checks as the 401 path so stored
-        credentials are never sent to an authorization server they are not bound to: on a
-        binding mismatch the credentials and tokens are dropped and the refresh is
-        skipped, letting the subsequent 401 flow re-register against the new server.
-        Yields the discovery and refresh requests so they run through the outer httpx
-        auth flow rather than a side-channel client.
+        first so the refresh targets the discovered token endpoint.
+
+        Unlike the 401 path, this discovery is unanchored: there is no WWW-Authenticate
+        ``resource_metadata`` hint, only blind well-known probes, so a co-hosted origin
+        can legitimately serve some *other* resource's documents. Results are therefore
+        treated as best-effort, never authoritative: a resource-mismatched PRM counts as
+        a failed discovery rather than an error, and a SEP-2352 issuer-binding mismatch
+        skips the eager refresh (so stored credentials are never presented to an
+        unvalidated authorization server) while leaving the credentials themselves for
+        the anchored 401 path to judge — that path re-discovers with the server's hint
+        and drops/re-registers only on a confirmed change. Servers publishing no
+        metadata at all keep the pre-existing ``{origin}/token`` fallback, and the
+        probes run only once per context (``eager_discovery_attempted``). Yields the
+        discovery and refresh requests so they run through the outer httpx auth flow
+        rather than a side-channel client.
         """
-        if self.context.oauth_metadata is None:
+        if self.context.oauth_metadata is None and not self.context.eager_discovery_attempted:
+            self.context.eager_discovery_attempted = True
+
             # Step 1: protected resource metadata -> authorization server URL (SEP-985).
-            # Best-effort: a legacy server without PRM falls through to the origin
-            # well-known fallback in the ASM step below. There is no 401 response at
-            # this point, so no WWW-Authenticate resource_metadata hint is available.
+            # Best-effort: a PRM that fails resource validation is some other co-hosted
+            # resource's document, not ours — skip it; a legacy server without PRM falls
+            # through to the origin well-known fallback in the ASM step below.
             for url in build_protected_resource_metadata_discovery_urls(None, self.context.server_url):
                 prm = await handle_protected_resource_response((yield create_oauth_metadata_request(url)))
                 if prm:
-                    # Validate PRM resource matches server URL (RFC 8707)
-                    await self._validate_resource_match(prm)
+                    try:
+                        # Validate PRM resource matches server URL (RFC 8707)
+                        await self._validate_resource_match(prm)
+                    except OAuthFlowError:
+                        logger.debug(f"Ignoring protected resource metadata for a different resource: {url}")
+                        continue
                     self.context.protected_resource_metadata = prm
                     self.context.auth_server_url = str(prm.authorization_servers[0])
                     break
@@ -608,9 +627,11 @@ class OAuthClientProvider(httpx2.Auth):
                     logger.debug(f"Protected resource metadata discovery failed: {url}")
 
             # SEP-2352: stored credentials are bound to the issuer that registered them.
-            # If the authorization server changed, drop them (and the old tokens) and skip
-            # the refresh so the 401 flow re-registers instead of presenting another
-            # server's credentials to the newly discovered one.
+            # A mismatch here may mean the AS changed — or merely that the blind probe
+            # found a different co-hosted resource's PRM. Skip the eager refresh so the
+            # credentials are never presented to an unvalidated AS, discard the
+            # unanchored discovery results, and let the 401 path decide with the
+            # server's own hint whether to drop the credentials and re-register.
             if (
                 self.context.client_info is not None
                 and self.context.auth_server_url is not None
@@ -618,9 +639,12 @@ class OAuthClientProvider(httpx2.Auth):
                     self.context.client_info, self.context.auth_server_url, self.context.client_metadata_url
                 )
             ):
-                logger.debug("Authorization server changed; discarding bound credentials and skipping refresh")
-                self.context.client_info = None
-                self.context.clear_tokens()
+                logger.debug(
+                    "Eagerly discovered authorization server does not match stored credential binding; "
+                    "skipping refresh and deferring to 401 discovery"
+                )
+                self.context.protected_resource_metadata = None
+                self.context.auth_server_url = None
                 return
 
             # Step 2: authorization server metadata -> the token endpoint (with fallback
@@ -641,8 +665,10 @@ class OAuthClientProvider(httpx2.Auth):
                     logger.debug(f"OAuth metadata discovery failed: {url}")
 
             # SEP-2352: on the legacy no-PRM path the issuer is only known after ASM
-            # discovery, so re-evaluate the binding here using the discovered metadata
-            # issuer (mirroring the 401 path's post-ASM check).
+            # discovery, so re-evaluate the binding here (mirroring the 401 path's
+            # post-ASM check). As above, skip the refresh and discard the unanchored
+            # metadata rather than acting on it — keeping it would let a rejected
+            # issuer's endpoints leak into a later 401 flow's registration step.
             if (
                 self.context.client_info is not None
                 and self.context.auth_server_url is None
@@ -653,9 +679,11 @@ class OAuthClientProvider(httpx2.Auth):
                     self.context.client_metadata_url,
                 )
             ):
-                logger.debug("Authorization server changed; discarding bound credentials and skipping refresh")
-                self.context.client_info = None
-                self.context.clear_tokens()
+                logger.debug(
+                    "Eagerly discovered authorization server does not match stored credential binding; "
+                    "skipping refresh and deferring to 401 discovery"
+                )
+                self.context.oauth_metadata = None
                 return
 
         refresh_response = yield await self._refresh_token()
@@ -675,15 +703,16 @@ class OAuthClientProvider(httpx2.Auth):
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Refresh the token, discovering authorization-server metadata first on a
                 # cold start (see _refresh_with_discovery). Driven inline so its requests
-                # run through this httpx auth flow, not a side-channel client.
-                refresh_flow = self._refresh_with_discovery()
-                refresh_request = await refresh_flow.__anext__()
-                while True:
-                    refresh_response = yield refresh_request
-                    try:
-                        refresh_request = await refresh_flow.asend(refresh_response)
-                    except StopAsyncIteration:
-                        break
+                # run through this httpx auth flow, not a side-channel client; aclosing
+                # finalizes the inner generator when httpx closes this flow mid-refresh.
+                async with aclosing(self._refresh_with_discovery()) as refresh_flow:
+                    refresh_request = await refresh_flow.__anext__()
+                    while True:
+                        refresh_response = yield refresh_request
+                        try:
+                            refresh_request = await refresh_flow.asend(refresh_response)
+                        except StopAsyncIteration:
+                            break
 
             if self.context.is_token_valid():
                 self._add_auth_header(request)

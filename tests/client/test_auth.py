@@ -3417,10 +3417,11 @@ async def test_eager_refresh_skips_refresh_when_credentials_bound_to_different_i
 ):
     """SEP-2352: a cold-start refresh never sends credentials bound to another issuer.
 
-    When PRM discovery reveals an authorization server different from the one the stored
-    client credentials are bound to, the credentials and tokens are dropped and the
-    refresh is skipped, so the subsequent 401 flow re-registers against the new server
-    — mirroring the issuer-binding check on the 401 discovery path.
+    When blind PRM discovery reveals an authorization server different from the one the
+    stored client credentials are bound to, the eager refresh is skipped and the
+    unanchored discovery results are discarded — but the credentials themselves are
+    kept: without a WWW-Authenticate hint the probe may have found a different
+    co-hosted resource's PRM, so dropping is deferred to the anchored 401 path.
     """
     oauth_provider.context.current_tokens = valid_tokens
     oauth_provider.context.token_expiry_time = time.time() - 100  # expired
@@ -3447,8 +3448,12 @@ async def test_eager_refresh_skips_refresh_when_credentials_bound_to_different_i
     api_request = await auth_flow.asend(prm_response)
     assert str(api_request.url) == "https://api.example.com/v1/mcp"
     assert "Authorization" not in api_request.headers
-    assert oauth_provider.context.client_info is None
-    assert oauth_provider.context.current_tokens is None
+    # Credentials and tokens are kept for the anchored 401 path to judge; the
+    # unanchored discovery results are discarded.
+    assert oauth_provider.context.client_info is not None
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.protected_resource_metadata is None
+    assert oauth_provider.context.auth_server_url is None
     await auth_flow.aclose()
 
 
@@ -3459,8 +3464,9 @@ async def test_eager_refresh_legacy_path_rechecks_issuer_binding_after_asm(
     """SEP-2352 on the legacy no-PRM path: the binding is checked against the ASM issuer.
 
     PRM discovery fails so the issuer is only known once origin-fallback ASM discovery
-    succeeds; credentials bound to a different issuer are then dropped and the refresh is
-    skipped, exactly as on the 401 path's post-ASM re-evaluation.
+    succeeds; on a mismatch the refresh is skipped and the rejected metadata is
+    discarded (keeping it could leak the rejected issuer's endpoints into a later 401
+    flow's registration step), while the credentials are left for the 401 path to judge.
     """
     oauth_provider.context.current_tokens = valid_tokens
     oauth_provider.context.token_expiry_time = time.time() - 100  # expired
@@ -3494,10 +3500,101 @@ async def test_eager_refresh_legacy_path_rechecks_issuer_binding_after_asm(
     api_request = await auth_flow.asend(asm_response)
     assert str(api_request.url) == "https://api.example.com/v1/mcp"
     assert "Authorization" not in api_request.headers
-    assert oauth_provider.context.client_info is None
-    assert oauth_provider.context.current_tokens is None
-    # The just-discovered metadata is for the current server and is kept for the 401 flow.
-    assert oauth_provider.context.oauth_metadata is not None
+    # Credentials and tokens are kept for the anchored 401 path to judge; the metadata
+    # whose issuer failed the binding check is discarded, mirroring the 401 path's
+    # defensive clear.
+    assert oauth_provider.context.client_info is not None
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.oauth_metadata is None
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_eager_refresh_treats_foreign_prm_as_failed_discovery(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A blind well-known probe returning some other co-hosted resource's PRM is skipped.
+
+    Without a WWW-Authenticate hint, a resource-mismatched PRM is not an error (the 401
+    path's authoritative semantics) but simply not our document: discovery falls through
+    to the next URL and ultimately to the legacy ``{origin}/token`` refresh, instead of
+    raising out of the auth flow before the original request is ever sent.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 100  # expired
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="none",
+    )
+    oauth_provider._initialized = True
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+
+    # Path-based well-known serves a *different* co-hosted resource's PRM: skipped.
+    prm_request = await auth_flow.__anext__()
+    foreign_prm = httpx2.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/other-api", '
+            b'"authorization_servers": ["https://elsewhere.example.com"]}'
+        ),
+        request=prm_request,
+    )
+    prm_request = await auth_flow.asend(foreign_prm)
+    assert str(prm_request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+    # Root well-known 404s; legacy origin ASM fallback 404s; refresh uses {origin}/token.
+    asm_request = await auth_flow.asend(httpx2.Response(404, request=prm_request))
+    assert str(asm_request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    refresh_request = await auth_flow.asend(httpx2.Response(404, request=asm_request))
+    assert refresh_request.method == "POST"
+    assert str(refresh_request.url) == "https://api.example.com/token"
+    assert oauth_provider.context.protected_resource_metadata is None
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_eager_refresh_probes_discovery_only_once_per_context(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """Against a server publishing no metadata, only the first refresh runs the probes.
+
+    Subsequent in-process refreshes skip straight to the ``{origin}/token`` fallback
+    (the pre-discovery behavior) instead of re-issuing the failed discovery requests on
+    every token expiry.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 100  # expired
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="none",
+    )
+    oauth_provider._initialized = True
+
+    # First refresh: probes (2x PRM, 1x legacy ASM) then the fallback refresh, succeeding.
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    request = await auth_flow.asend(httpx2.Response(404, request=request))
+    request = await auth_flow.asend(httpx2.Response(404, request=request))
+    refresh_request = await auth_flow.asend(httpx2.Response(404, request=request))
+    assert str(refresh_request.url) == "https://api.example.com/token"
+    refresh_response = httpx2.Response(
+        200,
+        json={"access_token": "refreshed_token", "token_type": "Bearer", "expires_in": 3600},
+        request=refresh_request,
+    )
+    api_request = await auth_flow.asend(refresh_response)
+    assert api_request.headers["Authorization"] == "Bearer refreshed_token"
+    await auth_flow.aclose()
+
+    # Second refresh (token expired again): no probes, straight to the fallback.
+    oauth_provider.context.token_expiry_time = time.time() - 100
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    refresh_request = await auth_flow.__anext__()
+    assert refresh_request.method == "POST"
+    assert str(refresh_request.url) == "https://api.example.com/token"
     await auth_flow.aclose()
 
 
