@@ -6,6 +6,7 @@ import time
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+import anyio
 import httpx2
 import pytest
 from inline_snapshot import Is, snapshot
@@ -3253,3 +3254,108 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_in_flight_request_does_not_block_a_concurrent_request(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """A request still in flight must not hold up the next one on the same provider.
+
+    The standalone GET SSE stream lives as long as the server keeps it open, so holding
+    ``context.lock`` until its response arrived stalled the first ``tools/call`` for that
+    whole time (#3209).
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider._initialized = True
+
+    sse_sent = anyio.Event()
+    call_done = anyio.Event()
+
+    async def get_sse_stream() -> None:
+        flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+        request = await flow.__anext__()
+        sse_sent.set()
+        # The server holds the stream open, so the response lands after the call is answered.
+        with anyio.fail_after(5):
+            await call_done.wait()
+        with pytest.raises(StopAsyncIteration):
+            await flow.asend(httpx2.Response(200, request=request))
+
+    async def call_tool() -> None:
+        await sse_sent.wait()
+        flow = oauth_provider.async_auth_flow(httpx2.Request("POST", "https://api.example.com/v1/mcp"))
+        with anyio.fail_after(5):
+            request = await flow.__anext__()
+        assert request.headers["Authorization"] == "Bearer test_access_token"
+        with pytest.raises(StopAsyncIteration):
+            await flow.asend(httpx2.Response(200, request=request))
+        call_done.set()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(get_sse_stream)
+        tg.start_soon(call_tool)
+
+
+@pytest.mark.anyio
+async def test_step_up_uses_the_protocol_version_of_its_own_request(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """Re-authorization must use the protocol version of the request that was challenged.
+
+    ``context.protocol_version`` is shared and the lock is no longer held across the
+    protected request, so a second request can stamp its own version in between and
+    otherwise flip the ``resource`` parameter for the first one.
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider._initialized = True
+
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state
+        captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = mock_callback
+
+    flow = oauth_provider.async_auth_flow(
+        httpx2.Request("GET", "https://api.example.com/v1/mcp", headers={"mcp-protocol-version": "2025-06-18"})
+    )
+    request = await flow.__anext__()
+
+    # A request on an older protocol version goes out while the first one is in flight.
+    other = oauth_provider.async_auth_flow(
+        httpx2.Request("POST", "https://api.example.com/v1/mcp", headers={"mcp-protocol-version": "2025-03-26"})
+    )
+    await other.__anext__()
+    await other.aclose()
+
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="admin:write"'},
+        request=request,
+    )
+    token_exchange_request = await flow.asend(response_403)
+
+    assert "resource=" in token_exchange_request.content.decode()
+
+    # Drive the flow to completion so the context lock is released cleanly
+    token_response = httpx2.Response(
+        200,
+        json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600, "scope": "admin:write"},
+        request=token_exchange_request,
+    )
+    final_request = await flow.asend(token_response)
+    with pytest.raises(StopAsyncIteration):
+        await flow.asend(httpx2.Response(200, request=final_request))
