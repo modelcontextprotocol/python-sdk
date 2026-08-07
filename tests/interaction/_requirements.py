@@ -354,8 +354,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:stateless:request-envelope": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#stateless-operation",
         behavior=(
-            "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion, "
-            "/clientInfo, and /clientCapabilities in params._meta; no initialize handshake occurs."
+            "At protocol_version 2026-07-28, every request carries io.modelcontextprotocol/protocolVersion "
+            "and /clientCapabilities in params._meta (/clientInfo is optional); no initialize handshake occurs."
         ),
         added_in="2026-07-28",
     ),
@@ -408,7 +408,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/lifecycle#discover",
         behavior=(
             "Calling discover() sends server/discover with no params and returns a typed DiscoverResult "
-            "carrying protocolVersion, capabilities, serverInfo and the cache hint fields."
+            "carrying supportedVersions, capabilities and the cache hint fields; the server's identity "
+            "travels as the io.modelcontextprotocol/serverInfo stamp in the result _meta."
         ),
         added_in="2026-07-28",
     ),
@@ -536,14 +537,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
             "A cancellation notification for an in-flight request stops the server-side handler, and the "
-            "receiver does not send a response for the cancelled request."
+            "receiver does not send a response for the cancelled request - no result and no error."
         ),
         divergence=Divergence(
             note=(
-                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
-                "request; both seats send an error response (code 0, 'Request cancelled') instead — the "
-                "server for cancelled client requests, and the client for cancelled server-initiated "
-                "requests — which is what unblocks the sender's pending call."
+                "The 2025-era streamable HTTP transport still answers a cancelled request, with a "
+                "REQUEST_CANCELLED (-32800) error - deliberate and era-scoped: that wire ends a request's "
+                "stream only with a response for its id, so silence would leave the POST (and any "
+                "resuming client's replay) open. Every other transport sends nothing, and the "
+                "2026-07-28 MUST NOT applies only there. Retires with the legacy transport; see "
+                "transport:streamable-http:cancelled-request-terminated."
             ),
         ),
         arm_exclusions=(
@@ -657,7 +660,7 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "The dispatcher drops null-id error responses with a debug log; in v1, JSONRPCError.id was "
                 "non-nullable, so a null-id error response failed transport validation and the resulting "
                 "ValidationError was surfaced to message_handler as an exception. A typed fault channel "
-                "restoring visibility is planned before v2 stable."
+                "restoring visibility is planned."
             ),
         ),
         deferred=(
@@ -1519,6 +1522,7 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:threshold",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1528,6 +1532,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
         behavior="logging/setLevel delivers the requested level to the server's handler and returns an empty result.",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:opt-in",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
@@ -1537,10 +1542,39 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#error-handling",
         behavior="logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).",
         removed_in="2026-07-28",
+        superseded_by="logging:per-request:invalid-level",
         note=(
             "removed in 2026-07-28 (SEP-2575); logging/setLevel removed, replaced by per-request "
             "io.modelcontextprotocol/logLevel in _meta."
         ),
+    ),
+    "logging:per-request:opt-in": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#per-request-log-level",
+        behavior=(
+            "The server does not send log message notifications for a request unless the request opts in by "
+            "carrying io.modelcontextprotocol/logLevel in _meta; a handler's log calls on an un-opted "
+            "request are dropped, not delivered on another stream."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level",),
+    ),
+    "logging:per-request:threshold": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#per-request-log-level",
+        behavior=(
+            "A request that opts in receives log message notifications only at or above the level named in "
+            "its io.modelcontextprotocol/logLevel; entries below the level are dropped."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:message:filtered",),
+    ),
+    "logging:per-request:invalid-level": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/server/utilities/logging#error-handling",
+        behavior=(
+            "A request whose io.modelcontextprotocol/logLevel is not a recognized log level is rejected with "
+            "JSON-RPC error -32602 (Invalid params)."
+        ),
+        added_in="2026-07-28",
+        supersedes=("logging:set-level:invalid-level",),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Sampling (server → client)
@@ -2558,6 +2592,32 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
     ),
+    "transport:streamable-http:cancelled-request-terminated": Requirement(
+        source="sdk",
+        behavior=(
+            "A request cancelled through notifications/cancelled is terminated with a REQUEST_CANCELLED "
+            "(-32800) error response, completing its POST - the JSON body in JSON-response mode, the "
+            "final event of its stream in SSE mode."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "An SDK choice, not spec-mandated (the spec-side gap is the Divergence on "
+            "protocol:cancel:in-flight): this era's wire ends a request's stream only with a response "
+            "for its id, and stores it so a resuming client's replay terminates too. The terminator is "
+            "written through the same ordered channel as the request's other messages, so it cannot "
+            "overtake anything already queued for the request."
+        ),
+    ),
+    "transport:streamable-http:json-response-restrictions": Requirement(
+        source="sdk",
+        behavior=(
+            "In JSON-response mode a handler's request-scoped server-initiated request fails fast with an "
+            "INVALID_REQUEST protocol error and request-scoped notifications are not delivered, because the "
+            "single JSON body carries only the response; the connection's standalone stream is unaffected."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over streamable HTTP: JSON-response mode is an HTTP framing option.",
+    ),
     "transport:streamable-http:stateless": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(
@@ -2939,6 +2999,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Auth is enforced at the HTTP layer; Cache-Control is an HTTP header.",
     ),
+    "hosting:auth:as:register-echo": Requirement(
+        source="sdk",
+        behavior=(
+            "The bundled registration endpoint returns all registered metadata about the client "
+            "in its 201 response (RFC 7591 §3.2.1) - the client's `application_type` rather than a "
+            "substituted default, and `client_secret_expires_at` (0 when the secret never expires) "
+            "whenever a `client_secret` is issued."
+        ),
+        transports=("streamable-http",),
+        note="Auth is enforced at the HTTP layer; the bundled AS is an ASGI app.",
+    ),
     "hosting:auth:as:register-error-response": Requirement(
         source="sdk",
         behavior=(
@@ -3261,8 +3332,10 @@ REQUIREMENTS: dict[str, Requirement] = {
     "hosting:http:modern:discover-response-shape": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/index",
         behavior=(
-            "A 2026-07-28 server/discover response carries supportedVersions, capabilities, and "
-            "serverInfo, with supportedVersions naming the modern protocol revisions the server accepts."
+            "A 2026-07-28 server/discover response carries supportedVersions and capabilities in the "
+            "result body, with supportedVersions naming the modern protocol revisions the server "
+            "accepts; serverInfo is not a body field and travels as the io.modelcontextprotocol/serverInfo "
+            "result _meta stamp."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
@@ -3657,6 +3730,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
+    "client-auth:dcr:substituted-metadata": Requirement(
+        source="sdk",
+        behavior=(
+            "A 201 registration response whose echoed metadata the server substituted (RFC 7591 §3.2.1) - "
+            "an unregistered application_type, null redirect_uris, extra grant types - completes the flow; "
+            "substituted credentials the authorization-code flow cannot apply (an unimplemented "
+            "token_endpoint_auth_method; private_key_jwt, whose assertion it has no key to sign; or a "
+            "secret-based method with no client_secret issued) are instead reported as an "
+            "OAuthRegistrationError before the record is persisted or authorization begins."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only.",
+    ),
     "client-auth:dcr": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#dynamic-client-registration",
         behavior=(
@@ -3916,9 +4002,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         note="Only observable over stdio: stdin/stdout purity is stdio-specific.",
         divergence=Divergence(
             note=(
-                "stdio_server's own writes satisfy this, but it does not redirect or guard sys.stdout: "
-                "handler code that calls print() writes directly to the protocol stream and corrupts the "
-                "framing. The spec MUST is satisfied only as long as application code behaves."
+                "While serving, stdio_server moves the wire to private descriptors and diverts fd 0/1, so "
+                "handler code and its child processes can neither read protocol bytes nor write into the "
+                "stream (pinned by tests/server/test_stdio.py). Remaining gaps: output flushed to stdout "
+                "before the transport enters can still precede the first frame, and the claim is "
+                "best-effort - skipped for explicitly injected streams and for processes without "
+                "normal standard descriptors."
             ),
         ),
     ),

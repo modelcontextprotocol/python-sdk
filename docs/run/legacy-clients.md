@@ -72,6 +72,13 @@ Two things about it matter more than what it does.
 
 **It costs both server-to-client channels on that leg.** A session that lives for one `POST` has no stream for the server to push a request down and no standalone stream for it to push notifications down. Every server-initiated request raises `NoBackChannelError`: `ctx.elicit()`, the retired sampling and roots calls (**[Deprecated features](../deprecated.md)**), and, yes, `Resolve` asking a *legacy* client its question. Notifications don't even get an error; they are silently dropped.
 
+!!! note
+    `json_response=True` is not that knob, but it takes half the same cost on *every* legacy
+    session: a `POST` answered with one JSON body has no stream for the request-scoped channel,
+    so a mid-request `ctx.elicit()` raises the same `NoBackChannelError` and notifications tied to
+    the request are dropped. The session's standalone stream is untouched: unrelated notifications
+    still arrive.
+
 !!! check
     Do the wrong thing. `reserve` is the exact tool that just served both clients. Deploy it with
     `stateless_http=True`, connect the same two clients over HTTP, and call it from each.
@@ -100,7 +107,7 @@ Tools, resources, prompts, structured output, progress, errors: none of them car
 There is exactly one thing left, and it is **change notifications**, because the two eras listen on different pipes:
 
 * A `2026-07-28` client opens a `subscriptions/listen` stream and reads the subscriptions bus. `ctx.notify_resource_updated()` (and `notify_tools_changed()`, `notify_prompts_changed()`, `notify_resources_changed()`) publish there, and *only* there. **[Subscriptions](../handlers/subscriptions.md)** is that page.
-* A legacy client reads the standalone stream its session keeps open. `ctx.session.send_resource_updated()` (and `send_tool_list_changed()` and friends) write to the *connection* that carried the request: for a legacy session, that is its standalone stream. For a modern HTTP request there is no such channel, and the notification is quietly dropped.
+* A legacy client reads the standalone stream its session keeps open. `ctx.session.send_resource_updated()` (and `send_tool_list_changed()` and friends) write to the *connection* that carried the request: for a legacy session, that is its standalone stream. A modern connection has no place for it: over HTTP there is no such channel, and over stdio the four change-notification kinds ride `subscriptions/listen` streams only, so on a modern connection the notification is quietly dropped.
 
 Over HTTP, neither call reaches the other era's clients. To tell everyone, call both:
 

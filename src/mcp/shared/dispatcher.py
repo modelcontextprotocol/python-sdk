@@ -250,7 +250,8 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     Implementations own correlation of outbound requests to inbound results, the
     receive loop, per-request concurrency, and cancellation/progress wiring.
 
-    The lifecycle surface is provisional; `run()` may change before v2 stable.
+    The lifecycle surface is provisional; `run()` may change in a 2.x minor
+    release.
     """
 
     async def run(

@@ -29,7 +29,7 @@ Two things to notice:
 * `structured_content` is `None`. An `Image` is content for the model to look at, not data for the application to parse: there is no output schema. (Contrast **[Structured Output](structured-output.md)**, where the return annotation *is* the schema.)
 
 !!! info
-    `ImageContent` and `AudioContent` live in `mcp_types`, right next to the `TextContent`
+    `ImageContent` and `AudioContent` live in `mcp.types`, right next to the `TextContent`
     that a plain `str` result becomes (**[Tools](tools.md)**). A tool result is a list of content blocks; `Image` and `Audio` are
     the shortest way to produce the two binary kinds.
 
@@ -85,7 +85,7 @@ A suffix it doesn't recognise falls back to `application/octet-stream`.
 
 An `Icon` is metadata, not content. It doesn't carry the image; it points at one with a URI, and a client may fetch it and show it next to your server's name, a tool, a resource, or a prompt.
 
-```python title="server.py" hl_lines="5-6 8 11 17"
+```python title="server.py" hl_lines="4-5 7 10 16"
 --8<-- "docs_src/media/tutorial004.py"
 ```
 
@@ -97,9 +97,10 @@ The same `icons=[...]` keyword is accepted by `MCPServer(...)`, `@mcp.tool()`, `
 
 ### Where a client sees them
 
-Icons travel with whatever they decorate. The server's arrive when the client connects, on `client.server_info`:
+Icons travel with whatever they decorate. The server's arrive when the client connects, on `client.server_info` (optional on 2026-era connections, so narrow it first):
 
 ```python
+assert client.server_info is not None  # python-sdk servers identify themselves by default
 client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_type="image/png", sizes=["48x48"])]
 ```
 

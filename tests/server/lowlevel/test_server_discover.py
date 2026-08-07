@@ -2,17 +2,27 @@
 
 These call the registered handler via the public `Server.get_request_handler`
 accessor without spinning up a `ServerRunner` or any transport, so they verify
-the handler's contract in isolation from the dispatch pipeline.
+the handler's contract in isolation from the dispatch pipeline. The exception
+is the server-identity pair: the serverInfo `_meta` stamp is applied by the
+runner (spec 2026-07-28, #3002), not the handler, so those two drive one
+request through `serve_one` to observe it.
 """
 
-import importlib.metadata
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any, cast
 
+import anyio
 import mcp_types as types
 import pytest
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
 from mcp.server import NotificationOptions, Server, ServerRequestContext
+from mcp.server.connection import Connection
+from mcp.server.runner import serve_one
+from mcp.shared.dispatcher import CallOptions
+from mcp.shared.message import MessageMetadata
+from mcp.shared.transport_context import TransportContext
 
 
 # `Server._handle_discover` reads only `ctx.protocol_version` (capabilities are
@@ -36,6 +46,47 @@ async def _discover(server: Server[Any], protocol_version: str = MODERN_PROTOCOL
     return result
 
 
+@dataclass
+class _StubDispatchContext:
+    """Minimal `DispatchContext` for the `serve_one`-driven identity tests.
+
+    Satisfies the protocol structurally; the discover handler never touches
+    the back-channel.
+    """
+
+    request_id: int | str | None = 1
+    transport: TransportContext = field(default_factory=lambda: TransportContext(kind="direct", can_send_request=False))
+    message_metadata: MessageMetadata = None
+    cancel_requested: anyio.Event = field(default_factory=anyio.Event)
+    can_send_request: bool = False
+
+    async def send_raw_request(
+        self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        raise NotImplementedError
+
+    async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
+        raise NotImplementedError
+
+
+async def _discover_over_runner(server: Server[Any]) -> dict[str, Any]:
+    """Serve one `server/discover` through the runner - the layer that stamps
+    server identity into the result `_meta`."""
+    connection = Connection.from_envelope(MODERN_PROTOCOL_VERSIONS[0], None, None)
+    params: dict[str, Any] = {
+        "_meta": {
+            types.PROTOCOL_VERSION_META_KEY: MODERN_PROTOCOL_VERSIONS[0],
+            types.CLIENT_CAPABILITIES_META_KEY: {},
+        }
+    }
+    return await serve_one(
+        server, _StubDispatchContext(), "server/discover", params, connection=connection, lifespan_state={}
+    )
+
+
 def test_registered_by_default() -> None:
     """SDK-defined: a bare `Server` registers a `server/discover` handler out of
     the box, typed for the base `RequestParams`."""
@@ -55,7 +106,8 @@ async def test_supported_versions_is_modern_set() -> None:
 
 @pytest.mark.anyio
 async def test_server_info_reflects_constructor_fields() -> None:
-    """SDK-defined: `serverInfo` is built field-for-field from the `Server`
+    """Server identity travels as the discover result's `_meta` serverInfo
+    stamp (spec 2026-07-28, #3002), built field-for-field from the `Server`
     constructor arguments."""
     icons = [types.Icon(src="https://example.test/icon.png")]
     server = Server(
@@ -66,8 +118,9 @@ async def test_server_info_reflects_constructor_fields() -> None:
         website_url="https://example.test",
         icons=icons,
     )
-    result = await _discover(server)
-    assert result.server_info == types.Implementation(
+    result = await _discover_over_runner(server)
+    stamp = result["_meta"][types.SERVER_INFO_META_KEY]
+    assert types.Implementation.model_validate(stamp) == types.Implementation(
         name="info-server",
         version="9.9.9",
         title="Info Server",
@@ -78,11 +131,12 @@ async def test_server_info_reflects_constructor_fields() -> None:
 
 
 @pytest.mark.anyio
-async def test_server_info_version_falls_back_to_package() -> None:
-    """SDK-defined: when no explicit version is supplied, `serverInfo.version`
-    falls back to the installed `mcp` package version."""
-    result = await _discover(Server("unversioned"))
-    assert result.server_info.version == importlib.metadata.version("mcp")
+async def test_an_unversioned_server_reports_an_empty_version() -> None:
+    """SDK-defined: when no explicit version is supplied, the stamped
+    `serverInfo` version is an empty string - the SDK never substitutes its
+    own package version for the server's."""
+    result = await _discover_over_runner(Server("unversioned"))
+    assert result["_meta"][types.SERVER_INFO_META_KEY] == {"name": "unversioned", "version": ""}
 
 
 @pytest.mark.anyio
@@ -143,7 +197,6 @@ async def test_overridable_via_add_request_handler() -> None:
     custom = types.DiscoverResult(
         supported_versions=list(MODERN_PROTOCOL_VERSIONS),
         capabilities=types.ServerCapabilities(),
-        server_info=types.Implementation(name="custom-server", version="1.0.0"),
         instructions="overridden",
         ttl_ms=60_000,
         cache_scope="public",

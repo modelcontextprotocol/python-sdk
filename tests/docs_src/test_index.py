@@ -6,6 +6,7 @@ from mcp_types import CallToolResult, TextContent, TextResourceContents
 
 from docs_src.index.tutorial001 import mcp
 from mcp import Client
+from tests.docs_src._helpers import strip_server_info
 
 # `pyproject.toml` globally downgrades `mcp.MCPDeprecationWarning` to *ignore* because the
 # SDK still calls those methods internally. A documentation example must never lean on
@@ -18,6 +19,7 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 async def test_add_tool() -> None:
     async with Client(mcp) as client:
         result = await client.call_tool("add", {"a": 1, "b": 2})
+        result = strip_server_info(result, mcp)
         assert result == snapshot(
             CallToolResult(content=[TextContent(type="text", text="3")], structured_content={"result": 3})
         )

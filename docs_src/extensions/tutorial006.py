@@ -1,8 +1,7 @@
 from collections.abc import Sequence
 from typing import Any, Literal
 
-import mcp_types as types
-
+import mcp.types as types
 from mcp import Client
 from mcp.client import ClaimContext, ClientExtension, ResultClaim
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext

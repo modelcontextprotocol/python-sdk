@@ -9,7 +9,7 @@ from mcp.client.auth.extensions.identity_assertion import IdentityAssertionOAuth
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-IDP_SIGNING_KEY = "the-enterprise-idp-signing-key"
+IDP_SIGNING_KEY = "the-enterprise-idp-signing-key-for-this-demo"
 
 
 class InMemoryTokenStorage:

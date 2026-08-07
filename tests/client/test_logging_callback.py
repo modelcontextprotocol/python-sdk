@@ -1,6 +1,5 @@
 from typing import Literal
 
-import mcp_types as types
 import pytest
 from mcp_types import (
     LoggingMessageNotificationParams,
@@ -8,8 +7,8 @@ from mcp_types import (
 )
 
 from mcp import Client
+from mcp.client import IncomingMessage
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.shared.session import RequestResponder
 
 
 class LoggingCollector:
@@ -55,9 +54,7 @@ async def test_logging_callback():
         return True
 
     # Create a message handler to catch exceptions
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:
         if isinstance(message, Exception):  # pragma: no cover
             raise message
 

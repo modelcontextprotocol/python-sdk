@@ -3,7 +3,7 @@
 One model per protocol construct, carrying every field from every supported
 protocol version, so application code sees a single set of types regardless of
 the negotiated version. Per-field docstrings note version availability. The
-`mcp_types.v*` surface packages carry the schema-exact wire shapes.
+`mcp_types._v*` surface packages carry the schema-exact wire shapes.
 """
 
 from __future__ import annotations
@@ -67,6 +67,13 @@ LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel"
 
 Deprecated (with the rest of logging) by SEP-2577 in the same revision that
 introduces it. If absent, the server must not send log notifications.
+"""
+
+SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
+"""Reserved result `_meta` key: the server `Implementation` (2026-07-28). SDK-managed.
+
+Servers SHOULD stamp it on every result. The value is self-reported and
+unverified - display, logging, and debugging only; never behavior or security.
 """
 
 
@@ -590,8 +597,6 @@ class DiscoverResult(CacheableResult):
     """MCP protocol versions this server supports; the client should pick one for subsequent requests."""
 
     capabilities: ServerCapabilities
-
-    server_info: Implementation
 
     instructions: str | None = None
     """Natural-language guidance describing the server and its features, e.g. for

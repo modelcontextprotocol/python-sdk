@@ -22,6 +22,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
@@ -29,7 +30,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:list:pagination")
-async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> None:
+async def test_next_cursor_round_trips_through_the_client(connect: Connect, unstamped: Unstamp) -> None:
     """The next_cursor a list handler returns reaches the client, and the cursor the client sends
     back on the following call reaches the handler verbatim.
     """
@@ -55,7 +56,9 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
     assert first_page.next_cursor == cursor
     assert seen_cursors == [None, cursor]
     assert [tool.name for tool in first_page.tools] == ["alpha"]
-    assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})]))
+    assert unstamped(second_page) == snapshot(
+        ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})])
+    )
 
 
 @requirement("pagination:exhaustion")

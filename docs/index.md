@@ -1,9 +1,9 @@
 # MCP Python SDK
 
-!!! info "You are viewing the in-development v2 documentation"
-    For the current stable release, see the [v1.x documentation](https://py.sdk.modelcontextprotocol.io/).
-    New to v2, or coming from v1? **[What's new in v2](whats-new.md)** is the five-minute tour of what changed.
-    Trying v2? [Tell us what you find](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml) — it is the most useful thing you can do for the SDK right now.
+!!! info "This documents v2, the current stable release line"
+    New to v2, or coming from v1? **[What's new in v2](whats-new.md)** is the five-minute tour of what changed, and the **[Migration Guide](migration.md)** covers every breaking change.
+    Still on v1.x? Its documentation lives at the [v1.x docs](https://py.sdk.modelcontextprotocol.io/v1/).
+    Something rough or confusing? [Tell us](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml).
 
 The **Model Context Protocol (MCP)** lets applications provide context to LLMs in a standardized way, separating the concern of *providing* context from the LLM interaction itself.
 
@@ -22,22 +22,17 @@ Python 3.10+.
 === "uv"
 
     ```bash
-    uv add "mcp[cli]==2.0.0b1"
+    uv add "mcp[cli]"
     ```
 
 === "pip"
 
     ```bash
-    pip install "mcp[cli]==2.0.0b1"
+    pip install "mcp[cli]"
     ```
 
 The `[cli]` extra gives you the `mcp` command; you'll want it for development.
-
-!!! warning "Pin the version while v2 is in beta"
-    Installers never select a pre-release unless you name one, so an unpinned `uv add "mcp[cli]"`
-    gives you the latest **v1.x** release, which this documentation does not describe. Check
-    [PyPI](https://pypi.org/project/mcp/#history) for the newest beta before you copy the line
-    above. See [Installation](get-started/installation.md) for the details.
+See [Installation](get-started/installation.md) for what each dependency is for.
 
 ## Example
 
@@ -98,5 +93,5 @@ You wrote two Python functions with type hints and a docstring. The SDK does the
 * Migrating from v1? Start with the **[Migration Guide](migration.md)**.
 * Hunting for an exact signature? The **[API Reference](api/mcp/index.md)** is generated from the source.
 * Reading with an LLM? This documentation is also published in the [llms.txt](https://llmstxt.org/) format:
-  [llms.txt](https://py.sdk.modelcontextprotocol.io/v2/llms.txt) is an index of the pages, and
-  [llms-full.txt](https://py.sdk.modelcontextprotocol.io/v2/llms-full.txt) contains every page in a single file.
+  [llms.txt](https://py.sdk.modelcontextprotocol.io/llms.txt) is an index of the pages, and
+  [llms-full.txt](https://py.sdk.modelcontextprotocol.io/llms-full.txt) contains every page in a single file.

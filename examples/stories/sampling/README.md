@@ -3,7 +3,6 @@
 > **Deprecated** in the 2026-07-28 protocol (SEP-2577); functional through the
 > deprecation window. Migration: call your LLM provider directly from the
 > server instead of requesting completions through the client.
-> TODO(maxisbey): revisit before beta.
 
 A tool that asks the **client's** LLM for a completion mid-call — the inverted
 MCP direction. The server holds no model API key; it awaits

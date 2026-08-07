@@ -2,16 +2,16 @@
 
 ## Branching Model
 
-<!-- TODO: drop this section once v2 ships and main becomes the stable line -->
-
-- `main` is currently the V2 rework.
-- Breaking changes are expected here — removing or replacing an API must be
-  intentional. Adding a replacement API or `@deprecated` shim must likewise be
-  a deliberate design choice, not bolted on for free.
-- Breaking changes (including those softened by a backwards-compatibility
-  shim) must be documented in `docs/migration.md`.
-- `v1.x` is the release branch for the current stable line. Backport PRs target
-  this branch and use a `[v1.x]` title prefix.
+- `main` is the current stable line (v2); releases are cut from it (see
+  `RELEASE.md`).
+- Removing or replacing an API must be intentional, and what shipped in 2.x
+  is public surface. Adding a replacement API or `@deprecated` shim is
+  likewise a deliberate design choice, not bolted on for free.
+- Changes that break code written against v1 (including those softened by a
+  backwards-compatibility shim) must be documented in `docs/migration.md`.
+- `v1.x` is the maintenance branch for the previous major. Backport PRs
+  target it and use a `[v1.x]` title prefix; only critical bug fixes and
+  security fixes land there.
 - `README.md` documents v2. The v1 README lives on the `v1.x` branch.
 
 ## Package Management

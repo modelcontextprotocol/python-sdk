@@ -54,7 +54,6 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         # Get request info
         request_id = ctx.request_id
-        client_id = ctx.client_id
 
         return str(x)
     ```
@@ -275,16 +274,6 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
-    # TODO(maxisbey): see if this is needed otherwise remove
-    @property
-    def client_id(self) -> str | None:
-        """Get the client ID if available.
-
-        Note: this reads from the MCP request's `_meta` params, not the OAuth
-        bearer token. For that, use `get_access_token().client_id`.
-        """
-        return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
-
     @property
     def headers(self) -> Mapping[str, str] | None:
         """Request headers carried by this message, when the transport has them.
@@ -326,11 +315,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def client_capabilities(self) -> ClientCapabilities | None:
         """The client's declared capabilities for this connection.
 
-        `None` when the client supplied no client info (e.g. an anonymous
-        stateless request without the reserved `_meta` keys).
+        `None` when the client declared none (e.g. an anonymous stateless
+        request without the reserved `_meta` keys). Client info is not
+        required for capabilities to be recorded.
         """
-        client_params = self.request_context.session.client_params
-        return client_params.capabilities if client_params else None
+        return self.request_context.session.client_capabilities
 
     @property
     def session(self):

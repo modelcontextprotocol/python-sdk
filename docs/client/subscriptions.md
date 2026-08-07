@@ -8,7 +8,7 @@ This page is the client end: opening the stream, watching it beside your main fl
 
 A subscription is one context manager. Entering it sends the request, with your keyword arguments as the subscription filter, and waits for the server's acknowledgment, so the stream is live by the time the block starts.
 
-```python title="client.py" hl_lines="16 19 29"
+```python title="client.py" hl_lines="15 18 28"
 --8<-- "docs_src/subscriptions/tutorial003.py"
 ```
 
@@ -20,7 +20,7 @@ Duplicate events waiting to be consumed collapse into one, and refetching still 
 
 Two more properties of the handle:
 
-* `sub.honored` is the filter the server acknowledged: a `SubscriptionFilter` with the fields you passed, read as attributes (`sub.honored.prompts_list_changed`). `MCPServer` honors every kind you ask for, so it echoes your request back. A server that narrows the filter (see the [filter warning](../handlers/subscriptions.md#only-what-was-asked-for) on the server page) acknowledges less, and an honored kind may still never fire.
+* `sub.honored` is the filter the server acknowledged: a `SubscriptionFilter` with the fields you passed, read as attributes (`sub.honored.prompts_list_changed`). `MCPServer` honors every kind you ask for, so it echoes your request back. A server that supports fewer kinds acknowledges less, and an honored kind may still never fire. A server may also refuse the whole request rather than acknowledge it (see [Deciding who may watch](../handlers/subscriptions.md#deciding-who-may-watch) on the server page), which surfaces as the request's error.
 * `sub.subscription_id` is the listen request's id, the one stamped on every frame of this stream. Several subscriptions can be open at once, each demultiplexed by its own id.
 
 ## Watching without blocking

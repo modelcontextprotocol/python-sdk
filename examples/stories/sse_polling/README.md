@@ -4,7 +4,7 @@
 > the sessionful transport are removed in the 2026-07-28 protocol (SEP-2575)
 > with no modern-era equivalent; the closest 2026-era pattern is client-side
 > reconnection over a persisted `DiscoverResult` —
-> [`reconnect/`](../reconnect/). TODO(maxisbey): revisit before beta.
+> [`reconnect/`](../reconnect/).
 
 SEP-1699 server-initiated SSE disconnection with `Last-Event-ID` replay. The
 server's `EventStore` stamps every SSE event with an ID and opens each response
