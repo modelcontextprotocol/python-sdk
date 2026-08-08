@@ -311,11 +311,26 @@ def test_header_rung_does_not_require_name_header_for_non_name_bearing_method() 
 
 
 def test_header_rung_does_not_require_name_header_when_body_omits_the_named_param() -> None:
-    """SDK-defined: a name-bearing method whose body lacks the named param skips the `Mcp-Name`
-    check — the param's absence is INVALID_PARAMS later, not HEADER_MISMATCH here."""
+    """SDK-defined: a name-bearing method whose body lacks the named param, and whose headers
+    carry no `Mcp-Name` either, skips the check — the param's absence is INVALID_PARAMS later,
+    not HEADER_MISMATCH here."""
     body = envelope("tools/call")
     result = classify_inbound_request(body, headers=matching_headers(body))
     assert isinstance(result, InboundModernRoute)
+
+
+@pytest.mark.parametrize(
+    ("method", "name_key"),
+    [(m, k) for m, k in NAME_BEARING_METHODS.items()],
+)
+def test_header_rung_rejects_orphan_name_header_when_body_omits_the_named_param(method: str, name_key: str) -> None:
+    """Regression for the asymmetry with `validate_mcp_param_headers`: a `Mcp-Name` header
+    claiming a route the body never carried is a spoofing risk, not a value with nothing to
+    compare against — mirrors the `Mcp-Param-*` "header present but argument absent" rejection.
+    """
+    body = envelope(method)
+    headers = matching_headers(body) | {MCP_NAME_HEADER: encode_header_value("someone-elses-tool")}
+    assert_rejected(classify_inbound_request(body, headers=headers), HEADER_MISMATCH)
 
 
 # --- all rungs pass ------------------------------------------------------------

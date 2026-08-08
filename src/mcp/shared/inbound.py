@@ -385,9 +385,10 @@ def classify_inbound_request(
     2. When `headers` is given, `MCP-Protocol-Version` equals the envelope's
        protocol version, `Mcp-Method` equals `body.method`, and — for the
        methods in :data:`NAME_BEARING_METHODS` — `Mcp-Name` equals the named
-       body param → else :data:`~mcp_types.jsonrpc.HEADER_MISMATCH`. Runs
-       before the supported-version rung so a client that disagrees with itself
-       is told so, rather than told the body's version is unsupported.
+       body param, and is absent when that param is → else
+       :data:`~mcp_types.jsonrpc.HEADER_MISMATCH`. Runs before the
+       supported-version rung so a client that disagrees with itself is told
+       so, rather than told the body's version is unsupported.
     3. The envelope's protocol version is a string in
        `supported_modern_versions` → non-string values are
        :data:`~mcp_types.jsonrpc.INVALID_PARAMS` (a shape defect, not a
@@ -444,7 +445,21 @@ def classify_inbound_request(
         if name_key is not None:
             # Rung 1 already proved body["params"] is a mapping (its `_meta` is one).
             body_value = cast("Mapping[str, Any]", body["params"]).get(name_key)
-            if body_value is not None and decode_header_value(headers.get(MCP_NAME_HEADER)) != body_value:
+            name_header = headers.get(MCP_NAME_HEADER)
+            if body_value is None:
+                # An orphan header claiming a route the body never carried is the
+                # same spoofing risk validate_mcp_param_headers rejects for
+                # Mcp-Param-*: a conforming client never emits Mcp-Name unless the
+                # named param is present (see `emit`/matching_headers), so a header
+                # here with no matching body value did not come from this request's
+                # own body. The param's absence is INVALID_PARAMS elsewhere; that is
+                # orthogonal to whether a present header is trustworthy.
+                if name_header is not None:
+                    return InboundLadderRejection(
+                        code=HEADER_MISMATCH,
+                        message=f"{MCP_NAME_HEADER} header is present but the body's {name_key!r} parameter is absent",
+                    )
+            elif decode_header_value(name_header) != body_value:
                 return InboundLadderRejection(
                     code=HEADER_MISMATCH,
                     message=f"{MCP_NAME_HEADER} header does not match the request body's {name_key!r} parameter",
