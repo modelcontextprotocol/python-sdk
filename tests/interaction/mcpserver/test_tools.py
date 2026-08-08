@@ -119,6 +119,32 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect, unsta
     )
 
 
+@requirement("mcpserver:tool:handler-throws")
+async def test_call_tool_exception_is_logged_server_side(
+    connect: Connect, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A tool exception is logged at ERROR level on the server so operators can diagnose failures.
+
+    The is_error result reaches the client, but without server-side logging the root cause is
+    invisible in server logs. This test asserts the log record is emitted alongside the result.
+    """
+    mcp = MCPServer("errors")
+
+    @mcp.tool()
+    def boom() -> str:
+        raise RuntimeError("something went wrong")
+
+    with caplog.at_level(logging.ERROR, logger="mcp.server.mcpserver.server"):
+        async with connect(mcp) as client:
+            result = await client.call_tool("boom", {})
+
+    assert result.is_error is True
+    assert any(
+        rec.levelno == logging.ERROR and "boom" in rec.message
+        for rec in caplog.records
+    )
+
+
 @requirement("mcpserver:tool:unknown-name")
 async def test_call_tool_unknown_name_returns_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """Calling a tool name that was never registered is reported as an is_error result.
