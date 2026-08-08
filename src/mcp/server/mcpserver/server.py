@@ -421,6 +421,7 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as e:
+            logger.exception(f"Error calling tool {params.name}")
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
 
     async def _handle_list_resources(
