@@ -4,6 +4,9 @@ import httpx2
 import pytest
 from click.testing import CliRunner, Result
 from mcp_simple_auth import server
+from mcp_simple_auth.legacy_as_server import ServerSettings, create_simple_mcp_server
+from mcp_simple_auth.simple_auth_provider import SimpleAuthSettings
+from pydantic import AnyHttpUrl
 
 from mcp.server.mcpserver.server import MCPServer
 
@@ -93,3 +96,30 @@ async def test_an_explicit_public_resource_url_is_preserved(monkeypatch: pytest.
 
     assert metadata.status_code == 200
     assert metadata.json()["resource"] == public_url
+
+
+@pytest.mark.anyio
+async def test_legacy_authorization_server_omits_protected_resource_metadata() -> None:
+    """Legacy AS mode authenticates SSE without claiming a separate protected-resource URL."""
+    server_settings = ServerSettings(
+        host="localhost",
+        port=8000,
+        server_url=AnyHttpUrl("http://localhost:8000"),
+        auth_callback_path="http://localhost:8000/login/callback",
+    )
+    auth_settings = SimpleAuthSettings(
+        demo_username="demo_user",
+        demo_password="demo_password",
+        mcp_scope="user",
+    )
+    app = create_simple_mcp_server(server_settings, auth_settings).sse_app()
+
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://localhost:8000") as client:
+        authorization_metadata = await client.get("/.well-known/oauth-authorization-server")
+        protected_resource_metadata = await client.get("/.well-known/oauth-protected-resource")
+        unauthorized = await client.get("/sse")
+
+    assert authorization_metadata.status_code == 200
+    assert protected_resource_metadata.status_code == 404
+    assert unauthorized.status_code == 401
+    assert "resource_metadata" not in unauthorized.headers["www-authenticate"]

@@ -1124,19 +1124,18 @@ class MCPServer(Generic[LifespanResultT]):
         # Set up auth if configured
         if self.settings.auth:
             required_scopes = self.settings.auth.required_scopes or []
+            assert self._token_verifier is not None
 
-            # Add auth middleware if token verifier is available
-            if self._token_verifier:
-                middleware = [
-                    # extract auth info from request (but do not require it)
-                    Middleware(
-                        AuthenticationMiddleware,
-                        backend=BearerAuthBackend(self._token_verifier),
-                    ),
-                    # Add the auth context middleware to store
-                    # authenticated user in a contextvar
-                    Middleware(AuthContextMiddleware),
-                ]
+            middleware = [
+                # extract auth info from request (but do not require it)
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=BearerAuthBackend(self._token_verifier),
+                ),
+                # Add the auth context middleware to store
+                # authenticated user in a contextvar
+                Middleware(AuthContextMiddleware),
+            ]
 
             # Add auth endpoints if auth server provider is configured
             if self._auth_server_provider:
@@ -1154,7 +1153,7 @@ class MCPServer(Generic[LifespanResultT]):
                 )
 
         # When auth is configured, require authentication
-        if self._token_verifier:
+        if self.settings.auth:
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
