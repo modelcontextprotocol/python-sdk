@@ -59,7 +59,7 @@ async def handle_callback() -> AuthorizationCodeResult:
 async def main():
     """Run the OAuth client example."""
     oauth_auth = OAuthClientProvider(
-        server_url="http://localhost:8001",
+        server_url="http://localhost:8001/mcp",
         client_metadata=OAuthClientMetadata(
             client_name="Example MCP Client",
             redirect_uris=[AnyUrl("http://localhost:3000/callback")],

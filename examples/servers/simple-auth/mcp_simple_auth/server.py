@@ -100,6 +100,11 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
 @click.option("--port", default=8001, help="Port to listen on")
 @click.option("--auth-server", default="http://localhost:9000", help="Authorization Server URL")
 @click.option(
+    "--resource-server-url",
+    envvar="MCP_RESOURCE_SERVER_URL",
+    help="Complete public MCP endpoint URL (defaults to the selected transport path)",
+)
+@click.option(
     "--transport",
     default="streamable-http",
     type=click.Choice(["sse", "streamable-http"]),
@@ -110,7 +115,13 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
     is_flag=True,
     help="Enable RFC 8707 resource validation",
 )
-def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http"], oauth_strict: bool) -> int:
+def main(
+    port: int,
+    auth_server: str,
+    resource_server_url: str | None,
+    transport: Literal["sse", "streamable-http"],
+    oauth_strict: bool,
+) -> int:
     """Run the MCP Resource Server.
 
     This server:
@@ -128,7 +139,8 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
 
         # Create settings
         host = "localhost"
-        server_url = f"http://{host}:{port}/mcp"
+        transport_path = "/sse" if transport == "sse" else "/mcp"
+        server_url = resource_server_url or f"http://{host}:{port}{transport_path}"
         settings = ResourceServerSettings(
             host=host,
             port=port,
@@ -139,7 +151,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         )
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
-        logger.error("Make sure to provide a valid Authorization Server URL")
+        logger.error("Make sure to provide valid Authorization and Resource Server URLs")
         return 1
 
     try:
@@ -148,8 +160,16 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         logger.info(f"🚀 MCP Resource Server running on {settings.server_url}")
         logger.info(f"🔑 Using Authorization Server: {settings.auth_server_url}")
 
-        # Run the server - this should block and keep running
-        mcp_server.run(transport=transport, host=host, port=port)
+        # Keep the advertised resource path and the listening route in lockstep.
+        if transport == "sse":
+            mcp_server.run(transport="sse", host=host, port=port, sse_path=transport_path)
+        else:
+            mcp_server.run(
+                transport="streamable-http",
+                host=host,
+                port=port,
+                streamable_http_path=transport_path,
+            )
         logger.info("Server stopped")
         return 0
     except Exception:

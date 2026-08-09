@@ -29,7 +29,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 `AuthSettings` is the public face of your resource server:
 
 * `issuer_url`: the authorization server that issues your tokens.
-* `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives.
+* `resource_server_url`: the complete public URL of this MCP endpoint, including its path (for example, `/mcp`). It names *which* resource a token is for, and it's where the discovery document lives. Use the externally visible URL when a proxy or mounted application changes the public path; the SDK does not infer it from the internal route.
 * `required_scopes`: every token must carry all of them.
 
 !!! tip

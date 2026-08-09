@@ -37,6 +37,7 @@ class AuthSettings(BaseModel):
     # Resource Server settings (when operating as RS only)
     resource_server_url: AnyHttpUrl | None = Field(
         ...,
-        description="The URL of the MCP server to be used as the resource identifier "
-        "and base route to look up OAuth Protected Resource Metadata.",
+        description="The complete externally visible URL of the MCP endpoint, including "
+        "any path prefix and transport path. Used as the resource identifier and to locate "
+        "OAuth Protected Resource Metadata.",
     )

@@ -38,6 +38,26 @@ uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --tran
 
 ```
 
+The resource identifier defaults to the selected transport endpoint: `/mcp` for
+Streamable HTTP and `/sse` for SSE. If a proxy or mounted application exposes a
+different public URL, pass the complete endpoint explicitly:
+
+```bash
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 \
+  --resource-server-url=https://gateway.example.com/services/time/mcp
+```
+
+Configure the proxy to forward the corresponding public well-known path (for
+this example, `/.well-known/oauth-protected-resource/services/time/mcp`) to the
+resource-server application as well.
+
+For SSE, both the transport and protected-resource metadata use `/sse`:
+
+```bash
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --transport=sse
+curl http://localhost:8001/.well-known/oauth-protected-resource/sse
+```
+
 ### Step 3: Test with Client
 
 ```bash
@@ -53,12 +73,12 @@ MCP_SERVER_PORT=8001 MCP_TRANSPORT_TYPE=streamable-http uv run mcp-simple-auth-c
 **Client → Resource Server:**
 
 ```bash
-curl http://localhost:8001/.well-known/oauth-protected-resource
+curl http://localhost:8001/.well-known/oauth-protected-resource/mcp
 ```
 
 ```json
 {
-  "resource": "http://localhost:8001",
+  "resource": "http://localhost:8001/mcp",
   "authorization_servers": ["http://localhost:9000"]
 }
 ```
@@ -119,7 +139,7 @@ This ensures existing MCP servers (which could optionally act as Authorization S
 
 ```bash
 # Test Resource Server discovery endpoint (new architecture)
-curl -v http://localhost:8001/.well-known/oauth-protected-resource
+curl -v http://localhost:8001/.well-known/oauth-protected-resource/mcp
 
 # Test Authorization Server metadata
 curl -v http://localhost:9000/.well-known/oauth-authorization-server
