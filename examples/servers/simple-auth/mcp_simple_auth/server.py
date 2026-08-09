@@ -100,11 +100,6 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
 @click.option("--port", default=8001, help="Port to listen on")
 @click.option("--auth-server", default="http://localhost:9000", help="Authorization Server URL")
 @click.option(
-    "--resource-server-url",
-    envvar="MCP_RESOURCE_SERVER_URL",
-    help="Complete public MCP endpoint URL (defaults to the selected transport path)",
-)
-@click.option(
     "--transport",
     default="streamable-http",
     type=click.Choice(["sse", "streamable-http"]),
@@ -118,7 +113,6 @@ def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
 def main(
     port: int,
     auth_server: str,
-    resource_server_url: str | None,
     transport: Literal["sse", "streamable-http"],
     oauth_strict: bool,
 ) -> int:
@@ -140,7 +134,7 @@ def main(
         # Create settings
         host = "localhost"
         transport_path = "/sse" if transport == "sse" else "/mcp"
-        server_url = resource_server_url or f"http://{host}:{port}{transport_path}"
+        server_url = f"http://{host}:{port}{transport_path}"
         settings = ResourceServerSettings(
             host=host,
             port=port,
@@ -151,7 +145,7 @@ def main(
         )
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
-        logger.error("Make sure to provide valid Authorization and Resource Server URLs")
+        logger.error("Make sure to provide a valid Authorization Server URL")
         return 1
 
     try:

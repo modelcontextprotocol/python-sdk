@@ -175,9 +175,10 @@ executionEnvironments = [
     { root = "tests", extraPaths = [
         ".",
         "examples",
-        "examples/clients/simple-auth-client",
-        "examples/servers/simple-auth",
     ], reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "examples/clients/simple-auth-client", extraPaths = [
+        "examples/clients/simple-auth-client",
+    ], reportUnusedFunction = false },
     { root = "examples/stories", extraPaths = [
         "examples",
     ], reportUnusedFunction = false },

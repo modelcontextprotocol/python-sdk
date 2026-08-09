@@ -38,18 +38,8 @@ uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --tran
 
 ```
 
-The resource identifier defaults to the selected transport endpoint: `/mcp` for
-Streamable HTTP and `/sse` for SSE. If a proxy or mounted application exposes a
-different public URL, pass the complete endpoint explicitly:
-
-```bash
-uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 \
-  --resource-server-url=https://gateway.example.com/services/time/mcp
-```
-
-Configure the proxy to forward the corresponding public well-known path (for
-this example, `/.well-known/oauth-protected-resource/services/time/mcp`) to the
-resource-server application as well.
+The resource identifier follows the selected transport endpoint: `/mcp` for
+Streamable HTTP and `/sse` for SSE.
 
 For SSE, both the transport and protected-resource metadata use `/sse`:
 
