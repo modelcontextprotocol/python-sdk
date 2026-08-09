@@ -1,10 +1,21 @@
-from typing import Literal
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+from types import ModuleType
+from typing import Literal, Protocol, cast
 
 import pytest
+from click import Command
 from click.testing import CliRunner
-from mcp_simple_auth import server
 
 from mcp.server.mcpserver.server import MCPServer
+
+SERVER_ROOT = Path(__file__).parents[3] / "examples" / "servers" / "simple-auth"
+
+
+class ServerModule(Protocol):
+    main: Command
 
 
 @pytest.mark.parametrize(
@@ -13,10 +24,12 @@ from mcp.server.mcpserver.server import MCPServer
 )
 def test_selected_transport_uses_one_resource_path(
     monkeypatch: pytest.MonkeyPatch,
+    load_example_module: Callable[[Path, str], ModuleType],
     transport: Literal["sse", "streamable-http"],
     endpoint: str,
 ) -> None:
     """The example advertises and serves the selected transport path."""
+    server = cast(ServerModule, load_example_module(SERVER_ROOT, "mcp_simple_auth.server"))
     created: list[MCPServer] = []
     run_arguments: list[dict[str, object]] = []
 
