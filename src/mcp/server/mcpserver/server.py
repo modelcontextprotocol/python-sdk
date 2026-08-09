@@ -1122,7 +1122,7 @@ class MCPServer(Generic[LifespanResultT]):
         required_scopes: list[str] = []
 
         # Set up auth if configured
-        if self.settings.auth:  # pragma: no cover
+        if self.settings.auth:
             required_scopes = self.settings.auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -1154,7 +1154,7 @@ class MCPServer(Generic[LifespanResultT]):
                 )
 
         # When auth is configured, require authentication
-        if self._token_verifier:  # pragma: no cover
+        if self._token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
@@ -1198,7 +1198,7 @@ class MCPServer(Generic[LifespanResultT]):
                 )
             )
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
+        if self.settings.auth and self.settings.auth.resource_server_url:
             from mcp.server.auth.routes import create_protected_resource_routes
 
             routes.extend(
