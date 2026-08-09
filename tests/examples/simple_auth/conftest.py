@@ -8,6 +8,7 @@ from types import ModuleType
 
 import pytest
 
+
 @pytest.fixture
 def load_example_module() -> Callable[[Path, str], ModuleType]:
     """Import a workspace example without requiring it in the root test environment."""
