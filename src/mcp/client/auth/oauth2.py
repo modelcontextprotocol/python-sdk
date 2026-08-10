@@ -933,7 +933,7 @@ class OAuthClientProvider(httpx2.Auth):
                         # Step 2b: Perform (re-)authorization and token exchange
                         token_response = yield await self._perform_authorization()
                         await self._handle_token_response(token_response)
-                    except Exception:  # pragma: no cover
+                    except Exception:
                         logger.exception("OAuth flow error")
                         raise
 

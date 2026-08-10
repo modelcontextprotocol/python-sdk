@@ -4114,3 +4114,37 @@ async def test_closing_the_flow_mid_discovery_finalizes_the_403_step_up_discover
 
     with pytest.raises(StopAsyncIteration):
         await captured[0].__anext__()
+
+
+@pytest.mark.anyio
+async def test_403_step_up_surfaces_oauth_flow_errors_to_the_caller(
+    oauth_provider: OAuthClientProvider,
+):
+    """An `OAuthFlowError` raised inside the 403 step-up — here the SEP-985/RFC 8707
+    resource-identity check failing during the step-up's discovery — propagates to the
+    caller instead of being swallowed, matching the 401 branch's error contract.
+    """
+    # Restart shape: a live token and no stored registration, so the step-up discovers.
+    oauth_provider.context.current_tokens = OAuthToken(access_token="live-token")
+    oauth_provider._initialized = True
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+    prm_req = await auth_flow.asend(response_403)
+
+    # The PRM advertises a different resource, so the RFC 8707 identity check must fail.
+    mismatched_prm = httpx2.Response(
+        200,
+        content=(
+            b'{"resource": "https://other.example.com/mcp", "authorization_servers": ["https://auth.example.com"]}'
+        ),
+        request=prm_req,
+    )
+    with pytest.raises(OAuthFlowError):
+        await auth_flow.asend(mismatched_prm)
