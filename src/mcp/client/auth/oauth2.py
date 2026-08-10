@@ -10,6 +10,7 @@ import secrets
 import string
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any, Protocol, get_args
 from urllib.parse import quote, urlencode, urljoin, urlparse
@@ -812,15 +813,17 @@ class OAuthClientProvider(httpx2.Auth):
                     # metadata, applying the SEP-2352 issuer checks along the way. The
                     # sequence lives in a sub-generator shared with the 403 step-up;
                     # its requests are relayed by hand (`yield from` cannot cross an
-                    # async generator).
-                    discovery = self._discover_authorization_server_metadata(response)
-                    try:
-                        discovery_request = await anext(discovery)
-                        while True:
-                            discovery_response = yield discovery_request
-                            discovery_request = await discovery.asend(discovery_response)
-                    except StopAsyncIteration:
-                        pass
+                    # async generator). `aclosing` finalizes the sub-generator when
+                    # httpx2 closes this flow mid-discovery (transport error or
+                    # cancellation throws `GeneratorExit` at the relay's `yield`).
+                    async with aclosing(self._discover_authorization_server_metadata(response)) as discovery:
+                        try:
+                            discovery_request = await anext(discovery)
+                            while True:
+                                discovery_response = yield discovery_request
+                                discovery_request = await discovery.asend(discovery_response)
+                        except StopAsyncIteration:
+                            pass
 
                     # Step 3: Apply scope selection strategy
                     self.context.client_metadata.scope = get_client_metadata_scopes(
@@ -884,14 +887,16 @@ class OAuthClientProvider(httpx2.Auth):
                         if self.context.oauth_metadata is None and (
                             self.context.registration_secret_expired() or self.context.client_info is None
                         ):
-                            discovery = self._discover_authorization_server_metadata(response)
-                            try:
-                                discovery_request = await anext(discovery)
-                                while True:
-                                    discovery_response = yield discovery_request
-                                    discovery_request = await discovery.asend(discovery_response)
-                            except StopAsyncIteration:
-                                pass
+                            # `aclosing` mirrors the 401 relay above: it finalizes the
+                            # sub-generator when httpx2 closes this flow mid-discovery.
+                            async with aclosing(self._discover_authorization_server_metadata(response)) as discovery:
+                                try:
+                                    discovery_request = await anext(discovery)
+                                    while True:
+                                        discovery_response = yield discovery_request
+                                        discovery_request = await discovery.asend(discovery_response)
+                                except StopAsyncIteration:
+                                    pass
 
                         # Step 2a: Union previously requested scopes with the newly challenged
                         # scopes (SEP-2350) so escalating one operation keeps the others' grants.

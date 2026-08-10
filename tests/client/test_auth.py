@@ -3,6 +3,7 @@
 import base64
 import json
 import time
+from collections.abc import AsyncGenerator
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -4031,3 +4032,85 @@ async def test_403_step_up_resolves_cimd_when_registration_secret_expired(
         await auth_flow.asend(httpx2.Response(200, request=final_request))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_closing_the_flow_mid_discovery_finalizes_the_401_discovery_sub_generator(
+    oauth_provider: OAuthClientProvider,
+):
+    """httpx2's `_send_handling_auth` acloses the auth flow when a discovery request
+    fails at the transport level (or the request is cancelled), throwing `GeneratorExit`
+    at the 401 relay's `yield`; the relay must finalize the discovery sub-generator with
+    the flow rather than abandon it suspended to GC (a `ResourceWarning` under trio).
+    The sub-generator is captured via a wrapper because its finalization is not
+    observable through the auth-flow protocol itself.
+    """
+    captured: list[AsyncGenerator[httpx2.Request, httpx2.Response]] = []
+    original = oauth_provider._discover_authorization_server_metadata
+
+    def capturing(response: httpx2.Response) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        discovery = original(response)
+        captured.append(discovery)
+        return discovery
+
+    oauth_provider._discover_authorization_server_metadata = capturing
+    oauth_provider._initialized = True
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 → the flow yields the first discovery request, suspending both generators mid-relay.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    assert "oauth-protected-resource" in str(prm_req.url)
+    assert len(captured) == 1
+
+    # Closing the flow here mirrors httpx2 aborting it on a transport error.
+    await auth_flow.aclose()
+
+    # The sub-generator was closed with the flow: probing it reports exhaustion instead
+    # of resuming a suspended frame.
+    with pytest.raises(StopAsyncIteration):
+        await captured[0].__anext__()
+
+
+@pytest.mark.anyio
+async def test_closing_the_flow_mid_discovery_finalizes_the_403_step_up_discovery_sub_generator(
+    oauth_provider: OAuthClientProvider,
+):
+    """The 403 step-up's discovery relay must finalize its sub-generator when httpx2
+    acloses the flow mid-discovery, exactly like the 401 relay (same abandonment
+    hazard, same fix); the sub-generator is captured via a wrapper because its
+    finalization is not observable through the auth-flow protocol itself.
+    """
+    captured: list[AsyncGenerator[httpx2.Request, httpx2.Response]] = []
+    original = oauth_provider._discover_authorization_server_metadata
+
+    def capturing(response: httpx2.Response) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        discovery = original(response)
+        captured.append(discovery)
+        return discovery
+
+    oauth_provider._discover_authorization_server_metadata = capturing
+    # Restart shape: a live token and no stored registration, so the 403 step-up must
+    # discover before registering (`oauth_metadata` is never restored by `_initialize`).
+    oauth_provider.context.current_tokens = OAuthToken(access_token="live-token")
+    oauth_provider._initialized = True
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+
+    # 403 → the step-up yields the first discovery request, suspending both generators mid-relay.
+    prm_req = await auth_flow.asend(response_403)
+    assert "oauth-protected-resource" in str(prm_req.url)
+    assert len(captured) == 1
+
+    await auth_flow.aclose()
+
+    with pytest.raises(StopAsyncIteration):
+        await captured[0].__anext__()
