@@ -25,7 +25,7 @@ None of these gates conformance today — extension scenarios are informational 
 
 ## Continuous work
 
-* **Conformance** — every push runs the [conformance suite](https://github.com/modelcontextprotocol/conformance) as both server and client, against the released revisions and against the 2026-07-28 wire specifically; adopting each new harness release and reconciling its baseline is routine.
+* **Conformance** — every pull request and every push to `main` runs the [conformance suite](https://github.com/modelcontextprotocol/conformance) as both server and client, against the released revisions and against the 2026-07-28 wire specifically; adopting each new harness release and reconciling its baseline is routine.
 * **The next specification revision** — draft-only wire changes are tried behind the draft protocol version before they are final, and land in a release once the revision ships; the SDK targets releasing support alongside each new specification version.
 * **Everything else** — the [issue tracker](https://github.com/modelcontextprotocol/python-sdk/issues) is the source of truth for bugs and smaller features; `P0`–`P3` labels carry priority.
 

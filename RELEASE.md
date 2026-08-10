@@ -8,7 +8,11 @@ move; this is the mechanics.
 1. Change the dependency version in `pyproject.toml`. The root `mcp` project's
    runtime dependencies are dynamic and live under
    `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies`.
-2. Upgrade lock with `uv lock --resolution lowest-direct`
+2. Regenerate the lock with `uv lock` (or `uv lock --upgrade-package <package>`
+   to move just that package's locked version). The committed `uv.lock` is a
+   normal, newest-allowed resolution; the `lowest-direct` resolution that
+   proves the floors still work is applied only by its CI matrix leg at test
+   time and never written to the lock.
 
 ## Release lines
 

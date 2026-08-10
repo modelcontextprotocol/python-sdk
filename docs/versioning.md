@@ -10,7 +10,7 @@ Releases follow [Semantic Versioning](https://semver.org/) semantics, written in
 * **`X` (minor)** — new functionality and every non-breaking change.
 * **`Y` (patch)** — bug fixes only.
 * **The leading `2` (major)** — the only place a breaking change to the public API can land.
-* **Pre-releases** are cut from `main` as `2.X.YaN` (alpha), `2.X.YbN` (beta), and `2.X.YrcN` (release candidate). Installers never select a pre-release unless you ask for one, by exact pin or `--pre`.
+* **Pre-releases** are cut from `main` as `2.X.YaN` (alpha), `2.X.YbN` (beta), and `2.X.YrcN` (release candidate). Installers select a pre-release only when a requirement asks for one explicitly — an exact pin, a specifier that itself names a pre-release version (such as `mcp>=2.1.0b1`), or `--pre` — so an unpinned `pip install mcp` always lands on a stable release.
 
 `mcp` and its wire-types package [`mcp-types`](https://pypi.org/project/mcp-types/) release in lockstep at the same version: each `mcp` release requires exactly the matching `mcp-types` (`mcp-types==2.X.Y`).
 
@@ -54,7 +54,7 @@ There are two kinds, warned differently on purpose.
 
 **SDK API deprecations** — a name or parameter this SDK is retiring. The API keeps working, marked with [`typing_extensions.deprecated`](https://typing-extensions.readthedocs.io/en/latest/#typing_extensions.deprecated), so static type checkers flag every call site and Python emits a `DeprecationWarning` at runtime. A deprecated API survives at least one minor release with its warning in place, and is removed only in a major version: something deprecated during 2.x is not removed before 3.0.
 
-**Protocol deprecations** — a feature the MCP specification has retired (for example the SEP-2577 set in the 2026-07-28 revision). These keep working through the specification's deprecation window and warn with `MCPDeprecationWarning`, a `UserWarning` subclass, so the warning is visible by default rather than hidden the way `DeprecationWarning` is outside `__main__`. **[Deprecated features](deprecated.md)** lists every one, its replacement, and how to silence the warning when you genuinely serve older clients.
+**Protocol deprecations** — a feature the MCP specification has retired (for example the SEP-2577 set in the 2026-07-28 revision). The SDK keeps implementing these through the specification's deprecation window, but what still works depends on the revision a connection negotiated: on a connection speaking an older revision they behave as before; on a 2026-07-28 connection a retired feature may have no wire support left at all (server-initiated sampling and roots have no back-channel to travel over, and `ping` no longer exists), so the call warns and then fails. Either way the call site warns with `MCPDeprecationWarning`, a `UserWarning` subclass, so the warning is visible by default rather than hidden the way `DeprecationWarning` is outside `__main__`. **[Deprecated features](deprecated.md)** lists every one, exactly what happens on each kind of connection, its replacement, and how to silence the warning when you genuinely serve older clients.
 
 ## Supported release lines
 
