@@ -566,21 +566,16 @@ class OAuthClientProvider(httpx2.Auth):
     async def _initialize(self) -> None:
         """Load stored tokens and client info.
 
-        Stored client information whose minted secret has expired (RFC 7591
-        `client_secret_expires_at`) is treated as absent: reusing it can only produce
-        `invalid_client` at the token endpoint — even interactive re-authorization ends in
-        the same failure, permanently — so it is discarded here and the next 401 flow
-        re-registers (or resolves CIMD), overwriting the dead record in storage. Any still
-        stored tokens are kept: a live access token keeps working without client
-        authentication, and with no client info the refresh path (which would present the
-        lapsed secret) is skipped.
+        A stored registration whose minted secret has expired (RFC 7591
+        `client_secret_expires_at`) is loaded as-is rather than discarded here: the auth
+        flow discards it right before re-registering, *after* the SEP-2352 issuer checks,
+        which need the record's issuer stamp — an expired record that is also bound to a
+        different issuer must still get its cross-issuer cleanup (dropping the old
+        issuer's tokens and cached metadata). Until then the dead secret is never
+        presented: the refresh branch and the 403 step-up skip it explicitly.
         """
         self.context.current_tokens = await self.context.storage.get_tokens()
-        client_info = await self.context.storage.get_client_info()
-        if client_info is not None and stored_registration_expired(client_info):
-            logger.debug("Stored client registration secret has expired; discarding so the next flow re-registers")
-            client_info = None
-        self.context.client_info = client_info
+        self.context.client_info = await self.context.storage.get_client_info()
         self._initialized = True
 
     def _add_auth_header(self, request: httpx2.Request) -> None:
@@ -607,6 +602,63 @@ class OAuthClientProvider(httpx2.Auth):
         if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
+    def _registration_issuer(self) -> str | None:
+        """SEP-2352: the issuer to bind newly minted credentials to, when known."""
+        if self.context.oauth_metadata is not None:
+            return self.context.auth_server_url or str(self.context.oauth_metadata.issuer)
+        return None
+
+    async def _prepare_client_registration(self) -> httpx2.Request | None:
+        """Resolve a URL-based client ID (CIMD) or build a Dynamic Client Registration request.
+
+        When the server supports CIMD the client information is created (and persisted)
+        immediately and ``None`` is returned — no network round trip is needed. Otherwise
+        the returned registration request must be sent and its response passed to
+        `_complete_client_registration`.
+        """
+        if should_use_client_metadata_url(self.context.oauth_metadata, self.context.client_metadata_url):
+            # Use URL-based client ID (CIMD). CIMD records are portable across
+            # authorization servers, so the issuer stamp is informational.
+            logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
+            client_information = create_client_info_from_metadata_url(
+                self.context.client_metadata_url,  # type: ignore[arg-type]
+                redirect_uris=self.context.client_metadata.redirect_uris,
+            )
+            client_information.issuer = self._registration_issuer()
+            self.context.client_info = client_information
+            await self.context.storage.set_client_info(client_information)
+            return None
+
+        # Fallback to Dynamic Client Registration
+        fallback_base = self.context.get_authorization_base_url(self.context.server_url)
+        return create_client_registration_request(
+            self.context.oauth_metadata, self.context.client_metadata, fallback_base
+        )
+
+    async def _complete_client_registration(self, response: httpx2.Response) -> None:
+        """Handle a Dynamic Client Registration response and persist the minted record."""
+        client_information = await handle_registration_response(response)
+        check_registration_usable(client_information)
+        discovered_issuer = self._registration_issuer()
+        fallback_base = self.context.get_authorization_base_url(self.context.server_url)
+        # Only record the issuer when the registration actually targeted the discovered
+        # AS — either via its published registration_endpoint, or because the
+        # resource-origin /register fallback is on the issuer's own host (legacy
+        # same-origin embedded AS). Otherwise the fallback hit a different server and
+        # recording a binding to the PRM-advertised AS would persist a binding that was
+        # never established.
+        if (
+            self.context.oauth_metadata is not None
+            and discovered_issuer is not None
+            and (
+                self.context.oauth_metadata.registration_endpoint is not None
+                or self.context.get_authorization_base_url(discovered_issuer) == fallback_base
+            )
+        ):
+            client_information.issuer = discovered_issuer
+        self.context.client_info = client_information
+        await self.context.storage.set_client_info(client_information)
+
     async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
         """httpx2 auth flow integration."""
         async with self.context.lock:
@@ -616,7 +668,16 @@ class OAuthClientProvider(httpx2.Auth):
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
+            # A refresh request authenticates with the minted secret, so a registration
+            # whose secret has lapsed (RFC 7591 `client_secret_expires_at`) can only fail
+            # `invalid_client`. Skip the doomed refresh and fall through to the 401 flow,
+            # which re-registers; the record itself is kept for now so the flow's SEP-2352
+            # issuer checks can still read its issuer stamp before the expiry discard runs.
+            registration_expired = self.context.client_info is not None and stored_registration_expired(
+                self.context.client_info
+            )
+
+            if not self.context.is_token_valid() and self.context.can_refresh_token() and not registration_expired:
                 # Try to refresh token
                 refresh_request = await self._refresh_token()
                 refresh_response = yield refresh_request
@@ -634,17 +695,6 @@ class OAuthClientProvider(httpx2.Auth):
                 # Perform full OAuth flow
                 try:
                     # OAuth flow must be inline due to generator constraints
-
-                    # A registration whose minted secret lapsed mid-session (after
-                    # _initialize already loaded it) can no longer authenticate either —
-                    # discard it here too, so Step 4 re-registers instead of running an
-                    # interactive authorization doomed to fail `invalid_client` at the
-                    # token endpoint.
-                    if self.context.client_info is not None and stored_registration_expired(self.context.client_info):
-                        logger.debug(
-                            "Stored client registration secret has expired; discarding so this flow re-registers"
-                        )
-                        self.context.client_info = None
 
                     www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
 
@@ -737,52 +787,27 @@ class OAuthClientProvider(httpx2.Auth):
                         self.context.client_metadata.grant_types,
                     )
 
+                    # A registration whose minted secret lapsed (RFC 7591
+                    # `client_secret_expires_at`) — whether loaded from storage or expired
+                    # mid-session — can no longer authenticate: reusing it would burn an
+                    # interactive authorization doomed to fail `invalid_client` at the
+                    # token endpoint. Discard it only now, after the SEP-2352 issuer
+                    # checks above, so an expired record bound to a different issuer
+                    # still got its cross-issuer cleanup; Step 4 then re-registers,
+                    # overwriting the dead record in storage. Any stored tokens are kept:
+                    # a live access token keeps working without client authentication.
+                    if self.context.client_info is not None and stored_registration_expired(self.context.client_info):
+                        logger.debug(
+                            "Stored client registration secret has expired; discarding so this flow re-registers"
+                        )
+                        self.context.client_info = None
+
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
-                        # SEP-2352: the issuer to bind these credentials to, when known.
-                        discovered_issuer: str | None = None
-                        if self.context.oauth_metadata is not None:
-                            discovered_issuer = self.context.auth_server_url or str(self.context.oauth_metadata.issuer)
-
-                        if should_use_client_metadata_url(
-                            self.context.oauth_metadata, self.context.client_metadata_url
-                        ):
-                            # Use URL-based client ID (CIMD). CIMD records are portable across
-                            # authorization servers, so the issuer stamp is informational.
-                            logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
-                            client_information = create_client_info_from_metadata_url(
-                                self.context.client_metadata_url,  # type: ignore[arg-type]
-                                redirect_uris=self.context.client_metadata.redirect_uris,
-                            )
-                            client_information.issuer = discovered_issuer
-                            self.context.client_info = client_information
-                            await self.context.storage.set_client_info(client_information)
-                        else:
-                            # Fallback to Dynamic Client Registration
-                            fallback_base = self.context.get_authorization_base_url(self.context.server_url)
-                            registration_request = create_client_registration_request(
-                                self.context.oauth_metadata, self.context.client_metadata, fallback_base
-                            )
+                        registration_request = await self._prepare_client_registration()
+                        if registration_request is not None:
                             registration_response = yield registration_request
-                            client_information = await handle_registration_response(registration_response)
-                            check_registration_usable(client_information)
-                            # Only record the issuer when the registration above actually targeted
-                            # the discovered AS — either via its published registration_endpoint,
-                            # or because the resource-origin /register fallback is on the issuer's
-                            # own host (legacy same-origin embedded AS). Otherwise the fallback hit
-                            # a different server and recording a binding to the PRM-advertised AS
-                            # would persist a binding that was never established.
-                            if (
-                                self.context.oauth_metadata is not None
-                                and discovered_issuer is not None
-                                and (
-                                    self.context.oauth_metadata.registration_endpoint is not None
-                                    or self.context.get_authorization_base_url(discovered_issuer) == fallback_base
-                                )
-                            ):
-                                client_information.issuer = discovered_issuer
-                            self.context.client_info = client_information
-                            await self.context.storage.set_client_info(client_information)
+                            await self._complete_client_registration(registration_response)
 
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
@@ -814,6 +839,26 @@ class OAuthClientProvider(httpx2.Auth):
                         granted_scope = self.context.current_tokens.scope if self.context.current_tokens else None
                         prior_scope = union_scopes(self.context.client_metadata.scope, granted_scope)
                         self.context.client_metadata.scope = union_scopes(prior_scope, challenged_scope)
+
+                        # A registration whose minted secret lapsed (RFC 7591
+                        # `client_secret_expires_at`) cannot complete the step-up: the
+                        # token exchange would fail `invalid_client` after burning a full
+                        # interactive consent — and the still-live access token keeps the
+                        # 401 flow's discard from ever running. Discard it and mint fresh
+                        # credentials first (mirroring the 401 flow's Step 4, reusing any
+                        # AS metadata already discovered).
+                        if self.context.client_info is not None and stored_registration_expired(
+                            self.context.client_info
+                        ):
+                            logger.debug(
+                                "Stored client registration secret has expired; re-registering before the step-up"
+                            )
+                            self.context.client_info = None
+                        if not self.context.client_info:
+                            registration_request = await self._prepare_client_registration()
+                            if registration_request is not None:
+                                registration_response = yield registration_request
+                                await self._complete_client_registration(registration_response)
 
                         # Step 2b: Perform (re-)authorization and token exchange
                         token_response = yield await self._perform_authorization()
