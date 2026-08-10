@@ -208,6 +208,25 @@ class OAuthContext:
         """Check if token can be refreshed."""
         return bool(self.current_tokens and self.current_tokens.refresh_token and self.client_info)
 
+    def registration_secret_expired(self) -> bool:
+        """Whether the loaded registration's minted secret has lapsed (RFC 7591)."""
+        return self.client_info is not None and stored_registration_expired(self.client_info)
+
+    async def discard_expired_registration(self) -> None:
+        """Discard a registration whose minted secret lapsed so the flow re-registers.
+
+        The refresh token goes with it: RFC 6749 §6 binds a refresh token to the client
+        it was issued to, so once the flow re-registers under a fresh `client_id` the
+        orphaned token could only fail `invalid_grant`. The trimmed tokens are persisted
+        so an interrupted flow (or a restart) cannot resurrect the orphan. The live
+        access token is a bearer credential that keeps working without client
+        authentication, so it is kept.
+        """
+        self.client_info = None
+        if self.current_tokens is not None and self.current_tokens.refresh_token is not None:
+            self.current_tokens.refresh_token = None
+            await self.storage.set_tokens(self.current_tokens)
+
     def clear_tokens(self) -> None:
         """Clear current tokens."""
         self.current_tokens = None
@@ -673,9 +692,7 @@ class OAuthClientProvider(httpx2.Auth):
             # `invalid_client`. Skip the doomed refresh and fall through to the 401 flow,
             # which re-registers; the record itself is kept for now so the flow's SEP-2352
             # issuer checks can still read its issuer stamp before the expiry discard runs.
-            registration_expired = self.context.client_info is not None and stored_registration_expired(
-                self.context.client_info
-            )
+            registration_expired = self.context.registration_secret_expired()
 
             if not self.context.is_token_valid() and self.context.can_refresh_token() and not registration_expired:
                 # Try to refresh token
@@ -794,13 +811,14 @@ class OAuthClientProvider(httpx2.Auth):
                     # token endpoint. Discard it only now, after the SEP-2352 issuer
                     # checks above, so an expired record bound to a different issuer
                     # still got its cross-issuer cleanup; Step 4 then re-registers,
-                    # overwriting the dead record in storage. Any stored tokens are kept:
-                    # a live access token keeps working without client authentication.
-                    if self.context.client_info is not None and stored_registration_expired(self.context.client_info):
+                    # overwriting the dead record in storage. The refresh token is
+                    # dropped with the record it was issued to; the live access token
+                    # is kept — it works without client authentication.
+                    if self.context.registration_secret_expired():
                         logger.debug(
                             "Stored client registration secret has expired; discarding so this flow re-registers"
                         )
-                        self.context.client_info = None
+                        await self.context.discard_expired_registration()
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
@@ -847,13 +865,11 @@ class OAuthClientProvider(httpx2.Auth):
                         # 401 flow's discard from ever running. Discard it and mint fresh
                         # credentials first (mirroring the 401 flow's Step 4, reusing any
                         # AS metadata already discovered).
-                        if self.context.client_info is not None and stored_registration_expired(
-                            self.context.client_info
-                        ):
+                        if self.context.registration_secret_expired():
                             logger.debug(
                                 "Stored client registration secret has expired; re-registering before the step-up"
                             )
-                            self.context.client_info = None
+                            await self.context.discard_expired_registration()
                         if not self.context.client_info:
                             registration_request = await self._prepare_client_registration()
                             if registration_request is not None:

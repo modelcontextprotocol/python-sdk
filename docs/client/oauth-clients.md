@@ -55,7 +55,9 @@ The in-memory version above works. It also forgets everything when the process e
     One exception: a stored registration whose dynamically issued secret has expired (a non-zero
     `client_secret_expires_at` in the past) is treated as absent — the expired secret could never
     authenticate again, so the provider discards the record and re-registers on the next flow,
-    overwriting it in your storage with the fresh registration.
+    overwriting it in your storage with the fresh registration. Any refresh token goes with the
+    discarded record (it was issued to that `client_id` and no other client can redeem it), so the
+    stored tokens are rewritten without it; a still-live access token is kept and keeps working.
 
 ### The two handlers
 

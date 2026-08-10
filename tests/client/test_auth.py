@@ -3302,6 +3302,24 @@ def test_stored_registration_expired_only_for_lapsed_secret_backed_registrations
     )
 
 
+def test_registration_secret_expired_is_false_until_a_lapsed_registration_is_loaded(
+    oauth_provider: OAuthClientProvider,
+):
+    """`OAuthContext.registration_secret_expired` owns the null check for the flow's call
+    sites (refresh gate, 401 discard, 403 step-up): no registration loaded means "not
+    expired", and a loaded record defers to `stored_registration_expired`.
+    """
+    assert not oauth_provider.context.registration_secret_expired()
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    assert oauth_provider.context.registration_secret_expired()
+
+
 @pytest.mark.anyio
 async def test_expired_stored_registration_is_discarded_and_the_flow_re_registers(
     oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
@@ -3311,8 +3329,9 @@ async def test_expired_stored_registration_is_discarded_and_the_flow_re_register
     Reusing it makes every token-endpoint interaction fail with ``invalid_client`` — even a
     fresh interactive authorization ends in the same failure, so the client is permanently
     stuck (\"I re-authenticated and nothing changed\"). The 401 flow must discard the lapsed
-    record and re-register instead of presenting the dead secret; stored tokens are kept
-    (a live access token still works without client authentication).
+    record and re-register instead of presenting the dead secret; the access token is kept
+    (it still works without client authentication) while the refresh token — issued to the
+    discarded `client_id` — goes with the record.
     """
     await mock_storage.set_client_info(
         OAuthClientInformationFull(
@@ -3355,6 +3374,13 @@ async def test_expired_stored_registration_is_discarded_and_the_flow_re_register
     assert oauth_provider.context.client_info is None  # discarded in-flow, just before Step 4
     assert register_req.method == "POST"
     assert str(register_req.url) == "https://api.example.com/register"
+    # The discard also dropped the dead client's refresh token, in memory and in storage.
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.refresh_token is None
+    stored_tokens = await mock_storage.get_tokens()
+    assert stored_tokens is not None
+    assert stored_tokens.refresh_token is None
+    assert stored_tokens.access_token == valid_tokens.access_token
     await auth_flow.aclose()
 
 
@@ -3516,16 +3542,23 @@ async def test_refresh_is_skipped_when_registration_secret_expired_mid_session(
 
 
 @pytest.mark.anyio
-async def test_403_step_up_re_registers_when_registration_secret_expired(
+async def test_interrupted_flow_cannot_pair_the_old_refresh_token_with_the_fresh_registration(
     oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
 ):
-    """A 403 scope step-up with a lapsed secret re-registers instead of burning a consent.
+    """RFC 6749 §6 binds a refresh token to the client it was issued to, so the expiry
+    discard drops the token alongside the dead record — otherwise a flow failing between
+    re-registration and token exchange leaves fresh `client_info` paired with the old
+    client's refresh token, and the next request presents that token as the new client
+    (a guaranteed `invalid_grant` round trip).
 
-    On this path the access token is still live, so the 401 flow's discard can never run;
-    without its own re-check every step-up would complete a full interactive authorization
-    only to fail ``invalid_client`` at the token exchange, until the access token itself
-    expires. The step-up mints a fresh registration first — against the AS metadata already
-    discovered — and completes the exchange with the new credentials.
+    Steps:
+    1. A registration whose secret lapsed mid-session sits next to an expired access
+       token and a refresh token issued to it.
+    2. The 401 flow discards the record — dropping the refresh token in memory and in
+       storage — and re-registers; the interactive authorization then fails (the user
+       abandons the consent) after the fresh registration was already persisted.
+    3. The next request attempts no refresh: with the orphan gone, `can_refresh_token()`
+       is false and the request goes out unauthenticated.
     """
     oauth_provider._initialized = True
     oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -3535,7 +3568,90 @@ async def test_403_step_up_re_registers_when_registration_secret_expired(
         redirect_uris=[AnyUrl("http://localhost:3030/callback")],
         token_endpoint_auth_method="client_secret_post",
     )
-    oauth_provider.context.current_tokens = OAuthToken(access_token="live-token", scope="read")
+    oauth_provider.context.current_tokens = OAuthToken(access_token="stale", refresh_token="issued-to-dead-client")
+    oauth_provider.context.token_expiry_time = time.time() - 60  # access token expired
+
+    async def abandoned_consent(url: str) -> None:
+        raise RuntimeError("user closed the browser")
+
+    oauth_provider.context.redirect_handler = abandoned_consent
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 → discovery; the lapsed record is discarded and the flow re-registers.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+    register_req = await auth_flow.asend(asm_response)
+    register_response = httpx2.Response(
+        201,
+        json={
+            "client_id": "fresh-client",
+            "client_secret": "fresh-secret",
+            "redirect_uris": ["http://localhost:3030/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+        },
+        request=register_req,
+    )
+
+    # The fresh registration is persisted, then the interactive authorization fails.
+    with pytest.raises(RuntimeError, match="user closed the browser"):
+        await auth_flow.asend(register_response)
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "fresh-client"
+
+    # The orphaned refresh token is gone from memory and storage; the access token survives.
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.refresh_token is None
+    stored_tokens = await mock_storage.get_tokens()
+    assert stored_tokens is not None
+    assert stored_tokens.refresh_token is None
+    assert stored_tokens.access_token == "stale"
+
+    # The next request attempts no refresh: it goes out unauthenticated straight away.
+    retry_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    retry_request = await retry_flow.__anext__()
+    assert str(retry_request.url) == "https://api.example.com/v1/mcp"
+    assert "Authorization" not in retry_request.headers
+    await retry_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_403_step_up_re_registers_when_registration_secret_expired(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """A 403 scope step-up with a lapsed secret re-registers instead of burning a consent.
+
+    On this path the access token is still live, so the 401 flow's discard can never run;
+    without its own re-check every step-up would complete a full interactive authorization
+    only to fail ``invalid_client`` at the token exchange, until the access token itself
+    expires. The step-up mints a fresh registration first — against the AS metadata already
+    discovered — and completes the exchange with the new credentials; the dead client's
+    refresh token is dropped with its record.
+    """
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,  # lapsed after load
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    oauth_provider.context.current_tokens = OAuthToken(
+        access_token="live-token", refresh_token="issued-to-dead-client", scope="read"
+    )
     oauth_provider.context.token_expiry_time = time.time() + 1800  # access token still live
     oauth_provider.context.oauth_metadata = OAuthMetadata(
         issuer=AnyHttpUrl("https://auth.example.com"),
@@ -3571,6 +3687,14 @@ async def test_403_step_up_re_registers_when_registration_secret_expired(
     register_req = await auth_flow.asend(response_403)
     assert register_req.method == "POST"
     assert str(register_req.url) == "https://auth.example.com/register"
+    # The discard dropped the dead client's refresh token (in memory and in storage) while
+    # keeping the live access token.
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.refresh_token is None
+    stored_tokens = await mock_storage.get_tokens()
+    assert stored_tokens is not None
+    assert stored_tokens.refresh_token is None
+    assert stored_tokens.access_token == "live-token"
     register_response = httpx2.Response(
         201,
         json={
