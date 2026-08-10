@@ -3353,6 +3353,12 @@ async def test_expired_stored_registration_is_discarded_and_the_flow_re_register
     assert oauth_provider.context.current_tokens is not None
     assert request.headers["Authorization"] == f"Bearer {valid_tokens.access_token}"
 
+    # `MockTokenStorage` stores by reference and `_initialize` loaded that same object into
+    # `context.current_tokens`, so the discard's in-place trim would reach the stored object
+    # even if it never persisted. Re-seed storage with a distinct copy so the storage-side
+    # assertions below pass only if the discard actually calls `set_tokens`.
+    await mock_storage.set_tokens(valid_tokens.model_copy())
+
     # Server rejects the stale token: the 401 flow re-registers instead of reusing the record.
     response_401 = httpx2.Response(401, request=request)
     prm_req = await auth_flow.asend(response_401)
