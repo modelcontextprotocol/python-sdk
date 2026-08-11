@@ -2941,6 +2941,19 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
     ),
+    "hosting:auth:verifier-only": Requirement(
+        source="sdk",
+        behavior=(
+            "A token verifier with no AuthSettings is a plain bearer gate: a request without a token the "
+            "verifier accepts is answered 401 with a WWW-Authenticate challenge carrying no resource_metadata, "
+            "a valid token reaches the MCP endpoint, and no protected-resource metadata route is published."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "Auth is enforced at the HTTP layer; the gate and its challenge are HTTP. Deliberately outside the "
+            "spec's OAuth profile (no RFC 9728 metadata to publish), matching the other SDKs' verifier-only helpers."
+        ),
+    ),
     "hosting:auth:as:authorize-requires-pkce": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#authorization-code-protection",
         behavior=(
