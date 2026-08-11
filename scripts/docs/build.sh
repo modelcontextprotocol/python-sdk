@@ -1,15 +1,32 @@
 #!/usr/bin/env bash
 #
-# Build the v2 documentation site for this checkout into `site/`.
+# Build the v2 documentation site for this checkout into `site/`: the English
+# site at the root, then one translated site per language in
+# i18n/languages.yml under `site/<code>/`.
 #
-# Zensical runs no MkDocs plugins or hooks, so the build is three steps:
-# materialise the API reference pages and the concrete config, build the
-# site strictly (plus the order-independence and cross-reference checks
+# Zensical runs no MkDocs plugins or hooks, so the English build is three
+# steps: materialise the API reference pages and the concrete config, build
+# the site strictly (plus the order-independence and cross-reference checks
 # Zensical doesn't do itself), then generate llms.txt and the per-page
-# markdown renditions. This script is the single owner of that recipe, dependency
-# sync included — CI (shared.yml, docs-preview.yml) and scripts/build-docs.sh
-# all call it. The toolchain detection in docs-preview.yml and build-docs.sh
-# keys on this file's path and expects the site under site/.
+# markdown renditions. A language site is lighter: the translation tool stages
+# a docs tree (English pages overlaid with that language's translations),
+# build_config.py writes its config, and Zensical builds it straight into
+# site/<code>/ — no API reference (it links the English one), so no
+# render-order or cross-reference checks (prose pages carry no autorefs; if
+# they ever do, run check_crossrefs.py per language too). This script is the
+# single owner of that recipe, dependency sync included — CI (shared.yml,
+# docs-preview.yml) and scripts/build-docs.sh all call it. The toolchain
+# detection in docs-preview.yml and build-docs.sh keys on this file's path and
+# expects the site under site/.
+#
+# Environment:
+#   DOCS_LANGUAGES=en-only      build only the English site
+#   DOCS_LANGUAGES=pt-BR,ja     build only these language sites after English
+#                               (default: every language in i18n/languages.yml)
+#   DOCS_STRICT_LANGUAGES=1     build language sites with --strict, so a dead
+#                               link or anchor in a translation aborts (default:
+#                               reported as warnings; the translate workflow
+#                               sets it so regressions surface in its own PR)
 #
 # Usage:
 #   scripts/docs/build.sh
@@ -26,8 +43,8 @@ uv sync --frozen --group docs
 # Zensical's incremental cache is unsound: a warm rebuild where only some
 # pages re-render silently drops cross-references to cache-hit pages, and
 # HTML for since-deleted pages lingers in site/. Build cold so the output
-# (and the checks below) are deterministic.
-rm -rf .cache site
+# (and the checks below) are deterministic. Staged language trees likewise.
+rm -rf .cache site .build/i18n
 
 uv run --frozen --no-sync python scripts/docs/build_config.py
 uv run --frozen --no-sync zensical build -f mkdocs.gen.yml --strict
@@ -44,3 +61,29 @@ uv run --frozen --no-sync python scripts/docs/check_render_order.py
 uv run --frozen --no-sync python scripts/docs/check_crossrefs.py --site-dir site
 
 uv run --frozen --no-sync python scripts/docs/llms_txt.py --site-dir site
+
+# Language sites build after English: `zensical build` clears its site_dir, so
+# the English build (site_dir site/) would wipe every site/<code>/, while a
+# language build (site_dir site/<code>/) leaves its parent alone.
+case "${DOCS_LANGUAGES:-}" in
+    en-only) languages="" ;;
+    "") languages="$(PYTHONPATH=scripts/docs uv run --frozen --no-sync python -c \
+        'import build_config; print(*(language.code for language in build_config.load_registry().languages))')" ;;
+    *) languages="${DOCS_LANGUAGES//,/ }" ;;
+esac
+strict=""
+if [[ "${DOCS_STRICT_LANGUAGES:-}" == "1" ]]; then
+    strict="--strict"
+fi
+
+for lang in $languages; do
+    echo "=== Building language site: ${lang} ==="
+    uv run --frozen --no-sync python scripts/docs/translations.py stage --lang "$lang"
+    uv run --frozen --no-sync python scripts/docs/build_config.py --lang "$lang"
+    rm -rf .cache
+    log=".build/i18n/${lang}/build.log"
+    # $strict is deliberately unquoted: empty means no argument at all.
+    uv run --frozen --no-sync zensical build -f "mkdocs.${lang}.gen.yml" $strict 2>&1 | tee "$log"
+    # Zensical reports each dead link/anchor as a "Warning:" diagnostic on stderr.
+    echo "${lang}: $(grep -c 'Warning:' "$log" || true) warnings"
+done
