@@ -248,13 +248,20 @@ class StreamableHTTPTransport:
         else:
             raise ResumptionError("Resumption request requires a resumption token")  # pragma: no cover
 
-        # Extract original request ID to map responses
-        original_request_id = None
-        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
-            original_request_id = ctx.session_message.message.id
+        # Only requests resume: a resumption token is only ever attached by a
+        # request's metadata, so the original id is always available to map responses.
+        assert isinstance(ctx.session_message.message, JSONRPCRequest)
+        original_request_id = ctx.session_message.message.id
 
         async with ctx.client.sse(self.url, headers=headers) as event_source:
-            event_source.response.raise_for_status()
+            if event_source.response.status_code >= 400:
+                # Resolve the waiting caller with an error correlated to its request,
+                # mirroring `_handle_post_request`: an escaping `HTTPStatusError` would
+                # tear down the transport's task group and every stream with it (#2110).
+                error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                reply = JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data)
+                await ctx.read_stream_writer.send(SessionMessage(reply))
+                return
             logger.debug("Resumption GET SSE connection established")
 
             async for sse in event_source:  # pragma: no branch

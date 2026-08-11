@@ -19,6 +19,7 @@ from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     CONNECTION_CLOSED,
+    INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
@@ -31,6 +32,7 @@ from mcp_types.version import LATEST_MODERN_VERSION
 from starlette.types import Receive, Scope, Send
 
 from mcp.client.streamable_http import (
+    LAST_EVENT_ID,
     MAX_RECONNECTION_ATTEMPTS,
     RequestContext,
     StreamableHTTPTransport,
@@ -130,6 +132,46 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [401, 403, 500])
+async def test_resumption_get_http_error_resolves_caller_and_transport_survives(status: int) -> None:
+    """A non-2xx on the resumption GET resolves the waiting request with a JSON-RPC error
+    correlated to its id, and the transport stays usable for follow-up requests (SDK-defined;
+    #2110 — the status error used to escape into the task group and tear down every stream).
+    """
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET" and LAST_EVENT_ID in request.headers:
+            return httpx2.Response(status)
+        body = json.loads(request.content)
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="token-1"),
+                )
+            )
+            reply = await read.receive()
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message, JSONRPCError)
+            assert reply.message.id == 1
+            assert reply.message.error.code == INTERNAL_ERROR
+            assert reply.message.error.message == snapshot("Server returned an error response")
+
+            # The transport survived: a plain follow-up request still round-trips.
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})))
+            follow_up = await read.receive()
+    assert isinstance(follow_up, SessionMessage)
+    assert isinstance(follow_up.message, JSONRPCResponse)
+    assert follow_up.message.id == 2
 
 
 @pytest.mark.anyio

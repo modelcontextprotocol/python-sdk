@@ -32,6 +32,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
+from starlette.types import Receive, Scope, Send
 
 import mcp.client.sse
 from mcp.client.session import ClientSession
@@ -106,6 +107,39 @@ def make_app(server: Server) -> Starlette:
 
 def make_server_app() -> Starlette:
     return make_app(Server(SERVER_NAME, on_read_resource=_handle_read_resource))
+
+
+def make_app_rejecting_posts(reject: dict[str, int]) -> Starlette:
+    """Like `make_server_app`, but the message POST is answered with a bare HTTP error
+    for JSON-RPC messages whose method appears in `reject` (they never reach the server)."""
+    server = Server(SERVER_NAME, on_read_resource=_handle_read_resource)
+    sse = SseServerTransport(
+        "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    )
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+        return Response()
+
+    async def handle_post(scope: Scope, receive: Receive, send: Send) -> None:
+        body = await Request(scope, receive).body()
+        status = reject.get(json.loads(body).get("method"))
+        if status is not None:
+            await Response(status_code=status)(scope, receive, send)
+            return
+
+        async def replay() -> dict[str, Any]:
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await sse.handle_post_message(scope, replay, send)
+
+    return Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=handle_post),
+        ]
+    )
 
 
 @pytest.mark.anyio
@@ -222,6 +256,48 @@ async def test_sse_client_exception_handling(
     session = initialized_sse_client_session
     with pytest.raises(MCPError, match="OOPS! no resource with that URI was found"):
         await session.read_resource(uri="xxx://will-not-work")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [401, 403, 500])
+async def test_sse_client_request_post_http_error_reaches_caller_and_session_survives(status_code: int) -> None:
+    """A non-2xx on a request's message POST reaches the waiting caller promptly as a JSON-RPC
+    error correlated to the request, and the session stays usable (SDK-defined; #2110 — the
+    status error used to be swallowed inside post_writer, hanging the caller forever).
+    """
+    factory = in_process_client_factory(make_app_rejecting_posts({"resources/read": status_code}))
+    with anyio.fail_after(5):
+        async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+
+                with pytest.raises(MCPError) as exc_info:
+                    await session.read_resource(uri="foobar://should-work")
+                assert exc_info.value.error.code == types.INTERNAL_ERROR
+                assert exc_info.value.error.message == snapshot("Server returned an error response")
+
+                # The session survived the failed POST: the next request round-trips.
+                assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_notification_post_http_error_leaves_session_usable() -> None:
+    """A non-2xx on a notification's message POST resolves no caller (a notification has no
+    waiter) and leaves the session usable for subsequent requests (SDK-defined; #2110)."""
+    factory = in_process_client_factory(make_app_rejecting_posts({"notifications/cancelled": 500}))
+    with anyio.fail_after(5):
+        async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+
+                # Fire-and-forget: the rejected POST must neither raise nor stall the writer.
+                await session.send_notification(
+                    types.CancelledNotification(params=types.CancelledNotificationParams(request_id=999))
+                )
+
+                # The write loop is serialized, so this request's POST happens strictly after
+                # the rejected one; its success proves the failure was contained.
+                assert isinstance(await session.send_ping(), EmptyResult)
 
 
 @pytest.mark.anyio
