@@ -267,17 +267,21 @@ async def test_sse_client_request_post_http_error_reaches_caller_and_session_sur
     """
     factory = in_process_client_factory(make_app_rejecting_posts({"resources/read": status_code}))
     with anyio.fail_after(5):
-        async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams:
-            async with ClientSession(*streams) as session:
-                await session.initialize()
+        # One parenthesized async-with: separately nested ones trip a phantom
+        # branch arc under coverage on Python 3.14 (see the note in mcp.client.sse).
+        async with (
+            sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
 
-                with pytest.raises(MCPError) as exc_info:
-                    await session.read_resource(uri="foobar://should-work")
-                assert exc_info.value.error.code == types.INTERNAL_ERROR
-                assert exc_info.value.error.message == snapshot("Server returned an error response")
+            with pytest.raises(MCPError) as exc_info:
+                await session.read_resource(uri="foobar://should-work")
+            assert exc_info.value.error.code == types.INTERNAL_ERROR
+            assert exc_info.value.error.message == snapshot("Server returned an error response")
 
-                # The session survived the failed POST: the next request round-trips.
-                assert isinstance(await session.send_ping(), EmptyResult)
+            # The session survived the failed POST: the next request round-trips.
+            assert isinstance(await session.send_ping(), EmptyResult)
 
 
 @pytest.mark.anyio
@@ -286,18 +290,22 @@ async def test_sse_client_notification_post_http_error_leaves_session_usable() -
     waiter) and leaves the session usable for subsequent requests (SDK-defined; #2110)."""
     factory = in_process_client_factory(make_app_rejecting_posts({"notifications/cancelled": 500}))
     with anyio.fail_after(5):
-        async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams:
-            async with ClientSession(*streams) as session:
-                await session.initialize()
+        # One parenthesized async-with: separately nested ones trip a phantom
+        # branch arc under coverage on Python 3.14 (see the note in mcp.client.sse).
+        async with (
+            sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
 
-                # Fire-and-forget: the rejected POST must neither raise nor stall the writer.
-                await session.send_notification(
-                    types.CancelledNotification(params=types.CancelledNotificationParams(request_id=999))
-                )
+            # Fire-and-forget: the rejected POST must neither raise nor stall the writer.
+            await session.send_notification(
+                types.CancelledNotification(params=types.CancelledNotificationParams(request_id=999))
+            )
 
-                # The write loop is serialized, so this request's POST happens strictly after
-                # the rejected one; its success proves the failure was contained.
-                assert isinstance(await session.send_ping(), EmptyResult)
+            # The write loop is serialized, so this request's POST happens strictly after
+            # the rejected one; its success proves the failure was contained.
+            assert isinstance(await session.send_ping(), EmptyResult)
 
 
 @pytest.mark.anyio
