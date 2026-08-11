@@ -1,10 +1,16 @@
-# Conformance scenarios not yet passing against the Python SDK on main.
-# CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
+# Conformance scenarios not yet passing against the Python SDK on main, read by
+# the bare `--suite all` server and client legs (every scenario shipped with the
+# pinned harness, each at the harness's default wire for it). CI exits 0 if only
+# these fail, exits 1 on unexpected failures or stale entries.
+#
+# The wire-pinned legs read expected-failures.2025-11-25.yml and
+# expected-failures.2026-07-28.yml instead; see the header of
+# .github/workflows/conformance.yml for the leg layout.
 #
 # Baseline established against the harness pinned via CONFORMANCE_PKG in
 # .github/workflows/conformance.yml. New conformance releases are adopted by
-# deliberately bumping that pin and reconciling both this file and
-# expected-failures.2026-07-28.yml in the same change.
+# deliberately bumping that pin and reconciling all three expected-failures
+# files in the same change.
 #
 # Entries are grouped by SEP. As each SEP lands in the SDK the corresponding
 # scenarios start passing and MUST be removed from this list (the runner fails
@@ -30,10 +36,9 @@ client:
 
 server:
   # SEP-2663 (io.modelcontextprotocol/tasks): the SDK does not implement the
-  # tasks extension yet. These extension-tagged scenarios are selected only by
-  # the bare `--suite all` leg — extension scenarios never match a
-  # --spec-version filter and the active/draft suites exclude them — so these
-  # entries are inert for the other legs that read this file.
+  # tasks extension yet. The bare `--suite all` leg is the only one that
+  # reaches these extension-tagged scenarios (they never match a
+  # --spec-version filter), so these entries live here only.
   #
   # `tasks-status-notifications` is intentionally NOT listed: the harness
   # skips it unconditionally (pending its rewrite against subscriptions/
