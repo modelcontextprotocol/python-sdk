@@ -17,7 +17,7 @@ env:
   # Pinned conformance harness package spec (passed verbatim to `npx --yes`).
   # Bump deliberately and reconcile both
   # .github/actions/conformance/expected-failures*.yml files in the same change.
-  CONFORMANCE_PKG: "@modelcontextprotocol/conformance@0.2.0-alpha.10"
+  CONFORMANCE_PKG: "@modelcontextprotocol/conformance@0.2.0-alpha.11"
 
 jobs:
   server-conformance:
