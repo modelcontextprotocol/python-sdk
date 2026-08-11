@@ -1,7 +1,8 @@
 """Tests for the SSE client and server transports, driven entirely in process."""
 
 import json
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
+from types import TracebackType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 from urllib.parse import urlparse
@@ -32,7 +33,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
-from starlette.types import Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 import mcp.client.sse
 from mcp.client.session import ClientSession
@@ -83,8 +84,11 @@ async def _handle_read_resource(ctx: ServerRequestContext, params: ReadResourceR
     raise MCPError(code=404, message="OOPS! no resource with that URI was found")
 
 
-def make_app(server: Server) -> Starlette:
-    """Mount `server` on a Starlette app exposing the SSE transport at /sse and /messages/."""
+def make_app(server: Server, wrap_post: Callable[[ASGIApp], ASGIApp] | None = None) -> Starlette:
+    """Mount `server` on a Starlette app exposing the SSE transport at /sse and /messages/.
+
+    `wrap_post` optionally wraps the message-POST ASGI app (e.g. to inject HTTP failures).
+    """
     # DNS-rebinding protection validates Host/Origin headers against a network attack that cannot
     # exist for an in-process app; the transport security behaviour itself is pinned by
     # tests/server/test_sse_security.py.
@@ -97,10 +101,14 @@ def make_app(server: Server) -> Starlette:
             await server.run(read_stream, write_stream, server.create_initialization_options())
         return Response()
 
+    post_app: ASGIApp = sse.handle_post_message
+    if wrap_post is not None:
+        post_app = wrap_post(post_app)
+
     return Starlette(
         routes=[
             Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=sse.handle_post_message),
+            Mount("/messages/", app=post_app),
         ]
     )
 
@@ -112,34 +120,23 @@ def make_server_app() -> Starlette:
 def make_app_rejecting_posts(reject: dict[str, int]) -> Starlette:
     """Like `make_server_app`, but the message POST is answered with a bare HTTP error
     for JSON-RPC messages whose method appears in `reject` (they never reach the server)."""
-    server = Server(SERVER_NAME, on_read_resource=_handle_read_resource)
-    sse = SseServerTransport(
-        "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
-    )
 
-    async def handle_sse(request: Request) -> Response:
-        async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
-            await server.run(read_stream, write_stream, server.create_initialization_options())
-        return Response()
+    def wrap(inner: ASGIApp) -> ASGIApp:
+        async def handle_post(scope: Scope, receive: Receive, send: Send) -> None:
+            body = await Request(scope, receive).body()
+            status = reject.get(json.loads(body).get("method"))
+            if status is not None:
+                await Response(status_code=status)(scope, receive, send)
+                return
 
-    async def handle_post(scope: Scope, receive: Receive, send: Send) -> None:
-        body = await Request(scope, receive).body()
-        status = reject.get(json.loads(body).get("method"))
-        if status is not None:
-            await Response(status_code=status)(scope, receive, send)
-            return
+            async def replay() -> dict[str, Any]:
+                return {"type": "http.request", "body": body, "more_body": False}
 
-        async def replay() -> dict[str, Any]:
-            return {"type": "http.request", "body": body, "more_body": False}
+            await inner(scope, replay, send)
 
-        await sse.handle_post_message(scope, replay, send)
+        return handle_post
 
-    return Starlette(
-        routes=[
-            Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=handle_post),
-        ]
-    )
+    return make_app(Server(SERVER_NAME, on_read_resource=_handle_read_resource), wrap_post=wrap)
 
 
 @pytest.mark.anyio
@@ -259,11 +256,12 @@ async def test_sse_client_exception_handling(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("status_code", [401, 403, 500])
+@pytest.mark.parametrize("status_code", [302, 401, 403, 500])
 async def test_sse_client_request_post_http_error_reaches_caller_and_session_survives(status_code: int) -> None:
     """A non-2xx on a request's message POST reaches the waiting caller promptly as a JSON-RPC
     error correlated to the request, and the session stays usable (SDK-defined; #2110 — the
     status error used to be swallowed inside post_writer, hanging the caller forever).
+    An unfollowed redirect counts: the message never reached the server, so no response can arrive.
     """
     factory = in_process_client_factory(make_app_rejecting_posts({"resources/read": status_code}))
     with anyio.fail_after(5):
@@ -279,6 +277,64 @@ async def test_sse_client_request_post_http_error_reaches_caller_and_session_sur
                 await session.read_resource(uri="foobar://should-work")
             assert exc_info.value.error.code == types.INTERNAL_ERROR
             assert exc_info.value.error.message == snapshot("Server returned an error response")
+
+            # The session survived the failed POST: the next request round-trips.
+            assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_request_post_network_error_reaches_caller_and_session_survives() -> None:
+    """A network-level failure on a request's message POST reaches the waiting caller promptly
+    as a JSON-RPC error correlated to the request, and the session stays usable (SDK-defined;
+    #2110 — the exception used to be swallowed inside post_writer, hanging the caller forever).
+    """
+
+    class _FlakyPostTransport(httpx2.AsyncBaseTransport):
+        """Serves the standard test app, but the POST of one JSON-RPC method never connects."""
+
+        def __init__(self) -> None:
+            self._inner = StreamingASGITransport(make_server_app(), cancel_on_close=False)
+
+        async def __aenter__(self) -> "_FlakyPostTransport":
+            await self._inner.__aenter__()
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None = None,
+            exc_value: BaseException | None = None,
+            traceback: TracebackType | None = None,
+        ) -> None:
+            await self._inner.__aexit__(exc_type, exc_value, traceback)
+
+        async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+            if request.method == "POST" and json.loads(request.content).get("method") == "resources/read":
+                raise httpx2.ConnectError("connection refused", request=request)
+            return await self._inner.handle_async_request(request)
+
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
+            transport=_FlakyPostTransport(), base_url=BASE_URL, headers=headers, timeout=timeout, auth=auth
+        )
+
+    with anyio.fail_after(5):
+        # One parenthesized async-with: separately nested ones trip a phantom
+        # branch arc under coverage on Python 3.14 (see the note in mcp.client.sse).
+        async with (
+            sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+
+            with pytest.raises(MCPError) as exc_info:
+                await session.read_resource(uri="foobar://should-work")
+            assert exc_info.value.error.code == types.CONNECTION_CLOSED
+            # The message embeds httpx's exception text; pin only the SDK-authored prefix.
+            assert exc_info.value.error.message.startswith("Failed to send message:")
 
             # The session survived the failed POST: the next request round-trips.
             assert isinstance(await session.send_ping(), EmptyResult)

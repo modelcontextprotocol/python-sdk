@@ -248,32 +248,51 @@ class StreamableHTTPTransport:
         else:
             raise ResumptionError("Resumption request requires a resumption token")  # pragma: no cover
 
-        # Only requests resume: a resumption token is only ever attached by a
-        # request's metadata, so the original id is always available to map responses.
+        # Only requests resume: post_writer dispatches here on message type as well as
+        # metadata, so the original id is always available to map responses.
         assert isinstance(ctx.session_message.message, JSONRPCRequest)
         original_request_id = ctx.session_message.message.id
 
-        async with ctx.client.sse(self.url, headers=headers) as event_source:
-            if event_source.response.status_code >= 400:
-                # Resolve the waiting caller with an error correlated to its request,
-                # mirroring `_handle_post_request`: an escaping `HTTPStatusError` would
-                # tear down the transport's task group and every stream with it (#2110).
-                error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
-                reply = JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data)
-                await ctx.read_stream_writer.send(SessionMessage(reply))
-                return
-            logger.debug("Resumption GET SSE connection established")
+        try:
+            async with ctx.client.sse(self.url, headers=headers) as event_source:
+                if not event_source.response.is_success:
+                    # Resolve the waiting caller with an error correlated to its request,
+                    # mirroring `_handle_post_request`: an escaping `HTTPStatusError` would
+                    # tear down the transport's task group and every stream with it (#2110).
+                    if event_source.response.status_code == 404 and self.session_id is not None:
+                        # The GET carried our Mcp-Session-Id, so a 404 is the session-expiry
+                        # signal reconnect logic keys on - same mapping as the POST path.
+                        await self._resolve_abandoned_request(
+                            ctx.read_stream_writer, original_request_id, "Session terminated", code=INVALID_REQUEST
+                        )
+                        return
+                    await self._resolve_abandoned_request(
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        "Server returned an error response",
+                        code=INTERNAL_ERROR,
+                    )
+                    return
+                logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source:  # pragma: no branch
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    original_request_id,
-                    ctx.metadata.on_resumption_token_update if ctx.metadata else None,
-                )
-                if is_complete:
-                    await event_source.response.aclose()
-                    break
+                async for sse in event_source:
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        await event_source.response.aclose()
+                        return
+        except Exception:
+            logger.debug("Resumption stream ended", exc_info=True)
+
+        # Stream ended without a response, cleanly or mid-read: resolve the waiter,
+        # mirroring `_handle_sse_response`, else the caller would hang forever.
+        await self._resolve_abandoned_request(
+            ctx.read_stream_writer, original_request_id, "resumption stream ended without a response"
+        )
 
     def _consume_modern_cancellation(self, session_message: SessionMessage) -> bool:
         """Translate an outbound `notifications/cancelled` at 2026; True means "do not POST".
@@ -563,8 +582,10 @@ class StreamableHTTPTransport:
                         else None
                     )
 
-                    # Check if this is a resumption request
-                    is_resumption = bool(metadata and metadata.resumption_token)
+                    # Only a request resumes: the token names an interrupted request's
+                    # stream, and `_handle_resumption_request` needs the id to correlate
+                    # its outcome. A notification stamped with one is POSTed as usual.
+                    is_resumption = bool(metadata and metadata.resumption_token) and isinstance(message, JSONRPCRequest)
 
                     logger.debug(f"Sending client message: {message}")
 

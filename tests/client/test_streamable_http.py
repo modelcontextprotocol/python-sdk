@@ -34,6 +34,7 @@ from starlette.types import Receive, Scope, Send
 from mcp.client.streamable_http import (
     LAST_EVENT_ID,
     MAX_RECONNECTION_ATTEMPTS,
+    MCP_SESSION_ID,
     RequestContext,
     StreamableHTTPTransport,
     streamable_http_client,
@@ -135,11 +136,12 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("status", [401, 403, 500])
+@pytest.mark.parametrize("status", [302, 401, 403, 500])
 async def test_resumption_get_http_error_resolves_caller_and_transport_survives(status: int) -> None:
     """A non-2xx on the resumption GET resolves the waiting request with a JSON-RPC error
     correlated to its id, and the transport stays usable for follow-up requests (SDK-defined;
     #2110 — the status error used to escape into the task group and tear down every stream).
+    An unfollowed redirect counts: its body is no event stream, so no response can arrive.
     """
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -172,6 +174,79 @@ async def test_resumption_get_http_error_resolves_caller_and_transport_survives(
     assert isinstance(follow_up, SessionMessage)
     assert isinstance(follow_up.message, JSONRPCResponse)
     assert follow_up.message.id == 2
+
+
+@pytest.mark.anyio
+async def test_resumption_get_404_with_session_reports_session_terminated() -> None:
+    """A 404 on the resumption GET while a session id is held reports "Session terminated"
+    (INVALID_REQUEST) to the waiter, the same session-expiry mapping as the POST path, so
+    reconnect logic keyed on that error works across both (SDK-defined)."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET" and LAST_EVENT_ID in request.headers:
+            return httpx2.Response(404)
+        if request.method == "DELETE":  # session termination on close
+            return httpx2.Response(200)
+        body = json.loads(request.content)
+        return httpx2.Response(
+            200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}}, headers={MCP_SESSION_ID: "sess-1"}
+        )
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            # An initialize round-trip stores the session id the server stamps on its response.
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="initialize", params={})))
+            assert isinstance(await read.receive(), SessionMessage)
+
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="token-1"),
+                )
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == 2
+    assert reply.message.error.code == INVALID_REQUEST
+    assert reply.message.error.message == snapshot("Session terminated")
+
+
+@pytest.mark.anyio
+async def test_notification_with_resumption_token_is_posted_not_resumed() -> None:
+    """A notification stamped with a resumption token is POSTed like any notification, and the
+    write loop survives to serve the next request (SDK-defined: the token names an interrupted
+    request's stream, so resumption applies to requests only)."""
+    recorded: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        recorded.append(request)
+        body = json.loads(request.content)
+        if "id" not in body:
+            return httpx2.Response(202)
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCNotification(jsonrpc="2.0", method="notifications/foo", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="token-1"),
+                )
+            )
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCResponse)
+    assert reply.message.id == 1
+    # The stamped notification went out as a plain POST, not a resumption GET.
+    assert [r.method for r in recorded] == ["POST", "POST"]
 
 
 @pytest.mark.anyio
@@ -672,6 +747,74 @@ async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> 
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.id == "listen-1"
     assert reply.message.error.code == CONNECTION_CLOSED
+
+
+@pytest.mark.anyio
+async def test_resumption_stream_dying_mid_read_resolves_caller_and_transport_survives() -> None:
+    """A resumption GET stream that dies mid-read resolves the waiter with CONNECTION_CLOSED
+    and the transport stays usable for follow-up requests (SDK-defined; #2110 — the read error
+    used to escape into the task group and tear down every stream)."""
+    dying = _DyingSSEStream()
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET" and LAST_EVENT_ID in request.headers:
+            return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=dying)
+        body = json.loads(request.content)
+        return httpx2.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="token-1"),
+                )
+            )
+            reply = await read.receive()
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message, JSONRPCError)
+            assert reply.message.id == 1
+            assert reply.message.error.code == CONNECTION_CLOSED
+            assert reply.message.error.message == snapshot("resumption stream ended without a response")
+
+            # The transport survived: a plain follow-up request still round-trips.
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})))
+            follow_up = await read.receive()
+    assert isinstance(follow_up, SessionMessage)
+    assert isinstance(follow_up.message, JSONRPCResponse)
+    assert follow_up.message.id == 2
+
+
+@pytest.mark.anyio
+async def test_resumption_stream_clean_end_without_response_resolves_caller() -> None:
+    """A resumption GET stream that closes cleanly without delivering a response (e.g. the
+    server no longer holds the resumed request's events) resolves the waiter with an error
+    instead of hanging it forever (SDK-defined; #2110)."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "GET" and LAST_EVENT_ID in request.headers
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=b": nothing to replay\n\n")
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    message=JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="token-1"),
+                )
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == 1
+    assert reply.message.error.code == CONNECTION_CLOSED
+    assert reply.message.error.message == snapshot("resumption stream ended without a response")
 
 
 class _DeliverOnCommandSSEStream(httpx2.AsyncByteStream):

@@ -120,31 +120,39 @@ async def sse_client(
                     async with write_stream_reader, write_stream:
 
                         async def _send_message(session_message: SessionMessage) -> None:
+                            # A POST failure must not raise: the post_writer handler below
+                            # would swallow it, hanging the waiting caller forever and killing
+                            # the write loop (#2110). Mirror the streamable-HTTP transport
+                            # instead: resolve the waiter with an error correlated to its
+                            # request id, keeping the session usable.
                             logger.debug(f"Sending client message: {session_message}")
                             message = session_message.message
-                            response = await client.post(
-                                endpoint_url,
-                                json=message.model_dump(
-                                    by_alias=True,
-                                    mode="json",
-                                    exclude_unset=True,
-                                ),
-                            )
-                            if response.status_code >= 400:
-                                # Resolve the waiting caller with an error correlated to its
-                                # request id, mirroring the streamable-HTTP transport: raising
-                                # here would be swallowed by the post_writer handler below and
-                                # the caller would hang forever (#2110). A notification has no
-                                # waiter to resolve, so the failure is only logged.
+                            try:
+                                response = await client.post(
+                                    endpoint_url,
+                                    json=message.model_dump(
+                                        by_alias=True,
+                                        mode="json",
+                                        exclude_unset=True,
+                                    ),
+                                )
+                            except httpx2.HTTPError as exc:
+                                logger.exception("Error POSTing message")
+                                error = types.ErrorData(
+                                    code=types.CONNECTION_CLOSED, message=f"Failed to send message: {exc}"
+                                )
+                            else:
+                                if response.is_success:
+                                    logger.debug(f"Client message sent successfully: {response.status_code}")
+                                    return
                                 logger.error(f"Message POST returned HTTP status {response.status_code}")
-                                if isinstance(message, types.JSONRPCRequest):
-                                    error_data = types.ErrorData(
-                                        code=types.INTERNAL_ERROR, message="Server returned an error response"
-                                    )
-                                    reply = types.JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
-                                    await read_stream_writer.send(SessionMessage(reply))
-                                return
-                            logger.debug(f"Client message sent successfully: {response.status_code}")
+                                error = types.ErrorData(
+                                    code=types.INTERNAL_ERROR, message="Server returned an error response"
+                                )
+                            # A notification has no waiter to resolve, so its failure is only logged.
+                            if isinstance(message, types.JSONRPCRequest):
+                                reply = types.JSONRPCError(jsonrpc="2.0", id=message.id, error=error)
+                                await read_stream_writer.send(SessionMessage(reply))
 
                         async for session_message in write_stream_reader:
                             sender_ctx = write_stream_reader.last_context
