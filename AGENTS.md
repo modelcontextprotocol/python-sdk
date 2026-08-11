@@ -4,11 +4,13 @@
 
 - `main` is the current stable line (v2); releases are cut from it (see
   `RELEASE.md`).
-- Removing or replacing an API must be intentional, and what shipped in 2.x
-  is public surface. Adding a replacement API or `@deprecated` shim is
-  likewise a deliberate design choice, not bolted on for free.
-- Changes that break code written against v1 (including those softened by a
-  backwards-compatibility shim) must be documented in `docs/migration.md`.
+- v2 is released; its public API is a compatibility contract for the 2.x
+  line. Removals, renames, or any change to an existing API's signature or
+  observable behaviour (including ones softened by a `@deprecated` shim) is a
+  design decision a maintainer makes explicitly, and should generally be
+  avoided.
+- `docs/migration.md` is the v1 → v2 record and is closed to new entries.
+  Correcting errors or improving clarity in what's there is fine.
 - `v1.x` is the maintenance branch for the previous major. Backport PRs
   target it and use a `[v1.x]` title prefix; only critical bug fixes and
   security fixes land there.
@@ -127,18 +129,6 @@ What the existing pragmas mean:
   others.
 - `# pragma: no branch` — excludes branch arcs only. coverage.py misreports the
   `->exit` arc for nested `async with` on Python 3.11+ (worse on 3.14/Windows).
-
-## Breaking Changes
-
-When making breaking changes, document them in `docs/migration.md` — including
-changes softened by a backwards-compatibility shim. Include:
-
-- What changed
-- Why it changed
-- How to migrate existing code
-
-Search for related sections in the migration guide and group related changes together
-rather than adding new standalone sections.
 
 ## Documentation
 
