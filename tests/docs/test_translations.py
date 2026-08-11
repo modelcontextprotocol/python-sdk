@@ -292,6 +292,18 @@ def test_heading_the_source_scan_cannot_pin_makes_the_page_an_error(tmp_path: Pa
     assert str(excinfo.value) == snapshot("the page renders 2 headings but 1 are ATX headings at column 0")
 
 
+def test_many_attribute_blocks_pin_the_last_id_only_when_they_end_the_heading() -> None:
+    """Tool-defined: a run of `{...}` blocks ending the line pins the last block's id; with text after it the
+    run stays heading text and pins nothing, and the scan still returns promptly however many blocks it has."""
+    blocks = "{ a } " * 20
+    page = f"## Pinned {blocks}{{#last}}\n## Prose {blocks}end\n"
+
+    assert t.parse_headings(page) == [
+        t.Heading(0, 2, "Pinned", "last"),
+        t.Heading(1, 2, f"Prose {blocks}end", None),
+    ]
+
+
 ENGLISH = """\
 # Guide
 

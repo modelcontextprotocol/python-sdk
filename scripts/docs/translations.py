@@ -73,7 +73,7 @@ HEADING = re.compile(r"^(?P<hashes>#{1,6})(?!#)(?P<text>(?:\\.|[^\\\n])*?)#*[ \t
 # A heading's trailing attr_list block(s), matched with or without the whitespace
 # attr_list itself needs, so blocks the model glued to CJK text or doubled are
 # still seen; `body` is the last block's, the one attr_list reads.
-HEADING_ATTRS = re.compile(r"(?:[ \t]*\{:?[ \t]*(?P<body>[^}\n]*?)[ \t]*\})+[ \t]*$")
+HEADING_ATTRS = re.compile(r"(?:[ \t]*\{:?(?P<body>[^}\n]*)\})+[ \t]*$")
 ESCAPE = re.compile(r"\\(?P<char>[!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])")
 # An underscore that is not word-internal turns into emphasis before attr_list
 # reads the block, so it must be written escaped inside `{#...}`.
