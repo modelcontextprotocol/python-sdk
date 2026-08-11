@@ -1,7 +1,6 @@
 ---
 translation:
-  sections: [f671b445b16e4f99, 620a3c9c5941ad66, 004b3ee918529d8c, c6e2debf1da06eb7, 16dcce4db41f5f65]
-  inputs: 13b736130e4ee759
+  sections: [f671b445b16e4f99, 620a3c9c5941ad66, 004b3ee918529d8c, c6e2debf1da06eb7, 81d412ed5f399f94]
   tool: 1
 ---
 # Traduções {#translations}
@@ -28,4 +27,4 @@ As páginas traduzidas são geradas por máquina por uma ferramenta deste reposi
 
 ## Reportando um problema de tradução {#reporting-a-translation-problem}
 
-Encontrou um termo errado, uma frase estranha ou uma tradução que diz algo que o inglês não diz? [Abra uma issue de tradução](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=translation.yaml) com o idioma, a página e o trecho; relatos de falantes nativos são especialmente valiosos, e os mantenedores os acompanham com a label `translation`. Se você sabe a correção, proponha-a diretamente como um pull request no guia de estilo (`instructions.md`) ou no glossário (`glossary.json`) daquele idioma, em [`i18n/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/i18n) — a correção então chega a todas as páginas afetadas na próxima vez que as traduções forem regeneradas. Problemas com o próprio texto em inglês são corrigidos nas páginas em `docs/`, como qualquer outra mudança na documentação.
+Encontrou um termo errado, uma frase estranha ou uma tradução que diz algo que o inglês não diz? [Abra uma issue](https://github.com/modelcontextprotocol/python-sdk/issues) com o idioma, a página e o trecho; relatos de falantes nativos são especialmente valiosos. Se você sabe a correção, proponha-a diretamente como um pull request no guia de estilo (`instructions.md`) ou no glossário (`glossary.json`) daquele idioma, em [`i18n/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/i18n) — a correção então chega a todas as páginas afetadas na próxima vez que as traduções forem regeneradas. Problemas com o próprio texto em inglês são corrigidos nas páginas em `docs/`, como qualquer outra mudança na documentação.

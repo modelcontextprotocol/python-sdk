@@ -6,19 +6,15 @@ languages:
     name: 简体中文 # switcher label
     theme: zh # theme `language` (UI strings, search)
     hreflang: zh-Hans # announced in <link rel="alternate">
-    reviewers: [] # GitHub handles requested on the workflow's PRs
   - code: ja
     name: 日本語
     theme: ja
     hreflang: ja
-    reviewers: []
   - code: ko
     name: 한국어
     theme: ko
     hreflang: ko
-    reviewers: []
   - code: pt-BR
     name: Português (Brasil)
     theme: pt-BR
     hreflang: pt-BR
-    reviewers: [Kludex]

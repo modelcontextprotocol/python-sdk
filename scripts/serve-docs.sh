@@ -6,8 +6,8 @@
 # it. Re-run the script to pick up changes to `src/` (the API reference) or the
 # nav; edits to prose pages under `docs/` are picked up by live reload. The
 # translated sites are never served here, so the language switcher's other
-# entries 404 locally; preview one with `DOCS_LANGUAGES=<code>
-# scripts/docs/build.sh` and any static file server over site/.
+# entries 404 locally; preview them with `scripts/docs/build.sh` and any static
+# file server over site/.
 #
 # Usage:
 #   scripts/serve-docs.sh [<extra zensical serve args>...]

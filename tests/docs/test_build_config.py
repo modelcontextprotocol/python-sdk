@@ -29,7 +29,7 @@ LANGUAGES = """\
 model: some-model
 exclude: []
 languages:
-  - {code: ja, name: 日本語, theme: ja, hreflang: ja, reviewers: [someone]}
+  - {code: ja, name: 日本語, theme: ja, hreflang: ja}
 """
 
 # What `translations.py stage` records beside the staged tree: each staged page's H1 (a page without one is
@@ -67,7 +67,7 @@ def test_language_nav_titles_sections_from_the_recorded_page_titles_but_keeps_li
 
 def test_alternate_lists_english_at_the_root_then_each_language_as_path_only_links() -> None:
     """Tool-defined: the switcher is the same on every site and never names a host, so previews work."""
-    languages = [build_config.Language("ja", "日本語", "ja", "ja", ["x"])]
+    languages = [build_config.Language("ja", "日本語", "ja", "ja")]
     assert build_config.alternate(languages) == snapshot(
         [{"name": "English", "link": "/", "lang": "en"}, {"name": "日本語", "link": "/ja/", "lang": "ja"}]
     )

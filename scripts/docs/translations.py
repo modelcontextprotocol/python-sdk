@@ -9,15 +9,13 @@ English section hashes it reflects; nothing else tracks state.
 
 Usage (from the repository root):
     python scripts/docs/translations.py status [--lang CODE]
-    python scripts/docs/translations.py translate --lang CODE [--pages PATH ... | --grep RE] [--limit N] [--dry-run]
+    python scripts/docs/translations.py translate --lang CODE [--pages PATH ...]
     python scripts/docs/translations.py stage --lang CODE
 
-Only `translate` without `--dry-run` calls the model (credentials come from
-the environment, e.g. `ANTHROPIC_API_KEY`) and needs the `translate`
-dependency group. `DOCS_TRANSLATE_MODEL`, if set, replaces the registry's
-`model` for that run, to trial another model without editing the registry.
-Exit codes: 0 done, 1 some page failed, 2 configuration or credential error,
-3 internal error (nothing the run wrote should be proposed).
+Only `translate` calls the model (credentials come from the environment, e.g.
+`ANTHROPIC_API_KEY`) and needs the `translate` dependency group;
+`DOCS_TRANSLATE_MODEL`, if set, replaces the registry's `model` for that run.
+Exit codes: 0 done, 1 some page failed, 2 configuration or credential error.
 """
 
 import argparse
@@ -25,16 +23,14 @@ import hashlib
 import importlib
 import json
 import os
-import posixpath
 import re
 import shutil
 import sys
-import traceback
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast, get_args
 
 import markdown
 import yaml
@@ -49,14 +45,11 @@ parse_mkdocs_config = cast("Callable[[str], dict[str, Any]]", getattr(zensical.c
 # Bumped only when the generated-file contract changes; older files then read as missing.
 TOOL_VERSION = 1
 # `max_tokens` per request: several times the longest page, leaving room for
-# any thinking the model does (it counts against the same budget), while still
-# inside the output ceiling streaming requests allow.
+# any thinking the model does, while inside the ceiling streaming allows.
 OUTPUT_TOKEN_BUDGET = 64_000
 # Repair turns fed back to the model after the first reply before a page fails.
 MAX_REPAIRS = 2
-DEFAULT_LIMIT = 15
 NOTICES_PAGE = "i18n/notices.md"
-NOTICE_KINDS = ("translated", "outdated", "english")
 API_DIR = "api"
 
 Status = Literal["missing", "outdated", "current"]
@@ -68,7 +61,7 @@ class ConfigError(Exception):
 
 
 class PageError(Exception):
-    """One page cannot be translated or overlaid; the run continues with the next page."""
+    """One page cannot be translated; the run continues with the next page."""
 
 
 # ---- Markdown structure: front matter, fences, headings, code spans, links ----
@@ -88,13 +81,10 @@ _BOUNDARY_UNDERSCORE = re.compile(r"(?<![A-Za-z0-9])_|_(?![A-Za-z0-9])")
 _FENCE = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<info>[^\n]*)$")
 # Cannot cross a blank line, so a stray backtick cannot swallow later paragraphs.
 CODE_SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)")
-LINK = re.compile(r"(?P<image>!?)\[(?P<label>[^\]]*)\]\((?P<target>[^)\s]*)(?P<title>[^)]*)\)")
+LINK = re.compile(r"!?\[[^\]]*\]\((?P<target>[^)\s]*)[^)]*\)")
 _URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://(?:(?![<>)\]])[!-~])+")
 _TAG = re.compile(r"</?[A-Za-z][^>\n]*>|<!--.*?-->", re.DOTALL)
-EXTERNAL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
 _MARKER = re.compile(r"^[ \t]*(?P<marker>!!!|\?\?\?\+?|===)[ \t]+(?P<kind>[\w-]+)?")
-_TABLE_ROW = re.compile(r"^[ \t]*\|")
-_SNIPPET = re.compile(r'^[ \t]*-+8<-+[ \t]+"(?P<path>[^"\n]+)"[ \t]*$', re.MULTILINE)
 _WRAPPER = re.compile(
     r"\A[ \t]*\n*(?P<open>`{3,}|~{3,})[^\n]*\n(?P<body>.*)\n(?P<close>`{3,}|~{3,})[ \t]*\n*\Z", re.DOTALL
 )
@@ -106,6 +96,8 @@ _PLACEHOLDERS = (
 )
 _COMMENT = re.compile(r"<!--(?P<body>.*?)-->", re.DOTALL)
 _ABRIDGED = re.compile(r"\b(?:omitted|continues|truncated|abridged|remaining|rest of)\b", re.IGNORECASE)
+# A language site builds no API reference; links into `api/` go to the English one.
+_API_LINK = re.compile(r"\]\((?:\.\./)*(?P<page>api/[^)#\s]+\.md)")
 
 
 @dataclass(frozen=True)
@@ -125,18 +117,6 @@ class FenceLines:
     opener: int
     closer: int
     closed: bool
-
-
-@dataclass(frozen=True)
-class LinkRef:
-    """A markdown link or image in prose: the whole match and its target, as character spans."""
-
-    start: int
-    end: int
-    target_start: int
-    target_end: int
-    label: str
-    target: str
 
 
 def split_front_matter(text: str) -> tuple[str | None, str]:
@@ -165,35 +145,6 @@ def fence_ranges(lines: Sequence[str]) -> list[FenceLines]:
     return found
 
 
-def _prose_lines(text: str) -> list[str]:
-    """The lines with fenced-block bodies blanked, so structure scans never read code."""
-    lines = text.split("\n")
-    for fence in fence_ranges(lines):
-        for index in range(fence.opener + 1, fence.closer if fence.closed else fence.closer + 1):
-            lines[index] = ""
-    return lines
-
-
-def parse_headings(text: str) -> list[Heading]:
-    """The ATX headings of `text` in order, with the id any trailing `{#...}` block pins."""
-    found: list[Heading] = []
-    for index, line in enumerate(_prose_lines(text)):
-        if not (match := HEADING.match(line)):
-            continue
-        heading, anchor = match["text"].strip(), None
-        if attrs := HEADING_ATTRS.search(heading):
-            ids = [token[1:] for token in attrs["body"].split() if token.startswith("#") and len(token) > 1]
-            anchor = ESCAPE.sub(r"\g<char>", ids[-1]) if ids else None
-            heading = heading[: attrs.start()].rstrip()
-        found.append(Heading(index, len(match["hashes"]), heading, anchor))
-    return found
-
-
-def anchor_source_form(anchor: str) -> str:
-    """The rendered id as it must be written inside `{#...}` to survive the emphasis pass."""
-    return _BOUNDARY_UNDERSCORE.sub(r"\\_", anchor)
-
-
 def _blank(text: str, spans: list[tuple[int, int]]) -> str:
     """Replace each span with same-length spaces, keeping newlines so positions and lines survive."""
     chars = list(text)
@@ -211,6 +162,26 @@ def _mask_fences(text: str) -> str:
     for line in lines:
         offsets.append(offsets[-1] + len(line) + 1)
     return _blank(text, [(offsets[fence.opener], offsets[fence.closer + 1] - 1) for fence in fence_ranges(lines)])
+
+
+def parse_headings(text: str) -> list[Heading]:
+    """The ATX headings of `text` in order, with the id any trailing `{#...}` block pins."""
+    found: list[Heading] = []
+    for index, line in enumerate(_mask_fences(text).split("\n")):
+        if not (match := HEADING.match(line)):
+            continue
+        heading, anchor = match["text"].strip(), None
+        if attrs := HEADING_ATTRS.search(heading):
+            ids = [token[1:] for token in attrs["body"].split() if token.startswith("#") and len(token) > 1]
+            anchor = ESCAPE.sub(r"\g<char>", ids[-1]) if ids else None
+            heading = heading[: attrs.start()].rstrip()
+        found.append(Heading(index, len(match["hashes"]), heading, anchor))
+    return found
+
+
+def anchor_source_form(anchor: str) -> str:
+    """The rendered id as it must be written inside `{#...}` to survive the emphasis pass."""
+    return _BOUNDARY_UNDERSCORE.sub(r"\\_", anchor)
 
 
 def mask_code(text: str) -> str:
@@ -232,47 +203,15 @@ def code_spans(text: str) -> Counter[str]:
     return Counter(match.group(2).strip() for match in CODE_SPAN.finditer(_mask_fences(text)))
 
 
-def links(text: str) -> list[LinkRef]:
-    """The markdown links and images written in the prose of `text` (code is masked for detection only)."""
-    return [
-        LinkRef(
-            m.start(), m.end(), m.start("target"), m.end("target"), text[m.start("label") : m.end("label")], m["target"]
-        )
-        for m in LINK.finditer(mask_code(text))
-    ]
-
-
-def is_relative(target: str) -> bool:
-    """Whether a link target depends on the docs tree (not a URL, not site-absolute)."""
-    return not EXTERNAL.match(target) and not target.startswith("/")
-
-
-def _replace_spans(text: str, edits: list[tuple[int, int, str]]) -> str:
-    parts: list[str] = []
-    cursor = 0
-    for start, end, replacement in sorted(edits):
-        parts += [text[cursor:start], replacement]
-        cursor = end
-    return "".join([*parts, text[cursor:]])
+def link_targets(text: str) -> Counter[str]:
+    """The targets of the markdown links and images written in the prose of `text`, counted."""
+    return Counter(match["target"] for match in LINK.finditer(mask_code(text)))
 
 
 def markers(text: str) -> list[str]:
     """The admonition (`!!!`/`???`) markers with their type keyword, and the tab (`===`) markers, in order."""
-    matches = [match for line in _prose_lines(text) if (match := _MARKER.match(line))]
+    matches = [match for line in _mask_fences(text).split("\n") if (match := _MARKER.match(line))]
     return ["===" if match["marker"] == "===" else f"{match['marker']} {match['kind'] or '?'}" for match in matches]
-
-
-def table_rows(text: str) -> list[int]:
-    """The row count of each table (a run of consecutive `|` lines), in order."""
-    counts: list[int] = []
-    run = 0
-    for line in [*_prose_lines(text), ""]:
-        if _TABLE_ROW.match(line):
-            run += 1
-        elif run:
-            counts.append(run)
-            run = 0
-    return counts
 
 
 def abridgements(text: str) -> Counter[str]:
@@ -314,50 +253,25 @@ def section_label(section: str, index: int) -> str:
     return section.strip("\n").split("\n", 1)[0].strip()
 
 
-def digest(text: str) -> str:
-    """The first 16 hex digits of the text's sha256."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
-
 def section_hashes(body: str) -> list[str]:
-    return [digest(section) for section in sections(body)]
+    """The first 16 hex digits of each section's sha256."""
+    return [hashlib.sha256(section.encode("utf-8")).hexdigest()[:16] for section in sections(body)]
 
 
-@dataclass(frozen=True)
-class Provenance:
-    """What a generated page was made from, carried in its front matter (deliberately not the model)."""
-
-    sections: tuple[str, ...]
-    inputs: str
-
-
-def with_provenance(body: str, provenance: Provenance) -> str:
-    """The generated file: provenance front matter, then the translated body."""
-    record = {"translation": {"sections": list(provenance.sections), "inputs": provenance.inputs, "tool": TOOL_VERSION}}
-    header = yaml.safe_dump(record, sort_keys=False, default_flow_style=None, width=2**16, allow_unicode=True)
+def with_provenance(body: str, hashes: Sequence[str]) -> str:
+    """The generated file: the English section hashes in front matter, then the translated body."""
+    record = {"translation": {"sections": list(hashes), "tool": TOOL_VERSION}}
+    header = yaml.safe_dump(record, sort_keys=False, default_flow_style=None, width=2**16)
     return f"---\n{header}---\n{body}"
 
 
-def read_provenance(front_matter: str | None) -> Provenance | None:
-    """The provenance recorded in a generated page's front matter, or None if absent or off-schema."""
-    if front_matter is None:
-        return None
+def read_provenance(front_matter: str | None) -> tuple[str, ...] | None:
+    """The section hashes a generated page records, or None if absent, unreadable or from another tool version."""
     try:
-        loaded: object = yaml.safe_load(front_matter)
-    except yaml.YAMLError:
+        record = yaml.safe_load(front_matter or "")["translation"]
+        return tuple(str(value) for value in record["sections"]) if record["tool"] == TOOL_VERSION else None
+    except (yaml.YAMLError, TypeError, KeyError):
         return None
-    record: object = cast("dict[str, object]", loaded).get("translation") if isinstance(loaded, dict) else None
-    if not isinstance(record, dict):
-        return None
-    fields = cast("dict[str, object]", record)
-    hashes, inputs = fields.get("sections"), fields.get("inputs")
-    if set(fields) != {"sections", "inputs", "tool"} or fields["tool"] != TOOL_VERSION:
-        return None
-    if not isinstance(hashes, list) or not all(isinstance(item, str) for item in cast("list[object]", hashes)):
-        return None
-    if not isinstance(inputs, str):
-        return None
-    return Provenance(tuple(cast("list[str]", hashes)), inputs)
 
 
 # ---- The repository: registry, nav pages, prompt inputs and the renderer's heading ids ----
@@ -368,61 +282,36 @@ class Term:
     source: str
     target: str
     note: str = ""
-    avoid: tuple[str, ...] = ()
+    avoid: Sequence[str] = ()
 
 
 @dataclass(frozen=True)
 class Glossary:
-    keep: tuple[str, ...]
-    terms: tuple[Term, ...]
+    keep: Sequence[str]
+    terms: Sequence[Term]
 
 
 def load_glossary(path: Path) -> Glossary:
-    """Parse `glossary.json`; the schema is closed, so a misspelt key is an error.
+    """Parse `glossary.json`: `keep` strings and `terms` objects with the `Term` fields.
 
     Raises:
-        ConfigError: The file is missing, not JSON, or off-schema.
+        ConfigError: The file is missing, not JSON, or not that shape.
     """
     try:
-        raw: object = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ConfigError(f"{path}: {exc}") from exc
-
-    def strings(where: str, value: object) -> tuple[str, ...]:
-        if not isinstance(value, list) or not all(isinstance(v, str) and v for v in cast("list[object]", value)):
-            raise ConfigError(f"{path}: {where} must be a list of non-empty strings")
-        return tuple(cast("list[str]", value))
-
-    if not isinstance(raw, dict) or set(cast("dict[str, object]", raw)) != {"keep", "terms"}:
-        raise ConfigError(f'{path}: top level must be an object with exactly the keys "keep" and "terms"')
-    top = cast("dict[str, object]", raw)
-    entries = top["terms"]
-    if not isinstance(entries, list):
-        raise ConfigError(f"{path}: terms must be a list")
-    terms: list[Term] = []
-    for index, entry in enumerate(cast("list[object]", entries)):
-        where = f"terms[{index}]"
-        if not isinstance(entry, dict):
-            raise ConfigError(f"{path}: {where} must be an object")
-        item = cast("dict[str, object]", entry)
-        if unknown := sorted(set(item) - {"source", "target", "note", "avoid"}):
-            raise ConfigError(f"{path}: {where} has unknown keys {unknown}")
-        source, target, note = item.get("source"), item.get("target"), item.get("note", "")
-        if not isinstance(source, str) or not isinstance(target, str) or not isinstance(note, str):
-            raise ConfigError(f"{path}: {where} needs string source and target (note optional)")
-        terms.append(Term(source, target, note, strings(f"{where}.avoid", item.get("avoid", []))))
-    return Glossary(strings("keep", top["keep"]), tuple(terms))
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return Glossary(tuple(raw["keep"]), tuple(Term(**entry) for entry in raw["terms"]))
+    except (OSError, json.JSONDecodeError, TypeError, KeyError) as exc:
+        raise ConfigError(f"{path}: {exc!r}") from exc
 
 
 @dataclass(frozen=True)
 class Inputs:
-    """One language's prompt inputs; `hash` fingerprints all of them (provenance only)."""
+    """One language's prompt inputs."""
 
     language: Language
     general_prompt: str
     instructions: str
     glossary: Glossary
-    hash: str
 
 
 @dataclass(frozen=True)
@@ -457,19 +346,12 @@ class Repo:
     """Everything the commands read from a checkout rooted at `root`."""
 
     root: Path
+    docs: Path
+    i18n: Path
     registry: Registry
     prose_pages: list[str]
     translatable: list[str]
-    notices: dict[str, Notice]
     renderer: markdown.Markdown
-
-    @property
-    def docs(self) -> Path:
-        return self.root / "docs"
-
-    @property
-    def i18n(self) -> Path:
-        return self.root / "i18n"
 
     def language(self, code: str) -> Language:
         for language in self.registry.languages:
@@ -479,16 +361,12 @@ class Repo:
         raise ConfigError(f"unknown language {code!r} (i18n/languages.yml has: {known})")
 
     def inputs(self, language: Language) -> Inputs:
-        texts: list[str] = []
-        for path in (self.i18n / "general-prompt.md", self.i18n / language.code / "instructions.md"):
-            try:
-                texts.append(path.read_text(encoding="utf-8"))
-            except OSError as exc:
-                raise ConfigError(f"cannot read {path}: {exc}") from exc
-        glossary_path = self.i18n / language.code / "glossary.json"
-        glossary = load_glossary(glossary_path)
-        fingerprint = digest("\0".join([*texts, glossary_path.read_text(encoding="utf-8")]))
-        return Inputs(language, texts[0], texts[1], glossary, fingerprint)
+        try:
+            general = (self.i18n / "general-prompt.md").read_text(encoding="utf-8")
+            instructions = (self.i18n / language.code / "instructions.md").read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ConfigError(str(exc)) from exc
+        return Inputs(language, general, instructions, load_glossary(self.i18n / language.code / "glossary.json"))
 
     def pages(self, language: Language) -> list[Page]:
         """The language's translatable pages in nav order, then the notices page."""
@@ -496,20 +374,16 @@ class Repo:
         pages = [Page(key, self.docs / key, generated / key) for key in self.translatable]
         return [*pages, Page(NOTICES_PAGE, self.root / NOTICES_PAGE, self.i18n / language.code / "notices.md")]
 
-    def render_ids(self, body: str) -> list[str]:
-        """The heading ids the site renderer gives a page body (no front matter), in document order."""
-        self.renderer.reset()
-        self.renderer.convert(body)
-        tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
-        return [str(token["id"]) for token in _flatten(tokens)]
-
     def heading_ids(self, body: str) -> list[str]:
-        """`render_ids`, checked to pair one-to-one with the source headings this tool can pin.
+        """The ids the site renderer gives the page's headings, paired one-to-one with `parse_headings(body)`.
 
         Raises:
             PageError: The renderer sees headings the source scan does not (setext, indented, HTML).
         """
-        ids, found = self.render_ids(body), parse_headings(body)
+        self.renderer.reset()
+        self.renderer.convert(body)
+        tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
+        ids, found = [str(token["id"]) for token in _flatten(tokens)], parse_headings(body)
         if len(ids) != len(found):
             raise PageError(f"the page renders {len(ids)} headings but {len(found)} are ATX headings at column 0")
         return ids
@@ -529,8 +403,8 @@ def _renderer(root: Path) -> markdown.Markdown:
         raise ConfigError(f"cannot load {root / 'mkdocs.yml'}: {exc}") from exc
     configs = cast("dict[str, dict[str, Any]]", config["mdx_configs"])
     # Snippet paths resolve against the build's working directory, the
-    # repository root. Only heading ids are read here, so a missing snippet is
-    # not this renderer's failure (`plan` checks snippet paths itself).
+    # repository root; only heading ids are read here, so a missing one is not
+    # this renderer's failure.
     snippets = configs.setdefault("pymdownx.snippets", {})
     snippets["base_path"] = [str(root / base) for base in cast("list[str]", snippets.get("base_path", ["."]))]
     snippets["check_paths"] = False
@@ -555,7 +429,7 @@ def read_english(path: Path) -> str:
 
 
 def load_repo(root: Path) -> Repo:
-    """Read the registry, the nav and the English notices of the checkout at `root`.
+    """Read the registry and the nav of the checkout at `root`, and check its English notices.
 
     Raises:
         ConfigError: Any of them is missing or malformed.
@@ -570,10 +444,10 @@ def load_repo(root: Path) -> Repo:
         raise ConfigError(f"{root / 'mkdocs.yml'}: no nav list")
     prose = [p for p in nav_page_paths(cast("list[Any]", nav)) if p.endswith(".md") and not p.startswith(f"{API_DIR}/")]
     notices = parse_notices(read_english(root / NOTICES_PAGE))
-    if missing := [kind for kind in NOTICE_KINDS if kind not in notices]:
+    if missing := [kind for kind in get_args(NoticeKind) if kind not in notices]:
         raise ConfigError(f"{root / NOTICES_PAGE}: missing `## ... {{#id}}` sections for {missing}")
     translatable = [page for page in prose if not _excluded(page, registry.exclude)]
-    return Repo(root, registry, prose, translatable, notices, _renderer(root))
+    return Repo(root, root / "docs", root / "i18n", registry, prose, translatable, _renderer(root))
 
 
 # ---- Page status ----
@@ -581,15 +455,15 @@ def load_repo(root: Path) -> Repo:
 
 @dataclass(frozen=True)
 class Translation:
-    """A generated page split into its provenance (None when unreadable) and body."""
+    """A generated page: the English section hashes it records (one per section of its body) and its body."""
 
-    provenance: Provenance | None
+    sections: tuple[str, ...]
     body: str
 
 
 @dataclass(frozen=True)
 class PageState:
-    """One page classified against the current English text."""
+    """One page classified against the current English text; `translation` is None unless usable."""
 
     page: Page
     english: str
@@ -598,18 +472,6 @@ class PageState:
     status: Status
     changed: list[int] = field(default_factory=list[int])
     note: str = ""
-
-    def predates(self, inputs: Inputs) -> bool:
-        """Whether the translation was generated with earlier prompt inputs than these (informational)."""
-        provenance = self.translation.provenance if self.translation else None
-        return provenance is not None and provenance.inputs != inputs.hash
-
-
-def read_translation(path: Path) -> Translation | None:
-    if not path.is_file():
-        return None
-    front_matter, body = split_front_matter(path.read_text(encoding="utf-8"))
-    return Translation(read_provenance(front_matter), body)
 
 
 def classify(page: Page) -> PageState:
@@ -620,14 +482,13 @@ def classify(page: Page) -> PageState:
     """
     english = read_english(page.source)
     hashes = section_hashes(english)
-    translation = read_translation(page.target)
-    if translation is None:
+    if not page.target.is_file():
         return PageState(page, english, hashes, None, "missing")
-    if translation.provenance is None:
-        return PageState(
-            page, english, hashes, translation, "missing", note="unreadable front matter, retranslated whole"
-        )
-    recorded = translation.provenance.sections
+    front_matter, body = split_front_matter(page.target.read_text(encoding="utf-8"))
+    recorded = read_provenance(front_matter)
+    if recorded is None or len(recorded) != len(sections(body)):
+        return PageState(page, english, hashes, None, "missing", note="unreadable front matter, retranslated whole")
+    translation = Translation(recorded, body)
     if tuple(hashes) == recorded:
         return PageState(page, english, hashes, translation, "current")
     changed = [index for index, value in enumerate(hashes) if value not in set(recorded)]
@@ -680,24 +541,16 @@ class Completion:
 
 
 class Translator(Protocol):
-    """Anything that answers a conversation; tests inject a scripted fake."""
+    """Anything that answers a conversation (`ConfigError`: credentials rejected; `PageError`: request failed)."""
 
-    def complete(self, *, model: str, system: str, messages: Sequence[Message], max_tokens: int) -> Completion:
-        """Return the model's reply.
-
-        Raises:
-            ConfigError: The credentials were rejected.
-            PageError: The request failed.
-        """
-        ...
+    def complete(self, *, model: str, system: str, messages: Sequence[Message], max_tokens: int) -> Completion: ...
 
 
 def anthropic_translator() -> Translator:
     """The Claude Messages API client, streaming, with the system prompt as one cached block.
 
-    `anthropic` (and `httpx`, its own dependency) lives in the non-default
-    `translate` dependency group, so it is imported here, by name: offline
-    commands and type checking never need it.
+    `anthropic` lives in the non-default `translate` dependency group, so it is
+    imported here, by name: offline commands and type checking never need it.
 
     Raises:
         ConfigError: The `translate` dependency group is not installed, or no credentials are configured.
@@ -708,7 +561,6 @@ def anthropic_translator() -> Translator:
         raise ConfigError(
             "the anthropic package is not installed; run with `uv run --frozen --group translate`"
         ) from exc
-    httpx = importlib.import_module("httpx")
     # The SDK resolves every credential source it knows at construction; fail
     # here, before any page work, rather than on the first request.
     try:
@@ -729,8 +581,6 @@ def anthropic_translator() -> Translator:
                 raise ConfigError(f"the API rejected the credentials: {exc.message}") from exc
             except sdk.APIError as exc:
                 raise PageError(f"API request failed: {exc.message}") from exc
-            except httpx.HTTPError as exc:  # the SDK lets transport errors through raw once the stream is open
-                raise PageError(f"API connection failed mid-reply: {exc!r}") from exc
             usage = Usage(
                 reply.usage.input_tokens,
                 reply.usage.output_tokens,
@@ -801,11 +651,9 @@ def repair_request(findings: Sequence[str]) -> str:
 
 @dataclass(frozen=True)
 class Mismatch:
-    """A reply whose structure differs from the English; `partial` has the fences and ids that could be re-imposed."""
+    """A reply whose structure differs from the English; each finding says what to fix."""
 
     findings: list[str]
-    partial: str
-    fences_restored: bool
 
 
 def unwrap(english: str, reply: str) -> str:
@@ -826,31 +674,30 @@ def reimpose(english: str, ids: Sequence[str], reply: str) -> str | Mismatch:
     the translated headings positionally; each needs matching counts. Link and
     image targets are never moved (a translation may reorder links): each
     section must carry the same targets as its English, however placed.
-    Otherwise the finding says what to fix.
     """
     findings: list[str] = []
-    text, fences_restored = _restore_fences(english, reply, findings)
+    text = _restore_fences(english, reply, findings)
     text = _pin_headings(english, ids, text, findings)
     _check_targets(english, text, findings)
-    return Mismatch(findings, text, fences_restored) if findings else text
+    return Mismatch(findings) if findings else text
 
 
-def _restore_fences(english: str, reply: str, findings: list[str]) -> tuple[str, bool]:
+def _restore_fences(english: str, reply: str, findings: list[str]) -> str:
     source, output = english.split("\n"), reply.split("\n")
     want, got = fence_ranges(source), fence_ranges(output)
     if unclosed := [fence for fence in got if not fence.closed]:
         findings.append(f"the code fence opened on line {unclosed[0].opener + 1} is never closed")
-        return reply, False
+        return reply
     if len(want) != len(got):
         findings.append(f"{len(got)} code fences vs {len(want)} in the English: keep each code block, add none")
-        return reply, False
+        return reply
     result: list[str] = []
     cursor = 0
     for expected, found in zip(want, got):
         result += output[cursor : found.opener]
         result += source[expected.opener : expected.closer + 1]
         cursor = found.closer + 1
-    return "\n".join([*result, *output[cursor:]]), True
+    return "\n".join([*result, *output[cursor:]])
 
 
 def _pin_headings(english: str, ids: Sequence[str], text: str, findings: list[str]) -> str:
@@ -875,7 +722,7 @@ def _check_targets(english: str, text: str, findings: list[str]) -> None:
     missing: Counter[str] = Counter()
     extra: Counter[str] = Counter()
     for source, output in zip(want, got, strict=True):
-        expected, found = Counter(link.target for link in links(source)), Counter(link.target for link in links(output))
+        expected, found = link_targets(source), link_targets(output)
         missing += expected - found
         extra += found - expected
     if missing:
@@ -897,8 +744,6 @@ def validate(english: str, output: str, glossary: Glossary) -> list[str]:
             f"block markers {markers(output)} vs {markers(english)} in the English:"
             " keep each `!!!`/`???`/`===` line and its type"
         )
-    if table_rows(english) != table_rows(output):
-        findings.append(f"table rows {table_rows(output)} vs {table_rows(english)} in the English")
     folded = mask(output).casefold()
     findings.extend(
         f"banned rendering {avoid!r} of {term.source!r} appears: use {term.target!r}"
@@ -924,47 +769,26 @@ class Job:
     previous: Translation | None
 
 
-def select_jobs(states: Sequence[PageState], *, pages: Sequence[str], grep: str | None) -> list[Job]:
-    """The pages a run could work on, in nav order (the caller applies `--limit`).
+def select_jobs(states: Sequence[PageState], pages: Sequence[str]) -> list[Job]:
+    """The missing and outdated pages with their changed sections open, or exactly `pages`, whole and fresh.
 
     Raises:
-        ConfigError: A `--pages` entry is not a translatable page, or `--grep` is not a valid regex.
+        ConfigError: A `pages` entry is not a translatable page.
     """
-    if pages:
-        by_key = {state.page.key: state for state in states}
-        if unknown := [page for page in pages if page not in by_key]:
-            raise ConfigError(f"not translatable pages (nav paths such as servers/tools.md): {unknown}")
-        # A named page is translated from scratch, as a missing page is: every section is open,
-        # so a previous translation would carry nothing forward and only anchor the model on it.
-        return [Job(state, list(range(len(state.hashes))), None) for state in states if state.page.key in pages]
-    selected: list[tuple[PageState, list[int]]] = []
-    if grep is not None:
-        try:
-            pattern = re.compile(grep)
-        except re.error as exc:
-            raise ConfigError(f"--grep: invalid regular expression: {exc}") from exc
-        for state in states:
-            if state.status != "current":
-                continue
-            if matching := [index for index, text in enumerate(sections(state.english)) if pattern.search(text)]:
-                selected.append((state, matching))
-    else:
-        for state in states:
-            if state.status == "missing":
-                selected.append((state, list(range(len(state.hashes)))))
-            elif state.status == "outdated":
-                selected.append((state, state.changed))
-    return [_job(state, opened) for state, opened in selected]
+    if unknown := [page for page in pages if page not in {state.page.key for state in states}]:
+        raise ConfigError(f"not translatable pages (nav paths such as servers/tools.md): {unknown}")
+    if pages:  # a previous translation would carry nothing forward and only anchor the model on it
+        return [_fresh(state) for state in states if state.page.key in pages]
+    return [
+        _fresh(state) if state.translation is None else Job(state, state.changed, state.translation)
+        for state in states
+        if state.status != "current"
+    ]
 
 
-def _job(state: PageState, opened: list[int]) -> Job:
-    """Open only `opened` when the previous translation is usable for carry-forward, else the whole page."""
-    previous = state.translation
-    if previous is None or previous.provenance is None:
-        return Job(state, list(range(len(state.hashes))), None)
-    if len(previous.provenance.sections) != len(sections(previous.body)):
-        return Job(state, list(range(len(state.hashes))), None)
-    return Job(state, opened, previous)
+def _fresh(state: PageState) -> Job:
+    """The whole page from the English alone."""
+    return Job(state, list(range(len(state.hashes))), None)
 
 
 def build_messages(job: Job) -> list[Message]:
@@ -979,16 +803,13 @@ def carry_forward(job: Job, output: str) -> str:
     """Overwrite every section the model was not asked to rewrite with its previous translation.
 
     A section left closed is one whose English hash the previous file records
-    (that is how `select_jobs` closes it), so the lookup cannot miss.
+    (that is how `classify` closes it), so the lookup cannot miss.
     """
-    if job.previous is None or job.previous.provenance is None:
+    if job.previous is None:
         return output
-    prior = dict(zip(job.previous.provenance.sections, sections(job.previous.body), strict=True))
-    kept = [
-        text if index in job.open else prior[value]
-        for index, (value, text) in enumerate(zip(job.state.hashes, sections(output), strict=True))
-    ]
-    return "".join(kept)
+    prior = dict(zip(job.previous.sections, sections(job.previous.body), strict=True))
+    paired = zip(job.state.hashes, sections(output), strict=True)
+    return "".join(text if index in job.open else prior[value] for index, (value, text) in enumerate(paired))
 
 
 def _assemble(english: str, ids: Sequence[str], job: Job, output: str) -> str:
@@ -1040,25 +861,11 @@ def translate_page(repo: Repo, inputs: Inputs, job: Job, translator: Translator,
 def command_translate(repo: Repo, args: argparse.Namespace, translator: Translator | None) -> int:
     language = repo.language(args.lang)
     inputs = repo.inputs(language)
-    states = [classify(page) for page in repo.pages(language)]
-    selected = select_jobs(states, pages=args.pages, grep=args.grep)
-    # `--pages` names exactly the pages to run; any other selection is capped.
-    jobs = selected if args.pages else selected[: args.limit]
+    jobs = select_jobs([classify(page) for page in repo.pages(language)], args.pages)
     if not jobs:
         print(f"{language.code}: nothing to translate")
         return 0
-    if len(jobs) < len(selected):
-        print(f"{language.code}: {len(jobs)} of {len(selected)} selected pages this run (--limit); run again for more")
-    if args.dry_run:
-        system = system_prompt(inputs)
-        print(f"===== system prompt, shared by every page (~{len(system) // 4} tokens) =====\n{system}")
-        for job in jobs:
-            content = "\n\n".join(message.content for message in build_messages(job))
-            print(f"===== {job.state.page.key}: user message (~{len(content) // 4} tokens) =====\n{content}")
-        print(f"{language.code}: {len(jobs)} page(s) selected; dry run, nothing sent (token counts are chars/4)")
-        return 0
-    # Deliberately never recorded in the generated files.
-    model = os.environ.get("DOCS_TRANSLATE_MODEL") or repo.registry.model
+    model = os.environ.get("DOCS_TRANSLATE_MODEL") or repo.registry.model  # never recorded in the generated files
     translator = translator or anthropic_translator()
     usage, failed = Usage(), False
     for job in jobs:
@@ -1069,9 +876,8 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
             failed = True
             print(f"error: {page.key}: {exc}", file=sys.stderr)
             continue
-        provenance = Provenance(tuple(job.state.hashes), inputs.hash)
         page.target.parent.mkdir(parents=True, exist_ok=True)
-        page.target.write_text(with_provenance(body, provenance), encoding="utf-8", newline="\n")
+        page.target.write_text(with_provenance(body, job.state.hashes), encoding="utf-8", newline="\n")
         print(f"translated: {page.key} ({len(job.open)} of {len(job.state.hashes)} sections)", flush=True)
     print(f"usage: {usage}")
     return 1 if failed else 0
@@ -1080,62 +886,18 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
 # ---- stage ----
 
 
-@dataclass(frozen=True)
-class Served:
-    """What a language site shows for one page, and why when that is the English page."""
-
-    body: str
-    kind: NoticeKind
-    reason: str = ""
-
-
-def plan(repo: Repo, state: PageState) -> Served:
-    """Decide what to serve for a translatable page; `status` predicts fallbacks through this too."""
-    if state.status == "missing" or state.translation is None:
-        return Served(state.english, "english")
+def serve(repo: Repo, state: PageState) -> tuple[str, NoticeKind]:
+    """What a language site shows for a page: its translation with today's English structure, else English."""
+    if state.translation is None:
+        return state.english, "english"
     try:
-        ids = repo.heading_ids(state.english)
+        result = reimpose(state.english, repo.heading_ids(state.english), state.translation.body)
     except PageError as exc:
-        return Served(state.english, "english", str(exc))
-    result = reimpose(state.english, ids, state.translation.body)
+        result = Mismatch([str(exc)])
     if isinstance(result, Mismatch):
-        # Structure drifted from today's English: serve it with what could be
-        # re-imposed (`resolve_links` deals with targets that went dead), unless
-        # the code blocks could not be restored — then only English is safe.
-        if not result.fences_restored:
-            return Served(state.english, "english", "; ".join(result.findings))
-        body, reason = result.partial, "; ".join(result.findings)
-    else:
-        body, reason = result, ""
-    if missing := [m["path"] for m in _SNIPPET.finditer(body) if not (repo.root / m["path"]).is_file()]:
-        return Served(state.english, "english", f"snippet files not found: {missing}")
-    return Served(body, "translated" if state.status == "current" else "outdated", reason)
-
-
-def resolve_links(body: str, page: str, present: set[str], ids: dict[str, set[str]]) -> str:
-    """Rewrite the page's prose links so every one resolves in the staged tree.
-
-    Links into `api/` become site-absolute paths (language sites carry no API
-    reference); a relative target the tree lacks loses its link but keeps its
-    text; a `#fragment` the target page does not render is dropped.
-    """
-    edits: list[tuple[int, int, str]] = []
-    directory = posixpath.dirname(page)
-    for link in links(body):
-        path, _, fragment = link.target.partition("#")
-        if not link.target or not is_relative(link.target):
-            continue
-        resolved = posixpath.normpath(posixpath.join(directory, path)) if path else page
-        if resolved.startswith(".."):
-            continue
-        if resolved == API_DIR or resolved.startswith(f"{API_DIR}/"):
-            url = page_url(resolved) if resolved.endswith(".md") else resolved + ("/" if path.endswith("/") else "")
-            edits.append((link.target_start, link.target_end, f"/{url}" + (f"#{fragment}" if fragment else "")))
-        elif resolved != page and resolved not in present:
-            edits.append((link.start, link.end, link.label))
-        elif fragment and resolved.endswith(".md") and fragment not in ids.get(resolved, set()):
-            edits.append((link.start, link.end, link.label) if not path else (link.target_start, link.target_end, path))
-    return _replace_spans(body, edits)
+        print(f"{state.page.key}: staged in English ({'; '.join(result.findings)})", file=sys.stderr)
+        return state.english, "english"
+    return result, "translated" if state.status == "current" else "outdated"
 
 
 def render_notice(notice: Notice, kind: NoticeKind, page: str, code: str) -> str:
@@ -1163,17 +925,7 @@ def inject_notice(body: str, notice: str) -> str:
     return "\n".join([*lines[: title.line + 1], "", notice, "", rest])
 
 
-def _is_staged(relative: Path) -> bool:
-    """Whether a docs entry belongs in a language tree: not the generated `api/` tree, not a dot entry."""
-    return relative.parts[:1] != (API_DIR,) and not any(part.startswith(".") for part in relative.parts)
-
-
-def staged_paths(docs: Path) -> set[str]:
-    """The docs-relative posix paths (files and directories) a staged tree carries."""
-    return {"."} | {p.relative_to(docs).as_posix() for p in docs.rglob("*") if _is_staged(p.relative_to(docs))}
-
-
-def stage(repo: Repo, language: Language) -> tuple[Path, list[tuple[str, Served]]]:
+def stage(repo: Repo, language: Language) -> Path:
     """Build `.build/i18n/<code>/docs`: the English tree minus `api/`, translations overlaid, notices injected.
 
     Beside it, `titles.json` records each staged page's `#` heading for
@@ -1182,40 +934,30 @@ def stage(repo: Repo, language: Language) -> tuple[Path, list[tuple[str, Served]
     maintainer edits by hand can break a site build.
     """
     states = {state.page.key: state for state in map(classify, repo.pages(language))}
-    notices = dict(repo.notices)
-    if (translated := plan(repo, states[NOTICES_PAGE])).kind == "translated":
-        notices.update({key: value for key, value in parse_notices(translated.body).items() if key in notices})
-    # Pages excluded from translation are staged as their English page.
-    served = [
-        (page, plan(repo, states[page]) if page in states else Served(read_english(repo.docs / page), "english"))
-        for page in repo.prose_pages
-    ]
+    notices = parse_notices(serve(repo, states.pop(NOTICES_PAGE))[0])
     target = staged_docs_dir(language.code, repo.root)
     shutil.rmtree(target, ignore_errors=True)
 
-    def left_out(directory: str, names: list[str]) -> set[str]:
-        return {name for name in names if not _is_staged(Path(directory).relative_to(repo.docs) / name)}
+    def left_out(directory: str, names: list[str]) -> list[str]:
+        return [n for n in names if n.startswith(".") or (n == API_DIR and Path(directory) == repo.docs)]
 
     shutil.copytree(repo.docs, target, ignore=left_out)
-    present = staged_paths(repo.docs)
-    ids = {page: set(repo.render_ids(item.body)) for page, item in served}
-    for page, item in served:
-        body = resolve_links(item.body, page, present, ids)
-        body = inject_notice(body, render_notice(notices[item.kind], item.kind, page, language.code))
+    titles: dict[str, str] = {}
+    for page in repo.prose_pages:  # a page excluded from translation is staged as its English page
+        body, kind = serve(repo, states[page]) if page in states else (read_english(repo.docs / page), "english")
+        body = _API_LINK.sub(lambda match: f"](/{page_url(match['page'])}", body)
+        if title := page_title(body):
+            titles[page] = title.text
+        body = inject_notice(body, render_notice(notices[kind], kind, page, language.code))
         (target / page).write_text(body, encoding="utf-8", newline="\n")
-    titles = {page: title.text for page, item in served if (title := page_title(item.body))}
     listing = json.dumps(titles, ensure_ascii=False, indent=0, sort_keys=True)
     staged_titles_file(language.code, repo.root).write_text(listing + "\n", encoding="utf-8", newline="\n")
-    return target, served
+    return target
 
 
 def command_stage(repo: Repo, args: argparse.Namespace) -> int:
-    language = repo.language(args.lang)
-    target, served = stage(repo, language)
-    for page, item in served:
-        if item.kind == "english" and item.reason:
-            print(f"{page}: served in English ({item.reason})", file=sys.stderr)
-    print(f"staged {language.code} at {target.relative_to(repo.root).as_posix()}")
+    target = stage(repo, repo.language(args.lang))
+    print(f"staged {args.lang} at {target.relative_to(repo.root).as_posix()}")
     return 0
 
 
@@ -1223,39 +965,24 @@ def command_stage(repo: Repo, args: argparse.Namespace) -> int:
 
 
 def command_status(repo: Repo, args: argparse.Namespace) -> int:
-    languages = [repo.language(args.lang)] if args.lang else list(repo.registry.languages)
+    languages = [repo.language(args.lang)] if args.lang else repo.registry.languages
     for language in languages:
-        inputs = repo.inputs(language)
         states = [classify(page) for page in repo.pages(language)]
         strays = removable(repo, language)
-        fallbacks = {state.page.key: served for state in states if (served := plan(repo, state)).reason}
         counts = Counter(state.status for state in states)
-        english = sum(1 for served in fallbacks.values() if served.kind == "english")
         print(
             f"{language.code} ({language.name}): {counts['missing']} missing, {counts['outdated']} outdated,"
-            f" {counts['current']} current, {len(strays)} removable, {english} english-fallback"
+            f" {counts['current']} current, {len(strays)} removable"
         )
         for state in states:
-            if state.status != "current" or state.note:
+            if state.status != "current":
                 print(f"  {state.status:<9} {state.page.key}" + (f"  ({state.note})" if state.note else ""))
-            if served := fallbacks.get(state.page.key):
-                label, shown = ("fallback", "served in English") if served.kind == "english" else ("drifted", "served")
-                print(f"  {label:<9} {state.page.key}  ({shown}; {served.reason})")
         for page in strays:
             print(f"  {'removable':<9} {page}  (git rm i18n/{language.code}/pages/{page})")
-        if predating := sum(1 for state in states if state.predates(inputs)):
-            print(f"  {predating} pages predate the current instructions/glossary (see `translate --grep`)")
     return 0
 
 
 # ---- Command line ----
-
-
-def _positive(value: str) -> int:
-    number = int(value)
-    if number < 1:
-        raise argparse.ArgumentTypeError("must be at least 1")
-    return number
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1263,21 +990,13 @@ def _parser() -> argparse.ArgumentParser:
         prog="translations.py", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    status = commands.add_parser("status", help="what each language is missing, and what stage will serve")
+    status = commands.add_parser("status", help="what each language is missing")
     status.add_argument("--lang", metavar="CODE")
-    translate = commands.add_parser(
-        "translate",
-        help="translate missing and outdated pages (calls the model)",
-        description="Calls the model named in i18n/languages.yml, or in DOCS_TRANSLATE_MODEL if that is set.",
-    )
+    translate = commands.add_parser("translate", help="translate missing and outdated pages (calls the model)")
     translate.add_argument("--lang", metavar="CODE", required=True)
-    scope = translate.add_mutually_exclusive_group()
-    scope.add_argument("--pages", nargs="+", metavar="PATH", default=[], help="re-translate these pages from scratch")
-    scope.add_argument("--grep", metavar="REGEX", help="revise current pages, only sections whose English matches")
     translate.add_argument(
-        "--limit", type=_positive, default=DEFAULT_LIMIT, metavar="N", help="at most N pages; does not cap --pages"
+        "--pages", nargs="+", metavar="PATH", default=[], help="re-translate exactly these pages from scratch"
     )
-    translate.add_argument("--dry-run", action="store_true", help="print the prompts; call nothing")
     staged = commands.add_parser("stage", help="assemble .build/i18n/CODE/docs for the site build")
     staged.add_argument("--lang", metavar="CODE", required=True)
     return parser
@@ -1296,12 +1015,6 @@ def main(argv: Sequence[str] | None = None, *, root: Path = ROOT, translator: Tr
     except ConfigError as exc:
         print(f"translations: {exc}", file=sys.stderr)
         return 2
-    # The process's top-level handler: a crash must not read as exit 1 ("some
-    # pages failed"), whose partial output the workflow still proposes.
-    except Exception as exc:
-        traceback.print_exc()
-        print(f"translations: internal error: {exc!r}", file=sys.stderr)
-        return 3
 
 
 if __name__ == "__main__":

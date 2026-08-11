@@ -107,7 +107,7 @@ docs = [
 ]
 # Only `scripts/docs/translations.py translate` calls the Claude API; kept out
 # of the default groups so no other environment installs the client (or the
-# legacy httpx it depends on). See .github/workflows/translate.yml.
+# legacy httpx it depends on). See i18n/README.md.
 translate = ["anthropic>=0.121.0"]
 codegen = ["datamodel-code-generator==0.57.0"]
 

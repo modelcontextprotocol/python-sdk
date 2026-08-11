@@ -1,7 +1,6 @@
 ---
 translation:
-  sections: [f671b445b16e4f99, 620a3c9c5941ad66, 004b3ee918529d8c, c6e2debf1da06eb7, 16dcce4db41f5f65]
-  inputs: eacf45a5aea45b89
+  sections: [f671b445b16e4f99, 620a3c9c5941ad66, 004b3ee918529d8c, c6e2debf1da06eb7, 81d412ed5f399f94]
   tool: 1
 ---
 # 번역 {#translations}
@@ -28,4 +27,4 @@ API 레퍼런스는 번역되지 않습니다. 번역된 사이트는 하나뿐�
 
 ## 번역 문제 신고하기 {#reporting-a-translation-problem}
 
-잘못된 용어, 어색한 문장, 또는 영어 원문에 없는 내용을 말하는 번역을 발견했다면 언어, 페이지, 해당 구절을 적어 [번역 이슈를 열어 주세요](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=translation.yaml). 원어민의 신고는 특히 소중하며, 메인테이너는 `translation` 레이블로 이를 추적합니다. 고치는 방법을 알고 있다면 [`i18n/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/i18n) 아래 해당 언어의 스타일 가이드(`instructions.md`)나 용어집(`glossary.json`)에 대한 풀 리퀘스트로 직접 제안하세요. 그러면 다음에 번역을 다시 생성할 때 영향을 받는 모든 페이지에 수정 사항이 반영됩니다. 영어 본문 자체의 문제는 다른 문서 변경과 마찬가지로 `docs/` 아래의 페이지에서 고칩니다.
+잘못된 용어, 어색한 문장, 또는 영어 원문에 없는 내용을 말하는 번역을 발견했다면 언어, 페이지, 해당 구절을 적어 [이슈를 열어 주세요](https://github.com/modelcontextprotocol/python-sdk/issues). 원어민의 신고는 특히 소중합니다. 고치는 방법을 알고 있다면 [`i18n/`](https://github.com/modelcontextprotocol/python-sdk/tree/main/i18n) 아래 해당 언어의 스타일 가이드(`instructions.md`)나 용어집(`glossary.json`)에 대한 풀 리퀘스트로 직접 제안하세요. 그러면 다음에 번역을 다시 생성할 때 영향을 받는 모든 페이지에 수정 사항이 반영됩니다. 영어 본문 자체의 문제는 다른 문서 변경과 마찬가지로 `docs/` 아래의 페이지에서 고칩니다.

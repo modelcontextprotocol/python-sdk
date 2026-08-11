@@ -9,11 +9,10 @@ in — that generated file is what `zensical build`/`serve` consumes.
 With `--lang CODE` it writes `mkdocs.CODE.gen.yml` for one translated site
 instead: built from the tree `scripts/docs/translations.py stage` assembled
 under `.build/i18n/CODE/docs/` into `site/CODE/`, with no API reference of its
-own (its nav entry links the English one) and a nav whose every title comes
-from the staged pages (the page headings `stage` recorded beside the tree), so
-the sidebar cannot drift from them. Every config, English included, carries
-the same language switcher (`extra.alternate`) built from `i18n/languages.yml`,
-which this module also loads for the translation tool.
+own (its nav entry links the English one) and nav titles taken from the staged
+pages (the headings `stage` recorded beside the tree). Every config, English
+included, carries the same language switcher (`extra.alternate`) built from
+`i18n/languages.yml`, which this module also loads for the translation tool.
 
 Usage:
     python scripts/docs/build_config.py [--lang CODE]
@@ -27,7 +26,7 @@ import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 # Both scripts live in this directory, which Python puts on sys.path[0] when
 # `build_config.py` is run directly (its documented invocation).
@@ -45,9 +44,6 @@ API_REFERENCE_URL = "/api/mcp/"
 # A nav value with a URL scheme (https:, mailto:, ...) or a leading `/` is a
 # link, not a page under docs_dir (MkDocs' own classification).
 _LINK = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:|/")
-_CODE = re.compile(r"^[A-Za-z0-9-]+$")
-_TOP_KEYS = {"model", "exclude", "languages"}
-_LANGUAGE_KEYS = {"code", "name", "theme", "hreflang", "reviewers"}
 
 
 @dataclass(frozen=True)
@@ -58,7 +54,6 @@ class Language:
     name: str
     theme: str
     hreflang: str
-    reviewers: list[str]
 
 
 @dataclass(frozen=True)
@@ -70,65 +65,18 @@ class Registry:
     languages: list[Language]
 
 
-def _mapping(value: object, keys: set[str], where: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{LANGUAGES_FILE}: {where} must be a mapping")
-    mapping = cast("dict[str, Any]", value)
-    if unknown := sorted(set(mapping) - keys):
-        raise ValueError(f"{LANGUAGES_FILE}: {where} has unknown keys {unknown}")
-    if missing := sorted(keys - set(mapping)):
-        raise ValueError(f"{LANGUAGES_FILE}: {where} is missing keys {missing}")
-    return mapping
-
-
-def _string(value: object, where: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{LANGUAGES_FILE}: {where} must be a non-empty string")
-    return value
-
-
-def _strings(value: object, where: str) -> list[str]:
-    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in cast("list[object]", value)):
-        raise ValueError(f"{LANGUAGES_FILE}: {where} must be a list of non-empty strings")
-    return cast("list[str]", value)
-
-
-def _language(entry: object) -> Language:
-    fields = _mapping(entry, _LANGUAGE_KEYS, "a languages entry")
-    code = _string(fields["code"], "languages[].code")
-    if not _CODE.match(code):
-        raise ValueError(f"{LANGUAGES_FILE}: language code {code!r} may only use letters, digits and '-'")
-    return Language(
-        code=code,
-        name=_string(fields["name"], f"languages[{code}].name"),
-        theme=_string(fields["theme"], f"languages[{code}].theme"),
-        hreflang=_string(fields["hreflang"], f"languages[{code}].hreflang"),
-        reviewers=_strings(fields["reviewers"], f"languages[{code}].reviewers"),
-    )
-
-
 def load_registry(root: Path = ROOT) -> Registry:
-    """Parse and validate `i18n/languages.yml` under repository `root`.
+    """Parse `i18n/languages.yml` under repository `root`.
 
     Raises:
-        ValueError: The file is missing, unparsable, or does not match the schema.
+        ValueError: The file is missing, unparsable, or not the shape of `Registry`.
     """
     try:
-        raw: object = yaml.safe_load((root / LANGUAGES_FILE).read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
-        raise ValueError(f"cannot read {LANGUAGES_FILE}: {exc}") from exc
-    top = _mapping(raw, _TOP_KEYS, "top level")
-    if not isinstance(top["languages"], list):
-        raise ValueError(f"{LANGUAGES_FILE}: languages must be a list")
-    languages = [_language(entry) for entry in cast("list[object]", top["languages"])]
-    codes = [language.code for language in languages]
-    if duplicates := sorted({code for code in codes if codes.count(code) > 1}):
-        raise ValueError(f"{LANGUAGES_FILE}: duplicate language codes {duplicates}")
-    return Registry(
-        model=_string(top["model"], "model"),
-        exclude=_strings(top["exclude"], "exclude"),
-        languages=languages,
-    )
+        raw = yaml.safe_load((root / LANGUAGES_FILE).read_text(encoding="utf-8"))
+        languages = [Language(**entry) for entry in raw["languages"]]
+        return Registry(str(raw["model"]), [str(pattern) for pattern in raw["exclude"]], languages)
+    except (OSError, yaml.YAMLError, TypeError, KeyError) as exc:
+        raise ValueError(f"{LANGUAGES_FILE}: {exc!r}") from exc
 
 
 def staged_docs_dir(code: str, root: Path = ROOT) -> Path:
