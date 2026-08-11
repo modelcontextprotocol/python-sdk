@@ -10,7 +10,7 @@ from mcp_types import INTERNAL_ERROR, INVALID_REQUEST, ErrorData
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.message import SessionMessage
 
-__all__ = ["ReadStream", "WriteStream", "Transport", "TransportStreams"]
+__all__ = ["ReadStream", "WriteStream", "Transport", "TransportStreams", "status_error_data"]
 
 TransportStreams = tuple[ReadStream[SessionMessage | Exception], WriteStream[SessionMessage]]
 
