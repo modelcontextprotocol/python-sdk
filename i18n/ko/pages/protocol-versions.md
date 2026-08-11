@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # 프로토콜 버전 {#protocol-versions}

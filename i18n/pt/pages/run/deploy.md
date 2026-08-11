@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Deploy e escala {#deploy-scale}

@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 媒体 {#media}

@@ -10,7 +10,7 @@ English section hashes it reflects; nothing else tracks state.
 Usage (from the repository root):
     python scripts/docs/translations.py status [--lang CODE]
     python scripts/docs/translations.py translate --lang CODE [--pages PATH ...]
-    python scripts/docs/translations.py stage --lang CODE
+    python scripts/docs/translations.py stage [--lang CODE]
 
 Only `translate` calls the model (credentials come from the environment, e.g.
 `ANTHROPIC_API_KEY`) and needs the `translate` dependency group;
@@ -23,6 +23,7 @@ import hashlib
 import importlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import sys
@@ -36,7 +37,7 @@ import markdown
 import yaml
 import zensical.config
 from build_config import ROOT, Language, Registry, load_registry, nav_page_paths, staged_docs_dir, staged_titles_file
-from llms_txt import page_url
+from llms_txt import CODE_SPAN, FRONT_MATTER, page_url
 from zensical.config import ConfigurationError
 
 # Zensical annotates its config loader `-> dict`; this is the shape its own renderer relies on.
@@ -50,6 +51,8 @@ OUTPUT_TOKEN_BUDGET = 64_000
 # Repair turns fed back to the model after the first reply before a page fails.
 MAX_REPAIRS = 2
 NOTICES_PAGE = "i18n/notices.md"
+# The nav page the notices link to for how the translations are made.
+TRANSLATIONS_DOC = "translations.md"
 API_DIR = "api"
 
 Status = Literal["missing", "outdated", "current"]
@@ -64,27 +67,29 @@ class PageError(Exception):
     """One page cannot be translated; the run continues with the next page."""
 
 
-# ---- Markdown structure: front matter, fences, headings, code spans, links ----
+# ---- Markdown structure: fences, headings, code spans, links ----
 
-FRONT_MATTER = re.compile(r"\A---[ \t]*\n(?P<body>.*?)^(?:---|\.\.\.)[ \t]*(?:\n|\Z)", re.MULTILINE | re.DOTALL)
 # An ATX heading the way the renderer reads it: hashes at column 0, no space
 # required after them, an optional closing hash run, backslash escapes honoured.
 HEADING = re.compile(r"^(?P<hashes>#{1,6})(?!#)(?P<text>(?:\\.|[^\\\n])*?)#*[ \t]*$")
 # A heading's trailing attr_list block(s), matched with or without the whitespace
 # attr_list itself needs, so blocks the model glued to CJK text or doubled are
-# still seen; `body` is the last block's, the one attr_list reads.
-HEADING_ATTRS = re.compile(r"(?:[ \t]*\{:?(?P<body>[^}\n]*)\})+[ \t]*$")
+# still seen; `body` is the last block's, the one attr_list reads. Each block
+# parses one way only (`{` to the next `}`), so no run of them can backtrack.
+HEADING_ATTRS = re.compile(r"(?:[ \t]*\{(?P<body>[^}\n]*)\})+[ \t]*$")
 ESCAPE = re.compile(r"\\(?P<char>[!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])")
 # An underscore that is not word-internal turns into emphasis before attr_list
 # reads the block, so it must be written escaped inside `{#...}`.
 _BOUNDARY_UNDERSCORE = re.compile(r"(?<![A-Za-z0-9])_|_(?![A-Za-z0-9])")
 _FENCE = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<info>[^\n]*)$")
-# Cannot cross a blank line, so a stray backtick cannot swallow later paragraphs.
-CODE_SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)")
 LINK = re.compile(r"!?\[[^\]]*\]\((?P<target>[^)\s]*)[^)]*\)")
 _URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://(?:(?![<>)\]])[!-~])+")
 _TAG = re.compile(r"</?[A-Za-z][^>\n]*>|<!--.*?-->", re.DOTALL)
 _MARKER = re.compile(r"^[ \t]*(?P<marker>!!!|\?\?\?\+?|===)[ \t]+(?P<kind>[\w-]+)?")
+# A bullet or ordered item at any depth, and a table row: block structure whose
+# count a faithful translation keeps, whatever the language.
+_LIST_ITEM = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
+_TABLE_ROW = re.compile(r"^[ \t]*\|")
 _WRAPPER = re.compile(
     r"\A[ \t]*\n*(?P<open>`{3,}|~{3,})[^\n]*\n(?P<body>.*)\n(?P<close>`{3,}|~{3,})[ \t]*\n*\Z", re.DOTALL
 )
@@ -122,7 +127,7 @@ class FenceLines:
 def split_front_matter(text: str) -> tuple[str | None, str]:
     """`(front matter YAML, body)`; the YAML is None when the page has no front matter block."""
     match = FRONT_MATTER.match(text)
-    return (match["body"], text[match.end() :]) if match else (None, text)
+    return (match["block"], text[match.end() :]) if match else (None, text)
 
 
 def fence_ranges(lines: Sequence[str]) -> list[FenceLines]:
@@ -172,7 +177,8 @@ def parse_headings(text: str) -> list[Heading]:
             continue
         heading, anchor = match["text"].strip(), None
         if attrs := HEADING_ATTRS.search(heading):
-            ids = [token[1:] for token in attrs["body"].split() if token.startswith("#") and len(token) > 1]
+            tokens = attrs["body"].removeprefix(":").split()  # `{: ...}` is attr_list's other spelling
+            ids = [token[1:] for token in tokens if token.startswith("#") and len(token) > 1]
             anchor = ESCAPE.sub(r"\g<char>", ids[-1]) if ids else None
             heading = heading[: attrs.start()].rstrip()
         found.append(Heading(index, len(match["hashes"]), heading, anchor))
@@ -212,6 +218,13 @@ def markers(text: str) -> list[str]:
     """The admonition (`!!!`/`???`) markers with their type keyword, and the tab (`===`) markers, in order."""
     matches = [match for line in _mask_fences(text).split("\n") if (match := _MARKER.match(line))]
     return ["===" if match["marker"] == "===" else f"{match['marker']} {match['kind'] or '?'}" for match in matches]
+
+
+def block_counts(text: str) -> dict[str, int]:
+    """How many list items and table rows the prose of `text` has (fenced code excluded)."""
+    lines = mask_code(text).split("\n")
+    patterns = {"list items": _LIST_ITEM, "table rows": _TABLE_ROW}
+    return {kind: sum(1 for line in lines if pattern.match(line)) for kind, pattern in patterns.items()}
 
 
 def abridgements(text: str) -> Counter[str]:
@@ -352,6 +365,7 @@ class Repo:
     prose_pages: list[str]
     translatable: list[str]
     renderer: markdown.Markdown
+    rendered_ids: dict[str, list[str]] = field(init=False, default_factory=dict[str, list[str]], repr=False)
 
     def language(self, code: str) -> Language:
         for language in self.registry.languages:
@@ -377,16 +391,20 @@ class Repo:
     def heading_ids(self, body: str) -> list[str]:
         """The ids the site renderer gives the page's headings, paired one-to-one with `parse_headings(body)`.
 
+        Rendered once per distinct body: every language stages the same English pages.
+
         Raises:
             PageError: The renderer sees headings the source scan does not (setext, indented, HTML).
         """
-        self.renderer.reset()
-        self.renderer.convert(body)
-        tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
-        ids, found = [str(token["id"]) for token in _flatten(tokens)], parse_headings(body)
-        if len(ids) != len(found):
-            raise PageError(f"the page renders {len(ids)} headings but {len(found)} are ATX headings at column 0")
-        return ids
+        if body not in self.rendered_ids:
+            self.renderer.reset()
+            self.renderer.convert(body)
+            tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
+            ids, found = [str(token["id"]) for token in _flatten(tokens)], parse_headings(body)
+            if len(ids) != len(found):
+                raise PageError(f"the page renders {len(ids)} headings but {len(found)} are ATX headings at column 0")
+            self.rendered_ids[body] = ids
+        return self.rendered_ids[body]
 
 
 def _flatten(tokens: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -459,6 +477,11 @@ class Translation:
 
     sections: tuple[str, ...]
     body: str
+
+
+def recorded_sections(translation: Translation) -> dict[str, str]:
+    """A generated page's sections keyed by the English section hash each records."""
+    return dict(zip(translation.sections, sections(translation.body), strict=True))
 
 
 @dataclass(frozen=True)
@@ -670,10 +693,12 @@ def reimpose(english: str, ids: Sequence[str], reply: str) -> str | Mismatch:
     """Copy over the reply what the model must never change, and check the links it placed.
 
     `ids` are the renderer's ids for the English headings (`Repo.heading_ids`).
-    Fences are copied opener-through-closer and `{#id}` blocks are pinned onto
-    the translated headings positionally; each needs matching counts. Link and
-    image targets are never moved (a translation may reorder links): each
-    section must carry the same targets as its English, however placed.
+    Fences are copied opener-through-closer within each section and `{#id}`
+    blocks are pinned onto the translated headings positionally; each needs
+    matching counts. Link and image targets are never moved (a translation may
+    reorder links): each section must carry the same targets as its English,
+    however placed. Checks go section by section, so any assembly of passing
+    sections passes too.
     """
     findings: list[str] = []
     text = _restore_fences(english, reply, findings)
@@ -682,22 +707,36 @@ def reimpose(english: str, ids: Sequence[str], reply: str) -> str | Mismatch:
     return Mismatch(findings) if findings else text
 
 
+def _paired_sections(english: str, text: str) -> list[tuple[str, str, str]]:
+    """`(label, English section, its counterpart)` per section, or the pages whole if their counts differ."""
+    want, got = sections(english), sections(text)
+    if len(want) != len(got):  # the heading finding says so already
+        return [("the page", english, text)]
+    return [(section_label(source, index), source, output) for index, (source, output) in enumerate(zip(want, got))]
+
+
 def _restore_fences(english: str, reply: str, findings: list[str]) -> str:
-    source, output = english.split("\n"), reply.split("\n")
-    want, got = fence_ranges(source), fence_ranges(output)
-    if unclosed := [fence for fence in got if not fence.closed]:
+    if unclosed := [fence for fence in fence_ranges(reply.split("\n")) if not fence.closed]:
         findings.append(f"the code fence opened on line {unclosed[0].opener + 1} is never closed")
         return reply
-    if len(want) != len(got):
-        findings.append(f"{len(got)} code fences vs {len(want)} in the English: keep each code block, add none")
-        return reply
-    result: list[str] = []
-    cursor = 0
-    for expected, found in zip(want, got):
-        result += output[cursor : found.opener]
-        result += source[expected.opener : expected.closer + 1]
-        cursor = found.closer + 1
-    return "\n".join([*result, *output[cursor:]])
+    restored: list[str] = []
+    for label, source, output in _paired_sections(english, reply):
+        kept, lines = source.split("\n"), output.split("\n")
+        want, got = fence_ranges(kept), fence_ranges(lines)
+        if len(want) != len(got):
+            findings.append(
+                f"{label}: {len(got)} code fences vs {len(want)} in the English: keep each where it is, add none"
+            )
+            restored.append(output)
+            continue
+        result: list[str] = []
+        cursor = 0
+        for expected, found in zip(want, got):
+            result += lines[cursor : found.opener]
+            result += kept[expected.opener : expected.closer + 1]
+            cursor = found.closer + 1
+        restored.append("\n".join([*result, *lines[cursor:]]))
+    return "".join(restored)
 
 
 def _pin_headings(english: str, ids: Sequence[str], text: str, findings: list[str]) -> str:
@@ -715,13 +754,9 @@ def _pin_headings(english: str, ids: Sequence[str], text: str, findings: list[st
 
 
 def _check_targets(english: str, text: str, findings: list[str]) -> None:
-    """Compare link/image targets section by section, so any assembly of passing sections passes too."""
-    want, got = sections(english), sections(text)
-    if len(want) != len(got):  # the heading finding says so already; compare the pages whole
-        want, got = [english], [text]
     missing: Counter[str] = Counter()
     extra: Counter[str] = Counter()
-    for source, output in zip(want, got, strict=True):
+    for _, source, output in _paired_sections(english, text):
         expected, found = link_targets(source), link_targets(output)
         missing += expected - found
         extra += found - expected
@@ -731,8 +766,8 @@ def _check_targets(english: str, text: str, findings: list[str]) -> None:
         findings.append(f"unexpected links to {sorted(extra.elements())}: add no links of your own")
 
 
-def validate(english: str, output: str, glossary: Glossary) -> list[str]:
-    """Findings for what re-imposition cannot fix (an empty list means the page passes)."""
+def validate(english: str, output: str, glossary: Glossary, label: str = "the page") -> list[str]:
+    """Findings for what re-imposition cannot fix (an empty list means `output`, called `label`, passes)."""
     findings: list[str] = []
     want, got = code_spans(english), code_spans(output)
     if missing := sorted((want - got).elements()):
@@ -744,6 +779,12 @@ def validate(english: str, output: str, glossary: Glossary) -> list[str]:
             f"block markers {markers(output)} vs {markers(english)} in the English:"
             " keep each `!!!`/`???`/`===` line and its type"
         )
+    counted = block_counts(output)
+    findings.extend(
+        f"{label}: {counted[kind]} {kind} vs {count} in the English: translate them one for one, dropping none"
+        for kind, count in block_counts(english).items()
+        if counted[kind] != count
+    )
     folded = mask(output).casefold()
     findings.extend(
         f"banned rendering {avoid!r} of {term.source!r} appears: use {term.target!r}"
@@ -807,14 +848,19 @@ def carry_forward(job: Job, output: str) -> str:
     """
     if job.previous is None:
         return output
-    prior = dict(zip(job.previous.sections, sections(job.previous.body), strict=True))
+    prior = recorded_sections(job.previous)
     paired = zip(job.state.hashes, sections(output), strict=True)
     return "".join(text if index in job.open else prior[value] for index, (value, text) in enumerate(paired))
 
 
-def _assemble(english: str, ids: Sequence[str], job: Job, output: str) -> str:
-    """Carry unchanged sections forward, then re-impose once more so carried headings get today's ids."""
-    result = reimpose(english, ids, carry_forward(job, output))
+def reassemble(repo: Repo, job: Job) -> str:
+    """The page rebuilt from its recorded translations alone, for a job with no open section (no model call).
+
+    Raises:
+        PageError: The rebuilt page no longer fits the English structure.
+    """
+    english = job.state.english
+    result = reimpose(english, repo.heading_ids(english), carry_forward(job, english))
     if isinstance(result, Mismatch):
         raise PageError("; ".join(result.findings))
     return result
@@ -822,9 +868,11 @@ def _assemble(english: str, ids: Sequence[str], job: Job, output: str) -> str:
 
 def _validate_open(english: str, body: str, job: Job, glossary: Glossary) -> list[str]:
     """`validate` over the sections this run rewrites; a carried section is published text, not this run's to fix."""
-    pairs = zip(sections(english), sections(body), strict=True)
-    rewritten = [pair for index, pair in enumerate(pairs) if index in job.open]
-    return [finding for source, output in rewritten for finding in validate(source, output, glossary)]
+    paired = enumerate(zip(sections(english), sections(body), strict=True))
+    rewritten = [
+        (section_label(source, index), source, output) for index, (source, output) in paired if index in job.open
+    ]
+    return [finding for label, source, output in rewritten for finding in validate(source, output, glossary, label)]
 
 
 def translate_page(repo: Repo, inputs: Inputs, job: Job, translator: Translator, model: str, usage: Usage) -> str:
@@ -834,10 +882,10 @@ def translate_page(repo: Repo, inputs: Inputs, job: Job, translator: Translator,
         PageError: The page could not be produced (API failure, refusal, or unrepairable structure).
         ConfigError: The credentials were rejected.
     """
+    if not job.open:
+        return reassemble(repo, job)
     english = job.state.english
     ids = repo.heading_ids(english)
-    if not job.open:  # every English section still has a recorded translation: reassemble, no call
-        return _assemble(english, ids, job, english)
     system, messages = system_prompt(inputs), build_messages(job)
     findings: list[str] = []
     for _ in range(1 + MAX_REPAIRS):
@@ -848,12 +896,12 @@ def translate_page(repo: Repo, inputs: Inputs, job: Job, translator: Translator,
         if completion.stop_reason == "refusal":
             raise PageError("the model declined to translate this page")
         result = reimpose(english, ids, unwrap(english, completion.text))
+        if isinstance(result, str):  # aligned, so it can be assembled: carry sections forward, pin today's ids on them
+            result = reimpose(english, ids, carry_forward(job, result))
         if isinstance(result, Mismatch):
             findings = result.findings
-        else:  # structure aligns, so the page can be assembled; what is checked is what would be written
-            body = _assemble(english, ids, job, result)
-            if not (findings := _validate_open(english, body, job, inputs.glossary)):
-                return body
+        elif not (findings := _validate_open(english, result, job, inputs.glossary)):  # checked as it would be written
+            return result
         messages += [Message("assistant", completion.text), Message("user", repair_request(findings))]
     raise PageError(f"unfixed after {MAX_REPAIRS} repairs: " + "; ".join(findings))
 
@@ -866,12 +914,15 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
         print(f"{language.code}: nothing to translate")
         return 0
     model = os.environ.get("DOCS_TRANSLATE_MODEL") or repo.registry.model  # never recorded in the generated files
-    translator = translator or anthropic_translator()
+    # Only a job with open sections calls the model; a run without one needs no client and no
+    # credentials. Otherwise both are set up here, so bad credentials fail before any page work.
+    if translator is None and any(job.open for job in jobs):
+        translator = anthropic_translator()
     usage, failed = Usage(), False
     for job in jobs:
         page = job.state.page
         try:
-            body = translate_page(repo, inputs, job, translator, model, usage)
+            body = translate_page(repo, inputs, job, translator, model, usage) if translator else reassemble(repo, job)
         except PageError as exc:
             failed = True
             print(f"error: {page.key}: {exc}", file=sys.stderr)
@@ -890,8 +941,13 @@ def serve(repo: Repo, state: PageState) -> tuple[str, NoticeKind]:
     """What a language site shows for a page: its translation with today's English structure, else English."""
     if state.translation is None:
         return state.english, "english"
+    if state.changed:  # an edited section has no translation: today's structure goes onto the stored page as it is
+        body = state.translation.body
+    else:  # sections only removed or reordered, if that: each keeps its translation, laid out in today's order
+        stored = recorded_sections(state.translation)
+        body = "".join(stored[value] for value in state.hashes)
     try:
-        result = reimpose(state.english, repo.heading_ids(state.english), state.translation.body)
+        result = reimpose(state.english, repo.heading_ids(state.english), body)
     except PageError as exc:
         result = Mismatch([str(exc)])
     if isinstance(result, Mismatch):
@@ -900,10 +956,24 @@ def serve(repo: Repo, state: PageState) -> tuple[str, NoticeKind]:
     return result, "translated" if state.status == "current" else "outdated"
 
 
-def render_notice(notice: Notice, kind: NoticeKind, page: str, code: str) -> str:
-    """The notice as an admonition (collapsed for translated pages) with its placeholder links filled."""
-    body = notice.body.replace("(ENGLISH_PAGE)", f"(/{page_url(page)})")
-    body = body.replace("(TRANSLATIONS_PAGE)", f"(/{code}/translations/)")
+def english_site(page: str) -> str:
+    """The English site root as a link from `page` on a language site reads it.
+
+    The renderer resolves a page's relative links against its source path, so
+    this climbs out of the page's directory, then out of the language site.
+    """
+    return "../" * page.count("/") + "../"
+
+
+def render_notice(notice: Notice, kind: NoticeKind, page: str) -> str:
+    """The notice as an admonition (collapsed for translated pages) with its placeholder links filled.
+
+    Links are relative to the staged page, so they hold under whatever path the
+    sites are served: the English page is the same path one site up, and the
+    translations page is this site's own `translations.md`.
+    """
+    body = notice.body.replace("(ENGLISH_PAGE)", f"({english_site(page)}{page_url(page)})")
+    body = body.replace("(TRANSLATIONS_PAGE)", f"({posixpath.relpath(TRANSLATIONS_DOC, posixpath.dirname(page))})")
     marker = "???" if kind == "translated" else "!!!"
     title = notice.title.replace('"', "'")
     lines = [f'{marker} note "{title}"', "", *(f"    {line}" if line.strip() else "" for line in body.split("\n"))]
@@ -935,7 +1005,9 @@ def stage(repo: Repo, language: Language) -> Path:
     """
     states = {state.page.key: state for state in map(classify, repo.pages(language))}
     notices = parse_notices(serve(repo, states.pop(NOTICES_PAGE))[0])
-    target = staged_docs_dir(language.code, repo.root)
+    target, titles_file = staged_docs_dir(language.code, repo.root), staged_titles_file(language.code, repo.root)
+    # The titles file goes last, so it only ever sits beside a complete tree.
+    titles_file.unlink(missing_ok=True)
     shutil.rmtree(target, ignore_errors=True)
 
     def left_out(directory: str, names: list[str]) -> list[str]:
@@ -945,19 +1017,21 @@ def stage(repo: Repo, language: Language) -> Path:
     titles: dict[str, str] = {}
     for page in repo.prose_pages:  # a page excluded from translation is staged as its English page
         body, kind = serve(repo, states[page]) if page in states else (read_english(repo.docs / page), "english")
-        body = _API_LINK.sub(lambda match: f"](/{page_url(match['page'])}", body)
+        # The one API reference is the English site's.
+        body = _API_LINK.sub(lambda match: f"]({english_site(page)}{page_url(match['page'])}", body)
         if title := page_title(body):
             titles[page] = title.text
-        body = inject_notice(body, render_notice(notices[kind], kind, page, language.code))
+        body = inject_notice(body, render_notice(notices[kind], kind, page))
         (target / page).write_text(body, encoding="utf-8", newline="\n")
     listing = json.dumps(titles, ensure_ascii=False, indent=0, sort_keys=True)
-    staged_titles_file(language.code, repo.root).write_text(listing + "\n", encoding="utf-8", newline="\n")
+    titles_file.write_text(listing + "\n", encoding="utf-8", newline="\n")
     return target
 
 
 def command_stage(repo: Repo, args: argparse.Namespace) -> int:
-    target = stage(repo, repo.language(args.lang))
-    print(f"staged {args.lang} at {target.relative_to(repo.root).as_posix()}")
+    for language in [repo.language(args.lang)] if args.lang else repo.registry.languages:
+        target = stage(repo, language)
+        print(f"staged {language.code} at {target.relative_to(repo.root).as_posix()}", flush=True)
     return 0
 
 
@@ -998,7 +1072,7 @@ def _parser() -> argparse.ArgumentParser:
         "--pages", nargs="+", metavar="PATH", default=[], help="re-translate exactly these pages from scratch"
     )
     staged = commands.add_parser("stage", help="assemble .build/i18n/CODE/docs for the site build")
-    staged.add_argument("--lang", metavar="CODE", required=True)
+    staged.add_argument("--lang", metavar="CODE", help="stage this language only (default: every language)")
     return parser
 
 

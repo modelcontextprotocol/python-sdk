@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [aff1b3e872b7876a, 4d80558ad052d586, 0bb81f1e62062d26, d5c35dcec50156bc]
-  inputs: eacf45a5aea45b89
   tool: 1
 ---
 # 번역 안내 {#translation-notices}

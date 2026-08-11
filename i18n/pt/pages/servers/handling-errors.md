@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [e33d441f12d50535, 7099694c603e0f5f, c1df4cf9673433e6, c9cd294541422e6e, 6cec073617bfd037, efa92b8f99e908c8, 6a22a29e27fb4601]
-  inputs: e3622201616b942e
   tool: 1
 ---
 # Tratando erros {#handling-errors}

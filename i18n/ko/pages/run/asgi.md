@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 70b9ece244ca1b0c, cba78e052898c3f6, f06bdb541cb0b469, fb82d526320b7cc3]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # 기존 앱에 추가하기 {#add-to-an-existing-app}

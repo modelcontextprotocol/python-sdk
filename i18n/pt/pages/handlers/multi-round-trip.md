@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Requisições com múltiplas idas e voltas {#multi-round-trip-requests}

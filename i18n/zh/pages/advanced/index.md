@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [ca6988b7503cd2d3]
-  inputs: 31783a4a0d033cc2
   tool: 1
 ---
 # 进阶 {#advanced}

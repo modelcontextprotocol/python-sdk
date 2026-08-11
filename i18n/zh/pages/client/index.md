@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # Client {#the-client}

@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # エリシテーション {#elicitation}

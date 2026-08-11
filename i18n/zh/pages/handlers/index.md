@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [424930166c4bc6f3]
-  inputs: 31783a4a0d033cc2
   tool: 1
 ---
 # 在处理函数内部 {#inside-your-handler}

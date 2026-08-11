@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [154c4309937b9f85, 3ad8fc6caa76a9b0, a07f3f5b151ab746, bf6e476b712930c0, cf0b1f13978c6623]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # MCP Python SDK {#mcp-python-sdk}

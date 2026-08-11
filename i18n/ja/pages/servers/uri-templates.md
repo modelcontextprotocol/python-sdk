@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # URI テンプレートとパスの安全性 {#uri-templates-and-path-safety}

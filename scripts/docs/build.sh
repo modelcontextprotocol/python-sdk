@@ -55,16 +55,17 @@ uv run --frozen --no-sync python scripts/docs/llms_txt.py --site-dir site
 
 # Language sites build after English: `zensical build` clears its site_dir, so
 # the English build (site_dir site/) would wipe every site/<code>/, while a
-# language build (site_dir site/<code>/) leaves its parent alone.
+# language build (site_dir site/<code>/) leaves its parent alone. All the
+# language trees are staged in one pass, which reads the English pages once.
 languages=""
 if [[ "${DOCS_LANGUAGES:-}" != "en-only" ]]; then
     languages="$(PYTHONPATH=scripts/docs uv run --frozen --no-sync python -c \
         'import build_config; print(*(language.code for language in build_config.load_registry().languages))')"
+    uv run --frozen --no-sync python scripts/docs/translations.py stage
 fi
 
 for lang in $languages; do
     echo "=== Building language site: ${lang} ==="
-    uv run --frozen --no-sync python scripts/docs/translations.py stage --lang "$lang"
     uv run --frozen --no-sync python scripts/docs/build_config.py --lang "$lang"
     rm -rf .cache
     log=".build/i18n/${lang}/build.log"

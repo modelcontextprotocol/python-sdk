@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # 배포와 확장 {#deploy-scale}

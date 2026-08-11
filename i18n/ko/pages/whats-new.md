@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
-  inputs: eacf45a5aea45b89
   tool: 1
 ---
 # v2에서 달라진 점 {#whats-new-in-v2}

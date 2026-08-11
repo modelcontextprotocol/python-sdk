@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 运行服务器 {#running-your-server}

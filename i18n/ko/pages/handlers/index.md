@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [424930166c4bc6f3]
-  inputs: eacf45a5aea45b89
   tool: 1
 ---
 # 핸들러 내부 {#inside-your-handler}

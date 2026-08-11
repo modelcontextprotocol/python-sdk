@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [f3ca8ac5f90f2dfa, 85a1ef3588ba0736, 563346d4d5804933, 9e3528340d0bab53]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # ライフスパン {#lifespan}

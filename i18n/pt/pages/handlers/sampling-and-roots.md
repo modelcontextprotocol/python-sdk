@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [5c82b20cbd65ded0, 9dc22632be79a533, 1fb8f452e990c456, 42666ab914ff0cb1, c4e0cb3667fd5ff9]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Amostragem e roots {#sampling-and-roots}

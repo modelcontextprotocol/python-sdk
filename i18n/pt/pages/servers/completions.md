@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [72f9c964769076dd, 9a2c14e10935b515, 235299eb78ab12d7, 8aee1e78c8237fb8, 9bd86acd4112138f, 55343cb7f250dc7b]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Completions {#completions}

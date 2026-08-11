@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [09defc170a0da89d]
-  inputs: eacf45a5aea45b89
   tool: 1
 ---
 # 서버 {#servers}

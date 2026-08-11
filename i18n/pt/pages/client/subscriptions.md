@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [8f9558e57f29eee1, a88c587739e0465c, 46ebfd5b325ed041, 4d10b00b57ce4bd9, 2cdb0edd1f59b3e2]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Assinaturas {#subscriptions}

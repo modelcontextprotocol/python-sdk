@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [ca6988b7503cd2d3]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # 高度なトピック {#advanced}

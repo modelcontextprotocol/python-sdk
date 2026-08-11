@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 日志 {#logging}

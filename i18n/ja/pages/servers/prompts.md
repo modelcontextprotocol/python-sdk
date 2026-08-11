@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # プロンプト {#prompts}

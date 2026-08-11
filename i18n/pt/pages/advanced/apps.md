@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # MCP Apps {#mcp-apps}

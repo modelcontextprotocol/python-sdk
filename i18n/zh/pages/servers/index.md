@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [09defc170a0da89d]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 服务器 {#servers}

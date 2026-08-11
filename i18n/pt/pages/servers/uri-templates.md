@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Templates de URI e segurança de caminhos {#uri-templates-and-path-safety}

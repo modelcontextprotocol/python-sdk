@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # URI 模板与路径安全 {#uri-templates-and-path-safety}

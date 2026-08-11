@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
-  inputs: 31783a4a0d033cc2
   tool: 1
 ---
 # 扩展 {#extensions}

@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Paginação {#pagination}

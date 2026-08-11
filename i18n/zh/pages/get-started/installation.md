@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [6e2f9bab94d5ed36, 8cf653388f69e28b, 6fd9ea2f65de0df6]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 安装 {#installation}

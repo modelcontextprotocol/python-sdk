@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [b50152f05c81e786, b302059b22fb7cb4, 85682a1bf561243a, 53fc48838eb6837a, b24190e0842786ec, 85f93e150fc9b240]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # O Context {#the-context}

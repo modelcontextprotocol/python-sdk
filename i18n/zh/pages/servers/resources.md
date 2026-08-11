@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [09df998c2a799f78, 0cf131146d16d4f9, 4e6b91e3f8025346, 8fe4eef576db17ed, 0d0d1ed43e3d0a53]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 资源 {#resources}

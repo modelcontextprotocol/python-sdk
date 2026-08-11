@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # 低レベルの Server {#the-low-level-server}

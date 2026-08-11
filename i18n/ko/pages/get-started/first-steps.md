@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [0d6c05bcbf836bf3, 59a7b14eeefc68c1, 7114d8d6daba203f, e8bbb56a98ba7bc9, 5138010f6159901c, f78da7c7c363d4c6, 220a939cab348686]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # 첫걸음 {#first-steps}

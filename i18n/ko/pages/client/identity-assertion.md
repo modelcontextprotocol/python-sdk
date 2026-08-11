@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [a91322c46111d16d, 8e6fd6d6f59bb568, e7828fd2729b2c9d, a03ec26bfc678b65, 1034c653c0bcf1b0]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # ID 어설션 {#identity-assertion}

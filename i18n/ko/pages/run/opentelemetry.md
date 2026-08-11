@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [bc0227014724fa49, 15738c2f7fd67d86, a2c17bbe3f707e2f, d0d853376f162c06, b6368643fcc1c8d8, 902e33e17564a607]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # OpenTelemetry {#opentelemetry}

@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # 中间件 {#middleware}

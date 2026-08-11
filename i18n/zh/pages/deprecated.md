@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [20541a40dbdd5980, 01262a123ad9501d, 429db5b574a2ac08, 56b2d49da412cb28, 6a1717123fe4513c]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # 已弃用的功能 {#deprecated-features}

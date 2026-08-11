@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # 客户端传输 {#client-transports}

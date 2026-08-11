@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Conecte-se a um host de verdade {#connect-to-a-real-host}

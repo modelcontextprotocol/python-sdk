@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [ca6988b7503cd2d3]
-  inputs: b25bad298ee5b5d4
   tool: 1
 ---
 # Avançado {#advanced}

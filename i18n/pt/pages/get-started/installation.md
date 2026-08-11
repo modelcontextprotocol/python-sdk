@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [6e2f9bab94d5ed36, 8cf653388f69e28b, 6fd9ea2f65de0df6]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Instalação {#installation}

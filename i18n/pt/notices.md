@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [aff1b3e872b7876a, 4d80558ad052d586, 0bb81f1e62062d26, d5c35dcec50156bc]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Avisos de tradução {#translation-notices}

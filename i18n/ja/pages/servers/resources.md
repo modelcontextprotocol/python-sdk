@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [09df998c2a799f78, 0cf131146d16d4f9, 4e6b91e3f8025346, 8fe4eef576db17ed, 0d0d1ed43e3d0a53]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # リソース {#resources}

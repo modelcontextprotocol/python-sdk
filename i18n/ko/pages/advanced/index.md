@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [ca6988b7503cd2d3]
-  inputs: eacf45a5aea45b89
   tool: 1
 ---
 # 고급 {#advanced}

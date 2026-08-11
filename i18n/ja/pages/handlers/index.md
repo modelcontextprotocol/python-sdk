@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [424930166c4bc6f3]
-  inputs: 8113dbdcdf8cc017
   tool: 1
 ---
 # ハンドラーの中で {#inside-your-handler}

@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # 会话组 {#session-groups}

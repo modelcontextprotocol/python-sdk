@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # 認可 {#authorization}

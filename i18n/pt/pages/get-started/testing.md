@@ -1,7 +1,6 @@
 ---
 translation:
   sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Testes {#testing}

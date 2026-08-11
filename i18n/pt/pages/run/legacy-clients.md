@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Atendendo clientes legados {#serving-legacy-clients}

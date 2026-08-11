@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # クライアントのコールバック {#client-callbacks}

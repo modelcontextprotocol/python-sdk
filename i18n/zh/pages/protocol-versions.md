@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # 协议版本 {#protocol-versions}

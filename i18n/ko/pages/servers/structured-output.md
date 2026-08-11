@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # 구조화된 출력 {#structured-output}

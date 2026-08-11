@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [60a9de8a0bdaa531, 317bbe7e4355cdcc, a61d660c8029e04a, 8f7e82fcb88df8a9, b165db51249ff8ed, 266f56fb798068a4, 7c0e57030b622139, df18d7c2417a9883]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # 订阅 {#subscriptions}

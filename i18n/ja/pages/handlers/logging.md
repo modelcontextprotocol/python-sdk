@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # ロギング {#logging}

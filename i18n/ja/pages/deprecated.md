@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [20541a40dbdd5980, 01262a123ad9501d, 429db5b574a2ac08, 56b2d49da412cb28, 6a1717123fe4513c]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # 非推奨の機能 {#deprecated-features}

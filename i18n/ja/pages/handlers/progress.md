@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # 進捗 {#progress}

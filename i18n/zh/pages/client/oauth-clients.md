@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # OAuth 客户端 {#oauth-clients}

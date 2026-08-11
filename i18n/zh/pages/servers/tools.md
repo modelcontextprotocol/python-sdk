@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 工具 {#tools}

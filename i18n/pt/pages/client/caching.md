@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
-  inputs: b25bad298ee5b5d4
   tool: 1
 ---
 # Dicas de cache {#caching-hints}

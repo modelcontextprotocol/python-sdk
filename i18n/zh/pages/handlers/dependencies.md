@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [b0389403e98d25ad, e2cf58b43b285e86, a363e1a38e1a5971, 6cfac078feb18013, b4535bd61df337e6, e97ed44207f929fd]
-  inputs: 289632f60ca1254f
   tool: 1
 ---
 # 依赖 {#dependencies}

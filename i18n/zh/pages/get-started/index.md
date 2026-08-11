@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [ed4a756b4c53c585, 97e2fb315b7fe398, 4d04f1c6f4bf6c1d, 577d73078fc62baf]
-  inputs: c29cb9e258621d2e
   tool: 1
 ---
 # 快速开始 {#get-started}

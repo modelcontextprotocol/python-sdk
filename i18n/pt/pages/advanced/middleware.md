@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Middleware {#middleware}

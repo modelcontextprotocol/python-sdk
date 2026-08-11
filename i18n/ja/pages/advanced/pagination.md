@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
-  inputs: 79c13fd594fb834d
   tool: 1
 ---
 # ページネーション {#pagination}

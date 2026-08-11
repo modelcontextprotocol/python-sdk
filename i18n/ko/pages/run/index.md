@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
-  inputs: 448285d80158bef8
   tool: 1
 ---
 # 서버 실행하기 {#running-your-server}

@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Prompts {#prompts}

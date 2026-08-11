@@ -87,7 +87,7 @@
     {
       "source": "elicitation",
       "target": "Elicitation",
-      "note": "OPEN QUESTION for native review: there is no established German term for the server asking the person at the host a question mid-request. Provisionally kept in English — die Elicitation — glossed on its first appearance per page as \"Elicitation (Rückfrage bei der Person am Host)\"; in running prose the act itself may be described with Rückfrage / zurückfragen. Do not coin Erhebung or Abfrage for it. `elicitation/create`, `ctx.elicit()` and the `Elicit` class stay Latin."
+      "note": "OPEN QUESTION for native review: there is no established German term for the server asking the person at the host a question mid-request. Provisionally kept in English — die Elicitation — glossed on its first appearance per page as \"Elicitation (Rückfrage bei der Person am Host)\", or, when that first appearance already sits inside parentheses, with a spaced en dash instead — \"Elicitation – Rückfrage bei der Person am Host\" — never a nested parenthesis; in running prose the act itself may be described with Rückfrage / zurückfragen. Do not coin Erhebung or Abfrage for it. `elicitation/create`, `ctx.elicit()` and the `Elicit` class stay Latin."
     },
     {
       "source": "capability",

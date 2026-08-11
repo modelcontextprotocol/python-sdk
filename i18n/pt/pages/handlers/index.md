@@ -1,7 +1,6 @@
 ---
 translation:
   sections: [424930166c4bc6f3]
-  inputs: 13b736130e4ee759
   tool: 1
 ---
 # Dentro do seu handler {#inside-your-handler}
