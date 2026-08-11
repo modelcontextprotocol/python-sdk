@@ -10,6 +10,7 @@ import mcp_types as types
 from anyio.abc import TaskStatus
 from httpx2 import SSEError
 
+from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
@@ -136,7 +137,9 @@ async def sse_client(
                                         exclude_unset=True,
                                     ),
                                 )
-                            except httpx2.HTTPError as exc:
+                            except (httpx2.HTTPError, OAuthFlowError) as exc:
+                                # OAuthFlowError: OAuthClientProvider re-auth failing inside
+                                # client.post() must resolve the waiter like any network error.
                                 logger.exception("Error POSTing message")
                                 error = types.ErrorData(
                                     code=types.CONNECTION_CLOSED, message=f"Failed to send message: {exc}"
@@ -146,9 +149,17 @@ async def sse_client(
                                     logger.debug(f"Client message sent successfully: {response.status_code}")
                                     return
                                 logger.error(f"Message POST returned HTTP status {response.status_code}")
-                                error = types.ErrorData(
-                                    code=types.INTERNAL_ERROR, message="Server returned an error response"
-                                )
+                                if (
+                                    response.status_code == 404
+                                    and _extract_session_id_from_endpoint(endpoint_url) is not None
+                                ):
+                                    # The endpoint URL carries the session id, so a 404 is the
+                                    # session-expiry signal - same mapping as streamable HTTP.
+                                    error = types.ErrorData(code=types.INVALID_REQUEST, message="Session terminated")
+                                else:
+                                    error = types.ErrorData(
+                                        code=types.INTERNAL_ERROR, message="Server returned an error response"
+                                    )
                             # A notification has no waiter to resolve, so its failure is only logged.
                             if isinstance(message, types.JSONRPCRequest):
                                 reply = types.JSONRPCError(jsonrpc="2.0", id=message.id, error=error)

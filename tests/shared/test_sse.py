@@ -31,11 +31,12 @@ from mcp_types import (
 )
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 import mcp.client.sse
+from mcp.client.auth.exceptions import OAuthTokenError
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server, ServerRequestContext
@@ -334,6 +335,88 @@ async def test_sse_client_request_post_network_error_reaches_caller_and_session_
                 await session.read_resource(uri="foobar://should-work")
             assert exc_info.value.error.code == types.CONNECTION_CLOSED
             # The message embeds httpx's exception text; pin only the SDK-authored prefix.
+            assert exc_info.value.error.message.startswith("Failed to send message:")
+
+            # The session survived the failed POST: the next request round-trips.
+            assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_post_404_with_session_endpoint_reports_session_terminated() -> None:
+    """A 404 on a request's message POST while the endpoint URL carries a session id reports
+    "Session terminated" (INVALID_REQUEST) to the caller, the same session-expiry mapping as
+    the streamable HTTP transport (SDK-defined)."""
+    factory = in_process_client_factory(make_app_rejecting_posts({"resources/read": 404}))
+    with anyio.fail_after(5):
+        # One parenthesized async-with: separately nested ones trip a phantom
+        # branch arc under coverage on Python 3.14 (see the note in mcp.client.sse).
+        async with (
+            sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+
+            with pytest.raises(MCPError) as exc_info:
+                await session.read_resource(uri="foobar://should-work")
+            assert exc_info.value.error.code == types.INVALID_REQUEST
+            assert exc_info.value.error.message == snapshot("Session terminated")
+
+
+@pytest.mark.anyio
+async def test_sse_client_post_404_without_session_endpoint_keeps_generic_error() -> None:
+    """A 404 on a request's message POST when the endpoint URL carries no session id keeps the
+    generic error: with no session to expire, "Session terminated" would be a lie (SDK-defined).
+    The raw endpoint is scripted because `SseServerTransport` always issues a session id."""
+
+    async def handle_sse(request: Request) -> StreamingResponse:
+        async def stream() -> AsyncGenerator[str, None]:
+            yield "event: endpoint\ndata: /messages/\n\n"
+            await anyio.Event().wait()  # park until the client disconnects
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    async def handle_post(request: Request) -> Response:
+        return Response(status_code=404)
+
+    app = Starlette(routes=[Route("/sse", handle_sse), Route("/messages/", handle_post, methods=["POST"])])
+    factory = in_process_client_factory(app)
+    with anyio.fail_after(5):
+        async with (
+            sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            with pytest.raises(MCPError) as exc_info:
+                await session.initialize()
+            assert exc_info.value.error.code == types.INTERNAL_ERROR
+            assert exc_info.value.error.message == snapshot("Server returned an error response")
+
+
+@pytest.mark.anyio
+async def test_sse_client_oauth_failure_on_post_reaches_caller_and_session_survives() -> None:
+    """An SDK OAuth flow failure raised from inside a request's message POST reaches the waiting
+    caller promptly as a JSON-RPC error correlated to the request, and the session stays usable
+    (SDK-defined; #2110 — like any network error, it used to be swallowed inside post_writer)."""
+
+    class _RefusingAuth(httpx2.Auth):
+        """Stands in for OAuthClientProvider whose re-auth fails mid-session."""
+
+        async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+            if request.method == "POST" and json.loads(request.content).get("method") == "resources/read":
+                raise OAuthTokenError("re-authentication failed")
+            yield request
+
+    factory = in_process_client_factory(make_server_app())
+    with anyio.fail_after(5):
+        async with (
+            sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory, auth=_RefusingAuth()) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+
+            with pytest.raises(MCPError) as exc_info:
+                await session.read_resource(uri="foobar://should-work")
+            assert exc_info.value.error.code == types.CONNECTION_CLOSED
+            # The message embeds the auth exception's text; pin only the SDK-authored prefix.
             assert exc_info.value.error.message.startswith("Failed to send message:")
 
             # The session survived the failed POST: the next request round-trips.
