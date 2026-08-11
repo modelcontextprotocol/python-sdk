@@ -405,8 +405,8 @@ class ClientSession:
         self._log_level: types.LoggingLevel | None = log_level
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
-        # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
+        # Compiled output-schema validators, derived from `_tool_output_schemas`. Evicted by
+        # `_absorb_tool_listing` and `register_tool_schema` whenever a tool's schema changes.
         self._tool_output_validators: dict[str, Validator] = {}
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
@@ -1077,6 +1077,30 @@ class ClientSession:
             return {}
         return mcp_param_headers(header_map, arguments)
 
+    def register_tool_schema(self, name: str, output_schema: dict[str, Any] | None = None) -> None:
+        """Register a tool's output schema for result validation.
+
+        Use this when tools are discovered dynamically (for example via a catalog search API)
+        and will not appear in `list_tools()` responses. Writes into the same cache that
+        `list_tools()` / `_absorb_tool_listing` populate, and evicts any compiled validator
+        when the registered schema differs from the previously cached one.
+
+        A later complete (uncursored, single-page) `list_tools()` that omits `name` drops the
+        registration, the same prune path used for listing-absorbed schemas. Re-register after
+        such a listing if the tool is still in use. If the listing includes `name`, the listed
+        `outputSchema` replaces this registration.
+
+        Args:
+            name: Tool name as passed to `call_tool`.
+            output_schema: JSON Schema for `structuredContent`, or `None` when the tool has no
+                output schema (suppresses the "not listed" warning without validating).
+        """
+        if name in self._tool_output_validators and not _same_schema(
+            self._tool_output_schemas.get(name), output_schema
+        ):
+            del self._tool_output_validators[name]
+        self._tool_output_schemas[name] = output_schema
+
     async def validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
         """Revalidate a `CallToolResult` against the tool's declared output schema.
 
@@ -1114,8 +1138,9 @@ class ClientSession:
 
         Compiling is ~60x the cost of validating, so a one-shot `jsonschema.validate()` per
         result dominates `call_tool`; the compiled validator is cached instead. It stays valid
-        because `_absorb_tool_listing` evicts a tool's validator whenever it absorbs a different
-        schema for that tool, so a cached entry always matches `output_schema`.
+        because `_absorb_tool_listing` and `register_tool_schema` evict a tool's validator
+        whenever they store a different schema for that tool, so a cached entry always matches
+        `output_schema`.
 
         Raises:
             RuntimeError: The schema is not a valid JSON Schema. Raised on every call, since a
