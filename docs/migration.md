@@ -2205,7 +2205,7 @@ The SSE transport (`sse_client`) applies the same rule to its message POST. In v
 | Any other non-2xx | caller hangs forever; write loop dies | `MCPError(-32603, 'Server returned an error response')` |
 | Network-level failure (`httpx2.ConnectError`, timeouts) or OAuth flow failure | caller hangs forever; write loop dies | `MCPError(-32000, 'Failed to send message: ...')` |
 
-A failed POST of a *notification* has no caller to resolve; v2 logs and drops it, keeping the write loop (and every later send) alive.
+A failed POST of a *notification or response* has no caller to resolve; v2 logs and drops it, keeping the write loop (and every later send) alive.
 
 Both common v1 patterns silently stop working: an `except* httpx.HTTPStatusError` around the transport context becomes dead code because status errors no longer escape the context, and a session-expiry check on `error.code == 32600` never matches again because the code is now the standard negative `-32600`.
 
