@@ -2,12 +2,14 @@
 
 import inspect
 
+import httpx2
 import pytest
 
-from docs_src.client_transports import tutorial001, tutorial004
+from docs_src.client_transports import tutorial001, tutorial004, tutorial005
 from mcp import Client
 from mcp.client.stdio import get_default_environment, stdio_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.server import MCPServer
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -57,3 +59,44 @@ async def test_the_child_environment_is_an_allowlist(monkeypatch: pytest.MonkeyP
     extra = tutorial004.server.env
     assert extra is not None
     assert (inherited | extra)["BOOKSHOP_API_KEY"] == "secret"
+
+
+async def test_request_hook_sees_contextvars_set_around_each_call() -> None:
+    """tutorial005: values set before each Client call reach the shared client's request hook as headers."""
+    mcp = MCPServer("Bookshop")
+
+    @mcp.tool()
+    def search_books(query: str) -> str:
+        """Search the catalog by title or author."""
+        return f"Found 3 books matching {query!r}."
+
+    seen: list[tuple[str | None, str | None]] = []
+
+    async def record_headers(request: httpx2.Request) -> None:
+        await tutorial005.inject_request_headers(request)
+        if request.method == "POST":
+            seen.append((request.headers.get("Authorization"), request.headers.get("X-Trace-ID")))
+
+    url = "http://127.0.0.1:8000/mcp"
+    transport = httpx2.ASGITransport(app=mcp.streamable_http_app())
+    async with mcp.session_manager.run():
+        async with (
+            httpx2.AsyncClient(
+                transport=transport,
+                base_url=url,
+                event_hooks={"request": [record_headers]},
+                follow_redirects=True,
+            ) as http_client,
+            Client(streamable_http_client(url, http_client=http_client)) as client,
+        ):
+            tutorial005.auth_token.set("user-123-token")
+            tutorial005.trace_id.set("trace-abc")
+            first = await client.call_tool("search_books", {"query": "dune"})
+            tutorial005.auth_token.set("user-456-token")
+            tutorial005.trace_id.set("trace-def")
+            second = await client.call_tool("search_books", {"query": "neuromancer"})
+
+    assert first.structured_content == {"result": "Found 3 books matching 'dune'."}
+    assert second.structured_content == {"result": "Found 3 books matching 'neuromancer'."}
+    assert ("Bearer user-123-token", "trace-abc") in seen
+    assert ("Bearer user-456-token", "trace-def") in seen

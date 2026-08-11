@@ -78,6 +78,30 @@ environment variables or pass an explicit `verify=ssl_context` to your `httpx2.A
     nothing away. It is also where OAuth plugs in:
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](oauth-clients.md)**.
 
+### Per-request headers
+
+Headers on the `httpx2.AsyncClient` are fixed for every request that client sends. When the value
+has to change between calls — a per-user `Authorization`, a fresh `X-Trace-ID` — put the varying
+bits in `contextvars` and attach an `event_hooks["request"]` hook that copies them onto each
+outbound request:
+
+```python title="client.py" hl_lines="8-18 22-23 29-36"
+--8<-- "docs_src/client_transports/tutorial005.py"
+```
+
+What makes this work with a long-lived `Client` session:
+
+* The Streamable HTTP transport runs each outbound POST in the **caller's** `contextvars.Context`,
+  so a value you `set()` just before `await client.call_tool(...)` is visible inside the request
+  hook for that call — and not for the next one with a different value.
+* The shared `httpx2.AsyncClient` stays open; only the headers the hook writes change per request.
+* Transport-internal traffic (the long-lived GET stream, session `DELETE`) also hits the hook. Guard
+  optional headers with `if value is not None` so a missing context var does not invent an empty
+  `Authorization`.
+
+Static headers and this pattern stack: put connection-wide defaults on the client, and let the hook
+overlay the per-request ones.
+
 ## stdio
 
 A **stdio** server is a subprocess. The client launches it, writes JSON-RPC to its stdin and reads JSON-RPC from its stdout. It is how a desktop host runs a server on your machine: a host *is* this code plus a UI, and **[Connect to a real host](../get-started/real-host.md)** is the same relationship seen from the host's side, as a config file.
@@ -115,6 +139,8 @@ A **transport** is any async context manager that yields a `(read, write)` pair 
 * `Client(mcp)` (the server object) connects in memory. Use it for tests and for embedding.
 * `Client("http://.../mcp")` (a URL) connects over Streamable HTTP, the production transport.
 * Headers, auth, proxies and timeouts belong on an `httpx2.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
+* Per-request headers (auth tokens, trace IDs) go through `contextvars` plus an
+  `event_hooks["request"]` hook on that same client — not through new `Client` kwargs.
 * stdio is `Client(stdio_client(StdioServerParameters(...)))`, never the parameters object alone.
 * The subprocess gets an allow-listed environment, not yours; `env=` adds to it.
 * A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object or a URL straight to that protocol.
