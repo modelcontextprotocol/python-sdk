@@ -1033,7 +1033,8 @@ async def test_a_closed_errlog_stops_stderr_forwarding_without_failing_the_sessi
 
     with caplog.at_level(logging.DEBUG, logger="mcp.client.stdio"):
         with anyio.fail_after(5):
-            async with stdio_client(FAKE_PARAMS, errlog=cast(TextIO, errlog)) as (read_stream, _):
+            # no branch: coverage mis-traces the exit arcs of a nested `async with` on 3.14.
+            async with stdio_client(FAKE_PARAMS, errlog=cast(TextIO, errlog)) as (read_stream, _):  # pragma: no branch
                 await process.feed_stderr(b"server diagnostics no one will read\n")
                 await errlog.attempted.wait()
 

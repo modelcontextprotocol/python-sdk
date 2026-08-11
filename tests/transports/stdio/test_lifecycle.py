@@ -238,7 +238,8 @@ async def test_server_stderr_output_reaches_an_errlog_without_a_file_descriptor(
         # The bound covers one interpreter cold start on a loaded runner; a
         # healthy run takes well under a second.
         with anyio.fail_after(10.0):
-            async with stdio_client(params, errlog=errlog):
+            # no branch: coverage mis-traces the exit arcs of a nested `async with` on 3.14.
+            async with stdio_client(params, errlog=errlog):  # pragma: no branch
                 stream = await accept_alive(sock)
                 stack.push_async_callback(stream.aclose)
 
