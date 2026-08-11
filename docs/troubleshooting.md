@@ -56,6 +56,14 @@ async def main() -> None:
     down this page) escapes from `async with` itself, so there is no "inside" to catch it in.
     For those, read the bottom of the group.
 
+!!! tip
+    Seeing only `MCPError: Internal server error` in an in-memory test? That is the sanitised
+    form of an unexpected handler crash. `Client(mcp, raise_exceptions=True)` keeps the
+    `MCPError` but puts the real message on it and chains the original as `__cause__` — still
+    catch `MCPError` inside the block. The flag is ignored for URL/transport clients, does not
+    turn a tool's `is_error=True` into an exception, and should be dropped on
+    `mode="legacy"`. **[Testing](get-started/testing.md)** is the full story.
+
 ## `RuntimeError: Client must be used within an async context manager`
 
 `Client(...)` only builds the object. Nothing connects until `async with`, so every method refuses:
@@ -404,6 +412,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Recap
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` is never the error. Read the **last line**; catching `MCPError` *inside* the `async with Client(...)` block skips the wrapping entirely.
+* In-memory `MCPError: Internal server error` is a sanitised handler crash; `raise_exceptions=True` unsanitises the message and `__cause__` (see **[Testing](get-started/testing.md)**).
 * `call_tool` does not raise for a failing tool. `Error executing tool ...` and `Unknown tool: ...` are results: check `result.is_error`.
 * `Client must be used within an async context manager` -> use `async with`. `Use @tool() instead of @tool` -> add the parentheses.
 * `Tool already exists:` in the server log is the only sign that two same-named tools collapsed into one.

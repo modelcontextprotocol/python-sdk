@@ -78,18 +78,52 @@ There you go! You can now extend your tests to cover more scenarios.
 
 Two different things can go wrong, and this flag only touches one of them.
 
-An exception inside one of **your tools** is not a protocol failure. It becomes a normal result with
-`is_error=True`, and the model reads the message. `raise_exceptions` doesn't change that: with or
-without it, `call_tool` returns the same `is_error=True` result. There's a whole page on it:
-**[Handling errors](../servers/handling-errors.md)**.
+An exception inside one of **your `@mcp.tool()` functions** is not a protocol failure. It becomes a
+normal result with `is_error=True`, and the model reads the message. `raise_exceptions` doesn't
+change that: with or without it, `call_tool` returns the same `is_error=True` result. There's a
+whole page on it: **[Handling errors](../servers/handling-errors.md)**.
 
-A failure **outside** a tool body is different. On the connection `Client(mcp)` gives you, the
-server sanitises it into a generic `"Internal server error"` before the client sees it. You should
-never leak the details of an unexpected crash to a remote caller. In a test that is exactly what
-you *don't* want, and it is what `raise_exceptions=True` changes: your test sees the real message
-instead of the sanitised one.
+An **unexpected exception** that escapes a request handler as a bare Python exception is
+different. On an in-memory `Client(server)` connection the SDK still turns that into an
+`MCPError` (`-32603`) — the call raises; it does not become an `is_error` result — but by default
+it sanitises the message to `"Internal server error"` and drops the original exception. You should
+never leak a traceback to a remote caller. In a test that is exactly what you *don't* want.
 
-Leave it on in tests. It has no meaning in production code.
+`raise_exceptions=True` keeps the `MCPError`, but puts `str(original)` in the message and chains
+the original as `__cause__`. Catch it *inside* the `async with` so anyio does not wrap it in an
+`ExceptionGroup` (**[Troubleshooting](../troubleshooting.md)**):
+
+```python title="test_buggy_handler.py"
+import pytest
+from mcp import Client, MCPError
+from mcp.types import INTERNAL_ERROR
+
+from server import server  # a low-level Server whose handler can KeyError
+
+
+@pytest.mark.anyio
+async def test_missing_argument_surfaces_the_real_key_error():
+    async with Client(server, raise_exceptions=True) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.call_tool("search_books", {"query": "dune"})  # no limit
+    assert exc_info.value.error.code == INTERNAL_ERROR
+    assert isinstance(exc_info.value.__cause__, KeyError)
+```
+
+The server that makes that failure visible is a low-level `Server` (it does not validate
+`input_schema` before calling you):
+
+```python title="server.py"
+--8<-- "docs_src/testing/tutorial002.py"
+```
+
+Without the flag, the same call raises `MCPError: Internal server error` with no `__cause__`.
+With a high-level `MCPServer`, most handler failures are already converted into tool
+`is_error` results or intentional `MCPError`s before this flag can act — so the difference shows
+up mainly for unmapped crashes (and for low-level `Server` handlers).
+
+Leave it on in tests that use the in-memory client. It is ignored for `Client("https://...")`
+and for a user-supplied `Transport`: those paths never see the flag.
 
 ## In-process by default
 

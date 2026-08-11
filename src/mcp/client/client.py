@@ -293,9 +293,24 @@ class Client:
 
     _: KW_ONLY
 
-    # TODO(Marcelo): When do `raise_exceptions=True` actually raises?
     raise_exceptions: bool = False
-    """Whether to raise exceptions from the server."""
+    """Unsanitize unexpected in-process handler failures (tests only).
+
+    Only has an effect for in-memory ``Client(server)`` connections. Ignored for
+    URL strings and user-supplied ``Transport`` instances.
+
+    On the default modern in-process path, an unmapped handler exception still
+    surfaces to the caller as ``MCPError`` either way. With ``False`` (the
+    default) the message is the opaque ``"Internal server error"`` and there is
+    no ``__cause__``. With ``True`` the message is ``str(original)`` and the
+    original exception is chained as ``__cause__``.
+
+    Does **not** turn a tool's ``is_error=True`` result into an exception, and
+    does not change intentional ``MCPError`` raised by a handler. Catch
+    ``MCPError`` *inside* ``async with Client(...)`` so anyio does not wrap it
+    in an ``ExceptionGroup``; see **Testing** and **Troubleshooting** in the
+    docs.
+    """
 
     read_timeout_seconds: float | None = None
     """Timeout for read operations."""
