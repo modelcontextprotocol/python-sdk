@@ -19,6 +19,7 @@ from mcp_types import (
     EmptyResult,
     Implementation,
     InitializeResult,
+    JSONRPCRequest,
     JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
@@ -44,6 +45,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._httpx_utils import McpHttpClientFactory
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from tests.interaction.transports import StreamingASGITransport
 
 SERVER_NAME = "test_server_for_SSE"
@@ -392,17 +394,21 @@ async def test_sse_client_post_404_without_session_endpoint_keeps_generic_error(
 
 
 @pytest.mark.anyio
-async def test_sse_client_oauth_failure_on_post_reaches_caller_and_session_survives() -> None:
-    """An SDK OAuth flow failure raised from inside a request's message POST reaches the waiting
-    caller promptly as a JSON-RPC error correlated to the request, and the session stays usable
+@pytest.mark.parametrize("exc_type", [OAuthTokenError, RuntimeError])
+async def test_sse_client_auth_failure_on_post_reaches_caller_and_session_survives(
+    exc_type: type[Exception],
+) -> None:
+    """A failure raised from inside a request's message POST by a user-supplied hook — an SDK
+    OAuth flow error, or any exception from a custom auth flow — reaches the waiting caller
+    promptly as a JSON-RPC error correlated to the request, and the session stays usable
     (SDK-defined; #2110 — like any network error, it used to be swallowed inside post_writer)."""
 
     class _RefusingAuth(httpx2.Auth):
-        """Stands in for OAuthClientProvider whose re-auth fails mid-session."""
+        """Stands in for OAuthClientProvider (or any user auth hook) failing mid-session."""
 
         async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
             if request.method == "POST" and json.loads(request.content).get("method") == "resources/read":
-                raise OAuthTokenError("re-authentication failed")
+                raise exc_type("re-authentication failed")
             yield request
 
     factory = in_process_client_factory(make_server_app())
@@ -421,6 +427,44 @@ async def test_sse_client_oauth_failure_on_post_reaches_caller_and_session_survi
 
             # The session survived the failed POST: the next request round-trips.
             assert isinstance(await session.send_ping(), EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_post_error_after_reader_closed_is_contained() -> None:
+    """A failing POST whose error can no longer be delivered — the read stream already closed
+    with the server's SSE stream — is contained: the write loop survives and later messages
+    still reach the server (SDK-defined teardown-race guard). Raw streams, because the race
+    needs the read side closed while the write side keeps sending."""
+    posted: list[str] = []
+    second_post = anyio.Event()
+
+    async def handle_sse(request: Request) -> StreamingResponse:
+        async def stream() -> AsyncGenerator[str, None]:
+            # The stream ends right after the endpoint event: the client's reader
+            # observes EOF and closes the read stream.
+            yield "event: endpoint\ndata: /messages/\n\n"
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    async def handle_post(request: Request) -> Response:
+        posted.append(json.loads(await request.body())["method"])
+        if len(posted) == 2:
+            second_post.set()
+        return Response(status_code=500)
+
+    app = Starlette(routes=[Route("/sse", handle_sse), Route("/messages/", handle_post, methods=["POST"])])
+    factory = in_process_client_factory(app)
+    with anyio.fail_after(5):
+        async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as (read, write):
+            # Wait for the reader to observe the server's EOF and close the read stream.
+            with pytest.raises(anyio.EndOfStream):
+                await read.receive()
+
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="first/call", params={})))
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=2, method="second/call", params={})))
+            await second_post.wait()
+    # The first POST's undeliverable error was contained; the second still went out.
+    assert posted == ["first/call", "second/call"]
 
 
 @pytest.mark.anyio

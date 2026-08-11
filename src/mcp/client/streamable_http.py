@@ -14,7 +14,6 @@ from anyio.abc import TaskGroup
 from httpx2 import EventSource, ServerSentEvent
 from mcp_types import (
     CONNECTION_CLOSED,
-    INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
@@ -30,7 +29,7 @@ from mcp_types import (
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ValidationError
 
-from mcp.client._transport import TransportStreams
+from mcp.client._transport import TransportStreams, status_error_data
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
@@ -259,18 +258,11 @@ class StreamableHTTPTransport:
                     # Resolve the waiting caller with an error correlated to its request,
                     # mirroring `_handle_post_request`: an escaping `HTTPStatusError` would
                     # tear down the transport's task group and every stream with it (#2110).
-                    if event_source.response.status_code == 404 and self.session_id is not None:
-                        # The GET carried our Mcp-Session-Id, so a 404 is the session-expiry
-                        # signal reconnect logic keys on - same mapping as the POST path.
-                        await self._resolve_abandoned_request(
-                            ctx.read_stream_writer, original_request_id, "Session terminated", code=INVALID_REQUEST
-                        )
-                        return
+                    error_data = status_error_data(
+                        event_source.response.status_code, has_session=self.session_id is not None
+                    )
                     await self._resolve_abandoned_request(
-                        ctx.read_stream_writer,
-                        original_request_id,
-                        "Server returned an error response",
-                        code=INTERNAL_ERROR,
+                        ctx.read_stream_writer, original_request_id, error_data.message, code=error_data.code
                     )
                     return
                 logger.debug("Resumption GET SSE connection established")
@@ -384,16 +376,13 @@ class StreamableHTTPTransport:
                         except (httpx2.StreamError, ValidationError):
                             pass
                         logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
-                    if response.status_code == 404:
-                        if self.session_id is None:
-                            # No session yet → 404 is the HTTP-level spelling of
-                            # METHOD_NOT_FOUND (gateway / legacy server doesn't know
-                            # this method); "Session terminated" would be a lie here.
-                            error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
-                        else:
-                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                    if response.status_code == 404 and self.session_id is None:
+                        # No session yet → 404 is the HTTP-level spelling of
+                        # METHOD_NOT_FOUND (gateway / legacy server doesn't know
+                        # this method); "Session terminated" would be a lie here.
+                        error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
                     else:
-                        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                        error_data = status_error_data(response.status_code, has_session=self.session_id is not None)
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return

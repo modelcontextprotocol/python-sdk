@@ -10,7 +10,7 @@ import mcp_types as types
 from anyio.abc import TaskStatus
 from httpx2 import SSEError
 
-from mcp.client.auth.exceptions import OAuthFlowError
+from mcp.client._transport import status_error_data
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
@@ -137,9 +137,11 @@ async def sse_client(
                                         exclude_unset=True,
                                     ),
                                 )
-                            except (httpx2.HTTPError, OAuthFlowError) as exc:
-                                # OAuthFlowError: OAuthClientProvider re-auth failing inside
-                                # client.post() must resolve the waiter like any network error.
+                            except Exception as exc:
+                                # Terminal containment boundary: beyond httpx's own errors,
+                                # user-supplied auth flows and hooks can raise arbitrary types
+                                # from inside `client.post()`, so an enumerated catch cannot
+                                # keep the caller from hanging.
                                 logger.exception("Error POSTing message")
                                 error = types.ErrorData(
                                     code=types.CONNECTION_CLOSED, message=f"Failed to send message: {exc}"
@@ -149,21 +151,22 @@ async def sse_client(
                                     logger.debug(f"Client message sent successfully: {response.status_code}")
                                     return
                                 logger.error(f"Message POST returned HTTP status {response.status_code}")
-                                if (
-                                    response.status_code == 404
-                                    and _extract_session_id_from_endpoint(endpoint_url) is not None
-                                ):
-                                    # The endpoint URL carries the session id, so a 404 is the
-                                    # session-expiry signal - same mapping as streamable HTTP.
-                                    error = types.ErrorData(code=types.INVALID_REQUEST, message="Session terminated")
-                                else:
-                                    error = types.ErrorData(
-                                        code=types.INTERNAL_ERROR, message="Server returned an error response"
-                                    )
+                                # The endpoint URL carrying a session id is this transport's
+                                # "session established" signal, as `self.session_id` is for
+                                # streamable HTTP.
+                                error = status_error_data(
+                                    response.status_code,
+                                    has_session=_extract_session_id_from_endpoint(endpoint_url) is not None,
+                                )
                             # A notification has no waiter to resolve, so its failure is only logged.
                             if isinstance(message, types.JSONRPCRequest):
                                 reply = types.JSONRPCError(jsonrpc="2.0", id=message.id, error=error)
-                                await read_stream_writer.send(SessionMessage(reply))
+                                try:
+                                    await read_stream_writer.send(SessionMessage(reply))
+                                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                    # Teardown race: the reader is gone, so there is nobody
+                                    # left to resolve - contain it, keeping the write loop up.
+                                    logger.debug("read stream closed before request %r could be resolved", message.id)
 
                         async for session_message in write_stream_reader:
                             sender_ctx = write_stream_reader.last_context
