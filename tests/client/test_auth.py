@@ -32,10 +32,10 @@ from mcp.client.auth.utils import (
     validate_authorization_response_iss,
     validate_metadata_issuer,
 )
+from mcp.server import Server
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.routes import build_metadata
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
-from mcp.server.lowlevel.server import Server
 from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,

@@ -278,9 +278,10 @@ class _FirstChallenge:
     """ASGI shim that answers the first request to a path with 401 + a given WWW-Authenticate.
 
     Subsequent requests pass through to the wrapped app. Used to make the initial 401 carry
-    parameters (such as `scope=`) that the SDK's own bearer middleware cannot be configured
-    to emit, so client behaviour driven by those parameters is reachable end to end. Reserve
-    this pattern for behaviour the real server cannot be made to produce.
+    a challenge shape the SDK's own bearer middleware cannot be configured to emit for the
+    scenario under test (e.g. a `scope` differing from the configured `required_scopes`), so
+    client behaviour driven by those parameters is reachable end to end. Reserve this pattern
+    for behaviour the real server cannot be made to produce.
     """
 
     app: ASGIApp
