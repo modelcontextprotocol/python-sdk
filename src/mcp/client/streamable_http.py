@@ -337,6 +337,7 @@ class StreamableHTTPTransport:
                         "server answered a request with 202 Accepted",
                         code=INVALID_REQUEST,
                     )
+                await self._drain_response(response)
                 return
 
             if response.status_code >= 400:
@@ -388,6 +389,10 @@ class StreamableHTTPTransport:
                     error_data = ErrorData(code=INVALID_REQUEST, message=f"Unexpected content type: {content_type}")
                     error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(error_msg)
+            else:
+                # A notification POST has no response body; drain it so the
+                # connection returns to the pool instead of being discarded.
+                await self._drain_response(response)
 
     async def _handle_json_response(
         self,
@@ -407,6 +412,24 @@ class StreamableHTTPTransport:
             error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse JSON response: {exc}")
             error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data))
             await read_stream_writer.send(error_msg)
+
+    async def _drain_response(self, response: httpx2.Response) -> None:
+        """Consume a response body to EOF so httpx can return the TCP connection
+        to its pool instead of discarding it. In streamable-HTTP legacy mode
+        every POST owns a response stream; abandoning it mid-body (the previous
+        ``aclose()`` call) costs one TCP connection per JSON-RPC exchange. A 202
+        or notification body drains instantly; an SSE body the EventSource
+        already iterated is drained via the raw stream because ``aiter_raw``
+        raises ``StreamConsumed`` once iteration has started.
+        """
+        try:
+            await response.aread()
+        except httpx2.StreamConsumed:
+            try:
+                async for _ in response.stream:  # type: ignore[attr-defined]
+                    pass
+            except Exception:  # pragma: lax no cover
+                logger.debug("failed to drain response stream", exc_info=True)
 
     async def _handle_sse_response(
         self,
@@ -442,7 +465,7 @@ class StreamableHTTPTransport:
                 # If the SSE event indicates completion, like returning response/error
                 # break the loop
                 if is_complete:
-                    await response.aclose()
+                    await self._drain_response(response)
                     return  # Normal completion, no reconnect needed
         except Exception:
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover

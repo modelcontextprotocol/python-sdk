@@ -748,3 +748,91 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
             )
     send.close()
+
+
+@pytest.mark.anyio
+async def test_legacy_mode_reuses_tcp_connections_across_exchanges() -> None:
+    """Regression test for #3281: in streamable-HTTP legacy mode the client must
+    drain each POST's response body to EOF so httpx returns the TCP connection
+    to its pool, instead of `aclose()`-ing an unread stream and opening one
+    connection per JSON-RPC exchange.
+
+    Without the drain, every exchange (initialize, initialized notification,
+    tools/list, DELETE) opens a fresh connection. With it, at least one POST
+    reuses the previous exchange's connection, so distinct connections < posts.
+    """
+    import json
+    import socket
+    import threading
+    import time
+
+    import uvicorn
+
+    from mcp.client.client import Client
+    from mcp.server.mcpserver import MCPServer
+
+    server = MCPServer(name="conn-reuse", version="1.0.0")
+
+    @server.tool()
+    def echo(text: str) -> str:
+        """Echo a message back verbatim."""
+        return text
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    uvicorn_srv = uvicorn.Server(
+        uvicorn.Config(server.streamable_http_app(), host="127.0.0.1", port=port, log_level="error")
+    )
+    thread = threading.Thread(target=uvicorn_srv.run, daemon=True)
+    thread.start()
+    try:
+        # Wait for the server to accept connections.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                    break
+            except OSError:
+                time.sleep(0.05)
+
+        class _TrackingTransport(httpx2.AsyncBaseTransport):
+            def __init__(self) -> None:
+                self.inner = httpx2.AsyncHTTPTransport()
+                self.log: list[tuple[str, int]] = []
+
+            async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+                resp = await self.inner.handle_async_request(request)
+                try:
+                    method = json.loads(request.content).get("method", request.method)
+                except Exception:
+                    method = request.method
+                stream = resp.extensions.get("network_stream")
+                self.log.append((method, id(stream) if stream is not None else -1))
+                return resp
+
+            async def aclose(self) -> None:
+                await self.inner.aclose()
+
+        transport = _TrackingTransport()
+        async with httpx2.AsyncClient(transport=transport, timeout=30) as http:
+            async with Client(
+                streamable_http_client(f"http://127.0.0.1:{port}/mcp", http_client=http),
+                mode="legacy",
+            ) as client:
+                await client.list_tools()
+
+        exchanges = transport.log
+        distinct = len({conn_id for _, conn_id in exchanges})
+        # The POST exchanges (initialize, notifications/initialized, tools/list,
+        # DELETE) must share fewer TCP connections than the number of exchanges.
+        # A long-lived GET resumption stream is expected to hold its own
+        # connection, so we only require strict sharing overall.
+        assert distinct < len(exchanges), (
+            f"legacy mode opened one connection per exchange ({distinct} distinct "
+            f"for {len(exchanges)} exchanges): response bodies are not being drained"
+        )
+    finally:
+        uvicorn_srv.should_exit = True
+        thread.join(timeout=3)
