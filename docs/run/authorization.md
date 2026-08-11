@@ -68,7 +68,7 @@ This document is how a client that has never heard of your server finds its way 
 
     ```text
     HTTP/1.1 401 Unauthorized
-    WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"
+    WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required", scope="notes:read", resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"
 
     {"error": "invalid_token", "error_description": "Authentication required"}
     ```
