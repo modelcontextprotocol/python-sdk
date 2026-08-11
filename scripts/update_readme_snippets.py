@@ -51,7 +51,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
         if not file.exists():
             sys.exit(f"Error: snippet-source file not found: {file_path}")
 
-        code = file.read_text().rstrip()
+        code = file.read_text(encoding="utf-8").rstrip()
         github_url = get_github_url(file_path)
 
         # Build the replacement block
@@ -107,7 +107,7 @@ def update_readme_snippets(check_mode: bool = False) -> bool:
         print(f"Error: README file not found: {readme_path}")
         return False
 
-    content = readme_path.read_text()
+    content = readme_path.read_text(encoding="utf-8")
     original_content = content
 
     # Pattern to match snippet-source blocks
@@ -129,14 +129,14 @@ def update_readme_snippets(check_mode: bool = False) -> bool:
             )
             return False
         else:
-            print(f"✓ {readme_path} code snippets are up to date")
+            print(f"{readme_path} code snippets are up to date")
             return True
     else:
         if updated_content != original_content:
-            readme_path.write_text(updated_content)
-            print(f"✓ Updated {readme_path}")
+            readme_path.write_text(updated_content, encoding="utf-8")
+            print(f"Updated {readme_path}")
         else:
-            print(f"✓ {readme_path} already up to date")
+            print(f"{readme_path} already up to date")
         return True
 
 

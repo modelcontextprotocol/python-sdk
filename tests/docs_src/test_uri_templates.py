@@ -131,7 +131,7 @@ async def test_safe_join_serves_a_file_inside_the_base_directory(
 ) -> None:
     """tutorial002: `safe_join(DOCS_ROOT, path).read_text()` returns the file under the base."""
     (tmp_path / "printing").mkdir()
-    (tmp_path / "printing" / "setup.md").write_text("# Printer setup")
+    (tmp_path / "printing" / "setup.md").write_text("# Printer setup", encoding="utf-8")
     monkeypatch.setattr(tutorial002, "DOCS_ROOT", tmp_path)
     async with Client(tutorial002.mcp) as client:
         (content,) = (await client.read_resource("manuals://printing/setup.md")).contents

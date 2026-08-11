@@ -123,7 +123,7 @@ async def _self_hosted(name: str, cfg: dict[str, Any]) -> AsyncIterator[str]:
 
 def _story_cfg(name: str) -> dict[str, Any]:
     """The manifest entry for the story ``name`` with ``[defaults]`` applied."""
-    manifest: dict[str, Any] = tomllib.loads((Path(__file__).parent / "manifest.toml").read_text())
+    manifest: dict[str, Any] = tomllib.loads((Path(__file__).parent / "manifest.toml").read_text(encoding="utf-8"))
     return manifest["defaults"] | manifest["story"].get(name, {})
 
 

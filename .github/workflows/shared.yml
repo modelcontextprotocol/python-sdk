@@ -41,10 +41,11 @@ jobs:
         with:
           extra_args: --all-files --verbose
 
+      # -X warn_default_encoding -W error::EncodingWarning: reject locale-dependent text I/O in the script (PEP 597).
       - name: Surface types match vendored schema
         run: |
           uv sync --group codegen --frozen
-          uv run --frozen --group codegen python scripts/gen_surface_types.py --check
+          uv run --frozen --group codegen python -X warn_default_encoding -W error::EncodingWarning scripts/gen_surface_types.py --check
 
       # Resolves only mcp-types' declared dependencies into an empty environment,
       # so an import of the SDK or anything from its stack fails here.
@@ -99,6 +100,9 @@ jobs:
           # tests/examples/test_stories_smoke.py is gated on this var; it spawns real
           # stdio + uvicorn subprocesses, so run it on exactly one matrix cell.
           MCP_EXAMPLES_SMOKE: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.dep-resolution.name == 'locked' && '1' || '' }}
+          # PEP 597: text I/O without encoding= raises EncodingWarning, which pytest's "error"
+          # filter makes fatal on every cell. An env var (not -X) so pytest-xdist workers inherit it.
+          PYTHONWARNDEFAULTENCODING: "1"
         run: |
           uv run --frozen --no-sync coverage erase
           uv run --frozen --no-sync coverage run -m pytest -n auto
@@ -137,7 +141,7 @@ jobs:
         run: uv sync --frozen --all-extras --python 3.10
 
       - name: Check README snippets are up to date
-        run: uv run --frozen scripts/update_readme_snippets.py --check
+        run: uv run --frozen python -X warn_default_encoding -W error::EncodingWarning scripts/update_readme_snippets.py --check
 
   # `scripts/docs/build.sh` is the whole gauntlet: build_config.py fails on
   # nav entries without a page and pages without a nav entry, `zensical build

@@ -195,6 +195,10 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
+# preview + explicit-preview-rules enables exactly one preview rule: PLW1514 (text I/O without encoding=).
+preview = true
+explicit-preview-rules = true
+extend-select = ["PLW1514"]
 select = [
     "C4",     # flake8-comprehensions
     "C90",    # mccabe
@@ -266,6 +270,9 @@ filterwarnings = [
     # 2026-07-28 drops ping; Client.send_ping() is advisory-deprecated and the
     # legacy interaction/transport tests still drive it.
     "ignore:ping is removed as of 2026-07-28.*:mcp.MCPDeprecationWarning",
+    # CI and scripts/test set PYTHONWARNDEFAULTENCODING=1, so "error" rejects any text I/O
+    # of ours that omits encoding=; pytest-examples' own Popen(universal_newlines=True) isn't ours.
+    "ignore:'encoding' argument not specified:EncodingWarning:pytest_examples",
 ]
 
 [tool.markdown.lint]

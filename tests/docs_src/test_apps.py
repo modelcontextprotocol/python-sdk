@@ -100,4 +100,4 @@ async def test_a_file_resource_is_served_with_the_app_mime_type_filled_in() -> N
     contents = result.contents[0]
     assert isinstance(contents, TextResourceContents)
     assert contents.mime_type == APP_MIME_TYPE
-    assert contents.text == tutorial003.REPORT_HTML.read_text()
+    assert contents.text == tutorial003.REPORT_HTML.read_text(encoding="utf-8")

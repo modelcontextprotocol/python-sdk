@@ -16,7 +16,7 @@ def temp_file():
     File is automatically cleaned up after the test if it still exists.
     """
     content = "test content"
-    with NamedTemporaryFile(mode="w", delete=False) as f:
+    with NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as f:
         f.write(content)
         path = Path(f.name).resolve()
     yield path

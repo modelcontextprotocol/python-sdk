@@ -13,9 +13,9 @@ def test_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     tmp = tmp_path_factory.mktemp("test_files")
 
     # Create test files
-    (tmp / "example.py").write_text("print('hello world')")
-    (tmp / "readme.md").write_text("# Test Directory\nThis is a test.")
-    (tmp / "config.json").write_text('{"test": true}')
+    (tmp / "example.py").write_text("print('hello world')", encoding="utf-8")
+    (tmp / "readme.md").write_text("# Test Directory\nThis is a test.", encoding="utf-8")
+    (tmp / "config.json").write_text('{"test": true}', encoding="utf-8")
 
     return tmp
 
@@ -38,7 +38,7 @@ def resources(mcp: MCPServer, test_dir: Path) -> MCPServer:
     def read_example_py() -> str:
         """Read the example.py file"""
         try:
-            return (test_dir / "example.py").read_text()
+            return (test_dir / "example.py").read_text(encoding="utf-8")
         except FileNotFoundError:
             return "File not found"
 
@@ -46,7 +46,7 @@ def resources(mcp: MCPServer, test_dir: Path) -> MCPServer:
     def read_readme_md() -> str:
         """Read the readme.md file"""
         try:  # pragma: no cover
-            return (test_dir / "readme.md").read_text()
+            return (test_dir / "readme.md").read_text(encoding="utf-8")
         except FileNotFoundError:  # pragma: no cover
             return "File not found"
 
@@ -54,7 +54,7 @@ def resources(mcp: MCPServer, test_dir: Path) -> MCPServer:
     def read_config_json() -> str:
         """Read the config.json file"""
         try:  # pragma: no cover
-            return (test_dir / "config.json").read_text()
+            return (test_dir / "config.json").read_text(encoding="utf-8")
         except FileNotFoundError:  # pragma: no cover
             return "File not found"
 

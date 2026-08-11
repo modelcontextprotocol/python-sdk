@@ -497,7 +497,8 @@ def test_bare_import_mcp_binds_the_types_submodule():
     result = subprocess.run(
         [sys.executable, "-c", "import mcp; print(mcp.types.Tool.__name__)"],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=20,
     )
