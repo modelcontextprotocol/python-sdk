@@ -2249,7 +2249,7 @@ async with streamable_http_client(url) as (read, write):
                 raise
 ```
 
-Move HTTP-status failure handling from around the transport context to around the individual calls, catching `MCPError` (see [`McpError` renamed to `MCPError`](#mcperror-renamed-to-mcperror)). On the streamable HTTP transport, connect-level failures such as `httpx2.ConnectError` on a message POST still escape the transport context as before — keep context-level handling for those; on the resumption GET and on the SSE transport's message POST they resolve the failing request instead, as above.
+Move HTTP-status failure handling from around the transport context to around the individual calls, catching `MCPError` (see [`McpError` renamed to `MCPError`](#mcperror-renamed-to-mcperror)). On the streamable HTTP transport, connect-level failures such as `httpx2.ConnectError` on a *request's* message POST still escape the transport context as before — keep context-level handling for those; on the resumption GET and on the SSE transport's message POST they resolve the failing request instead, as above. A connect-level failure POSTing a *notification or response* on streamable HTTP is logged and does not escape the context, but it kills the transport's write loop — pre-existing behavior, unchanged from v1.
 
 ### `terminate_windows_process` removed
 
