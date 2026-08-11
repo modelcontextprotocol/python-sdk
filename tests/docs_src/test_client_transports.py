@@ -70,16 +70,15 @@ async def test_request_hook_sees_contextvars_set_around_each_call() -> None:
         """Search the catalog by title or author."""
         return f"Found 3 books matching {query!r}."
 
-    seen: list[tuple[str | None, str | None]] = []
+    seen: list[tuple[str, str | None, str | None]] = []
 
     async def record_headers(request: httpx2.Request) -> None:
         await tutorial005.inject_request_headers(request)
-        if request.method == "POST":
-            seen.append((request.headers.get("Authorization"), request.headers.get("X-Trace-ID")))
+        seen.append((request.method, request.headers.get("Authorization"), request.headers.get("X-Trace-ID")))
 
     url = "http://127.0.0.1:8000/mcp"
     transport = httpx2.ASGITransport(app=mcp.streamable_http_app())
-    async with mcp.session_manager.run():
+    async with mcp.session_manager.run():  # pragma: no branch
         async with (
             httpx2.AsyncClient(
                 transport=transport,
@@ -98,5 +97,6 @@ async def test_request_hook_sees_contextvars_set_around_each_call() -> None:
 
     assert first.structured_content == {"result": "Found 3 books matching 'dune'."}
     assert second.structured_content == {"result": "Found 3 books matching 'neuromancer'."}
-    assert ("Bearer user-123-token", "trace-abc") in seen
-    assert ("Bearer user-456-token", "trace-def") in seen
+    post_headers = [(auth, trace) for method, auth, trace in seen if method == "POST"]
+    assert ("Bearer user-123-token", "trace-abc") in post_headers
+    assert ("Bearer user-456-token", "trace-def") in post_headers
