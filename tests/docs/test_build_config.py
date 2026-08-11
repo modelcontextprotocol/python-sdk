@@ -65,11 +65,15 @@ def test_language_nav_titles_sections_from_the_recorded_page_titles_but_keeps_li
     )
 
 
-def test_alternate_lists_english_at_the_root_then_each_language_as_path_only_links() -> None:
-    """Tool-defined: the switcher is the same on every site and never names a host, so previews work."""
-    languages = [build_config.Language("ja", "日本語", "ja", "ja")]
+def test_alternate_lists_english_at_the_root_then_each_language_as_code_labelled_path_only_links() -> None:
+    """Tool-defined: the switcher is the same on every site, labels each entry `code - name`, links by the
+    code and announces the hreflang, and never names a host, so previews work."""
+    languages = [build_config.Language("zh", "简体中文", "zh", "zh-Hans")]
     assert build_config.alternate(languages) == snapshot(
-        [{"name": "English", "link": "/", "lang": "en"}, {"name": "日本語", "link": "/ja/", "lang": "ja"}]
+        [
+            {"name": "en - English", "link": "/", "lang": "en"},
+            {"name": "zh - 简体中文", "link": "/zh/", "lang": "zh-Hans"},
+        ]
     )
 
 
@@ -102,8 +106,8 @@ def test_lang_config_builds_the_staged_tree_into_site_code_without_an_api_refere
                 ],
                 "extra": {
                     "alternate": [
-                        {"name": "English", "link": "/", "lang": "en"},
-                        {"name": "日本語", "link": "/ja/", "lang": "ja"},
+                        {"name": "en - English", "link": "/", "lang": "en"},
+                        {"name": "ja - 日本語", "link": "/ja/", "lang": "ja"},
                     ]
                 },
             },

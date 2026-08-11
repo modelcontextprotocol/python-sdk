@@ -125,6 +125,10 @@ theme:
 extra_css:
   - extra.css
 
+# Keeps the language switcher on the current page (see the script).
+extra_javascript:
+  - js/language-switch.js
+
 markdown_extensions:
   - tables
   - abbr

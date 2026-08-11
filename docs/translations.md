@@ -4,7 +4,7 @@ This documentation is written in English. To make it useful to more people, we a
 
 ## What's available
 
-Translated documentation is currently a **preview** in four languages: Chinese (Simplified), Japanese, Korean and Portuguese (Brazil). Pick one from the language switcher at the top of any page. More languages may follow once these have proved themselves.
+Translated documentation is currently a **preview** in twelve languages: Deutsch, español, français, हिन्दी, 日本語, 한국어, português (Brasil), русский язык, Türkçe, українська мова, 简体中文 and 繁體中文. Pick one from the language switcher at the top of any page. More languages may follow once these have proved themselves.
 
 The API reference is not translated: the translated site links to the single English one.
 

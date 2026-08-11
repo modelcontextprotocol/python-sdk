@@ -126,10 +126,13 @@ def language_nav(nav: list[NavItem], titles: dict[str, str]) -> list[NavItem]:
 def alternate(languages: list[Language]) -> list[dict[str, str]]:
     """The `extra.alternate` switcher: English at the site root, then each language site.
 
-    Links are path-only so they follow whatever host serves the build.
+    Each label leads with the site's code (`ja - 日本語`); links are path-only
+    so they follow whatever host serves the build.
     """
-    entries = [{"name": "English", "link": "/", "lang": "en"}]
-    entries += [{"name": lang.name, "link": f"/{lang.code}/", "lang": lang.hreflang} for lang in languages]
+    entries = [{"name": "en - English", "link": "/", "lang": "en"}]
+    entries += [
+        {"name": f"{lang.code} - {lang.name}", "link": f"/{lang.code}/", "lang": lang.hreflang} for lang in languages
+    ]
     return entries
 
 
