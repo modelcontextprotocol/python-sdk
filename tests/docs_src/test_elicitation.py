@@ -124,7 +124,9 @@ async def test_an_answer_that_does_not_match_the_schema_never_reaches_the_tool_c
         result = await client.call_tool("book_table", {"date": "2025-12-25", "party_size": 2})
     assert result.is_error
     assert isinstance(result.content[0], TextContent)
-    assert result.content[0].text == "An unexpected error occurred while executing tool book_table"
+    assert result.content[0].text == (
+        "Received an accepted elicitation whose content does not match the requested schema"
+    )
 
 
 class Address(BaseModel):
