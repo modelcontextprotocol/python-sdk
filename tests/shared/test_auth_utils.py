@@ -50,6 +50,8 @@ def test_resource_url_from_server_url_preserves_malformed_port():
     """Malformed ports should retain the existing canonicalization behavior."""
     assert resource_url_from_server_url("https://example.com:abc/mcp") == "https://example.com:abc/mcp"
     assert resource_url_from_server_url("https://:443/mcp") == "https://:443/mcp"
+    assert resource_url_from_server_url("ftp://example.com:abc/mcp") == "ftp://example.com:abc/mcp"
+    assert resource_url_from_server_url("ftp://example.com:/mcp") == "ftp://example.com:/mcp"
 
 
 def test_resource_url_from_server_url_lowercase_scheme_and_host():

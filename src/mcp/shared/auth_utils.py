@@ -32,7 +32,7 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
     except ValueError:
         port = None
 
-    if port == default_port:
+    if default_port is not None and port == default_port:
         hostname = parsed.hostname
         if hostname is not None:
             if parsed.netloc.rsplit("@", 1)[-1].startswith("["):
