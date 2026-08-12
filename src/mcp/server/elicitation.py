@@ -13,6 +13,7 @@ from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import core_schema
 from typing_extensions import TypeAliasType
 
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.session import ServerSession
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
@@ -116,7 +117,7 @@ async def elicit_with_validation(
     For sensitive data like credentials or OAuth flows, use elicit_url() instead.
 
     Raises:
-        ValueError: If the client accepted the elicitation without supplying
+        ToolError: If the client accepted the elicitation without supplying
             content, or with content that does not match the requested schema.
     """
     json_schema = render_elicitation_schema(schema)
@@ -129,13 +130,11 @@ async def elicit_with_validation(
 
     if result.action == "accept":
         if result.content is None:
-            raise ValueError("Received an accepted elicitation with no content")
+            raise ToolError("Received an accepted elicitation with no content")
         try:
             validated_data = schema.model_validate(result.content)
         except ValidationError as e:
-            raise ValueError(
-                "Received an accepted elicitation whose content does not match the requested schema"
-            ) from e
+            raise ToolError("Received an accepted elicitation whose content does not match the requested schema") from e
         return AcceptedElicitation(data=validated_data)
     if result.action == "decline":
         return DeclinedElicitation()

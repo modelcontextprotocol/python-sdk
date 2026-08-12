@@ -1051,7 +1051,7 @@ async def test_accept_with_no_content_is_an_error_not_a_cancel(mode: Literal["le
         if mode == "auto":
             assert "received an accepted elicitation with no content" in result.content[0].text
         else:
-            assert result.content[0].text == "An unexpected error occurred while executing tool tool"
+            assert result.content[0].text == "Received an accepted elicitation with no content"
 
 
 @pytest.mark.anyio
@@ -1432,7 +1432,7 @@ async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_le
             assert "does not match the requested schema" in text
             assert "Resolver" in text
         else:
-            assert text == "An unexpected error occurred while executing tool whoami"
+            assert text == "Received an accepted elicitation whose content does not match the requested schema"
         assert "errors.pydantic.dev" not in text
 
 
