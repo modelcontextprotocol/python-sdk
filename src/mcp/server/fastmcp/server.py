@@ -1087,6 +1087,13 @@ class FastMCP(Generic[LifespanResultT]):
             raise ValueError(str(e))
 
 
+# `Settings.lifespan` forward-references `FastMCP`, which is defined after `Settings`,
+# so the annotation is unresolved when the class body executes. Rebuild the model now
+# that `FastMCP` exists, otherwise settings sources may fail to resolve the field and
+# pydantic-settings >= 2.15 warns about the incomplete definition on instantiation.
+Settings.model_rebuild()
+
+
 class StreamableHTTPASGIApp:
     """
     ASGI application for Streamable HTTP server transport.

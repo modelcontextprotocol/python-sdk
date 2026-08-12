@@ -183,6 +183,21 @@ class TestServer:
             def get_data(x: str) -> str:  # pragma: no cover
                 return f"Data: {x}"
 
+    def test_settings_model_is_fully_defined_after_import(self):
+        """Regression test for #3294: `Settings.lifespan` forward-references `FastMCP`,
+        which is defined later in the module, so `Settings` must be rebuilt once
+        `FastMCP` exists. An unresolved forward reference leaves the model incomplete:
+        settings sources may fail to resolve the field, and pydantic-settings >= 2.15
+        warns (`IncompleteFieldDefinitionWarning`) on every `FastMCP()` construction.
+        """
+        from typing import ForwardRef
+
+        from mcp.server.fastmcp.server import Settings
+
+        assert Settings.__pydantic_complete__ is True
+        lifespan = Settings.model_fields["lifespan"]
+        assert not isinstance(lifespan.annotation, ForwardRef)
+
 
 class TestDnsRebindingProtection:
     """Tests for automatic DNS rebinding protection on localhost."""
