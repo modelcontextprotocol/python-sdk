@@ -383,7 +383,7 @@ class TestContextHandling:
         assert result == "42"
 
     @pytest.mark.anyio
-    async def test_context_error_handling(self):
+    async def test_context_error_handling(self) -> None:
         """Test error handling when context injection fails."""
 
         def tool_with_context(x: int, ctx: Context) -> str:
@@ -392,8 +392,10 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(tool_with_context)
 
-        with pytest.raises(ToolError, match="^An unexpected error occurred while executing tool tool_with_context$"):
+        with pytest.raises(ToolError) as exc_info:
             await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
+
+        assert str(exc_info.value) == "An unexpected error occurred while executing tool tool_with_context"
 
 
 class TestToolAnnotations:

@@ -184,5 +184,7 @@ class Tool(BaseModel):
         except ToolError:
             raise
         except Exception:
+            # Intentional broad catch at the tool execution boundary: arbitrary
+            # tool exceptions must not cross the MCP boundary with their value.
             logger.exception("Error executing tool %s", self.name)
             raise ToolError(f"An unexpected error occurred while executing tool {self.name}") from None

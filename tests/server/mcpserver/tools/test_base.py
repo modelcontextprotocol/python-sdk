@@ -43,12 +43,8 @@ async def test_mcperror_raised_from_a_tool_surfaces_as_a_top_level_jsonrpc_error
 
 
 @pytest.mark.anyio
-async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_error_result():
-    """Unexpected tool exceptions become sanitized ``is_error`` results.
-
-    The original exception is logged server-side rather than returned to the client.
-    Pins the other arm of the same branch.
-    """
+async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_error_result() -> None:
+    """SDK-defined: unexpected tool exceptions become sanitized ``is_error`` results."""
     mcp = MCPServer(name="srv")
 
     @mcp.tool()
@@ -63,7 +59,8 @@ async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_err
 
 
 @pytest.mark.anyio
-async def test_unexpected_tool_error_is_sanitized_and_logged(caplog: pytest.LogCaptureFixture):
+async def test_unexpected_tool_error_is_sanitized_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """SDK-defined: ``Tool.run`` logs exception details but exposes a stable message."""
     secret = "database password"
 
     def boom() -> str:
@@ -81,11 +78,15 @@ async def test_unexpected_tool_error_is_sanitized_and_logged(caplog: pytest.LogC
 
 
 @pytest.mark.anyio
-async def test_tool_error_is_re_raised_without_wrapping():
+async def test_tool_error_is_re_raised_without_wrapping() -> None:
+    """SDK-defined: an explicit ``ToolError`` remains actionable and is not wrapped."""
+
     def fail() -> str:
         raise ToolError("the requested record is unavailable")
 
     tool = Tool.from_function(fail)
 
-    with pytest.raises(ToolError, match="^the requested record is unavailable$"):
+    with pytest.raises(ToolError) as exc_info:
         await tool.run({}, Context())
+
+    assert str(exc_info.value) == "the requested record is unavailable"
