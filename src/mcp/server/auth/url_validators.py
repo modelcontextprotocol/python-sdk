@@ -1,4 +1,4 @@
-﻿"""OAuth 2.0 URL validation helpers for MCP authorization servers.
+"""OAuth 2.0 URL validation helpers for MCP authorization servers.
 
 RFC 9700 4.1.1 and RFC 7591 2 require HTTPS for authorization endpoint URLs
 and registered redirect_uris, with an HTTP loopback exception for local
