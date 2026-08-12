@@ -1,8 +1,11 @@
+import logging
+
 import mcp_types as types
 import pytest
 
 from mcp import Client
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.shared.exceptions import MCPError
 
@@ -41,9 +44,11 @@ async def test_mcperror_raised_from_a_tool_surfaces_as_a_top_level_jsonrpc_error
 
 @pytest.mark.anyio
 async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_error_result():
-    """SDK-defined: ordinary exceptions from a tool body are execution failures
-    the LLM should see, so they become ``CallToolResult(isError=True)`` rather
-    than a protocol-level JSON-RPC error. Pins the other arm of the same branch."""
+    """Unexpected tool exceptions become sanitized ``is_error`` results.
+
+    The original exception is logged server-side rather than returned to the client.
+    Pins the other arm of the same branch.
+    """
     mcp = MCPServer(name="srv")
 
     @mcp.tool()
@@ -55,3 +60,32 @@ async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_err
 
     assert isinstance(result, types.CallToolResult)
     assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_unexpected_tool_error_is_sanitized_and_logged(caplog: pytest.LogCaptureFixture):
+    secret = "database password"
+
+    def boom() -> str:
+        raise RuntimeError(secret)
+
+    tool = Tool.from_function(boom)
+
+    with caplog.at_level(logging.ERROR, logger="mcp.server.mcpserver.tools.base"):
+        with pytest.raises(ToolError) as exc_info:
+            await tool.run({}, Context())
+
+    assert str(exc_info.value) == "An unexpected error occurred while executing tool boom"
+    assert exc_info.value.__cause__ is None
+    assert secret in caplog.text
+
+
+@pytest.mark.anyio
+async def test_tool_error_is_re_raised_without_wrapping():
+    def fail() -> str:
+        raise ToolError("the requested record is unavailable")
+
+    tool = Tool.from_function(fail)
+
+    with pytest.raises(ToolError, match="^the requested record is unavailable$"):
+        await tool.run({}, Context())

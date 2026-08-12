@@ -111,7 +111,7 @@ And if the user won't answer at all - declines the question, or cancels it?
     result the model can read:
 
     ```text
-    Error executing tool order_book: Resolver for parameter 'backorder' could not resolve: elicitation was decline
+    Resolver for parameter 'backorder' could not resolve: elicitation was decline
     ```
 
 That's the right default for a precondition: no answer, no order. When declining is an outcome your tool wants to handle - skip the backorder but still suggest another title - annotate `ElicitationResult[Backorder]` instead and the tool receives the full accept/decline/cancel outcome to branch on. **[Elicitation](elicitation.md)** shows that form, and everything else about asking: the schema rules, the three answers, the client's side of the conversation.

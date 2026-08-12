@@ -27,20 +27,20 @@ uv run python -m stories.error_handling.client --http --server server_lowlevel
   `except MCPError` catches protocol errors; the client never auto-raises on
   `is_error`.
 - `server.py` — `raise ToolError(...)` vs `raise MCPError(...)`: same `raise`
-  keyword, opposite wire channel. The tool wrapper re-raises `MCPError`
-  verbatim and wraps everything else as an `is_error` result.
+  keyword, opposite wire channel. The tool wrapper re-raises `ToolError` and
+  `MCPError` through their respective channels; unexpected exceptions are logged
+  and sanitized.
 - `server_lowlevel.py` — no wrapper: you build `CallToolResult(is_error=True)`
   yourself, and `MCPError` is the only way to pick a JSON-RPC error code.
 
 ## Caveats
 
-- The "any other exception → `is_error` result" contract on `MCPServer` and the
-  "uncaught exception → `code=0`" behaviour on `lowlevel.Server` are **not
-  shown** — the contract is under design and the legacy code is a known spec
-  divergence. This story will grow those cases once the contract lands.
-- `MCPServer` prefixes the execution-error message with
-  `"Error executing tool {name}: "`; build a `CallToolResult` directly from a
-  lowlevel handler if you need verbatim control.
+- This story does not show an unexpected exception. `MCPServer` logs its traceback
+  and returns `An unexpected error occurred while executing tool <name>`; use
+  `ToolError` when the model needs a safe, specific recovery hint.
+- `ToolError` messages are sent to the client verbatim. A lowlevel handler still
+  needs to build a `CallToolResult` directly when it wants full control over the
+  result shape.
 
 ## Spec
 

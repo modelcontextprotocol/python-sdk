@@ -112,17 +112,17 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
 
 !!! check
     Ask `lookup_book` for `"Solaris"` (a title that isn't in the catalog) and the function raises
-    `ValueError`. The call still returns normally:
+    `ToolError`. The call still returns normally:
 
     ```python
     result.is_error            # True
-    result.content             # [TextContent(type='text', text="Error executing tool lookup_book: No book titled 'Solaris' in the catalog.")]
+    result.content             # [TextContent(type='text', text="No book titled 'Solaris' in the catalog.")]
     result.structured_content  # None
     ```
 
-    The exception's message landed in `content`, where the **model** can read it and try again. That
-    is deliberate: a tool error is part of the conversation, not a crash. Always look at `is_error`
-    before you trust `structured_content`.
+    The deliberate `ToolError` message landed in `content`, where the **model** can read it and try
+    again. Unexpected exceptions are logged on the server and replaced with a generic message. Always
+    look at `is_error` before you trust `structured_content`.
 
 !!! warning
     `is_error=True` covers more than your own `raise`. Ask for a tool the server doesn't even have

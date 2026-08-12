@@ -157,8 +157,7 @@ async def test_return_value_is_validated_against_the_schema() -> None:
         assert result.is_error
         assert result.structured_content is None
         assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text.startswith("Error executing tool get_weather: 1 validation error for WeatherData")
-        assert "humidity\n  Field required" in result.content[0].text
+        assert result.content[0].text == "An unexpected error occurred while executing tool get_weather"
 
 
 async def test_structured_output_false_opts_out() -> None:

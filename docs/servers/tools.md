@@ -104,15 +104,16 @@ Three new things, all on the parameters:
 * `Literal["fiction", "non-fiction", "poetry"]`: an enum. The model can only pick one of those.
 
 !!! check
-    Constraints are not decoration. Call the tool with `limit=999` and the SDK answers with a
-    tool error **before your function runs**:
+    Constraints are not decoration. Call the tool with `limit=999` and the SDK rejects it
+    **before your function runs**:
 
     ```text
-    Input should be less than or equal to 50
+    An unexpected error occurred while executing tool search_books
     ```
 
-    That error goes back to the model as the tool result, and the model reads it and retries with
-    a valid value. You wrote `le=50` once and got self-correcting agents for free.
+    The validation details stay in the server log; the client never receives Pydantic's internal
+    model name, version-specific wording, or documentation URL. The model already has the
+    constraint in the input schema and can retry with a valid value.
 
 !!! info
     If you've used FastAPI or Pydantic, you already know all of this. It's the same `Field`,
@@ -166,7 +167,7 @@ A well-behaved client uses them to decide things like *"do I need to ask the use
 * Type hints **are** the input schema. Defaults make arguments optional.
 * `Annotated[..., Field(...)]` adds descriptions and constraints; `Literal` adds enums.
 * A Pydantic model parameter is how you take a structured "body".
-* Bad arguments are rejected for you, with an error the model can read and recover from.
+* Bad arguments are rejected for you before the function runs; validation details stay server-side.
 * `async def` for I/O, plain `def` for everything else.
 
 **[Structured Output](structured-output.md)** is what happens to the value you `return`.

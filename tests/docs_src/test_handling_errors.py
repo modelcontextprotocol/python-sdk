@@ -10,14 +10,12 @@ from mcp import Client, MCPError
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
 
 
-async def test_a_plain_exception_becomes_a_tool_error_the_model_reads() -> None:
-    """tutorial001: any non-`MCPError` exception comes back as `is_error=True` with the message in `content`."""
+async def test_an_explicit_tool_error_is_the_message_the_model_reads() -> None:
+    """tutorial001: an explicit `ToolError` comes back as `is_error=True` with its message in `content`."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("get_author", {"title": "Nothing"})
         assert result.is_error
-        assert result.content == [
-            TextContent(type="text", text="Error executing tool get_author: No book titled 'Nothing' in the catalog.")
-        ]
+        assert result.content == [TextContent(type="text", text="No book titled 'Nothing' in the catalog.")]
         assert result.structured_content is None
 
 
@@ -35,7 +33,7 @@ async def test_a_bad_argument_never_reaches_the_function() -> None:
         result = await client.call_tool("get_author", {"title": 42})
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
-        assert "Input should be a valid string" in result.content[0].text
+        assert result.content[0].text == "An unexpected error occurred while executing tool get_author"
 
 
 async def test_mcp_error_makes_the_call_itself_fail() -> None:
@@ -72,9 +70,7 @@ async def test_raise_exceptions_does_not_turn_a_tool_error_into_a_traceback() ->
     async with Client(tutorial001.mcp, raise_exceptions=True) as client:
         result = await client.call_tool("get_author", {"title": "Nothing"})
         assert result.is_error
-        assert result.content == [
-            TextContent(type="text", text="Error executing tool get_author: No book titled 'Nothing' in the catalog.")
-        ]
+        assert result.content == [TextContent(type="text", text="No book titled 'Nothing' in the catalog.")]
 
 
 async def test_a_title_the_template_knows_reads_normally() -> None:

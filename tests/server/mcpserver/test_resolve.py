@@ -1048,7 +1048,10 @@ async def test_accept_with_no_content_is_an_error_not_a_cancel(mode: Literal["le
         result = await client.call_tool("tool", {})
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
-        assert "no content" in result.content[0].text
+        if mode == "auto":
+            assert "received an accepted elicitation with no content" in result.content[0].text
+        else:
+            assert result.content[0].text == "An unexpected error occurred while executing tool tool"
 
 
 @pytest.mark.anyio
@@ -1425,12 +1428,12 @@ async def test_schema_mismatched_fresh_answer_fails_the_call_without_pydantic_le
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
         text = result.content[0].text
-        assert "does not match the requested schema" in text
-        assert "errors.pydantic.dev" not in text
         if mode == "auto":
-            assert "Resolver" in text  # the input_required transport names the offending resolver key
+            assert "does not match the requested schema" in text
+            assert "Resolver" in text
         else:
-            assert "Received an accepted elicitation" in text  # the legacy path has no wire key to name
+            assert text == "An unexpected error occurred while executing tool whoami"
+        assert "errors.pydantic.dev" not in text
 
 
 @pytest.mark.anyio
@@ -2816,7 +2819,7 @@ async def test_a_declined_elicitation_fails_the_call_for_a_plain_model_consumer(
     assert result.is_error
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == snapshot(
-        "Error executing tool whoami: Resolver for parameter 'login' could not resolve: elicitation was decline"
+        "Resolver for parameter 'login' could not resolve: elicitation was decline"
     )
 
 

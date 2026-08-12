@@ -80,13 +80,13 @@ async def test_field_constraints_land_in_the_schema() -> None:
         assert props["genre"]["anyOf"][0]["enum"] == ["fiction", "non-fiction", "poetry"]
 
 
-async def test_constraint_violation_is_an_error_the_model_can_read() -> None:
+async def test_constraint_violation_is_sanitized_in_the_tool_result() -> None:
     """tutorial003: an out-of-range argument is rejected by the schema, not by your code."""
     async with Client(tutorial003.mcp) as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 999})
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
-        assert "less than or equal to 50" in result.content[0].text
+        assert result.content[0].text == "An unexpected error occurred while executing tool search_books"
 
 
 async def test_pydantic_model_parameter() -> None:

@@ -288,7 +288,7 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert content.text == "An unexpected error occurred while executing tool error_tool_fn"
             assert result.is_error is True
 
     async def test_tool_error_handling(self):
@@ -299,7 +299,7 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert content.text == "An unexpected error occurred while executing tool error_tool_fn"
             assert result.is_error is True
 
     async def test_tool_error_details(self):
@@ -311,7 +311,7 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert isinstance(content.text, str)
-            assert "Test error" in content.text
+            assert content.text == "An unexpected error occurred while executing tool error_tool_fn"
             assert result.is_error is True
 
     async def test_tool_return_value_conversion(self):

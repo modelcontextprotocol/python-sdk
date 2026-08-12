@@ -73,7 +73,7 @@ That is the whole API. There is no per-method switch, and you don't want one: th
     `old_log` that still calls `ctx.info()` stops passing and starts reporting:
 
     ```text
-    Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    An unexpected error occurred while executing tool old_log
     ```
 
     One line of pytest configuration, and a deprecated call can never sneak back into your

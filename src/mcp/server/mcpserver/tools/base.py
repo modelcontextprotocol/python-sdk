@@ -16,6 +16,7 @@ from mcp.server.mcpserver.resolve import (
 )
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -23,6 +24,9 @@ from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
     from mcp.server.mcpserver.context import Context
+
+
+logger = get_logger(__name__)
 
 
 class Tool(BaseModel):
@@ -129,7 +133,7 @@ class Tool(BaseModel):
         """Run the tool with arguments.
 
         Raises:
-            ToolError: If the tool function raises during execution.
+            ToolError: If the tool function raises a handled or unexpected error during execution.
         """
         try:
             pass_directly: dict[str, Any] = {}
@@ -177,5 +181,8 @@ class Tool(BaseModel):
             # it as a top-level JSON-RPC error rather than wrapping it as a
             # `CallToolResult(isError=True)` execution failure.
             raise
-        except Exception as e:
-            raise ToolError(f"Error executing tool {self.name}: {e}") from e
+        except ToolError:
+            raise
+        except Exception:
+            logger.exception("Error executing tool %s", self.name)
+            raise ToolError(f"An unexpected error occurred while executing tool {self.name}") from None

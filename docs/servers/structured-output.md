@@ -183,16 +183,14 @@ The annotation promises `WeatherData`. The upstream response stopped sending `hu
 
 !!! check
     Call `get_weather` and it does not quietly hand the client a half-empty object. The call fails,
-    and the first lines of the error name the field:
+    while the validation details stay in the server log:
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
-    humidity
-      Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
+    An unexpected error occurred while executing tool get_weather
     ```
 
-    That text comes back as the tool result with `is_error=True`, so the model knows the call failed
-    instead of confidently reading weather that isn't there.
+    The generic text comes back as the tool result with `is_error=True`, so the model knows the call
+    failed instead of receiving internal schema details.
 
 Returning a plain `dict` from a `-> WeatherData` tool is fine, by the way. That's exactly what `json.loads` produced. Validation is on the value, not on the Python type.
 

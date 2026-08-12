@@ -85,8 +85,8 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
     """An exception raised by a tool function is returned as an is_error result, not a JSON-RPC error.
 
     The function's `-> str` annotation gives the tool a derived output schema, but the error
-    result is built before any schema validation runs, so no validation failure is layered on
-    top of the original exception.
+    result is built before any schema validation runs, so the unexpected exception is sanitized
+    instead of being exposed to the client.
     """
     mcp = MCPServer("errors")
 
@@ -98,7 +98,9 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
         result = await client.call_tool("explode", {})
 
     assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="Error executing tool explode: boom")], is_error=True)
+        CallToolResult(
+            content=[TextContent(text="An unexpected error occurred while executing tool explode")], is_error=True
+        )
     )
 
 
@@ -115,7 +117,7 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect, unsta
         result = await client.call_tool("flux", {})
 
     assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="Error executing tool flux: flux capacitor offline")], is_error=True)
+        CallToolResult(content=[TextContent(text="flux capacitor offline")], is_error=True)
     )
 
 
@@ -234,12 +236,11 @@ async def test_call_tool_invalid_arguments_become_error_result(connect: Connect)
     async with connect(mcp) as client:
         result = await client.call_tool("add", {"b": 3})
 
-    # The description is raw pydantic output -- it embeds a pydantic-version-specific
-    # errors.pydantic.dev URL and the internal `addArguments` model name -- so only the stable
-    # prefix is asserted; a full snapshot would break on every pydantic upgrade.
+    # Validation details can include pydantic-version-specific URLs and internal model names,
+    # so the client receives the same generic message as other unexpected exceptions.
     assert result.is_error is True
     assert isinstance(result.content[0], TextContent)
-    assert result.content[0].text.startswith("Error executing tool add: 1 validation error")
+    assert result.content[0].text == "An unexpected error occurred while executing tool add"
 
 
 @requirement("mcpserver:output-schema:server-validate")
@@ -252,8 +253,8 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
     A tool annotated `Annotated[CallToolResult, Model]` returns a hand-built CallToolResult while
     declaring `Model` as its output schema; MCPServer validates the supplied structured_content
     against that schema before returning. The two cases -- a content shape that does not match,
-    and no structured content at all -- both fail that validation and are reported as is_error
-    results carrying the (raw pydantic) validation error wrapped in the SDK's stable prefix.
+    and no structured content at all -- both fail that validation and are reported as sanitized
+    is_error results. The validation details stay in the server log.
     """
     mcp = MCPServer("forecaster")
 
@@ -273,16 +274,14 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
         mismatched_result = await client.call_tool("mismatched", {})
         missing_result = await client.call_tool("missing", {})
 
-    # The body of each message is raw pydantic ValidationError output (model name, field paths,
-    # an errors.pydantic.dev URL) and changes across pydantic versions, so only the SDK's stable
-    # prefix is asserted.
+    # Validation details are kept in the server log rather than returned to the client.
     assert mismatched_result.is_error is True
     assert isinstance(mismatched_result.content[0], TextContent)
-    assert mismatched_result.content[0].text.startswith("Error executing tool mismatched: 2 validation errors")
+    assert mismatched_result.content[0].text == "An unexpected error occurred while executing tool mismatched"
 
     assert missing_result.is_error is True
     assert isinstance(missing_result.content[0], TextContent)
-    assert missing_result.content[0].text.startswith("Error executing tool missing: 1 validation error")
+    assert missing_result.content[0].text == "An unexpected error occurred while executing tool missing"
 
 
 @requirement("mcpserver:tool:duplicate-name")

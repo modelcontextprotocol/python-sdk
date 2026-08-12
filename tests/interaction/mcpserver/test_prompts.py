@@ -123,8 +123,8 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
 
     The decorated function is wrapped in pydantic's validate_call, so a value that cannot be
     coerced to the parameter's annotation fails before the body executes. The function body
-    raises NotImplementedError to prove it never ran. The error is wrapped in the SDK's stable
-    rendering-error prefix; the body of the message is raw pydantic output and is not asserted.
+    raises NotImplementedError to prove it never ran. The error is logged server-side and the
+    client receives the same sanitized tool result as other unexpected exceptions.
     """
     mcp = MCPServer("prompter")
 

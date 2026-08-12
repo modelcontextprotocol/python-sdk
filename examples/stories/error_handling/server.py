@@ -12,7 +12,7 @@ def build_server() -> MCPServer:
 
     @mcp.tool()
     def divide(a: float, b: float) -> float:
-        """Divide a by b. Division by zero is an execution error the LLM should see."""
+        """Divide a by b. Division by zero is an expected tool error."""
         if b == 0:
             # ToolError is caught by the tool wrapper and returned as
             # CallToolResult(is_error=True) — the LLM reads the message and can

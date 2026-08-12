@@ -124,7 +124,7 @@ async def test_an_answer_that_does_not_match_the_schema_never_reaches_the_tool_c
         result = await client.call_tool("book_table", {"date": "2025-12-25", "party_size": 2})
     assert result.is_error
     assert isinstance(result.content[0], TextContent)
-    assert "does not match the requested schema" in result.content[0].text
+    assert result.content[0].text == "An unexpected error occurred while executing tool book_table"
 
 
 class Address(BaseModel):
@@ -164,10 +164,7 @@ async def test_a_nested_model_is_rejected_before_anything_is_sent() -> None:
         result = await client.call_tool("sign_up", {})
     assert result.is_error
     assert isinstance(result.content[0], TextContent)
-    assert result.content[0].text == (
-        "Error executing tool sign_up: Elicitation schema field 'address' rendered as "
-        "{'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition"
-    )
+    assert result.content[0].text == "An unexpected error occurred while executing tool sign_up"
 
 
 async def test_a_literal_field_passes_the_gate_as_an_enum() -> None:

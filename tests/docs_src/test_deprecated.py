@@ -120,17 +120,15 @@ def test_mcp_deprecation_warning_is_a_user_warning() -> None:
 async def test_error_filter_turns_the_deprecated_call_into_the_documented_tool_error() -> None:
     """The `!!! check`: `"error::mcp.MCPDeprecationWarning"` makes `old_log` fail.
 
-    Under the error filter the warning becomes the raised exception, the tool manager
-    wraps it, and the result is exactly the tool error the page quotes.
+    Under the error filter the warning becomes an unexpected tool exception, which is
+    logged server-side and sanitized in the result.
     """
     async with Client(mcp) as client:
         result = await client.call_tool("old_log", {})
     assert result.is_error
     [content] = result.content
     assert isinstance(content, TextContent)
-    assert content.text == (
-        "Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577)."
-    )
+    assert content.text == "An unexpected error occurred while executing tool old_log"
 
 
 async def test_filterwarnings_ignore_silences_the_whole_category() -> None:

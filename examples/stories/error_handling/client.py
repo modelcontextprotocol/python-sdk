@@ -18,9 +18,9 @@ async def main(target: Target, *, mode: str = "auto") -> None:
         failed = await client.call_tool("divide", {"a": 1, "b": 0})
         assert failed.is_error is True, "execution errors ride CallToolResult, not an exception"
         assert isinstance(failed.content[0], TextContent)
-        # MCPServer prefixes "Error executing tool divide: ..."; lowlevel returns
-        # the message verbatim. Assert the substring both produce.
-        assert "cannot divide by zero" in failed.content[0].text
+        # ToolError messages are returned verbatim by MCPServer. The lowlevel
+        # server builds the same result explicitly.
+        assert failed.content[0].text == "cannot divide by zero"
 
         # Protocol error: arrives as a raised MCPError.
         try:

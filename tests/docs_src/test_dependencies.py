@@ -135,9 +135,7 @@ async def test_declining_an_unwrapped_dependency_aborts_the_call(mode: Literal["
 
     assert result.is_error
     assert isinstance(result.content[0], TextContent)
-    assert result.content[0].text == (
-        "Error executing tool order_book: Resolver for parameter 'backorder' could not resolve: elicitation was decline"
-    )
+    assert result.content[0].text == ("Resolver for parameter 'backorder' could not resolve: elicitation was decline")
 
 
 @pytest.mark.parametrize("mode", ["legacy", "auto"])

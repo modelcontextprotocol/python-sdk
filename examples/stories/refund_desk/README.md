@@ -42,8 +42,8 @@ uv run python -m stories.refund_desk.client --http
   declining the scope question aborts the whole `cents` chain with an error
   containing the framework's
   `Resolver for parameter 'scope' could not resolve: elicitation was decline`
-  (the client sees it behind the usual `Error executing tool refund_order:`
-  prefix); `restock` keeps the `ElicitationResult` union, so declining restock
+  (the client sees the `ToolError` message directly); `restock` keeps the
+  `ElicitationResult` union, so declining restock
   still refunds — just with `restocked: false`.
 - `client.py` — the scope counter proves memoization from outside: one call
   consumes `refund_scope` from two resolvers but the question fires once.

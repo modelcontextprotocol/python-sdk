@@ -76,21 +76,25 @@ async def main() -> None:
 
 `__aexit__` is the disconnection, which is why there is no `client.close()` to forget. **[Testing](get-started/testing.md)** is built on exactly this pattern.
 
-## `Error executing tool <name>: <message>` and `Unknown tool: <name>`
+## Tool errors, unexpected errors, and `Unknown tool: <name>`
 
 You are reading a **result**, not an exception. `call_tool` did not raise, and it never will for a failing tool.
 
-Call `forecast` for a city the server doesn't know, and the exception it raises comes back with the request marked as *succeeded*:
+Call `forecast` for a city the server doesn't know. Because the tool raises `ToolError`, the safe
+message comes back with the request marked as *succeeded*:
 
 ```python
 result.is_error  # True
-result.content   # [TextContent(text="Error executing tool forecast: No forecast for 'Atlantis'.")]
+result.content   # [TextContent(text="No forecast for 'Atlantis'.")]
 result.structured_content  # None
 ```
 
-`Unknown tool: get_forecast` is the same shape for a name the server never registered, and a bad argument is rejected the same way, against the tool's input schema, before your function ever runs.
+An unexpected exception uses the same result shape but returns a generic message, while the traceback
+is logged on the server. `Unknown tool: get_forecast` is the same shape for a name the server never
+registered, and a bad argument is rejected the same way, against the tool's input schema, before your
+function ever runs.
 
-The fix is in your client: **check `result.is_error`**. A `try/except` around `call_tool` catches none of these, because there is nothing to catch. This is deliberate, and it is the single most useful thing on this page to internalise: the *model* chose the call, so the model gets the message and a chance to try again. **[Handling errors](servers/handling-errors.md)** is the whole story, including the `MCPError` path that *does* raise.
+The fix is in your client: **check `result.is_error`**. A `try/except` around `call_tool` catches none of these, because there is nothing to catch. For a recoverable, model-facing failure, raise `ToolError` with a safe message. **[Handling errors](servers/handling-errors.md)** is the whole story, including the `MCPError` path that *does* raise.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool`
 
@@ -404,7 +408,8 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Recap
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` is never the error. Read the **last line**; catching `MCPError` *inside* the `async with Client(...)` block skips the wrapping entirely.
-* `call_tool` does not raise for a failing tool. `Error executing tool ...` and `Unknown tool: ...` are results: check `result.is_error`.
+* `call_tool` does not raise for a failing high-level tool. `ToolError`, unexpected tool exceptions,
+  and `Unknown tool: ...` are results: check `result.is_error`.
 * `Client must be used within an async context manager` -> use `async with`. `Use @tool() instead of @tool` -> add the parentheses.
 * `Tool already exists:` in the server log is the only sign that two same-named tools collapsed into one.
 * One 421, three spellings: `Server returned an error response` (the python `Client`), `421 Misdirected Request` / `Invalid Host header` (everything else), `Invalid Host header: <host>` (the server log). Fix: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.

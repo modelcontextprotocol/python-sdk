@@ -247,7 +247,7 @@ many requirements at once; if the assertions would be separate, write separate t
 | the result of a transformation (arguments → output, exception → error result) | `result == snapshot(...)` of the full object, so any field the implementation adds or drops fails the test |
 | pass-through of an opaque value (`_meta`, cursors) | identity against the same variable that was sent — a snapshot of a pass-through value only matches the input because a human checked two literals correspond |
 | an error | `pytest.raises(MCPError)` and a snapshot of `exc.value.error` when the message is the SDK's own; a plain `==` on `.code` against the `mcp_types` constant when it is not |
-| third-party output embedded in a result (validation messages) | the stable prefix only — never pin text that changes with a dependency upgrade |
+| third-party output embedded in a result (validation messages) | the stable, sanitized result contract; only pin a prefix when the API intentionally preserves one |
 
 ### Notifications and concurrency
 

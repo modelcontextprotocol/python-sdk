@@ -2,7 +2,9 @@
 
 A tool can fail in two ways, and the SDK treats them very differently.
 
-Raise an ordinary exception and the **model** sees it. Raise `MCPError` and the **protocol** sees it.
+Raise `ToolError` when the **model** should see a safe, actionable message. Raise `MCPError` when the
+**protocol** should see the failure. Unexpected exceptions are logged server-side and replaced with a
+generic tool error.
 
 This page is about choosing.
 
@@ -14,32 +16,39 @@ Take a tool that looks something up, and let the lookup miss:
 --8<-- "docs_src/handling_errors/tutorial001.py"
 ```
 
-There is nothing MCP about those two lines. `get_author` raises a plain `ValueError`, the way any Python function would.
+`get_author` raises `ToolError` with the message the model is allowed to see. Use this exception for
+expected, recoverable failures such as a missing catalog entry.
 
 Call it with a title that isn't in the catalog and look at the result:
 
 ```python
 result.is_error            # True
-result.content             # [TextContent(text="Error executing tool get_author: No book titled 'Nothing' in the catalog.")]
+result.content             # [TextContent(text="No book titled 'Nothing' in the catalog.")]
 result.structured_content  # None
 ```
 
 * The request **succeeded**. There is a result; nothing was raised at the caller.
-* `is_error` is `True`, and your exception's message (prefixed with the tool name) is in `content`, exactly where the model reads.
+* `is_error` is `True`, and the `ToolError` message is in `content`, exactly where the model reads.
 * `structured_content` is `None`. A failed call has no return value to structure.
 
-This is a **tool error**, and it is the default for *any* exception your tool raises. It is also almost always what you want.
+This is a **tool error**. The message is explicit and safe because the tool author chose to raise
+`ToolError`.
 
-The model is the one calling your tool. It picked the arguments. So a tool error is a turn in the conversation: the model reads *"No book titled 'Nothing' in the catalog."*, realises it guessed the title wrong, and calls again with a better one. You wrote one `raise` and got a self-correcting agent.
+The model is the one calling your tool. It picked the arguments. So a tool error is a turn in the conversation: the model reads *"No book titled 'Nothing' in the catalog."*, realises it guessed the title wrong, and calls again with a better one. You wrote one `raise ToolError(...)` and got a self-correcting agent.
+
+!!! warning
+    If an unexpected exception escapes the tool, the SDK logs the traceback on the server and returns
+    `An unexpected error occurred while executing tool <name>`. It never sends the exception value to
+    the client. Use `ToolError` when the model needs a specific recovery hint.
 
 !!! tip
     Never `return` an error message from a tool. A returned string has `is_error=False`, so to the
     model (and to every client UI) it looks like the tool worked and that string was the answer.
-    `raise`. The flag is the signal.
+    `raise ToolError(...)`. The flag is the signal.
 
 ## An error the model cannot fix
 
-Now swap `ValueError` for `MCPError`.
+Now swap `ToolError` for `MCPError`.
 
 ```python title="server.py" hl_lines="1 3 14"
 --8<-- "docs_src/handling_errors/tutorial002.py"
@@ -72,12 +81,16 @@ Now swap `ValueError` for `MCPError`.
 
 The two paths answer two different questions.
 
-* **Raise any exception** for a failure of *execution*: the thing your tool tried to do didn't work. The model chose the call, so the model should see the consequence and get a chance to recover. A misspelled title, an upstream API that timed out, a row that doesn't exist: all tool errors.
+* **Raise `ToolError`** for an expected failure of *execution* that the model can recover from. Include only information that is safe for the client to see: a misspelled title, a row that doesn't exist, or a user-facing validation message.
+* Let **unexpected exceptions** propagate when the details are for server operators. The SDK logs the traceback and returns a generic `is_error=True` result.
 * **Raise `MCPError`** when the *request itself* should be rejected: the client is missing a capability your tool depends on, the server isn't in a state to serve anyone, the caller skipped a required step. No retry from the model fixes any of those, so there is nothing to gain from handing it the message.
 
-One question decides it: **could a smarter model have avoided this?** Yes -> ordinary exception. No -> `MCPError`.
+One question decides it: **does the model need a safe recovery hint?** Yes -> `ToolError`. No, because
+the failure is unexpected or internal -> let the original exception be logged and sanitized. If the
+request itself is invalid or unsupported -> `MCPError`.
 
-By that test, the second version of `get_author` made the wrong choice: a better title fixes it, so the model deserved to see the message. It's there to show you the mechanism, not to recommend it.
+By that test, `get_author` uses `ToolError`: a better title fixes the problem, so the model deserves
+to see the message.
 
 !!! info
     `MCPError` lives at `from mcp import MCPError` and takes `code`, `message`, and an optional
@@ -110,7 +123,7 @@ Notice there is no `is_error=True` half-result here. A resource read either retu
 
 A bad argument never reaches your function.
 
-Send `get_author` a `title` that isn't a string and the SDK rejects it against the input schema **before** calling you, as the same kind of `is_error=True` tool error the model can read and correct. **[Tools](tools.md)** shows the same rejection with a `Field(le=50)` constraint.
+Send `get_author` a `title` that isn't a string and the SDK rejects it against the input schema **before** calling you, returning a generic `is_error=True` tool result. The validation details stay in the server log while the model can use the advertised schema to correct its arguments. **[Tools](tools.md)** shows the same rejection with a `Field(le=50)` constraint.
 
 It means a whole class of `raise` statements you don't write: don't re-validate your own type hints.
 
@@ -122,9 +135,10 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 
 ## Recap
 
-* Raise **any exception** in a tool -> the call returns `is_error=True` with your message in `content`. The model reads it and can retry. This is the default.
+* Raise **`ToolError`** in a tool -> the call returns `is_error=True` with your safe message in `content`. The model reads it and can retry.
+* Let an **unexpected exception** escape -> the server logs the traceback and the call returns `is_error=True` with a generic message.
 * Raise **`MCPError`** -> the call itself fails with a JSON-RPC error. The model sees nothing; the host deals with it. `code`, `message`, and `data` survive intact.
-* The deciding question: *could a smarter model have avoided this?* Yes -> exception. No -> `MCPError`.
+* The deciding question: *does the model need a safe recovery hint?* Yes -> `ToolError`. No -> let the SDK sanitize the unexpected error, or raise `MCPError` if the request itself should fail.
 * `ResourceNotFoundError` from a resource handler -> the protocol's `-32602`, with the URI in `data`.
 * Bad arguments are rejected against the schema before your function runs; you don't `raise` for those.
 * `from mcp import MCPError`; the error-code constants come from `mcp.types`.

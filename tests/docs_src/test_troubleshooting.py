@@ -74,13 +74,11 @@ async def test_a_client_outside_its_async_with_refuses_every_call() -> None:
 
 
 async def test_a_failing_tool_returns_is_error_true_instead_of_raising() -> None:
-    """The `Error executing tool` entry: it is a result, not an exception. Nothing to `except`."""
+    """A deliberate `ToolError` is a result, not an exception. Nothing to `except`."""
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("forecast", {"city": "Atlantis"})
     assert result.is_error
-    assert result.content == [
-        TextContent(type="text", text="Error executing tool forecast: No forecast for 'Atlantis'.")
-    ]
+    assert result.content == [TextContent(type="text", text="No forecast for 'Atlantis'.")]
 
 
 async def test_an_unknown_tool_is_the_same_kind_of_result() -> None:

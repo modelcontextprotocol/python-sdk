@@ -1016,15 +1016,16 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:handler-throws": Requirement(
         source="sdk",
         behavior=(
-            "An exception raised by a tool function (ToolError or otherwise) is caught and returned as a "
-            "tool result with isError true and the failure text in content; it does not become a JSON-RPC error."
+            "An exception raised by a tool function is caught and returned as a tool result with isError true "
+            "rather than a JSON-RPC error. ToolError messages are preserved; unexpected exception details are "
+            "logged server-side and replaced with a generic message."
         ),
     ),
     "mcpserver:tool:input-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior=(
-            "Arguments that fail the tool's input validation produce a tool execution error (isError true "
-            "with the validation failure described in content) without invoking the function."
+            "Arguments that fail the tool's input validation produce a sanitized tool execution error (isError true) "
+            "without invoking the function; validation details remain in server logs."
         ),
     ),
     "mcpserver:tool:naming-validation": Requirement(
