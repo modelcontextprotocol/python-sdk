@@ -28,10 +28,28 @@ def test_resource_url_from_server_url_preserves_query():
     assert resource_url_from_server_url("https://example.com/?key=value") == "https://example.com/?key=value"
 
 
+def test_resource_url_from_server_url_removes_default_ports():
+    """Explicit HTTP and HTTPS default ports should be removed from canonical resource URLs."""
+    assert resource_url_from_server_url("http://example.com:80/mcp") == "http://example.com/mcp"
+    assert resource_url_from_server_url("https://example.com:443/mcp") == "https://example.com/mcp"
+
+
 def test_resource_url_from_server_url_preserves_port():
     """Non-default ports should be preserved."""
     assert resource_url_from_server_url("https://example.com:8443/path") == "https://example.com:8443/path"
     assert resource_url_from_server_url("http://example.com:8080/") == "http://example.com:8080/"
+    assert resource_url_from_server_url("ftp://example.com:443/path") == "ftp://example.com:443/path"
+
+
+def test_resource_url_from_server_url_removes_default_port_from_ipv6_literal():
+    """Default-port removal should preserve bracketed IPv6 authority syntax."""
+    assert resource_url_from_server_url("https://[2001:DB8::1]:443/mcp") == "https://[2001:db8::1]/mcp"
+
+
+def test_resource_url_from_server_url_preserves_malformed_port():
+    """Malformed ports should retain the existing canonicalization behavior."""
+    assert resource_url_from_server_url("https://example.com:abc/mcp") == "https://example.com:abc/mcp"
+    assert resource_url_from_server_url("https://:443/mcp") == "https://:443/mcp"
 
 
 def test_resource_url_from_server_url_lowercase_scheme_and_host():
@@ -121,3 +139,9 @@ def test_check_resource_allowed_empty_paths():
     assert check_resource_allowed("https://example.com", "https://example.com") is True
     assert check_resource_allowed("https://example.com/", "https://example.com") is True
     assert check_resource_allowed("https://example.com/api", "https://example.com") is True
+
+
+def test_check_resource_allowed_accepts_canonicalized_default_port():
+    """Canonicalized explicit default ports should match equivalent metadata URLs."""
+    canonical = resource_url_from_server_url("https://example.com:443/mcp")
+    assert check_resource_allowed(canonical, "https://example.com/mcp") is True

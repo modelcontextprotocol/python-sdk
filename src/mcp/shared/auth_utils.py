@@ -23,7 +23,24 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
 
     # Parse the URL and remove fragment, create canonical form
     parsed = urlsplit(url_str)
-    canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment=""))
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    default_port = {"http": 80, "https": 443}.get(scheme)
+
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+
+    if port == default_port:
+        hostname = parsed.hostname
+        if hostname is not None:
+            if parsed.netloc.rsplit("@", 1)[-1].startswith("["):
+                hostname = f"[{hostname}]"
+            userinfo, separator, _ = netloc.rpartition("@")
+            netloc = userinfo + separator + hostname
+
+    canonical = urlunsplit(parsed._replace(scheme=scheme, netloc=netloc, fragment=""))
 
     return canonical
 
