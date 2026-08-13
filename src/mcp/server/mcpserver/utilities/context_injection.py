@@ -29,6 +29,10 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
         # If we can't resolve type hints, we can't find the context parameter
         return None
 
+    # `get_type_hints` reports the return annotation under the "return" key, which is
+    # not a parameter and must not be mistaken for one.
+    hints.pop("return", None)
+
     # Check each parameter's type hint
     for param_name, annotation in hints.items():
         # Handle direct Context type
