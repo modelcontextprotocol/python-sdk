@@ -305,6 +305,36 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
 
 
 @pytest.mark.anyio
+async def test_terminated_existing_session_is_removed_from_registry(
+    running_manager: tuple[StreamableHTTPSessionManager, Server],
+):
+    manager, _app = running_manager
+    session_id = "terminated-session"
+    transport = AsyncMock()
+    transport.is_terminated = True
+    transport.idle_scope = None
+    manager._server_instances[session_id] = transport
+
+    scope = {
+        "type": "http",
+        "method": "DELETE",
+        "path": "/mcp",
+        "headers": [(MCP_SESSION_ID_HEADER.encode(), session_id.encode())],
+    }
+
+    async def mock_receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def mock_send(_message: Message):
+        pass
+
+    await manager.handle_request(scope, mock_receive, mock_send)
+
+    assert session_id not in manager._server_instances
+    assert session_id not in manager._session_owners
+
+
+@pytest.mark.anyio
 async def test_stateful_session_cleanup_on_exception(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, _app = running_manager
 

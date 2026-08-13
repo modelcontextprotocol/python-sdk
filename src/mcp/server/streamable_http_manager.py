@@ -281,6 +281,9 @@ class StreamableHTTPSessionManager:
             if transport.idle_scope is not None and self.session_idle_timeout is not None:
                 transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout  # pragma: no cover
             await transport.handle_request(scope, receive, send)
+            if transport.is_terminated:
+                self._server_instances.pop(request_mcp_session_id, None)
+                self._session_owners.pop(request_mcp_session_id, None)
             return
 
         if request_mcp_session_id is None:
