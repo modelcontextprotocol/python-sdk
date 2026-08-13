@@ -98,7 +98,7 @@ async def test_metadata_endpoint_without_path(root_resource_client: httpx2.Async
     assert response.status_code == 200
     assert response.json() == snapshot(
         {
-            "resource": "https://example.com/",
+            "resource": "https://example.com",
             "authorization_servers": ["https://auth.example.com/"],
             "scopes_supported": ["read"],
             "resource_name": "Root Resource",
