@@ -183,6 +183,8 @@ async def test_oversized_streamed_body_is_rejected_before_session_creation(
         ),
         pytest.param("GET", [(b"accept", b"text/event-stream")], b"", 400, id="get-without-session"),
         pytest.param("DELETE", [], b"", 400, id="delete-without-session"),
+        pytest.param("HEAD", [], b"", 405, id="head-is-not-implemented"),
+        pytest.param("OPTIONS", [], b"", 405, id="options-is-not-implemented"),
     ],
 )
 async def test_refused_request_leaves_no_session_behind(
@@ -194,6 +196,11 @@ async def test_refused_request_leaves_no_session_behind(
     JSON-RPC shape and the "Missing session ID" check all live downstream in the transport -- so a
     refusal has to undo it. Otherwise a rejected request grows `_server_instances` forever and hands
     the caller a session id that later requests can still use.
+
+    The property is method-independent: a method the transport does not implement at all is refused
+    by `_handle_unsupported_request`, which also runs downstream of registration and also echoes the
+    session id back. That is why the discard keys off the response status rather than an enumerated
+    list of validation failures.
 
     This is the same property the suite already asserts by name for the 413 path in
     `test_oversized_content_length_is_rejected_before_body_read_or_session_creation`.
