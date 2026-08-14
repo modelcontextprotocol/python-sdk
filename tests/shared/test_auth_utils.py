@@ -121,3 +121,20 @@ def test_check_resource_allowed_empty_paths():
     assert check_resource_allowed("https://example.com", "https://example.com") is True
     assert check_resource_allowed("https://example.com/", "https://example.com") is True
     assert check_resource_allowed("https://example.com/api", "https://example.com") is True
+
+
+def test_check_resource_allowed_resolves_dot_segments():
+    """Dot-segments should be resolved before checking the resource hierarchy."""
+    assert check_resource_allowed("https://example.com/api/./v1", "https://example.com/api") is True
+    assert check_resource_allowed("https://example.com/api/../admin", "https://example.com/api") is False
+
+
+def test_check_resource_allowed_resolves_percent_encoded_dot_segments():
+    """Percent-encoded dot-segments should not bypass the resource boundary."""
+    assert check_resource_allowed("https://example.com/api/%2e/v1", "https://example.com/api") is True
+    assert check_resource_allowed("https://example.com/api/%2e%2e/admin", "https://example.com/api") is False
+
+
+def test_check_resource_allowed_preserves_encoded_path_separators():
+    """Encoded separators should not be decoded into path hierarchy."""
+    assert check_resource_allowed("https://example.com/api/a%2Fb", "https://example.com/api/a/b") is False

@@ -1,9 +1,28 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
+import posixpath
+import re
 import time
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
 from pydantic import AnyUrl, HttpUrl
+
+
+def _normalize_resource_path(path: str) -> str:
+    """Resolve dot-segments without decoding encoded path separators."""
+    has_trailing_slash = path.endswith("/")
+
+    # RFC 3986 treats percent-encoded unreserved characters as equivalent. Decode
+    # only encoded dots here: unquoting the whole path would turn %2F into a
+    # separator and change the resource hierarchy being authorized.
+    path = re.sub(r"%2e", ".", path, flags=re.IGNORECASE)
+    path = posixpath.normpath(path)
+    if path == ".":
+        path = ""
+
+    if has_trailing_slash and not path.endswith("/"):
+        path += "/"
+    return path
 
 
 def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
@@ -51,10 +70,14 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
         return False
 
+    # Resolve dot-segments before normalizing trailing slashes so that a
+    # resource cannot escape its configured path through ../ or its encoded
+    # equivalent.
+    requested_path = _normalize_resource_path(requested.path)
+    configured_path = _normalize_resource_path(configured.path)
+
     # Normalize trailing slashes before comparison so that
     # "/foo" and "/foo/" are treated as equivalent.
-    requested_path = requested.path
-    configured_path = configured.path
     if not requested_path.endswith("/"):
         requested_path += "/"
     if not configured_path.endswith("/"):
