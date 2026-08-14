@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run a client conformance suite, re-verifying unexpected failures solo.
-# Concurrent suite runs on a 2-vCPU runner can push scenarios with real-time
+# Concurrent suite runs on a hosted runner can push scenarios with real-time
 # waits past tolerance; solo, a real failure fails again while a contention
 # artifact passes. Failures that only reproduce under concurrency are excused.
 set -uo pipefail
@@ -101,4 +101,8 @@ if [ -n "$output_dir" ]; then
     printf '%s\n' "${scenarios[@]}" > "$output_dir/FLAKE_RESCUED"
 fi
 echo "All ${#scenarios[@]} unexpected failure(s) passed when re-run solo; the suite failures were parallel-run contention."
+# Surface the rescue on the run summary; the log line above and the
+# FLAKE_RESCUED marker in the uploaded results are otherwise easy to miss on a
+# green run.
+echo "::warning title=Conformance flake rescued::${scenarios[*]} failed under suite concurrency and passed solo${output_dir:+ (see ${output_dir}-solo and FLAKE_RESCUED in the uploaded results)}."
 exit 0

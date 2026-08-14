@@ -15,13 +15,28 @@ permissions:
 
 env:
   # Pinned conformance harness package spec (passed verbatim to `npx --yes`).
-  # Bump deliberately and reconcile both
+  # Bump deliberately and reconcile the three
   # .github/actions/conformance/expected-failures*.yml files in the same change.
   CONFORMANCE_PKG: "@modelcontextprotocol/conformance@0.2.0-alpha.11"
+
+# Each job runs three `--suite all` legs, one per baseline file. The two
+# `--spec-version <rev>` legs run every scenario the pinned harness marks
+# applicable at that spec revision, at that revision's wire (stateful
+# handshake for 2025-11-25, stateless per-request _meta for 2026-07-28). Each
+# is a superset of the frozen requirement set that `conformance tier-check`
+# scores for that revision (`npx $CONFORMANCE_PKG list --requirements <rev>`
+# prints it), so an expected-failures.<rev>.yml entry for a scenario in that
+# set means tier-check reports the SDK below 100% for <rev>. The bare leg runs
+# every shipped scenario at whichever wire the harness defaults it to; it is
+# the only leg that reaches extension-tagged scenarios (tasks-*, auth/dpop*,
+# ...), which never match a --spec-version filter. For everything else it
+# overlaps one of the pinned legs, so a failure it also sees needs its own
+# expected-failures.yml entry besides the pinned file's.
 
 jobs:
   server-conformance:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -34,37 +49,21 @@ jobs:
         with:
           node-version: 24
       - run: uv sync --frozen --all-extras --package mcp-everything-server
-      - name: Run server conformance (active suite)
+      - name: Run server conformance (all suite, 2025-11-25 wire)
         run: >-
           ./.github/actions/conformance/run-server.sh
-          --suite active
-          --expected-failures ./.github/actions/conformance/expected-failures.yml
-          --output-dir conformance-results/server-active
-      - name: Run server conformance (draft suite)
-        run: >-
-          ./.github/actions/conformance/run-server.sh
-          --suite draft
-          --expected-failures ./.github/actions/conformance/expected-failures.yml
-          --output-dir conformance-results/server-draft
-      - name: Run server conformance (2026-07-28 wire, all suite)
+          --suite all
+          --spec-version 2025-11-25
+          --expected-failures ./.github/actions/conformance/expected-failures.2025-11-25.yml
+          --output-dir conformance-results/server-2025-11-25
+      - name: Run server conformance (all suite, 2026-07-28 wire)
         run: >-
           ./.github/actions/conformance/run-server.sh
           --suite all
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
           --output-dir conformance-results/server-2026-07-28
-      - name: Run server conformance (all suite, extension scenarios)
-        # A bare `--suite all` (no --spec-version) selects every scenario
-        # shipped with the pinned harness — including the extension-tagged
-        # tasks-* scenarios and pending-listed ones like server-sse-polling,
-        # which no other leg reaches (extension scenarios never match a
-        # --spec-version filter, and the pending list keeps them out of the
-        # active suite). Running the full set keeps unimplemented surfaces
-        # visible as baselined known failures in expected-failures.yml instead
-        # of silent exclusions, and stays robust to scenarios moving between
-        # harness suite lists across pin bumps. `--suite pending` would cover
-        # the same union slightly faster; the full set is preferred for the
-        # self-contained run and for parity with typescript-sdk's CI.
+      - name: Run server conformance (all suite, default wire)
         run: >-
           ./.github/actions/conformance/run-server.sh
           --suite all
@@ -72,7 +71,9 @@ jobs:
           --output-dir conformance-results/server-all
       - name: Upload conformance results
         # The log has only summary counts; per-check data is in checks.json.
-        if: failure()
+        # always(), not !cancelled(): a timeout-minutes kill is a cancellation,
+        # and that is when the partial results matter most.
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: server-conformance-results
@@ -81,6 +82,7 @@ jobs:
 
   client-conformance:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -97,20 +99,21 @@ jobs:
       - run: uv sync --frozen --all-extras --package mcp --compile-bytecode
       - name: Pre-compile bytecode (editable sources)
         run: uv run --frozen python -m compileall -q src .github/actions/conformance
-      - name: Run client conformance (all suite)
-        # The harness runs all scenarios via unbounded Promise.all; with 40
-        # scenarios on a 2-core runner the slowest one (sse-retry, which has a
-        # real-time SSE reconnect wait) needs more than the 30s default budget.
-        # `.venv/bin/python` (not `uv run`) avoids lockfile re-checks in ~40
-        # concurrent spawns; run-client.sh re-runs unexpected failures solo.
+      # The harness runs a leg's scenarios via unbounded Promise.all; under
+      # that concurrency the slowest one (sse-retry, which has a real-time SSE
+      # reconnect wait) needs more than the 30s default budget.
+      # `.venv/bin/python` (not `uv run`) avoids lockfile re-checks in ~40
+      # concurrent spawns; run-client.sh re-runs unexpected failures solo.
+      - name: Run client conformance (all suite, 2025-11-25 wire)
         run: >-
           ./.github/actions/conformance/run-client.sh
           --command '.venv/bin/python .github/actions/conformance/client.py'
           --suite all
           --timeout 60000
-          --expected-failures ./.github/actions/conformance/expected-failures.yml
-          --output-dir conformance-results/client-all
-      - name: Run client conformance (2026-07-28 wire, all suite)
+          --spec-version 2025-11-25
+          --expected-failures ./.github/actions/conformance/expected-failures.2025-11-25.yml
+          --output-dir conformance-results/client-2025-11-25
+      - name: Run client conformance (all suite, 2026-07-28 wire)
         run: >-
           ./.github/actions/conformance/run-client.sh
           --command '.venv/bin/python .github/actions/conformance/client.py'
@@ -119,10 +122,19 @@ jobs:
           --spec-version 2026-07-28
           --expected-failures ./.github/actions/conformance/expected-failures.2026-07-28.yml
           --output-dir conformance-results/client-2026-07-28
+      - name: Run client conformance (all suite, default wire)
+        run: >-
+          ./.github/actions/conformance/run-client.sh
+          --command '.venv/bin/python .github/actions/conformance/client.py'
+          --suite all
+          --timeout 60000
+          --expected-failures ./.github/actions/conformance/expected-failures.yml
+          --output-dir conformance-results/client-all
       - name: Upload conformance results
         # The log has only summary counts; per-check data is in checks.json.
-        # Also on FLAKE_RESCUED: rescued-flake evidence is otherwise discarded.
-        if: failure() || hashFiles('conformance-results/**/FLAKE_RESCUED') != ''
+        # always(), not !cancelled(): a timeout-minutes kill is a cancellation,
+        # and that is when the partial results matter most.
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: client-conformance-results
