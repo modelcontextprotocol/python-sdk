@@ -69,7 +69,7 @@ Each transport has its own keyword arguments, all on `run()`:
 * `stateless_http=True`: a fresh transport per request, no session tracking.
 * `max_request_body_size`: largest accepted POST body in bytes. Defaults to 4 MiB; larger requests
   receive HTTP 413 before parsing or session creation. Raise it only when legitimate MCP messages
-  exceed that size.
+  exceed that size. `transport="sse"` takes the same keyword for its message endpoint.
 * `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[Deploy & scale](deploy.md)** covers `transport_security`.
 
 !!! warning

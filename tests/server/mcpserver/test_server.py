@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -1783,6 +1784,19 @@ def test_streamable_http_no_redirect() -> None:
 
     # Verify path values
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
+
+
+async def test_sse_app_applies_the_configured_request_body_limit() -> None:
+    """`sse_app(max_request_body_size=...)` rejects larger POSTs to the message endpoint with HTTP 413."""
+    app = MCPServer("test").sse_app(max_request_body_size=8, host="0.0.0.0")
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://localhost") as http:
+        response = await http.post(
+            "/messages/?session_id=12345678123456781234567812345678",
+            content=b"123456789",
+            headers={"Content-Type": "application/json"},
+        )
+    assert response.status_code == 413
 
 
 async def test_report_progress_delegates_to_session_report_progress():

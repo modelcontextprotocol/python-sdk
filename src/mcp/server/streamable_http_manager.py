@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_REQUEST_BODY_SIZE: Final = 4 * 1024 * 1024
-"""Default maximum Streamable HTTP request body size in bytes (4 MiB)."""
+"""Default maximum HTTP request body size in bytes (4 MiB)."""
 
 
 class StreamableHTTPSessionManager:

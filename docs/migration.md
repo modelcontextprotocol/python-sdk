@@ -755,7 +755,7 @@ Transport-specific parameters have been moved off the `MCPServer` constructor an
 - `sse_path`, `message_path` - SSE transport paths, on `run(transport="sse", ...)` and `sse_app()`
 - `streamable_http_path` - StreamableHTTP endpoint path, on `run(transport="streamable-http", ...)` and `streamable_http_app()`
 - `json_response`, `stateless_http` - StreamableHTTP behavior, same two places; each also removes a server-to-client channel, see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror)
-- `max_request_body_size` - StreamableHTTP request-body limit, same two places
+- `max_request_body_size` - HTTP request-body limit, on `run()` for both HTTP transports and on both app methods
 - `event_store`, `retry_interval` - StreamableHTTP event handling, same two places
 - `transport_security` - DNS rebinding protection, on `run()` for both HTTP transports and on both app methods
 
@@ -859,6 +859,11 @@ mcp.run(transport="streamable-http", max_request_body_size=8 * 1024 * 1024)
 
 The limit must be positive and applies to both legacy session-based requests and V2's modern
 single-exchange requests. Keep the smallest value your application actually needs.
+
+The SSE transport's message endpoint applies the same limit, configured the same way
+(`run(transport="sse", max_request_body_size=...)`, `sse_app(...)`, or
+`SseServerTransport(..., max_request_body_size=...)` when you mount the transport yourself), and
+answers HTTP 405 to anything other than POST.
 
 ### Streamable HTTP: lifespan now entered once at manager startup
 
