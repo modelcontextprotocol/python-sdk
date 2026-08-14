@@ -37,4 +37,5 @@ uv run python -m stories.apps.client --http
 
 ## See also
 
+`tasks/` (the interceptive half of the extension API),
 `custom_methods/` (registering a non-spec method without an extension).

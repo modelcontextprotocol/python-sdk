@@ -23,11 +23,17 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from mcp_types import CallToolRequestParams
+from mcp_types import (
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
+    CallToolRequestParams,
+    ClientCapabilities,
+    MissingRequiredClientCapabilityErrorData,
+)
 from mcp_types.methods import SPEC_CLIENT_METHODS
 from pydantic import BaseModel
 
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
+from mcp.shared.exceptions import MCPError
 
 # Re-exported from `mcp.shared.extension` (shared with the client surface) for existing importers.
 from mcp.shared.extension import validate_extension_identifier as validate_extension_identifier
@@ -154,6 +160,36 @@ class Extension:
         rewriting belongs to `Server.middleware`, above params validation.
         """
         return await call_next(ctx)
+
+
+def require_client_extension(ctx: ServerRequestContext[Any, Any], identifier: str) -> None:
+    """Assert the connected client declared support for `identifier`.
+
+    Call this from an extension's handler or `intercept_tool_call` before
+    offering extension-specific behaviour. Raises `MCPError` with the
+    `-32021` (missing required client capability) code and a
+    `requiredCapabilities` payload when the client did not declare the
+    extension, per SEP-2133.
+
+    Args:
+        ctx: The current request context.
+        identifier: The extension identifier the client must have declared.
+
+    Raises:
+        MCPError: With code `MISSING_REQUIRED_CLIENT_CAPABILITY` if the client
+            did not advertise `identifier`.
+    """
+    capabilities = ctx.session.client_capabilities
+    declared = capabilities.extensions if capabilities else None
+    if not declared or identifier not in declared:
+        data = MissingRequiredClientCapabilityErrorData(
+            required_capabilities=ClientCapabilities(extensions={identifier: {}})
+        )
+        raise MCPError(
+            code=MISSING_REQUIRED_CLIENT_CAPABILITY,
+            message=f"Client did not declare required extension {identifier!r}",
+            data=data.model_dump(by_alias=True, mode="json", exclude_none=True),
+        )
 
 
 def compose_tool_call_handler(extensions: Sequence[Extension], handler: RequestHandler) -> RequestHandler:
