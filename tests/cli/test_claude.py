@@ -141,10 +141,10 @@ def test_existing_env_vars_preserved_without_new(config_dir: Path):
 
 
 def test_other_servers_preserved(config_dir: Path):
-    """Installing a new server must not clobber existing entries, non-ASCII text included (the file is UTF-8)."""
+    """Installing a new server must not clobber existing entries, non-ASCII text included (UTF-8, BOM tolerated)."""
     other = {"command": "C:\\Users\\张伟\\uv.exe", "env": {"CITY": "Zürich"}}
     config_file = config_dir / "claude_desktop_config.json"
-    config_file.write_text(json.dumps({"mcpServers": {"文件": other}}, ensure_ascii=False), encoding="utf-8")
+    config_file.write_text(json.dumps({"mcpServers": {"文件": other}}, ensure_ascii=False), encoding="utf-8-sig")
 
     assert update_claude_config(file_spec="s.py:app", server_name="s")
 

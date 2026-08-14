@@ -195,11 +195,6 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-# lint.preview is required to select PLW1514 (text I/O without encoding=); it also opts the stable rules into their
-# preview behaviours and fixes. explicit-preview-rules only stops the prefixes below pulling in other preview rules.
-preview = true
-explicit-preview-rules = true
-extend-select = ["PLW1514"]
 select = [
     "C4",     # flake8-comprehensions
     "C90",    # mccabe

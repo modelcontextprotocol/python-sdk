@@ -48,8 +48,8 @@
   tests that re-import a module).
 - Always pass `encoding=` (normally `"utf-8"`) to text-mode `open()`,
   `Path.read_text()`/`write_text()`, `tempfile` and `subprocess` text pipes: the
-  default is the process locale, not UTF-8. CI enforces this via
-  `PYTHONWARNDEFAULTENCODING=1` (PEP 597) under pytest's `error` filter, plus ruff `PLW1514`.
+  default is the process locale, not UTF-8. CI enforces this by running pytest with
+  `PYTHONWARNDEFAULTENCODING=1` (PEP 597), which makes any omission an error under the `error` filter.
 
 ## Testing
 

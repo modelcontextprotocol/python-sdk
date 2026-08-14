@@ -103,7 +103,7 @@ def update_claude_config(
             return False
 
     try:
-        config = json.loads(config_file.read_text(encoding="utf-8"))
+        config = json.loads(config_file.read_text(encoding="utf-8-sig"))
         if "mcpServers" not in config:
             config["mcpServers"] = {}
 

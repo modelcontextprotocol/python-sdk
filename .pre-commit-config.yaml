@@ -56,7 +56,7 @@ repos:
         pass_filenames: false
       - id: readme-snippets
         name: Check README snippets are up to date
-        entry: uv run --frozen python scripts/update_readme_snippets.py --check
+        entry: uv run --frozen python -X warn_default_encoding -W error::EncodingWarning scripts/update_readme_snippets.py --check
         language: system
         files: ^(README\.md|docs_src/.*\.py|scripts/update_readme_snippets\.py)$
         pass_filenames: false
