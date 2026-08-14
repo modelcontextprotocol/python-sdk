@@ -863,7 +863,8 @@ single-exchange requests. Keep the smallest value your application actually need
 The SSE transport's message endpoint applies the same limit, configured the same way
 (`run(transport="sse", max_request_body_size=...)`, `sse_app(...)`, or
 `SseServerTransport(..., max_request_body_size=...)` when you mount the transport yourself), and
-answers HTTP 405 to anything other than POST.
+answers HTTP 405 to anything other than POST. The OAuth endpoints built by `create_auth_routes`
+(`/token`, `/register`, `/revoke`, and POST `/authorize`) are limited to the 4 MiB default.
 
 ### Streamable HTTP: lifespan now entered once at manager startup
 

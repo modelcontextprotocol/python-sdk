@@ -17,6 +17,7 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthMetadata, ProtectedResourceMetadata
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
@@ -51,12 +52,17 @@ REVOCATION_PATH = "/revoke"
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 
 
+def _body_limited(handler: Callable[[Request], Response | Awaitable[Response]]) -> ASGIApp:
+    """Wrap an endpoint so POST bodies over the default limit are answered with 413 before it runs."""
+    return RequestBodyLimitMiddleware(request_response(handler), DEFAULT_MAX_REQUEST_BODY_SIZE)
+
+
 def cors_middleware(
     handler: Callable[[Request], Response | Awaitable[Response]],
     allow_methods: list[str],
 ) -> ASGIApp:
     cors_app = CORSMiddleware(
-        app=request_response(handler),
+        app=_body_limited(handler),
         allow_origins="*",
         allow_methods=allow_methods,
         allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
@@ -102,7 +108,7 @@ def create_auth_routes(
             AUTHORIZATION_PATH,
             # do not allow CORS for authorization endpoint;
             # clients should just redirect to this
-            endpoint=AuthorizationHandler(provider).handle,
+            endpoint=_body_limited(AuthorizationHandler(provider).handle),
             methods=["GET", "POST"],
         ),
         Route(

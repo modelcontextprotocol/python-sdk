@@ -16,6 +16,7 @@ from starlette.applications import Starlette
 from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
 from mcp.server.auth.routes import create_auth_routes
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE
 from tests.server.mcpserver.auth.test_auth_integration import MockOAuthProvider
 
 
@@ -288,3 +289,37 @@ async def test_token_error_handling_refresh_token(
         data = refresh_response.json()
         assert data["error"] == "invalid_scope"
         assert data["error_description"] == "The requested scope is invalid"
+
+
+_FORM = "application/x-www-form-urlencoded"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("path", "content_type"),
+    [("/token", _FORM), ("/revoke", _FORM), ("/register", "application/json"), ("/authorize", _FORM)],
+)
+async def test_oversized_request_body_returns_413(client: httpx2.AsyncClient, path: str, content_type: str):
+    """Each endpoint that reads a request body rejects one over 4 MiB before parsing it."""
+    response = await client.post(
+        path, content=b"x" * (DEFAULT_MAX_REQUEST_BODY_SIZE + 1), headers={"Content-Type": content_type}
+    )
+    assert response.status_code == 413
+
+
+@pytest.mark.anyio
+async def test_request_body_within_the_limit_is_still_parsed(client: httpx2.AsyncClient):
+    """A small body is passed through to the handler intact: the form is parsed and its fields validated."""
+    response = await client.post("/token", data={"grant_type": "authorization_code"})
+    assert response.status_code == 401
+    assert response.json() == {"error": "invalid_client", "error_description": "Missing client_id"}
+
+
+@pytest.mark.anyio
+async def test_options_preflight_is_not_body_limited(client: httpx2.AsyncClient):
+    """CORS preflight requests still get their CORS answer; only POST bodies are limited."""
+    response = await client.options(
+        "/token", headers={"Origin": "https://client.example.com", "Access-Control-Request-Method": "POST"}
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
