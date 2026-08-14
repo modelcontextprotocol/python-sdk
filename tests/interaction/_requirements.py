@@ -1020,6 +1020,14 @@ REQUIREMENTS: dict[str, Requirement] = {
             "tool result with isError true and the failure text in content; it does not become a JSON-RPC error."
         ),
     ),
+    "mcpserver:tool:handler-throws:logged": Requirement(
+        source="sdk",
+        behavior=(
+            "An exception other than ToolError raised by a tool function is logged server-side exactly once, "
+            "at ERROR with its traceback, before the isError result is returned; the transport does not change "
+            "how many records are written."
+        ),
+    ),
     "mcpserver:tool:input-validation": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior=(
@@ -1311,6 +1319,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(-32603 Internal error), with the original exception text withheld."
         ),
     ),
+    "mcpserver:resource:read-throws:logged": Requirement(
+        source="sdk",
+        behavior=(
+            "The exception withheld from the -32603 response is logged server-side exactly once, at ERROR "
+            "with its traceback; the transport does not change how many records are written."
+        ),
+    ),
     "mcpserver:resource:static": Requirement(
         source="sdk",
         behavior=(
@@ -1426,6 +1441,14 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:prompt:optional-args": Requirement(
         source="sdk",
         behavior="A prompt with optional arguments can be fetched without supplying them.",
+    ),
+    "mcpserver:prompt:render-throws:logged": Requirement(
+        source="sdk",
+        behavior=(
+            "An exception raised by a prompt function is logged server-side exactly once, at ERROR with its "
+            "traceback, by whichever layer turns it into the JSON-RPC error; the transport does not change how "
+            "many records are written."
+        ),
     ),
     "mcpserver:prompt:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",

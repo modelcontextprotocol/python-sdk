@@ -115,10 +115,29 @@ Send `get_author` a `title` that isn't a string and the SDK rejects it against t
 It means a whole class of `raise` statements you don't write: don't re-validate your own type hints.
 
 !!! info
-    Everything on this page is what a **client** sees, and the in-memory `Client` you'll write
-    tests with sees exactly the same thing. Even `raise_exceptions=True` doesn't turn a tool error
-    back into a traceback: by the time that flag could act, your exception is already the
-    `is_error=True` result. Assert on the result. **[Testing](../get-started/testing.md)** covers the pattern.
+    Everything so far is what a **client** sees, and the in-memory `Client` you'll write tests
+    with sees exactly the same thing. Even `raise_exceptions=True` doesn't hand a failing tool's
+    exception back to the caller: by the time that flag could act, your exception is already the
+    `is_error=True` result. Assert on the result; the traceback is in the server's log (next
+    section), which pytest's `caplog` captures. **[Testing](../get-started/testing.md)** covers the pattern.
+
+## What lands in your log
+
+Your server keeps its own record of these failures, and it draws one more line: between a failure you anticipated and one you didn't.
+
+`get_author` raised a plain `ValueError`. The model got the message, but the SDK can't know you *meant* that exception, so it assumes you didn't: the call is logged at `ERROR` with the full traceback. That is exactly what you want on the day the exception is a `KeyError` from three libraries down and the result text says only `'id'`.
+
+When the failure is one you planned for, say so with `ToolError`:
+
+```python title="server.py" hl_lines="2 12-13"
+--8<-- "docs_src/handling_errors/tutorial004.py"
+```
+
+The model reads precisely what it read before. The difference is on your side: a `ToolError` is logged as one `INFO` line with no traceback, so a production log at `WARNING` stays quiet until something is actually broken. Bad arguments and unknown tool names are `INFO` lines too; those are the caller's mistakes, not yours.
+
+Resources draw the same line. The `-32603` from a crashing resource handler names only the URI, so the `ERROR` record in your log is the one place the cause and its traceback exist. `ResourceNotFoundError`, including the SDK's own `Unknown resource`, is an `INFO` line. (A template parameter that fails its type annotation, `books://{id}` read with an `id` that isn't an `int`, currently counts as a crash.)
+
+Prompts aren't split yet: any failure in a prompt function, including an unknown name or a missing argument, is one `ERROR` record with its traceback, written by the transport layer that turns it into the JSON-RPC error.
 
 ## Recap
 
@@ -127,7 +146,8 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 * The deciding question: *could a smarter model have avoided this?* Yes -> exception. No -> `MCPError`.
 * `ResourceNotFoundError` from a resource handler -> the protocol's `-32602`, with the URI in `data`.
 * Bad arguments are rejected against the schema before your function runs; you don't `raise` for those.
-* `from mcp import MCPError`; the error-code constants come from `mcp.types`.
+* In your log: an exception you didn't raise as `ToolError` is an `ERROR` record with its traceback; `ToolError`, bad tool arguments, unknown tool names, and `ResourceNotFoundError` are one `INFO` line each.
+* `from mcp import MCPError`; `ToolError` and `ResourceNotFoundError` come from `mcp.server.mcpserver.exceptions`; the error-code constants come from `mcp.types`.
 
 Errors handled. That is everything a server *exposes*. What every handler can read, and do back to the client while it runs, is the next section: **[Inside your handler](../handlers/index.md)**.
 

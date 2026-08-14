@@ -71,7 +71,13 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ResourceNotFoundError,
+    ToolError,
+    UnexpectedResourceError,
+    UnexpectedToolError,
+)
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
@@ -420,8 +426,9 @@ class MCPServer(Generic[LifespanResultT]):
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
-        except Exception as e:
-            return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        except Exception as exc:
+            _log_handler_exception("Tool", params.name, exc)
+            return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
 
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
@@ -434,10 +441,10 @@ class MCPServer(Generic[LifespanResultT]):
         context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             results = await self.read_resource(params.uri, context)
-        except ResourceNotFoundError as err:
-            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
         except ResourceError as err:
-            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
+            _log_handler_exception("Resource", str(params.uri), err)
+            code = INVALID_PARAMS if isinstance(err, ResourceNotFoundError) else INTERNAL_ERROR
+            raise MCPError(code=code, message=str(err), data={"uri": str(params.uri)})
         if isinstance(results, InputRequiredResult):
             return results
         contents: list[TextResourceContents | BlobResourceContents] = []
@@ -498,7 +505,15 @@ class MCPServer(Generic[LifespanResultT]):
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
     ) -> CallToolResult | InputRequiredResult:
-        """Call a tool by name with arguments."""
+        """Call a tool by name with arguments.
+
+        Raises:
+            ToolError: If the tool is unknown, the arguments fail validation, or the
+                tool (or a resolver) raises `ToolError`.
+            UnexpectedToolError: If the tool (or a resolver) raises anything other than
+                `ToolError` or `MCPError`, or its return value fails output conversion;
+                `__cause__` is the original.
+        """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
@@ -549,7 +564,10 @@ class MCPServer(Generic[LifespanResultT]):
 
         Raises:
             ResourceNotFoundError: If no resource or template matches the URI.
-            ResourceError: If template creation or resource reading fails.
+            ResourceError: If the resource or template function raises `ResourceError`.
+            UnexpectedResourceError: If reading the resource (or creating it from a
+                template) raises anything other than `ResourceError` or `MCPError`;
+                `__cause__` is the original.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
@@ -560,12 +578,14 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
-        except MCPError:
+        except (MCPError, ResourceError):
+            # Includes the UnexpectedResourceError the built-in resource types raise
+            # around a crash in the function or the file read.
             raise
         except Exception as exc:
-            logger.exception(f"Error getting resource {uri}")
-            # If an exception happens when reading the resource, we should not leak the exception to the client.
-            raise ResourceError(f"Error reading resource {uri}") from exc
+            # A custom Resource subclass whose read() raised: wrap it the same way,
+            # naming only the URI so the original text is withheld from the client.
+            raise UnexpectedResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
         self,
@@ -1293,8 +1313,30 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as e:
-            logger.exception(f"Error getting prompt {name}")
+            # Not logged here: this escapes `_handle_get_prompt` as-is, so the
+            # dispatcher boundary that turns it into the JSON-RPC error logs it once
+            # with its traceback (or, in-process with `raise_exceptions=True`,
+            # hands it to the caller instead).
             raise ValueError(str(e)) from e
+
+
+def _log_handler_exception(kind: Literal["Tool", "Resource"], name: str, exc: Exception) -> None:
+    """Record a tool or resource handler failure; the one place MCPServer logs them.
+
+    Called from the `except` block that turns the failure into a response. A
+    `ToolError` or `ResourceError` (deliberate, an unknown name, arguments that
+    failed validation, `ResourceNotFoundError`) is an anticipated outcome the
+    client already receives in full: one INFO record, no traceback, the text
+    repr-quoted so peer-supplied names and newlines stay on one line. Anything
+    else, including the `Unexpected*` wrappers whose `__cause__` is what the
+    handler actually raised, is a crash in user code: ERROR with the traceback.
+    """
+    if isinstance(exc, ToolError | ResourceError) and not isinstance(
+        exc, UnexpectedToolError | UnexpectedResourceError
+    ):
+        logger.info("%s %r failed: %r", kind, name, str(exc))
+    else:
+        logger.exception("%s %r raised an unexpected exception", kind, name, exc_info=exc)
 
 
 def _version_gated(method: MethodBinding) -> RequestHandler:

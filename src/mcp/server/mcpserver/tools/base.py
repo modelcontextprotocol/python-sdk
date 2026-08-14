@@ -5,9 +5,9 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from mcp_types import Icon, InputRequiredResult, ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
+from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError, UnexpectedToolError
 from mcp.server.mcpserver.resolve import (
     build_resolver_plans,
     find_resolved_parameters,
@@ -128,21 +128,33 @@ class Tool(BaseModel):
     ) -> Any:
         """Run the tool with arguments.
 
+        Every failure other than `MCPError` is raised with its message prefixed
+        `Error executing tool <name>: `, and `__cause__` set to what was raised.
+
         Raises:
-            ToolError: If the tool function raises during execution.
+            ToolError: If the arguments fail validation against the input schema, or
+                the tool function (or a resolver) raises `ToolError`.
+            UnexpectedToolError: If the tool function (or a resolver) raises anything
+                other than `ToolError` or `MCPError`, or its return value fails output
+                conversion.
         """
+        try:
+            validated = self.fn_metadata.validate_arguments(arguments)
+        except ValidationError as exc:
+            # The caller's arguments don't match the input schema. That is the model's
+            # mistake to read and correct, so it is reported like a deliberate ToolError.
+            raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
+
         try:
             pass_directly: dict[str, Any] = {}
             if self.context_kwarg is not None:
                 pass_directly[self.context_kwarg] = context
 
-            # Resolvers see the same validated arguments the tool body receives:
-            # validate once and reuse it, so a `default_factory`/stateful validator
-            # can't hand a by-name resolver a different value than the body.
-            pre_validated: dict[str, Any] | None = None
+            # Resolvers see the same validated arguments the tool body receives, so a
+            # `default_factory`/stateful validator can't hand a by-name resolver a
+            # different value than the body.
             if self.resolved_params:
-                pre_validated = self.fn_metadata.validate_arguments(arguments)
-                resolved = await resolve_arguments(self.resolved_params, self.resolver_plans, pre_validated, context)
+                resolved = await resolve_arguments(self.resolved_params, self.resolver_plans, validated, context)
                 if isinstance(resolved, InputRequiredResult):
                     # A resolver still needs client input (>= 2026-07-28): surface the
                     # batched questions instead of running the tool body this round.
@@ -154,13 +166,14 @@ class Tool(BaseModel):
                 self.is_async,
                 arguments,
                 pass_directly or None,
-                pre_validated=pre_validated,
+                pre_validated=validated,
             )
 
             # Registration rejects the annotated form of this combination; this covers
-            # a body that returns an InputRequiredResult without declaring it.
+            # a body that returns an InputRequiredResult without declaring it. It is
+            # an authoring bug, so it is raised as a crash rather than a ToolError.
             if self.resolved_params and isinstance(result, InputRequiredResult):
-                raise ToolError(
+                raise RuntimeError(
                     "the tool returned an InputRequiredResult but its parameters use Resolve(...); "
                     "a call has one input_required channel, so the multi-round flow is driven "
                     "either by resolvers or by the tool body, not both"
@@ -177,5 +190,13 @@ class Tool(BaseModel):
             # it as a top-level JSON-RPC error rather than wrapping it as a
             # `CallToolResult(isError=True)` execution failure.
             raise
-        except Exception as e:
-            raise ToolError(f"Error executing tool {self.name}: {e}") from e
+        # Everything else reaches the model as an is_error result under this tool's
+        # name. The wrapper's type is what tells the server whether to log a crash.
+        except UnexpectedToolError as exc:
+            # A nested tool call crashed: still a crash under this tool's name.
+            raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
+        except ToolError as exc:
+            # Raised deliberately by the tool or a resolver: anticipated.
+            raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
+        except Exception as exc:
+            raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc

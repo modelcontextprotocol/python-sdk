@@ -16,6 +16,7 @@ import pydantic_core
 from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import Field, validate_call
 
+from mcp.server.mcpserver.exceptions import ResourceError, UnexpectedResourceError
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
@@ -79,7 +80,12 @@ class FunctionResource(Resource):
     fn: Callable[[], Any] = Field(exclude=True)
 
     async def read(self) -> str | bytes:
-        """Read the resource by calling the wrapped function."""
+        """Read the resource by calling the wrapped function.
+
+        Raises:
+            UnexpectedResourceError: If the function raises anything other than
+                `ResourceError` or `MCPError`; `__cause__` is the original.
+        """
         try:
             fn = self.fn
             if is_async_callable(fn):
@@ -103,10 +109,12 @@ class FunctionResource(Resource):
                 return result
             else:
                 return pydantic_core.to_json(result, fallback=str, indent=2).decode()
-        except MCPError:
+        except (MCPError, ResourceError):
             raise
-        except Exception as e:
-            raise ValueError(f"Error reading resource {self.uri}: {e}")
+        except Exception as exc:
+            # Name only the URI: the original text is withheld from the client, and
+            # the server logs the traceback from `__cause__`.
+            raise UnexpectedResourceError(f"Error reading resource {self.uri}") from exc
 
     @classmethod
     def from_function(
@@ -187,8 +195,8 @@ class FileResource(Resource):
             if self.encoding is None:
                 return await anyio.to_thread.run_sync(self.path.read_bytes)
             return await anyio.to_thread.run_sync(partial(self.path.read_text, encoding=self.encoding))
-        except Exception as e:
-            raise ValueError(f"Error reading file {self.path}: {e}")
+        except Exception as exc:
+            raise UnexpectedResourceError(f"Error reading resource {self.uri}") from exc
 
 
 class HttpResource(Resource):
@@ -232,8 +240,8 @@ class DirectoryResource(Resource):
             if self.pattern:
                 return list(self.path.glob(self.pattern)) if not self.recursive else list(self.path.rglob(self.pattern))
             return list(self.path.glob("*")) if not self.recursive else list(self.path.rglob("*"))
-        except Exception as e:
-            raise ValueError(f"Error listing directory {self.path}: {e}")
+        except Exception as exc:
+            raise ValueError(f"Error listing directory {self.path}: {exc}") from exc
 
     async def read(self) -> str:  # Always returns JSON string  # pragma: no cover
         """Read the directory listing."""
@@ -241,5 +249,5 @@ class DirectoryResource(Resource):
             files = await anyio.to_thread.run_sync(self.list_files)
             file_list = [str(f.relative_to(self.path)) for f in files if f.is_file()]
             return json.dumps({"files": file_list}, indent=2)
-        except Exception as e:
-            raise ValueError(f"Error reading directory {self.path}: {e}")
+        except Exception as exc:
+            raise UnexpectedResourceError(f"Error reading resource {self.uri}") from exc

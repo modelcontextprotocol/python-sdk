@@ -1,7 +1,8 @@
 import base64
+import logging
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Annotated, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
@@ -24,6 +25,7 @@ from mcp_types import (
     ElicitRequestFormParams,
     ElicitResult,
     EmbeddedResource,
+    ErrorData,
     GetPromptResult,
     Icon,
     ImageContent,
@@ -41,17 +43,24 @@ from mcp_types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 from typing_extensions import NotRequired, TypedDict
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
-from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
+from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity, Resolve, ResourceSecurity
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ResourceNotFoundError,
+    ToolError,
+    UnexpectedResourceError,
+    UnexpectedToolError,
+)
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.resources import Resource as MCPServerResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.subscriptions import (
     InMemorySubscriptionBus,
@@ -2244,6 +2253,512 @@ async def test_static_resource_raising_mcp_error_surfaces_code_and_data_to_clien
     assert exc.value.error.code == MISSING_REQUIRED_CLIENT_CAPABILITY
     assert exc.value.error.message == "needs elicitation"
     assert exc.value.error.data == {"requiredCapabilities": ["elicitation"]}
+
+
+def _cause_chain(exc: BaseException | None) -> list[BaseException]:
+    """`exc` and everything it chains back to, explicitly (`__cause__`) or implicitly (`__context__`)."""
+    chain: list[BaseException] = []
+    while exc is not None:
+        chain.append(exc)
+        exc = exc.__cause__ or exc.__context__
+    return chain
+
+
+def _server_records(caplog: pytest.LogCaptureFixture) -> list[tuple[str, str, bool]]:
+    """(level, message, has-traceback) for every record MCPServer itself wrote."""
+    return [
+        (r.levelname, r.getMessage(), r.exc_info is not None)
+        for r in caplog.records
+        if r.name == "mcp.server.mcpserver.server"
+    ]
+
+
+def _logged_exception(caplog: pytest.LogCaptureFixture) -> BaseException:
+    """The exception attached to the one MCPServer record that carries a traceback."""
+    (exc_info,) = [r.exc_info for r in caplog.records if r.name == "mcp.server.mcpserver.server" and r.exc_info]
+    assert exc_info[1] is not None
+    return exc_info[1]
+
+
+async def test_tool_raising_unexpected_exception_is_logged_once_at_error_with_its_traceback(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: a tool crash still reaches the model as is_error, and the server logs the
+    original exception exactly once, at ERROR, with the traceback the result text lacks."""
+    mcp = MCPServer()
+    raised = KeyError("k")
+
+    @mcp.tool()
+    def lookup() -> str:
+        raise raised
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("lookup", {})
+
+    assert result.is_error is True
+    assert result.content == [TextContent(type="text", text="Error executing tool lookup: 'k'")]
+    assert _server_records(caplog) == snapshot([("ERROR", "Tool 'lookup' raised an unexpected exception", True)])
+    assert raised in _cause_chain(_logged_exception(caplog))
+    assert len([r for r in caplog.records if r.levelno >= logging.WARNING]) == 1
+
+
+async def test_tool_raising_tool_error_is_logged_at_info_without_traceback(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: ToolError marks an anticipated failure, so the same is_error result is
+    logged as one INFO record with no traceback rather than as a crash."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def forecast(city: str) -> str:
+        raise ToolError(f"no forecast for {city}")
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("forecast", {"city": "Atlantis"})
+
+    assert result.is_error is True
+    assert result.content == [TextContent(type="text", text="Error executing tool forecast: no forecast for Atlantis")]
+    assert _server_records(caplog) == snapshot(
+        [("INFO", "Tool 'forecast' failed: 'Error executing tool forecast: no forecast for Atlantis'", False)]
+    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_tool_error_subclass_is_still_anticipated(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: a user's ToolError subclass is treated like ToolError - INFO, no traceback -
+    and reaches a programmatic caller as a plain ToolError carrying the tool-name prefix."""
+    mcp = MCPServer()
+
+    class QuotaExceeded(ToolError):
+        pass
+
+    @mcp.tool()
+    def spend() -> str:
+        raise QuotaExceeded("daily quota used up")
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("spend", {})
+    with pytest.raises(ToolError) as exc:
+        await mcp.call_tool("spend", {})
+
+    assert result.is_error is True
+    assert type(exc.value) is ToolError
+    assert str(exc.value) == snapshot("Error executing tool spend: daily quota used up")
+    assert _server_records(caplog) == snapshot(
+        [("INFO", "Tool 'spend' failed: 'Error executing tool spend: daily quota used up'", False)]
+    )
+
+
+async def test_tool_argument_validation_failure_is_logged_at_info_without_traceback(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: arguments the model got wrong are the model's to correct, so the rejection
+    is logged as one INFO record with no traceback; the message is repr-quoted onto one line."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def add(a: int, b: int) -> int:
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("add", {"a": "one", "b": 2})
+
+    assert result.is_error is True
+    ((level, message, has_traceback),) = _server_records(caplog)
+    assert (level, has_traceback) == ("INFO", False)
+    # pydantic owns the rest of the text; pin only the SDK's part and the single-line rendering.
+    assert message.startswith("Tool 'add' failed: ") and "Error executing tool add: 1 validation error" in message
+    assert "\n" not in message
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_tool_argument_validation_failure_chains_directly_to_the_validation_error():
+    """SDK-defined: a programmatic caller sees a plain ToolError whose `__cause__` is pydantic's
+    ValidationError, with no intermediate wrapper."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def add(a: int, b: int) -> int:
+        raise NotImplementedError
+
+    with pytest.raises(ToolError) as exc:
+        await mcp.call_tool("add", {"a": "one", "b": 2})
+    assert type(exc.value) is ToolError
+    assert isinstance(exc.value.__cause__, ValidationError)
+
+
+async def test_validation_error_raised_inside_the_tool_body_is_a_crash(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: only the SDK's own argument validation is anticipated; a pydantic
+    ValidationError from the tool's code is logged as a crash with its traceback."""
+    mcp = MCPServer()
+
+    class Row(BaseModel):
+        n: int
+
+    @mcp.tool()
+    def parse() -> str:
+        Row.model_validate({"n": "x"})
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("parse", {})
+
+    assert result.is_error is True
+    assert _server_records(caplog) == snapshot([("ERROR", "Tool 'parse' raised an unexpected exception", True)])
+    assert isinstance(_cause_chain(_logged_exception(caplog))[-1], ValidationError)
+
+
+async def test_return_value_failing_the_output_schema_is_a_crash(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: a return value that doesn't match the declared output schema is the tool's
+    bug, so it is logged as a crash even though the model still gets an is_error result."""
+    mcp = MCPServer()
+
+    class Weather(BaseModel):
+        temperature: float
+
+    @mcp.tool()
+    def get_weather() -> Weather:
+        reading: Any = {"temperature": "warm"}
+        return reading
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_weather", {})
+
+    assert result.is_error is True
+    assert _server_records(caplog) == snapshot([("ERROR", "Tool 'get_weather' raised an unexpected exception", True)])
+
+
+async def test_unknown_tool_is_logged_at_info_without_traceback(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: a call to a name that was never registered is the caller's mistake, logged
+    as one INFO record alongside the is_error result."""
+    mcp = MCPServer()
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("nope", {})
+
+    assert result.is_error is True
+    assert _server_records(caplog) == snapshot([("INFO", "Tool 'nope' failed: 'Unknown tool: nope'", False)])
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_tool_raising_mcp_error_is_not_logged_by_mcpserver(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: MCPError is a protocol answer the tool chose, so MCPServer writes no record for it."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def gated() -> str:
+        raise MCPError(code=INVALID_PARAMS, message="not for you")
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.call_tool("gated", {})
+
+    assert exc.value.error.code == INVALID_PARAMS
+    assert _server_records(caplog) == []
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_resolver_raising_tool_error_is_anticipated(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: a ToolError from a Resolve() resolver is classified like one from the tool
+    body - INFO, no traceback."""
+    mcp = MCPServer(name="resolvers", request_state_security=RequestStateSecurity.ephemeral())
+
+    async def current_user(ctx: Context) -> str:
+        raise ToolError("sign in first")
+
+    @mcp.tool()
+    async def whoami(user: Annotated[str, Resolve(current_user)]) -> str:
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("whoami", {})
+
+    assert result.content == [TextContent(type="text", text="Error executing tool whoami: sign in first")]
+    assert _server_records(caplog) == snapshot(
+        [("INFO", "Tool 'whoami' failed: 'Error executing tool whoami: sign in first'", False)]
+    )
+
+
+async def test_resolver_crash_is_logged_as_the_tools_crash(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: an unexpected exception in a Resolve() resolver is the tool's crash - ERROR
+    with a traceback reaching the resolver's exception."""
+    mcp = MCPServer(name="resolvers", request_state_security=RequestStateSecurity.ephemeral())
+    raised = ConnectionError("user directory unreachable")
+
+    async def current_user(ctx: Context) -> str:
+        raise raised
+
+    @mcp.tool()
+    async def whoami(user: Annotated[str, Resolve(current_user)]) -> str:
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("whoami", {})
+
+    assert result.is_error is True
+    assert _server_records(caplog) == snapshot([("ERROR", "Tool 'whoami' raised an unexpected exception", True)])
+    assert raised in _cause_chain(_logged_exception(caplog))
+
+
+async def test_static_resource_raising_unexpected_exception_is_logged_once_at_error_with_its_traceback(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: the client gets a -32603 naming only the URI, and the withheld original is
+    logged exactly once, at ERROR, with its traceback."""
+    mcp = MCPServer()
+    raised = RuntimeError("connection pool exhausted")
+
+    @mcp.resource("db://stats")
+    def stats() -> str:
+        raise raised
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("db://stats")
+
+    assert exc.value.error == snapshot(
+        ErrorData(code=INTERNAL_ERROR, message="Error reading resource db://stats", data={"uri": "db://stats"})
+    )
+    assert _server_records(caplog) == snapshot(
+        [("ERROR", "Resource 'db://stats' raised an unexpected exception", True)]
+    )
+    assert raised in _cause_chain(_logged_exception(caplog))
+    assert len([r for r in caplog.records if r.levelno >= logging.WARNING]) == 1
+
+
+async def test_resource_template_raising_unexpected_exception_is_logged_once_at_error_with_its_traceback(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: a template handler crash surfaces as -32603 naming only the URI, and the
+    withheld original is logged exactly once, at ERROR, with its traceback."""
+    mcp = MCPServer()
+    raised = RuntimeError("connection pool exhausted")
+
+    @mcp.resource("db://tables/{table}")
+    def describe(table: str) -> str:
+        raise raised
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("db://tables/users")
+
+    assert exc.value.error == snapshot(
+        ErrorData(
+            code=INTERNAL_ERROR,
+            message="Error creating resource from template db://tables/users",
+            data={"uri": "db://tables/users"},
+        )
+    )
+    assert _server_records(caplog) == snapshot(
+        [("ERROR", "Resource 'db://tables/users' raised an unexpected exception", True)]
+    )
+    assert raised in _cause_chain(_logged_exception(caplog))
+    assert len([r for r in caplog.records if r.levelno >= logging.WARNING]) == 1
+
+
+async def test_read_resource_wraps_a_crash_as_unexpected_resource_error_chained_to_the_original():
+    """SDK-defined: for static and template resources alike, a programmatic caller gets
+    UnexpectedResourceError naming only the URI, with `__cause__` the handler's own exception."""
+    mcp = MCPServer()
+    raised = RuntimeError("connection pool exhausted")
+
+    @mcp.resource("db://stats")
+    def stats() -> str:
+        raise raised
+
+    @mcp.resource("db://tables/{table}")
+    def describe(table: str) -> str:
+        raise raised
+
+    with pytest.raises(UnexpectedResourceError) as static:
+        await mcp.read_resource("db://stats")
+    with pytest.raises(UnexpectedResourceError) as template:
+        await mcp.read_resource("db://tables/users")
+
+    assert str(static.value) == snapshot("Error reading resource db://stats")
+    assert static.value.__cause__ is raised
+    assert str(template.value) == snapshot("Error creating resource from template db://tables/users")
+    assert template.value.__cause__ is raised
+
+
+async def test_custom_resource_subclass_crash_is_wrapped_and_logged_like_a_function_resource(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: a hand-written Resource subclass whose read() raises gets the same treatment as
+    a decorated function - -32603 naming only the URI, one ERROR record chaining to the original."""
+    raised = OSError("sensor bus offline")
+
+    class SensorResource(MCPServerResource):
+        async def read(self) -> str:
+            raise raised
+
+    mcp = MCPServer()
+    mcp.add_resource(SensorResource(uri="sensor://temp", name="temp"))
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("sensor://temp")
+
+    assert exc.value.error == snapshot(
+        ErrorData(code=INTERNAL_ERROR, message="Error reading resource sensor://temp", data={"uri": "sensor://temp"})
+    )
+    assert _server_records(caplog) == snapshot(
+        [("ERROR", "Resource 'sensor://temp' raised an unexpected exception", True)]
+    )
+    logged = _logged_exception(caplog)
+    assert isinstance(logged, UnexpectedResourceError) and logged.__cause__ is raised
+
+
+async def test_static_resource_raising_resource_not_found_error_is_invalid_params_logged_at_info(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: ResourceNotFoundError from a static resource handler passes through as -32602
+    with the handler's message, as it does from a template handler, and is logged at INFO."""
+    mcp = MCPServer()
+
+    @mcp.resource("reports://latest")
+    def latest() -> str:
+        raise ResourceNotFoundError("no report has been generated yet")
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("reports://latest")
+
+    assert exc.value.error == snapshot(
+        ErrorData(code=INVALID_PARAMS, message="no report has been generated yet", data={"uri": "reports://latest"})
+    )
+    assert _server_records(caplog) == snapshot(
+        [("INFO", "Resource 'reports://latest' failed: 'no report has been generated yet'", False)]
+    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_deliberate_resource_error_passes_its_message_through_and_is_logged_at_info(
+    caplog: pytest.LogCaptureFixture,
+):
+    """SDK-defined: a ResourceError the handler raised on purpose reaches the client as -32603 with
+    the handler's message, from a static resource as from a template, and is one INFO record each."""
+    mcp = MCPServer()
+
+    @mcp.resource("db://stats")
+    def stats() -> str:
+        raise ResourceError("stats database is in maintenance")
+
+    @mcp.resource("db://tables/{table}")
+    def describe(table: str) -> str:
+        raise ResourceError(f"table {table} is being rebuilt")
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as static:
+            await client.read_resource("db://stats")
+        with pytest.raises(MCPError) as template:
+            await client.read_resource("db://tables/users")
+
+    assert static.value.error == snapshot(
+        ErrorData(code=INTERNAL_ERROR, message="stats database is in maintenance", data={"uri": "db://stats"})
+    )
+    assert template.value.error == snapshot(
+        ErrorData(code=INTERNAL_ERROR, message="table users is being rebuilt", data={"uri": "db://tables/users"})
+    )
+    assert _server_records(caplog) == snapshot(
+        [
+            ("INFO", "Resource 'db://stats' failed: 'stats database is in maintenance'", False),
+            ("INFO", "Resource 'db://tables/users' failed: 'table users is being rebuilt'", False),
+        ]
+    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_prompt_raising_unexpected_exception_is_logged_once(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: a prompt crash is logged exactly once, by the dispatcher boundary that turns it
+    into the JSON-RPC error, and not a second time by MCPServer."""
+    mcp = MCPServer()
+    raised = RuntimeError("template store unreachable")
+
+    @mcp.prompt()
+    def briefing() -> str:
+        raise raised
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.get_prompt("briefing")
+
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert _server_records(caplog) == []
+    (record,) = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert record.levelno == logging.ERROR
+    assert record.exc_info is not None and raised in _cause_chain(record.exc_info[1])
+
+
+async def test_call_tool_wraps_a_crash_as_unexpected_tool_error_chained_to_the_original():
+    """SDK-defined: programmatic callers can tell a crash from a deliberate ToolError by type and
+    reach the original exception through `__cause__`."""
+    mcp = MCPServer()
+    raised = RuntimeError("boom")
+
+    @mcp.tool()
+    def explode() -> str:
+        raise raised
+
+    with pytest.raises(UnexpectedToolError) as exc:
+        await mcp.call_tool("explode", {})
+    assert str(exc.value) == snapshot("Error executing tool explode: boom")
+    assert exc.value.__cause__ is raised
+
+
+async def test_call_tool_keeps_a_deliberate_tool_error_a_plain_tool_error():
+    """SDK-defined: a ToolError raised by the tool is re-raised as a plain ToolError carrying the
+    tool-name prefix, never reclassified as unexpected."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def refuse() -> str:
+        raise ToolError("not today")
+
+    with pytest.raises(ToolError) as exc:
+        await mcp.call_tool("refuse", {})
+    assert type(exc.value) is ToolError
+    assert str(exc.value) == snapshot("Error executing tool refuse: not today")
+
+
+async def test_nested_tool_crash_stays_unexpected_through_the_outer_tool(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: when a tool awaits another tool that crashes, the outer wrapper keeps the
+    UnexpectedToolError classification, so the crash is still logged once with its traceback."""
+    mcp = MCPServer()
+    raised = ZeroDivisionError("division by zero")
+
+    @mcp.tool()
+    def inner() -> str:
+        raise raised
+
+    @mcp.tool()
+    async def outer(ctx: Context) -> str:
+        await ctx.mcp_server.call_tool("inner", {})
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("outer", {})
+
+    assert result.content == [
+        TextContent(type="text", text="Error executing tool outer: Error executing tool inner: division by zero")
+    ]
+    assert _server_records(caplog) == snapshot([("ERROR", "Tool 'outer' raised an unexpected exception", True)])
+    assert raised in _cause_chain(_logged_exception(caplog))
 
 
 async def test_context_exposes_client_capabilities_from_connection():

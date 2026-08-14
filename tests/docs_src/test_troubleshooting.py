@@ -83,6 +83,16 @@ async def test_a_failing_tool_returns_is_error_true_instead_of_raising() -> None
     ]
 
 
+async def test_a_failing_tool_leaves_its_traceback_in_the_server_log(caplog: pytest.LogCaptureFixture) -> None:
+    """The `Error executing tool` entry's pointer to the server log: the exact ERROR message it names."""
+    with caplog.at_level(logging.ERROR, logger="mcp.server.mcpserver.server"):
+        async with Client(tutorial001.mcp) as client:
+            await client.call_tool("forecast", {"city": "Atlantis"})
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.getMessage() == "Tool 'forecast' raised an unexpected exception"
+    assert record.exc_info is not None
+
+
 async def test_an_unknown_tool_is_the_same_kind_of_result() -> None:
     """`Unknown tool: <name>` travels the same `is_error=True` path as a failing tool."""
     async with Client(tutorial001.mcp) as client:
