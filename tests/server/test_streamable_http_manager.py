@@ -31,6 +31,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_REQUEST_BODY_SIZE,
+    DEFAULT_MAX_SESSIONS,
     DEFAULT_SESSION_IDLE_TIMEOUT,
     StreamableHTTPSessionManager,
 )
@@ -741,6 +742,42 @@ async def test_refused_opening_request_leaves_no_session(
         assert response_start["status"] == expected_status
         assert manager._server_instances == {}
         assert manager._session_owners == {}
+
+
+@pytest.mark.anyio
+async def test_new_session_is_refused_at_max_sessions() -> None:
+    """At the session limit a further initialize is answered 503 and opens nothing; room frees up as
+    sessions end."""
+    manager = StreamableHTTPSessionManager(app=Server("test-cap"), max_sessions=1)
+    async with manager.run():
+        first = await _open_session(manager, None)
+
+        response_start, response_body = await _call(manager, _request_scope(), _INITIALIZE_BODY)
+        assert response_start["status"] == 503
+        assert json.loads(response_body) == {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": INVALID_REQUEST, "message": "Too many open sessions"},
+        }
+        assert list(manager._server_instances) == [first]
+
+        assert await _request_session(manager, first, None, method="DELETE") == 200
+        second = await _open_session(manager, None)
+        assert list(manager._server_instances) == [second]
+
+
+def test_max_sessions_defaults_to_ten_thousand() -> None:
+    """A manager holds at most 10 000 concurrent stateful sessions unless configured otherwise."""
+    manager = StreamableHTTPSessionManager(app=Server("test"))
+    assert manager.max_sessions == DEFAULT_MAX_SESSIONS == 10_000
+    assert StreamableHTTPSessionManager(app=Server("test"), max_sessions=None).max_sessions is None
+
+
+@pytest.mark.parametrize("max_sessions", [0, -1])
+def test_max_sessions_rejects_non_positive_values(max_sessions: int) -> None:
+    with pytest.raises(ValueError) as exc_info:
+        StreamableHTTPSessionManager(app=Server("test"), max_sessions=max_sessions)
+    assert str(exc_info.value) == "max_sessions must be a positive number of sessions or None"
 
 
 def _user(client_id: str, subject: str | None = None, issuer: str | None = None) -> AuthenticatedUser:

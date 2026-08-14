@@ -53,6 +53,8 @@ def test_streamable_http_app_has_no_era_knob() -> None:
         "event_store",
         "retry_interval",
         "max_request_body_size",
+        "session_idle_timeout",
+        "max_sessions",
         "transport_security",
         "host",
     }
@@ -74,6 +76,20 @@ async def test_a_legacy_session_is_minted_in_process_and_a_stray_session_id_is_a
 
         stray = await http.post("/mcp", json=LIST_TOOLS, headers={**MCP_HEADERS, "Mcp-Session-Id": 32 * "f"})
         assert stray.status_code == 404
+
+
+def test_legacy_sessions_expire_and_are_capped_by_default() -> None:
+    """The cost section: a session record is dropped after 30 idle minutes and each worker process holds at most
+    10 000 of them, unless `run()` / `streamable_http_app()` say otherwise."""
+    server = MCPServer("Bookshop")
+    server.streamable_http_app()
+    assert server.session_manager.session_idle_timeout == 30 * 60
+    assert server.session_manager.max_sessions == 10_000
+
+    server = MCPServer("Bookshop")
+    server.streamable_http_app(session_idle_timeout=None, max_sessions=None)
+    assert server.session_manager.session_idle_timeout is None
+    assert server.session_manager.max_sessions is None
 
 
 async def test_stateless_http_never_mints_a_session() -> None:

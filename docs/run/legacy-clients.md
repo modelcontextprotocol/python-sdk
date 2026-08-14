@@ -56,6 +56,13 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
+The record is not kept forever. A client that ends its session (`DELETE`) frees it at once;
+a session that has had no request in flight for `session_idle_timeout` seconds (default 1800; an
+open `GET` stream or a request being answered counts as in flight) is closed, and its next request
+gets the same `404` a stray ID gets, so the client has to `initialize` again. Each worker process
+holds at most `max_sessions` of them (default 10 000) and answers `503` to a request that would
+open one more. Both are `run()` / `streamable_http_app()` options.
+
 ## The one knob: `stateless_http`
 
 If stickiness is a cost you refuse to pay, there is exactly one thing you can change.

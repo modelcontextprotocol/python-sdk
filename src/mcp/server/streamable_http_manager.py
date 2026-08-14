@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_SESSION_IDLE_TIMEOUT: Final = 30 * 60
 """Default idle period in seconds after which a stateful Streamable HTTP session is closed (30 minutes)."""
 
+DEFAULT_MAX_SESSIONS: Final = 10_000
+"""Default maximum number of concurrent stateful Streamable HTTP sessions per session manager."""
+
 
 class StreamableHTTPSessionManager:
     """Manages StreamableHTTP sessions with optional resumability via event store.
@@ -73,6 +76,10 @@ class StreamableHTTPSessionManager:
             sessions live until the client deletes them or the manager shuts down. Unused in stateless mode.
         max_request_body_size: Maximum size in bytes for Streamable HTTP request bodies. Requests that
             exceed this limit receive a 413 response before parsing or session creation. Defaults to 4 MiB.
+        max_sessions: Maximum number of concurrent stateful sessions. While that many sessions are open, a
+            request that would open another one receives a 503 response; existing sessions are unaffected and
+            room frees up as they end or expire. Defaults to 10 000; None removes the limit. Unused in stateless
+            mode.
     """
 
     def __init__(
@@ -85,11 +92,14 @@ class StreamableHTTPSessionManager:
         retry_interval: int | None = None,
         session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
     ):
         if session_idle_timeout is not None and session_idle_timeout <= 0:
             raise ValueError("session_idle_timeout must be a positive number of seconds")
         if max_request_body_size <= 0:
             raise ValueError("max_request_body_size must be a positive number of bytes")
+        if max_sessions is not None and max_sessions <= 0:
+            raise ValueError("max_sessions must be a positive number of sessions or None")
 
         self.app = app
         self.event_store = event_store
@@ -99,6 +109,7 @@ class StreamableHTTPSessionManager:
         self.retry_interval = retry_interval
         self.session_idle_timeout = session_idle_timeout
         self.max_request_body_size = max_request_body_size
+        self.max_sessions = max_sessions
         self.asgi_app = RequestBodyLimitMiddleware(self._handle_request, max_request_body_size)
 
         # Session tracking (only used if not stateless)
@@ -265,15 +276,7 @@ class StreamableHTTPSessionManager:
                     "Rejecting request for session %s: credential does not match the one that created the session",
                     request_mcp_session_id[:64],
                 )
-                body = JSONRPCError(
-                    jsonrpc="2.0", id=None, error=ErrorData(code=INVALID_REQUEST, message="Session not found")
-                )
-                response = Response(
-                    body.model_dump_json(by_alias=True, exclude_unset=True),
-                    status_code=404,
-                    media_type="application/json",
-                )
-                await response(scope, receive, send)
+                await _error_response("Session not found", 404)(scope, receive, send)
                 return
             logger.debug("Session already exists, handling request directly")
             await transport.handle_request(scope, receive, send)
@@ -287,6 +290,11 @@ class StreamableHTTPSessionManager:
             # New session case
             logger.debug("Creating new transport")
             async with self._session_creation_lock:
+                if self.max_sessions is not None and len(self._server_instances) >= self.max_sessions:
+                    logger.warning("Refusing to open a new session: %d sessions are already open", self.max_sessions)
+                    await _error_response("Too many open sessions", 503)(scope, receive, send)
+                    return
+
                 new_session_id = uuid4().hex
                 http_transport = StreamableHTTPServerTransport(
                     mcp_session_id=new_session_id,
@@ -365,18 +373,20 @@ class StreamableHTTPSessionManager:
             # TODO(L62): Align error code once spec clarifies
             # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
             logger.info(f"Rejected request with unknown or expired session ID: {request_mcp_session_id[:64]}")
-            body = JSONRPCError(
-                jsonrpc="2.0", id=None, error=ErrorData(code=INVALID_REQUEST, message="Session not found")
-            )
-            response = Response(
-                body.model_dump_json(by_alias=True, exclude_unset=True), status_code=404, media_type="application/json"
-            )
-            await response(scope, receive, send)
+            await _error_response("Session not found", 404)(scope, receive, send)
 
     def _forget_session(self, session_id: str) -> None:
         """Stop tracking a session; requests naming it are answered 404 from then on."""
         self._server_instances.pop(session_id, None)
         self._session_owners.pop(session_id, None)
+
+
+def _error_response(message: str, status_code: int) -> Response:
+    """A JSON-RPC error body (no request id) with the given HTTP status."""
+    body = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=INVALID_REQUEST, message=message))
+    return Response(
+        body.model_dump_json(by_alias=True, exclude_unset=True), status_code=status_code, media_type="application/json"
+    )
 
 
 async def _send_and_report_status(app: ASGIApp, scope: Scope, receive: Receive, send: Send) -> int | None:
