@@ -38,7 +38,7 @@ else:  # pragma: lax no cover
 STORIES_DIR = Path(stories.__file__).parent
 BASE_URL = "http://127.0.0.1:8000"
 
-MANIFEST = tomllib.loads((STORIES_DIR / "manifest.toml").read_text())
+MANIFEST = tomllib.loads((STORIES_DIR / "manifest.toml").read_text(encoding="utf-8"))
 DEFAULTS: dict[str, Any] = MANIFEST["defaults"]
 STORIES: dict[str, dict[str, Any]] = MANIFEST["story"]
 
