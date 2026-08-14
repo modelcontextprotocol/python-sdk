@@ -21,7 +21,7 @@ The 2026-07-28 revision moved some functionality out of the core protocol into n
 * **DPoP-bound access tokens** ([SEP-1932](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1932)) in the OAuth client.
 * **The workload-identity `jwt-bearer` grant** in the OAuth client.
 
-None of these gates conformance today — extension scenarios are informational in the tier scoring — but each is a real gap for anyone who needs the feature, and they are the current queue.
+None of these blocks a release — each is carried as an expected failure in that baseline until it lands — but each is a real gap for anyone who needs the feature, and together they are the current queue.
 
 ## Continuous work
 

@@ -12,7 +12,7 @@ move; this is the mechanics.
    to move just that package's locked version). The committed `uv.lock` is a
    normal, newest-allowed resolution; the `lowest-direct` resolution that
    proves the floors still work is applied only by its CI matrix leg at test
-   time and never written to the lock.
+   time and is never committed.
 
 ## Release lines
 
@@ -111,8 +111,9 @@ hand for the same reason as above. Then ask someone to review the release.
 Pre-releases of the next version are cut from `main` with a PEP 440
 pre-release tag: `aN` for alphas, later `bN`/`rcN` for betas and release
 candidates. The PEP 440 suffix is what keeps `pip install mcp` on the stable
-version — installers only select a pre-release when it is requested explicitly (an
-exact pin, a specifier that names a pre-release version, or `--pre`).
+version — installers select a pre-release only when it is requested explicitly (an
+exact pin, a specifier that names a pre-release version, or `--pre`) or when no
+final release satisfies the requirement at all.
 
 1. During a pre-release phase the README and docs pin the exact pre-release
    version, so update those examples first (grep the outgoing version — the

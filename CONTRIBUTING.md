@@ -48,7 +48,7 @@ Bug fixes for clear, reproducible issues are welcome—but still create an issue
 | [`help wanted`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) | Experienced contributors | Maintainers probably won't get to this |
 | [`ready for work`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22ready+for+work%22) | Maintainers | Triaged and ready for a maintainer to pick up |
 
-Issues labeled `needs confirmation` or `needs maintainer action` are **not** ready for work—wait for maintainer input first.
+Issues labeled `needs confirmation` or `needs maintainer` are **not** ready for work—wait for maintainer input first.
 
 Before starting, comment on the issue so we can assign it to you. This prevents duplicate effort.
 
