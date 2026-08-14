@@ -43,15 +43,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
     file_path = match.group(2)
 
     try:
-        # Read the entire file. A missing source file must be fatal: a "Warning"
-        # that returns the stale block lets --check pass with exit 0, so a
-        # renamed or deleted snippet is invisible to CI. SystemExit deliberately
-        # escapes the `except Exception` below.
-        file = Path(file_path)
-        if not file.exists():
-            sys.exit(f"Error: snippet-source file not found: {file_path}")
-
-        code = file.read_text(encoding="utf-8").rstrip()
+        code = Path(file_path).read_text(encoding="utf-8").rstrip()
         github_url = get_github_url(file_path)
 
         # Build the replacement block
@@ -88,9 +80,9 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
 
         return replacement
 
-    except Exception as e:
-        print(f"Error processing {file_path}: {e}")
-        return full_match
+    except OSError as e:
+        # Fatal, not "warn and keep the stale block": that would let --check pass with exit 0.
+        sys.exit(f"Error processing {file_path}: {e}")
 
 
 def update_readme_snippets(check_mode: bool = False) -> bool:
