@@ -33,7 +33,7 @@ Run the app on its own (`uvicorn server:app`) and you never think about either.
     nothing here; **[Deploy & scale](deploy.md)** explains what it actually controls.
     **[Running your server](index.md)** covers the options themselves.
 
-`mcp.sse_app()` does the same for the superseded SSE transport.
+`mcp.sse_app()` does the same for the deprecated HTTP+SSE transport, and warns when you call it (**[Deprecated features](../deprecated.md)**).
 
 ## Localhost only, until you say otherwise
 

@@ -33,13 +33,13 @@ from starlette.routing import Mount, Route
 from mcp.client.client import Client
 from mcp.client.extension import ClientExtension
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
-from mcp.client.sse import sse_client
+from mcp.client.sse import sse_client  # pyright: ignore[reportDeprecated]
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from mcp.server.sse import SseServerTransport
+from mcp.server.sse import SseServerTransport  # pyright: ignore[reportDeprecated]
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
@@ -334,14 +334,14 @@ async def initialize_via_http(http: httpx2.AsyncClient) -> str:
     return session_id
 
 
-def build_sse_app(server: Server | MCPServer) -> tuple[Starlette, SseServerTransport]:
+def build_sse_app(server: Server | MCPServer) -> tuple[Starlette, SseServerTransport]:  # pyright: ignore[reportDeprecated]
     """Mount a server on a Starlette app exposing the legacy SSE transport at /sse and /messages/.
 
     `MCPServer.sse_app()` exists but does not expose the underlying `SseServerTransport`, which
     the SSE-specific tests need; building the app explicitly here gives both server flavours the
     same routing while keeping that handle.
     """
-    sse = SseServerTransport(
+    sse = SseServerTransport(  # pyright: ignore[reportDeprecated]
         "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )
     lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
@@ -394,7 +394,7 @@ async def connect_over_sse(
             auth=auth,
         )
 
-    transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
+    transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)  # pyright: ignore[reportDeprecated]
     async with Client(
         transport,
         # SSE is a legacy-only transport; the modern path has no SSE story.

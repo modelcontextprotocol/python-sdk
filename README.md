@@ -32,7 +32,7 @@ The [Model Context Protocol](https://modelcontextprotocol.io) lets you build ser
 
 - **Build MCP servers** that expose tools, resources, and prompts to any MCP host
 - **Build MCP clients** that connect to any MCP server
-- Speak every standard transport: stdio, Streamable HTTP, and SSE
+- Speak every standard transport: stdio and Streamable HTTP, plus the deprecated legacy HTTP+SSE
 
 ## Requirements
 

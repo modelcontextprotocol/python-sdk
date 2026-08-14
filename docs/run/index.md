@@ -10,12 +10,15 @@ The only decision you make is the **transport**: how the bytes between your serv
 |---|---|---|
 | `stdio` | The host launches your file as a subprocess and speaks over its stdin and stdout. | Local servers. The default. |
 | `streamable-http` | A real HTTP server listening on a port. | Anything you deploy. |
-| `sse` | The older HTTP transport. | You don't. |
+| `sse` | The older HTTP transport. **Deprecated.** | You don't. |
 
 !!! warning
-    SSE was superseded by Streamable HTTP in the 2025-03-26 protocol revision.
+    HTTP+SSE was superseded by Streamable HTTP in the 2025-03-26 protocol revision and is
+    now formally deprecated ([SEP-2596](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2596)).
     `mcp.run(transport="sse")` still works, with its own `sse_path=` and `message_path=`
-    options, but it exists for clients that haven't moved. Don't build anything new on it.
+    options, but it warns (`MCPDeprecationWarning`) and it exists only for clients that
+    haven't moved. Don't build anything new on it; **[Deprecated features](../deprecated.md)**
+    has the full row.
 
 ## `mcp.run()`
 

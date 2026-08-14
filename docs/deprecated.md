@@ -1,6 +1,6 @@
 # Deprecated features
 
-The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**.
+The 2026-07-28 spec retires five things, and the spec's deprecation registry carries a sixth from earlier: the legacy HTTP+SSE transport. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**.
 
 The table below names each deprecated feature, why it is going away, and the replacement to build on.
 
@@ -13,18 +13,20 @@ The table below names each deprecated feature, why it is going away, and the rep
 | **Protocol logging**: `ctx.log()`, `ctx.debug()`, `ctx.info()`, `ctx.warning()`, `ctx.error()`, `ctx.session.send_log_message()`, `client.set_logging_level()` | SEP-2577 retires the capability. Nothing in-protocol replaces it. | Ordinary `import logging` to stderr (see **[Logging](handlers/logging.md)**). |
 | **`ping`**: `client.send_ping()` | **Removed** from the protocol, not merely deprecated. There is no `ping` method in 2026-07-28. | Nothing. It only works against a `mode="legacy"` connection. |
 | **Client->server progress**: `client.send_progress_notification()` | 2026-07-28 makes progress server->client only. | Nothing to send. Your *server* reports progress with `ctx.report_progress()` (see **[Progress](handlers/progress.md)**). |
+| **HTTP+SSE transport**: `sse_client()`, `SseServerParameters`, `mcp.sse_app()`, `mcp.run(transport="sse")`, `SseServerTransport` | Superseded by Streamable HTTP in the 2025-03-26 spec; [SEP-2596](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2596) formally classifies it as deprecated. | Streamable HTTP: `Client(url)` / `streamable_http_client()` on the client, `mcp.run(transport="streamable-http")` / `streamable_http_app()` on the server (see **[Running your server](run/index.md)** and **[Transports](client/transports.md)**). |
 
-Three things fall out of that table:
+Four things fall out of that table:
 
 * Roots, sampling, and logging go together. One proposal, **SEP-2577**, deprecates all three capabilities at once.
 * Sampling and roots share a deeper problem: they are places a **server** sends a **request** to the **client**. That whole direction is what 2026-07-28 replaces with **[Multi-round-trip requests](handlers/multi-round-trip.md)**. It is the standalone RPC methods (`sampling/createMessage`, `roots/list`, and push-style `elicitation/create`) that are gone; the `CreateMessageRequest` / `ListRootsRequest` / `ElicitRequest` payload types survive, embedded in `InputRequiredResult.input_requests`, and on the client they hit the same callbacks.
 * `ping` is the odd one out. The protocol does not deprecate it, it removes it. The SDK method still warns (its message says *removed*, not *deprecated*) and calling it on a modern connection answers with *"Method not found"*.
+* The transport is odd in the other direction: it is not part of the 2026-07-28 story at all. Streamable HTTP superseded HTTP+SSE back in 2025-03-26, and it has been the "don't build on it" transport ever since; SEP-2596's feature-lifecycle policy simply put it on the formal register. It is also the only row that is a transport rather than a capability, so it doesn't turn on the negotiated version: the same `streamable_http_app()` serves both eras of client (see **[Serving legacy clients](run/legacy-clients.md)**), and nothing needs SSE.
 
 ## Deprecated is advisory
 
 Nothing breaks today.
 
-Every method above keeps working against any session that negotiated **2025-11-25 or earlier**. Pin `mode="legacy"` on the client and you get exactly the pre-2026 behaviour. There are no wire changes and capability negotiation is unchanged.
+Every method above keeps working against any session that negotiated **2025-11-25 or earlier**. Pin `mode="legacy"` on the client and you get exactly the pre-2026 behaviour. There are no wire changes and capability negotiation is unchanged. The transport row is simpler still: `sse_client()` and `sse_app()` do exactly what they always did, wire and all; they just warn when you call them.
 
 What changes is that you get a visible warning the first time each one runs:
 
@@ -82,7 +84,8 @@ That is the whole API. There is no per-method switch, and you don't want one: th
 ## Recap
 
 * The 2026-07-28 spec deprecates **roots**, server-initiated **sampling**, and protocol **logging** (all [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577)), restricts **progress** to server-to-client, and removes **`ping`**.
-* The replacement column points you onward: **[Multi-round-trip requests](handlers/multi-round-trip.md)** for sampling and roots, **[Logging](handlers/logging.md)** for logging, **[Progress](handlers/progress.md)** for progress. `ping` needs nothing at all.
+* The legacy **HTTP+SSE transport** is deprecated too ([SEP-2596](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2596)), superseded by Streamable HTTP since 2025-03-26.
+* The replacement column points you onward: **[Multi-round-trip requests](handlers/multi-round-trip.md)** for sampling and roots, **[Logging](handlers/logging.md)** for logging, **[Progress](handlers/progress.md)** for progress, Streamable HTTP for the transport. `ping` needs nothing at all.
 * Deprecated is advisory: no wire changes, everything keeps working against pre-2026 sessions, and you get a visible `MCPDeprecationWarning` (a `UserWarning`, so it is on by default).
 * Sampling and roots additionally need a back-channel that a 2026-07-28 session does not have. On a modern connection they warn and then they raise.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` silences the whole category; `"error::mcp.MCPDeprecationWarning"` in pytest turns it into a test failure.

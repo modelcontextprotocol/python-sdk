@@ -4,16 +4,17 @@ from unittest import mock
 import httpx2
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
 
 import mcp
 from mcp.client.session_group import (
     ClientSessionGroup,
     ClientSessionParameters,
-    SseServerParameters,
+    SseServerParameters,  # pyright: ignore[reportDeprecated]
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 
 
 @pytest.fixture
@@ -306,7 +307,7 @@ async def test_client_session_group_disconnect_non_existent_server():
             "mcp.client.session_group.mcp.stdio_client",
         ),
         (
-            SseServerParameters(url="http://test.com/sse", timeout=10.0),
+            SseServerParameters(url="http://test.com/sse", timeout=10.0),  # pyright: ignore[reportDeprecated]
             "sse",
             "mcp.client.session_group.sse_client",
         ),  # url, headers, timeout, sse_read_timeout
@@ -318,7 +319,7 @@ async def test_client_session_group_disconnect_non_existent_server():
     ],
 )
 async def test_client_session_group_establish_session_parameterized(
-    server_params_instance: StdioServerParameters | SseServerParameters | StreamableHttpParameters,
+    server_params_instance: StdioServerParameters | SseServerParameters | StreamableHttpParameters,  # pyright: ignore[reportDeprecated]
     client_type_name: str,  # Just for clarity or conditional logic if needed
     patch_target_for_client_func: str,
 ):
@@ -366,7 +367,7 @@ async def test_client_session_group_establish_session_parameterized(
                 assert isinstance(server_params_instance, StdioServerParameters)
                 mock_specific_client_func.assert_called_once_with(server_params_instance)
             elif client_type_name == "sse":
-                assert isinstance(server_params_instance, SseServerParameters)
+                assert isinstance(server_params_instance, SseServerParameters)  # pyright: ignore[reportDeprecated]
                 mock_specific_client_func.assert_called_once_with(
                     url=server_params_instance.url,
                     headers=server_params_instance.headers,
@@ -402,3 +403,14 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+def test_sse_server_parameters_warn_that_the_http_sse_transport_is_deprecated():
+    """SDK-defined (SEP-2596): choosing the legacy HTTP+SSE transport in a session group warns as
+    soon as its parameters object is built."""
+    with pytest.warns(MCPDeprecationWarning, match=r"SEP-2596") as records:
+        SseServerParameters(url="http://test.com/sse")  # pyright: ignore[reportDeprecated]
+
+    assert [str(w.message) for w in records if issubclass(w.category, MCPDeprecationWarning)] == snapshot(
+        ["The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use StreamableHttpParameters instead."]
+    )

@@ -1,6 +1,11 @@
 """SSE Server Transport Module
 
-This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
+This module implements the legacy HTTP+SSE transport layer for MCP servers.
+
+Deprecated: HTTP+SSE was superseded by Streamable HTTP in protocol revision 2025-03-26 and
+formally deprecated by SEP-2596. Serve `MCPServer.streamable_http_app()` (or drive
+`StreamableHTTPSessionManager` directly) instead; this module remains for servers that must
+keep answering clients that have not migrated.
 
 Example:
     ```python
@@ -49,6 +54,7 @@ from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
+from typing_extensions import deprecated
 
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.transport_security import (
@@ -56,14 +62,25 @@ from mcp.server.transport_security import (
     TransportSecuritySettings,
 )
 from mcp.shared._context_streams import ContextSendStream, create_context_streams
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
 
+@deprecated(
+    "The HTTP+SSE transport is deprecated as of 2025-03-26 (SEP-2596). Use Streamable HTTP instead.",
+    category=MCPDeprecationWarning,
+)
 class SseServerTransport:
-    """SSE server transport for MCP. This class provides two ASGI applications,
-    suitable for use with a framework like Starlette and a server like Hypercorn:
+    """Server transport for the legacy HTTP+SSE protocol.
+
+    Deprecated: HTTP+SSE was superseded by Streamable HTTP in protocol revision 2025-03-26 and
+    formally deprecated by SEP-2596. Use `MCPServer.streamable_http_app()` or
+    `StreamableHTTPSessionManager` instead.
+
+    This class provides two ASGI applications, suitable for use with a framework like
+    Starlette and a server like Hypercorn:
 
         1. connect_sse() is an ASGI application which receives incoming GET requests,
            and sets up a new SSE stream to send server messages to the client.

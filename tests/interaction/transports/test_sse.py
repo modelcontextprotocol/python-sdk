@@ -6,6 +6,8 @@ itself: the GET-then-POST connection lifecycle, the endpoint event, and how the 
 rejects requests it cannot route to a session. Every test drives the server's real Starlette app
 through the suite's streaming ASGI bridge.
 """
+# The HTTP+SSE transport is deprecated (SEP-2596); these tests keep it working while it ships.
+# pyright: reportDeprecated=false
 
 from uuid import UUID, uuid4
 

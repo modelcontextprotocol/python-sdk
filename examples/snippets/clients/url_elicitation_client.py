@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 import mcp.types as types
 from mcp import ClientSession
 from mcp.client.context import ClientRequestContext
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED
 
@@ -280,16 +280,16 @@ async def run_command_loop(session: ClientSession) -> None:
 
 async def main() -> None:
     """Run the interactive URL elicitation client."""
-    server_url = "http://localhost:8000/sse"
+    server_url = "http://localhost:8000/mcp"
 
     print("=" * 60)
     print("URL Elicitation Client Example")
     print("=" * 60)
     print(f"\nConnecting to: {server_url}")
-    print("(Start server with: cd examples/snippets && uv run server elicitation sse)")
+    print("(Start server with: cd examples/snippets && uv run server elicitation streamable-http)")
 
     try:
-        async with sse_client(server_url) as (read, write):
+        async with streamable_http_client(server_url) as (read, write):
             async with ClientSession(
                 read,
                 write,
