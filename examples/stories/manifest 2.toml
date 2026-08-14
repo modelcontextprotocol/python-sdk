@@ -1,0 +1,177 @@
+# examples/stories/manifest.toml
+#
+# test_manifest_matches_filesystem asserts [story.*] keys == story dirs with a client.py.
+
+[defaults]
+transports       = ["in-memory", "http-asgi"]   # in-memory = Client(server); http-asgi = StreamingASGITransport
+era              = "dual"                       # "dual" | "modern" | "legacy" | "dual-in-body"
+status           = "current"                    # "current" | "legacy" | "deprecated" — the feature's future, not the transport
+lowlevel         = true                         # also run main against server_lowlevel.build_server()/build_app()
+server_export    = "factory"                    # "factory" -> build_server() | "app" -> build_app()
+multi_connection = false                        # main(target, ...) vs main(targets, ...); targets() -> fresh target per call
+needs_http       = false                        # main(..., http=) gets the raw httpx2.AsyncClient (http-asgi only)
+timeout_s        = 30
+mcp_path         = "/mcp"
+fixed_port       = 0                            # `client --http` self-host port; 0 = an OS-assigned free port
+xfail            = []                           # ["<transport>:<era>", ...] -> strict xfail on that leg
+env              = {}                           # env vars set for the leg via monkeypatch
+
+# ───────────────────────────── start here ─────────────────────────────
+
+[story.tools]
+
+[story.prompts]
+
+[story.resources]
+
+[story.lifespan]
+
+[story.dual_era]
+era              = "dual-in-body"
+multi_connection = true
+
+[story.streaming]
+
+[story.mrtr]
+era = "modern"
+
+[story.legacy_elicitation]
+era    = "legacy"
+status = "legacy"
+
+[story.refund_desk]
+# Resolver elicitation picks its transport per era: input_required round-trips on
+# the modern leg, push elicitation (ctx.elicit) on the legacy one.
+lowlevel = false
+
+[story.sampling]
+era    = "legacy"
+status = "deprecated"
+
+[story.stickynotes]
+
+[story.custom_methods]
+lowlevel = false
+
+[story.apps]
+# Extension API is MCPServer-tier (Apps decorators + extensions=[...]); no lowlevel variant.
+# The extensions capability map (SEP-2133) rides server/discover, a modern-only path, so
+# `main` pins "auto" (legacy initialize cannot carry it) and the leg is http-asgi.
+lowlevel   = false
+transports = ["in-memory", "http-asgi"]
+era        = "dual-in-body"
+
+[story.extensions]
+# Same constraints as `apps`: MCPServer-tier extension API, capability map rides
+# server/discover (modern only), client guards the capability assert by presence.
+lowlevel   = false
+transports = ["in-memory", "http-asgi"]
+era        = "dual-in-body"
+
+[story.subscriptions]
+# subscriptions/listen exists only on the 2026 wire, so there is no legacy leg.
+# The listen request parks for the stream's lifetime; the client ends it by
+# cancelling the awaiting scope (the spec's client-side close).
+era = "modern"
+
+[story.schema_validators]
+
+[story.middleware]
+# Lowlevel-only: `Server.middleware` is the one public hook (no MCPServer accessor yet).
+lowlevel = false
+
+[story.parallel_calls]
+# A per-client fresh target over a real ASGI transport is harness machinery, not user
+# code; the same client body works unchanged over HTTP.
+transports       = ["in-memory"]
+multi_connection = true
+
+[story.roots]
+era    = "legacy"
+status = "deprecated"
+
+[story.pagination]
+
+[story.error_handling]
+
+[story.serve_one]
+# Lowlevel-only: the kernel drivers take a `lowlevel.Server`; `MCPServer` has no public
+# accessor for its underlying one yet, so there is no MCPServer-tier variant to show.
+transports = ["in-memory"]
+lowlevel   = false
+
+[story.stateless_legacy]
+transports       = ["http-asgi"]
+server_export    = "app"
+era              = "dual-in-body"
+multi_connection = true
+
+[story.json_response]
+transports    = ["http-asgi"]
+server_export = "app"
+era           = "modern"
+needs_http    = true
+
+[story.legacy_routing]
+transports       = ["http-asgi"]
+server_export    = "app"
+era              = "dual-in-body"
+multi_connection = true
+
+[story.starlette_mount]
+transports    = ["http-asgi"]
+server_export = "app"
+lowlevel      = false
+mcp_path      = "/api/"
+
+[story.sse_polling]
+transports    = ["http-asgi"]
+server_export = "app"
+era           = "legacy"
+status        = "legacy"
+timeout_s     = 20
+# event_store.py is local; example-grade only (sequential IDs, no eviction).
+
+[story.standalone_get]
+transports    = ["http-asgi"]
+era           = "legacy"
+status        = "legacy"
+
+[story.reconnect]
+transports       = ["http-asgi"]
+# Both connection modes are pinned inside main itself ("auto" to populate the discover
+# cache, then a hard pin + prior_discover=); the leg hands it the real-user default.
+era              = "dual-in-body"
+multi_connection = true
+
+[story.bearer_auth]
+transports    = ["http-asgi"]
+server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
+
+[story.oauth]
+transports       = ["http-asgi"]
+server_export    = "app"
+multi_connection = true
+fixed_port       = 8000                         # issuer/PRM metadata bake in :8000
+env              = { OAUTH_DEMO_AUTO_CONSENT = "1" }
+
+[story.oauth_client_credentials]
+transports    = ["http-asgi"]
+server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
+
+[story.identity_assertion]
+transports    = ["http-asgi"]
+server_export = "app"
+fixed_port    = 8000                            # issuer/PRM metadata bake in :8000
+
+# ───────────────────────────── deferred ─────────────────────────────
+# README-only placeholders; no client.py, not expanded into legs.
+# test_manifest_matches_filesystem checks these match the README-only dirs.
+
+[deferred]
+caching       = "client honouring + per-result override unlanded"
+tasks         = "SEP-2663 — tasks extension runtime (server-decided augmentation, CreateTaskResult)"
+skills        = "#2896 — SEP-2640"
+events        = "#2901 + #2896"

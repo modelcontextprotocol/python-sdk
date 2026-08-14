@@ -1,0 +1,59 @@
+name: v2 feedback
+description: Bugs, API friction, or docs gaps in v2 of the SDK
+title: "[v2] "
+labels: ["v2-alpha"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying v2. Anything that broke, surprised you, or slowed you down is useful — API feedback is explicitly welcome while v2 is in pre-release.
+
+        Docs: https://py.sdk.modelcontextprotocol.io/v2/ · Migration from v1: https://py.sdk.modelcontextprotocol.io/v2/migration/
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, and what went wrong (or felt wrong)? Paste error output verbatim if there is any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Code to reproduce
+      description: The smallest snippet or repository that shows it. For docs feedback, link the page instead.
+      render: Python
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: SDK version
+      description: The published version (`pip show mcp`) or commit.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Server
+        - Client
+        - Transports
+        - Auth
+        - Documentation
+        - Migration
+        - Other
+    validations:
+      required: false
