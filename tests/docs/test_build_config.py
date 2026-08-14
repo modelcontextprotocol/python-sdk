@@ -23,6 +23,7 @@ MKDOCS: dict[str, Any] = {
     "nav": NAV,
     "theme": {"name": "material"},
     "plugins": ["search", {"mkdocstrings": {"handlers": {"python": {"paths": ["src"]}}}}],
+    "markdown_extensions": ["admonition", {"pymdownx.snippets": {"base_path": ["."], "check_paths": True}}],
 }
 
 LANGUAGES = """\
@@ -86,7 +87,8 @@ def test_alternate_lists_english_then_each_language_as_code_labelled_links_relat
 
 def test_lang_config_builds_the_staged_tree_into_site_code_without_an_api_reference(tmp_path: Path) -> None:
     """Tool-defined: `--lang ja` writes mkdocs.ja.gen.yml pointing Zensical at the staged tree (repo-relative),
-    building into site/ja/ under the ja URL prefix and theme language, with mkdocstrings dropped, the API
+    building into site/ja/ under the ja URL prefix and theme language, with mkdocstrings dropped, snippet path
+    checks off (a stale include in a stored translation renders empty rather than failing the build), the API
     entry turned into a link up to the English reference, section titles from the `titles.json` staged
     beside the tree, and the switcher with links relative to this site."""
     write_repo(tmp_path)
@@ -94,7 +96,8 @@ def test_lang_config_builds_the_staged_tree_into_site_code_without_an_api_refere
     written = build_config.build_config("ja", tmp_path)
 
     config = cast(dict[str, Any], yaml.safe_load(written.read_text(encoding="utf-8")))
-    picked = {key: config[key] for key in ("docs_dir", "site_dir", "site_url", "theme", "plugins", "nav", "extra")}
+    keys = ("docs_dir", "site_dir", "site_url", "theme", "plugins", "markdown_extensions", "nav", "extra")
+    picked = {key: config[key] for key in keys}
     assert (written.name, picked) == snapshot(
         (
             "mkdocs.ja.gen.yml",
@@ -104,6 +107,10 @@ def test_lang_config_builds_the_staged_tree_into_site_code_without_an_api_refere
                 "site_url": "https://docs.example/ja/",
                 "theme": {"name": "material", "language": "ja"},
                 "plugins": ["search"],
+                "markdown_extensions": [
+                    "admonition",
+                    {"pymdownx.snippets": {"base_path": ["."], "check_paths": False}},
+                ],
                 "nav": [
                     "index.md",
                     {"サーバー": ["servers/index.md", "servers/tools.md"]},

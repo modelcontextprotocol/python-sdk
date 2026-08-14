@@ -210,6 +210,12 @@ def build_config(lang: str | None = None, root: Path = ROOT) -> Path:
         # No API reference on a language site, so no mkdocstrings pass either.
         plugins: list[str | dict[str, Any]] = config["plugins"]
         config["plugins"] = [p for p in plugins if (next(iter(p)) if isinstance(p, dict) else p) != "mkdocstrings"]
+        # A stored translation can name a `docs_src` file an English change has since renamed:
+        # that block renders empty under the outdated notice instead of stopping the build.
+        extensions: list[str | dict[str, Any]] = config["markdown_extensions"]
+        for extension in extensions:
+            if isinstance(extension, dict) and extension.get("pymdownx.snippets"):
+                extension["pymdownx.snippets"]["check_paths"] = False
         config["theme"]["language"] = language.theme
         # Zensical resolves docs_dir/site_dir against the config file and
         # rejects absolute paths.

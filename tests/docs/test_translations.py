@@ -779,6 +779,29 @@ full corrected page, changing nothing else:
     assert body.endswith("## エラー {#errors}\n\nファンクションから送出します。\n")
 
 
+def test_link_dropped_in_a_carried_section_costs_no_repair_turn_and_the_stored_section_is_kept(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tool-defined: a reply is assembled with the carried sections before its structure is checked, so a link
+    the model lost in a section this run discards anyway is no finding: one call, and the published intro is
+    the stored one, link and all."""
+    root = make_repo(tmp_path)
+    translate_all(capsys, root)
+    write(root / "docs" / "tools.md", TOOLS.replace("Raise to signal a failure.", "Raise `ToolError` to fail."))
+    reply = TOOLS_JA.replace("[ホーム](index.md#install)から", "ホームから").replace(
+        "失敗を伝えるには例外を送出します。", "失敗するには `ToolError` を送出します。"
+    )
+    fake = FakeTranslator([reply])
+
+    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+
+    assert (code, err, out.split("\n")[0]) == (0, "", "translated: tools.md (1 of 3 sections)")
+    assert [len(conversation) for conversation in fake.conversations] == [1]  # one call, no repair turn
+    body = t.split_front_matter((root / "i18n" / "ja" / "pages" / "tools.md").read_text(encoding="utf-8"))[1]
+    assert t.sections(body)[0] == t.sections(TOOLS_JA)[0].replace("# ツール\n", "# ツール {#tools}\n")
+    assert body.endswith("## エラー {#errors}\n\n失敗するには `ToolError` を送出します。\n")
+
+
 def test_removed_english_section_is_reassembled_with_no_client_but_an_edited_one_needs_credentials_first(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -921,8 +944,9 @@ def test_code_block_moved_out_of_a_retranslated_section_gets_repair_turns_like_a
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Tool-defined: on an update the same slip (the retranslated section's reply swallows the code block of
-    the carried section before it) is fed back for repair rather than failing the page outright, and the
-    fixed reply is assembled with the carried sections."""
+    the carried section before it) is fed back for repair rather than failing the page outright; the carried
+    section is the stored one by then, so only the retranslated section's extra fence is named, and the fixed
+    reply is assembled with the carried sections."""
     root = make_repo(tmp_path)
     translate_all(capsys, root)
     write(root / "docs" / "tools.md", TOOLS.replace("Raise to signal a failure.", "Raise `ToolError` to fail."))
@@ -937,7 +961,6 @@ def test_code_block_moved_out_of_a_retranslated_section_gets_repair_turns_like_a
 Your translation broke the following structural rules. Fix each problem and return the
 full corrected page, changing nothing else:
 
-- ## Your first tool: 0 code fences vs 1 in the English: keep each where it is, add none
 - ## Errors: 1 code fences vs 0 in the English: keep each where it is, add none\
 """)
     body = t.split_front_matter((root / "i18n" / "ja" / "pages" / "tools.md").read_text(encoding="utf-8"))[1]

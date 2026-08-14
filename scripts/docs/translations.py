@@ -891,6 +891,9 @@ def _validate_open(english: str, body: str, job: Job, glossary: Glossary) -> lis
 def translate_page(repo: Repo, inputs: Inputs, job: Job, translator: Translator, model: str, usage: Usage) -> str:
     """Translate one page and return its body; token usage accumulates into `usage`.
 
+    Each reply has its carried sections overwritten before any check runs, so
+    only text this run keeps can cost a repair turn or fail the page.
+
     Raises:
         PageError: The page could not be produced (API failure, refusal, or unrepairable structure).
         ConfigError: The credentials were rejected.
@@ -908,9 +911,12 @@ def translate_page(repo: Repo, inputs: Inputs, job: Job, translator: Translator,
             raise PageError(f"the reply was cut off at {OUTPUT_TOKEN_BUDGET} output tokens")
         if completion.stop_reason == "refusal":
             raise PageError("the model declined to translate this page")
-        result = reimpose(english, ids, unwrap(english, completion.text))
-        if isinstance(result, str):  # aligned, so it can be assembled: carry sections forward, pin today's ids on them
-            result = reimpose(english, ids, carry_forward(job, result))
+        reply = unwrap(english, completion.text)
+        # Only a reply whose sections line up with the English can be assembled; one that
+        # does not is checked as it stands and fails the heading check.
+        if len(sections(reply)) == len(job.state.hashes):
+            reply = carry_forward(job, reply)
+        result = reimpose(english, ids, reply)  # today's ids pinned on carried sections too
         if isinstance(result, Mismatch):
             findings = result.findings
         elif not (findings := _validate_open(english, result, job, inputs.glossary)):  # checked as it would be written
