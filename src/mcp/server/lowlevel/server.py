@@ -43,37 +43,35 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Generic, overload
+from typing import TYPE_CHECKING, Any, Generic, overload
 
 import mcp_types as types
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.routing import Mount, Route
 from typing_extensions import TypeVar, deprecated
 
+import mcp
+from mcp.server._http_defaults import DEFAULT_MAX_REQUEST_BODY_SIZE
 from mcp.server._otel import OpenTelemetryMiddleware
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
-from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
-from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint, validate_cache_hints
 from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
+from mcp.server.event_store import EventStore
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
-from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import (
-    DEFAULT_MAX_REQUEST_BODY_SIZE,
-    StreamableHTTPASGIApp,
-    StreamableHTTPSessionManager,
-)
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
+
+if TYPE_CHECKING:
+    # Starlette types appear only in `streamable_http_app`'s signature; the
+    # runtime imports live inside that method, so `import mcp.server` (and
+    # every stdio server) never loads the HTTP stack: starlette,
+    # sse_starlette, uvicorn. The auth and session-manager annotations are
+    # spelled through the lazy `mcp.server` namespace instead (below), so
+    # `typing.get_type_hints` still resolves them on demand at runtime.
+    from starlette.applications import Starlette
+    from starlette.routing import Route
 
 logger = logging.getLogger(__name__)
 
@@ -426,7 +424,7 @@ class Server(Generic[LifespanResultT]):
         self.lifespan = lifespan
         self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
-        self._session_manager: StreamableHTTPSessionManager | None = None
+        self._session_manager: mcp.server.streamable_http_manager.StreamableHTTPSessionManager | None = None
         # Context-tier middleware: wraps every inbound request (including
         # `initialize`, lookup, validation, handler) with
         # `(ctx, call_next)`. Applied in `ServerRunner._on_request`.
@@ -675,7 +673,7 @@ class Server(Generic[LifespanResultT]):
         )
 
     @property
-    def session_manager(self) -> StreamableHTTPSessionManager:
+    def session_manager(self) -> mcp.server.streamable_http_manager.StreamableHTTPSessionManager:
         """Get the StreamableHTTP session manager.
 
         Raises:
@@ -728,13 +726,31 @@ class Server(Generic[LifespanResultT]):
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
-        auth: AuthSettings | None = None,
-        token_verifier: TokenVerifier | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        auth: mcp.server.auth.settings.AuthSettings | None = None,
+        token_verifier: mcp.server.auth.provider.TokenVerifier | None = None,
+        auth_server_provider: mcp.server.auth.provider.OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         custom_starlette_routes: list[Route] | None = None,
         debug: bool = False,
     ) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
+        # The HTTP transport stack (starlette, plus this SDK's HTTP transport
+        # and auth ASGI modules) is imported here rather than at module top so
+        # that `import mcp.server` and stdio servers never load starlette,
+        # sse_starlette or uvicorn: only building an HTTP app pays for it, once.
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.middleware.authentication import AuthenticationMiddleware
+        from starlette.routing import Mount, Route
+
+        from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+        from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+        from mcp.server.auth.routes import (
+            build_resource_metadata_url,
+            create_auth_routes,
+            create_protected_resource_routes,
+        )
+        from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
+
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(

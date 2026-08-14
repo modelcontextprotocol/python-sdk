@@ -47,10 +47,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server._transport_security_middleware import TransportSecurityMiddleware
 from mcp.server.connection import Connection
 from mcp.server.runner import modern_error_data, serve_one
 from mcp.server.streamable_http import check_accept_headers
-from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.dispatcher import CallOptions
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.inbound import (

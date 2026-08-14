@@ -66,8 +66,9 @@ from mcp_types import (
     Tool,
     ToolChoice,
 )
+from mcp_types._deferred import deferred_model as _deferred_model
 from mcp_types.version import is_version_at_least
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 from typing_extensions import TypeVar
 
 from mcp.server.elicitation import (
@@ -723,8 +724,15 @@ def _result_type(
     )
 
 
+# `defer_build=True` below: pydantic builds each validator on first use rather than at
+# import (import-time cost); the build is transparent at first construction/validation.
+
+
+@_deferred_model
 class _StateEntry(BaseModel):
     """One resolver's recorded outcome inside `request_state`."""
+
+    model_config = ConfigDict(defer_build=True)
 
     action: Literal["accept", "decline", "cancel"]
     data: Any = None
@@ -743,8 +751,11 @@ def _request_digest(request: InputRequest) -> str:
     return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
+@_deferred_model
 class _State(BaseModel):
     """The decoded `request_state`: resolver progress from earlier rounds."""
+
+    model_config = ConfigDict(defer_build=True)
 
     v: int
     outcomes: dict[str, _StateEntry] = {}

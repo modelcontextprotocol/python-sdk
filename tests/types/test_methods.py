@@ -1,6 +1,11 @@
 """Tests for the wire-method maps and two-step parse functions in `mcp_types.methods`."""
 
+import dataclasses
 import importlib.util
+import json
+import os
+import subprocess
+import sys
 from collections.abc import Mapping
 from types import MappingProxyType, UnionType
 from typing import Any, get_args
@@ -10,6 +15,7 @@ import mcp_types._v2025_11_25 as v2025
 import mcp_types._v2026_07_28 as v2026
 import pydantic
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import methods
 from mcp_types.version import KNOWN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
@@ -549,6 +555,52 @@ def test_built_in_maps_are_immutable():
             _assign_item(built_in)
 
 
+def test_importing_methods_defers_each_wire_package_until_one_of_its_rows_is_read():
+    """SDK-defined: the per-version wire packages load on first row read, not at import.
+
+    A fresh interpreter is required: this test process has already imported both packages.
+    """
+    script = "\n".join(
+        [
+            "import sys",
+            "from mcp_types import methods",
+            "wire = lambda: sorted(m for m in sys.modules if m.startswith('mcp_types._v'))",
+            "assert wire() == [], wire()",
+            "assert ('tools/list', '2025-11-25') in methods.CLIENT_REQUESTS",
+            "assert len(methods.CLIENT_REQUESTS) and methods.SPEC_CLIENT_METHODS",
+            "assert wire() == [], wire()",
+            "assert methods.parse_client_request('ping', '2025-11-25', None).method == 'ping'",
+            "assert wire() == ['mcp_types._v2025_11_25'], wire()",
+            "methods.CLIENT_REQUESTS[('server/discover', '2026-07-28')]",
+            "assert wire() == ['mcp_types._v2025_11_25', 'mcp_types._v2026_07_28'], wire()",
+        ]
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=20)
+    assert result.returncode == 0, result.stderr
+
+
+def test_surface_maps_keep_the_read_only_mapping_extras_of_a_proxied_dict():
+    """SDK-defined: repr, `copy()`, `|`, `reversed()` and equality match a proxied dict of the rows."""
+    surface_map = methods.CLIENT_REQUESTS
+    resolved = dict(surface_map)
+    assert isinstance(surface_map, MappingProxyType)
+    assert surface_map == resolved
+    assert repr(surface_map) == repr(MappingProxyType(resolved))
+    assert surface_map.copy() == resolved
+    assert (surface_map | {}) == resolved
+    assert ({} | surface_map) == resolved
+    assert list(reversed(surface_map)) == list(reversed(resolved))
+    assert surface_map.get(("ping", "2025-11-25")) is v2025.PingRequest
+    assert surface_map.get(("ping", "2026-07-28")) is None
+
+
+def test_surface_rows_for_a_version_with_no_wire_package_fail_at_map_construction():
+    """SDK-defined: an unregistered protocol version fails loudly at import, not as a version-gate KeyError."""
+    with pytest.raises(ValueError) as excinfo:
+        methods._LazyWireMap({("ping", "2099-01-01"): "PingRequest"})
+    assert str(excinfo.value) == snapshot("no wire package registered for protocol version(s) ['2099-01-01']")
+
+
 def test_cacheable_methods_mirror_the_cacheable_method_literal():
     """SEP-2549 weld: the hand-written Literal and the set derived from `MONOLITH_RESULTS` must agree."""
     assert methods.CACHEABLE_METHODS == frozenset(get_args(methods.CacheableMethod))
@@ -978,3 +1030,105 @@ def test_importing_the_module_builds_no_adapters_and_identical_rows_share_one():
     # Identical row values at another version: no new adapters.
     fresh.parse_server_result("ping", "2024-11-05", {})
     assert fresh._adapter.cache_info().currsize == 2
+
+
+# --- warm(): the opt-in prewarm helper ---
+
+_WARM_PROBE = """
+import dataclasses, json, sys
+import pydantic
+import mcp_types
+from mcp_types import methods
+
+report = methods.warm({args}) if {args!r} != "None" else None
+loaded_wire = sorted(m for m in sys.modules if m.startswith("mcp_types._v"))
+
+# From here on nothing may build: count model completions and adapter builds.
+built = {{"models": 0, "adapters": 0}}
+import pydantic._internal._model_construction as construction
+_complete = construction.complete_model_class
+def counting_complete(*a, **k):
+    built["models"] += 1
+    return _complete(*a, **k)
+construction.complete_model_class = counting_complete
+_init = pydantic.TypeAdapter._init_core_attrs
+def counting_init(self, *a, **k):
+    result = _init(self, *a, **k)
+    if result:
+        built["adapters"] += 1
+    return result
+pydantic.TypeAdapter._init_core_attrs = counting_init
+
+methods.parse_client_request(
+    "tools/call", "2026-07-28",
+    {{"name": "t", "arguments": {{}},
+      "_meta": {{"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                 "io.modelcontextprotocol/clientCapabilities": {{}}}}}},
+)
+methods.serialize_server_result(
+    "tools/list", "2026-07-28",
+    {{"tools": [], "cacheScope": "private", "ttlMs": 0, "resultType": "complete"}},
+)
+mcp_types.jsonrpc_message_adapter.validate_python({{"jsonrpc": "2.0", "id": 1, "method": "ping"}})
+print(json.dumps({{"report": dataclasses.asdict(report) if report else None, "wire": loaded_wire, "built": built}}))
+"""
+
+
+def _run_warm_probe(args: str) -> dict[str, Any]:
+    """Warm (with `args`) in a fresh interpreter, then report what the first messages built.
+
+    The probe counts builds through pydantic internals purely as a test observer.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", _WARM_PROBE.format(args=args)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+        # a pydantic plugin (e.g. logfire) building models is the environment's cost, not ours
+        env={**os.environ, "PYDANTIC_DISABLE_PLUGINS": "__all__"},
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_first_messages_build_validators_lazily_without_a_warm_up():
+    """SDK-defined: with no `warm()`, nothing is loaded or built up front; the first messages
+    at a version import that version's wire package and build what they route through."""
+    observed = _run_warm_probe("None")
+    assert observed["report"] is None
+    assert observed["wire"] == []  # no wire package loaded before the first message
+    assert observed["built"]["models"] > 0
+    assert observed["built"]["adapters"] > 0
+
+
+def test_warming_a_version_leaves_nothing_for_its_first_messages_to_build():
+    """SDK-defined: `warm(version)` imports that version's wire package and builds its models
+    and routing adapters up front, so the first messages at that version build nothing."""
+    observed = _run_warm_probe('"2026-07-28"')
+    assert observed["report"]["models"] > 0
+    assert observed["report"]["adapters"] > 0
+    assert observed["wire"] == ["mcp_types._v2026_07_28"]
+    assert observed["built"] == {"models": 0, "adapters": 0}
+
+
+def test_warm_is_idempotent_and_gates_unknown_versions():
+    """SDK-defined: repeating a `warm()` builds nothing more; an unknown version is a ValueError."""
+    baseline = methods.warm()  # the version-independent set (this process may already have built it)
+    assert baseline.elapsed_ms >= 0
+    methods.warm(all_versions=True)
+    again = methods.warm(all_versions=True)
+    assert (again.models, again.adapters) == (0, 0)
+    assert again.elapsed_ms >= 0
+    with pytest.raises(ValueError) as excinfo:
+        methods.warm("2099-01-01")
+    assert str(excinfo.value) == snapshot("version must be a known protocol version, got '2099-01-01'")
+
+
+def test_warm_report_is_an_immutable_dataclass():
+    """SDK-defined: the report is a frozen dataclass (fields read by name, arity free to grow),
+    not a tuple."""
+    report = methods.warm()
+    assert dataclasses.is_dataclass(report)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(report, "models", -1)

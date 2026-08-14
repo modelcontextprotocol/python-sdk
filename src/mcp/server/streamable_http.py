@@ -8,10 +8,8 @@ responses, with streaming support for long-running operations.
 
 import logging
 import re
-from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from functools import partial
 from http import HTTPStatus
 from typing import Any, Final
@@ -40,7 +38,15 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
+from mcp.server._transport_security_middleware import TransportSecurityMiddleware
+
+# Re-exported: the resumability contract's documented home is this module.
+from mcp.server.event_store import EventCallback as EventCallback
+from mcp.server.event_store import EventId as EventId
+from mcp.server.event_store import EventMessage as EventMessage
+from mcp.server.event_store import EventStore as EventStore
+from mcp.server.event_store import StreamId as StreamId
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
@@ -76,9 +82,9 @@ REQUEST_CANCELLED: Final = -32800
 # Pattern ensures entire string contains only valid characters by using ^ and $ anchors
 SESSION_ID_PATTERN = re.compile(r"^[\x21-\x7E]+$")
 
-# Type aliases
-StreamId = str
-EventId = str
+# The resumability contract (`EventStore` and friends) lives in the
+# transport-agnostic `mcp.server.event_store`; every name stays importable
+# from this module too.
 # An SSE event-dict as accepted by sse-starlette (`event`, `data`, `id`, `retry`).
 SSEEvent = dict[str, Any]
 
@@ -99,51 +105,6 @@ def check_accept_headers(request: Request) -> tuple[bool, bool]:
     has_sse = has_wildcard or any(t in (CONTENT_TYPE_SSE, "text/*") for t in accept_types)
 
     return has_json, has_sse
-
-
-@dataclass
-class EventMessage:
-    """A JSONRPCMessage with an optional event ID for stream resumability."""
-
-    message: JSONRPCMessage
-    event_id: str | None = None
-
-
-EventCallback = Callable[[EventMessage], Awaitable[None]]
-
-
-class EventStore(ABC):
-    """Interface for resumability support via event storage."""
-
-    @abstractmethod
-    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
-        """Stores an event for later retrieval.
-
-        Args:
-            stream_id: ID of the stream the event belongs to
-            message: The JSON-RPC message to store, or None for priming events
-
-        Returns:
-            The generated event ID for the stored event.
-        """
-        pass  # pragma: no cover
-
-    @abstractmethod
-    async def replay_events_after(
-        self,
-        last_event_id: EventId,
-        send_callback: EventCallback,
-    ) -> StreamId | None:
-        """Replays events that occurred after the specified event ID.
-
-        Args:
-            last_event_id: The ID of the last event the client received
-            send_callback: A callback function to send events to the client
-
-        Returns:
-            The stream ID of the replayed events, or None if no events were found.
-        """
-        pass  # pragma: no cover
 
 
 class StreamableHTTPServerTransport:

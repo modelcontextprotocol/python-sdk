@@ -43,9 +43,49 @@
 - `src/mcp/__init__.py` defines the public API surface via `__all__`. Adding a
   symbol there is a deliberate API decision, not a convenience re-export.
 - IMPORTANT: All imports go at the top of the file — inline imports hide
-  dependencies and obscure circular-import bugs. Only exception: when a
+  dependencies and obscure circular-import bugs. Exceptions: when a
   top-level import genuinely can't work (lazy-loading optional deps, or
-  tests that re-import a module).
+  tests that re-import a module), and the import-cost cases below.
+
+### Import cost
+
+Startup time is part of the API: `import mcp` is a lazy namespace and each
+entry point only loads what it uses. `tests/test_import_guards.py` pins
+which heavy dependencies each import path may load; a hoisted import that
+breaks one of these fails that test, so keep them off the paths below. Each
+such function-level or lazy import carries a one-line comment saying which
+stack it keeps out of which import path.
+
+- `mcp/__init__.py` resolves each of its exports on first access, and the
+  `mcp`, `mcp.client`, `mcp.server`, `mcp.server.auth`, `mcp.shared` and
+  `mcp.os` package inits resolve their *submodules* on attribute access -
+  both through `mcp.shared._lazy` (PEP 562 `__getattr__`, bound under
+  `if not TYPE_CHECKING:` so type checkers still flag typos); a bare
+  `import mcp` loads no pydantic, no `mcp_types` and no SDK stack.
+- Client code never imports `mcp.server.*`: the in-process transport pieces
+  are imported inside the connector that only a live in-process `Server`
+  triggers, and `Server`/`MCPServer` are `TYPE_CHECKING`-only names.
+- `httpx2` loads only for the HTTP client transports (`streamable_http`,
+  `sse`), on the first URL `Client`; a stdio client never imports it.
+- The web stack (`starlette`, `sse_starlette`, `uvicorn`) loads only when an
+  HTTP app is built (`streamable_http_app()`, `sse_app()`, `custom_route()`),
+  never from `mcp.server`, the lowlevel `Server`, `MCPServer` or stdio;
+  types those signatures name are either defined in web-framework-free
+  modules (`mcp.server.event_store`, `mcp.server.transport_security`,
+  `mcp.server.auth.access_token`) or spelled through the lazy `mcp.server`
+  namespace so `typing.get_type_hints()` still resolves them.
+- `opentelemetry` is imported on the first span; `cryptography` with the
+  first request-state codec (`MCPServer(...)` builds one), and the OAuth
+  provider models with the first auth-enabled server or authenticated
+  request - none of them at `import mcp.server*`; `jwt` only by the
+  client-credentials auth extension.
+- The per-version wire packages (`mcp_types._v2025_11_25`, `_v2026_07_28`)
+  load on the first message parsed for that protocol version (via the
+  `mcp_types.methods` surface maps), on the first rendered elicitation
+  schema, or via `mcp.warm(version)` - not on `import mcp_types`.
+- Pydantic models set `defer_build=True` (through `MCPModel`, the generated
+  wire bases, or `@deferred_model`): validators build on first use, not at
+  import; `mcp.warm()` is the opt-in way to build them up front.
 
 ## Testing
 

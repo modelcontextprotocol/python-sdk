@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 import anyio.to_thread
 from mcp_types import Annotations, Icon, InputRequiredResult
-from pydantic import BaseModel, Field, validate_call
+from mcp_types._deferred import deferred_model as _deferred_model
+from pydantic import BaseModel, ConfigDict, Field, validate_call
 
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
@@ -104,8 +105,12 @@ class ResourceSecurityError(ValueError):
         self.param = param
 
 
+@_deferred_model
 class ResourceTemplate(BaseModel):
     """A template for dynamically creating resources."""
+
+    # defer_build: build the validator on first use rather than at import (import-time cost).
+    model_config = ConfigDict(defer_build=True)
 
     uri_template: str = Field(description="URI template with parameters (e.g. weather://{city}/current)")
     name: str = Field(description="Name of the resource")
