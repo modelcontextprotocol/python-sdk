@@ -187,4 +187,7 @@ The register, voice and terminology decisions above, and every entry in
 Portuguese-speaking readers. To propose a change, edit this file or
 `glossary.json` in a pull request — ideally with a short good/bad example when
 the change is about phrasing; never edit the generated `pages/` or
-`notices.md` next to this file, which the next translation run overwrites.
+`notices.md` next to this file. The tool cannot tell a hand edit from its own
+output, so one would persist unchecked and be carried forward into later
+runs; a correction made here reaches the pages when they are regenerated with
+`translate --lang pt --pages …`.

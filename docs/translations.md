@@ -13,8 +13,8 @@ The API reference is not translated: the translated site links to the single Eng
 If a translated page and its English original disagree, the English page is correct. Every page of a translated site opens with one of three notes saying where it stands:
 
 - **Machine translation** — the page was translated automatically and links to its English original.
-- **Translation behind the English page** — the English original changed after the page was translated, so parts of it may be out of date until the translation catches up.
-- **Shown in English** — there is no current translation of the page, so you are reading the English text.
+- **Translation behind the English page** — the English original changed after the page was translated. You are still reading that translation, so parts of it may be out of date until it catches up; the note links to the current English page.
+- **Shown in English** — the page has not been translated yet, so you are reading the English text.
 
 ## How the translations are made
 

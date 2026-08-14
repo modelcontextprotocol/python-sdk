@@ -167,4 +167,7 @@ The register, voice and terminology decisions above, and every entry in `glossar
 are provisional pending review by native readers in Taiwan. To propose a change — a
 better rendering, a rule that produces awkward Chinese, a missing or wrong Taiwan form —
 edit this file or `glossary.json` in a pull request, ideally with a short good/bad
-example; never edit the generated `pages/` or `notices.md`, which the next run overwrites.
+example; never edit the generated `pages/` or `notices.md` next to this file. The tool
+cannot tell a hand edit from its own output, so one would persist unchecked and be
+carried forward into later runs; a correction made here reaches the pages when they are
+regenerated with `translate --lang zh-hant --pages …`.

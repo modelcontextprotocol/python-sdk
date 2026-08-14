@@ -155,4 +155,7 @@ section only fixes the conventions the glossary assumes:
 The register, voice and terminology decisions above are provisional,
 pending review by native Chinese-speaking readers. To propose a change, edit
 this file or `glossary.json` in a pull request; never edit the generated
-pages under `pages/`, which the next translation run overwrites.
+pages under `pages/` or `notices.md` next to this file. The tool cannot tell
+a hand edit from its own output, so one would persist unchecked and be
+carried forward into later runs; a correction made here reaches the pages
+when they are regenerated with `translate --lang zh --pages …`.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f671b445b16e4f99, 3983a560eb2cece7, 004b3ee918529d8c, c6e2debf1da06eb7, 81d412ed5f399f94]
+  sections: [f671b445b16e4f99, 3983a560eb2cece7, b5c8bd4f2b3903e5, c6e2debf1da06eb7, 81d412ed5f399f94]
   tool: 1
 ---
 # Traductions {#translations}
@@ -18,8 +18,8 @@ La référence de l’API n’est pas traduite : le site traduit renvoie vers l�
 Si une page traduite et son original anglais divergent, c’est la page anglaise qui a raison. Chaque page d’un site traduit s’ouvre sur l’une de ces trois mentions, qui indique où elle en est :
 
 - **Traduction automatique** — la page a été traduite automatiquement et renvoie vers son original anglais.
-- **Traduction en retard sur la page anglaise** — l’original anglais a changé après la traduction de la page ; certaines parties peuvent donc être obsolètes jusqu’à ce que la traduction rattrape son retard.
-- **Affichée en anglais** — il n’existe pas de traduction à jour de la page ; vous lisez donc le texte anglais.
+- **Traduction en retard sur la page anglaise** — l’original anglais a changé après la traduction de la page. Vous lisez toujours cette traduction ; certaines parties peuvent donc être obsolètes jusqu’à ce qu’elle rattrape son retard ; la mention renvoie vers la page anglaise actuelle.
+- **Affichée en anglais** — la page n’a pas encore été traduite ; vous lisez donc le texte anglais.
 
 ## Comment les traductions sont produites {#how-the-translations-are-made}
 

@@ -65,14 +65,21 @@ def test_language_nav_titles_sections_from_the_recorded_page_titles_but_keeps_li
     )
 
 
-def test_alternate_lists_english_at_the_root_then_each_language_as_code_labelled_path_only_links() -> None:
-    """Tool-defined: the switcher is the same on every site, labels each entry `code - name`, links by the
-    code and announces the hreflang, and never names a host, so previews work."""
+def test_alternate_lists_english_then_each_language_as_code_labelled_links_relative_to_the_site_built() -> None:
+    """Tool-defined: the switcher labels each entry `code - name` and announces the hreflang; its links are
+    relative to the site the config builds (the language sites under the English one, which is one level up
+    from them), so the theme renders them page-relative and no host or path prefix is ever named."""
     languages = [build_config.Language("zh", "简体中文", "zh", "zh-Hans")]
     assert build_config.alternate(languages) == snapshot(
         [
-            {"name": "en - English", "link": "/", "lang": "en"},
-            {"name": "zh - 简体中文", "link": "/zh/", "lang": "zh-Hans"},
+            {"name": "en - English", "link": "./", "lang": "en"},
+            {"name": "zh - 简体中文", "link": "zh/", "lang": "zh-Hans"},
+        ]
+    )
+    assert build_config.alternate(languages, "zh") == snapshot(
+        [
+            {"name": "en - English", "link": "../", "lang": "en"},
+            {"name": "zh - 简体中文", "link": "../zh/", "lang": "zh-Hans"},
         ]
     )
 
@@ -80,8 +87,8 @@ def test_alternate_lists_english_at_the_root_then_each_language_as_code_labelled
 def test_lang_config_builds_the_staged_tree_into_site_code_without_an_api_reference(tmp_path: Path) -> None:
     """Tool-defined: `--lang ja` writes mkdocs.ja.gen.yml pointing Zensical at the staged tree (repo-relative),
     building into site/ja/ under the ja URL prefix and theme language, with mkdocstrings dropped, the API
-    entry turned into a link to the English reference, section titles from the `titles.json` staged beside
-    the tree, and the shared switcher."""
+    entry turned into a link up to the English reference, section titles from the `titles.json` staged
+    beside the tree, and the switcher with links relative to this site."""
     write_repo(tmp_path)
 
     written = build_config.build_config("ja", tmp_path)
@@ -102,12 +109,12 @@ def test_lang_config_builds_the_staged_tree_into_site_code_without_an_api_refere
                     {"サーバー": ["servers/index.md", "servers/tools.md"]},
                     {"Elsewhere": [{"Spec": "https://modelcontextprotocol.io/"}]},
                     "troubleshooting.md",
-                    {"API Reference": "/api/mcp/"},
+                    {"API Reference": "../api/mcp/"},
                 ],
                 "extra": {
                     "alternate": [
-                        {"name": "en - English", "link": "/", "lang": "en"},
-                        {"name": "ja - 日本語", "link": "/ja/", "lang": "ja"},
+                        {"name": "en - English", "link": "../", "lang": "en"},
+                        {"name": "ja - 日本語", "link": "../ja/", "lang": "ja"},
                     ]
                 },
             },

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f671b445b16e4f99, 3983a560eb2cece7, 004b3ee918529d8c, c6e2debf1da06eb7, 81d412ed5f399f94]
+  sections: [f671b445b16e4f99, 3983a560eb2cece7, b5c8bd4f2b3903e5, c6e2debf1da06eb7, 81d412ed5f399f94]
   tool: 1
 ---
 # Übersetzungen {#translations}
@@ -18,8 +18,8 @@ Die API-Referenz wird nicht übersetzt: Die übersetzte Website verlinkt auf die
 Wenn eine übersetzte Seite und ihr englisches Original voneinander abweichen, gilt die englische Seite. Jede Seite einer übersetzten Website beginnt mit einem von drei Hinweisen, der ihren Stand angibt:
 
 - **Maschinelle Übersetzung** – die Seite wurde automatisch übersetzt und verlinkt auf ihr englisches Original.
-- **Übersetzung hinter der englischen Seite zurück** – das englische Original hat sich geändert, nachdem die Seite übersetzt wurde; Teile davon können also veraltet sein, bis die Übersetzung nachzieht.
-- **Auf Englisch angezeigt** – es gibt keine aktuelle Übersetzung der Seite, deshalb liest du den englischen Text.
+- **Übersetzung hinter der englischen Seite zurück** – das englische Original hat sich geändert, nachdem die Seite übersetzt wurde. Du liest weiterhin diese Übersetzung, Teile davon können also veraltet sein, bis sie nachzieht; der Hinweis verlinkt auf die aktuelle englische Seite.
+- **Auf Englisch angezeigt** – die Seite wurde noch nicht übersetzt, deshalb liest du den englischen Text.
 
 ## Wie die Übersetzungen entstehen {#how-the-translations-are-made}
 

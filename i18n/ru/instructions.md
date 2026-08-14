@@ -167,4 +167,7 @@ Every decision in this file, and every entry in `glossary.json`, is
 provisional pending review by native Russian-speaking developers. To propose a
 change, edit this file or `glossary.json` in a pull request, ideally with a
 short good/bad example; never edit the generated pages under `pages/` or
-`notices.md` next to this file, which the next translation run overwrites.
+`notices.md` next to this file. The tool cannot tell a hand edit from its own
+output, so one would persist unchecked and be carried forward into later
+runs; a correction made here reaches the pages when they are regenerated with
+`translate --lang ru --pages …`.

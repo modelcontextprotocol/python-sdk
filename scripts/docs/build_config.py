@@ -11,7 +11,7 @@ instead: built from the tree `scripts/docs/translations.py stage` assembled
 under `.build/i18n/CODE/docs/` into `site/CODE/`, with no API reference of its
 own (its nav entry links the English one) and nav titles taken from the staged
 pages (the headings `stage` recorded beside the tree). Every config, English
-included, carries the same language switcher (`extra.alternate`) built from
+included, carries the language switcher (`extra.alternate`) built from
 `i18n/languages.yml`, which this module also loads for the translation tool.
 
 Usage:
@@ -38,12 +38,12 @@ ROOT = Path(__file__).parent.parent.parent
 LANGUAGES_FILE = "i18n/languages.yml"
 
 # A language site carries no API reference; its nav entry links the English
-# one, which opens on the first package's index (see gen_ref_pages).
-API_REFERENCE_URL = "/api/mcp/"
+# one (a sibling site one level up), which opens on the first package's index.
+API_REFERENCE_URL = "../api/mcp/"
 
-# A nav value with a URL scheme (https:, mailto:, ...) or a leading `/` is a
-# link, not a page under docs_dir (MkDocs' own classification).
-_LINK = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:|/")
+# A nav value with a URL scheme (https:, mailto:, ...), a leading `/`, or a
+# leading `../` (out of this site) is a link, not a page under docs_dir.
+_LINK = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:|/|\.\./")
 
 
 @dataclass(frozen=True)
@@ -123,16 +123,16 @@ def language_nav(nav: list[NavItem], titles: dict[str, str]) -> list[NavItem]:
     return entries
 
 
-def alternate(languages: list[Language]) -> list[dict[str, str]]:
-    """The `extra.alternate` switcher: English at the site root, then each language site.
+def alternate(languages: list[Language], lang: str | None = None) -> list[dict[str, str]]:
+    """The `extra.alternate` switcher of the English site, or with `lang` of that language site.
 
-    Each label leads with the site's code (`ja - 日本語`); links are path-only
-    so they follow whatever host serves the build.
+    Each label leads with the site's code (`ja - 日本語`). Links are relative
+    to the site being built (English one level up from a language site), so
+    the theme's `url` filter makes them page-relative and a mirror keeps working.
     """
-    entries = [{"name": "en - English", "link": "/", "lang": "en"}]
-    entries += [
-        {"name": f"{lang.code} - {lang.name}", "link": f"/{lang.code}/", "lang": lang.hreflang} for lang in languages
-    ]
+    up = "" if lang is None else "../"
+    entries = [{"name": "en - English", "link": up or "./", "lang": "en"}]
+    entries += [{"name": f"{o.code} - {o.name}", "link": f"{up}{o.code}/", "lang": o.hreflang} for o in languages]
     return entries
 
 
@@ -185,7 +185,7 @@ def build_config(lang: str | None = None, root: Path = ROOT) -> Path:
     except ValueError as exc:
         raise SystemExit(f"build_config: {exc}") from exc
     if languages:  # a switcher listing English alone is noise
-        config.setdefault("extra", {})["alternate"] = alternate(languages)
+        config.setdefault("extra", {})["alternate"] = alternate(languages, lang)
 
     if lang is None:
         api_nav: list[NavItem] = gen_ref_pages.generate()

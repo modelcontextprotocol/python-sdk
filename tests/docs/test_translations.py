@@ -355,6 +355,14 @@ def main(): ...  # (1)!
 """)
 
 
+def test_unwrap_ends_the_reply_with_exactly_the_trailing_newlines_of_the_english() -> None:
+    """Tool-defined: a reply with newlines to spare, or none, is stored ending the way its English page ends,
+    so the last section's bytes do not depend on how the model happened to close its reply."""
+    assert t.unwrap("# Title\n", "```markdown\n# タイトル\n```\n\n\n") == "# タイトル\n"
+    assert t.unwrap("# Title\n", "# タイトル\n\n") == "# タイトル\n"
+    assert t.unwrap("# Title\n", "# タイトル") == "# タイトル\n"
+
+
 @pytest.mark.parametrize(
     ("reply", "findings"),
     [
@@ -520,19 +528,34 @@ def test_validate_counts_list_items_and_table_rows_whatever_the_language_of_a_pl
     )
 
 
+@pytest.mark.parametrize(
+    ("glossary", "message"),
+    [
+        pytest.param({"keep": [], "terms": [{"source": "a", "target": "b", "enforce": True}]}, "TypeError(", id="key"),
+        pytest.param({"keep": [], "terms": ["tool"]}, "ValueError(", id="entry-string"),
+        pytest.param({"keep": "MCP", "terms": []}, "`keep` must be a list of strings\n", id="keep-string"),
+        pytest.param(
+            {"keep": [], "terms": [{"source": "host", "target": "Host", "avoid": "Gastgeber"}]},
+            "`terms` entry {'source': 'host', 'target': 'Host', 'avoid': 'Gastgeber'} needs string"
+            " `source`/`target`/`note` and a list `avoid`\n",
+            id="avoid-string",
+        ),
+    ],
+)
 def test_glossary_of_the_wrong_shape_stops_translate_with_exit_2_but_never_breaks_stage(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], glossary: dict[str, object], message: str
 ) -> None:
-    """Tool-defined: a glossary entry with a key `Term` lacks stops the command that prompts with it (exit 2,
-    naming the file); the site build's `stage` never reads prompt inputs, so a broken one cannot fail a build."""
+    """Tool-defined: a glossary entry with a key `Term` lacks, an entry that is no object, or a bare string
+    where a list belongs, stops the command that prompts with it (exit 2, naming the file and the field) before
+    any page work; the site build's `stage` never reads prompt inputs, so a broken one cannot fail a build."""
     root = make_repo(tmp_path)
-    glossary = root / "i18n" / "ja" / "glossary.json"
-    write(glossary, json.dumps({"keep": [], "terms": [{"source": "a", "target": "b", "enforce": True}]}))
+    path = root / "i18n" / "ja" / "glossary.json"
+    write(path, json.dumps(glossary))
 
     code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=FakeTranslator([]))
 
     assert (code, out) == (2, "")
-    assert err.startswith(f"translations: {glossary}: TypeError(")  # the rest is the interpreter's wording
+    assert err.startswith(f"translations: {path}: {message}")  # an exception's own text is the interpreter's
     assert run(capsys, root, "stage", "--lang", "ja") == (0, "staged ja at .build/i18n/ja/docs\n", "")
 
 
@@ -1078,37 +1101,73 @@ How this works.
     )
 
 
-def test_stage_serves_an_outdated_translation_with_todays_structure_and_english_when_it_no_longer_fits(
+def test_stage_serves_an_outdated_translation_exactly_as_generated_and_a_missing_one_in_english(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Tool-defined: after English-only edits under published translations, a page whose English prose changed
-    keeps its translation under the translated "outdated" notice, a page whose English structure changed (a
-    heading added, so ids cannot be pinned) is staged in English, and the tool says so."""
+    """Tool-defined: after English-only edits under published translations, a page whose English sections were
+    reordered, edited and added to is staged byte for byte as it was generated (its ids and code were pinned
+    against its own English then), under the translated "outdated" notice linking today's English page; a page
+    whose generated file is unusable is staged in English under the "english" notice."""
     root = make_repo(tmp_path)
     translate_all(capsys, root)
-    write(root / "docs" / "tools.md", TOOLS.replace("Raise to signal a failure.", "Raise `ToolError` to fail."))
-    write(root / "docs" / "index.md", INDEX + "\n## More\n\nText.\n")
+    generated = t.split_front_matter((root / "i18n" / "ja" / "pages" / "tools.md").read_text(encoding="utf-8"))[1]
+    intro, first_tool, errors = t.sections(TOOLS.replace("Raise to signal a failure.", "Raise `ToolError`."))
+    write(root / "docs" / "tools.md", intro + errors + first_tool + "\n## More\n\nText.\n")
+    index = root / "i18n" / "ja" / "pages" / "index.md"
+    write(index, index.read_text(encoding="utf-8").replace("  tool: 1\n", ""))
 
     code, out, err = run(capsys, root, "stage", "--lang", "ja")
 
-    assert (code, out, err) == snapshot(
-        (
-            0,
-            "staged ja at .build/i18n/ja/docs\n",
-            "index.md: staged in English (2 headings vs 3 in the English: keep every heading, and no others)\n",
-        )
-    )
-    staged = sorted((root / ".build" / "i18n" / "ja" / "docs").glob("*.md"))
-    notice_lines = {path.name: path.read_text(encoding="utf-8").split("\n")[2] for path in staged}
-    assert notice_lines == snapshot(
-        {
-            "index.md": '!!! note "英語で表示"',
-            "migration.md": '!!! note "英語で表示"',
-            "tools.md": '!!! note "英語版より古い翻訳"',
-            "translations.md": '??? note "機械翻訳"',
-        }
-    )
-    assert staged_page(root, "tools.md").endswith("## エラー {#errors}\n\n失敗を伝えるには例外を送出します。\n")
+    assert (code, out, err) == (0, "staged ja at .build/i18n/ja/docs\n", "")
+    staged = staged_page(root, "tools.md")
+    assert staged == snapshot("""\
+# ツール {#tools}
+
+!!! note "英語版より古い翻訳"
+
+    一部が古い可能性があります。[英語版](../tools/)と比べてください。
+
+**ツール**はモデルが呼び出せる関数です。[ホーム](index.md#install)から始めましょう。
+
+## 最初のツール {#your-first-tool}
+
+```python title="server.py"
+--8<-- "docs_src/server.py"
+```
+
+!!! note "注意"
+    どのツールも `async` に対応しています。
+
+## エラー {#errors}
+
+失敗を伝えるには例外を送出します。
+""")
+    assert staged.split("\n\n", 3)[3] == generated.split("\n\n", 1)[1]  # after the notice: the generated body
+    assert staged_page(root, "index.md").split("\n")[:3] == ["# Home", "", '!!! note "英語で表示"']
+
+
+def test_stage_keeps_showing_the_generated_code_block_after_its_english_changes_until_the_page_is_retranslated(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tool-defined, and the price of serving pages as generated: an edit inside an English code fence reaches a
+    language site only with the next translate run (which copies the fence from the English whatever the model
+    replies); until then the page shows the fence it was generated with, under the "outdated" notice."""
+    root = make_repo(tmp_path)
+    translate_all(capsys, root)
+    write(root / "docs" / "tools.md", TOOLS.replace('title="server.py"', 'title="app.py"'))
+
+    code, _, err = run(capsys, root, "stage", "--lang", "ja")
+
+    staged = staged_page(root, "tools.md")
+    assert (code, err, staged.split("\n")[2]) == (0, "", '!!! note "英語版より古い翻訳"')
+    assert ('title="server.py"' in staged, 'title="app.py"' in staged) == (True, False)
+
+    assert run(capsys, root, "translate", "--lang", "ja", translator=FakeTranslator([TOOLS_JA]))[0] == 0
+    code, _, err = run(capsys, root, "stage", "--lang", "ja")
+
+    staged = staged_page(root, "tools.md")
+    assert (code, err, staged.split("\n")[2]) == (0, "", '??? note "機械翻訳"')
+    assert ('title="server.py"' in staged, 'title="app.py"' in staged) == (False, True)
 
 
 def test_notice_links_climb_from_the_staged_page_to_the_english_page_and_this_sites_translations_page() -> None:
@@ -1127,64 +1186,6 @@ def test_notice_links_climb_from_the_staged_page_to_the_english_page_and_this_si
 ??? note "The 'outdated' one"
 
     Compare the [English page](../../servers/); see [why](../translations.md).\
-""")
-
-
-def test_stage_lays_out_reordered_and_removed_sections_by_their_recorded_hashes_never_by_position(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Tool-defined: swapping two English `##` sections (each with its own code block) or removing one leaves
-    every remaining section its recorded translation, so the staged page follows today's order with each code
-    block under its own prose and each id on its own heading, under the "outdated" notice."""
-    root = make_repo(tmp_path)
-    tools = TOOLS.replace(
-        "Raise to signal a failure.\n", "Raise to signal a failure:\n\n```python\nraise ValueError\n```\n"
-    )
-    tools_ja = TOOLS_JA.replace("例外を送出します。\n", "例外を送出します：\n\n```python\nraise ValueError\n```\n")
-    write(root / "docs" / "tools.md", tools)
-    fake = FakeTranslator([INDEX_JA, tools_ja, TRANSLATIONS_JA, NOTICES_JA])
-    assert run(capsys, root, "translate", "--lang", "ja", translator=fake)[0] == 0
-    intro, first_tool, errors = t.sections(tools)
-    write(root / "docs" / "tools.md", intro + errors + first_tool)
-    write(root / "docs" / "index.md", t.sections(INDEX)[0])
-
-    code, out, err = run(capsys, root, "stage", "--lang", "ja")
-
-    assert (code, out, err) == (0, "staged ja at .build/i18n/ja/docs\n", "")
-    assert staged_page(root, "tools.md") == snapshot("""\
-# ツール {#tools}
-
-!!! note "英語版より古い翻訳"
-
-    一部が古い可能性があります。[英語版](../tools/)と比べてください。
-
-**ツール**はモデルが呼び出せる関数です。[ホーム](index.md#install)から始めましょう。
-
-## エラー {#errors}
-
-失敗を伝えるには例外を送出します：
-
-```python
-raise ValueError
-```
-
-## 最初のツール {#your-first-tool}
-
-```python title="server.py"
---8<-- "docs_src/server.py"
-```
-
-!!! note "注意"
-    どのツールも `async` に対応しています。
-""")
-    assert staged_page(root, "index.md") == snapshot("""\
-# ホーム {#home}
-
-!!! note "英語版より古い翻訳"
-
-    一部が古い可能性があります。[英語版](../)と比べてください。
-
-MCP へようこそ。[ツール](tools.md#errors)または [API](../api/mcp/) を参照してください。
 """)
 
 

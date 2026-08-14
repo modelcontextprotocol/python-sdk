@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f671b445b16e4f99, 3983a560eb2cece7, 004b3ee918529d8c, c6e2debf1da06eb7, 81d412ed5f399f94]
+  sections: [f671b445b16e4f99, 3983a560eb2cece7, b5c8bd4f2b3903e5, c6e2debf1da06eb7, 81d412ed5f399f94]
   tool: 1
 ---
 # Traduções {#translations}
@@ -18,8 +18,8 @@ A referência da API não é traduzida: o site traduzido aponta para a única re
 Se uma página traduzida e seu original em inglês discordarem, a página em inglês é a correta. Toda página de um site traduzido abre com uma de três notas dizendo em que pé ela está:
 
 - **Tradução automática** — a página foi traduzida automaticamente e tem um link para o original em inglês.
-- **Tradução atrás da página em inglês** — o original em inglês mudou depois que a página foi traduzida, então partes dela podem estar desatualizadas até a tradução alcançá-lo.
-- **Exibida em inglês** — não há tradução atual da página, então você está lendo o texto em inglês.
+- **Tradução atrás da página em inglês** — o original em inglês mudou depois que a página foi traduzida. Você ainda está lendo essa tradução, então partes dela podem estar desatualizadas até ela alcançar o original; a nota tem um link para a página atual em inglês.
+- **Exibida em inglês** — a página ainda não foi traduzida, então você está lendo o texto em inglês.
 
 ## Como as traduções são feitas {#how-the-translations-are-made}
 

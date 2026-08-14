@@ -1,5 +1,9 @@
 """Machine-translate the documentation and stage each language site for the build.
 
+Internal docs tooling, not part of the SDK. Maintained entirely by LLM; expect
+breaking changes to its CLI, formats and internals at any time. Nothing here is
+a supported interface.
+
 English under `docs/` is the source of truth. Every language in
 `i18n/languages.yml` gets generated pages under `i18n/<code>/pages/`, driven by
 that language's hand-written `instructions.md` and `glossary.json` plus the
@@ -304,6 +308,11 @@ class Glossary:
     terms: Sequence[Term]
 
 
+def _strings(value: object) -> bool:
+    """Whether `value` is a JSON list of strings (a bare string is not)."""
+    return isinstance(value, list) and all(isinstance(item, str) for item in cast("list[object]", value))
+
+
 def load_glossary(path: Path) -> Glossary:
     """Parse `glossary.json`: `keep` strings and `terms` objects with the `Term` fields.
 
@@ -312,9 +321,20 @@ def load_glossary(path: Path) -> Glossary:
     """
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        return Glossary(tuple(raw["keep"]), tuple(Term(**entry) for entry in raw["terms"]))
-    except (OSError, json.JSONDecodeError, TypeError, KeyError) as exc:
+        keep, entries = raw["keep"], [dict(entry) for entry in raw["terms"]]
+    except (OSError, json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
         raise ConfigError(f"{path}: {exc!r}") from exc
+    if not _strings(keep):
+        raise ConfigError(f"{path}: `keep` must be a list of strings")
+    for entry in entries:
+        texts = all(isinstance(entry.get(key, ""), str) for key in ("source", "target", "note"))
+        if not (texts and _strings(entry.get("avoid", []))):
+            raise ConfigError(f"{path}: `terms` entry {entry} needs string `source`/`target`/`note` and a list `avoid`")
+    try:
+        terms = tuple(Term(**entry) for entry in entries)  # a missing or unknown key is a TypeError
+    except TypeError as exc:
+        raise ConfigError(f"{path}: {exc!r}") from exc
+    return Glossary(tuple(keep), terms)
 
 
 @dataclass(frozen=True)
@@ -365,7 +385,6 @@ class Repo:
     prose_pages: list[str]
     translatable: list[str]
     renderer: markdown.Markdown
-    rendered_ids: dict[str, list[str]] = field(init=False, default_factory=dict[str, list[str]], repr=False)
 
     def language(self, code: str) -> Language:
         for language in self.registry.languages:
@@ -391,20 +410,16 @@ class Repo:
     def heading_ids(self, body: str) -> list[str]:
         """The ids the site renderer gives the page's headings, paired one-to-one with `parse_headings(body)`.
 
-        Rendered once per distinct body: every language stages the same English pages.
-
         Raises:
             PageError: The renderer sees headings the source scan does not (setext, indented, HTML).
         """
-        if body not in self.rendered_ids:
-            self.renderer.reset()
-            self.renderer.convert(body)
-            tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
-            ids, found = [str(token["id"]) for token in _flatten(tokens)], parse_headings(body)
-            if len(ids) != len(found):
-                raise PageError(f"the page renders {len(ids)} headings but {len(found)} are ATX headings at column 0")
-            self.rendered_ids[body] = ids
-        return self.rendered_ids[body]
+        self.renderer.reset()
+        self.renderer.convert(body)
+        tokens = cast("list[dict[str, Any]]", getattr(self.renderer, "toc_tokens", []))
+        ids, found = [str(token["id"]) for token in _flatten(tokens)], parse_headings(body)
+        if len(ids) != len(found):
+            raise PageError(f"the page renders {len(ids)} headings but {len(found)} are ATX headings at column 0")
+        return ids
 
 
 def _flatten(tokens: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -680,13 +695,11 @@ class Mismatch:
 
 
 def unwrap(english: str, reply: str) -> str:
-    """Drop a code fence wrapping the whole reply, and match the English trailing newline."""
+    """Drop a code fence wrapping the whole reply, and end it with exactly the English's trailing newlines."""
     match = None if english.startswith(("```", "~~~")) else _WRAPPER.match(reply)
     if match and match["close"][0] == match["open"][0] and len(match["close"]) >= len(match["open"]):
         reply = match["body"]
-    if english.endswith("\n") and not reply.endswith("\n"):
-        reply += "\n"
-    return reply
+    return reply.rstrip("\n") + english[len(english.rstrip("\n")) :]
 
 
 def reimpose(english: str, ids: Sequence[str], reply: str) -> str | Mismatch:
@@ -937,23 +950,16 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
 # ---- stage ----
 
 
-def serve(repo: Repo, state: PageState) -> tuple[str, NoticeKind]:
-    """What a language site shows for a page: its translation with today's English structure, else English."""
+def serve(state: PageState) -> tuple[str, NoticeKind]:
+    """What a language site shows for a page: its stored translation exactly as generated, else English.
+
+    A generated page had its heading ids and code pinned against the English it
+    was made from, so served verbatim it can never pair prose with another
+    section's code or ids; bringing it up to date is the translate run's job.
+    """
     if state.translation is None:
         return state.english, "english"
-    if state.changed:  # an edited section has no translation: today's structure goes onto the stored page as it is
-        body = state.translation.body
-    else:  # sections only removed or reordered, if that: each keeps its translation, laid out in today's order
-        stored = recorded_sections(state.translation)
-        body = "".join(stored[value] for value in state.hashes)
-    try:
-        result = reimpose(state.english, repo.heading_ids(state.english), body)
-    except PageError as exc:
-        result = Mismatch([str(exc)])
-    if isinstance(result, Mismatch):
-        print(f"{state.page.key}: staged in English ({'; '.join(result.findings)})", file=sys.stderr)
-        return state.english, "english"
-    return result, "translated" if state.status == "current" else "outdated"
+    return state.translation.body, "translated" if state.status == "current" else "outdated"
 
 
 def english_site(page: str) -> str:
@@ -1004,7 +1010,8 @@ def stage(repo: Repo, language: Language) -> Path:
     maintainer edits by hand can break a site build.
     """
     states = {state.page.key: state for state in map(classify, repo.pages(language))}
-    notices = parse_notices(serve(repo, states.pop(NOTICES_PAGE))[0])
+    notices_page = states.pop(NOTICES_PAGE)  # a kind its translation lacks (added since) stays English
+    notices = {**parse_notices(notices_page.english), **parse_notices(serve(notices_page)[0])}
     target, titles_file = staged_docs_dir(language.code, repo.root), staged_titles_file(language.code, repo.root)
     # The titles file goes last, so it only ever sits beside a complete tree.
     titles_file.unlink(missing_ok=True)
@@ -1016,7 +1023,7 @@ def stage(repo: Repo, language: Language) -> Path:
     shutil.copytree(repo.docs, target, ignore=left_out)
     titles: dict[str, str] = {}
     for page in repo.prose_pages:  # a page excluded from translation is staged as its English page
-        body, kind = serve(repo, states[page]) if page in states else (read_english(repo.docs / page), "english")
+        body, kind = serve(states[page]) if page in states else (read_english(repo.docs / page), "english")
         # The one API reference is the English site's.
         body = _API_LINK.sub(lambda match: f"]({english_site(page)}{page_url(match['page'])}", body)
         if title := page_title(body):

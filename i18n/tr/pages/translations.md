@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [f671b445b16e4f99, 3983a560eb2cece7, 004b3ee918529d8c, c6e2debf1da06eb7, 81d412ed5f399f94]
+  sections: [f671b445b16e4f99, 3983a560eb2cece7, b5c8bd4f2b3903e5, c6e2debf1da06eb7, 81d412ed5f399f94]
   tool: 1
 ---
 # Çeviriler {#translations}
@@ -18,8 +18,8 @@ API başvurusu çevrilmez: çevrilmiş site, tek olan İngilizce başvuruya bağ
 Çevrilmiş bir sayfa ile İngilizce aslı çelişirse doğru olan İngilizce sayfadır. Çevrilmiş bir sitenin her sayfası, sayfanın durumunu belirten üç nottan biriyle başlar:
 
 - **Makine çevirisi** — sayfa otomatik olarak çevrilmiştir ve İngilizce aslına bağlantı verir.
-- **İngilizce sayfanın gerisinde kalan çeviri** — İngilizce aslı, sayfa çevrildikten sonra değişmiştir; bu yüzden çeviri yetişene kadar bazı bölümleri güncel olmayabilir.
-- **İngilizce gösteriliyor** — sayfanın güncel bir çevirisi yoktur; bu yüzden İngilizce metni okuyorsunuz.
+- **İngilizce sayfanın gerisinde kalan çeviri** — İngilizce aslı, sayfa çevrildikten sonra değişmiştir. Hâlâ o çeviriyi okuyorsunuz; bu yüzden çeviri yetişene kadar bazı bölümleri güncel olmayabilir. Not, güncel İngilizce sayfaya bağlantı verir.
+- **İngilizce gösteriliyor** — sayfa henüz çevrilmemiştir; bu yüzden İngilizce metni okuyorsunuz.
 
 ## Çevirilerin hazırlanışı {#how-the-translations-are-made}
 
