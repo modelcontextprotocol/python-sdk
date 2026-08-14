@@ -46,10 +46,11 @@
   dependencies and obscure circular-import bugs. Only exception: when a
   top-level import genuinely can't work (lazy-loading optional deps, or
   tests that re-import a module).
-- Always pass `encoding=` (normally `"utf-8"`) to text-mode `open()`,
-  `Path.read_text()`/`write_text()`, `tempfile` and `subprocess` text pipes: the
-  default is the process locale, not UTF-8. CI enforces this by running pytest with
-  `PYTHONWARNDEFAULTENCODING=1` (PEP 597), which makes any omission an error under the `error` filter.
+- Always pass `encoding=` to text-mode `open()`, `Path.read_text()`/`write_text()`,
+  `tempfile` and `subprocess` text pipes — normally `"utf-8"`, or `"locale"` when the
+  platform encoding is genuinely intended; the default is the process locale, not UTF-8.
+  CI and `scripts/test` run pytest with `PYTHONWARNDEFAULTENCODING=1` (PEP 597), which
+  makes any omission an error under the `error` filter.
 
 ## Testing
 
@@ -95,7 +96,7 @@ CI requires 100% (`fail_under = 100`, `branch = true`).
 
   ```bash
   uv run --frozen coverage erase
-  uv run --frozen coverage run -m pytest tests/path/test_foo.py
+  PYTHONWARNDEFAULTENCODING=1 uv run --frozen coverage run -m pytest tests/path/test_foo.py
   uv run --frozen coverage combine
   uv run --frozen coverage report --include='src/mcp/path/foo.py' --fail-under=0
   # UV_FROZEN=1 propagates --frozen to the uv subprocess strict-no-cover spawns

@@ -495,10 +495,9 @@ def test_bare_import_mcp_binds_the_types_submodule():
     # A regression hangs forever, so the bound only has to beat never (matches the suite's
     # other subprocess.run calls).
     result = subprocess.run(
-        [sys.executable, "-c", "import mcp; print(mcp.types.Tool.__name__)"],
+        [sys.executable, "-X", "utf8", "-c", "import mcp; print(mcp.types.Tool.__name__)"],
         capture_output=True,
         encoding="utf-8",
-        errors="replace",
         check=False,
         timeout=20,
     )

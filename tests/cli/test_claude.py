@@ -141,16 +141,27 @@ def test_existing_env_vars_preserved_without_new(config_dir: Path):
 
 
 def test_other_servers_preserved(config_dir: Path):
-    """Installing a new server must not clobber existing entries, non-ASCII text included (UTF-8, BOM tolerated)."""
+    """Installing a new server must not clobber existing entries, non-ASCII text included (the file is UTF-8)."""
     other = {"command": "C:\\Users\\张伟\\uv.exe", "env": {"CITY": "Zürich"}}
     config_file = config_dir / "claude_desktop_config.json"
-    config_file.write_text(json.dumps({"mcpServers": {"文件": other}}, ensure_ascii=False), encoding="utf-8-sig")
+    config_file.write_text(json.dumps({"mcpServers": {"文件": other}}, ensure_ascii=False), encoding="utf-8")
 
     assert update_claude_config(file_spec="s.py:app", server_name="s")
 
     config = json.loads(config_file.read_text(encoding="utf-8"))
     assert set(config["mcpServers"]) == {"文件", "s"}
     assert config["mcpServers"]["文件"] == other
+
+
+@pytest.mark.parametrize("codec", ["utf-8-sig", "utf-16"])
+def test_existing_config_with_a_bom_is_accepted(config_dir: Path, codec: str):
+    """A config saved by Windows tooling (UTF-8 with BOM, or PowerShell 5's UTF-16 `>`) can still be installed into."""
+    config_file = config_dir / "claude_desktop_config.json"
+    config_file.write_bytes(json.dumps({"mcpServers": {"other": {"command": "x"}}}).encode(codec))
+
+    assert update_claude_config(file_spec="s.py:app", server_name="s")
+
+    assert set(json.loads(config_file.read_bytes())["mcpServers"]) == {"other", "s"}
 
 
 def test_raises_when_config_dir_missing(monkeypatch: pytest.MonkeyPatch):
