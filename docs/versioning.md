@@ -10,7 +10,7 @@ Releases follow [Semantic Versioning](https://semver.org/) semantics, written in
 * **`X` (minor)** — new functionality and every non-breaking change.
 * **`Y` (patch)** — bug fixes only.
 * **The leading `2` (major)** — the only place a breaking change to the public API can land.
-* **Pre-releases** are cut from `main` as `2.X.YaN` (alpha), `2.X.YbN` (beta), and `2.X.YrcN` (release candidate). Installers prefer final releases by default (PEP 440's [pre-release handling](https://peps.python.org/pep-0440/#handling-of-pre-releases)), so an unpinned `pip install mcp` stays on a stable release; you get a pre-release by asking for one, for example with an exact pin or `--pre`.
+* **Pre-releases** are cut from `main` as `2.X.YaN` (alpha), `2.X.YbN` (beta), and `2.X.YrcN` (release candidate). Installers prefer final releases by default (PEP 440's [pre-release handling](https://peps.python.org/pep-0440/#handling-of-pre-releases)), so an unpinned `pip install mcp` stays on a stable release whenever one satisfies your requirement; you get a pre-release by asking for one, for example with an exact pin or `--pre`.
 
 `mcp` and its wire-types package [`mcp-types`](https://pypi.org/project/mcp-types/) release in lockstep at the same version: each `mcp` release requires exactly the matching `mcp-types` (`mcp-types==2.X.Y`).
 

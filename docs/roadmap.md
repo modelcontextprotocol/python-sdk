@@ -15,9 +15,9 @@ Open on that board:
 
 ## Extensions and optional client auth not yet implemented
 
-The 2026-07-28 revision moved some functionality out of the core protocol into named extensions, and defines client-side auth mechanisms an SDK may support. The ones this SDK does not implement yet are exactly the entries in the conformance suite's expected-failures baseline, [`.github/actions/conformance/expected-failures.yml`](https://github.com/modelcontextprotocol/python-sdk/blob/main/.github/actions/conformance/expected-failures.yml) — that file is grouped by SEP and each entry is removed as the corresponding work lands, so it is the live burn-down list:
+The 2026-07-28 revision moved some functionality out of the core protocol into named extensions, and defines client-side auth mechanisms an SDK may support. The ones this SDK does not implement yet are tracked as the entries in the conformance suite's expected-failures baseline, [`.github/actions/conformance/expected-failures.yml`](https://github.com/modelcontextprotocol/python-sdk/blob/main/.github/actions/conformance/expected-failures.yml) — that file is grouped by SEP and each entry is removed as the corresponding work lands, so it is the live burn-down list:
 
-* **Tasks extension** (`io.modelcontextprotocol/tasks`, [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/seps/2663-tasks-extension.md)) — deferred at 2.0 because the 2026-07-28 design is wire-incompatible with the earlier in-core Tasks; tracked in [#2806](https://github.com/modelcontextprotocol/python-sdk/issues/2806).
+* **Tasks extension** (`io.modelcontextprotocol/tasks`, [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/seps/2663-tasks-extension.md)) — deferred at 2.0 because the 2026-07-28 design is wire-incompatible with the earlier in-core Tasks; tracked in [#2806](https://github.com/modelcontextprotocol/python-sdk/issues/2806).
 * **DPoP-bound access tokens** ([SEP-1932](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1932)) in the OAuth client.
 * **The workload-identity `jwt-bearer` grant** in the OAuth client.
 

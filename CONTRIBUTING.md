@@ -56,7 +56,7 @@ Before starting, comment on the issue so we can assign it to you. This prevents 
 
 Every new issue gets a first look from a maintainer within two business days. That first look is the *triage*: it means labeling the issue and deciding whether it is valid and actionable, not fixing it.
 
-The labels follow the shared [MCP SDK taxonomy](https://modelcontextprotocol.io/community/sdk-tiers#issue-triage-labels): one **type** (`bug`, `enhancement`, `question`), one **status** (`needs confirmation`, `needs repro`, `ready for work`, `good first issue`, `help wanted`), and — once actionable — one **priority**:
+The core labels follow the shared [MCP SDK taxonomy](https://modelcontextprotocol.io/community/sdk-tiers#issue-triage-labels) (the repository also carries workflow labels of its own, such as `needs maintainer` and `needs decision`): one **type** (`bug`, `enhancement`, `question`), one **status** (`needs confirmation`, `needs repro`, `ready for work`, `good first issue`, `help wanted`), and — once actionable — one **priority**:
 
 | Label | Meaning | Commitment |
 |-------|---------|------------|
