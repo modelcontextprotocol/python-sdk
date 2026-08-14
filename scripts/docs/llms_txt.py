@@ -77,9 +77,9 @@ _EXTERNAL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
 # rendition), never under-validated; and span pairing is bounded by blank
 # lines rather than full block structure.
 _FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
-_CODE_SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)")
+CODE_SPAN = re.compile(r"(?s)(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)")
 # A leading YAML frontmatter block, as MkDocs/Zensical parse it (mkdocs.utils.meta).
-_FRONTMATTER = re.compile(r"\A---[ \t]*\n(?P<block>.*?)^(?:---|\.\.\.)[ \t]*(?:\n|\Z)", flags=re.MULTILINE | re.DOTALL)
+FRONT_MATTER = re.compile(r"\A---[ \t]*\n(?P<block>.*?)^(?:---|\.\.\.)[ \t]*(?:\n|\Z)", flags=re.MULTILINE | re.DOTALL)
 
 
 class _BuildError(Exception):
@@ -108,7 +108,7 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     isn't a YAML mapping is page content, not frontmatter; an empty block is
     frontmatter with no meta.
     """
-    match = _FRONTMATTER.match(text)
+    match = FRONT_MATTER.match(text)
     if match is None:
         return {}, text
     try:
@@ -225,7 +225,7 @@ def _code_intervals(markdown: str) -> list[tuple[int, int]]:
     previous_end = 0
     for fence_start, fence_end in [*fences, (len(markdown), len(markdown))]:
         segment = markdown[previous_end:fence_start]
-        for pattern in (_CODE_SPAN, _HTML_COMMENT):
+        for pattern in (CODE_SPAN, _HTML_COMMENT):
             intervals += [(previous_end + m.start(), previous_end + m.end()) for m in pattern.finditer(segment)]
         previous_end = fence_end
     return intervals

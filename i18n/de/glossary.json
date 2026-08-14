@@ -1,0 +1,296 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "Tool",
+      "note": "MCP protocol noun (a server exposes tools) and the everyday word for a developer utility alike; kept as the loanword German developers use: das Tool / die Tools, compounds hyphenated (der Tool-Aufruf, die Tool-Beschreibung). Not Werkzeug. Wire identifiers such as `tools/call` and the `@mcp.tool()` decorator are code and stay untouched. Provisional pending native review."
+    },
+    {
+      "source": "resource",
+      "target": "Ressource",
+      "note": "MCP protocol noun (data a server exposes for reading) and the general noun (a pool acquired in a lifespan is still a Ressource). German spelling with double s: die Ressource / die Ressourcen; never the English spelling Resource in German prose — except where it is a UI label the code emits, such as the Inspector's **Resources** tab. `resources/read` and `@mcp.resource()` are code."
+    },
+    {
+      "source": "prompt",
+      "target": "Prompt",
+      "note": "The MCP feature (a reusable prompt template a server exposes) and the general AI sense; kept in English as German AI writing does. Masculine: der Prompt / die Prompts. Never Eingabeaufforderung, which is the command-line prompt and the wrong sense. `prompts/get` and `@mcp.prompt()` are code."
+    },
+    {
+      "source": "sampling",
+      "target": "Sampling",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model for a completion. Kept in English: das Sampling. Not Stichprobe / Stichprobenverfahren, which is statistical sampling and the wrong sense. The `sampling` capability key and `sampling/createMessage` stay Latin in code font. Provisional pending native review."
+    },
+    {
+      "source": "roots",
+      "target": "Roots",
+      "note": "The (deprecated) client feature listing the workspace directories a client exposes; kept in English because readers meet it as the identifier `roots/list`. Plural: die Roots. May take the gloss \"Roots (freigegebene Arbeitsverzeichnisse)\" on first mention. Not Wurzeln (the botanical/mathematical sense); a root directory elsewhere is das Wurzelverzeichnis or Stammverzeichnis. A `Root` object in code font stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "elicitation",
+      "target": "Elicitation",
+      "note": "OPEN QUESTION for native review: there is no established German term for the server asking the person at the host a question mid-request. Provisionally kept in English — die Elicitation — glossed on its first appearance per page as \"Elicitation (Rückfrage bei der Person am Host)\", or, when that first appearance already sits inside parentheses, with a spaced en dash instead — \"Elicitation – Rückfrage bei der Person am Host\" — never a nested parenthesis; in running prose the act itself may be described with Rückfrage / zurückfragen. Do not coin Erhebung or Abfrage for it. `elicitation/create`, `ctx.elicit()` and the `Elicit` class stay Latin."
+    },
+    {
+      "source": "capability",
+      "target": "Capability",
+      "note": "A negotiated protocol capability (what a client or server declared it supports during initialization). Provisional pending native review: kept as the term of art — die Capability / die Capabilities, \"capability negotiation\" → das Aushandeln der Capabilities — because it names the `capabilities` field; Fähigkeit is the open alternative and Funktion (a feature) is a different thing. Keys such as `sampling.tools` stay Latin."
+    },
+    {
+      "source": "transport",
+      "target": "Transport",
+      "note": "The connection mechanism: der Transport / die Transporte (\"every standard transport\" → jeder Standard-Transport). The transport names stdio, Streamable HTTP and SSE are on the keep list and stay in English (der stdio-Transport, der Streamable-HTTP-Transport). Provisional pending native review."
+    },
+    {
+      "source": "session",
+      "target": "Session",
+      "note": "An MCP session (the negotiated connection state): die Session / die Sessions, die Session-ID. Sitzung is understood too, but pin Session throughout rather than alternating; it matches the `session` objects and the `Mcp-Session-Id` header, which are code. Provisional pending native review."
+    },
+    {
+      "source": "handler",
+      "target": "Handler",
+      "note": "The tool, resource or prompt function you register (nav section \"Inside your handler\" → Im Handler). Kept as everyday German developer usage: der Handler / die Handler (no plural -s). The verb is behandeln or verarbeiten, never handlen. Provisional pending native review."
+    },
+    {
+      "source": "dependency",
+      "target": "Abhängigkeit",
+      "note": "Both package dependencies and the SDK's parameter-injection feature (the \"Dependencies\" page → Abhängigkeiten): die Abhängigkeit / die Abhängigkeiten. The pattern name stays English and open — Dependency Injection — as German developers write it. The `Resolve` marker class stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "resolver",
+      "target": "Resolver",
+      "note": "The plain function attached to a parameter with `Resolve(...)` that computes or asks for its value before the tool runs: der Resolver / die Resolver. Not Auflöser. The `Resolve` class stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "client",
+      "target": "Client",
+      "note": "An MCP client, and the client side of a connection: der Client / die Clients. Not Kunde (a customer). The `Client` class and the `mcp.client` module are code and stay untouched."
+    },
+    {
+      "source": "server",
+      "target": "Server",
+      "note": "An MCP server (the program you build): der Server / die Server (no plural -s); ein MCP-Server with a hyphen. The `MCPServer`, `Server` and `ServerSession` classes are code and stay untouched."
+    },
+    {
+      "source": "host",
+      "target": "Host",
+      "note": "The MCP host — the application the person talks to, which embeds the client and drives the model (Claude Desktop, an IDE) — and also a network host: der Host / die Hosts in both senses. Never Gastgeber.",
+      "avoid": ["Gastgeber"]
+    },
+    {
+      "source": "context",
+      "target": "Kontext",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → LLMs Kontext bereitstellen): der Kontext. The capitalised `Context` is the SDK object injected as `ctx`; it is on the keep list, stays Latin in prose and is masculine by analogy (\"The Context\" → Der Context, das `Context`-Objekt)."
+    },
+    {
+      "source": "request",
+      "target": "Request",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → der initialize-Request, \"request body\" → der Request-Body): der Request / die Requests. Anfrage is correct German too, but pin Request throughout rather than alternating. The verb \"to request\" is anfordern. `Request` types in code font stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "response",
+      "target": "Response",
+      "note": "A JSON-RPC or HTTP response message: die Response / die Responses. Antwort remains the word for an answer a person, model or tool gives (\"the user's answer\" → die Antwort), so both may appear on one page in their own senses. `Response` types in code font stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "notification",
+      "target": "Benachrichtigung",
+      "note": "A JSON-RPC notification (a message that expects no response) and change notifications alike: die Benachrichtigung / die Benachrichtigungen, \"change notification\" → Änderungsbenachrichtigung. Method strings such as `notifications/tools/list_changed` are code. Provisional pending native review; Notification is the open alternative."
+    },
+    {
+      "source": "callback",
+      "target": "Callback",
+      "note": "Client callbacks (`sampling_callback`, `elicitation_callback`) and OAuth redirect callbacks alike: der Callback / die Callbacks, die Callback-URL. Not Rückruf (a return phone call); the dated Rückruffunktion is not used either. Parameter names stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "decorator",
+      "target": "Dekorator",
+      "note": "The Python decorators the SDK is built on, in the German spelling Python literature uses: der Dekorator / die Dekoratoren. `@mcp.tool()` and its siblings are code and stay untouched. Provisional pending native review; the English spelling Decorator is the open alternative."
+    },
+    {
+      "source": "type hint",
+      "target": "Type Hint",
+      "note": "Python type hints (\"from your type hints\" → aus deinen Type Hints): der Type Hint / die Type Hints, kept as German Python developers say it; \"type annotation\" is die Typannotation. Provisional pending native review; Typ-Hinweis is the open alternative."
+    },
+    {
+      "source": "round trip",
+      "target": "Roundtrip",
+      "note": "One request/response exchange: der Roundtrip / die Roundtrips (\"zero negotiation round trips\" → kein einziger Roundtrip für die Aushandlung). Written closed as German developers do, not Round Trip and not Rundreise (a tour). Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "Multi-Roundtrip",
+      "note": "The 2026-07-28 request pattern (\"Multi-round-trip requests\" → Multi-Roundtrip-Requests, hyphenated through). Provisional coinage pending native review: gloss the English on first use per page — Multi-Roundtrip-Requests (multi-round-trip requests). The abbreviation MRTR stays Latin."
+    },
+    {
+      "source": "lifespan",
+      "target": "Lifespan",
+      "note": "The server's startup/shutdown scope (the \"Lifespan\" page, as in the ASGI lifespan); kept in English so the prose matches the `lifespan=` parameter: der Lifespan. May take the gloss \"Lifespan (Start- und Stopp-Phase des Servers)\" on first mention. Lebensdauer is the word for the neighbouring \"lifetime\" (\"for the lifetime of the app\" → für die Lebensdauer der App) and is not banned; Lebenserwartung is always wrong.",
+      "avoid": ["Lebenserwartung"]
+    },
+    {
+      "source": "back-channel",
+      "target": "Rückkanal",
+      "note": "This documentation's term for the server calling back into the client during a request, which exists only on legacy connections: der Rückkanal. First mention on a page reads \"Rückkanal (back-channel)\" so the reader can connect it to the `NoBackChannelError` exception, which is code. Provisional pending native review."
+    },
+    {
+      "source": "deprecated",
+      "target": "veraltet",
+      "note": "Advisory status: still works, scheduled for removal later — veraltet (\"Deprecated features\" → Veraltete Features, \"is deprecated\" → ist veraltet / gilt als veraltet); \"removed\" is entfernt, a different state. \"Deprecation warning\" → Deprecation-Warnung, tied to the `MCPDeprecationWarning` class, which stays Latin. Not the coinage deprecatet. Provisional pending native review."
+    },
+    {
+      "source": "legacy",
+      "target": "Legacy-",
+      "note": "\"A legacy connection / client / session\" = one negotiated at spec version 2025-11-25 or earlier → die Legacy-Verbindung, der Legacy-Client, die Legacy-Session (prefix compound with hyphen); \"Serving legacy clients\" → Legacy-Clients unterstützen. Keep it distinct from veraltet, which renders \"deprecated\". Provisional pending native review; Alt- (Alt-Client) is the open alternative."
+    },
+    {
+      "source": "era",
+      "target": "Generation",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\", \"any era of server\") → die Protokollgeneration, ein Client der 2025er-Generation, Server jeder Generation. Provisional pending native review; not Ära or Zeitalter, which read grandiose."
+    },
+    {
+      "source": "wire",
+      "target": "Leitung",
+      "note": "The corpus's light metaphor for the byte stream between client and server, rendered with the idiom German networking prose uses: \"on the wire\" → auf der Leitung, \"what goes over the wire\" → was über die Leitung geht, \"stdout is the wire\" → stdout ist die Leitung, \"the JSON on the wire\" → das JSON auf der Leitung. Not Draht or Kabel. Provisional pending native review."
+    },
+    {
+      "source": "handshake",
+      "target": "Handshake",
+      "note": "The initialization handshake (\"the classic handshake\" → der klassische Handshake): der Handshake / die Handshakes, as German protocol descriptions say. Provisional pending native review; not Handschlag in this corpus."
+    },
+    {
+      "source": "escape hatch",
+      "target": "Notausgang",
+      "note": "The API-design metaphor for the lower-level mechanism you drop to when the convenience layer is in the way (`client.session`, `add_request_handler()`, the low-level `Server`): der Notausgang / die Notausgänge. Pinned so every page uses one rendering; Hintertür (a backdoor, with its security connotation) is wrong here. Provisional pending native review."
+    },
+    {
+      "source": "library",
+      "target": "Bibliothek",
+      "note": "A software library: die Bibliothek / die Bibliotheken (Library is heard in speech but pin the German word). Bücherei is a lending library and never right here.",
+      "avoid": ["Bücherei"]
+    },
+    {
+      "source": "deploy",
+      "target": "bereitstellen",
+      "note": "The verb: bereitstellen / in Produktion bringen (\"deploy it the way you deploy any ASGI app\" → stelle es bereit wie jede andere ASGI-App); the noun is das Deployment; the nav title \"Deploy & scale\" → Bereitstellen und skalieren. Never the coinage deployen / deployt (see instructions §5). Provisional pending native review."
+    },
+    {
+      "source": "default value",
+      "target": "Standardwert",
+      "note": "A parameter's default: der Standardwert; \"by default\" → standardmäßig; Default- is fine inside an established compound (die Default-Konfiguration) but do not alternate Standardwert and Defaultwert. Provisional pending native review."
+    },
+    {
+      "source": "exception",
+      "target": "Exception",
+      "note": "A raised Python exception: die Exception / die Exceptions, \"raises an exception\" → löst eine Exception aus / wirft eine Exception. Ausnahme is correct German too; pin Exception so prose matches the class names, which stay Latin, and never alternate. An \"error\" is der Fehler. Provisional pending native review."
+    },
+    {
+      "source": "return value",
+      "target": "Rückgabewert",
+      "note": "A function's return value: der Rückgabewert; \"returns X\" → gibt X zurück / liefert X. The `return` keyword and annotations are code."
+    },
+    {
+      "source": "subscription",
+      "target": "Abonnement",
+      "note": "Resource and list-change subscriptions (the two \"Subscriptions\" pages → Abonnements): das Abonnement / die Abonnements, \"subscribe\" → abonnieren, \"subscriber\" → der Abonnent (a piece of software here, so no gendering question arises). `subscriptions/listen` and `resources/subscribe` are code. Provisional pending native review."
+    },
+    {
+      "source": "completion",
+      "target": "Vervollständigung",
+      "note": "Two senses. The MCP feature that autocompletes prompt and resource-template arguments (the \"Completions\" page, `completion/complete`) → die Vervollständigung / Vervollständigungen. The text a model produces in the sampling pages (\"ask the client for an LLM completion\") is a different thing → die Antwort des Modells or die Completion; never Vervollständigung there. Provisional pending native review."
+    },
+    {
+      "source": "structured output",
+      "target": "strukturierte Ausgabe",
+      "note": "The tools feature and its page title (\"Structured Output\" → Strukturierte Ausgabe): die strukturierte Ausgabe. `structured_output` and `outputSchema` are code. Provisional pending native review."
+    },
+    {
+      "source": "troubleshooting",
+      "target": "Fehlerbehebung",
+      "note": "The page title and the activity: die Fehlerbehebung. Not Problembehandlung and not the loan Troubleshooting in a heading. Provisional pending native review."
+    },
+    {
+      "source": "authorization",
+      "target": "Autorisierung",
+      "note": "The OAuth sense and the page title (\"Authorization\" → Autorisierung); \"authentication\" is Authentifizierung — keep the two apart as the English does. The `Authorization` header is code. Provisional pending native review."
+    },
+    {
+      "source": "Get started",
+      "target": "Einstieg",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (Erste Schritte), so the two need distinct renderings or the sidebar shows the same title twice — never Erste Schritte for this one. Provisional pending native review; Loslegen is the open alternative."
+    },
+    {
+      "source": "First steps",
+      "target": "Erste Schritte",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "Zusammenfassung",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not Fazit on some pages and Zusammenfassung on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "Ausprobieren",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere (the infinitive, per the heading rule), not Probier es aus on some pages. Provisional pending native review."
+    }
+  ]
+}
