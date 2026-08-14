@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import anyio
 import anyio.abc
@@ -1227,12 +1228,32 @@ async def test_dispatcher_keyword_preserves_caller_stream_exception_hook_on_exit
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](1)
     try:
-        async def caller_hook(_exc: Exception) -> None:
-            pass
-
+        caller_hook = AsyncMock()
         dispatcher = JSONRPCDispatcher(s2c_recv, c2s_send, on_stream_exception=caller_hook)
         async with ClientSession(dispatcher=dispatcher):
             pass
+
+        assert dispatcher.on_stream_exception is caller_hook
+    finally:
+        s2c_send.close()
+        s2c_recv.close()
+        c2s_send.close()
+        c2s_recv.close()
+
+
+@pytest.mark.anyio
+async def test_dispatcher_keyword_preserves_replacement_stream_exception_hook_on_exit():
+    """A caller replacement made while a session is alive survives shutdown (SDK-defined ownership)."""
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](1)
+    try:
+        dispatcher = JSONRPCDispatcher(s2c_recv, c2s_send)
+        session = ClientSession(dispatcher=dispatcher)
+        assert dispatcher.on_stream_exception is not None
+
+        caller_hook = AsyncMock()
+        async with session:
+            dispatcher.on_stream_exception = caller_hook
 
         assert dispatcher.on_stream_exception is caller_hook
     finally:
