@@ -11,16 +11,15 @@ from __future__ import annotations
 from typing import Annotated, Any, ClassVar, Final, Generic, Literal, TypeAlias, TypeVar, get_args
 
 from pydantic import (
-    BaseModel,
     ConfigDict,
     Field,
     FileUrl,
-    TypeAdapter,
     model_validator,
 )
 from pydantic.alias_generators import to_camel
 from typing_extensions import NotRequired, Self, TypedDict
 
+from mcp_types._wire_base import DeferredAdapter, DeferredModel
 from mcp_types.jsonrpc import RequestId
 
 DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
@@ -42,7 +41,7 @@ IconTheme = Literal["light", "dark"]
 """Theme an icon is designed for. Wire values of `Icon.theme` (2025-11-25+)."""
 
 
-class MCPModel(BaseModel):
+class MCPModel(DeferredModel):
     """Base class for all MCP protocol types."""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
@@ -2097,7 +2096,10 @@ class InputRequiredResult(Result):
         return self
 
 
-# Forward refs to InputResponses; rebuild at import time rather than first use.
+# These four forward-reference `InputResponses` (defined below them). They are the one place
+# a build stays eager: rebuilding at import makes a user's subclass of them, defined before
+# their first use, complete and usable — a deferred parent with an unresolved forward
+# reference otherwise leaves such a subclass "not fully defined". Keep them.
 InputResponseRequestParams.model_rebuild()
 ReadResourceRequestParams.model_rebuild()
 GetPromptRequestParams.model_rebuild()
@@ -2128,7 +2130,7 @@ ClientRequest = (
 The 2025-11-25 task requests are deliberately excluded (types-only).
 """
 
-client_request_adapter = TypeAdapter[ClientRequest](ClientRequest)
+client_request_adapter = DeferredAdapter[ClientRequest](ClientRequest)
 
 
 ClientNotification = (
@@ -2139,11 +2141,11 @@ ClientNotification = (
 `TaskStatusNotification` is deliberately excluded (types-only).
 """
 
-client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification)
+client_notification_adapter = DeferredAdapter[ClientNotification](ClientNotification)
 
 
 ClientResult = EmptyResult | CreateMessageResult | CreateMessageResultWithTools | ListRootsResult | ElicitResult
-client_result_adapter = TypeAdapter[ClientResult](ClientResult)
+client_result_adapter = DeferredAdapter[ClientResult](ClientResult)
 
 
 ServerRequest = PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest
@@ -2153,7 +2155,7 @@ Live through 2025-11-25 only: 2026-07-28 has no server-to-client JSON-RPC
 requests (these payloads are embedded in `InputRequiredResult` instead).
 """
 
-server_request_adapter = TypeAdapter[ServerRequest](ServerRequest)
+server_request_adapter = DeferredAdapter[ServerRequest](ServerRequest)
 
 
 ServerNotification = (
@@ -2172,7 +2174,7 @@ ServerNotification = (
 `TaskStatusNotification` is deliberately excluded (types-only).
 """
 
-server_notification_adapter = TypeAdapter[ServerNotification](ServerNotification)
+server_notification_adapter = DeferredAdapter[ServerNotification](ServerNotification)
 
 
 ServerResult = (
@@ -2195,4 +2197,4 @@ ServerResult = (
 `InputRequiredResult` is deliberately last: both of its fields are optional,
 so an earlier position would shadow other members during union resolution.
 """
-server_result_adapter = TypeAdapter[ServerResult](ServerResult)
+server_result_adapter = DeferredAdapter[ServerResult](ServerResult)

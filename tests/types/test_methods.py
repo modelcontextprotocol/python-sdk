@@ -549,6 +549,11 @@ def test_built_in_maps_are_immutable():
             _assign_item(built_in)
 
 
+def test_built_in_maps_repr_as_a_proxied_dict_of_their_rows():
+    """The lazy row store is invisible in repr: each surface map renders as a proxied dict of its resolved rows."""
+    assert repr(methods.SERVER_REQUESTS) == f"mappingproxy({dict(methods.SERVER_REQUESTS)!r})"
+
+
 def test_cacheable_methods_mirror_the_cacheable_method_literal():
     """SEP-2549 weld: the hand-written Literal and the set derived from `MONOLITH_RESULTS` must agree."""
     assert methods.CACHEABLE_METHODS == frozenset(get_args(methods.CacheableMethod))

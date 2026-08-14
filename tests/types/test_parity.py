@@ -142,6 +142,7 @@ FIELD_EXCEPTIONS: dict[tuple[type[BaseModel], str], str] = {
 
 
 def _wire_aliases(model: type[BaseModel]) -> set[str]:
+    model.model_rebuild()  # deferred wire models resolve forward-ref field aliases on first build
     return {field.alias or name for name, field in model.model_fields.items()}
 
 

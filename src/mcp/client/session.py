@@ -28,6 +28,7 @@ from mcp_types import (
     RequestParamsMeta,
 )
 from mcp_types import methods as _methods
+from mcp_types._wire_base import DeferredAdapter
 from mcp_types.version import (
     HANDSHAKE_PROTOCOL_VERSIONS,
     LATEST_HANDSHAKE_VERSION,
@@ -248,16 +249,19 @@ async def _default_logging_callback(
     pass
 
 
-ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
+# Deferred: these adapters build their validators on first use rather than at import.
+ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = DeferredAdapter(
+    types.ClientResult | types.ErrorData
+)
 
 # Typed against the wide parse union so adopt-built claim adapters share this attribute type.
-_CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult | types.Result] = TypeAdapter(
+_CallToolResultAdapter: TypeAdapter[types.CallToolResult | types.InputRequiredResult | types.Result] = DeferredAdapter(
     types.CallToolResult | types.InputRequiredResult
 )
-_GetPromptResultAdapter: TypeAdapter[types.GetPromptResult | types.InputRequiredResult] = TypeAdapter(
+_GetPromptResultAdapter: TypeAdapter[types.GetPromptResult | types.InputRequiredResult] = DeferredAdapter(
     types.GetPromptResult | types.InputRequiredResult
 )
-_ReadResourceResultAdapter: TypeAdapter[types.ReadResourceResult | types.InputRequiredResult] = TypeAdapter(
+_ReadResourceResultAdapter: TypeAdapter[types.ReadResourceResult | types.InputRequiredResult] = DeferredAdapter(
     types.ReadResourceResult | types.InputRequiredResult
 )
 
@@ -304,7 +308,9 @@ def _build_call_tool_adapter(
     arms: list[Any] = [Annotated[types.CallToolResult | types.InputRequiredResult, Tag(core_arm)]]
     arms += [Annotated[claim.model, Tag(tag)] for tag, claim in active.items()]
     # reduce(or_) rather than Union star-unpack, which needs py3.11+.
-    return TypeAdapter(Annotated[reduce(or_, arms), Discriminator(_route)])
+    # DeferredAdapter, not TypeAdapter: this per-session union adapter also builds its
+    # deferred members on first use, so its build takes the same process-wide lock.
+    return DeferredAdapter(Annotated[reduce(or_, arms), Discriminator(_route)])
 
 
 def _index_claims(
