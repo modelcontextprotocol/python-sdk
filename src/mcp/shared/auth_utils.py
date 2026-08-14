@@ -1,6 +1,5 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
-import posixpath
 import re
 import time
 from urllib.parse import urlparse, urlsplit, urlunsplit
@@ -10,18 +9,36 @@ from pydantic import AnyUrl, HttpUrl
 
 def _normalize_resource_path(path: str) -> str:
     """Resolve dot-segments without decoding encoded path separators."""
-    has_trailing_slash = path.endswith("/")
-
     # RFC 3986 treats percent-encoded unreserved characters as equivalent. Decode
     # only encoded dots here: unquoting the whole path would turn %2F into a
     # separator and change the resource hierarchy being authorized.
     path = re.sub(r"%2e", ".", path, flags=re.IGNORECASE)
-    path = posixpath.normpath(path)
-    if path == ".":
-        path = ""
 
-    if has_trailing_slash and not path.endswith("/"):
-        path += "/"
+    # Remove RFC 3986 dot-segments without collapsing empty segments. Using
+    # posixpath.normpath() here would turn /api//v1 into /api/v1 and could
+    # widen a resource boundary that intentionally contains a repeated slash.
+    output: list[str] = []
+    while path:
+        if path.startswith("/./"):
+            path = "/" + path[3:]
+        elif path == "/.":
+            path = "/"
+        elif path.startswith("/../"):
+            path = "/" + path[4:]
+            if output:
+                output.pop()
+        elif path == "/..":
+            path = "/"
+            if output:
+                output.pop()
+        else:
+            prefix = "/" if path.startswith("/") else ""
+            segment = path[len(prefix) :]
+            segment, separator, remainder = segment.partition("/")
+            output.append(prefix + segment)
+            path = ("/" if separator else "") + remainder
+
+    path = "".join(output)
     return path
 
 
