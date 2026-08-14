@@ -80,7 +80,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
 
         return replacement
 
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         # Fatal, not "warn and keep the stale block": that would let --check pass with exit 0.
         sys.exit(f"Error processing {file_path}: {e}")
 
