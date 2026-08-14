@@ -7,6 +7,7 @@ entirely in process.
 from __future__ import annotations as _annotations
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -600,6 +601,26 @@ def test_streamable_http_transport_init_validation() -> None:
 
 
 @pytest.mark.anyio
+async def test_transport_reports_stream_closure_when_host_exits_without_terminating(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A host that leaves connect() without terminating the transport closes the streams under the
+    message router, which reports it rather than passing it off as a client disconnect."""
+    caplog.set_level(logging.ERROR, logger="mcp.server.streamable_http")
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
+
+    async with transport.connect():
+        pass
+
+    assert not transport.is_terminated
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "mcp.server.streamable_http" and record.levelno == logging.ERROR
+    ] == ["Unexpected closure of read stream in message router"]
+
+
+@pytest.mark.anyio
 async def test_session_termination(basic_app: Starlette) -> None:
     """DELETE terminates the session, after which requests for it return 404."""
     async with make_client(basic_app) as client:
@@ -639,7 +660,7 @@ async def test_session_termination(basic_app: Starlette) -> None:
             json={"jsonrpc": "2.0", "method": "ping", "id": 2},
         )
         assert response.status_code == 404
-        assert "Session has been terminated" in response.text
+        assert response.json()["error"]["message"] == "Session not found"
 
 
 @pytest.mark.anyio
@@ -1048,7 +1069,7 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
-                assert "terminated" in exc_info.value.error.message.lower()
+                assert exc_info.value.error.message == "Session not found"
 
 
 @pytest.mark.anyio
@@ -1111,7 +1132,7 @@ async def test_streamable_http_client_session_termination_204(
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
-                assert "terminated" in exc_info.value.error.message.lower()
+                assert exc_info.value.error.message == "Session not found"
 
 
 @pytest.mark.anyio

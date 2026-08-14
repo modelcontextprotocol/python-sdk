@@ -14,7 +14,7 @@ from mcp_types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JS
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
@@ -278,6 +278,10 @@ class StreamableHTTPSessionManager:
             if transport.idle_scope is not None and self.session_idle_timeout is not None:
                 transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout  # pragma: no cover
             await transport.handle_request(scope, receive, send)
+            if transport.is_terminated:
+                # The client ended the session (DELETE): forget it now rather
+                # than when its server task winds down.
+                self._forget_session(request_mcp_session_id)
             return
 
         if request_mcp_session_id is None:
@@ -327,33 +331,37 @@ class StreamableHTTPSessionManager:
                                 )
 
                             if idle_scope.cancelled_caught:
-                                assert http_transport.mcp_session_id is not None
-                                logger.info(f"Session {http_transport.mcp_session_id} idle timeout")
-                                self._server_instances.pop(http_transport.mcp_session_id, None)
-                                self._session_owners.pop(http_transport.mcp_session_id, None)
-                                await http_transport.terminate()
+                                logger.info(f"Session {new_session_id} idle timeout")
                         except Exception:
-                            logger.exception(f"Session {http_transport.mcp_session_id} crashed")
+                            logger.exception(f"Session {new_session_id} crashed")
                         finally:
-                            if (  # pragma: no branch
-                                http_transport.mcp_session_id
-                                and http_transport.mcp_session_id in self._server_instances
-                                and not http_transport.is_terminated
-                            ):
-                                logger.info(
-                                    "Cleaning up crashed session "
-                                    f"{http_transport.mcp_session_id} from active instances."
-                                )
-                                del self._server_instances[http_transport.mcp_session_id]
-                                self._session_owners.pop(http_transport.mcp_session_id, None)
+                            # However the session ended (client DELETE, idle
+                            # timeout, crash), stop tracking it and make sure the
+                            # transport refuses anything that still reaches it.
+                            self._forget_session(new_session_id)
+                            if not http_transport.is_terminated:
+                                await http_transport.terminate()
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None
                 # Start the server task
                 await self._task_group.start(run_server)
 
-                # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
+                # Handle the HTTP request and return the response. Without a
+                # session ID only an initialize request can succeed, so if this
+                # one was refused nothing was established: forget the session
+                # again rather than keep it (and its server task) around.
+                established = False
+                try:
+                    status = await _send_and_report_status(http_transport.handle_request, scope, receive, send)
+                    established = status is not None and status < 400
+                finally:
+                    if not established:  # pragma: no branch
+                        # Refused, failed or cancelled before a session was
+                        # established: nothing to keep.
+                        self._forget_session(new_session_id)
+                        with anyio.CancelScope(shield=True):
+                            await http_transport.terminate()
         else:
             # Unknown or expired session ID - return 404 per MCP spec
             # TODO(L62): Align error code once spec clarifies
@@ -366,6 +374,25 @@ class StreamableHTTPSessionManager:
                 body.model_dump_json(by_alias=True, exclude_unset=True), status_code=404, media_type="application/json"
             )
             await response(scope, receive, send)
+
+    def _forget_session(self, session_id: str) -> None:
+        """Stop tracking a session; requests naming it are answered 404 from then on."""
+        self._server_instances.pop(session_id, None)
+        self._session_owners.pop(session_id, None)
+
+
+async def _send_and_report_status(app: ASGIApp, scope: Scope, receive: Receive, send: Send) -> int | None:
+    """Run `app` for one request and return the HTTP status it answered with (None if it sent no response)."""
+    status: int | None = None
+
+    async def watch_status(message: Message) -> None:
+        nonlocal status
+        if message["type"] == "http.response.start":
+            status = message["status"]
+        await send(message)
+
+    await app(scope, receive, watch_status)
+    return status
 
 
 class StreamableHTTPASGIApp:
