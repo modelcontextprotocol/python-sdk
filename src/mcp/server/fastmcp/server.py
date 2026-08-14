@@ -107,6 +107,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     stateless_http: bool
     """Define if the server should create a new transport per request."""
     max_request_body_size: int
+    """Maximum request body size in bytes for the Streamable HTTP endpoint and the SSE message endpoint."""
 
     # resource settings
     warn_on_duplicate_resources: bool
@@ -835,6 +836,7 @@ class FastMCP(Generic[LifespanResultT]):
         sse = SseServerTransport(
             normalized_message_endpoint,
             security_settings=self.settings.transport_security,
+            max_request_body_size=self.settings.max_request_body_size,
         )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover

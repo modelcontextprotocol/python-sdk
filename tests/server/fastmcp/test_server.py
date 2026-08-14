@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
+import httpx
 import pytest
 from pydantic import AnyUrl, BaseModel
 from starlette.routing import Mount, Route
@@ -1505,3 +1506,17 @@ def test_streamable_http_app_passes_the_configured_request_body_limit_to_its_man
     mcp.streamable_http_app()
 
     assert mcp.session_manager.max_request_body_size == 8
+
+
+@pytest.mark.anyio
+async def test_sse_app_applies_the_configured_request_body_limit() -> None:
+    """FastMCP forwards its request-body setting to the SSE message endpoint: larger POSTs get HTTP 413."""
+    mcp = FastMCP(host="0.0.0.0", max_request_body_size=8)
+    transport = httpx.ASGITransport(app=mcp.sse_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as http:
+        response = await http.post(
+            "/messages/?session_id=12345678123456781234567812345678",
+            content=b"123456789",
+            headers={"Content-Type": "application/json"},
+        )
+    assert response.status_code == 413
