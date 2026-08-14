@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
 import anyio
@@ -34,6 +34,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SESSION_IDLE_TIMEOUT: Final = 30 * 60
+"""Default idle period in seconds after which a stateful Streamable HTTP session is closed (30 minutes)."""
+
 
 class StreamableHTTPSessionManager:
     """Manages StreamableHTTP sessions with optional resumability via event store.
@@ -45,7 +48,7 @@ class StreamableHTTPSessionManager:
     2. Resumability via an optional event store
     3. Connection management and lifecycle
     4. Request handling and transport setup
-    5. Idle session cleanup via optional timeout
+    5. Idle session cleanup
 
     Important: Only one StreamableHTTPSessionManager instance should be created
     per application. The instance cannot be reused after its run() context has
@@ -62,11 +65,12 @@ class StreamableHTTPSessionManager:
         security_settings: Optional transport security settings.
         retry_interval: Retry interval in milliseconds to suggest to clients in SSE retry field. Used for SSE
             polling behavior.
-        session_idle_timeout: Optional idle timeout in seconds for stateful sessions. If set, sessions that
-            receive no HTTP requests for this duration will be automatically terminated and removed. When
-            retry_interval is also configured, ensure the idle timeout comfortably exceeds the retry interval to
-            avoid reaping sessions during normal SSE polling gaps. Default is None (no timeout). A value of 1800
-            (30 minutes) is recommended for most deployments.
+        session_idle_timeout: Idle timeout in seconds for stateful sessions. A session that has had no HTTP
+            request in flight for this long (no request being served, no open GET stream) is terminated and
+            removed; its ID then answers 404 and the client has to initialize a new session. When retry_interval
+            is also configured, ensure the idle timeout comfortably exceeds the retry interval to avoid reaping
+            sessions during normal SSE polling gaps. Defaults to 1800 (30 minutes); None disables the timeout so
+            sessions live until the client deletes them or the manager shuts down. Unused in stateless mode.
         max_request_body_size: Maximum size in bytes for Streamable HTTP request bodies. Requests that
             exceed this limit receive a 413 response before parsing or session creation. Defaults to 4 MiB.
     """
@@ -79,13 +83,11 @@ class StreamableHTTPSessionManager:
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
-        session_idle_timeout: float | None = None,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
     ):
         if session_idle_timeout is not None and session_idle_timeout <= 0:
             raise ValueError("session_idle_timeout must be a positive number of seconds")
-        if stateless and session_idle_timeout is not None:
-            raise RuntimeError("session_idle_timeout is not supported in stateless mode")
         if max_request_body_size <= 0:
             raise ValueError("max_request_body_size must be a positive number of bytes")
 
@@ -274,9 +276,6 @@ class StreamableHTTPSessionManager:
                 await response(scope, receive, send)
                 return
             logger.debug("Session already exists, handling request directly")
-            # Push back idle deadline on activity
-            if transport.idle_scope is not None and self.session_idle_timeout is not None:
-                transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout  # pragma: no cover
             await transport.handle_request(scope, receive, send)
             if transport.is_terminated:
                 # The client ended the session (DELETE): forget it now rather
@@ -295,6 +294,7 @@ class StreamableHTTPSessionManager:
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
                     retry_interval=self.retry_interval,
+                    idle_timeout=self.session_idle_timeout,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -309,15 +309,13 @@ class StreamableHTTPSessionManager:
                         read_stream, write_stream = streams
                         task_status.started()
                         try:
-                            # Use a cancel scope for idle timeout — when the
-                            # deadline passes the scope cancels the loop and
-                            # execution continues after the ``with`` block.
-                            # Incoming requests push the deadline forward.
-                            idle_scope = anyio.CancelScope()
-                            if self.session_idle_timeout is not None:
-                                idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
-                                http_transport.idle_scope = idle_scope
-
+                            # The transport cancels its idle scope once no request
+                            # has been in flight for `session_idle_timeout`; that
+                            # ends the loop and execution continues after the
+                            # `with` block. Without a timeout there is nothing to fire.
+                            idle_scope = http_transport.idle_scope
+                            if idle_scope is None:
+                                idle_scope = anyio.CancelScope()
                             with idle_scope:
                                 # Drive via `serve_loop` (not `Server.run()`) so the
                                 # manager's already-entered lifespan is reused

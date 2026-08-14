@@ -10,6 +10,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -598,6 +599,32 @@ def test_streamable_http_transport_init_validation() -> None:
 
     with pytest.raises(ValueError):
         StreamableHTTPServerTransport(mcp_session_id="test\n")
+
+
+@pytest.mark.parametrize("idle_timeout", [0, -1])
+def test_streamable_http_transport_rejects_non_positive_idle_timeout(idle_timeout: float) -> None:
+    """A transport's idle timeout must be a positive number of seconds; without one it never expires."""
+    with pytest.raises(ValueError, match="positive number of seconds"):
+        StreamableHTTPServerTransport(mcp_session_id="valid-id", idle_timeout=idle_timeout)
+    assert StreamableHTTPServerTransport(mcp_session_id="valid-id").idle_scope is None
+
+
+def test_streamable_http_transport_with_idle_timeout_can_be_created_outside_an_event_loop() -> None:
+    """The idle scope is only created once connect() is entered, so a transport with a timeout can be
+    constructed without a running event loop."""
+    # A bare thread has no async context; this one does, courtesy of the suite's shared runner.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        transport = pool.submit(StreamableHTTPServerTransport, mcp_session_id="valid-id", idle_timeout=5).result()
+    assert transport.idle_scope is None
+
+
+@pytest.mark.anyio
+async def test_streamable_http_transport_creates_its_idle_scope_on_connect() -> None:
+    """Entering connect() creates the idle scope the host enters around the session's message loop."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id", idle_timeout=5)
+    async with transport.connect():
+        assert isinstance(transport.idle_scope, anyio.CancelScope)
+        await transport.terminate()
 
 
 @pytest.mark.anyio
