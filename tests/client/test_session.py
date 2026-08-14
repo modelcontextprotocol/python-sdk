@@ -45,6 +45,7 @@ from mcp.client.subscriptions import ToolsListChanged, listen
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnNotifyIntercept, OnRequest
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.shared.message import SessionMessage
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY
 from mcp.shared.transport_context import TransportContext
@@ -1175,6 +1176,70 @@ async def test_dispatcher_keyword_runs_over_direct_dispatch():
             server_side.close()
     assert results == [types.EmptyResult()]
     assert notified == ["notifications/roots/list_changed"]
+
+
+@pytest.mark.anyio
+async def test_dispatcher_keyword_removes_its_stream_exception_hook_on_exit():
+    """An injected stream dispatcher must not retain the exited session through its hook."""
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](1)
+    try:
+        dispatcher = JSONRPCDispatcher(s2c_recv, c2s_send)
+        session = ClientSession(dispatcher=dispatcher)
+
+        assert dispatcher.on_stream_exception is not None
+
+        async with session:
+            pass
+
+        assert dispatcher.on_stream_exception is None
+    finally:
+        s2c_send.close()
+        s2c_recv.close()
+        c2s_send.close()
+        c2s_recv.close()
+
+
+@pytest.mark.anyio
+async def test_dispatcher_keyword_reinstalls_stream_exception_hook_for_reused_dispatcher():
+    """A dispatcher can be wrapped by another session after the first session exits."""
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](1)
+    try:
+        dispatcher = JSONRPCDispatcher(s2c_recv, c2s_send)
+        async with ClientSession(dispatcher=dispatcher):
+            pass
+        assert dispatcher.on_stream_exception is None
+
+        async with ClientSession(dispatcher=dispatcher):
+            assert dispatcher.on_stream_exception is not None
+        assert dispatcher.on_stream_exception is None
+    finally:
+        s2c_send.close()
+        s2c_recv.close()
+        c2s_send.close()
+        c2s_recv.close()
+
+
+@pytest.mark.anyio
+async def test_dispatcher_keyword_preserves_caller_stream_exception_hook_on_exit():
+    """A hook supplied by the dispatcher owner remains installed after session shutdown."""
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](1)
+    try:
+        async def caller_hook(_exc: Exception) -> None:
+            pass
+
+        dispatcher = JSONRPCDispatcher(s2c_recv, c2s_send, on_stream_exception=caller_hook)
+        async with ClientSession(dispatcher=dispatcher):
+            pass
+
+        assert dispatcher.on_stream_exception is caller_hook
+    finally:
+        s2c_send.close()
+        s2c_recv.close()
+        c2s_send.close()
+        c2s_recv.close()
 
 
 @pytest.mark.anyio

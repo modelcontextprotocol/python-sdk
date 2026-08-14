@@ -415,6 +415,7 @@ class ClientSession:
         self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
+        self._owned_stream_exception_hook: Callable[[Exception], Any] | None = None
         # subscriptions/listen demux routes; membership decides ack consumption (raw listens are never registered)
         self._listen_routes: dict[RequestId, ListenRoute] = {}
         if dispatcher is not None:
@@ -424,11 +425,11 @@ class ClientSession:
             if isinstance(dispatcher, JSONRPCDispatcher) and dispatcher.on_stream_exception is None:
                 # Route transport-level Exception items into message_handler — only
                 # stream-backed dispatchers carry these; DirectDispatcher has none.
-                # Don't clobber a caller-supplied hook.
-                # TODO(L78): this leaves a bound-method ref on the dispatcher after the
-                # session exits (memory pin) and a second wrap of the same dispatcher would
-                # skip install. The Transport-as-Dispatcher rework (L77) removes this seam.
-                dispatcher.on_stream_exception = self._on_stream_exception
+                # Don't clobber a caller-supplied hook, and remember the exact bound
+                # method object so shutdown can remove only our own installation.
+                hook = self._on_stream_exception
+                dispatcher.on_stream_exception = hook
+                self._owned_stream_exception_hook = hook
         else:
             if read_stream is None or write_stream is None:
                 raise ValueError("read_stream and write_stream are required when no dispatcher is given")
@@ -465,6 +466,7 @@ class ClientSession:
                 await task_group.__aexit__(None, None, None)
             finally:
                 self._close_binding_queues()
+                self._remove_owned_stream_exception_hook()
             raise
         return self
 
@@ -482,8 +484,17 @@ class ClientSession:
         finally:
             self._close_binding_queues()
             self._settle_listen_routes_closed()
+            self._remove_owned_stream_exception_hook()
         await resync_tracer()
         return result
+
+    def _remove_owned_stream_exception_hook(self) -> None:
+        """Remove the stream hook only if this session still owns the dispatcher slot."""
+        hook = self._owned_stream_exception_hook
+        if hook is not None and isinstance(self._dispatcher, JSONRPCDispatcher):
+            if self._dispatcher.on_stream_exception is hook:
+                self._dispatcher.on_stream_exception = None
+        self._owned_stream_exception_hook = None
 
     def _close_binding_queues(self) -> None:
         # Unclosed memory object streams warn at garbage collection; close is idempotent.
