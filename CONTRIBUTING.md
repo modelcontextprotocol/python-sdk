@@ -86,10 +86,10 @@ uv tool install pre-commit --with pre-commit-uv --force-reinstall
 
 3. Make your changes
 
-4. Ensure tests pass:
+4. Ensure tests pass (`scripts/test` runs them the way CI does, with coverage):
 
 ```bash
-uv run pytest
+./scripts/test
 ```
 
 5. Run type checking:
