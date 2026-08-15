@@ -116,6 +116,22 @@ Notice what isn't there. `completions` (argument autocomplete for resource templ
     `Client(mcp)` is the same in-memory client every example in these docs is tested with, and
     it's how you'll test yours. It gets a whole page: **[Testing](testing.md)**.
 
+## Server instructions
+
+When a client connects, the server sends an `InitializeResult` during the
+handshake. Its `instructions` field is a free-text string that clients can use
+to guide the model on how to use your server's tools — for example, grouping
+related tools or describing a workflow:
+
+```python title="server.py" hl_lines="4"
+--8<-- "docs_src/first_steps/tutorial002.py"
+```
+
+This is the simplest way to express "these tools go together" or "follow this
+order" without building a dedicated grouping API. See the
+[specification](https://modelcontextprotocol.io/specification/2025-06-18/schema#initializeresult-instructions)
+for the wire format.
+
 ## What you did not write
 
 Look back over this page. You wrote three small Python functions. You did **not** write:

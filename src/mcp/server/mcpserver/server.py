@@ -145,6 +145,16 @@ def lifespan_wrapper(
 
 
 class MCPServer(Generic[LifespanResultT]):
+    """A more ergonomic interface for MCP servers.
+
+    Exposes tools, resources, and prompts to connected clients, and declares
+    capabilities automatically based on what you register.
+
+    The ``instructions`` parameter returns free-text guidance to the client in
+    the ``InitializeResult`` handshake. Use it to describe tool groupings,
+    workflows, or usage hints for the model without a dedicated grouping API.
+    """
+
     def __init__(
         self,
         name: str | None = None,
