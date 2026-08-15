@@ -29,9 +29,13 @@ def test_resource_url_from_server_url_preserves_query():
 
 
 def test_resource_url_from_server_url_preserves_port():
-    """Non-default ports should be preserved."""
+    """Non-default ports should be preserved while default ports are stripped per RFC 3986 §6.2.3."""
     assert resource_url_from_server_url("https://example.com:8443/path") == "https://example.com:8443/path"
     assert resource_url_from_server_url("http://example.com:8080/") == "http://example.com:8080/"
+    assert resource_url_from_server_url("https://example.com:443/path") == "https://example.com/path"
+    assert resource_url_from_server_url("http://example.com:80/path") == "http://example.com/path"
+    assert resource_url_from_server_url("http://example.com:80") == "http://example.com"
+    assert resource_url_from_server_url("https://example.com:443") == "https://example.com"
 
 
 def test_resource_url_from_server_url_lowercase_scheme_and_host():
@@ -69,9 +73,14 @@ def test_check_resource_allowed_different_domains():
 
 
 def test_check_resource_allowed_different_ports():
-    """Different ports should not match."""
+    """Different ports should not match, but explicit default ports are equivalent to omitted ports."""
     assert check_resource_allowed("https://example.com:8443/path", "https://example.com/path") is False
     assert check_resource_allowed("https://example.com:8080/", "https://example.com:8443/") is False
+    # Explicit default ports per RFC 3986 §6.2.3
+    assert check_resource_allowed("https://example.com:443/mcp", "https://example.com/mcp") is True
+    assert check_resource_allowed("https://example.com/mcp", "https://example.com:443/mcp") is True
+    assert check_resource_allowed("http://example.com:80/api", "http://example.com/api") is True
+    assert check_resource_allowed("http://example.com/api", "http://example.com:80/api") is True
 
 
 def test_check_resource_allowed_hierarchical_matching():

@@ -1,16 +1,35 @@
 """Utilities for OAuth 2.0 Resource Indicators (RFC 8707) and PKCE (RFC 7636)."""
 
 import time
-from urllib.parse import urlparse, urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlparse, urlsplit, urlunsplit
 
 from pydantic import AnyUrl, HttpUrl
+
+
+def _canonical_netloc(parsed: SplitResult) -> str:
+    """Normalize netloc by lowercasing and stripping explicit default ports (RFC 3986 §6.2.3)."""
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    port = parsed.port
+
+    if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
+        # Strip default port while preserving userinfo and IPv6 brackets
+        userinfo = ""
+        if "@" in netloc:
+            userinfo = netloc.split("@", 1)[0] + "@"
+        hostname = parsed.hostname.lower() if parsed.hostname else ""
+        if ":" in hostname:  # IPv6 literal
+            hostname = f"[{hostname}]"
+        return f"{userinfo}{hostname}"
+    return netloc
 
 
 def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
     """Convert server URL to canonical resource URL per RFC 8707.
 
     RFC 8707 section 2 states that resource URIs "MUST NOT include a fragment component".
-    Returns absolute URI with lowercase scheme/host for canonical form.
+    RFC 3986 section 6.2.3 specifies normalization of default ports (80 for http, 443 for https).
+    Returns absolute URI with lowercase scheme/host and stripped default ports for canonical form.
 
     Args:
         url: Server URL to convert
@@ -23,7 +42,8 @@ def resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
 
     # Parse the URL and remove fragment, create canonical form
     parsed = urlsplit(url_str)
-    canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment=""))
+    canonical_netloc = _canonical_netloc(parsed)
+    canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=canonical_netloc, fragment=""))
 
     return canonical
 
@@ -43,9 +63,13 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     Returns:
         True if the requested resource matches the configured resource
     """
-    # Parse both URLs
-    requested = urlparse(requested_resource)
-    configured = urlparse(configured_resource)
+    # Canonicalize both resource URLs (RFC 8707 & RFC 3986 default port normalization)
+    requested_canonical = resource_url_from_server_url(requested_resource)
+    configured_canonical = resource_url_from_server_url(configured_resource)
+
+    # Parse both canonical URLs
+    requested = urlparse(requested_canonical)
+    configured = urlparse(configured_canonical)
 
     # Compare scheme, host, and port (origin)
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
