@@ -288,3 +288,39 @@ async def test_token_error_handling_refresh_token(
         data = refresh_response.json()
         assert data["error"] == "invalid_scope"
         assert data["error_description"] == "The requested scope is invalid"
+
+
+@pytest.mark.anyio
+async def test_registration_rejects_redirect_uri_with_fragment(client: httpx2.AsyncClient):
+    client_data = {
+        "redirect_uris": ["https://client.example.com/callback#frag"],
+        "token_endpoint_auth_method": "client_secret_post",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "client_name": "Test Client",
+    }
+
+    response = await client.post("/register", json=client_data)
+
+    assert response.status_code == 400, response.content
+    data = response.json()
+    assert data["error"] == "invalid_redirect_uri"
+    assert data["error_description"] == "Redirect URI must not contain a fragment"
+
+
+@pytest.mark.anyio
+async def test_registration_rejects_non_http_redirect_uri_scheme(client: httpx2.AsyncClient):
+    client_data = {
+        "redirect_uris": ["javascript:alert(1)"],
+        "token_endpoint_auth_method": "client_secret_post",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "client_name": "Test Client",
+    }
+
+    response = await client.post("/register", json=client_data)
+
+    assert response.status_code == 400, response.content
+    data = response.json()
+    assert data["error"] == "invalid_redirect_uri"
+    assert data["error_description"] == "Redirect URI must use an HTTP(S) scheme"
