@@ -435,9 +435,9 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceNotFoundError as err:
-            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
+            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)}) from err
         except ResourceError as err:
-            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
+            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)}) from err
         if isinstance(results, InputRequiredResult):
             return results
         contents: list[TextResourceContents | BlobResourceContents] = []

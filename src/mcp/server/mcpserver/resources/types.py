@@ -106,7 +106,7 @@ class FunctionResource(Resource):
         except MCPError:
             raise
         except Exception as e:
-            raise ValueError(f"Error reading resource {self.uri}: {e}")
+            raise ValueError(f"Error reading resource {self.uri}: {e}") from e
 
     @classmethod
     def from_function(
@@ -188,7 +188,7 @@ class FileResource(Resource):
                 return await anyio.to_thread.run_sync(self.path.read_bytes)
             return await anyio.to_thread.run_sync(partial(self.path.read_text, encoding=self.encoding))
         except Exception as e:
-            raise ValueError(f"Error reading file {self.path}: {e}")
+            raise ValueError(f"Error reading file {self.path}: {e}") from e
 
 
 class HttpResource(Resource):
@@ -233,7 +233,7 @@ class DirectoryResource(Resource):
                 return list(self.path.glob(self.pattern)) if not self.recursive else list(self.path.rglob(self.pattern))
             return list(self.path.glob("*")) if not self.recursive else list(self.path.rglob("*"))
         except Exception as e:
-            raise ValueError(f"Error listing directory {self.path}: {e}")
+            raise ValueError(f"Error listing directory {self.path}: {e}") from e
 
     async def read(self) -> str:  # Always returns JSON string  # pragma: no cover
         """Read the directory listing."""
@@ -242,4 +242,4 @@ class DirectoryResource(Resource):
             file_list = [str(f.relative_to(self.path)) for f in files if f.is_file()]
             return json.dumps({"files": file_list}, indent=2)
         except Exception as e:
-            raise ValueError(f"Error reading directory {self.path}: {e}")
+            raise ValueError(f"Error reading directory {self.path}: {e}") from e

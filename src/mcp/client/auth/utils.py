@@ -424,4 +424,4 @@ async def handle_token_response_scopes(
         token_response = OAuthToken.model_validate_json(content)
         return token_response
     except ValidationError as e:  # pragma: no cover
-        raise OAuthTokenError(f"Invalid token response: {e}")
+        raise OAuthTokenError(f"Invalid token response: {e}") from e

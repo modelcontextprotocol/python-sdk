@@ -1131,7 +1131,7 @@ class ClientSession:
         try:
             validator_cls.check_schema(output_schema)
         except SchemaError as e:
-            raise RuntimeError(f"Invalid schema for tool {name}: {e}")
+            raise RuntimeError(f"Invalid schema for tool {name}: {e}") from e
         # jsonschema ships no `py.typed`, so pyright reads typeshed's stub, which declares
         # `registry` as required (concrete validators default it); cast to a schema-only ctor.
         validator = cast("Callable[[dict[str, Any]], Validator]", validator_cls)(output_schema)

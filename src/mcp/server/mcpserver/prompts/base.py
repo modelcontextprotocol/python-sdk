@@ -197,4 +197,4 @@ class Prompt(BaseModel):
         except MCPError:
             raise
         except Exception as e:
-            raise ValueError(f"Error rendering prompt {self.name}: {e}")
+            raise ValueError(f"Error rendering prompt {self.name}: {e}") from e
