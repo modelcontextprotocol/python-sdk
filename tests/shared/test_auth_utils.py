@@ -38,6 +38,23 @@ def test_resource_url_from_server_url_preserves_port():
     assert resource_url_from_server_url("https://example.com:443") == "https://example.com"
 
 
+def test_resource_url_from_server_url_strips_default_port_with_userinfo():
+    """Default port stripping must preserve userinfo in the netloc."""
+    assert resource_url_from_server_url("https://user:pass@example.com:443/mcp") == "https://user:pass@example.com/mcp"
+    assert resource_url_from_server_url("http://user@example.com:80/api") == "http://user@example.com/api"
+
+
+def test_resource_url_from_server_url_strips_default_port_with_ipv6():
+    """Default port stripping must preserve IPv6 literal brackets."""
+    assert resource_url_from_server_url("https://[::1]:443/path") == "https://[::1]/path"
+    assert resource_url_from_server_url("http://[2001:db8::1]:80/api") == "http://[2001:db8::1]/api"
+
+
+def test_resource_url_from_server_url_malformed_port_falls_back():
+    """A malformed explicit port must not raise; it should fall back to the original netloc."""
+    assert resource_url_from_server_url("https://example.com:99999999/path") == "https://example.com:99999999/path"
+
+
 def test_resource_url_from_server_url_lowercase_scheme_and_host():
     """Scheme and host should be lowercase for canonical form."""
     assert resource_url_from_server_url("HTTPS://EXAMPLE.COM/path") == "https://example.com/path"
@@ -123,6 +140,11 @@ def test_check_resource_allowed_case_insensitive_origin():
     assert check_resource_allowed("https://EXAMPLE.COM/path", "https://example.com/path") is True
     assert check_resource_allowed("HTTPS://example.com/path", "https://example.com/path") is True
     assert check_resource_allowed("https://Example.Com:8080/api", "https://example.com:8080/api") is True
+
+
+def test_check_resource_allowed_malformed_port_does_not_raise():
+    """A malformed explicit port must not raise; check_resource_allowed should return a bool."""
+    assert check_resource_allowed("https://example.com:99999999/path", "https://example.com/path") is False
 
 
 def test_check_resource_allowed_empty_paths():

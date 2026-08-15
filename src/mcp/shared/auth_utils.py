@@ -10,7 +10,11 @@ def _canonical_netloc(parsed: SplitResult) -> str:
     """Normalize netloc by lowercasing and stripping explicit default ports (RFC 3986 §6.2.3)."""
     scheme = parsed.scheme.lower()
     netloc = parsed.netloc.lower()
-    port = parsed.port
+    try:
+        port = parsed.port
+    except ValueError:
+        # Malformed explicit port (e.g. non-numeric) - not canonicalizable, fall back as-is
+        return netloc
 
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         # Strip default port while preserving userinfo and IPv6 brackets
