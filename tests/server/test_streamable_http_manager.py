@@ -3,7 +3,7 @@
 import json
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import anyio
@@ -314,6 +314,7 @@ async def test_terminated_existing_session_is_removed_from_registry(
     transport.is_terminated = True
     transport.idle_scope = None
     manager._server_instances[session_id] = transport
+    manager._session_owners[session_id] = cast(Any, None)
 
     scope = {
         "type": "http",
