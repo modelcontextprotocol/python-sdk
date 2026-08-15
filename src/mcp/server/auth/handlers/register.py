@@ -1,10 +1,10 @@
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
+from pydantic import AnyUrl, BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -36,19 +36,20 @@ class RegistrationHandler:
             body = await request.body()
             client_metadata = OAuthClientMetadata.model_validate_json(body)
 
-            # Validate redirect_uris per RFC 7591 section 2
-            if client_metadata.redirect_uris:
-                for uri in client_metadata.redirect_uris:
-                    try:
-                        validate_redirect_uri(uri)
-                    except ValueError as e:
-                        return PydanticJSONResponse(
-                            content=RegistrationErrorResponse(
-                                error="invalid_redirect_uri",
-                                error_description=str(e),
-                            ),
-                            status_code=400,
-                        )
+            # Validate redirect_uris per RFC 7591 section 2. The metadata
+            # model requires a non-empty list (min_length=1), so no presence
+            # guard is needed; cast narrows the optional field for pyright.
+            for uri in cast(list[AnyUrl], client_metadata.redirect_uris):
+                try:
+                    validate_redirect_uri(uri)
+                except ValueError as e:
+                    return PydanticJSONResponse(
+                        content=RegistrationErrorResponse(
+                            error="invalid_redirect_uri",
+                            error_description=str(e),
+                        ),
+                        status_code=400,
+                    )
 
             # Scope validation is handled below
         except ValidationError as validation_error:

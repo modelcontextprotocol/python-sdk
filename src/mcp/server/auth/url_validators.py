@@ -8,24 +8,6 @@ development.
 from pydantic import AnyUrl
 
 
-def validate_issuer_url(url: AnyUrl):
-    """Validate that the issuer URL meets OAuth 2.0 requirements.
-
-    Args:
-        url: The issuer URL to validate.
-
-    Raises:
-        ValueError: If the issuer URL is invalid.
-    """
-    if url.scheme != "https" and not (url.scheme == "http" and url.host in ("localhost", "127.0.0.1", "[::1]")):
-        raise ValueError("Issuer URL must be HTTPS")
-
-    if url.fragment:
-        raise ValueError("Issuer URL must not have a fragment")
-    if url.query:
-        raise ValueError("Issuer URL must not have a query string")
-
-
 def validate_redirect_uri(url: AnyUrl):
     """Validate a registered redirect_uri for DCR.
 
