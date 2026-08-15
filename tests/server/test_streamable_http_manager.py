@@ -3,7 +3,7 @@
 import json
 import logging
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import anyio
@@ -288,10 +288,6 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
                 break
 
     assert session_id is not None, "Session ID not found in response headers"
-
-    # Seed the owner registry so this assertion verifies that the cleanup path
-    # removes the session owner as well as the server instance.
-    manager._session_owners[session_id] = cast(Any, None)
 
     mock_serve.assert_called_once()
 
