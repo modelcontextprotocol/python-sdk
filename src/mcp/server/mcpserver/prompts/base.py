@@ -62,7 +62,8 @@ class AssistantMessage(Message):
 
 message_validator = TypeAdapter[UserMessage | AssistantMessage](UserMessage | AssistantMessage)
 
-SyncPromptResult = str | Message | dict[str, Any] | InputRequiredResult | Sequence[str | Message | dict[str, Any]]
+_PromptResultItem = str | ContentBlock | Image | Audio | Message | dict[str, Any]
+SyncPromptResult = _PromptResultItem | InputRequiredResult | Sequence[_PromptResultItem]
 PromptResult = SyncPromptResult | Awaitable[SyncPromptResult]
 
 
@@ -98,7 +99,7 @@ class Prompt(BaseModel):
         """Create a Prompt from a function.
 
         The function can return:
-        - A string (converted to a message)
+        - A string, content block, `Image` or `Audio` (each becomes a user message)
         - A Message object
         - A dict (converted to a message)
         - A sequence of any of the above
@@ -192,9 +193,8 @@ class Prompt(BaseModel):
                         messages.append(msg)
                     elif isinstance(msg, dict):
                         messages.append(message_validator.validate_python(msg))
-                    elif isinstance(msg, str):
-                        content = TextContent(type="text", text=msg)
-                        messages.append(UserMessage(content=content))
+                    elif isinstance(msg, str | ContentBlock | Image | Audio):  # bare content is one user message
+                        messages.append(UserMessage(msg))
                     else:  # pragma: no cover
                         content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
                         messages.append(Message(role="user", content=content))

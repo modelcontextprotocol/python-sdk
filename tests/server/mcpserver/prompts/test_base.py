@@ -290,3 +290,29 @@ async def test_prompt_return_annotation_is_not_run_through_tool_output_schema_de
 
     [listed] = await mcp.list_prompts()
     assert [arg.name for arg in listed.arguments or []] == ["topic"]
+
+
+_PNG = Image(data=b"img", format="png")
+_PNG_BLOCK = ImageContent(type="image", data="aW1n", mime_type="image/png")
+_DOC = EmbeddedResource(
+    type="resource", resource=TextResourceContents(uri="file://notes.md", text="notes", mime_type="text/markdown")
+)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("returned", "expected"),
+    [
+        (_PNG, [UserMessage(_PNG_BLOCK)]),
+        (_DOC, [UserMessage(_DOC)]),
+        (["Look at this:", _PNG], [UserMessage("Look at this:"), UserMessage(_PNG_BLOCK)]),
+    ],
+)
+async def test_bare_content_returned_from_a_prompt_becomes_user_messages(returned: Any, expected: list[Message]):
+    """SDK-defined: what a tool may return bare (a content block, `Image`, `Audio`), a prompt may too;
+    each item becomes one user message instead of being JSON-dumped into text."""
+
+    def fn() -> Any:
+        return returned
+
+    assert await Prompt.from_function(fn).render(None, Context()) == expected
