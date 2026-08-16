@@ -109,7 +109,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-A URL means Streamable HTTP, the transport you deploy. `Client` can also launch a local server as a stdio subprocess or take any custom transport, and in tests you hand it the server object itself (`Client(mcp)`): no process, no port. [Clients](https://py.sdk.modelcontextprotocol.io/client/) has the rest.
+A URL means Streamable HTTP, the transport you deploy. `Client` can also launch a local server as a stdio subprocess or take any custom transport; [Clients](https://py.sdk.modelcontextprotocol.io/client/) has the rest.
 
 ## Contributing
 
