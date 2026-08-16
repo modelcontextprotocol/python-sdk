@@ -20,6 +20,7 @@ async def test_signature_becomes_the_schema() -> None:
         assert tool.input_schema == snapshot(
             {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {
                     "query": {"title": "Query", "type": "string"},
                     "limit": {"title": "Limit", "type": "integer"},
@@ -49,6 +50,7 @@ async def test_default_value_makes_the_argument_optional() -> None:
         assert tool.input_schema == snapshot(
             {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {
                     "query": {"title": "Query", "type": "string"},
                     "limit": {"default": 10, "title": "Limit", "type": "integer"},

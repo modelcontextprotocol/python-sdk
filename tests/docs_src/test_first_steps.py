@@ -26,6 +26,7 @@ async def test_each_decorator_registers_one_primitive() -> None:
         assert tool.input_schema == snapshot(
             {
                 "type": "object",
+                "additionalProperties": False,
                 "properties": {
                     "a": {"title": "A", "type": "integer"},
                     "b": {"title": "B", "type": "integer"},
