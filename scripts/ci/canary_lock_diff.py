@@ -104,7 +104,8 @@ def main() -> int:
     if args.suspects:
         runtime = [f"{n} {new[n][-1]}" for (rank, _), n in changed if rank < 2 and n in new]
         summary = ", ".join(runtime[:3]) + (f" (+{len(runtime) - 3} more)" if len(runtime) > 3 else "")
-        args.suspects.write_text(summary + "\n", encoding="utf-8")
+        # Empty file (not a blank line) when no runtime dependency changed, so `[ -s FILE ]` means what it says.
+        args.suspects.write_text(summary + "\n" if summary else "", encoding="utf-8")
     return 0
 
 

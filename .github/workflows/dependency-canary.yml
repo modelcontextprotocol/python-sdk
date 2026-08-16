@@ -17,9 +17,10 @@ name: Dependency canary
 #     route around retroactive caps by picking an older uncapped mcp, and the
 #     bot cannot tell which package (or interaction) is at fault. The issue's
 #     "What to do" section is the runbook; a human decides.
-#   - float test tooling (pytest, ruff, pyright, coverage, ...). Those stay at
-#     uv.lock so a pytest major cannot masquerade as an SDK break; Dependabot
-#     owns moving them.
+#   - float test tooling (pytest, ruff, pyright, coverage, ...). Only the
+#     runtime closure is upgraded; everything else keeps its uv.lock version as
+#     a preference and moves only when a floated runtime dependency forces it
+#     (the report tags such rows "tooling"). Dependabot owns moving tooling.
 #   - test pre-releases on the schedule. `workflow_dispatch` with
 #     `prerelease: true` does that on demand and never files an issue.
 #   - bisect. The issue lists what changed since the last green run (usually
@@ -29,11 +30,13 @@ name: Dependency canary
 # *dev* dependency caps (e.g. logfire pins opentelemetry-sdk, which pins
 # opentelemetry-api) cannot reach their newest release here — the issue's "Not
 # tested at their newest release" section lists them each run. Dependency
-# groups outside `default-groups` (translate, codegen) are stripped before
-# resolving so their caps (anthropic: pydantic<3) do not apply.
+# groups that `uv sync` does not install (translate, codegen) are stripped
+# before resolving so their caps (anthropic: pydantic<3) do not apply.
 #
 # Notifications: assignees get the issue traffic. GitHub additionally e-mails
 # scheduled-run failures only to whoever last edited the `cron:` line below.
+# The P0 label is added automatically when every cell hard-fails and is never
+# removed automatically; de-escalation is a human call.
 
 on:
   schedule:
@@ -48,12 +51,22 @@ on:
         description: "Create/update/close the tracking issue exactly as a scheduled run would"
         type: boolean
         default: false
+  # TEMPORARY while this workflow is under review: exercise it on the PR branch.
+  # Report-only (push runs never touch issues). Remove before merging.
+  push:
+    branches: ["ci/dependency-canary"]
 
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # One canary at a time, and never cancel one in flight: a half-finished run
+  # must not be what decides the tracking issue's fate. Runs are short; queue.
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # -eo pipefail everywhere, and Git-Bash on the Windows cell
 
 env:
   COLUMNS: 150
@@ -62,6 +75,16 @@ env:
   # releases (the ruff 0.14.12 incident that got the per-PR "highest" leg
   # removed in #1869) and same-day yanks. A weekly job loses nothing by it.
   CANARY_LAG: "24 hours"
+  # Single source of truth for the test matrix; the report checks every one of
+  # these produced a result. Oldest and newest supported Python bracket the
+  # marker forks in the lock (deps drop 3.10 first; 3.14 gets wheels last), and
+  # Windows/newest is where a fresh release most often lacks a wheel.
+  CANARY_CELLS: >-
+    [
+      {"cell": "ubuntu-3.10", "os": "ubuntu-latest", "python": "3.10", "smoke": "", "pyright": ""},
+      {"cell": "ubuntu-3.14", "os": "ubuntu-latest", "python": "3.14", "smoke": "1", "pyright": "1"},
+      {"cell": "windows-3.14", "os": "windows-latest", "python": "3.14", "smoke": "", "pyright": ""}
+    ]
   CANARY_LABEL: dependency-canary
   CANARY_ASSIGNEES: "maxisbey,Kludex"
 
@@ -73,10 +96,19 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      actions: read # `gh run list`: find the last green scheduled run to diff against
+      actions: read # find and download the last green scheduled run's resolution to diff against
     outputs:
-      cutoff: ${{ steps.cutoffs.outputs.cutoff }}
+      cells: ${{ steps.plan.outputs.cells }}
     steps:
+      - name: Publish the test matrix
+        id: plan
+        run: |
+          {
+            echo 'cells<<EOF'
+            echo "$CANARY_CELLS"
+            echo 'EOF'
+          } >>"$GITHUB_OUTPUT"
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
@@ -98,109 +130,119 @@ jobs:
           enable-cache: false
           version: ${{ env.UV_VERSION }}
 
-      - name: Compute cutoffs
-        id: cutoffs
+      - name: Fetch the last green run's resolution
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p canary-resolve
-          cutoff=$(date -u -d "-$CANARY_LAG" +%Y-%m-%dT%H:%M:%SZ)
-          echo "cutoff=$cutoff" >>"$GITHUB_OUTPUT"
-          echo "$cutoff" >canary-resolve/cutoff.txt
-          uv self version >canary-resolve/uv-version.txt
-          # Baseline = what the last green *scheduled* run saw (its start time minus the same lag).
-          last_green=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow dependency-canary.yml \
-            --branch main --event schedule --status success --limit 1 --json startedAt --jq '.[0].startedAt // empty')
-          if [ -n "$last_green" ]; then
-            date -u -d "$last_green -$CANARY_LAG" +%Y-%m-%dT%H:%M:%SZ >canary-resolve/baseline.txt
-          else
-            : >canary-resolve/baseline.txt
+          mkdir -p out/canary-resolve
+          cd out/canary-resolve
+          date -u -d "-$CANARY_LAG" +%Y-%m-%dT%H:%M:%SZ >cutoff.txt
+          (uv self version --short 2>/dev/null || uv --version | awk '{print $2}') >uv-version.txt
+          : >baseline.txt
+          # Baseline = the uv.lock the last successful *scheduled* run uploaded, so the
+          # report can list only what moved since then. Best effort (artifacts expire).
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow dependency-canary.yml --branch main \
+            --event schedule --status success --limit 1 --json databaseId,startedAt,url >last-green.json || echo '[]' >last-green.json
+          run_id=$(jq -r '.[0].databaseId // empty' last-green.json)
+          if [ -n "$run_id" ] && gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n canary-resolve -D baseline-dl; then
+            if [ -f baseline-dl/canary-resolve/uv.lock ]; then
+              cp baseline-dl/canary-resolve/uv.lock baseline.lock
+              jq -r '.[0] | "[\(.startedAt[:10]) run](\(.url))"' last-green.json >baseline.txt
+            fi
           fi
-          echo "cutoff=$cutoff baseline=$(cat canary-resolve/baseline.txt)"
+          rm -rf baseline-dl
+          echo "cutoff=$(cat cutoff.txt) uv=$(cat uv-version.txt) baseline=$(cat baseline.txt)"
 
       - name: Work out what to float
         run: |
+          r=out/canary-resolve
           # The runtime closure of mcp[cli,rich] as currently locked: exactly the set
           # `pip install "mcp[cli,rich]"` pulls in. New transitive deps that a newer
           # release introduces have no lock entry and so resolve to newest anyway.
           uv export --frozen --no-default-groups --all-extras --no-emit-workspace \
-            --no-hashes --no-header --no-annotate | sed -E 's/[=; @].*//' | sort -u >canary-resolve/closure.txt
-          echo "Floating $(wc -l <canary-resolve/closure.txt) packages:"; tr '\n' ' ' <canary-resolve/closure.txt; echo
+            --no-hashes --no-header --no-annotate | grep -E '^[A-Za-z0-9]' | sed -E 's/[=; @[].*//' | sort -u >$r/closure.txt
+          if [ ! -s $r/closure.txt ]; then echo "::error::uv export produced an empty runtime closure"; exit 1; fi
+          echo "Floating $(wc -l <$r/closure.txt) packages:"; tr '\n' ' ' <$r/closure.txt; echo
           # Dependency groups that `uv sync` does not install still constrain the
-          # resolution (uv.lock is universal). Strip the non-default ones so e.g. the
-          # translate group's `anthropic` cannot hold pydantic below a new major.
-          python3 - <<'EOF' >canary-resolve/strip.sh
+          # resolution (uv.lock is universal). Strip them so e.g. the translate
+          # group's `anthropic` cannot hold pydantic below a new major.
+          python3 - <<'EOF' >$r/strip.sh
           import re, tomllib
           project = tomllib.load(open("pyproject.toml", "rb"))
-          keep = set(project.get("tool", {}).get("uv", {}).get("default-groups", []))
-          for group, deps in project.get("dependency-groups", {}).items():
-              names = [re.match(r"[A-Za-z0-9._-]+", d).group(0) for d in deps if isinstance(d, str)]
+          groups = project.get("dependency-groups", {})
+          default = project.get("tool", {}).get("uv", {}).get("default-groups", ["dev"])
+          keep = set(groups) if default == "all" else set(default)
+          todo = list(keep)
+          while todo:  # groups pulled in via {include-group = "..."} are installed too
+              for entry in groups.get(todo.pop(), []):
+                  if isinstance(entry, dict) and entry.get("include-group") not in keep | {None}:
+                      keep.add(entry["include-group"])
+                      todo.append(entry["include-group"])
+          for group, entries in groups.items():
+              names = [re.match(r"[A-Za-z0-9._-]+", e).group(0) for e in entries if isinstance(e, str)]
               if group not in keep and names:
                   print("uv remove --frozen --group", group, *names)
           EOF
-          cat canary-resolve/strip.sh
-          bash -e canary-resolve/strip.sh
+          cat $r/strip.sh
+          bash -e $r/strip.sh
 
       - name: Resolve newest allowed versions
         env:
           PRERELEASE: ${{ inputs.prerelease && 'allow' || '' }}
         run: |
-          set -o pipefail
-          args=(--exclude-newer "$(cat canary-resolve/cutoff.txt)")
+          r=out/canary-resolve
+          cutoff=$(cat $r/cutoff.txt)
+          cp uv.lock $r/committed.lock
+          # Per-package cutoffs rather than a global --exclude-newer, so an exact pin
+          # elsewhere (docs group, build constraints) bumped the day before the run
+          # cannot make the resolution fail.
+          args=()
           if [ -n "$PRERELEASE" ]; then args+=(--prerelease "$PRERELEASE"); fi
-          while read -r pkg; do args+=(-P "$pkg"); done <canary-resolve/closure.txt
-          cp uv.lock canary-resolve/committed.lock
-
-          # Reconstruct what the last green run resolved (same command, its cutoff) so the
-          # report can list only what moved since. Best effort: a failure here just drops that table.
-          baseline=$(cat canary-resolve/baseline.txt)
-          if [ -n "$baseline" ]; then
-            echo "::group::Baseline resolution as of the last green run ($baseline)"
-            base_args=("${args[@]}")
-            base_args[1]=$baseline
-            if uv lock "${base_args[@]}" 2>&1 | tee canary-resolve/baseline.log; then
-              cp uv.lock canary-resolve/baseline.lock
-            else
-              echo "::warning::could not re-resolve the last-green baseline; the report will only diff against uv.lock"
-              : >canary-resolve/baseline.txt
-            fi
-            cp canary-resolve/committed.lock uv.lock
-            echo "::endgroup::"
+          while read -r pkg; do args+=(-P "$pkg" --exclude-newer-package "$pkg=$cutoff"); done <$r/closure.txt
+          { printf 'uv lock'; printf ' %q' "${args[@]}"; echo; } >$r/lock-cmd.sh
+          if uv lock "${args[@]}" 2>&1 | tee $r/lock.log; then
+            echo ok >$r/lock-status
+            cp uv.lock $r/uv.lock
+          else
+            # Distinguishes "uv ran and could not resolve" from every other way this job can fail.
+            echo failed >$r/lock-status
+            exit 1
           fi
-
-          uv lock "${args[@]}" 2>&1 | tee canary-resolve/lock.log
-          cp uv.lock canary-resolve/uv.lock
 
       - name: Summarise what moved
         run: |
-          python3 scripts/ci/canary_lock_diff.py canary-resolve/committed.lock uv.lock \
-            --old-label "uv.lock" --new-label "this run" --suspects canary-resolve/suspects-vs-lock.txt >canary-resolve/vs-lock.md
-          if [ -f canary-resolve/baseline.lock ]; then
-            python3 scripts/ci/canary_lock_diff.py canary-resolve/baseline.lock uv.lock \
-              --old-label "last green" --new-label "this run" --suspects canary-resolve/suspects-since-green.txt >canary-resolve/since-green.md
+          r=out/canary-resolve
+          python3 scripts/ci/canary_lock_diff.py $r/committed.lock uv.lock \
+            --old-label "uv.lock" --new-label "this run" --suspects $r/suspects-vs-lock.txt >$r/vs-lock.md
+          if [ -f $r/baseline.lock ]; then
+            python3 scripts/ci/canary_lock_diff.py $r/baseline.lock uv.lock \
+              --old-label "last green" --new-label "this run" --suspects $r/suspects-since-green.txt >$r/since-green.md
           fi
           # Direct runtime deps that could not reach their newest release (capped by something else in the resolution).
-          uv tree --frozen --outdated --depth 1 --package mcp >canary-resolve/tree.txt 2>/dev/null || true
+          uv tree --frozen --outdated --universal --depth 1 --package mcp >$r/tree.txt
           {
             echo "| Package | Resolved | Latest |"
             echo "| --- | --- | --- |"
-            sed -nE 's/^[^A-Za-z0-9]*([A-Za-z0-9._-]+)(\[[^]]*\])? v([^ ]+)( \(extra: [^)]*\))? \(latest: v([^)]+)\)$/| \1 | \3 | \5 |/p' canary-resolve/tree.txt
-          } >canary-resolve/held-back.md
-          if [ "$(wc -l <canary-resolve/held-back.md)" -le 2 ]; then : >canary-resolve/held-back.md; fi
+            sed -nE 's/^[^A-Za-z0-9]*([A-Za-z0-9._-]+)(\[[^]]*\])? v([^ ]+) .*\(latest: v([^)]+)\)$/\1 \3 \4/p' $r/tree.txt |
+              sort -u | while read -r name have latest; do
+                if grep -qxF "$name" $r/closure.txt; then echo "| $name | $have | $latest |"; fi
+              done
+          } >$r/held-back.md
+          if [ "$(wc -l <$r/held-back.md)" -le 2 ]; then : >$r/held-back.md; fi
           {
-            echo "## Resolution (cutoff $(cat canary-resolve/cutoff.txt))"
+            echo "## Resolution (cutoff $(cat $r/cutoff.txt))"
             echo
-            if [ -s canary-resolve/since-green.md ]; then echo "### Since last green ($(cat canary-resolve/baseline.txt))"; cat canary-resolve/since-green.md; echo; fi
-            echo "### vs uv.lock"; cat canary-resolve/vs-lock.md; echo
-            if [ -s canary-resolve/held-back.md ]; then echo "### Held back below latest"; cat canary-resolve/held-back.md; fi
+            if [ -s $r/since-green.md ]; then echo "### Since last green ($(cat $r/baseline.txt))"; cat $r/since-green.md; echo; fi
+            echo "### vs uv.lock"; cat $r/vs-lock.md; echo
+            if [ -s $r/held-back.md ]; then echo "### Held back below latest"; cat $r/held-back.md; fi
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Upload resolution
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: canary-resolve
-          path: canary-resolve/
+          path: out/
           retention-days: 90
           if-no-files-found: error
 
@@ -208,25 +250,13 @@ jobs:
     name: test (${{ matrix.cell }})
     needs: resolve
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Oldest and newest supported Python bracket the marker forks in the
-          # lock (deps drop 3.10 first; 3.14 gets wheels last). Windows/newest is
-          # where a fresh release most often lacks a wheel, and pywin32 lives there.
-          - { cell: ubuntu-3.10, os: ubuntu-latest, python: "3.10" }
-          - {
-              cell: ubuntu-3.14,
-              os: ubuntu-latest,
-              python: "3.14",
-              smoke: "1",
-              pyright: "1",
-            }
-          - { cell: windows-3.14, os: windows-latest, python: "3.14" }
+        include: ${{ fromJSON(needs.resolve.outputs.cells) }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -251,10 +281,12 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: canary-resolve
-          path: canary-resolve
+          path: .
 
       - name: Install and test
-        shell: bash
+        # The suite takes ~2 min; a dependency that makes it hang should surface as
+        # this cell's "incomplete" status in the report, not as a 25-minute job kill.
+        timeout-minutes: 15
         env:
           CANARY_CELL: ${{ matrix.cell }}
           CANARY_PYTHON: ${{ matrix.python }}
@@ -265,25 +297,22 @@ jobs:
           PYTHONWARNDEFAULTENCODING: "1"
         run: |
           cp canary-resolve/uv.lock uv.lock
-          # The lock was resolved with these groups stripped; keep pyproject consistent so --frozen holds.
-          bash -e canary-resolve/strip.sh
           bash scripts/ci/canary_cell.sh
 
       - name: Upload cell result
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: canary-cell-${{ matrix.cell }}
-          path: |
-            canary-out/status
-            canary-out/cell.md
+          path: out/
           retention-days: 30
           if-no-files-found: error
 
   report:
     needs: [resolve, test]
-    # always(): a red resolve/test job is exactly when this must run.
-    if: always() && github.repository == 'modelcontextprotocol/python-sdk' && needs.resolve.result != 'cancelled' && needs.resolve.result != 'skipped'
+    # !cancelled(): a red resolve/test job is exactly when this must run, but a
+    # cancelled run must never decide the issue's fate from partial results.
+    if: ${{ !cancelled() && github.repository == 'modelcontextprotocol/python-sdk' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -299,6 +328,10 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: canary-*
+          # Every artifact already carries its own top-level directory, so merging
+          # yields artifacts/canary-resolve/ and artifacts/canary-cell-*/ no matter
+          # how many artifacts exist (a lone match would otherwise be flattened).
+          merge-multiple: true
           path: artifacts
 
       - name: Report
@@ -306,6 +339,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CANARY_ARTIFACTS: artifacts
           CANARY_RESOLVE_RESULT: ${{ needs.resolve.result }}
+          CANARY_TEST_RESULT: ${{ needs.test.result }}
           CANARY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # Only the schedule (or an explicit dispatch asking for it) touches issues, and never a pre-release run.
           CANARY_FILE_ISSUES: ${{ !inputs.prerelease && (github.event_name == 'schedule' || inputs.file-issue) && 'true' || 'false' }}
