@@ -48,10 +48,6 @@ on:
         description: "Create/update/close the tracking issue exactly as a scheduled run would"
         type: boolean
         default: false
-  # TEMPORARY while this workflow is under review: exercise it on the PR branch.
-  # Report-only (push runs never touch issues). Remove before merging.
-  push:
-    branches: ["ci/dependency-canary"]
 
 permissions: {}
 

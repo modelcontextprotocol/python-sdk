@@ -96,12 +96,13 @@ else
   fi
 
   if [ "${CANARY_PYRIGHT:-}" = "1" ]; then
-    if uv run --frozen --no-sync pyright src/mcp >"$out/pyright.log" 2>&1; then
+    # Typing-only drift (e.g. a dependency tightening a signature) never fails the cell; it is context for the reader.
+    if PYRIGHT_PYTHON_IGNORE_WARNINGS=1 uv run --frozen --no-sync pyright src/mcp >"$out/pyright.log" 2>&1; then
       printf '\npyright on `src/mcp` against these versions: clean (informational).\n' >>"$md"
     else
       {
         echo
-        details_of "$out/pyright.log" "pyright on <code>src/mcp</code> against these versions: $(tail -n1 "$out/pyright.log") (informational, never filed on its own)" 30
+        details_of "$out/pyright.log" "pyright on <code>src/mcp</code> against these versions: $(grep -Eo '^[0-9]+ errors?' "$out/pyright.log" | tail -n1) (informational, never filed on its own)" 30
       } >>"$md"
     fi
   fi
