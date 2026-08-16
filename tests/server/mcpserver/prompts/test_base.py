@@ -3,15 +3,17 @@ from typing import Any
 
 import pytest
 from mcp_types import (
+    AudioContent,
     ElicitRequest,
     ElicitRequestFormParams,
     EmbeddedResource,
+    ImageContent,
     InputRequiredResult,
     TextContent,
     TextResourceContents,
 )
 
-from mcp.server.mcpserver import Context
+from mcp.server.mcpserver import Audio, Context, Image
 from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, Prompt, UserMessage
 
 
@@ -243,3 +245,18 @@ async def test_render_passes_input_required_result_through_unchanged():
     prompt = Prompt.from_function(asking_prompt)
     result = await prompt.render(None, Context())
     assert result is sentinel
+
+
+@pytest.mark.parametrize(
+    ("helper", "expected"),
+    [
+        (Image(data=b"img", format="png"), ImageContent(type="image", data="aW1n", mime_type="image/png")),
+        (Audio(data=b"snd", format="wav"), AudioContent(type="audio", data="c25k", mime_type="audio/wav")),
+    ],
+)
+def test_message_converts_image_and_audio_helpers_to_content_blocks(
+    helper: Image | Audio, expected: ImageContent | AudioContent
+) -> None:
+    """SDK-defined: prompt messages accept the same `Image`/`Audio` helpers tools return."""
+    assert UserMessage(helper).content == expected
+    assert AssistantMessage(content=helper).content == expected

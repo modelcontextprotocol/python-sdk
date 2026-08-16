@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 
@@ -22,14 +23,22 @@ if TYPE_CHECKING:
 
 
 class Message(BaseModel):
-    """Base class for all prompt messages."""
+    """Base class for all prompt messages.
+
+    `content` may be a plain string (wrapped in `TextContent`), an `Image` or `Audio`
+    helper (converted to `ImageContent` / `AudioContent`), or any ready-made content block.
+    """
 
     role: Literal["user", "assistant"]
     content: ContentBlock
 
-    def __init__(self, content: str | ContentBlock, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock | Image | Audio, **kwargs: Any):
         if isinstance(content, str):
             content = TextContent(type="text", text=content)
+        elif isinstance(content, Image):
+            content = content.to_image_content()
+        elif isinstance(content, Audio):
+            content = content.to_audio_content()
         super().__init__(content=content, **kwargs)
 
 
@@ -38,7 +47,7 @@ class UserMessage(Message):
 
     role: Literal["user", "assistant"] = "user"
 
-    def __init__(self, content: str | ContentBlock, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock | Image | Audio, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
@@ -47,7 +56,7 @@ class AssistantMessage(Message):
 
     role: Literal["user", "assistant"] = "assistant"
 
-    def __init__(self, content: str | ContentBlock, **kwargs: Any):
+    def __init__(self, content: str | ContentBlock | Image | Audio, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
