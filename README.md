@@ -86,18 +86,22 @@ Notice what you did **not** write: no JSON Schema (`a: int, b: int` _is_ the sch
 
 ## A client in 10 lines
 
-The same package is a full MCP **client**. `Client` connects to a URL, a stdio subprocess, a custom transport, or (for tests) straight to a server object in memory with no transport at all:
+The same package is a full MCP **client**. Serve `server.py` over HTTP:
+
+```bash
+uv run mcp run server.py --transport streamable-http
+```
+
+then point a `Client` at it:
 
 ```python
 import asyncio
 
 from mcp import Client
 
-from server import mcp
-
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("add", {"a": 1, "b": 2})
         print(result.structured_content)  # {'result': 3}
 
@@ -105,7 +109,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Swap `mcp` for `"http://localhost:8000/mcp"` and the exact same code talks to a remote server.
+A URL means Streamable HTTP, the transport you deploy. `Client` can also launch a local server as a stdio subprocess or take any custom transport; [Clients](https://py.sdk.modelcontextprotocol.io/client/) has the rest.
 
 ## Contributing
 
