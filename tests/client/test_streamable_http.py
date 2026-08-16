@@ -611,7 +611,8 @@ class _DyingSSEStream(httpx2.AsyncByteStream):
 @pytest.mark.anyio
 async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> None:
     """A per-request SSE stream that dies having carried no event ids can never deliver its
-    response; the transport resolves the waiter with CONNECTION_CLOSED instead of hanging forever."""
+    response; the transport surfaces the fault as an Exception item and resolves the waiter
+    with CONNECTION_CLOSED carrying the exception instead of hanging forever."""
     dying = _DyingSSEStream()
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -625,11 +626,52 @@ async def test_a_non_resumable_sse_drop_resolves_the_request_with_an_error() -> 
             await write.send(
                 SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={}))
             )
+            fault = await read.receive()
             reply = await read.receive()
+    assert isinstance(fault, httpx2.ReadError)
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.id == "listen-1"
     assert reply.message.error.code == CONNECTION_CLOSED
+    assert "connection reset" in reply.message.error.message
+
+
+class _DyingIdSSEStream(httpx2.AsyncByteStream):
+    """Yields an event id with a zero retry, then dies every time it is iterated."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"id: evt-7\nretry: 0\n\n"
+        raise httpx2.ReadError("connection reset")
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.anyio
+async def test_an_id_bearing_stream_that_dies_surfaces_the_fault_and_resolves_the_request() -> None:
+    """A resumable stream whose reconnection attempts all fail forwards the transport fault as
+    an Exception item and resolves the waiter with CONNECTION_CLOSED carrying the last failure
+    instead of hanging forever."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=_DyingIdSSEStream())
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={}))
+            )
+            fault = await read.receive()
+            reply = await read.receive()
+    assert isinstance(fault, httpx2.ReadError)
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED
+    assert "connection reset" in reply.message.error.message
 
 
 class _DeliverOnCommandSSEStream(httpx2.AsyncByteStream):
@@ -725,13 +767,18 @@ async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error
     async with httpx2.AsyncClient() as http:
         with anyio.fail_after(5):
             await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
-                _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
+                _abandoned_request_context(http, send),
+                "evt-7",
+                None,
+                MAX_RECONNECTION_ATTEMPTS,
+                last_exc=httpx2.ReadError("connection reset"),
             )
             reply = await receive.receive()
     assert isinstance(reply, SessionMessage)
     assert isinstance(reply.message, JSONRPCError)
     assert reply.message.id == "listen-1"
     assert reply.message.error.code == CONNECTION_CLOSED
+    assert "connection reset" in reply.message.error.message
     send.close()
     receive.close()
 

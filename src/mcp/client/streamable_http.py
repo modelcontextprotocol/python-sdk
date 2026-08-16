@@ -422,6 +422,7 @@ class StreamableHTTPTransport:
         assert isinstance(ctx.session_message.message, JSONRPCRequest)
         original_request_id = ctx.session_message.message.id
 
+        stream_fault: Exception | None = None
         try:
             event_source = EventSource(response)
             async for sse in event_source:  # pragma: no branch
@@ -444,19 +445,27 @@ class StreamableHTTPTransport:
                 if is_complete:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
-        except Exception:
+        except Exception as exc:
+            stream_fault = exc
             logger.debug("SSE stream ended", exc_info=True)  # pragma: lax no cover
+
+        if stream_fault is not None:
+            # Surface the transport fault to the session's message_handler as an
+            # Exception item (see IncomingMessage); the waiter itself is resolved
+            # below with a synthesized error carrying the same exception.
+            await self._forward_stream_fault(ctx.read_stream_writer, stream_fault)
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
-            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, last_exc=stream_fault)
         else:
             # Not resumable: resolve the waiter, else a listen stream's consumer
             # would hang forever instead of learning the subscription is lost.
-            await self._resolve_abandoned_request(
-                ctx.read_stream_writer, original_request_id, "SSE stream ended without a response"
-            )
+            message = "SSE stream ended without a response"
+            if stream_fault is not None:
+                message = f"{message}: {stream_fault!r}"
+            await self._resolve_abandoned_request(ctx.read_stream_writer, original_request_id, message)
 
     async def _resolve_abandoned_request(
         self, read_stream_writer: StreamWriter, request_id: RequestId, message: str, *, code: int = CONNECTION_CLOSED
@@ -472,12 +481,27 @@ class StreamableHTTPTransport:
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("read stream closed before request %r could be resolved", request_id)
 
+    async def _forward_stream_fault(self, read_stream_writer: StreamWriter, exc: Exception) -> None:
+        """Forward a transport-level fault to the session as an Exception item.
+
+        The dispatcher routes Exception items to the session's message_handler via
+        its on_stream_exception observer (see IncomingMessage); pending request
+        waiters are resolved separately by the caller with a synthesized error
+        carrying the same exception.
+        """
+        try:
+            await read_stream_writer.send(exc)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("read stream closed before transport fault %r could be forwarded", exc)
+
     async def _handle_reconnection(
         self,
         ctx: RequestContext,
         last_event_id: str,
         retry_interval_ms: int | None = None,
         attempt: int = 0,
+        *,
+        last_exc: Exception | None = None,
     ) -> None:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
         # Only requests reconnect: every caller arrives from a request's response stream.
@@ -488,9 +512,10 @@ class StreamableHTTPTransport:
             # Resolve on give-up: a request with no read timeout (a listen
             # stream) would otherwise hang its caller forever.
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
-            await self._resolve_abandoned_request(
-                ctx.read_stream_writer, original_request_id, "SSE stream ended and reconnection attempts were exhausted"
-            )
+            message = "SSE stream ended and reconnection attempts were exhausted"
+            if last_exc is not None:
+                message = f"{message}: {last_exc!r}"
+            await self._resolve_abandoned_request(ctx.read_stream_writer, original_request_id, message)
             return
 
         # Always wait - use server value or default
@@ -527,11 +552,11 @@ class StreamableHTTPTransport:
 
                 # Stream ended again without response - reconnect again (reset attempt counter)
                 logger.info("SSE stream disconnected, reconnecting...")
-                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0, last_exc=last_exc)
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
-            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1, last_exc=e)
 
     async def post_writer(
         self,
