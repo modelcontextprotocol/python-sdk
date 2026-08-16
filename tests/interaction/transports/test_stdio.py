@@ -71,7 +71,7 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
     async def collect(params: LoggingMessageNotificationParams) -> None:
         received.append(params)
 
-    with tempfile.TemporaryFile(mode="w+") as errlog:
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as errlog:
         transport = stdio_client(
             StdioServerParameters(
                 command=sys.executable,

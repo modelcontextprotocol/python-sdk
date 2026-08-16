@@ -279,6 +279,9 @@ filterwarnings = [
     # 2026-07-28 drops ping; Client.send_ping() is advisory-deprecated and the
     # legacy interaction/transport tests still drive it.
     "ignore:ping is removed as of 2026-07-28.*:mcp.MCPDeprecationWarning",
+    # CI and scripts/test set PYTHONWARNDEFAULTENCODING=1, so "error" rejects any text I/O
+    # of ours that omits encoding=; pytest-examples' own unguarded text I/O isn't ours.
+    "ignore:'encoding' argument not specified:EncodingWarning:pytest_examples",
 ]
 
 [tool.markdown.lint]

@@ -44,7 +44,7 @@ class Configuration:
             FileNotFoundError: If configuration file doesn't exist.
             JSONDecodeError: If configuration file is invalid JSON.
         """
-        with open(file_path, "r") as f:
+        with open(file_path, encoding="utf-8") as f:
             return json.load(f)
 
     @property

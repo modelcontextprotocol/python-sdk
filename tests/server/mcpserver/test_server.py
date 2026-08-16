@@ -819,7 +819,7 @@ class TestServerResources:
 
         # Create a text file
         text_file = tmp_path / "test.txt"
-        text_file.write_text("Hello from file!")
+        text_file.write_text("Hello from file!", encoding="utf-8")
 
         resource = FileResource(uri="file://test.txt", name="test.txt", path=text_file)
         mcp.add_resource(resource)

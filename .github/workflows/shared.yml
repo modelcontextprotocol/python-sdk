@@ -99,6 +99,9 @@ jobs:
           # tests/examples/test_stories_smoke.py is gated on this var; it spawns real
           # stdio + uvicorn subprocesses, so run it on exactly one matrix cell.
           MCP_EXAMPLES_SMOKE: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.dep-resolution.name == 'locked' && '1' || '' }}
+          # PEP 597: text I/O without encoding= raises EncodingWarning, which pytest's "error"
+          # filter makes fatal on every cell. An env var (not -X) so pytest-xdist workers inherit it.
+          PYTHONWARNDEFAULTENCODING: "1"
         run: |
           uv run --frozen --no-sync coverage erase
           uv run --frozen --no-sync coverage run -m pytest -n auto

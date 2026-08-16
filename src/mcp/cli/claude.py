@@ -92,7 +92,7 @@ def update_claude_config(
     config_file = config_dir / "claude_desktop_config.json"
     if not config_file.exists():  # pragma: lax no cover
         try:
-            config_file.write_text("{}")
+            config_file.write_text("{}", encoding="utf-8")
         except Exception:
             logger.exception(
                 "Failed to create Claude config file",
@@ -103,7 +103,7 @@ def update_claude_config(
             return False
 
     try:
-        config = json.loads(config_file.read_text())
+        config = json.loads(config_file.read_bytes())
         if "mcpServers" not in config:
             config["mcpServers"] = {}
 
@@ -154,7 +154,7 @@ def update_claude_config(
 
         config["mcpServers"][server_name] = server_config
 
-        config_file.write_text(json.dumps(config, indent=2))
+        config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
         logger.info(
             f"Added server '{server_name}' to Claude config",
             extra={"config_file": str(config_file)},

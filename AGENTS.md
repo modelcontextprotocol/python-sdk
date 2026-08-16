@@ -46,6 +46,11 @@
   dependencies and obscure circular-import bugs. Only exception: when a
   top-level import genuinely can't work (lazy-loading optional deps, or
   tests that re-import a module).
+- Always pass `encoding=` to text-mode `open()`, `Path.read_text()`/`write_text()`,
+  `tempfile` and `subprocess` text pipes — normally `"utf-8"`, or `"locale"` when the
+  platform encoding is genuinely intended; the default is the process locale, not UTF-8.
+  CI and `scripts/test` run pytest with `PYTHONWARNDEFAULTENCODING=1` (PEP 597), which
+  makes any omission an error under the `error` filter.
 
 ## Testing
 
