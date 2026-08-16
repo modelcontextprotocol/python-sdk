@@ -1759,6 +1759,75 @@ async def test_a_boolean_inbound_ttl_is_not_clamped_only_coerced_by_validation(w
     assert result.ttl_ms == int(wire_ttl)
 
 
+_LEGACY_HINTED_RESULTS: list[tuple[str, dict[str, Any]]] = [
+    ("list_tools", {"tools": []}),
+    ("list_prompts", {"prompts": []}),
+    ("list_resources", {"resources": []}),
+    ("list_resource_templates", {"resourceTemplates": []}),
+    ("read_resource", {"contents": []}),
+]
+
+_LEGACY_TAGGED_RESULTS: list[tuple[str, dict[str, Any]]] = [
+    ("call_tool", {"content": []}),
+    ("get_prompt", {"messages": []}),
+]
+
+
+def _legacy_init(version: str) -> dict[str, Any]:
+    return InitializeResult(
+        protocol_version=version,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+async def _call_legacy(session: ClientSession, verb: str) -> Any:
+    if verb == "read_resource":
+        return await session.read_resource("mem://x")
+    if verb == "call_tool":
+        return await session.call_tool("t", {})
+    if verb == "get_prompt":
+        return await session.get_prompt("p")
+    return await getattr(session, verb)()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("version", HANDSHAKE_PROTOCOL_VERSIONS)
+@pytest.mark.parametrize(("verb", "body"), _LEGACY_HINTED_RESULTS)
+async def test_cache_hints_from_a_legacy_server_never_reach_the_result(
+    version: str, verb: str, body: dict[str, Any]
+) -> None:
+    """SDK-defined: on any pre-2026 session the caching fields are outside the negotiated
+    schema, so whatever a server puts in them - even values the 2026-07-28 enum
+    rejects - is dropped and the model shows its conservative defaults."""
+    dispatcher = _ScriptedDispatcher(_legacy_init(version), {**body, "ttlMs": -1, "cacheScope": "session"})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            result = await _call_legacy(session, verb)
+    assert (result.ttl_ms, result.cache_scope) == (0, "private")
+    assert not {"ttl_ms", "cache_scope"} & result.model_fields_set
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("verb", "body"), _LEGACY_TAGGED_RESULTS)
+async def test_a_2026_result_type_tag_from_a_legacy_server_never_reaches_the_result(
+    verb: str, body: dict[str, Any]
+) -> None:
+    """SDK-defined: `resultType` is 2026-07-28 vocabulary that also feeds result-union
+    routing, so a tag on a pre-2026 wire (even one no union arm claims) is dropped and
+    the plain result is returned rather than mis-routing or failing."""
+    # `call_tool` re-lists tools to validate structured content; that answer trails harmlessly for `get_prompt`.
+    dispatcher = _ScriptedDispatcher(
+        _legacy_init(LATEST_HANDSHAKE_VERSION), {**body, "resultType": "task"}, {"tools": []}
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            result = await _call_legacy(session, verb)
+    assert result.result_type == "complete"
+
+
 @pytest.mark.anyio
 async def test_session_call_tool_returns_input_required_result_when_opted_in() -> None:
     """`ClientSession.call_tool(..., allow_input_required=True)` surfaces the
