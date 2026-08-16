@@ -835,9 +835,8 @@ async def test_forwarding_a_stream_fault_after_the_reader_closed_is_contained() 
     transport = StreamableHTTPTransport("http://test/mcp")
     send, receive = create_context_streams[SessionMessage | Exception](1)
     receive.close()
-    async with httpx2.AsyncClient() as http:
-        with anyio.fail_after(5):
-            await transport._forward_stream_fault(  # pyright: ignore[reportPrivateUsage]
-                send, httpx2.ReadError("connection reset")
-            )
+    with anyio.fail_after(5):
+        await transport._forward_stream_fault(  # pyright: ignore[reportPrivateUsage]
+            send, httpx2.ReadError("connection reset")
+        )
     send.close()
