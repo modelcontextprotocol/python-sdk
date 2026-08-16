@@ -324,3 +324,21 @@ async def test_registration_rejects_non_http_redirect_uri_scheme(client: httpx2.
     data = response.json()
     assert data["error"] == "invalid_redirect_uri"
     assert data["error_description"] == "Redirect URI must use an HTTP(S) scheme"
+
+
+@pytest.mark.anyio
+async def test_registration_rejects_null_redirect_uris(client: httpx2.AsyncClient):
+    client_data = {
+        "redirect_uris": None,
+        "token_endpoint_auth_method": "client_secret_post",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "client_name": "Test Client",
+    }
+
+    response = await client.post("/register", json=client_data)
+
+    assert response.status_code == 400, response.content
+    data = response.json()
+    assert data["error"] == "invalid_client_metadata"
+    assert data["error_description"] == "redirect_uris must be a non-empty list"

@@ -1,10 +1,10 @@
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
-from pydantic import AnyUrl, BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -36,10 +36,20 @@ class RegistrationHandler:
             body = await request.body()
             client_metadata = OAuthClientMetadata.model_validate_json(body)
 
-            # Validate redirect_uris per RFC 7591 section 2. The metadata
-            # model requires a non-empty list (min_length=1), so no presence
-            # guard is needed; cast narrows the optional field for pyright.
-            for uri in cast(list[AnyUrl], client_metadata.redirect_uris):
+            # Validate redirect_uris per RFC 7591 section 2. The type union
+            # with None means an explicit JSON null passes model validation
+            # (min_length only constrains the list branch), so reject it as
+            # invalid metadata before iterating.
+            redirect_uris = client_metadata.redirect_uris
+            if redirect_uris is None:
+                return PydanticJSONResponse(
+                    content=RegistrationErrorResponse(
+                        error="invalid_client_metadata",
+                        error_description="redirect_uris must be a non-empty list",
+                    ),
+                    status_code=400,
+                )
+            for uri in redirect_uris:
                 try:
                     validate_redirect_uri(uri)
                 except ValueError as e:
