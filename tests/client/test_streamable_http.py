@@ -674,6 +674,38 @@ async def test_an_id_bearing_stream_that_dies_surfaces_the_fault_and_resolves_th
     assert "connection reset" in reply.message.error.message
 
 
+class _EmptySSEStream(httpx2.AsyncByteStream):
+    """An SSE stream that ends cleanly before yielding any events."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        return
+        yield  # pragma: no cover
+
+
+@pytest.mark.anyio
+async def test_a_stream_that_ends_cleanly_without_a_response_keeps_the_plain_message() -> None:
+    """A per-request SSE stream that ends cleanly (no events, no fault) resolves the
+    waiter with the plain CONNECTION_CLOSED message."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=_EmptySSEStream())
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="listen-1", method="subscriptions/listen", params={}))
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED
+    assert reply.message.error.message == "SSE stream ended without a response"
+
+
 class _DeliverOnCommandSSEStream(httpx2.AsyncByteStream):
     """Parks after opening, then delivers one JSON-RPC response when told."""
 
@@ -793,5 +825,19 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
         with anyio.fail_after(5):
             await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
+            )
+    send.close()
+
+
+@pytest.mark.anyio
+async def test_forwarding_a_stream_fault_after_the_reader_closed_is_contained() -> None:
+    """Teardown race: forwarding a fault after the reader closed is best-effort and must not crash."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    receive.close()
+    async with httpx2.AsyncClient() as http:
+        with anyio.fail_after(5):
+            await transport._forward_stream_fault(  # pyright: ignore[reportPrivateUsage]
+                send, httpx2.ReadError("connection reset")
             )
     send.close()
