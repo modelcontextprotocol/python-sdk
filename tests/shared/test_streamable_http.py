@@ -1314,17 +1314,20 @@ async def _handle_context_list_tools(
 
 async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     assert params.name in ("echo_headers", "echo_context")
-    assert isinstance(ctx.request, Request)
+    assert ctx.request is not None
+    # Starlette's Request is generic over its state type (0.52+); pin the parameter so member access stays typed.
+    request: Request[Any] = ctx.request
+    assert isinstance(request, Request)
 
     if params.name == "echo_headers":
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps(dict(ctx.request.headers)))])
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(dict(request.headers)))])
 
     assert params.arguments is not None
     context_data: dict[str, Any] = {
         "request_id": params.arguments.get("request_id"),
-        "headers": dict(ctx.request.headers),
-        "method": ctx.request.method,
-        "path": ctx.request.url.path,
+        "headers": dict(request.headers),
+        "method": request.method,
+        "path": request.url.path,
         "protocol_version": ctx.protocol_version,
         "session_protocol_version": ctx.session.protocol_version,
     }

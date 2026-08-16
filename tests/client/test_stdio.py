@@ -436,7 +436,10 @@ def test_a_server_dying_in_the_final_poll_interval_is_not_escalated(monkeypatch:
                     process.exit(0)
 
                 # The grace wait starts when stdin closes; anchor the death there.
-                process.on_stdin_close = lambda: tg.start_soon(die_late)
+                def schedule_death() -> None:
+                    tg.start_soon(die_late)
+
+                process.on_stdin_close = schedule_death
                 # no branch: the tracer drops this nested async-with's arcs under
                 # trio's MockClock even though the body runs.
                 async with stdio_client(FAKE_PARAMS):  # pragma: no branch

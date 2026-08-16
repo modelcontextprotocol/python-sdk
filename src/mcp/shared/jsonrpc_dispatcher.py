@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Generic, Literal, cast
@@ -209,7 +209,9 @@ def _shielded_progress(fn: ProgressFnT) -> ProgressFnT:
     return _wrapped
 
 
-def _contained_notify(fn: OnNotify) -> OnNotify:
+def _contained_notify(
+    fn: OnNotify,
+) -> Callable[[DispatchContext[TransportContext], str, Mapping[str, Any] | None], Coroutine[Any, Any, None]]:
     """Wrap a notification handler so it can't crash the dispatcher (same boundary as `_shielded_progress`)."""
 
     async def _wrapped(dctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
@@ -670,7 +672,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
     def _spawn(
         self,
-        fn: Callable[..., Awaitable[Any]],
+        fn: Callable[..., Coroutine[Any, Any, Any]],
         *args: object,
         sender_ctx: contextvars.Context | None,
     ) -> None:
