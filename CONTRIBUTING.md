@@ -48,9 +48,24 @@ Bug fixes for clear, reproducible issues are welcome—but still create an issue
 | [`help wanted`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) | Experienced contributors | Maintainers probably won't get to this |
 | [`ready for work`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22ready+for+work%22) | Maintainers | Triaged and ready for a maintainer to pick up |
 
-Issues labeled `needs confirmation` or `needs maintainer action` are **not** ready for work—wait for maintainer input first.
+Issues labeled `needs confirmation` or `needs maintainer` are **not** ready for work—wait for maintainer input first.
 
 Before starting, comment on the issue so we can assign it to you. This prevents duplicate effort.
+
+## Issue Triage
+
+Every new issue gets a first look from a maintainer within two business days. That first look is the *triage*: it means labeling the issue and deciding whether it is valid and actionable, not fixing it.
+
+The core labels follow the shared [MCP SDK taxonomy](https://modelcontextprotocol.io/community/sdk-tiers#issue-triage-labels) (the repository also carries workflow labels of its own, such as `needs maintainer` and `needs decision`): one **type** (`bug`, `enhancement`, `question`), one **status** (`needs confirmation`, `needs repro`, `ready for work`, `good first issue`, `help wanted`), and — once actionable — one **priority**:
+
+| Label | Meaning | Commitment |
+|-------|---------|------------|
+| `P0` | Critical: core functionality failures (connections, message exchange, tools/resources/prompts) or a High/Critical-severity security issue | resolved within 7 days |
+| `P1` | Significant bug affecting many users | next release |
+| `P2` | Moderate issue or valuable feature request | as capacity allows |
+| `P3` | Nice-to-have or rare edge case | opportunistic |
+
+Security reports do not belong in the issue tracker; [SECURITY.md](SECURITY.md) has the private channel.
 
 ## Development Setup
 
@@ -154,6 +169,7 @@ A few dozen lines can be reviewed in minutes. Hundreds of lines across many file
 2. Add tests for new functionality
 3. Ensure CI passes
 4. Address review feedback
+5. Dependency bound changes and new runtime dependencies follow the [Dependency Policy](DEPENDENCY_POLICY.md)
 
 ## Code of Conduct
 
