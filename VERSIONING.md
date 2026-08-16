@@ -32,4 +32,14 @@ Allowed in a minor:
 
 ## Support and announcements
 
-Two lines are maintained and only the newest release of each receives fixes: **2.x** (`main`) gets bug fixes, security fixes, and features; **1.x** ([`v1.x`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x)) gets critical bug fixes and security fixes. [SECURITY.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/SECURITY.md) has the reporting process. Every release publishes notes on [GitHub Releases](https://github.com/modelcontextprotocol/python-sdk/releases); every breaking change between majors is documented in the [Migration Guide](https://py.sdk.modelcontextprotocol.io/migration/) before it merges; and pull requests that make one carry the `breaking change` label.
+Two lines are maintained, and only the newest release of each receives fixes:
+
+* **2.x** (`main`) — bug fixes, security fixes, and features.
+* **1.x** ([`v1.x`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x)) — critical bug fixes and security fixes.
+
+Where changes are announced:
+
+* [SECURITY.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/SECURITY.md) has the vulnerability reporting process.
+* Every release publishes notes on [GitHub Releases](https://github.com/modelcontextprotocol/python-sdk/releases).
+* Every breaking change between majors is documented in the [Migration Guide](https://py.sdk.modelcontextprotocol.io/migration/) before it merges.
+* Pull requests that make a breaking change carry the `breaking change` label.
