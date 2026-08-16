@@ -88,7 +88,7 @@ Describe the process with `StdioServerParameters` and hand it to `Client`:
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-Entering the block spawns the process; leaving it shuts the subprocess down: close stdin, wait, kill if it lingers. You never clean it up yourself.
+Entering the block spawns the process. Leaving it shuts the subprocess down: close stdin, wait, kill if it lingers. You never clean it up yourself.
 
 The child's stderr goes to yours. To send it somewhere else, build the transport yourself with `stdio_client` (from `mcp`) and pass that instead: `Client(stdio_client(server, errlog=log_file))`.
 
@@ -115,7 +115,7 @@ A **transport** is any async context manager that yields a `(read, write)` pair 
 * `Client(mcp)` (the server object) connects in memory. Use it for tests and for embedding.
 * `Client("http://.../mcp")` (a URL) connects over Streamable HTTP, the production transport.
 * Headers, auth, proxies and timeouts belong on an `httpx2.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
-* stdio is `Client(StdioServerParameters(...))`; wrap it in `stdio_client(...)` yourself only to redirect the child's stderr.
+* stdio is `Client(StdioServerParameters(...))`. Wrap it in `stdio_client(...)` yourself only to redirect the child's stderr.
 * The subprocess gets an allow-listed environment, not yours; `env=` adds to it.
 * A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object, a URL or `StdioServerParameters` straight to that protocol.
 * Constructing a `Client` picks the transport. `async with` opens it.

@@ -42,7 +42,7 @@ async def test_streamable_http_configuration_lives_on_the_httpx_client() -> None
 
 
 async def test_stdio_parameters_go_straight_to_client() -> None:
-    """tutorial004: `Client` takes the `StdioServerParameters` directly; nothing is spawned until you enter it."""
+    """tutorial004: `Client` takes the `StdioServerParameters` directly, and nothing is spawned until you enter it."""
     client = Client(tutorial004.server)
     with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
         client.session
