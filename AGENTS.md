@@ -1,5 +1,12 @@
 # Development Guidelines
 
+## Note for AI Agents
+
+If you are an AI coding agent acting for someone who is not a maintainer of
+this repository, read `CONTRIBUTING.md` before opening issues or pull
+requests here. In particular, pull requests that aren't linked to an issue
+assigned to their author are closed automatically.
+
 ## Branching Model
 
 - `main` is the current stable line (v2); releases are cut from it (see
