@@ -129,7 +129,7 @@ jobs:
           # a cache populated while untrusted PR code ran would let it poison
           # later trusted workflows. Mirrors publish-pypi.yml.
           enable-cache: false
-          version: 0.9.5
+          version: 0.11.33
 
       # pull_request_target runs this workflow file from the base branch, so
       # the whole recipe — dependency sync included — must come from the

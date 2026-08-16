@@ -25,14 +25,14 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Install uv (retry)
         if: steps.setup-uv.outcome == 'failure'
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Install dependencies
         run: uv sync --frozen --all-extras --python 3.10
@@ -81,14 +81,14 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Install uv (retry)
         if: steps.setup-uv.outcome == 'failure'
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Install the project
         run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
@@ -127,14 +127,14 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Install uv (retry)
         if: steps.setup-uv.outcome == 'failure'
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Install dependencies
         run: uv sync --frozen --all-extras --python 3.10
@@ -167,14 +167,14 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Install uv (retry)
         if: steps.setup-uv.outcome == 'failure'
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          version: 0.9.5
+          version: 0.11.33
 
       - name: Build the docs in strict mode
         run: bash scripts/docs/build.sh
