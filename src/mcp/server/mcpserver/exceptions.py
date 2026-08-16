@@ -16,8 +16,8 @@ class ResourceError(MCPServerError):
 class ResourceNotFoundError(ResourceError):
     """Resource does not exist.
 
-    Raise this from a resource handler to signal that the requested instance does not exist;
-    clients receive `-32602` (invalid params) per
+    Raise this from a resource handler to signal that the requested instance does not exist.
+    Clients receive `-32602` (invalid params) per
     [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164).
     """
 
@@ -26,7 +26,7 @@ class UnexpectedResourceError(ResourceError):
     """A resource read failed with something other than `ResourceError` or `MCPError`.
 
     MCPServer raises this itself, around a crash in a resource or resource
-    template handler or a failed file read; you never raise it. `__cause__` is
+    template handler or a failed file read. You never raise it. `__cause__` is
     the original exception, which the server logs with its traceback. The
     message names only the URI, so the original text is withheld from the client.
     """
@@ -50,7 +50,7 @@ class UnexpectedToolError(ToolError):
     """A tool call failed with something other than `ToolError` or `MCPError`.
 
     MCPServer raises this itself, around a crash in the tool (or a resolver) or a
-    return value that fails output conversion; you never raise it. `__cause__` is
+    return value that fails output conversion. You never raise it. `__cause__` is
     the original exception, which the server logs with its traceback before
     returning the usual `is_error=True` result. Catch it around
     `MCPServer.call_tool()` to tell a crash from a deliberate `ToolError`.

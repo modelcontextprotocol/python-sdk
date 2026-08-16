@@ -427,7 +427,14 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as exc:
-            _log_handler_exception("Tool", params.name, exc)
+            # A ToolError (deliberate, unknown tool, rejected arguments) is an outcome
+            # the model already reads in full, so it is one INFO record, repr-quoted to
+            # keep peer-supplied text on one line. Anything else is a crash in the
+            # tool: log the traceback that the result text doesn't carry.
+            if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError):
+                logger.info("Tool %r failed: %r", params.name, str(exc))
+            else:
+                logger.exception("Tool %r raised an unexpected exception", params.name)
             return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
 
     async def _handle_list_resources(
@@ -442,7 +449,13 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceError as err:
-            _log_handler_exception("Resource", str(params.uri), err)
+            # UnexpectedResourceError wraps a crash whose text is withheld from the
+            # client, so the traceback goes to the log. Any other ResourceError was
+            # raised on purpose (or is the SDK's "Unknown resource") and is one INFO record.
+            if isinstance(err, UnexpectedResourceError):
+                logger.exception("Resource %r raised an unexpected exception", str(params.uri))
+            else:
+                logger.info("Resource %r failed: %r", str(params.uri), str(err))
             code = INVALID_PARAMS if isinstance(err, ResourceNotFoundError) else INTERNAL_ERROR
             raise MCPError(code=code, message=str(err), data={"uri": str(params.uri)})
         if isinstance(results, InputRequiredResult):
@@ -511,8 +524,8 @@ class MCPServer(Generic[LifespanResultT]):
             ToolError: If the tool is unknown, the arguments fail validation, or the
                 tool (or a resolver) raises `ToolError`.
             UnexpectedToolError: If the tool (or a resolver) raises anything other than
-                `ToolError` or `MCPError`, or its return value fails output conversion;
-                `__cause__` is the original.
+                `ToolError` or `MCPError`, or its return value fails output conversion.
+                `__cause__` is the original exception.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
@@ -566,8 +579,8 @@ class MCPServer(Generic[LifespanResultT]):
             ResourceNotFoundError: If no resource or template matches the URI.
             ResourceError: If the resource or template function raises `ResourceError`.
             UnexpectedResourceError: If reading the resource (or creating it from a
-                template) raises anything other than `ResourceError` or `MCPError`;
-                `__cause__` is the original.
+                template) raises anything other than `ResourceError` or `MCPError`.
+                `__cause__` is the original exception.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
@@ -1318,25 +1331,6 @@ class MCPServer(Generic[LifespanResultT]):
             # with its traceback (or, in-process with `raise_exceptions=True`,
             # hands it to the caller instead).
             raise ValueError(str(e)) from e
-
-
-def _log_handler_exception(kind: Literal["Tool", "Resource"], name: str, exc: Exception) -> None:
-    """Record a tool or resource handler failure; the one place MCPServer logs them.
-
-    Called from the `except` block that turns the failure into a response. A
-    `ToolError` or `ResourceError` (deliberate, an unknown name, arguments that
-    failed validation, `ResourceNotFoundError`) is an anticipated outcome the
-    client already receives in full: one INFO record, no traceback, the text
-    repr-quoted so peer-supplied names and newlines stay on one line. Anything
-    else, including the `Unexpected*` wrappers whose `__cause__` is what the
-    handler actually raised, is a crash in user code: ERROR with the traceback.
-    """
-    if isinstance(exc, ToolError | ResourceError) and not isinstance(
-        exc, UnexpectedToolError | UnexpectedResourceError
-    ):
-        logger.info("%s %r failed: %r", kind, name, str(exc))
-    else:
-        logger.exception("%s %r raised an unexpected exception", kind, name, exc_info=exc)
 
 
 def _version_gated(method: MethodBinding) -> RequestHandler:

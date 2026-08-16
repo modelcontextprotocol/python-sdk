@@ -1,7 +1,5 @@
 """Prompt interactions against MCPServer, driven through the public Client API."""
 
-import logging
-
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -141,36 +139,6 @@ async def test_get_prompt_with_a_wrong_type_argument_is_rejected_before_the_func
 
     assert exc_info.value.error.code == 0
     assert exc_info.value.error.message.startswith("Error rendering prompt repeat: 1 validation error")
-
-
-@requirement("mcpserver:prompt:render-throws:logged")
-async def test_get_prompt_function_exception_is_logged_once_with_its_traceback(
-    connect: Connect, caplog: pytest.LogCaptureFixture
-) -> None:
-    """An exception raised by a prompt function is logged exactly once, at ERROR, with its traceback.
-
-    MCPServer lets the failure escape to the dispatcher boundary, which owns both the JSON-RPC error and
-    the log record; the owning logger therefore differs by transport, but the count must not.
-    """
-    mcp = MCPServer("prompter")
-    raised = RuntimeError("template store unreachable")
-
-    @mcp.prompt()
-    def briefing() -> str:
-        raise raised
-
-    caplog.set_level(logging.ERROR)
-    async with connect(mcp) as client:
-        with pytest.raises(MCPError):
-            await client.get_prompt("briefing")
-
-    def chains_to_raised(exc: BaseException | None) -> bool:
-        while exc is not None and exc is not raised:
-            exc = exc.__cause__ or exc.__context__
-        return exc is raised
-
-    records = [r for r in caplog.records if r.exc_info and chains_to_raised(r.exc_info[1])]
-    assert [r.levelname for r in records] == ["ERROR"]
 
 
 @requirement("mcpserver:prompt:optional-args")

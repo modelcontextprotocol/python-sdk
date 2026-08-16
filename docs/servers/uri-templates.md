@@ -201,9 +201,8 @@ These checks are a heuristic pre-filter; for filesystem access,
 !!! tip
     If your handler can't fulfil the request (the file doesn't exist, the id is unknown), raise
     `ResourceNotFoundError` from `mcp.server.mcpserver.exceptions`. The client gets `-32602` with
-    your message and the URI, and your log gets one `INFO` line; any other exception is treated as
-    a crash (`-32603`, and an `ERROR` record with the traceback). See
-    **[Handling errors](handling-errors.md#a-resource-that-doesnt-exist)**.
+    your message and the URI. Any other exception is treated as a crash and the client gets a
+    generic `-32603`. See **[Handling errors](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Resources on the low-level Server
 

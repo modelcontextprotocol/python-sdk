@@ -70,7 +70,7 @@ went to standard error: the terminal, not the wire.
     don't want log lines, you want spans. Your server already emits them: the SDK traces every
     message with OpenTelemetry out of the box. See **[OpenTelemetry](../run/opentelemetry.md)**.
 
-You don't have to log your own handlers' crashes either. When a tool or resource function raises something unexpected, the SDK writes the `ERROR` record with the traceback for you, on its own `mcp.*` loggers; a failure you raised deliberately (`ToolError`, `ResourceNotFoundError`) is an `INFO` line instead. A prompt function that raises is an `ERROR` record too, whatever it raised. **[Handling errors](../servers/handling-errors.md#what-lands-in-your-log)** has the split. (In a test using `Client(mcp, raise_exceptions=True)`, a prompt failure is handed to your test as the exception rather than logged.)
+You also don't need a `try`/`except` in every handler just to record failures. When a tool or resource function raises, the SDK logs it for you. **[Handling errors](../servers/handling-errors.md#what-the-server-logs)** explains what gets logged and at which level.
 
 ## Recap
 

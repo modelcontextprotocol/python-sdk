@@ -216,7 +216,7 @@ class ResourceTemplate(BaseModel):
         Raises:
             ResourceError: If the template function raises `ResourceError`.
             UnexpectedResourceError: If the template function raises anything other
-                than `ResourceError` or `MCPError`; `__cause__` is the original.
+                than `ResourceError` or `MCPError`. `__cause__` is the original exception.
         """
         try:
             # Add context to params if needed

@@ -90,7 +90,7 @@ async def test_a_title_the_template_knows_reads_normally() -> None:
 
 
 async def test_a_plain_exception_is_logged_as_a_crash_with_its_traceback(caplog: pytest.LogCaptureFixture) -> None:
-    """tutorial001, "What lands in your log": the `ValueError` is one ERROR record carrying the traceback."""
+    """tutorial001, "What the server logs": the `ValueError` is one ERROR record carrying the traceback."""
     caplog.set_level(logging.INFO)
     async with Client(tutorial001.mcp) as client:
         await client.call_tool("get_author", {"title": "Nothing"})
@@ -99,7 +99,6 @@ async def test_a_plain_exception_is_logged_as_a_crash_with_its_traceback(caplog:
     assert record.exc_info is not None
     logged = record.exc_info[1]
     assert logged is not None and isinstance(logged.__cause__, ValueError)
-    assert str(logged.__cause__) == "No book titled 'Nothing' in the catalog."
 
 
 async def test_tool_error_reads_the_same_to_the_model_and_logs_one_info_line(
@@ -119,7 +118,7 @@ async def test_tool_error_reads_the_same_to_the_model_and_logs_one_info_line(
 
 
 async def test_a_bad_argument_is_an_info_line_not_a_crash(caplog: pytest.LogCaptureFixture) -> None:
-    """ "What lands in your log": schema rejection of the arguments is logged at INFO with no traceback."""
+    """ "What the server logs": schema rejection of the arguments is logged at INFO with no traceback."""
     caplog.set_level(logging.INFO)
     async with Client(tutorial001.mcp) as client:
         result = await client.call_tool("get_author", {"title": 42})

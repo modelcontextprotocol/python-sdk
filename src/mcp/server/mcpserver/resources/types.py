@@ -84,7 +84,7 @@ class FunctionResource(Resource):
 
         Raises:
             UnexpectedResourceError: If the function raises anything other than
-                `ResourceError` or `MCPError`; `__cause__` is the original.
+                `ResourceError` or `MCPError`. `__cause__` is the original exception.
         """
         try:
             fn = self.fn

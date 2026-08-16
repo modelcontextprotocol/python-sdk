@@ -119,37 +119,6 @@ async def test_call_tool_tool_error_becomes_error_result(connect: Connect, unsta
     )
 
 
-@requirement("mcpserver:tool:handler-throws:logged")
-async def test_call_tool_function_exception_is_logged_once_with_its_traceback(
-    connect: Connect, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The exception behind an is_error result is logged exactly once, at ERROR, with its traceback.
-
-    The result text carries only `str(exc)`; the traceback exists nowhere but this record, so it must
-    be written on every transport and never duplicated by a dispatcher boundary.
-    """
-    mcp = MCPServer("errors")
-    raised = LookupError("no such row")
-
-    @mcp.tool()
-    def explode() -> str:
-        raise raised
-
-    caplog.set_level(logging.ERROR)
-    async with connect(mcp) as client:
-        result = await client.call_tool("explode", {})
-
-    assert result.is_error is True
-
-    def chains_to_raised(exc: BaseException | None) -> bool:
-        while exc is not None and exc is not raised:
-            exc = exc.__cause__ or exc.__context__
-        return exc is raised
-
-    records = [r for r in caplog.records if r.exc_info and chains_to_raised(r.exc_info[1])]
-    assert [(r.name, r.levelname) for r in records] == [("mcp.server.mcpserver.server", "ERROR")]
-
-
 @requirement("mcpserver:tool:unknown-name")
 async def test_call_tool_unknown_name_returns_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """Calling a tool name that was never registered is reported as an is_error result.

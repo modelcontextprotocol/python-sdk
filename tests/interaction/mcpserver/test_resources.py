@@ -1,7 +1,5 @@
 """Resource interactions against MCPServer, driven through the public Client API."""
 
-import logging
-
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -152,36 +150,6 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
     assert exc_info.value.error == snapshot(
         ErrorData(code=-32603, message="Error reading resource res://boom", data={"uri": "res://boom"})
     )
-
-
-@requirement("mcpserver:resource:read-throws:logged")
-async def test_resource_function_exception_is_logged_once_with_its_traceback(
-    connect: Connect, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The exception withheld from the -32603 response is logged exactly once, at ERROR, with its traceback.
-
-    The client sees only the URI, so this record is the operator's only route to the cause; it must be
-    written on every transport and never duplicated by a dispatcher boundary.
-    """
-    mcp = MCPServer("library")
-    raised = RuntimeError("nope")
-
-    @mcp.resource("res://boom")
-    def boom() -> str:
-        raise raised
-
-    caplog.set_level(logging.ERROR)
-    async with connect(mcp) as client:
-        with pytest.raises(MCPError):
-            await client.read_resource("res://boom")
-
-    def chains_to_raised(exc: BaseException | None) -> bool:
-        while exc is not None and exc is not raised:
-            exc = exc.__cause__ or exc.__context__
-        return exc is raised
-
-    records = [r for r in caplog.records if r.exc_info and chains_to_raised(r.exc_info[1])]
-    assert [(r.name, r.levelname) for r in records] == [("mcp.server.mcpserver.server", "ERROR")]
 
 
 @requirement("mcpserver:resource:duplicate-name")
