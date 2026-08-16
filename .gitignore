@@ -183,3 +183,8 @@ results/
 
 # conformance CI local runs
 conformance-results/
+
+# dependency canary local runs (scripts/ci/canary_*.sh)
+canary-out/
+canary-resolve/
+canary-body.md
