@@ -105,7 +105,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Swap `mcp` for `"http://localhost:8000/mcp"` and the exact same code talks to a remote server.
+Swap `mcp` for a URL like `"http://localhost:8000/mcp"` and the exact same code talks to a server over HTTP.
 
 ## Contributing
 
