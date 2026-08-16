@@ -2,10 +2,17 @@
 
 ## Bumping Dependencies
 
+[`DEPENDENCY_POLICY.md`](DEPENDENCY_POLICY.md) says *when* a bound should
+move; this is the mechanics.
+
 1. Change the dependency version in `pyproject.toml`. The root `mcp` project's
    runtime dependencies are dynamic and live under
    `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies`.
-2. Upgrade lock with `uv lock --resolution lowest-direct`
+2. Regenerate the lock with `uv lock` (or `uv lock --upgrade-package <package>`
+   to move just that package's locked version). The committed `uv.lock` is a
+   normal (default-strategy) resolution; the `lowest-direct` resolution that
+   proves the floors still work is applied only by its CI matrix leg at test
+   time and is never committed.
 
 ## Release lines
 
@@ -104,8 +111,9 @@ hand for the same reason as above. Then ask someone to review the release.
 Pre-releases of the next version are cut from `main` with a PEP 440
 pre-release tag: `aN` for alphas, later `bN`/`rcN` for betas and release
 candidates. The PEP 440 suffix is what keeps `pip install mcp` on the stable
-version — installers only select a pre-release when it is requested explicitly (an
-exact pin, a specifier that names a pre-release version, or `--pre`).
+version — installers do not pick a pre-release for a plain `mcp` requirement while a
+final release satisfies it; a pre-release is opted into with an exact pin, a
+specifier that names a pre-release version, or `--pre`.
 
 1. During a pre-release phase the README and docs pin the exact pre-release
    version, so update those examples first (grep the outgoing version — the
