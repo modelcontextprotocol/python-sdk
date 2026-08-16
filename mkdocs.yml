@@ -69,9 +69,6 @@ nav:
       - MCP Apps: advanced/apps.md
   - Troubleshooting: troubleshooting.md
   - Migration Guide: migration.md
-  - About:
-      - Versioning and support policy: versioning.md
-      - Roadmap: roadmap.md
   - API Reference: api/
 
 theme:
