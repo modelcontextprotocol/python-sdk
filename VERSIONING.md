@@ -22,7 +22,7 @@ Allowed in a minor:
 
 * additions — functions, defaulted parameters, classes, fields, enum members,
 * changes to provisional or experimental APIs,
-* new deprecation warnings, and the eventual removal of protocol features the specification has retired,
+* new deprecation warnings, and retired protocol features ceasing to work on connections that negotiate a revision without them (their Python names stay, deprecated, until a major),
 * raising a dependency floor the SDK needs (see the [dependency policy](DEPENDENCY_POLICY.md)) when the dependency's changes don't reach you through the SDK's API, or dropping a Python version after its upstream end-of-life — both called out in the release notes,
 * bug fixes, including ones that make the SDK match its documented or specified behavior.
 

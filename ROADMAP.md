@@ -8,7 +8,7 @@ v2 implements the [2026-07-28 specification](https://modelcontextprotocol.io/spe
 
 ## Not yet implemented
 
-Extensions and optional client-auth mechanisms not yet implemented are tracked in the issue tracker; those the conformance suite already exercises also appear in its expected-failures baseline, [`.github/actions/conformance/expected-failures.yml`](.github/actions/conformance/expected-failures.yml), which burns down as each lands. The main ones:
+Of the extensions and optional client-auth mechanisms not yet implemented, those the conformance suite already exercises appear in its expected-failures baseline, [`.github/actions/conformance/expected-failures.yml`](.github/actions/conformance/expected-failures.yml), which burns down as each lands. The main ones:
 
 * **Tasks extension** (`io.modelcontextprotocol/tasks`, [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/seps/2663-tasks-extension.md)) — deferred at 2.0 because the 2026-07-28 design is wire-incompatible with the earlier in-core Tasks; tracked in [#2806](https://github.com/modelcontextprotocol/python-sdk/issues/2806).
 * **DPoP-bound access tokens** ([SEP-1932](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1932)) in the OAuth client.

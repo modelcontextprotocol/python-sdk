@@ -10,7 +10,7 @@ move; this is the mechanics.
    `[tool.hatch.metadata.hooks.uv-dynamic-versioning].dependencies`.
 2. Regenerate the lock with `uv lock` (or `uv lock --upgrade-package <package>`
    to move just that package's locked version). The committed `uv.lock` is a
-   normal, newest-allowed resolution; the `lowest-direct` resolution that
+   normal (default-strategy) resolution; the `lowest-direct` resolution that
    proves the floors still work is applied only by its CI matrix leg at test
    time and is never committed.
 
