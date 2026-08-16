@@ -140,7 +140,6 @@ pre-commit run --all-files
 - Follow PEP 8 style guidelines
 - Add type hints to all functions
 - Include docstrings for public APIs
-- Changing a dependency's version bound or adding a runtime dependency follows the [Dependency Policy](DEPENDENCY_POLICY.md)
 
 ## Pull Requests
 
@@ -166,6 +165,7 @@ A few dozen lines can be reviewed in minutes. Hundreds of lines across many file
 2. Add tests for new functionality
 3. Ensure CI passes
 4. Address review feedback
+5. Dependency bound changes and new runtime dependencies follow the [Dependency Policy](DEPENDENCY_POLICY.md)
 
 ## Code of Conduct
 

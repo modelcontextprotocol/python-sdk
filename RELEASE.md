@@ -111,9 +111,9 @@ hand for the same reason as above. Then ask someone to review the release.
 Pre-releases of the next version are cut from `main` with a PEP 440
 pre-release tag: `aN` for alphas, later `bN`/`rcN` for betas and release
 candidates. The PEP 440 suffix is what keeps `pip install mcp` on the stable
-version — installers select a pre-release only when it is requested explicitly (an
-exact pin, a specifier that names a pre-release version, or `--pre`) or when no
-final release satisfies the requirement at all.
+version — installers do not pick a pre-release for a plain `mcp` requirement while a
+final release satisfies it; a pre-release is opted into with an exact pin, a
+specifier that names a pre-release version, or `--pre`.
 
 1. During a pre-release phase the README and docs pin the exact pre-release
    version, so update those examples first (grep the outgoing version — the

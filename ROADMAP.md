@@ -4,11 +4,11 @@ The SDK's work is organized by MCP specification revision, with one GitHub proje
 
 ## The 2026-07-28 revision
 
-v2 implements the [2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28) and negotiates back to every earlier revision. Board: **[python-sdk · 2026-07-28 spec](https://github.com/orgs/modelcontextprotocol/projects/42)** (tracking issue [#2891](https://github.com/modelcontextprotocol/python-sdk/issues/2891)); the cross-SDK view is [2026-07-28 Spec Implementation](https://github.com/orgs/modelcontextprotocol/projects/41). Still open there: the capabilities API and `server/discover` handler ([#2896](https://github.com/modelcontextprotocol/python-sdk/issues/2896)).
+v2 implements the [2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28) and negotiates back to every earlier revision. Board: **[python-sdk · 2026-07-28 spec](https://github.com/orgs/modelcontextprotocol/projects/42)**; the cross-SDK view is [2026-07-28 Spec Implementation](https://github.com/orgs/modelcontextprotocol/projects/41). Still open there: making advertised capabilities configurable rather than pre-computed ([#2896](https://github.com/modelcontextprotocol/python-sdk/issues/2896)).
 
 ## Not yet implemented
 
-The extensions and optional client-auth mechanisms this SDK does not implement yet are tracked as the entries in the conformance suite's expected-failures baseline, [`.github/actions/conformance/expected-failures.yml`](.github/actions/conformance/expected-failures.yml), which burns down as each lands:
+Extensions and optional client-auth mechanisms not yet implemented are tracked in the issue tracker; those the conformance suite already exercises also appear in its expected-failures baseline, [`.github/actions/conformance/expected-failures.yml`](.github/actions/conformance/expected-failures.yml), which burns down as each lands. The main ones:
 
 * **Tasks extension** (`io.modelcontextprotocol/tasks`, [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/seps/2663-tasks-extension.md)) — deferred at 2.0 because the 2026-07-28 design is wire-incompatible with the earlier in-core Tasks; tracked in [#2806](https://github.com/modelcontextprotocol/python-sdk/issues/2806).
 * **DPoP-bound access tokens** ([SEP-1932](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1932)) in the OAuth client.
