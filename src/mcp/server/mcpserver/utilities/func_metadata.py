@@ -33,6 +33,16 @@ def _is_input_required_type(obj: Any) -> bool:
     return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
 
 
+_CONTENT_TYPES = (*get_args(ContentBlock), Image, Audio)
+
+
+def _contains_content_type(tp: Any) -> bool:
+    """Whether `tp` is, or is parameterized by, a content block class or the `Image`/`Audio` helpers."""
+    if get_origin(tp) is not None:
+        return any(_contains_content_type(arg) for arg in get_args(tp))
+    return isinstance(tp, type) and issubclass(tp, _CONTENT_TYPES)
+
+
 class StrictJsonSchema(GenerateJsonSchema):
     """A JSON schema generator that raises exceptions instead of emitting warnings.
 
@@ -222,6 +232,9 @@ def func_metadata(
             - TypedDict - converted to a Pydantic model with same fields
             - Dataclasses and other annotated classes - converted to Pydantic models
             - Generic types (list, dict, Union, etc.) - wrapped in a model with a 'result' field
+            - Content blocks (TextContent, EmbeddedResource, ...), Image and Audio, anywhere in the
+                annotation - unstructured when auto-detecting; structured_output=True bypasses this rule
+                (a content block then publishes its own schema; Image/Audio have none and raise)
 
     Returns:
         A FuncMetadata object containing:
@@ -344,6 +357,12 @@ def func_metadata(
             return FuncMetadata(arg_model=arguments_model)
     else:
         original_annotation = effective_annotation
+
+    if structured_output is None and _contains_content_type(return_type_expr):
+        # Content blocks and the Image/Audio helpers are what the model reads, not data for the
+        # application: deriving a schema would publish the block's own model as output_schema and
+        # echo every block into structured_content. structured_output=True still forces one.
+        return FuncMetadata(arg_model=arguments_model)
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(
         original_annotation, return_type_expr, func.__name__

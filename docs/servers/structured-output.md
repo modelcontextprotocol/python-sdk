@@ -210,7 +210,7 @@ The opposite, `structured_output=True`, turns the automatic detection into a req
 
 ## A class without type hints
 
-There is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
+Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, alone or inside a `list` or union) are not structured automatically: they are for the model to read (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). Beyond those, there is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
 
 ```python title="server.py" hl_lines="6-9"
 --8<-- "docs_src/structured_output/tutorial009.py"
@@ -240,6 +240,6 @@ There is one way to end up unstructured without asking for it: return a class th
 * Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes and `dict[str, ...]` are objects already and stay as they are.
 * Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
-* `structured_output=False` opts a tool out. A class without type hints opts out silently; watch for it.
+* `structured_output=False` opts a tool out. Content blocks, `Image` and `Audio` opt out by default; a class without type hints opts out silently, so watch for it.
 
 You now own everything a tool can say back. Next, the second primitive: **[Resources](resources.md)**.
