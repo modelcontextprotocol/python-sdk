@@ -1,77 +1,35 @@
 # Versioning and support policy
 
-This page states what a version number of the `mcp` package promises you: which changes can arrive in a minor release, which are held for the next major, how deprecations are announced, and how long each release line is supported.
+What a version number of `mcp` promises: which changes can arrive in a minor release, which wait for a major, how deprecations are announced, and which release lines are supported.
 
 ## The version number
 
-Releases follow [Semantic Versioning](https://semver.org/) semantics, written in [PEP 440](https://peps.python.org/pep-0440/) syntax:
+[Semantic Versioning](https://semver.org/) semantics in [PEP 440](https://peps.python.org/pep-0440/) syntax, taken from the git tag: in `2.X.Y`, **X** (minor) carries new functionality and every non-breaking change, **Y** (patch) carries bug fixes only, and a breaking change to the public API lands only in a new **major**. Pre-releases are cut from `main` as `aN`/`bN`/`rcN`; installers prefer final releases by default, so an unpinned `pip install mcp` stays on a stable release whenever one satisfies your requirement. `mcp` and its wire-types package `mcp-types` release in lockstep, each `mcp` requiring exactly the matching `mcp-types`.
 
-* **`2.X.Y`** — the version comes from the git tag; there is no version field to edit.
-* **`X` (minor)** — new functionality and every non-breaking change.
-* **`Y` (patch)** — bug fixes only.
-* **The leading `2` (major)** — the only place a breaking change to the public API can land.
-* **Pre-releases** are cut from `main` as `2.X.YaN` (alpha), `2.X.YbN` (beta), and `2.X.YrcN` (release candidate). Installers prefer final releases by default (PEP 440's [pre-release handling](https://peps.python.org/pep-0440/#handling-of-pre-releases)), so an unpinned `pip install mcp` stays on a stable release whenever one satisfies your requirement; you get a pre-release by asking for one, for example with an exact pin or `--pre`.
+## The public API
 
-`mcp` and its wire-types package [`mcp-types`](https://pypi.org/project/mcp-types/) release in lockstep at the same version: each `mcp` release requires exactly the matching `mcp-types` (`mcp-types==2.X.Y`).
+The promise covers every name exported by `mcp` and `mcp_types` (their `__all__`), the import paths, signatures, and behavior documented on this site and in the [API Reference](api/mcp/index.md). It does not cover underscore-prefixed names, undocumented modules, or the wording of log lines, warnings, and exception messages (their types and documented raise conditions are covered). APIs labelled **provisional** (for example the middleware chain) may still change in a minor release; **experimental** APIs are opt-in previews.
 
-## What the public API is
+## Breaking and non-breaking changes
 
-The compatibility promise covers the public API:
-
-* every name exported by `mcp` (its `__all__`) and by `mcp_types`,
-* the import paths, classes, functions, and parameters documented on this site and in the [API Reference](api/mcp/index.md),
-* documented behavior of those APIs.
-
-It does not cover names beginning with an underscore, modules and attributes that appear nowhere in the documentation, or the exact text of log lines, warnings, and exception messages (their *type* and the documented conditions that raise them are covered; their wording is not). Depending on one of those is depending on an implementation detail that may change in any release.
-
-Two labels mark APIs that sit outside the promise while they settle:
-
-* **Provisional** — shipped and supported, but the signature or semantics may still change in a minor release. The middleware chain and the `Dispatcher` lifecycle are examples; each is labelled provisional in its own documentation.
-* **Experimental** — behind an explicit opt-in and expected to change; treat it as a preview.
-
-## What counts as a breaking change
-
-These wait for the next major version:
+Held for the next major:
 
 * removing or renaming a public name,
-* changing a signature so that a call that worked stops working (a removed or reordered parameter, a newly required argument, a narrowed accepted type),
-* changing a return type, a raised exception type, or documented behavior in a way existing callers would notice,
+* changing a signature, return type, raised exception type, or documented behavior so that working code stops working,
 * removing a documented import path, extra, or CLI command.
 
-These do not, and can ship in a minor release:
+Allowed in a minor:
 
-* new functions, parameters with defaults, classes, fields, and enum members,
+* additions — functions, defaulted parameters, classes, fields, enum members,
 * changes to provisional or experimental APIs,
-* new deprecation warnings, and the eventual removal of a protocol feature the specification has retired (see [Deprecations](#deprecations)),
-* raising a dependency's minimum version when the SDK needs newer functionality (see the [dependency policy](https://github.com/modelcontextprotocol/python-sdk/blob/main/DEPENDENCY_POLICY.md)), as long as the dependency's own changes do not reach you through the SDK's public API — if they would, the rules above apply — or dropping a Python version that upstream has ended support for; both are called out in the release notes,
-* bug fixes, including fixes that make the SDK match documented or specified behavior it should have had all along.
-
-When a fix is arguably both a bug fix and a behavior change, the deciding question is whether reasonable code written against the *documented* behavior breaks. If it does, the change is breaking.
+* new deprecation warnings, and the eventual removal of protocol features the specification has retired,
+* raising a dependency floor the SDK needs (see the [dependency policy](https://github.com/modelcontextprotocol/python-sdk/blob/main/DEPENDENCY_POLICY.md)) when the dependency's changes don't reach you through the SDK's API, or dropping a Python version after its upstream end-of-life — both called out in the release notes,
+* bug fixes, including ones that make the SDK match its documented or specified behavior.
 
 ## Deprecations
 
-There are two kinds, warned differently on purpose.
+**SDK APIs** are deprecated before removal: they keep working for at least one minor release, marked with [`typing_extensions.deprecated`](https://typing-extensions.readthedocs.io/en/latest/#typing_extensions.deprecated) wherever Python can carry the marker (docstring and migration guide otherwise), and are removed only in a major. **Protocol features** the specification retires keep their implementation through the spec's deprecation window and warn with `MCPDeprecationWarning`, a `UserWarning` subclass that shows by default; what still functions depends on the revision a connection negotiated — see [Deprecated features](deprecated.md).
 
-**SDK API deprecations** — a name or parameter this SDK is retiring. It is deprecated before it is removed: it keeps working for at least one minor release, marked wherever Python can carry a marker — callables and classes get [`typing_extensions.deprecated`](https://typing-extensions.readthedocs.io/en/latest/#typing_extensions.deprecated), which static type checkers flag and which warns at runtime; things that cannot carry one, such as module-level constants, are deprecated in their docstring and the migration guide — and it is removed only in a major version: something deprecated during 2.x is not removed before 3.0.
+## Support and announcements
 
-**Protocol deprecations** — a feature the MCP specification has retired (for example the SEP-2577 set in the 2026-07-28 revision). The SDK keeps implementing these through the specification's deprecation window, and deprecation warnings for them use `MCPDeprecationWarning`, a `UserWarning` subclass, so they show by default rather than being hidden the way `DeprecationWarning` is outside `__main__`. Whether a retired feature can still do anything on a given connection depends on the protocol revision that connection negotiated; **[Deprecated features](deprecated.md)** and **[Serving legacy clients](run/legacy-clients.md)** describe the behavior, the replacements, and how to silence the warning when you genuinely serve older clients.
-
-## Supported release lines
-
-Two lines are maintained, and only the newest release of a line receives fixes:
-
-| Line | Branch | Receives |
-| --- | --- | --- |
-| 2.x — current stable | `main` | bug fixes, security fixes, new features |
-| 1.x — maintenance | [`v1.x`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x) | critical bug fixes and security fixes |
-
-Older 1.x releases and all pre-releases are unsupported. The security-specific version of this table, and how to report a vulnerability, is in [SECURITY.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/SECURITY.md). Still on 1.x? Its documentation is at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/), and a `<2` upper bound on your `mcp` requirement keeps an unpinned resolve on that line until you migrate.
-
-Python versions are supported from the version in the package's `requires-python` up to the newest CPython release the test suite runs against; support for a Python version ends only after that version's upstream end-of-life.
-
-## Where changes are announced
-
-* **Release notes** — every release publishes curated notes on [GitHub Releases](https://github.com/modelcontextprotocol/python-sdk/releases): highlights, anything known-incomplete, and a full change list. Pre-releases say what changed since the previous pre-release.
-* **The migration guide** — every breaking change between majors is documented in **[Migration Guide](migration.md)** with before-and-after code; a change is not merged for a major release without its entry.
-* **The `breaking change` label** — pull requests that make a breaking change carry it, so the set is queryable ahead of a major release.
-* **Deprecations** — as above, at least one minor release of deprecation before an SDK API is removed.
+Two lines are maintained and only the newest release of each receives fixes: **2.x** (`main`) gets bug fixes, security fixes, and features; **1.x** ([`v1.x`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x)) gets critical bug fixes and security fixes. [SECURITY.md](https://github.com/modelcontextprotocol/python-sdk/blob/main/SECURITY.md) has the reporting process. Every release publishes notes on [GitHub Releases](https://github.com/modelcontextprotocol/python-sdk/releases); every breaking change between majors is documented in the [Migration Guide](migration.md) before it merges; and pull requests that make one carry the `breaking change` label.

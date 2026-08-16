@@ -31,4 +31,4 @@ None of these blocks a release — each is carried as an expected failure in tha
 
 ## The previous major
 
-`v1.x` is a maintenance line: critical bug fixes and security fixes only, no new features. Its documentation stays available at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/), the support terms are in [Versioning and support policy](versioning.md#supported-release-lines), and the path off it is the **[Migration Guide](migration.md)**.
+`v1.x` is a maintenance line: critical bug fixes and security fixes only, no new features. Its documentation stays available at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/), the support terms are in [Versioning and support policy](versioning.md#support-and-announcements), and the path off it is the **[Migration Guide](migration.md)**.
