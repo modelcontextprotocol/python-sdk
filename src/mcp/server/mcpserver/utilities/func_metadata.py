@@ -126,7 +126,12 @@ class FuncMetadata(BaseModel):
         if isinstance(result, CallToolResult):
             if self.output_schema is not None:
                 assert self.output_model is not None, "Output model must be set if output schema is defined"
-                self.output_model.model_validate(result.structured_content)
+                validated = self.output_model.model_validate(result.structured_content)
+                # Normalize structured content the same way as ordinary return values, so
+                # computed fields and serialization aliases match the output schema.
+                return result.model_copy(
+                    update={"structured_content": validated.model_dump(mode="json", by_alias=True)}
+                )
             return result
 
         unstructured_content = _convert_to_content(result)
@@ -445,7 +450,7 @@ def _try_create_model_and_schema(
         # If we successfully created a model, try to get its schema
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
-            schema = model.model_json_schema(schema_generator=StrictJsonSchema)
+            schema = model.model_json_schema(schema_generator=StrictJsonSchema, mode="serialization")
         except (
             PydanticUserError,
             TypeError,
