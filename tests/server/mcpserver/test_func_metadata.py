@@ -871,6 +871,10 @@ def _returns_audio_clips() -> tuple[Audio, ...]:
     raise NotImplementedError
 
 
+def _returns_described_blocks() -> list[Annotated[TextContent, Field(description="one line each")]]:
+    raise NotImplementedError
+
+
 def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResult, list[TextContent]]:
     raise NotImplementedError
 
@@ -882,6 +886,7 @@ def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResul
         _returns_blocks,
         _returns_strings_and_images,
         _returns_audio_clips,
+        _returns_described_blocks,
         _returns_call_tool_result_annotated_with_blocks,
     ],
 )

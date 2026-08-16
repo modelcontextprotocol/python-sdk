@@ -1,7 +1,7 @@
 import functools
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
 from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
@@ -34,7 +34,8 @@ def _is_input_required_type(obj: Any) -> bool:
 
 
 _CONTENT_TYPES = (*get_args(ContentBlock), Image, Audio)
-_CONTENT_SEQUENCE_ORIGINS = (list, tuple, Sequence, Iterable)
+# `_convert_to_content` unrolls list/tuple values; a `Sequence[...]` annotation is one of those at runtime.
+_CONTENT_SEQUENCE_ORIGINS = (list, tuple, Sequence)
 
 
 def _returns_content(annotation: Any) -> bool:
@@ -44,7 +45,9 @@ def _returns_content(annotation: Any) -> bool:
     origin = get_origin(annotation)
     if origin is None:
         return isinstance(annotation, type) and issubclass(annotation, _CONTENT_TYPES)
-    if origin is Annotated or is_union_origin(origin) or origin in _CONTENT_SEQUENCE_ORIGINS:
+    if origin is Annotated:
+        return _returns_content(get_args(annotation)[0])
+    if is_union_origin(origin) or origin in _CONTENT_SEQUENCE_ORIGINS:
         return any(_returns_content(arg) for arg in get_args(annotation))
     return False
 
