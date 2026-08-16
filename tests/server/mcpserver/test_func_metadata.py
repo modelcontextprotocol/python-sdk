@@ -897,17 +897,24 @@ def test_structured_output_true_overrides_the_content_block_rule():
     assert func_metadata(_returns_block, structured_output=True).output_model is EmbeddedResource
 
 
-def test_model_with_a_content_block_field_stays_structured():
-    """SDK-defined: only the return annotation is inspected for content types, never a model's fields."""
+class _Report(BaseModel):
+    summary: str
+    attachment: EmbeddedResource
 
-    class Report(BaseModel):
-        summary: str
-        attachment: EmbeddedResource
 
-    def tool() -> Report:
-        raise NotImplementedError
+def _returns_report() -> _Report:
+    raise NotImplementedError
 
-    assert func_metadata(tool).output_model is Report
+
+def _returns_blocks_by_key() -> dict[str, TextContent]:
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize("tool", [_returns_report, _returns_blocks_by_key])
+def test_content_blocks_as_model_fields_or_mapping_values_stay_structured(tool: Callable[..., Any]):
+    """SDK-defined: the rule mirrors `_convert_to_content`, which renders blocks only when they are the
+    value itself or list/tuple items; a model field or a mapping value is data and keeps its schema."""
+    assert func_metadata(tool).output_schema is not None
 
 
 def test_tool_call_result_is_unstructured_and_not_converted():

@@ -152,10 +152,9 @@ class ResourceTemplate(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
-        # Get schema from func_metadata, excluding context parameter
+        # Only the argument model is needed; a resource has no output schema to derive
         func_arg_metadata = func_metadata(
-            fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            fn, skip_names=[context_kwarg] if context_kwarg is not None else [], structured_output=False
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 

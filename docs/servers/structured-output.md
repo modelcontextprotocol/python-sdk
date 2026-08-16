@@ -208,9 +208,13 @@ No `output_schema`, no wrapping, no validation. `structured_content` is `None` a
 
 The opposite, `structured_output=True`, turns the automatic detection into a requirement: a tool whose return type can't produce a schema raises at import time instead of falling back to text.
 
+## Content blocks and media
+
+Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own or as the items of a `list` or `tuple` or the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
+
 ## A class without type hints
 
-Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, alone or inside a `list` or union) are not structured automatically: they are for the model to read (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). Beyond those, there is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
+There is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
 
 ```python title="server.py" hl_lines="6-9"
 --8<-- "docs_src/structured_output/tutorial009.py"

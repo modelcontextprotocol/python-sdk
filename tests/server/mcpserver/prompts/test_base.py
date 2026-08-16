@@ -13,8 +13,8 @@ from mcp_types import (
     TextResourceContents,
 )
 
-from mcp.server.mcpserver import Audio, Context, Image
-from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, Prompt, UserMessage
+from mcp.server.mcpserver import AssistantMessage, Audio, Context, Image, MCPServer, Message, UserMessage
+from mcp.server.mcpserver.prompts.base import Prompt
 
 
 class TestRenderPrompt:
@@ -260,3 +260,33 @@ def test_message_converts_image_and_audio_helpers_to_content_blocks(
     """SDK-defined: prompt messages accept the same `Image`/`Audio` helpers tools return."""
     assert UserMessage(helper).content == expected
     assert AssistantMessage(content=helper).content == expected
+
+
+@pytest.mark.anyio
+async def test_prompt_dict_result_accepts_image_helper_as_content() -> None:
+    """SDK-defined: the dict form is validated through `Message.__init__`, so helpers convert there too."""
+
+    def fn() -> dict[str, Any]:
+        return {"role": "user", "content": Image(data=b"img", format="png")}
+
+    assert await Prompt.from_function(fn).render(None, Context()) == [
+        UserMessage(ImageContent(type="image", data="aW1n", mime_type="image/png"))
+    ]
+
+
+class _Slide:
+    """A plain class pydantic cannot build a schema for."""
+
+
+@pytest.mark.anyio
+async def test_prompt_return_annotation_is_not_run_through_tool_output_schema_derivation() -> None:
+    """SDK-defined: a prompt only needs its argument model, so an unschematizable return annotation
+    registers (it used to raise from the tool structured-output machinery)."""
+    mcp = MCPServer()
+
+    @mcp.prompt()
+    def deck(topic: str) -> list[_Slide]:
+        raise NotImplementedError
+
+    [listed] = await mcp.list_prompts()
+    assert [arg.name for arg in listed.arguments or []] == ["topic"]

@@ -1,7 +1,7 @@
 import functools
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from itertools import chain
 from types import GenericAlias
 from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
@@ -34,13 +34,19 @@ def _is_input_required_type(obj: Any) -> bool:
 
 
 _CONTENT_TYPES = (*get_args(ContentBlock), Image, Audio)
+_CONTENT_SEQUENCE_ORIGINS = (list, tuple, Sequence, Iterable)
 
 
-def _contains_content_type(tp: Any) -> bool:
-    """Whether `tp` is, or is parameterized by, a content block class or the `Image`/`Audio` helpers."""
-    if get_origin(tp) is not None:
-        return any(_contains_content_type(arg) for arg in get_args(tp))
-    return isinstance(tp, type) and issubclass(tp, _CONTENT_TYPES)
+def _returns_content(annotation: Any) -> bool:
+    """Whether a return annotation declares content blocks or the `Image`/`Audio` helpers, bare or as
+    the items of a list/tuple or the arms of a union: the values `_convert_to_content` renders as blocks
+    rather than dumping as data. Keep the two in sync."""
+    origin = get_origin(annotation)
+    if origin is None:
+        return isinstance(annotation, type) and issubclass(annotation, _CONTENT_TYPES)
+    if origin is Annotated or is_union_origin(origin) or origin in _CONTENT_SEQUENCE_ORIGINS:
+        return any(_returns_content(arg) for arg in get_args(annotation))
+    return False
 
 
 class StrictJsonSchema(GenerateJsonSchema):
@@ -232,9 +238,9 @@ def func_metadata(
             - TypedDict - converted to a Pydantic model with same fields
             - Dataclasses and other annotated classes - converted to Pydantic models
             - Generic types (list, dict, Union, etc.) - wrapped in a model with a 'result' field
-            - Content blocks (TextContent, EmbeddedResource, ...), Image and Audio, anywhere in the
-                annotation - unstructured when auto-detecting; structured_output=True bypasses this rule
-                (a content block then publishes its own schema; Image/Audio have none and raise)
+            - Content blocks (TextContent, EmbeddedResource, ...), Image and Audio, bare or inside a
+                list, tuple or union - unstructured when auto-detecting; structured_output=True bypasses
+                this rule (a content block then publishes its own schema; Image/Audio have none and raise)
 
     Returns:
         A FuncMetadata object containing:
@@ -358,10 +364,11 @@ def func_metadata(
     else:
         original_annotation = effective_annotation
 
-    if structured_output is None and _contains_content_type(return_type_expr):
+    if structured_output is None and _returns_content(return_type_expr):
         # Content blocks and the Image/Audio helpers are what the model reads, not data for the
-        # application: deriving a schema would publish the block's own model as output_schema and
-        # echo every block into structured_content. structured_output=True still forces one.
+        # application: a derived schema would advertise the block's own model as output_schema (and,
+        # unless the tool builds its own CallToolResult, echo every block into structured_content).
+        # structured_output=True still forces one.
         return FuncMetadata(arg_model=arguments_model)
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(
@@ -565,7 +572,7 @@ def _convert_to_content(result: Any) -> list[ContentBlock]:
     Note: This conversion logic comes from previous versions of MCPServer and is being
     retained for purposes of backwards compatibility. It produces different unstructured
     output than the lowlevel server tool call handler, which just serializes structured
-    content verbatim.
+    content verbatim. `_returns_content` is the annotation-level mirror of these branches.
     """
     if result is None:  # pragma: no cover
         return []
