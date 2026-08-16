@@ -890,12 +890,47 @@ class MCPServer(Generic[LifespanResultT]):
 
         return decorator
 
-    def add_prompt(self, prompt: Prompt) -> None:
+    @overload
+    def add_prompt(self, prompt: Prompt) -> None: ...
+
+    @overload
+    def add_prompt(
+        self,
+        fn: Callable[..., Any],
+        /,
+        *,
+        name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        icons: list[Icon] | None = None,
+    ) -> None: ...
+
+    def add_prompt(
+        self,
+        prompt: Prompt | Callable[..., Any],
+        *,
+        name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        icons: list[Icon] | None = None,
+    ) -> None:
         """Add a prompt to the server.
 
+        Pass the function that renders the prompt: its name, docstring and parameters become
+        the prompt's name, description and arguments, exactly as with `@prompt()`. A ready-made
+        `Prompt` instance is registered as-is.
+
         Args:
-            prompt: A Prompt instance to add
+            prompt: The function to register as a prompt, or a `Prompt` instance
+            name: Optional name for the prompt (defaults to the function name)
+            title: Optional human-readable title for the prompt
+            description: Optional description (defaults to the function's docstring)
+            icons: Optional list of icons for the prompt
         """
+        if not isinstance(prompt, Prompt):
+            prompt = Prompt.from_function(prompt, name=name, title=title, description=description, icons=icons)
+        elif any(arg is not None for arg in (name, title, description, icons)):
+            raise TypeError("name, title, description and icons can only be set when registering a function")
         self._prompt_manager.add_prompt(prompt)
 
     def remove_prompt(self, name: str) -> None:

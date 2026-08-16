@@ -50,6 +50,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
+from mcp.server.mcpserver.prompts.base import Prompt as PromptTemplate  # `Prompt` here is the mcp_types wire model
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.subscriptions import (
@@ -2318,6 +2319,46 @@ async def test_context_notify_outside_a_request_raises() -> None:
 def test_context_exposes_its_mcp_server() -> None:
     mcp = MCPServer()
     assert Context(mcp_server=mcp).mcp_server is mcp
+
+
+def _greet(who: str) -> str:
+    """Say hi."""
+    return f"hi {who}"
+
+
+async def test_add_prompt_registers_a_function_like_the_decorator() -> None:
+    """SDK-defined: `add_prompt(fn, ...)` derives name, description and arguments as `@prompt()` does."""
+    mcp = MCPServer()
+    mcp.add_prompt(_greet, title="Greeter")
+
+    async with Client(mcp) as client:
+        [listed] = (await client.list_prompts()).prompts
+        result = await client.get_prompt("_greet", {"who": "max"})
+
+    assert (listed.name, listed.title, listed.description) == ("_greet", "Greeter", "Say hi.")
+    assert [arg.name for arg in listed.arguments or []] == ["who"]
+    assert result.messages[0].content == TextContent(type="text", text="hi max")
+
+
+async def test_add_prompt_registers_a_prompt_instance_as_is() -> None:
+    """SDK-defined: a ready-made prompt handed to `add_prompt` (the 2.0 form) is registered exactly as built."""
+    mcp = MCPServer()
+    mcp.add_prompt(prompt=PromptTemplate.from_function(_greet, name="custom"))
+    [listed] = await mcp.list_prompts()
+    assert listed.name == "custom"
+
+
+async def test_add_prompt_rejects_overrides_alongside_a_prompt_instance() -> None:
+    """SDK-defined: the keyword overrides only apply to the function form; passing them alongside a
+    ready-made prompt is rejected rather than silently ignored."""
+    mcp = MCPServer()
+    prompt: Any = PromptTemplate.from_function(_greet)  # Any: the overloads already reject this call statically
+    with pytest.raises(TypeError) as exc_info:
+        mcp.add_prompt(prompt, name="renamed")
+    assert str(exc_info.value) == snapshot(
+        "name, title, description and icons can only be set when registering a function"
+    )
+    assert await mcp.list_prompts() == []
 
 
 def test_remove_prompt_removes_and_unknown_name_raises() -> None:

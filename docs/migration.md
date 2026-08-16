@@ -668,7 +668,7 @@ All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.
 
 - `Image`, `Audio` — from `mcp.server.mcpserver` (or `.utilities.types`)
 - `Icon` — from `mcp.server.mcpserver` or `mcp.types` (not a top-level `mcp` export); its `mimeType` field is now `mime_type` per the [snake_case renames](#field-names-changed-from-camelcase-to-snake_case), though the `mimeType=` kwarg still constructs
-- `Message`, `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver.prompts.base`
+- `Message`, `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver` (or `.prompts.base`)
 - `ToolError`, `ResourceError` — from `mcp.server.mcpserver.exceptions`
 - `MCPServerError` (renamed from `FastMCPError`) — from `mcp.server.mcpserver.exceptions`
 
@@ -678,7 +678,7 @@ Beyond the changes covered in this section, the everyday `FastMCP` surface carri
 
 - **Decorators.** `@mcp.tool()`, `@mcp.resource()`, `@mcp.prompt()`, and `@mcp.completion()` take the same arguments and handler signatures as v1. The lowlevel [`on_completion` reshape](#lowlevel-server-decorator-based-handlers-replaced-with-constructor-on_-params) applies only to the lowlevel `Server`; a high-level `@mcp.completion()` handler is still called as `(ref, argument, context)`.
 - **Tool return handling.** A returned `CallToolResult` (including an `Annotated[CallToolResult, YourModel]` output schema, and `_meta`) is passed through, `Image` and `Audio` convert to content blocks as before, ready-made content blocks are kept as-is (neither is [structured by default](#content-block-image-and-audio-return-annotations-are-unstructured) now, even inside a `list`), and dict, list, scalar, and model returns are wrapped into `content` and `structured_content` by the same rules.
-- **Listing and registration methods.** `list_tools()`, `list_resources()`, `list_resource_templates()`, and `list_prompts()` return the same lists and are still what the protocol handlers call, so subclass overrides still take effect. `add_tool()`, `add_resource()`, and `add_prompt()` are unchanged.
+- **Listing and registration methods.** `list_tools()`, `list_resources()`, `list_resource_templates()`, and `list_prompts()` return the same lists and are still what the protocol handlers call, so subclass overrides still take effect. `add_tool()`, `add_resource()`, and `add_prompt()` are unchanged (`add_prompt()` additionally accepts the plain function, like `add_tool()`).
 - **Helpers.** `Image.to_image_content()`, `Audio.to_audio_content()`, and the prompt `Message`, `UserMessage`, and `AssistantMessage` classes.
 - **Lifespan.** The `lifespan=` constructor argument and `ctx.request_context.lifespan_context` work as before, and the class is still generic over the lifespan result: `FastMCP[MyState]` becomes `MCPServer[MyState]`. (`Context`'s own type parameters did change; see [`RequestContext` type parameters simplified](#requestcontext-type-parameters-simplified).)
 - **Tool internals.** `Tool`, `Tool.from_function()`, `FuncMetadata`, `ArgModelBase`, and `func_metadata()` keep their v1 shapes; the one change is the now-required `context` argument to `Tool.run()`, described [below](#mcpservercall_tool-read_resource-get_prompt-now-accept-a-context-parameter).
