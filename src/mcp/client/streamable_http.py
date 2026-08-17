@@ -508,6 +508,7 @@ class StreamableHTTPTransport:
                 # Track for potential further reconnection
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms
+                made_progress = False
 
                 async for sse in event_source:
                     if sse.id:  # pragma: no branch
@@ -525,9 +526,17 @@ class StreamableHTTPTransport:
                         await event_source.response.aclose()
                         return
 
-                # Stream ended again without response - reconnect again (reset attempt counter)
+                    # A real event (notification) earns a fresh budget for the next
+                    # reconnect. A bare priming event (empty data) does not.
+                    if sse.data:
+                        made_progress = True
+
+                # Stream ended again without response. Reset the budget only when this
+                # reconnect actually delivered a real event; bare-priming-then-EOF counts
+                # against the budget the same way a transport exception does.
                 logger.info("SSE stream disconnected, reconnecting...")
-                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+                next_attempt = 0 if made_progress else attempt + 1
+                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, next_attempt)
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID

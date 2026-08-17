@@ -736,6 +736,56 @@ async def test_exhausted_reconnection_attempts_resolve_the_request_with_an_error
     receive.close()
 
 
+class _PrimingOnlySSEStream(httpx2.AsyncByteStream):
+    """Emits a single bare priming event (id only, empty data) then closes."""
+
+    def __init__(self, event_id: str) -> None:
+        self._bytes = f"id: {event_id}\n\n".encode()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._bytes
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.anyio
+async def test_empty_resumable_sse_reconnects_count_toward_the_request_budget() -> None:
+    """A reconnect that delivers only a bare priming event and reaches EOF must consume
+    the reconnect budget, the same as the exception path.
+
+    Before the fix, the clean-EOF branch always reset attempt to 0, so a server that
+    kept sending only priming events could reconnect forever. The fix increments the
+    counter when no real data arrived during the reconnect, giving up after exactly
+    MAX_RECONNECTION_ATTEMPTS attempts and resolving the waiter with CONNECTION_CLOSED."""
+    call_count = 0
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_PrimingOnlySSEStream(f"evt-{call_count}"),
+        )
+
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
+        with anyio.fail_after(5):
+            await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
+                _abandoned_request_context(http, send), "evt-0", 0
+            )
+            reply = await receive.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED
+    assert call_count == MAX_RECONNECTION_ATTEMPTS
+    send.close()
+    receive.close()
+
+
 @pytest.mark.anyio
 async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contained() -> None:
     """Teardown race: a stream dying after the reader closed resolves best-effort and must not crash."""
