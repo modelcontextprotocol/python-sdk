@@ -14,10 +14,9 @@ import httpx2
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INVALID_REQUEST, CallToolResult, ErrorData, ListToolsResult, TextContent, Tool
+from mcp_types import CallToolResult, ListToolsResult, TextContent, Tool
 from starlette.types import Receive, Scope, Send
 
-from mcp import MCPError
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
@@ -215,38 +214,42 @@ async def test_a_completed_post_stream_is_not_reconnected() -> None:
     assert resumption_gets == []
 
 
-@requirement("client-transport:http:404-surfaces")
-async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> None:
-    """A 404 in response to a request after initialization is reported to the caller as an MCP error.
+@requirement("client-transport:http:session-404-reinitialize")
+async def test_a_404_mid_session_reinitializes_before_retrying_the_request() -> None:
+    """Spec-mandated: a request carrying an expired session id initializes a fresh session and retries once.
 
-    The spec says the client MUST start a new session in this situation; the SDK instead surfaces a
-    `Session terminated` error to the caller. The spec's MUST is tracked at
-    client-transport:http:session-404-reinitialize; this test pins the SDK's current behaviour.
+    The injected 404 applies only to the first established ``tools/list`` request. Recovery initialization
+    reaches the real server without an MCP session header, then the retry succeeds through the new session.
     """
     server = _tooled_server()
     real_app = server.streamable_http_app(transport_security=NO_DNS_REBINDING_PROTECTION)
-    initialize_seen = anyio.Event()
+    expired_once = False
 
-    async def first_post_then_404(scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and scope["method"] == "POST" and initialize_seen.is_set():
-            await send({"type": "http.response.start", "status": 404, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
-            return
+    async def expire_first_established_tools_list(scope: Scope, receive: Receive, send: Send) -> None:
+        nonlocal expired_once
         if scope["type"] == "http" and scope["method"] == "POST":
-            initialize_seen.set()
+            headers = dict(scope["headers"])
+            if headers.get(b"mcp-session-id") is not None and not expired_once:
+                expired_once = True
+                await send({"type": "http.response.start", "status": 404, "headers": []})
+                await send({"type": "http.response.body", "body": b""})
+                return
         await real_app(scope, receive, send)
 
     async with (
         server.session_manager.run(),
-        httpx2.AsyncClient(transport=StreamingASGITransport(first_post_then_404), base_url=BASE_URL) as http_client,
+        httpx2.AsyncClient(
+            transport=StreamingASGITransport(expire_first_established_tools_list),
+            base_url=BASE_URL,
+        ) as http_client,
     ):
         transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
         with anyio.fail_after(5):  # pragma: no branch
             async with Client(transport, mode="legacy") as client:  # pragma: no branch
-                with pytest.raises(MCPError) as exc_info:  # pragma: no branch
-                    await client.list_tools()
+                result = await client.list_tools()
 
-    assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Session terminated"))
+    assert expired_once is True
+    assert [tool.name for tool in result.tools] == ["echo"]
 
 
 def _blocking_server(started: anyio.Event, cancelled: anyio.Event) -> Server:
