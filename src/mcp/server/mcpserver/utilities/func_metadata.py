@@ -561,12 +561,15 @@ def _convert_to_content(result: Any) -> list[ContentBlock]:
         return [result.to_audio_content()]
 
     if isinstance(result, list | tuple):
-        return list(
+        items = list(
             chain.from_iterable(
                 _convert_to_content(item)
                 for item in result  # type: ignore
             )
         )
+        if not result:
+            return [TextContent(type="text", text=json.dumps(cast(list[Any], result)))]
+        return items
 
     if not isinstance(result, str):
         result = pydantic_core.to_json(result, fallback=str, indent=2).decode()

@@ -1308,3 +1308,70 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_empty_list_produces_one_text_content_block():
+    """An empty-list return must not yield zero content blocks (issue #3305).
+
+    A client consuming unstructured content cannot distinguish 'no results'
+    from 'the call produced nothing' when content is an empty array, so the
+    serialized empty collection is emitted as a single TextContent block.
+    """
+
+    def find_person(name: str) -> list[dict[str, Any]]:  # pragma: no cover
+        return []
+
+    meta = func_metadata(find_person)
+    result = meta.convert_result([])
+
+    assert isinstance(result, CallToolResult)
+    assert len(result.content) == 1
+    assert result.content[0].type == "text"
+    assert result.content[0].text == "[]"
+
+
+def test_empty_tuple_produces_one_text_content_block():
+    """Same guarantee for tuple return types."""
+
+    def fn() -> tuple[str, ...]:  # pragma: no cover
+        return ()
+
+    meta = func_metadata(fn)
+    result = meta.convert_result(())
+
+    assert isinstance(result, CallToolResult)
+    assert len(result.content) == 1
+    assert result.content[0].type == "text"
+    assert result.content[0].text == "[]"
+
+
+def test_non_empty_list_content_blocks_unchanged():
+    """Non-empty list behaviour must be byte-identical to before the fix."""
+
+    def find_people(name: str) -> list[dict[str, Any]]:  # pragma: no cover
+        return []
+
+    meta = func_metadata(find_people)
+    result = meta.convert_result([{"name": "Alice"}, {"name": "Bob"}])
+
+    assert isinstance(result, CallToolResult)
+    assert len(result.content) == 2
+    assert result.content[0].type == "text"
+    assert result.content[1].type == "text"
+
+
+def test_empty_list_structured_content_unaffected():
+    """structuredContent is populated correctly for empty lists regardless of the fix."""
+    from pydantic import BaseModel
+
+    class Person(BaseModel):
+        name: str
+
+    def find_person(name: str) -> list[Person]:  # pragma: no cover
+        return []
+
+    meta = func_metadata(find_person)
+    result = meta.convert_result([])
+
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"result": []}
