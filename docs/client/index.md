@@ -22,9 +22,10 @@ The server at the top is only there so you have something to connect to. The cli
 
 * An `MCPServer` (or low-level `Server`) instance: connected **in-process**.
 * A URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, the production path.
-* A **transport**: anything you can `async with ... as (read, write)`, such as `stdio_client(...)` wrapping a subprocess.
+* A `StdioServerParameters`: the command to launch as a **subprocess**, spoken to over its stdin and stdout.
+* A **transport**: anything you can `async with ... as (read, write)`, such as `streamable_http_client(url, http_client=...)` around your own HTTP client.
 
-Everything else on this page is identical across all three. Headers, subprocesses, timeouts, and the `Transport` protocol get their own page: **[Client transports](transports.md)**.
+Everything else on this page is identical across all four. Headers, subprocesses, timeouts, and the `Transport` protocol get their own page: **[Client transports](transports.md)**.
 
 ### What's on a connected client
 

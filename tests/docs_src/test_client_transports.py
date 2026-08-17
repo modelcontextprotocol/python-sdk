@@ -6,7 +6,7 @@ import pytest
 
 from docs_src.client_transports import tutorial001, tutorial004
 from mcp import Client
-from mcp.client.stdio import get_default_environment, stdio_client
+from mcp.client.stdio import get_default_environment
 from mcp.client.streamable_http import streamable_http_client
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -41,9 +41,9 @@ async def test_streamable_http_configuration_lives_on_the_httpx_client() -> None
     assert list(inspect.signature(streamable_http_client).parameters) == ["url", "http_client", "terminate_on_close"]
 
 
-async def test_stdio_parameters_are_wrapped_by_stdio_client() -> None:
-    """tutorial004: `stdio_client(params)` is the transport, and `Client` takes it like any other."""
-    client = Client(stdio_client(tutorial004.server))
+async def test_stdio_parameters_go_straight_to_client() -> None:
+    """tutorial004: `Client` takes the `StdioServerParameters` directly, and nothing is spawned until you enter it."""
+    client = Client(tutorial004.server)
     with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
         client.session
 
