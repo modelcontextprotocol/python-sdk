@@ -964,6 +964,7 @@ class ClientSession:
         meta: RequestParamsMeta | None = None,
         allow_input_required: Literal[False] = False,
         allow_claimed: Literal[False] = False,
+        validate_output: bool = True,
     ) -> types.CallToolResult: ...
 
     @overload
@@ -979,6 +980,7 @@ class ClientSession:
         meta: RequestParamsMeta | None = None,
         allow_input_required: bool,
         allow_claimed: Literal[False] = False,
+        validate_output: bool = True,
     ) -> types.CallToolResult | types.InputRequiredResult: ...
 
     @overload
@@ -994,6 +996,7 @@ class ClientSession:
         meta: RequestParamsMeta | None = None,
         allow_input_required: Literal[False] = False,
         allow_claimed: bool,
+        validate_output: bool = True,
     ) -> types.CallToolResult | types.Result: ...
 
     @overload
@@ -1009,6 +1012,7 @@ class ClientSession:
         meta: RequestParamsMeta | None = None,
         allow_input_required: bool,
         allow_claimed: bool,
+        validate_output: bool = True,
     ) -> types.CallToolResult | types.InputRequiredResult | types.Result: ...
 
     async def call_tool(
@@ -1023,6 +1027,7 @@ class ClientSession:
         meta: RequestParamsMeta | None = None,
         allow_input_required: bool = False,
         allow_claimed: bool = False,
+        validate_output: bool = True,
     ) -> types.CallToolResult | types.InputRequiredResult | types.Result:
         """Send a tools/call request with optional progress callback support.
 
@@ -1039,6 +1044,9 @@ class ClientSession:
                 so the caller can resolve the requests and retry.
             allow_claimed: When `False` (default), a claimed extension result raises
                 `UnexpectedClaimedResult`; when `True`, the parsed claim model is returned.
+            validate_output: When `True` (default), the client's cached tool output schema
+                is validated against the returned structured content. When `False`, the
+                result is returned without schema validation.
 
         Raises:
             RuntimeError: If the server returns an `InputRequiredResult` and
@@ -1060,7 +1068,7 @@ class ClientSession:
             progress_callback=progress_callback,
         )
 
-        if isinstance(result, types.CallToolResult) and not result.is_error:
+        if validate_output and isinstance(result, types.CallToolResult) and not result.is_error:
             await self.validate_tool_result(name, result)
 
         # The input_required arm stays first; a claimed shape is terminal for the multi-round-trip driver.

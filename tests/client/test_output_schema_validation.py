@@ -163,3 +163,30 @@ async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
         assert result.is_error is False
 
         assert "Tool mystery_tool not listed" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_call_tool_validate_output_false_skips_validation():
+    """Test that validate_output=False bypasses client-side output-schema revalidation."""
+    output_schema = {
+        "type": "object",
+        "properties": {"result": {"type": "integer", "title": "Result"}},
+        "required": ["result"],
+        "title": "calculate_Output",
+    }
+
+    server = _make_server(
+        tools=[
+            Tool(
+                name="calculate",
+                description="Calculate something",
+                input_schema={"type": "object"},
+                output_schema=output_schema,
+            )
+        ],
+        structured_content={"result": "not_a_number"},  # Invalid: should be int
+    )
+
+    async with Client(server) as client:
+        result = await client.call_tool("calculate", {}, validate_output=False)
+        assert result.structured_content == {"result": "not_a_number"}

@@ -758,6 +758,7 @@ class Client:
         input_responses: InputResponses | None = None,
         request_state: str | None = None,
         meta: RequestParamsMeta | None = None,
+        validate_output: bool = True,
     ) -> CallToolResult:
         """Call a tool on the server.
 
@@ -784,6 +785,9 @@ class Client:
                 resuming from a persisted `InputRequiredResult`).
             request_state: Opaque state to seed the first call with.
             meta: Additional metadata for the request.
+            validate_output: When `True` (default), the tool's output schema is
+                validated against the returned structured content. When `False`,
+                the result is returned without schema validation.
 
         Returns:
             The tool result.
@@ -807,6 +811,7 @@ class Client:
                 allow_input_required=True,
                 # Input rounds resolve before a claimed result, so a claim may end any round.
                 allow_claimed=True,
+                validate_output=validate_output,
             )
 
         result = await self._drive_input_required(await retry(input_responses, request_state), retry)
@@ -818,7 +823,7 @@ class Client:
             result,
             ClaimContext(session=self.session, tool_name=name, read_timeout_seconds=read_timeout_seconds),
         )
-        if not final.is_error:
+        if validate_output and not final.is_error:
             # Match the direct path: revalidate the output schema, but never for isError results.
             await self.session.validate_tool_result(name, final)
         return final
