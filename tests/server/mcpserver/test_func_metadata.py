@@ -10,9 +10,10 @@ from typing import Annotated, Any, Final, NamedTuple, TypedDict
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
-from mcp_types import CallToolResult, InputRequiredResult
+from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field
 
+from mcp.server.mcpserver import Audio, Image
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 
@@ -852,6 +853,73 @@ def test_unstructured_output_unannotated_class():
 
     meta = func_metadata(func_returning_unannotated)
     assert meta.output_schema is None
+
+
+def _returns_block() -> EmbeddedResource:
+    raise NotImplementedError
+
+
+def _returns_blocks() -> list[ContentBlock]:
+    raise NotImplementedError
+
+
+def _returns_strings_and_images() -> list[str | Image]:
+    raise NotImplementedError
+
+
+def _returns_audio_clips() -> tuple[Audio, ...]:
+    raise NotImplementedError
+
+
+def _returns_described_blocks() -> list[Annotated[TextContent, Field(description="one line each")]]:
+    raise NotImplementedError
+
+
+def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResult, list[TextContent]]:
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        _returns_block,
+        _returns_blocks,
+        _returns_strings_and_images,
+        _returns_audio_clips,
+        _returns_described_blocks,
+        _returns_call_tool_result_annotated_with_blocks,
+    ],
+)
+def test_content_block_return_annotation_yields_no_output_schema(tool: Callable[..., Any]):
+    """SDK-defined: content blocks and the Image/Audio helpers anywhere in the return annotation are
+    presentation, not data, so auto-detection derives no output schema (and `list[str | Image]` /
+    `tuple[Audio, ...]`, which pydantic cannot build a schema for, register instead of raising)."""
+    assert func_metadata(tool).output_schema is None
+
+
+def test_structured_output_true_overrides_the_content_block_rule():
+    """SDK-defined: the explicit flag still publishes the block's own schema for callers who want it."""
+    assert func_metadata(_returns_block, structured_output=True).output_model is EmbeddedResource
+
+
+class _Report(BaseModel):
+    summary: str
+    attachment: EmbeddedResource
+
+
+def _returns_report() -> _Report:
+    raise NotImplementedError
+
+
+def _returns_blocks_by_key() -> dict[str, TextContent]:
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize("tool", [_returns_report, _returns_blocks_by_key])
+def test_content_blocks_as_model_fields_or_mapping_values_stay_structured(tool: Callable[..., Any]):
+    """SDK-defined: the rule mirrors `_convert_to_content`, which renders blocks only when they are the
+    value itself or list/tuple items; a model field or a mapping value is data and keeps its schema."""
+    assert func_metadata(tool).output_schema is not None
 
 
 def test_tool_call_result_is_unstructured_and_not_converted():

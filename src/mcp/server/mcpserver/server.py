@@ -918,8 +918,8 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a prompt.
 
-        The function returns the prompt messages (a string, `Message`, dict,
-        or a sequence of these), or an `InputRequiredResult` to request
+        The function returns the prompt messages (a string, content block, `Image`/`Audio`,
+        `Message`, dict, or a sequence of these), or an `InputRequiredResult` to request
         client input first (the 2026-07-28 multi-round-trip flow — read
         `ctx.input_responses` on the retry).
 

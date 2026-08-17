@@ -946,5 +946,4 @@ class Client:
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
-        # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
         await self.session.send_roots_list_changed()  # pyright: ignore[reportDeprecated]
