@@ -30,7 +30,7 @@ from mcp_types import (
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ValidationError
 
-from mcp.client._transport import TransportStreams
+from mcp.client._transport import SESSION_EXPIRED, SESSION_EXPIRED_MARKER, TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
@@ -359,13 +359,24 @@ class StreamableHTTPTransport:
                             pass
                         logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
                     if response.status_code == 404:
-                        if self.session_id is None:
+                        request_session_id = headers.get(MCP_SESSION_ID)
+                        if request_session_id is None:
                             # No session yet → 404 is the HTTP-level spelling of
                             # METHOD_NOT_FOUND (gateway / legacy server doesn't know
-                            # this method); "Session terminated" would be a lie here.
+                            # this method); session recovery would be a lie here.
                             error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
                         else:
-                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                            # A post-session 404 means the server discarded this
+                            # request's session. Clear only if this request still
+                            # owns the current generation: a delayed old 404 must
+                            # not erase a session another request just recovered.
+                            if self.session_id == request_session_id:
+                                self.session_id = None
+                            error_data = ErrorData(
+                                code=SESSION_EXPIRED,
+                                message="Session expired",
+                                data={SESSION_EXPIRED_MARKER: True},
+                            )
                     else:
                         error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
