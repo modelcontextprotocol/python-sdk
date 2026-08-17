@@ -210,7 +210,7 @@ The opposite, `structured_output=True`, turns the automatic detection into a req
 
 ## Content blocks and media
 
-Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own or as the items of a `list` or `tuple` or the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
+Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own, as the items of a `list`, `tuple` or `Sequence`, or as the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
 
 ## A class without type hints
 

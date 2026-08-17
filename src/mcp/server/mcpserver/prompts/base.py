@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import anyio.to_thread
 import pydantic_core
@@ -60,7 +60,11 @@ class AssistantMessage(Message):
         super().__init__(content=content, **kwargs)
 
 
-message_validator = TypeAdapter[UserMessage | AssistantMessage](UserMessage | AssistantMessage)
+# Both classes accept either role, so the first arm always matches: validate left to right rather than
+# trying both (which converted - and for path-backed Image/Audio, read - the content twice).
+message_validator: TypeAdapter[UserMessage | AssistantMessage] = TypeAdapter(
+    Annotated[UserMessage | AssistantMessage, Field(union_mode="left_to_right")]
+)
 
 _PromptResultItem = str | ContentBlock | Image | Audio | Message | dict[str, Any]
 SyncPromptResult = _PromptResultItem | InputRequiredResult | Sequence[_PromptResultItem]
@@ -188,18 +192,15 @@ class Prompt(BaseModel):
             # Convert result to messages
             messages: list[Message] = []
             for msg in result:  # type: ignore[reportUnknownVariableType]
-                try:
-                    if isinstance(msg, Message):
-                        messages.append(msg)
-                    elif isinstance(msg, dict):
-                        messages.append(message_validator.validate_python(msg))
-                    elif isinstance(msg, str | ContentBlock | Image | Audio):  # bare content is one user message
-                        messages.append(UserMessage(msg))
-                    else:  # pragma: no cover
-                        content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
-                        messages.append(Message(role="user", content=content))
-                except Exception:  # pragma: no cover
-                    raise ValueError(f"Could not convert prompt result to message: {msg}")
+                if isinstance(msg, Message):
+                    messages.append(msg)
+                elif isinstance(msg, dict):
+                    messages.append(message_validator.validate_python(msg))
+                elif isinstance(msg, str | ContentBlock | Image | Audio):  # bare content is one user message
+                    messages.append(UserMessage(msg))
+                else:  # pragma: no cover
+                    content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
+                    messages.append(Message(role="user", content=content))
 
             return messages
         except MCPError:

@@ -1,4 +1,5 @@
 import threading
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -316,3 +317,15 @@ async def test_bare_content_returned_from_a_prompt_becomes_user_messages(returne
         return returned
 
     assert await Prompt.from_function(fn).render(None, Context()) == expected
+
+
+@pytest.mark.anyio
+async def test_prompt_returning_media_with_an_unreadable_file_fails_to_render(tmp_path: Path) -> None:
+    """SDK-defined: a bare `Image` whose file cannot be read fails the render (an error for the client)
+    instead of degrading to a text message."""
+
+    def fn() -> Image:
+        return Image(path=tmp_path / "missing.png")
+
+    with pytest.raises(ValueError):
+        await Prompt.from_function(fn).render(None, Context())
