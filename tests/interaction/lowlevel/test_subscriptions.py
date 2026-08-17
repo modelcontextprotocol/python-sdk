@@ -16,7 +16,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("subscriptions:listen:client:graceful-close")
+@requirement("subscriptions:listen:graceful-close")
 async def test_a_graceful_server_close_ends_iteration_after_buffered_events(connect: Connect) -> None:
     """`ListenHandler.close()` sends the result last; iteration drains published events, then ends cleanly."""
     bus = InMemorySubscriptionBus()

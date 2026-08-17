@@ -105,6 +105,70 @@ async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
                 task_group.cancel_scope.cancel()  # abandon the call if it is still parked
 
 
+@requirement("protocol:cancel:no-further-notifications")
+async def test_no_notifications_for_a_request_arrive_after_its_cancellation(connect: Connect) -> None:
+    """After a request is cancelled, no further notifications for it reach the wire (spec-mandated)."""
+    started = anyio.Event()
+    handler_cancelled = anyio.Event()
+    request_ids: list[types.RequestId] = []
+    attempted: list[str] = []
+    progress_updates: list[tuple[float, float | None, str | None]] = []
+
+    async def collect(progress: float, total: float | None, message: str | None) -> None:
+        progress_updates.append((progress, total, message))
+
+    outcomes: list[object] = []
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "block"
+        assert ctx.request_id is not None
+        request_ids.append(ctx.request_id)
+        # Proves the progress channel is live before the cancellation arrives.
+        await ctx.session.report_progress(1.0, total=2.0, message="started")
+        started.set()
+        try:
+            await anyio.Event().wait()  # blocks until cancelled
+        except anyio.get_cancelled_exc_class():
+            handler_cancelled.set()
+            try:
+                # The MUST NOT under test: attempting a send during the unwind proves the negative is enforced.
+                await ctx.session.report_progress(2.0, total=2.0, message="too late")
+            except anyio.get_cancelled_exc_class():
+                attempted.append("send-cancelled")
+                raise
+            raise NotImplementedError  # unreachable
+        raise NotImplementedError  # unreachable
+
+    server = Server("blocker", on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:  # pragma: no branch
+
+                async def await_doomed_call() -> None:
+                    try:
+                        outcomes.append(await client.call_tool("block", {}, progress_callback=collect))
+                    except MCPError as exc:
+                        outcomes.append(exc.error)
+
+                task_group.start_soon(await_doomed_call)
+                await started.wait()
+                await client.session.send_notification(
+                    types.CancelledNotification(
+                        params=types.CancelledNotificationParams(request_id=request_ids[0], reason="user aborted")
+                    )
+                )
+                await handler_cancelled.wait()
+                # Let anything the server was going to send be delivered before checking.
+                await anyio.wait_all_tasks_blocked()
+                assert outcomes in ([], [_LEGACY_HTTP_TERMINATOR])
+                task_group.cancel_scope.cancel()  # abandon the call if it is still parked
+
+    # The "too late" send was itself cancelled before it could be written, so it never reached the wire.
+    assert progress_updates == [(1.0, 2.0, "started")]
+    assert attempted == ["send-cancelled"]
+
+
 @requirement("protocol:cancel:server-survives")
 async def test_session_serves_requests_after_cancellation(connect: Connect) -> None:
     """A request cancelled mid-flight does not poison the session: the next request succeeds."""
