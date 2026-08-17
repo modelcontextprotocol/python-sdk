@@ -6,6 +6,7 @@ that don't follow SDK conventions.
 
 import json
 
+import anyio
 import httpx2
 import mcp_types as types
 import pytest
@@ -17,6 +18,7 @@ from starlette.routing import Route
 
 from mcp import ClientSession, MCPError
 from mcp.client import IncomingMessage
+from mcp.client._transport import SESSION_EXPIRED, SESSION_EXPIRED_MARKER
 from mcp.client.streamable_http import streamable_http_client
 
 pytestmark = pytest.mark.anyio
@@ -254,10 +256,12 @@ async def test_client_falls_back_to_generic_error_when_non_2xx_body_is_a_jsonrpc
                 assert exc.value.error.code == types.INTERNAL_ERROR
 
 
-async def test_client_falls_back_to_session_terminated_when_404_body_is_malformed_json() -> None:
-    """SDK-defined: an unparseable ``application/json`` body on a 404 response is swallowed
-    and the status-derived ``INVALID_REQUEST`` (session-terminated) fallback resolves the
-    pending request — the parse failure never propagates."""
+async def test_client_reports_session_expiry_after_a_404_recovery_retry_has_malformed_json() -> None:
+    """SDK-defined: a malformed 404 body still triggers one session recovery attempt before failing.
+
+    The parse failure is not surfaced because HTTP 404 is the transport's session-expiry signal. A second
+    404 after recovery is bounded and returns the private session-expired error rather than looping.
+    """
     app = _create_non_2xx_json_body_app(404, b"not valid json{{{")
     async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
@@ -265,4 +269,170 @@ async def test_client_falls_back_to_session_terminated_when_404_body_is_malforme
                 await session.initialize()
                 with pytest.raises(MCPError) as exc:
                     await session.list_tools()
-                assert exc.value.error.code == types.INVALID_REQUEST
+                assert exc.value.error.code == SESSION_EXPIRED
+
+
+def _create_expired_session_recovery_app(requests: list[tuple[str, str | None]]) -> Starlette:
+    """Return a fresh session after rejecting one established-session request."""
+    initialize_count = 0
+    expire_once = True
+
+    async def handle_mcp_request(request: Request) -> Response:
+        nonlocal expire_once, initialize_count
+        data = json.loads(await request.body())
+        method = data.get("method")
+        session_id = request.headers.get("mcp-session-id")
+        requests.append((method, session_id))
+
+        if method == "initialize":
+            initialize_count += 1
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": data["id"], "result": INIT_RESPONSE},
+                headers={"mcp-session-id": f"session-{initialize_count}"},
+            )
+        if method == "notifications/initialized":
+            return Response(status_code=202)
+        if method == "tools/list" and expire_once:
+            expire_once = False
+            assert session_id == "session-1"
+            return Response(status_code=404)
+        if method == "tools/list":
+            assert session_id == "session-2"
+            return JSONResponse({"jsonrpc": "2.0", "id": data["id"], "result": {"tools": []}})
+        return Response(status_code=500)
+
+    return Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
+
+
+async def test_client_reinitializes_once_after_an_established_session_returns_404() -> None:
+    """Spec-mandated: a 404 for an established legacy session creates a fresh session and retries once.
+
+    The recovery initialize must omit the expired session id; its initialized notification and the retried
+    request must carry the new id. This drives the public ``ClientSession`` API through an in-process ASGI app.
+    """
+    requests: list[tuple[str, str | None]] = []
+    app = _create_expired_session_recovery_app(requests)
+
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                result = await session.initialize()
+                assert result.server_info.name == "test-non-sdk-server"
+
+                tools = await session.list_tools()
+
+    assert tools.tools == []
+    assert requests == [
+        ("initialize", None),
+        ("notifications/initialized", "session-1"),
+        ("tools/list", "session-1"),
+        ("initialize", None),
+        ("notifications/initialized", "session-2"),
+        ("tools/list", "session-2"),
+    ]
+
+
+def _create_repeated_expired_session_app(requests: list[tuple[str, str | None]]) -> Starlette:
+    """Always expire requests from an established session."""
+    initialize_count = 0
+
+    async def handle_mcp_request(request: Request) -> Response:
+        nonlocal initialize_count
+        data = json.loads(await request.body())
+        method = data.get("method")
+        session_id = request.headers.get("mcp-session-id")
+        requests.append((method, session_id))
+
+        if method == "initialize":
+            initialize_count += 1
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": data["id"], "result": INIT_RESPONSE},
+                headers={"mcp-session-id": f"session-{initialize_count}"},
+            )
+        if method == "notifications/initialized":
+            return Response(status_code=202)
+        if method == "tools/list":
+            return Response(status_code=404)
+        return Response(status_code=500)
+
+    return Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
+
+
+async def test_client_retries_an_expired_session_request_only_once() -> None:
+    """SDK-defined: a retry that also receives 404 surfaces an error instead of opening a recovery loop."""
+    requests: list[tuple[str, str | None]] = []
+    app = _create_repeated_expired_session_app(requests)
+
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                with pytest.raises(MCPError) as exc_info:
+                    await session.list_tools()
+
+    assert exc_info.value.code == SESSION_EXPIRED
+    assert exc_info.value.data == {SESSION_EXPIRED_MARKER: True}
+    assert requests == [
+        ("initialize", None),
+        ("notifications/initialized", "session-1"),
+        ("tools/list", "session-1"),
+        ("initialize", None),
+        ("notifications/initialized", "session-2"),
+        ("tools/list", "session-2"),
+    ]
+
+
+async def test_concurrent_expired_session_requests_share_one_reinitialization() -> None:
+    """SDK-defined: concurrent 404 responses recover one session generation, not one per caller."""
+    requests: list[tuple[str, str | None]] = []
+    old_requests_started = 0
+    old_requests_ready = anyio.Event()
+    release_old_requests = anyio.Event()
+    initialize_count = 0
+
+    async def handle_mcp_request(request: Request) -> Response:
+        nonlocal initialize_count, old_requests_started
+        data = json.loads(await request.body())
+        method = data.get("method")
+        session_id = request.headers.get("mcp-session-id")
+        requests.append((method, session_id))
+
+        if method == "initialize":
+            initialize_count += 1
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": data["id"], "result": INIT_RESPONSE},
+                headers={"mcp-session-id": f"session-{initialize_count}"},
+            )
+        if method == "notifications/initialized":
+            return Response(status_code=202)
+        if method == "tools/list" and session_id == "session-1":
+            old_requests_started += 1
+            if old_requests_started == 2:
+                old_requests_ready.set()
+            await release_old_requests.wait()
+            return Response(status_code=404)
+        if method == "tools/list" and session_id == "session-2":
+            return JSONResponse({"jsonrpc": "2.0", "id": data["id"], "result": {"tools": []}})
+        return Response(status_code=500)
+
+    app = Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
+    results: list[types.ListToolsResult] = []
+
+    async def append_list_tools_result(session: ClientSession) -> None:
+        results.append(await session.list_tools())
+
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                async with anyio.create_task_group() as task_group:
+                    task_group.start_soon(append_list_tools_result, session)
+                    task_group.start_soon(append_list_tools_result, session)
+                    with anyio.fail_after(5):
+                        await old_requests_ready.wait()
+                    release_old_requests.set()
+
+    assert [result.tools for result in results] == [[], []]
+    assert requests.count(("initialize", None)) == 2
+    assert requests.count(("notifications/initialized", "session-2")) == 1
+    assert requests.count(("tools/list", "session-2")) == 2
