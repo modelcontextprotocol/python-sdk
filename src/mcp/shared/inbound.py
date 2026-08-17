@@ -52,6 +52,7 @@ __all__ = [
     "find_duplicated_routing_header",
     "find_invalid_x_mcp_header",
     "mcp_param_headers",
+    "unsupported_protocol_version_rejection",
     "validate_mcp_param_headers",
     "x_mcp_header_map",
 ]
@@ -367,6 +368,25 @@ def find_duplicated_routing_header(headers: Iterable[tuple[str, str]]) -> str | 
     return None
 
 
+def unsupported_protocol_version_rejection(
+    requested: str, supported_modern_versions: Sequence[str] = MODERN_PROTOCOL_VERSIONS
+) -> InboundLadderRejection | None:
+    """The `UNSUPPORTED_PROTOCOL_VERSION` rejection for `requested`, or `None` if it is served.
+
+    The request ladder's last rung, shared with the transport's notification arm
+    so both message kinds name the same `supported` list in the same words.
+    """
+    if requested in supported_modern_versions:
+        return None
+    return InboundLadderRejection(
+        code=UNSUPPORTED_PROTOCOL_VERSION,
+        message="Unsupported protocol version",
+        data=UnsupportedProtocolVersionErrorData(
+            supported=list(supported_modern_versions), requested=requested
+        ).model_dump(mode="json"),
+    )
+
+
 def classify_inbound_request(
     body: Mapping[str, Any],
     *,
@@ -464,14 +484,8 @@ def classify_inbound_request(
             message="the protocol-version envelope value must be a string",
         )
 
-    if protocol_version not in supported_modern_versions:
-        return InboundLadderRejection(
-            code=UNSUPPORTED_PROTOCOL_VERSION,
-            message="Unsupported protocol version",
-            data=UnsupportedProtocolVersionErrorData(
-                supported=list(supported_modern_versions), requested=protocol_version
-            ).model_dump(mode="json"),
-        )
+    if (unsupported := unsupported_protocol_version_rejection(protocol_version, supported_modern_versions)) is not None:
+        return unsupported
 
     return InboundModernRoute(
         protocol_version=protocol_version,

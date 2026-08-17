@@ -162,7 +162,7 @@ The constructor covers the methods MCP defines. `add_request_handler` covers eve
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* The first argument is the method string. Notifications have a twin, `add_notification_handler`.
+* The first argument is the method string. Notifications have a twin, `add_notification_handler`. Its handlers fire on stdio and on handshake-era HTTP connections; on the `2026-07-28` streamable-HTTP path a client's notification POST is acknowledged `202` and not dispatched, because that revision defines no client-to-server notifications over HTTP.
 * `params_type` is the model the incoming `params` are validated against **before** your handler runs, so custom methods *do* get the validation tools don't. Subclass `RequestParams` so the `_meta` field parses like every other method's.
 * The handler returns a `BaseModel`, a `dict`, or `None`. The SDK serialises it into the JSON-RPC result.
 

@@ -36,7 +36,6 @@ from mcp_types import (
     INVALID_REQUEST,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
-    UNSUPPORTED_PROTOCOL_VERSION,
     ErrorData,
     JSONRPCError,
     JSONRPCNotification,
@@ -44,10 +43,8 @@ from mcp_types import (
     JSONRPCResponse,
     ProgressToken,
     RequestId,
-    UnsupportedProtocolVersionErrorData,
 )
 from mcp_types import methods as _methods
-from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
@@ -67,6 +64,7 @@ from mcp.shared.inbound import (
     InboundModernRoute,
     classify_inbound_request,
     find_duplicated_routing_header,
+    unsupported_protocol_version_rejection,
     validate_mcp_param_headers,
 )
 from mcp.shared.jsonrpc_dispatcher import progress_token_from_params
@@ -169,7 +167,7 @@ def _sse_event(msg: JSONRPCResponse | JSONRPCError | JSONRPCNotification) -> byt
 
 async def _write_rejection(
     rejection: InboundLadderRejection,
-    request_id: RequestId,
+    request_id: RequestId | None,
     scope: Scope,
     receive: Receive,
     send: Send,
@@ -250,19 +248,8 @@ async def _acknowledge_notification(
         await _write(_INVALID_BODY, scope, receive, send)
         return
     requested = request.headers.get(MCP_PROTOCOL_VERSION_HEADER, "")
-    if requested not in MODERN_PROTOCOL_VERSIONS:
-        rej = JSONRPCError(
-            jsonrpc="2.0",
-            id=None,
-            error=ErrorData(
-                code=UNSUPPORTED_PROTOCOL_VERSION,
-                message="Unsupported protocol version",
-                data=UnsupportedProtocolVersionErrorData(
-                    supported=list(MODERN_PROTOCOL_VERSIONS), requested=requested
-                ).model_dump(mode="json"),
-            ),
-        )
-        await _write(rej, scope, receive, send)
+    if (unsupported := unsupported_protocol_version_rejection(requested)) is not None:
+        await _write_rejection(unsupported, None, scope, receive, send)
         return
     logger.debug("acknowledged and dropped client notification %s at %s", notification.method, requested)
     await Response(status_code=202)(scope, receive, send)
