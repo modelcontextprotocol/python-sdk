@@ -21,7 +21,6 @@ const PEOPLE = {
   maintainer: { type: 'User', perms: { admin: true, maintain: true, push: true, triage: true, pull: true } },
   triager: { type: 'User', perms: { triage: true, pull: true } }, // e.g. a trusted-contributors team
   outsider: { type: 'User', perms: { pull: true } },
-  another: { type: 'User', perms: { pull: true } },
   'dependabot[bot]': { type: 'Bot', perms: {} },
   'somebot[bot]': { type: 'Bot', perms: {} },
 };
@@ -236,6 +235,19 @@ test('kill switch (ENFORCE=false) reaches the same verdicts but writes nothing',
   }
 });
 
+test('on assignment, one PR failing to re-evaluate does not stop the others (run still fails)', async () => {
+  const world = makeWorld({
+    prs: [
+      pr(3300, 'outsider', { state: 'closed', labels: [LABEL], body: 'Fixes #10', gateComment: true }),
+      pr(3301, 'outsider', { state: 'closed', labels: [LABEL], body: 'Fixes #10', gateComment: true }),
+    ],
+    issues: [issue(10, { assignees: ['outsider'] })],
+  });
+  world.failPullsGet = 3300;
+  await assert.rejects(run(world, assigned(10, 'outsider', 'maintainer'), { enforce: true }), /Could not re-evaluate #3300/);
+  assert.equal(world.prs.get(3301).state, 'open');
+});
+
 test('an API error while checking permissions fails the run rather than closing the PR', async () => {
   const world = makeWorld({ prs: [pr(3300, 'outsider')] });
   world.failPermissionLookup = true;
@@ -297,7 +309,7 @@ function observe(world, expect) {
 // ── A tiny in-memory GitHub ────────────────────────────────────────────────
 
 function makeWorld({ prs = [], issues = [] }) {
-  const world = { prs: new Map(), issues: new Map(), writes: [], failPermissionLookup: false, nextCommentId: 100 };
+  const world = { prs: new Map(), issues: new Map(), writes: [], failPermissionLookup: false, failPullsGet: null, nextCommentId: 100 };
   for (const p of prs) {
     const copy = structuredClone(p);
     copy.comments = copy.comments.map((c) => ({ id: world.nextCommentId++, ...c }));
@@ -326,7 +338,7 @@ function makeWorld({ prs = [], issues = [] }) {
       },
     },
     pulls: {
-      get: async ({ pull_number }) => ({ data: apiPr(getPr(pull_number)) }),
+      get: async ({ pull_number }) => { if (world.failPullsGet === pull_number) throw err(502, 'bad gateway'); return { data: apiPr(getPr(pull_number)) }; },
       update: async ({ pull_number, state }) => {
         const p = getPr(pull_number);
         write(`${state === 'open' ? 'reopen' : 'close'} #${pull_number}`);

@@ -38,7 +38,17 @@ module.exports = async function run({ github, context, core }) {
     });
     const prs = closed.filter((i) => i.pull_request && closingRefs(i.body).includes(issueNumber));
     console.log(`#${issueNumber} assigned to ${assignee}: ${prs.length} gate-closed PR(s) reference it`);
-    for (const pr of prs) await evaluate(pr.number, 'assigned', context.payload.sender?.login, issueNumber);
+    // Evaluate each independently so one transient failure doesn't strand
+    // the rest (this event won't fire again for the same assignment).
+    const failures = [];
+    for (const pr of prs) {
+      try {
+        await evaluate(pr.number, 'assigned', context.payload.sender?.login, issueNumber);
+      } catch (e) {
+        failures.push(`#${pr.number}: ${e.message}`);
+      }
+    }
+    if (failures.length) throw new Error(`Could not re-evaluate ${failures.join('; ')}`);
     return;
   }
 
@@ -150,7 +160,7 @@ module.exports = async function run({ github, context, core }) {
       MARKER,
       `This PR now passes the intake check (${reason}), but GitHub won't let it be reopened — usually because the branch was force-pushed or deleted while the PR was closed, or because another open PR uses the same branch.`,
       '',
-      `If you have another open PR from this branch, please continue there. Otherwise, either push the branch back to \`${pr.head.sha.slice(0, 7)}\` and edit this PR's description to retry, or open a new PR with the same \`Fixes #<issue>\` line.`,
+      `If you have another open PR from this branch, please continue there. Otherwise, either push the branch back to \`${pr.head.sha.slice(0, 7)}\` and edit this PR's description to retry, or open a new PR that links the same issue (if a maintainer had waved this one through, mention that so they can do the same there).`,
     ].join('\n');
   }
 

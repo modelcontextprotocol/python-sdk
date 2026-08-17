@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      group: require-linked-issue-${{ github.event.pull_request.number || inputs.pr_number || format('issue-{0}', github.event.issue.number) }}
+      group: require-linked-issue-${{ github.event.pull_request.number || inputs.pr_number || format('issue-{0}-{1}', github.event.issue.number, github.event.assignee.login) }}
       cancel-in-progress: false
     permissions:
       contents: read # check out the gate script from the default branch
