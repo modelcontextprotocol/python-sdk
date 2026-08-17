@@ -5,7 +5,10 @@ The legacy streamable-HTTP transport is untouched and remains the supported
 path for earlier protocol revisions.
 
 A 2026-07-28 request is a self-contained POST: no `initialize` handshake, no
-`Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. JSON
+`Mcp-Session-Id`, one JSON-RPC request in, one JSON-RPC response out. A
+notification POST is acknowledged `202` and dropped: the core protocol defines
+no client-to-server notifications on this wire (cancellation is closing the
+response stream), and a per-request entry has nothing for one to act on. JSON
 mode handles the request directly in the ASGI task. SSE mode runs the handler
 as a sibling task and defers committing to `text/event-stream` until the
 handler emits a notification or `_SSE_PING_INTERVAL` elapses, whichever
@@ -33,6 +36,7 @@ from mcp_types import (
     INVALID_REQUEST,
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     ErrorData,
     JSONRPCError,
     JSONRPCNotification,
@@ -40,8 +44,10 @@ from mcp_types import (
     JSONRPCResponse,
     ProgressToken,
     RequestId,
+    UnsupportedProtocolVersionErrorData,
 )
 from mcp_types import methods as _methods
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
@@ -56,6 +62,7 @@ from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.inbound import (
     ERROR_CODE_HTTP_STATUS,
     MCP_PARAM_HEADER_PREFIX,
+    MCP_PROTOCOL_VERSION_HEADER,
     InboundLadderRejection,
     InboundModernRoute,
     classify_inbound_request,
@@ -194,6 +201,71 @@ async def _write(
         status_code=status,
         media_type="application/json",
     )(scope, receive, send)
+
+
+_INVALID_BODY: Final = JSONRPCError(
+    jsonrpc="2.0",
+    id=None,
+    error=ErrorData(code=INVALID_REQUEST, message="Body must be a single JSON-RPC request or notification object"),
+)
+"""Well-formed JSON that is not one request or notification: a batch, a posted response, a malformed envelope."""
+
+
+def _is_notification_shaped(decoded: Any) -> bool:
+    """Whether a decoded POST body is a single JSON object without an `id` member.
+
+    JSON-RPC 2.0 §4.1: a notification is a request object without an "id"
+    member, so key presence — not which model happens to validate — picks the
+    arm. (The notification model ignores unknown keys; letting it catch a
+    request whose id is malformed would 202 a message that is owed an error.)
+    """
+    return isinstance(decoded, dict) and "id" not in decoded
+
+
+async def _acknowledge_notification(
+    decoded: dict[str, Any],
+    request: Request,
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+) -> None:
+    """Answer an id-less POST body: `202` for a notification at a served version, a rejection otherwise.
+
+    Streamable-http §Sending Messages item 5 lets a server accept (202, no
+    body) or refuse (4xx) a notification POST; this entry accepts and drops.
+    The 2026-07-28 core protocol defines no client-to-server notifications over
+    HTTP (a client cancels by closing the response stream) and a per-request
+    entry holds no cross-request state for one to act on — honouring a posted
+    `notifications/cancelled` by client-chosen request id would let one
+    anonymous caller cancel another's work — but clients in the field still
+    POST them, and notifications are fire-and-forget, so they are acknowledged
+    as the handshake-era transport does rather than answered with an error
+    nobody reads. Header requirements for notification POSTs are undefined at
+    this revision; only the routing header that brought the POST here is
+    checked, so a version this entry does not serve is told so, as a request is.
+    """
+    try:
+        notification = JSONRPCNotification.model_validate(decoded)
+    except ValidationError:
+        await _write(_INVALID_BODY, scope, receive, send)
+        return
+    requested = request.headers.get(MCP_PROTOCOL_VERSION_HEADER, "")
+    if requested not in MODERN_PROTOCOL_VERSIONS:
+        rej = JSONRPCError(
+            jsonrpc="2.0",
+            id=None,
+            error=ErrorData(
+                code=UNSUPPORTED_PROTOCOL_VERSION,
+                message="Unsupported protocol version",
+                data=UnsupportedProtocolVersionErrorData(
+                    supported=list(MODERN_PROTOCOL_VERSIONS), requested=requested
+                ).model_dump(mode="json"),
+            ),
+        )
+        await _write(rej, scope, receive, send)
+        return
+    logger.debug("acknowledged and dropped client notification %s at %s", notification.method, requested)
+    await Response(status_code=202)(scope, receive, send)
 
 
 _MCP_PARAM_PREFIX_LOWER: Final = MCP_PARAM_HEADER_PREFIX.lower()
@@ -346,22 +418,15 @@ async def handle_modern_request(
         rej = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
         await _write(rej, scope, receive, send)
         return
+    if _is_notification_shaped(decoded):
+        await _acknowledge_notification(decoded, request, scope, receive, send)
+        return
     try:
         req = JSONRPCRequest.model_validate(decoded)
     except ValidationError:
-        # Well-formed JSON that isn't a single request object. The transport
-        # spec permits notification POSTs and gives the server two responses
-        # (202 accept / 4xx cannot-accept; streamable-http §Sending Messages
-        # item 5). The core protocol defines no client→server notifications
-        # over HTTP at 2026-07-28 (cancellation is SSE-stream close), so this
-        # entry takes the cannot-accept branch. TODO(L57): S4 owns the
-        # strict-vs-lenient choice.
-        rej = JSONRPCError(
-            jsonrpc="2.0",
-            id=None,
-            error=ErrorData(code=INVALID_REQUEST, message="Body must be a single JSON-RPC request object"),
-        )
-        await _write(rej, scope, receive, send)
+        # A batch, a posted response (clients MUST NOT send those: streamable-http
+        # §Sending Messages item 4), or a request whose envelope is malformed.
+        await _write(_INVALID_BODY, scope, receive, send)
         return
 
     if req.method == "subscriptions/listen" and not has_sse:
