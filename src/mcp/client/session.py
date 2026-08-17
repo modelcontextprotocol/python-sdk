@@ -37,7 +37,7 @@ from mcp_types.version import (
 from pydantic import BaseModel, Discriminator, Tag, TypeAdapter, ValidationError
 from typing_extensions import Self, TypeVar, deprecated
 
-from mcp.client._transport import ReadStream, WriteStream
+from mcp.client._transport import SESSION_EXPIRED, SESSION_EXPIRED_MARKER, ReadStream, WriteStream
 from mcp.client.extension import NotificationBinding, ResultClaim, UnexpectedClaimedResult
 from mcp.client.subscriptions import ListenRoute
 from mcp.shared._compat import resync_tracer
@@ -415,6 +415,8 @@ class ClientSession:
         self._negotiated_version: str | None = None
         self._stamp: Callable[[dict[str, Any], CallOptions], None] = _preconnect_stamp
         self._task_group: anyio.abc.TaskGroup | None = None
+        self._session_recovery_lock = anyio.Lock()
+        self._session_generation = 0
         # subscriptions/listen demux routes; membership decides ack consumption (raw listens are never registered)
         self._listen_routes: dict[RequestId, ListenRoute] = {}
         if dispatcher is not None:
@@ -504,26 +506,15 @@ class ClientSession:
                 # A raising handler costs only that delivery, as in _on_notify.
                 logger.exception("notification binding handler for %r raised", binding.method)
 
-    async def send_request(
+    async def _send_request_once(
         self,
         request: types.ClientRequest | types.Request[Any, Any],
         result_type: type[ReceiveResultT] | TypeAdapter[ReceiveResultT],
-        request_read_timeout_seconds: float | None = None,
-        metadata: ClientMessageMetadata | None = None,
-        progress_callback: ProgressFnT | None = None,
+        request_read_timeout_seconds: float | None,
+        metadata: ClientMessageMetadata | None,
+        progress_callback: ProgressFnT | None,
     ) -> ReceiveResultT:
-        """Send a request and wait for its typed result.
-
-        Args:
-            metadata: Streamable HTTP resumption hints.
-
-        Raises:
-            MCPError: Error response, read timeout, or connection closed.
-            RuntimeError: Called before entering the context manager.
-            ValueError: The request declares `name_param` but its params carry no string name.
-            pydantic.ValidationError: The server returned a result that does not
-                conform to the negotiated protocol version.
-        """
+        """Send one typed request without session-expiry recovery."""
         data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         method: str = data["method"]
         opts: CallOptions = {}
@@ -561,6 +552,76 @@ class ClientSession:
         if isinstance(result_type, TypeAdapter):
             return result_type.validate_python(raw, by_name=False)
         return result_type.model_validate(raw, by_name=False)
+
+    async def _recover_expired_session(self, generation: int) -> None:
+        """Reinitialize once for all requests that observed one expired legacy session."""
+        async with self._session_recovery_lock:
+            if generation != self._session_generation:
+                return
+            self._initialize_result = None
+            self._discover_result = None
+            self._discover_server_info = None
+            self._negotiated_version = None
+            self._stamp = _preconnect_stamp
+            self._active_claims = {}
+            self._call_tool_adapter = _CallToolResultAdapter
+            self._x_mcp_header_maps.clear()
+            self._tool_output_schemas.clear()
+            self._tool_output_validators.clear()
+            await self.initialize()
+            self._session_generation += 1
+
+    async def send_request(
+        self,
+        request: types.ClientRequest | types.Request[Any, Any],
+        result_type: type[ReceiveResultT] | TypeAdapter[ReceiveResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: ClientMessageMetadata | None = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ReceiveResultT:
+        """Send a request and wait for its typed result.
+
+        An established legacy Streamable HTTP session that receives a 404 is
+        reinitialized once and the original request is retried once, as required
+        by the transport specification.
+
+        Args:
+            metadata: Streamable HTTP resumption hints.
+
+        Raises:
+            MCPError: Error response, read timeout, connection closed, or a
+                repeated session-expiry response.
+            RuntimeError: Called before entering the context manager.
+            ValueError: The request declares `name_param` but its params carry no string name.
+            pydantic.ValidationError: The server returned a result that does not
+                conform to the negotiated protocol version.
+        """
+        generation = self._session_generation
+        sent_on_legacy_session = self._initialize_result is not None and self._discover_result is None
+        try:
+            return await self._send_request_once(
+                request,
+                result_type,
+                request_read_timeout_seconds,
+                metadata,
+                progress_callback,
+            )
+        except MCPError as exc:
+            error_data = exc.data
+            is_transport_expiry = (
+                isinstance(error_data, Mapping)
+                and cast(Mapping[str, object], error_data).get(SESSION_EXPIRED_MARKER) is True
+            )
+            if exc.code != SESSION_EXPIRED or not is_transport_expiry or not sent_on_legacy_session:
+                raise
+        await self._recover_expired_session(generation)
+        return await self._send_request_once(
+            request,
+            result_type,
+            request_read_timeout_seconds,
+            metadata,
+            progress_callback,
+        )
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
         """Send a one-way notification. Usable before entering the context manager.
