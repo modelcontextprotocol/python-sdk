@@ -20,6 +20,7 @@ from mcp_types import (
     HEADER_MISMATCH,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     SERVER_INFO_META_KEY,
@@ -27,6 +28,7 @@ from mcp_types import (
     CallToolResult,
     DiscoverResult,
     EmptyResult,
+    ErrorData,
     Implementation,
     JSONRPCError,
     JSONRPCResponse,
@@ -151,6 +153,39 @@ async def test_modern_response_carries_no_session_id_header() -> None:
 
     assert response.status_code == 200
     assert "mcp-session-id" not in response.headers
+
+
+@requirement("hosting:http:modern:notification-post-202")
+@pytest.mark.parametrize("json_response", [True, False], ids=["json", "sse"])
+@pytest.mark.parametrize("stateless_http", [True, False], ids=["stateless-flag", "default"])
+async def test_modern_notification_post_is_acknowledged_202_and_a_posted_response_is_rejected(
+    json_response: bool, stateless_http: bool
+) -> None:
+    """A 2026-07-28 notification POST is answered 202 with no body; a posted response is 400 INVALID_REQUEST.
+
+    Spec-permitted (streamable-http §Sending Messages item 5): the server may accept (202) or refuse
+    (4xx) a notification POST, and the SDK accepts -- the same answer the legacy leg gives, so a
+    client's courtesy `notifications/cancelled` is not met with an error on one era only.
+    Spec-mandated (item 4): clients MUST NOT post responses, so one is refused. Driven through the
+    mounted app so the manager's header routing is in the path, under both response modes and both
+    values of the legacy-only `stateless_http` flag (neither is read before the modern entry answers).
+    """
+    notification = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}
+    posted_response: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "result": {}}
+    async with mounted_app(_server(), json_response=json_response, stateless_http=stateless_http) as (http, _):
+        acknowledged = await http.post(
+            "/mcp", json=notification, headers=_modern_headers(method="notifications/cancelled")
+        )
+        refused = await http.post("/mcp", json=posted_response, headers=_modern_headers(method="tools/list"))
+
+    assert (acknowledged.status_code, acknowledged.content) == (202, b"")
+    assert "mcp-session-id" not in acknowledged.headers
+    assert refused.status_code == 400
+    assert JSONRPCError.model_validate(refused.json()) == JSONRPCError(
+        jsonrpc="2.0",
+        id=None,
+        error=ErrorData(code=INVALID_REQUEST, message="Body must be a single JSON-RPC request or notification object"),
+    )
 
 
 @requirement("hosting:http:modern:initialize-removed")
