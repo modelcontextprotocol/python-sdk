@@ -26,7 +26,11 @@ class Message(BaseModel):
     """Base class for all prompt messages.
 
     `content` may be a plain string (wrapped in `TextContent`), an `Image` or `Audio`
-    helper (converted to `ImageContent` / `AudioContent`), or any ready-made content block.
+    helper (converted to `ImageContent` / `AudioContent`, reading the file for path-backed
+    helpers), or any ready-made content block.
+
+    Raises:
+        OSError: If a path-backed `Image` or `Audio` cannot be read.
     """
 
     role: Literal["user", "assistant"]
