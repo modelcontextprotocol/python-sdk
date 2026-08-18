@@ -3897,11 +3897,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="issue:#3240",
         behavior=(
             "A refresh in a process that has not yet discovered the authorization server happens only after "
-            "protected-resource and authorization-server metadata discovery and posts to the advertised "
-            "token endpoint, never to a path guessed from the server origin."
+            "protected-resource and authorization-server metadata discovery and posts to the token endpoint "
+            "that metadata advertises."
         ),
         transports=("streamable-http",),
-        note="OAuth is HTTP-only.",
+        note=(
+            "OAuth is HTTP-only. When discovery yields no AS metadata at all, the 2025-03-26 origin-derived "
+            "fallback endpoint is still used, as it is for the authorization itself."
+        ),
     ),
     "client-auth:resource-parameter": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#resource-parameter-implementation",

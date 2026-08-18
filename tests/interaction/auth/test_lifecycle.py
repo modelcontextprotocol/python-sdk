@@ -18,15 +18,16 @@ from mcp_types import INTERNAL_ERROR, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp import MCPError
-from mcp.client.auth import OAuthClientProvider
+from mcp.client.auth import OAuthClientProvider, OAuthFlowError
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
 from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
     REDIRECT_URI,
     AppShim,
+    HeadlessOAuth,
     InMemoryTokenStorage,
     RecordedRequest,
     auth_settings,
@@ -123,6 +124,17 @@ def restarted_headless_provider(storage: InMemoryTokenStorage) -> OAuthClientPro
     Reaching the interactive step raises rather than opening a browser the scenario says is absent.
     """
     return OAuthClientProvider(server_url=f"{BASE_URL}/mcp", client_metadata=oauth_client_metadata(), storage=storage)
+
+
+def restarted_interactive_provider(storage: InMemoryTokenStorage, headless: HeadlessOAuth) -> OAuthClientProvider:
+    """A provider as a second process with a browser available constructs it: same storage, fresh state."""
+    return OAuthClientProvider(
+        server_url=f"{BASE_URL}/mcp",
+        client_metadata=oauth_client_metadata(),
+        storage=storage,
+        redirect_handler=headless.redirect_handler,
+        callback_handler=headless.callback_handler,
+    )
 
 
 @requirement("client-auth:refresh:transparent")
@@ -464,6 +476,154 @@ async def test_a_restarted_client_refreshes_at_the_token_endpoint_advertised_und
     token_posts = [r for r in recorded if r.method == "POST" and r.path.endswith("/token")]
     assert [(r.path, form_body(r)["grant_type"]) for r in token_posts] == [("/oauth2/v1/token", "refresh_token")]
     assert not any(r.path.endswith("/authorize") for r in recorded)
+
+
+@requirement("client-auth:invalid-grant-clears-tokens")
+async def test_a_refresh_the_server_rejects_on_the_401_path_falls_back_to_authorization() -> None:
+    """When the 401 path's refresh is rejected, the flow runs the full authorization instead of giving up.
+
+    Second process with a browser; the harness denies the one refresh with `invalid_grant`. The
+    recording proves the refresh was tried first, then exactly one authorize and code exchange,
+    with no re-registration.
+    """
+    provider = InMemoryAuthorizationServerProvider(fail_next_refresh=True)
+    storage = InMemoryTokenStorage()
+    with anyio.fail_after(5):
+        provider.expire_access_token(await first_process_login(provider, storage))
+
+    recorded, on_request = record_requests()
+    headless = HeadlessOAuth()
+    server = Server("guarded", on_list_tools=list_tools)
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            auth=restarted_interactive_provider(storage, headless),
+            headless=headless,
+            on_request=on_request,
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == snapshot(
+        ["refresh_token", "authorization_code"]
+    )
+    counts = path_counts(recorded)
+    assert counts[("GET", "/authorize")] == 1
+    assert counts[("POST", "/register")] == 0
+
+
+@requirement("client-auth:refresh:on-401")
+async def test_a_headless_client_whose_refresh_failed_retries_it_from_storage_on_the_next_connection() -> None:
+    """A failed refresh does not wedge a long-lived headless provider: the next connection reloads and refreshes.
+
+    The harness denies the first refresh with `invalid_grant` but leaves the refresh token valid,
+    standing in for a transient token-endpoint failure. The first connect raises (no browser to
+    fall back to); the second, through the same provider instance, refreshes and succeeds.
+    """
+    provider = InMemoryAuthorizationServerProvider(fail_next_refresh=True)
+    storage = InMemoryTokenStorage()
+    with anyio.fail_after(5):
+        provider.expire_access_token(await first_process_login(provider, storage))
+    daemon = restarted_headless_provider(storage)
+
+    with anyio.fail_after(5):
+        with pytest.RaisesGroup(pytest.RaisesExc(OAuthFlowError), flatten_subgroups=True):
+            await connect_with_oauth(
+                Server("guarded", on_list_tools=list_tools), provider=provider, auth=daemon
+            ).__aenter__()
+
+    recorded, on_request = record_requests()
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            Server("guarded", on_list_tools=list_tools), provider=provider, auth=daemon, on_request=on_request
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == ["refresh_token"]
+    assert find(recorded, "GET", "/authorize") == []
+
+
+@requirement("client-auth:refresh:on-401")
+async def test_a_fresh_registration_does_not_present_tokens_left_from_a_previous_client() -> None:
+    """Tokens found in storage without their registration are not refreshed under a newly registered client.
+
+    The second process finds tokens but no `client_info` (lost, or never persisted), so the 401
+    path registers a new client; the refresh token belonged to the old one and is dropped rather
+    than presented, and the flow authorizes once. RFC 6749 §6 binds refresh tokens to their client.
+    """
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage()
+    with anyio.fail_after(5):
+        provider.expire_access_token(await first_process_login(provider, storage))
+    storage.client_info = None
+
+    recorded, on_request = record_requests()
+    headless = HeadlessOAuth()
+    server = Server("guarded", on_list_tools=list_tools)
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            auth=restarted_interactive_provider(storage, headless),
+            headless=headless,
+            on_request=on_request,
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert [(r.method, r.path) for r in recorded[:6]] == snapshot(
+        [
+            ("POST", "/mcp"),
+            ("GET", "/.well-known/oauth-protected-resource/mcp"),
+            ("GET", "/.well-known/oauth-authorization-server"),
+            ("POST", "/register"),
+            ("GET", "/authorize"),
+            ("POST", "/token"),
+        ]
+    )
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == ["authorization_code"]
+
+
+@requirement("client-auth:as-binding")
+async def test_a_cimd_client_keeps_its_id_but_drops_its_tokens_when_the_authorization_server_changes() -> None:
+    """A CIMD registration is portable across authorization servers; the tokens issued under it are not.
+
+    Storage holds a CIMD record stamped with a previous issuer and a refresh token minted there.
+    On the 401 the discovered issuer differs, so the flow keeps the URL client_id, re-stamps it,
+    and authorizes afresh instead of presenting the old refresh token to the new server (SEP-2352;
+    the TypeScript SDK discards tokens on the same mismatch).
+    """
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider()
+    seeded_client(provider, client_id=CIMD_URL)
+    stale = OAuthClientInformationFull(
+        client_id=CIMD_URL,
+        token_endpoint_auth_method="none",
+        redirect_uris=[AnyUrl(REDIRECT_URI)],
+        issuer="https://old-as.example.com",
+    )
+    storage = InMemoryTokenStorage(client_info=stale)
+    storage.tokens = OAuthToken(access_token="issued-by-old-as", refresh_token="refresh-from-old-as", expires_in=3600)
+    server = Server("guarded", on_list_tools=list_tools)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            storage=storage,
+            client_metadata_url=CIMD_URL,
+            app_shim=shim(serve={ASM_PATH: cimd_supported_metadata()}),
+            on_request=on_request,
+        ) as (client, _):
+            await client.list_tools()
+
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == ["authorization_code"]
+    assert all(b"refresh-from-old-as" not in r.content for r in recorded)
+    assert path_counts(recorded)[("POST", "/register")] == 0
+    assert storage.client_info is not None
+    assert (storage.client_info.client_id, storage.client_info.issuer) == (CIMD_URL, f"{BASE_URL}/")
 
 
 @requirement("client-auth:client-credentials")

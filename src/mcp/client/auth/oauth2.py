@@ -374,7 +374,7 @@ class OAuthClientProvider(httpx2.Auth):
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided for authorization code grant")  # pragma: no cover
         if not self.context.redirect_handler:
-            raise OAuthFlowError("No redirect handler provided for authorization code grant")  # pragma: no cover
+            raise OAuthFlowError("No redirect handler provided for authorization code grant")
         if not self.context.callback_handler:
             raise OAuthFlowError("No callback handler provided for authorization code grant")  # pragma: no cover
 
@@ -521,6 +521,8 @@ class OAuthClientProvider(httpx2.Auth):
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
             self.context.clear_tokens()
+            # Re-read storage on the next request: the failure may have been transient.
+            self._initialized = False
             return False
 
         try:
@@ -545,6 +547,7 @@ class OAuthClientProvider(httpx2.Auth):
         except ValidationError:  # pragma: no cover
             logger.exception("Invalid refresh response")
             self.context.clear_tokens()
+            self._initialized = False
             return False
 
     async def _initialize(self) -> None:
@@ -593,12 +596,8 @@ class OAuthClientProvider(httpx2.Auth):
                 and self.context.can_refresh_token()
                 and self.context.oauth_metadata is not None
             ):
-                refresh_request = await self._refresh_token()
-                refresh_response = yield refresh_request
-
-                if not await self._handle_refresh_response(refresh_response):
-                    # Refresh failed, need full re-authentication
-                    self._initialized = False
+                refresh_response = yield await self._refresh_token()
+                await self._handle_refresh_response(refresh_response)
 
             if self.context.is_token_valid():
                 self._add_auth_header(request)
@@ -748,6 +747,21 @@ class OAuthClientProvider(httpx2.Auth):
                             await self.context.storage.set_client_info(client_information)
                             # Held tokens belong to a previous client and cannot be refreshed by this one.
                             self.context.clear_tokens()
+
+                    # A CIMD client_id is portable across authorization servers (SEP-2352) but tokens
+                    # issued under it are not: on an issuer change keep the record, drop the tokens.
+                    client_info = self.context.client_info
+                    current_issuer = self.context.auth_server_url or (
+                        str(self.context.oauth_metadata.issuer) if self.context.oauth_metadata else None
+                    )
+                    if (
+                        client_info.client_id == self.context.client_metadata_url
+                        and current_issuer is not None
+                        and client_info.issuer not in (None, current_issuer)
+                    ):
+                        self.context.clear_tokens()
+                        client_info.issuer = current_issuer
+                        await self.context.storage.set_client_info(client_info)
 
                     # Step 5: Refresh with the stored refresh token first (RFC 6749 §6); run the full
                     # authorization only when there is none or the server rejects it.
