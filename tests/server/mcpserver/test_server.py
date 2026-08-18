@@ -1,7 +1,7 @@
 import base64
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, TypedDict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
@@ -44,6 +44,7 @@ from mcp_types import (
 from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
+from typing_extensions import NotRequired
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
@@ -713,6 +714,33 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Unknown tool" in content.text
+
+
+@pytest.mark.anyio
+async def test_typeddict_tool_omitting_optional_keys_passes_client_validation():
+    """The client validates structured content against the tool's output schema, so a `NotRequired`
+    key the tool leaves out must be absent from `structured_content` rather than null."""
+
+    class Person(TypedDict):
+        name: str
+        age: NotRequired[int]
+
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def get_person() -> Person:
+        return {"name": "Dave"}
+
+    async with Client(mcp) as client:
+        (tool,) = (await client.list_tools()).tools
+        assert tool.output_schema == {
+            "type": "object",
+            "title": "Person",
+            "properties": {"name": {"title": "Name", "type": "string"}, "age": {"title": "Age", "type": "integer"}},
+            "required": ["name"],
+        }
+        result = await client.call_tool("get_person", {})
+        assert result.structured_content == {"name": "Dave"}
 
 
 class TestServerResources:

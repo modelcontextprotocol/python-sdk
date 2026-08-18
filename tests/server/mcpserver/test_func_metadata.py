@@ -9,9 +9,11 @@ from typing import Annotated, Any, Final, NamedTuple, TypedDict
 
 import annotated_types
 import pytest
+import typing_extensions
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field
+from typing_extensions import NotRequired, ReadOnly, Required
 
 from mcp.server.mcpserver import Audio, Image
 from mcp.server.mcpserver.exceptions import InvalidSignature
@@ -773,22 +775,28 @@ def test_structured_output_dataclass():
 def test_structured_output_typeddict():
     """Test structured output with TypedDict return types"""
 
+    # stdlib TypedDict with a qualifier: exercises the typing_extensions rebuild below Python 3.12
     class PersonTypedDictOptional(TypedDict, total=False):
-        name: str
+        name: Required[str]
         age: int
 
-    def func_returning_typeddict_optional() -> PersonTypedDictOptional:  # pragma: no cover
+    def func_returning_typeddict_optional() -> PersonTypedDictOptional:
         return {"name": "Dave"}  # Only returning one field to test partial dict
 
     meta = func_metadata(func_returning_typeddict_optional)
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string", "default": None},
-            "age": {"title": "Age", "type": "integer", "default": None},
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
         },
+        "required": ["name"],
         "title": "PersonTypedDictOptional",
     }
+    # An optional key the tool leaves out is absent, not null, so it validates against the schema above
+    result = meta.convert_result(func_returning_typeddict_optional())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"name": "Dave"}
 
     # Test with total=True (all required)
     class PersonTypedDictRequired(TypedDict):
@@ -809,6 +817,40 @@ def test_structured_output_typeddict():
         },
         "required": ["name", "age", "email"],
         "title": "PersonTypedDictRequired",
+    }
+
+
+def test_structured_output_typeddict_qualifiers_and_metadata():
+    """PEP 655/705 qualifiers register on every supported Python and decide `required`; the docstring
+    and `Annotated` field metadata reach the schema like they do for a BaseModel."""
+
+    class Forecast(typing_extensions.TypedDict, total=False):
+        """Tomorrow's weather."""
+
+        city: Required[Annotated[str, Field(description="City name")]]
+        high: ReadOnly[Required[float]]
+        low: float
+        summary: NotRequired[Annotated[str, Field(max_length=80)]]
+
+    def forecast() -> Forecast:
+        return {"city": "Berlin", "high": 21.5}
+
+    with pytest.warns(UserWarning, match="ReadOnly"):  # pydantic notes it won't enforce ReadOnly
+        meta = func_metadata(forecast)
+    result = meta.convert_result(forecast())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"city": "Berlin", "high": 21.5}
+    assert meta.output_schema == {
+        "type": "object",
+        "title": "Forecast",
+        "description": "Tomorrow's weather.",
+        "properties": {
+            "city": {"title": "City", "type": "string", "description": "City name"},
+            "high": {"title": "High", "type": "number"},
+            "low": {"title": "Low", "type": "number"},
+            "summary": {"title": "Summary", "type": "string", "maxLength": 80},
+        },
+        "required": ["city", "high"],
     }
 
 
