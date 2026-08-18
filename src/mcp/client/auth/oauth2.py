@@ -586,8 +586,13 @@ class OAuthClientProvider(httpx2.Auth):
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
-                # Try to refresh token
+            # Refresh ahead of the request only when the token endpoint is already known; on a cold
+            # start the request goes out and the 401 branch discovers, then refreshes.
+            if (
+                not self.context.is_token_valid()
+                and self.context.can_refresh_token()
+                and self.context.oauth_metadata is not None
+            ):
                 refresh_request = await self._refresh_token()
                 refresh_response = yield refresh_request
 
@@ -741,10 +746,18 @@ class OAuthClientProvider(httpx2.Auth):
                                 client_information.issuer = discovered_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
+                            # Held tokens belong to a previous client and cannot be refreshed by this one.
+                            self.context.clear_tokens()
 
-                    # Step 5: Perform authorization and complete token exchange
-                    token_response = yield await self._perform_authorization()
-                    await self._handle_token_response(token_response)
+                    # Step 5: Refresh with the stored refresh token first (RFC 6749 §6); run the full
+                    # authorization only when there is none or the server rejects it.
+                    refreshed = False
+                    if self.context.can_refresh_token():
+                        refresh_response = yield await self._refresh_token()
+                        refreshed = await self._handle_refresh_response(refresh_response)
+                    if not refreshed:
+                        token_response = yield await self._perform_authorization()
+                        await self._handle_token_response(token_response)
                 except Exception:
                     logger.exception("OAuth flow error")
                     raise

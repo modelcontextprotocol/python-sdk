@@ -26,7 +26,14 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.auth.provider import AccessToken, ProviderTokenVerifier
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
-from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import (
+    AuthorizationCodeResult,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+    ProtectedResourceMetadata,
+)
 from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION
 from tests.interaction.auth._provider import InMemoryAuthorizationServerProvider
 from tests.interaction.transports._bridge import StreamingASGITransport
@@ -271,6 +278,53 @@ def shim(
 ) -> AppShim:
     """Build an `app_shim` for `connect_with_oauth` that applies `shimmed_app` with these overrides."""
     return lambda app: shimmed_app(app, not_found=not_found, serve=serve)
+
+
+def path_prefixed_as_shim(prefix: str) -> AppShim:
+    """Build an `app_shim` that presents the co-hosted authorization server as living under `prefix`.
+
+    The SDK server mounts `/authorize`, `/token` and `/register` at the origin root whatever the
+    issuer, so an AS whose endpoints sit under a path cannot be configured natively. This serves
+    PRM naming `{BASE_URL}{prefix}` as the AS, serves that issuer's metadata at the RFC 8414
+    path-inserted well-known URL with every endpoint under the prefix, forwards `{prefix}/x` to the
+    real `/x`, and 404s the bare root endpoints and root metadata so a client guessing origin-root
+    paths fails as it would against such a server. Pair with
+    `InMemoryAuthorizationServerProvider(issuer=f"{BASE_URL}{prefix}")` so the redirect `iss` matches.
+    """
+    issuer = f"{BASE_URL}{prefix}"
+    prm = ProtectedResourceMetadata(resource=AnyHttpUrl(f"{BASE_URL}/mcp"), authorization_servers=[AnyHttpUrl(issuer)])
+    asm = OAuthMetadata(
+        issuer=AnyHttpUrl(issuer),
+        authorization_endpoint=AnyHttpUrl(f"{issuer}/authorize"),
+        token_endpoint=AnyHttpUrl(f"{issuer}/token"),
+        registration_endpoint=AnyHttpUrl(f"{issuer}/register"),
+        scopes_supported=["mcp"],
+        response_types_supported=["code"],
+        grant_types_supported=["authorization_code", "refresh_token"],
+        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic", "none"],
+        code_challenge_methods_supported=["S256"],
+    )
+
+    def factory(app: ASGIApp) -> ASGIApp:
+        inner = shimmed_app(
+            app,
+            not_found=frozenset({"/token", "/authorize", "/register", "/.well-known/oauth-authorization-server"}),
+            serve={
+                "/.well-known/oauth-protected-resource/mcp": metadata_body(prm),
+                f"/.well-known/oauth-authorization-server{prefix}": metadata_body(asm),
+            },
+        )
+
+        async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "http" and scope["path"].startswith(f"{prefix}/"):
+                path = scope["path"][len(prefix) :]
+                await app({**scope, "path": path, "raw_path": path.encode()}, receive, send)
+                return
+            await inner(scope, receive, send)
+
+        return wrapped
+
+    return factory
 
 
 @dataclass

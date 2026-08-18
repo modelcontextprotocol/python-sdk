@@ -103,6 +103,10 @@ class InMemoryAuthorizationServerProvider(
         )
         return access
 
+    def expire_access_token(self, token: str) -> None:
+        """Move an issued access token's server-side expiry into the past so the bearer middleware 401s it."""
+        self.access_tokens[token] = self.access_tokens[token].model_copy(update={"expires_at": int(time.time()) - 1})
+
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return self.clients.get(client_id)
 

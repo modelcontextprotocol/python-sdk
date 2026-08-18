@@ -3253,3 +3253,29 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_expired_token_is_not_refreshed_ahead_of_the_request_before_metadata_is_discovered(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """With no authorization-server metadata yet, an expired token is not refreshed at a guessed endpoint.
+
+    The request goes out unauthenticated instead, so the 401 branch discovers the real token
+    endpoint before the refresh token is presented anywhere (#3240).
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 60
+    oauth_provider.context.client_info = OAuthClientInformationFull(client_id="c", redirect_uris=None)
+    oauth_provider.context.oauth_metadata = None
+    oauth_provider._initialized = True
+
+    request = httpx2.Request("POST", "https://api.example.com/v1/mcp")
+    auth_flow = oauth_provider.async_auth_flow(request)
+    first = await auth_flow.__anext__()
+
+    assert first is request
+    assert "Authorization" not in first.headers
+
+    with pytest.raises(StopAsyncIteration):
+        await auth_flow.asend(httpx2.Response(200, request=request))

@@ -18,6 +18,7 @@ from mcp_types import INTERNAL_ERROR, ListToolsResult, Tool
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp import MCPError
+from mcp.client.auth import OAuthClientProvider
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
@@ -25,12 +26,15 @@ from tests.interaction._connect import BASE_URL
 from tests.interaction._requirements import requirement
 from tests.interaction.auth._harness import (
     REDIRECT_URI,
+    AppShim,
     InMemoryTokenStorage,
     RecordedRequest,
     auth_settings,
     connect_with_oauth,
     m2m_token_shim,
     metadata_body,
+    oauth_client_metadata,
+    path_prefixed_as_shim,
     record_requests,
     shim,
     step_up_shim,
@@ -96,6 +100,29 @@ def seeded_client(provider: InMemoryAuthorizationServerProvider, **kwargs: objec
     assert info.client_id is not None
     provider.clients[info.client_id] = info
     return info
+
+
+async def first_process_login(
+    provider: InMemoryAuthorizationServerProvider, storage: InMemoryTokenStorage, *, app_shim: AppShim | None = None
+) -> str:
+    """Run one interactive connect so `storage` holds what a first process leaves behind; return its access token.
+
+    The restart tests then build a fresh `OAuthClientProvider` over the same storage, as a second
+    process would, so the registration and tokens carry exactly what the SDK persists.
+    """
+    server = Server("guarded", on_list_tools=list_tools)
+    async with connect_with_oauth(server, provider=provider, storage=storage, app_shim=app_shim) as (client, _):
+        await client.list_tools()
+    assert storage.tokens is not None and storage.tokens.refresh_token is not None
+    return storage.tokens.access_token
+
+
+def restarted_headless_provider(storage: InMemoryTokenStorage) -> OAuthClientProvider:
+    """A provider as a second, headless process constructs it: same storage, fresh state, no handlers.
+
+    Reaching the interactive step raises rather than opening a browser the scenario says is absent.
+    """
+    return OAuthClientProvider(server_url=f"{BASE_URL}/mcp", client_metadata=oauth_client_metadata(), storage=storage)
 
 
 @requirement("client-auth:refresh:transparent")
@@ -352,6 +379,91 @@ async def test_a_failed_refresh_clears_stored_tokens_and_restarts_the_full_flow(
     assert storage.client_info is not None
     assert storage.tokens is not None
     assert storage.tokens.access_token in provider.access_tokens
+
+
+@requirement("client-auth:refresh:on-401")
+async def test_a_restarted_client_answers_a_401_with_its_stored_refresh_token() -> None:
+    """A second process holding only persisted tokens and registration refreshes on 401 instead of re-authorizing.
+
+    Steps: (1) a first process logs in and its storage keeps the registration and a refresh token;
+    (2) the server-side access token lapses; (3) a fresh provider over the same storage, with no
+    browser, connects. The recording proves the stale bearer drew a 401, discovery ran, one
+    `refresh_token` grant followed, and neither `/authorize` nor `/register` was touched.
+    SDK behaviour per RFC 6749 §1.5; regression bar for #3250 / #1318.
+    """
+    provider = InMemoryAuthorizationServerProvider()
+    storage = InMemoryTokenStorage()
+    with anyio.fail_after(5):
+        stale_access_token = await first_process_login(provider, storage)
+    provider.expire_access_token(stale_access_token)
+
+    recorded, on_request = record_requests()
+    server = Server("guarded", on_list_tools=list_tools)
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server, provider=provider, auth=restarted_headless_provider(storage), on_request=on_request
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert [(r.method, r.path) for r in recorded[:5]] == snapshot(
+        [
+            ("POST", "/mcp"),
+            ("GET", "/.well-known/oauth-protected-resource/mcp"),
+            ("GET", "/.well-known/oauth-authorization-server"),
+            ("POST", "/token"),
+            ("POST", "/mcp"),
+        ]
+    )
+    assert recorded[0].headers["authorization"] == f"Bearer {stale_access_token}"
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == ["refresh_token"]
+    assert find(recorded, "GET", "/authorize") == [] and find(recorded, "POST", "/register") == []
+    assert storage.tokens is not None and storage.tokens.access_token != stale_access_token
+    assert storage.tokens.access_token in provider.access_tokens
+
+
+@requirement("client-auth:refresh:discovered-endpoint")
+async def test_a_restarted_client_refreshes_at_the_token_endpoint_advertised_under_a_path() -> None:
+    """Against an authorization server under `/oauth2/v1`, a second process refreshes at `/oauth2/v1/token`.
+
+    The bare `/token` 404s here. Nothing is discovered yet in the second process, so no refresh is
+    attempted before the request; the 401 drives discovery and the single refresh POST goes to the
+    advertised endpoint. Regression bar for #3240, where the guessed `{origin}/token` 404ed and the
+    refresh token was discarded.
+    """
+    prefix = "/oauth2/v1"
+    provider = InMemoryAuthorizationServerProvider(issuer=f"{BASE_URL}{prefix}")
+    storage = InMemoryTokenStorage()
+    app_shim = path_prefixed_as_shim(prefix)
+    with anyio.fail_after(5):
+        stale_access_token = await first_process_login(provider, storage, app_shim=app_shim)
+    provider.expire_access_token(stale_access_token)
+
+    recorded, on_request = record_requests()
+    server = Server("guarded", on_list_tools=list_tools)
+    with anyio.fail_after(5):
+        async with connect_with_oauth(
+            server,
+            provider=provider,
+            auth=restarted_headless_provider(storage),
+            app_shim=app_shim,
+            on_request=on_request,
+        ) as (client, _):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert [(r.method, r.path) for r in recorded[:5]] == snapshot(
+        [
+            ("POST", "/mcp"),
+            ("GET", "/.well-known/oauth-protected-resource/mcp"),
+            ("GET", "/.well-known/oauth-authorization-server/oauth2/v1"),
+            ("POST", "/oauth2/v1/token"),
+            ("POST", "/mcp"),
+        ]
+    )
+    token_posts = [r for r in recorded if r.method == "POST" and r.path.endswith("/token")]
+    assert [(r.path, form_body(r)["grant_type"]) for r in token_posts] == [("/oauth2/v1/token", "refresh_token")]
+    assert not any(r.path.endswith("/authorize") for r in recorded)
 
 
 @requirement("client-auth:client-credentials")

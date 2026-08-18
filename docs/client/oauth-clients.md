@@ -81,7 +81,7 @@ The first time `Client` sends a request, the server answers `401`. The provider 
 3. **Authorization.** It generates the PKCE pair and a `state`, builds the authorization URL, awaits your `redirect_handler`, then awaits your `callback_handler` for the code.
 4. **Exchange.** It trades the code for an `OAuthToken`, stores it, and replays your original request with `Authorization: Bearer ...`.
 
-After that it is quiet. Tokens come out of storage, an expired access token is refreshed with the refresh token, and only when none of that works does it run the flow again.
+After that it is quiet. Tokens come out of storage, an expired access token is refreshed with the refresh token, and only when none of that works does it run the flow again. That holds across restarts: a new process that finds a refresh token in storage answers the first `401` by rediscovering the authorization server and refreshing, not by sending anyone back to the browser.
 
 You wrote none of it. Two keyword arguments remain (`client_metadata_url` and `validate_resource_url`), and this file needs neither. `client_metadata_url` is the one worth knowing about; it gets its own section below.
 
