@@ -58,7 +58,7 @@ async def test_tool_call_and_notification_round_trip_over_a_stdio_subprocess(
                 command=sys.executable,
                 args=["-m", _stdio_server.__name__],
                 cwd=str(_REPO_ROOT),
-                # Preserve subprocess coverage and suppress an AnyIO 3.14 import warning.
+                # Preserve subprocess coverage and suppress anyio's `SyntaxWarning` on Python 3.14.
                 env={key: value for key, value in os.environ.items() if key.startswith("COVERAGE_")}
                 | {"PYTHONWARNINGS": "ignore::SyntaxWarning"},
             ),

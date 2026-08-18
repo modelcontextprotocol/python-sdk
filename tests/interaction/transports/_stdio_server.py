@@ -60,7 +60,7 @@ async def main() -> None:
     # Save subprocess coverage before the marker so forced teardown cannot lose it.
     cov = getattr(coverage.process_startup, "coverage", None)
     if cov is not None:  # pragma: no branch
-        # Stop tracing before the final save.
+        # Leave nothing for coverage's atexit hook to rewrite if teardown is interrupted.
         cov.stop()
         cov.save()  # pragma: lax no cover - untraced: stop() above already ended measurement
     # The test uses this marker to distinguish clean exit from termination.
