@@ -46,7 +46,7 @@ def build_app() -> Starlette:
 
     async def as_metadata(request: Request) -> JSONResponse:
         meta = OAuthMetadata(
-            issuer=AnyHttpUrl(BASE_URL),
+            issuer=BASE_URL,  # type: ignore[arg-type]
             authorization_endpoint=AnyHttpUrl(f"{BASE_URL}/authorize"),  # unused; required
             token_endpoint=AnyHttpUrl(f"{BASE_URL}/token"),
             grant_types_supported=["client_credentials"],

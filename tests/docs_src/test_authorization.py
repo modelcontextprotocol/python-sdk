@@ -47,7 +47,7 @@ async def test_the_metadata_document_is_built_from_auth_settings() -> None:
     assert response.json() == snapshot(
         {
             "resource": "http://127.0.0.1:8000/mcp",
-            "authorization_servers": ["https://auth.example.com/"],
+            "authorization_servers": ["https://auth.example.com"],
             "scopes_supported": ["notes:read"],
             "bearer_methods_supported": ["header"],
         }
