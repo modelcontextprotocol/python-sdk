@@ -6,10 +6,18 @@ class MCPServerError(Exception):
 
 
 class ResourceError(MCPServerError):
-    """Error in resource operations.
+    """A resource failure you anticipated.
 
-    When a resource or resource template handler raises this, its message reaches
-    the client as a `-32603` protocol error.
+    Raise this from a resource or resource template handler for a failure you saw
+    coming: the client receives a `-32603` protocol error carrying your message
+    (`ResourceNotFoundError` below is the `-32602` variant), and the server logs it
+    at INFO without a traceback. Any other exception is treated as a crash: the
+    client gets a generic message naming only the URI, and the server logs the
+    traceback at ERROR.
+
+    The SDK raises it too, and `UnexpectedResourceError` subclasses it, so
+    `except ResourceError` around `MCPServer.read_resource()` catches every read
+    failure, crash or not.
     """
 
 
@@ -25,20 +33,22 @@ class ResourceNotFoundError(ResourceError):
 class UnexpectedResourceError(ResourceError):
     """A resource read failed with something other than `ResourceError` or `MCPError`.
 
-    MCPServer raises this itself, around a crash in a resource or resource
-    template handler or a failed file read. You never raise it. `__cause__` is
-    the original exception, which the server logs with its traceback. The
-    message names only the URI, so the original text is withheld from the client.
+    The SDK raises this itself, around a crash in a resource or resource template
+    handler. You never raise it. `__cause__` is the original exception, which the
+    server logs with its traceback. The message names only the URI, so the
+    original text is withheld from the client.
     """
 
 
 class ToolError(MCPServerError):
-    """A tool failure the model should read.
+    """A tool failure you anticipated.
 
-    Raise this from a tool (or a resolver) for a failure you anticipate: the
+    Raise this from a tool (or a resolver) for a failure you saw coming: the
     call returns `is_error=True` with the message in `content`, and the server
     logs it at INFO without a traceback. Any other exception reaches the model
     the same way but is treated as a crash and logged at ERROR with its traceback.
+    A `ResourceError` that escapes the tool (say from `ctx.read_resource()`) counts
+    as anticipated too.
 
     The SDK raises it too, for an unknown tool name and for arguments that fail
     the input schema, and `UnexpectedToolError` subclasses it, so `except ToolError`
@@ -49,7 +59,7 @@ class ToolError(MCPServerError):
 class UnexpectedToolError(ToolError):
     """A tool call failed with something other than `ToolError` or `MCPError`.
 
-    MCPServer raises this itself, around a crash in the tool (or a resolver) or a
+    The SDK raises this itself, around a crash in the tool (or a resolver) or a
     return value that fails output conversion. You never raise it. `__cause__` is
     the original exception, which the server logs with its traceback before
     returning the usual `is_error=True` result. Catch it around

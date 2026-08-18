@@ -49,6 +49,8 @@ The default is `"INFO"`.
 
 `logging.basicConfig()` never replaces handlers that already exist. If you configure logging yourself before creating the server, your configuration wins.
 
+You also don't need a `try`/`except` in every handler just to record failures. When a tool or resource function raises, the SDK logs it for you. **[Handling errors](../servers/handling-errors.md#what-the-server-logs)** explains what gets logged and at which level.
+
 ## Try it
 
 Run the server with the MCP Inspector:
@@ -69,8 +71,6 @@ went to standard error: the terminal, not the wire.
     If what you actually want is *tracing* (every request, how long it took, whether it failed), you
     don't want log lines, you want spans. Your server already emits them: the SDK traces every
     message with OpenTelemetry out of the box. See **[OpenTelemetry](../run/opentelemetry.md)**.
-
-You also don't need a `try`/`except` in every handler just to record failures. When a tool or resource function raises, the SDK logs it for you. **[Handling errors](../servers/handling-errors.md#what-the-server-logs)** explains what gets logged and at which level.
 
 ## Recap
 

@@ -427,10 +427,7 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as exc:
-            # A ToolError (deliberate, unknown tool, rejected arguments) is an outcome
-            # the model already reads in full, so it is one INFO record, repr-quoted to
-            # keep peer-supplied text on one line. Anything else is a crash in the
-            # tool: log the traceback that the result text doesn't carry.
+            # %r keeps peer-supplied text (names, pydantic messages) on one line.
             if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError):
                 logger.info("Tool %r failed: %r", params.name, str(exc))
             else:
@@ -449,9 +446,6 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceError as err:
-            # UnexpectedResourceError wraps a crash whose text is withheld from the
-            # client, so the traceback goes to the log. Any other ResourceError was
-            # raised on purpose (or is the SDK's "Unknown resource") and is one INFO record.
             if isinstance(err, UnexpectedResourceError):
                 logger.exception("Resource %r raised an unexpected exception", str(params.uri))
             else:
@@ -584,20 +578,15 @@ class MCPServer(Generic[LifespanResultT]):
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
-        resource = await self._resource_manager.get_resource(uri, context)
-        if isinstance(resource, InputRequiredResult):
-            return resource
-
         try:
+            resource = await self._resource_manager.get_resource(uri, context)
+            if isinstance(resource, InputRequiredResult):
+                return resource
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except (MCPError, ResourceError):
-            # Includes the UnexpectedResourceError the built-in resource types raise
-            # around a crash in the function or the file read.
             raise
         except Exception as exc:
-            # A custom Resource subclass whose read() raised: wrap it the same way,
-            # naming only the URI so the original text is withheld from the client.
             raise UnexpectedResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
@@ -1326,10 +1315,7 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as e:
-            # Not logged here: this escapes `_handle_get_prompt` as-is, so the
-            # dispatcher boundary that turns it into the JSON-RPC error logs it once
-            # with its traceback (or, in-process with `raise_exceptions=True`,
-            # hands it to the caller instead).
+            # Not logged here: the dispatcher boundary logs it once.
             raise ValueError(str(e)) from e
 
 

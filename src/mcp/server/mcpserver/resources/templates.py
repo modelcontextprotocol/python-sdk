@@ -245,6 +245,4 @@ class ResourceTemplate(BaseModel):
         except (ResourceError, MCPError):
             raise
         except Exception as exc:
-            # Name only the URI: the original text is withheld from the client, and
-            # the server logs the traceback from `__cause__`.
             raise UnexpectedResourceError(f"Error creating resource from template {uri}") from exc

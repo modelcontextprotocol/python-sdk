@@ -7,7 +7,6 @@ from inline_snapshot import snapshot
 from mcp_types import InputRequiredResult
 from pydantic import BaseModel
 
-from mcp.server.mcpserver.exceptions import UnexpectedResourceError
 from mcp.server.mcpserver.resources import FunctionResource
 
 
@@ -81,22 +80,19 @@ class TestFunctionResource:
 
     @pytest.mark.anyio
     async def test_error_handling(self):
-        """A crash in the function is wrapped as UnexpectedResourceError naming only the URI,
-        with the function's own exception as `__cause__`."""
-        raised = ValueError("Test error")
+        """read() lets the function's own exception propagate; MCPServer.read_resource does the wrapping."""
 
         def failing_func() -> str:
-            raise raised
+            raise ValueError("Test error")
 
         resource = FunctionResource(
             uri="function://test",
             name="test",
             fn=failing_func,
         )
-        with pytest.raises(UnexpectedResourceError) as exc:
+        with pytest.raises(ValueError) as exc:
             await resource.read()
-        assert str(exc.value) == snapshot("Error reading resource function://test")
-        assert exc.value.__cause__ is raised
+        assert str(exc.value) == "Test error"
 
     @pytest.mark.anyio
     async def test_basemodel_conversion(self):
@@ -260,10 +256,9 @@ async def test_read_rejects_an_input_required_result_from_a_static_function():
         return InputRequiredResult(request_state="round-1")
 
     resource = FunctionResource(uri="resource://ask", name="ask", fn=ask)
-    with pytest.raises(UnexpectedResourceError) as exc:
+    with pytest.raises(ValueError) as exc:
         await resource.read()
-    assert str(exc.value) == snapshot("Error reading resource resource://ask")
-    assert str(exc.value.__cause__) == snapshot(
+    assert str(exc.value) == snapshot(
         "static resources cannot return InputRequiredResult; "
         "only resource template functions participate in the multi-round-trip flow"
     )

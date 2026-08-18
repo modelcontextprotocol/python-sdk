@@ -43,7 +43,7 @@ from mcp_types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import BaseModel, ValidationError
+from pydantic import AfterValidator, BaseModel, ValidationError
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 from typing_extensions import NotRequired, TypedDict
@@ -2256,11 +2256,11 @@ async def test_static_resource_raising_mcp_error_surfaces_code_and_data_to_clien
 
 
 def _cause_chain(exc: BaseException | None) -> list[BaseException]:
-    """`exc` and everything it chains back to, explicitly (`__cause__`) or implicitly (`__context__`)."""
+    """`exc` and everything it explicitly chains back to via `__cause__` (`raise ... from ...`)."""
     chain: list[BaseException] = []
     while exc is not None:
         chain.append(exc)
-        exc = exc.__cause__ or exc.__context__
+        exc = exc.__cause__
     return chain
 
 
@@ -2506,6 +2506,137 @@ async def test_resolver_crash_is_logged_as_the_tools_crash(caplog: pytest.LogCap
     assert result.is_error is True
     assert _server_records(caplog) == snapshot([("ERROR", "Tool 'whoami' raised an unexpected exception", True)])
     assert raised in _cause_chain(_logged_exception(caplog))
+
+
+async def test_argument_validator_that_crashes_is_the_tools_crash(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: pydantic only turns ValueError/AssertionError into ValidationError, so a validator
+    raising anything else is a bug in the tool's schema and is wrapped and logged as a crash."""
+    mcp = MCPServer()
+    raised = TypeError("codes are compared as integers")
+
+    def check(code: str) -> str:
+        raise raised
+
+    @mcp.tool()
+    def redeem(code: Annotated[str, AfterValidator(check)]) -> str:
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("redeem", {"code": "SAVE10"})
+    with pytest.raises(UnexpectedToolError) as exc:
+        await mcp.call_tool("redeem", {"code": "SAVE10"})
+
+    assert result.content == [
+        TextContent(type="text", text="Error executing tool redeem: codes are compared as integers")
+    ]
+    assert exc.value.__cause__ is raised
+    assert _server_records(caplog) == snapshot([("ERROR", "Tool 'redeem' raised an unexpected exception", True)])
+
+
+async def test_argument_validator_raising_mcp_error_is_a_protocol_error(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: MCPError keeps its meaning wherever it is raised, including inside an argument
+    validator: the request fails with that code and MCPServer logs nothing."""
+    mcp = MCPServer()
+
+    def check(code: str) -> str:
+        raise MCPError(code=INVALID_PARAMS, message="codes are issued per session")
+
+    @mcp.tool()
+    def redeem(code: Annotated[str, AfterValidator(check)]) -> str:
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.call_tool("redeem", {"code": "SAVE10"})
+
+    assert exc.value.error == snapshot(ErrorData(code=INVALID_PARAMS, message="codes are issued per session"))
+    assert _server_records(caplog) == []
+
+
+async def test_resource_error_escaping_a_tool_is_anticipated(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: a tool that lets ResourceNotFoundError from ctx.read_resource() propagate has
+    reported an anticipated failure, so it is INFO here just as it is for resources/read."""
+    mcp = MCPServer()
+
+    @mcp.resource("books://{title}")
+    def book(title: str) -> str:
+        raise ResourceNotFoundError(f"No book titled {title!r}.")
+
+    @mcp.tool()
+    async def summarise(title: str, ctx: Context) -> str:
+        await ctx.read_resource(f"books://{title}")
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("summarise", {"title": "Nothing"})
+    with pytest.raises(ToolError) as exc:
+        await mcp.call_tool("summarise", {"title": "Nothing"})
+
+    assert result.content == [
+        TextContent(type="text", text="Error executing tool summarise: No book titled 'Nothing'.")
+    ]
+    assert type(exc.value) is ToolError
+    assert _server_records(caplog) == snapshot(
+        [("INFO", "Tool 'summarise' failed: \"Error executing tool summarise: No book titled 'Nothing'.\"", False)]
+    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_resource_crash_escaping_a_tool_is_the_tools_crash(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: a crashing resource read inside a tool stays a crash under the tool's name, logged
+    once, with the traceback reaching the resource function's own exception."""
+    mcp = MCPServer()
+    raised = ConnectionError("catalog database unreachable")
+
+    @mcp.resource("books://{title}")
+    def book(title: str) -> str:
+        raise raised
+
+    @mcp.tool()
+    async def summarise(title: str, ctx: Context) -> str:
+        await ctx.read_resource(f"books://{title}")
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("summarise", {"title": "Dune"})
+
+    assert result.content == [
+        TextContent(
+            type="text",
+            text="Error executing tool summarise: Error creating resource from template books://Dune",
+        )
+    ]
+    assert _server_records(caplog) == snapshot([("ERROR", "Tool 'summarise' raised an unexpected exception", True)])
+    assert raised in _cause_chain(_logged_exception(caplog))
+
+
+async def test_tool_that_recovers_from_a_missing_resource_logs_nothing(caplog: pytest.LogCaptureFixture):
+    """SDK-defined: MCPServer.read_resource() itself writes no record, so a tool that catches
+    ResourceNotFoundError and carries on leaves the log clean."""
+    mcp = MCPServer()
+
+    @mcp.resource("books://{title}")
+    def book(title: str) -> str:
+        raise ResourceNotFoundError(f"No book titled {title!r}.")
+
+    @mcp.tool()
+    async def summarise(title: str, ctx: Context) -> str:
+        try:
+            await ctx.read_resource(f"books://{title}")
+        except ResourceNotFoundError:
+            return "not in the catalog"
+        raise NotImplementedError
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("summarise", {"title": "Nothing"})
+
+    assert result.content == [TextContent(type="text", text="not in the catalog")]
+    assert _server_records(caplog) == []
 
 
 async def test_static_resource_raising_unexpected_exception_is_logged_once_at_error_with_its_traceback(

@@ -7,7 +7,13 @@ from typing import TYPE_CHECKING, Any
 from mcp_types import Icon, InputRequiredResult, ToolAnnotations
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError, UnexpectedToolError
+from mcp.server.mcpserver.exceptions import (
+    InvalidSignature,
+    ResourceError,
+    ToolError,
+    UnexpectedResourceError,
+    UnexpectedToolError,
+)
 from mcp.server.mcpserver.resolve import (
     build_resolver_plans,
     find_resolved_parameters,
@@ -133,17 +139,21 @@ class Tool(BaseModel):
 
         Raises:
             ToolError: If the arguments fail validation against the input schema, or
-                the tool function (or a resolver) raises `ToolError`.
-            UnexpectedToolError: If the tool function (or a resolver) raises anything
-                other than `ToolError` or `MCPError`, or its return value fails output
-                conversion.
+                the tool function (or a resolver) raises `ToolError` or `ResourceError`.
+            UnexpectedToolError: If argument validation, the tool function, or a
+                resolver raises anything else, or the return value fails output conversion.
         """
         try:
             validated = self.fn_metadata.validate_arguments(arguments)
         except ValidationError as exc:
-            # The caller's arguments don't match the input schema. That is the model's
-            # mistake to read and correct, so it is reported like a deliberate ToolError.
+            # The caller's arguments don't match the input schema: the model's mistake
+            # to read and correct, so it is reported like a deliberate ToolError.
             raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
+        except MCPError:
+            raise
+        except Exception as exc:
+            # A custom validator or default_factory that raises is a crash.
+            raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
 
         try:
             pass_directly: dict[str, Any] = {}
@@ -191,12 +201,12 @@ class Tool(BaseModel):
             # `CallToolResult(isError=True)` execution failure.
             raise
         # Everything else reaches the model as an is_error result under this tool's
-        # name. The wrapper's type is what tells the server whether to log a crash.
-        except UnexpectedToolError as exc:
-            # A nested tool call crashed: still a crash under this tool's name.
+        # name, and the wrapper's type tells the server whether to log a crash.
+        except (UnexpectedToolError, UnexpectedResourceError) as exc:
+            # A nested tool call or resource read crashed: still a crash here.
             raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
-        except ToolError as exc:
-            # Raised deliberately by the tool or a resolver: anticipated.
+        except (ToolError, ResourceError) as exc:
+            # Raised deliberately by the tool, a resolver, or a resource it read.
             raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
         except Exception as exc:
             raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc

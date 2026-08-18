@@ -1307,8 +1307,15 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:resource:read-throws-surfaced": Requirement(
         source="sdk",
         behavior=(
-            "A resource function that raises is surfaced to the caller as a JSON-RPC error response "
-            "(-32603 Internal error), with the original exception text withheld."
+            "A resource function that raises an unexpected exception is surfaced to the caller as a JSON-RPC "
+            "error response (-32603 Internal error), with the original exception text withheld."
+        ),
+    ),
+    "mcpserver:resource:static-not-found": Requirement(
+        source="sdk",
+        behavior=(
+            "A static (fixed-URI) resource function that raises ResourceNotFoundError is surfaced as -32602 "
+            "with the handler's message and the URI in data, the same as from a template function."
         ),
     ),
     "mcpserver:resource:static": Requirement(

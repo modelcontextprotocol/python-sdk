@@ -6,7 +6,6 @@ from tempfile import NamedTemporaryFile
 import pytest
 from pydantic import ValidationError
 
-from mcp.server.mcpserver.exceptions import UnexpectedResourceError
 from mcp.server.mcpserver.resources import FileResource
 
 
@@ -179,10 +178,8 @@ async def test_missing_file_error(temp_file: Path):
         name="test",
         path=missing,
     )
-    with pytest.raises(UnexpectedResourceError) as exc:
+    with pytest.raises(FileNotFoundError):
         await resource.read()
-    assert str(exc.value) == "Error reading resource file:///missing.txt"
-    assert isinstance(exc.value.__cause__, FileNotFoundError)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
@@ -195,8 +192,7 @@ async def test_permission_error(temp_file: Path):  # pragma: lax no cover
             name="test",
             path=temp_file,
         )
-        with pytest.raises(UnexpectedResourceError) as exc:
+        with pytest.raises(PermissionError):
             await resource.read()
-        assert isinstance(exc.value.__cause__, PermissionError)
     finally:
         temp_file.chmod(0o644)  # Restore permissions

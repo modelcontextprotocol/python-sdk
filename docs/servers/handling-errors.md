@@ -123,7 +123,7 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 
 ## What the server logs
 
-The server also logs these failures, and how it logs them depends on whether you anticipated the failure.
+The server also logs tool and resource failures, and how it logs them depends on whether you anticipated the failure.
 
 `get_author` raised a plain `ValueError`. The model got the message, but the SDK can't tell that you raised it on purpose, so it treats the call as a crash and logs it at `ERROR` with the full traceback. That is what you want on the day the exception is a `KeyError` from deep inside a library and the result text says only `'id'`.
 
@@ -135,7 +135,7 @@ When the failure is one you planned for, say so with `ToolError`:
 
 `ToolError` comes from `mcp.server.mcpserver.exceptions`. The model reads exactly what it read before. The difference is in your log, where a `ToolError` is a single `INFO` line with no traceback, so a production log at `WARNING` stays quiet until something is actually broken. Bad arguments and unknown tool names are logged at `INFO` too, because those are the caller's mistakes rather than yours.
 
-Resources work the same way. A crashing resource handler is logged at `ERROR` with its traceback, which matters more here because the `-32603` the client receives names only the URI. `ResourceNotFoundError` is an `INFO` line.
+Resources work the same way. A crashing resource handler is logged at `ERROR` with its traceback, which matters more here because the `-32603` the client receives names only the URI. `ResourceNotFoundError` and `ResourceError` are the anticipated kind and are logged at `INFO`.
 
 ## Recap
 
