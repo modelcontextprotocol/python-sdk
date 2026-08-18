@@ -656,10 +656,11 @@ class OAuthClientProvider(httpx2.Auth):
                         self.context.client_info is not None
                         and self.context.client_info.client_id == self.context.client_metadata_url
                         and self.context.auth_server_url is not None
-                        and self.context.client_info.issuer not in (None, self.context.auth_server_url)
+                        and self.context.client_info.issuer != self.context.auth_server_url
                     ):
                         # A CIMD client_id is portable across authorization servers; the tokens issued
-                        # under it and the cached metadata are not. Keep the record, re-stamped.
+                        # under it and the cached metadata are not. Keep the record, re-stamped. An
+                        # unstamped record's tokens have unknown provenance and are dropped the same way.
                         self.context.clear_tokens()
                         self.context.oauth_metadata = None
                         self.context.client_info.issuer = self.context.auth_server_url

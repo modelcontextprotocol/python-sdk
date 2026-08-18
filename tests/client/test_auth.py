@@ -3282,15 +3282,20 @@ async def test_expired_token_is_not_refreshed_ahead_of_the_request_before_metada
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("stamped_issuer", ["https://old-as.example.com", None], ids=["stamped-elsewhere", "unstamped"])
 async def test_cimd_record_is_restamped_and_its_tokens_and_cached_metadata_dropped_when_prm_names_a_new_issuer(
-    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+    client_metadata: OAuthClientMetadata,
+    mock_storage: MockTokenStorage,
+    valid_tokens: OAuthToken,
+    stamped_issuer: str | None,
 ) -> None:
     """SEP-2352 for CIMD: the URL client_id survives an authorization-server change, nothing else does.
 
-    A long-lived provider holds a CIMD record stamped with the old issuer, tokens minted there, and
-    the old server's cached metadata. As soon as PRM names a different issuer, the tokens and the
-    cached metadata are dropped and the record is re-stamped and persisted, so a failed
-    rediscovery cannot leave the old endpoints in play and no refresh reaches the new server.
+    A long-lived provider holds a CIMD record stamped with another issuer (or, from an older store,
+    not stamped at all), tokens of matching provenance, and cached metadata. As soon as PRM names
+    the issuer in use, the tokens and the cached metadata are dropped and the record is re-stamped
+    and persisted, so a failed rediscovery cannot leave old endpoints in play and no refresh token
+    of unconfirmed origin reaches the named server.
     """
     cimd_url = "https://client.example.com/.well-known/mcp-client"
     provider = OAuthClientProvider(
@@ -3300,7 +3305,7 @@ async def test_cimd_record_is_restamped_and_its_tokens_and_cached_metadata_dropp
         client_metadata_url=cimd_url,
     )
     provider.context.client_info = OAuthClientInformationFull(
-        client_id=cimd_url, token_endpoint_auth_method="none", issuer="https://old-as.example.com"
+        client_id=cimd_url, token_endpoint_auth_method="none", issuer=stamped_issuer
     )
     provider.context.current_tokens = valid_tokens
     provider.context.token_expiry_time = time.time() + 1800
