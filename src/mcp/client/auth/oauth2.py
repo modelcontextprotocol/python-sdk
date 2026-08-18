@@ -550,6 +550,29 @@ class OAuthClientProvider(httpx2.Auth):
             self._initialized = False
             return False
 
+    async def _apply_issuer_binding(self, issuer: str) -> bool:
+        """Apply SEP-2352 to the held registration now that the authorization server's issuer is known.
+
+        Credentials bound to another issuer are discarded with their tokens so the flow re-registers.
+        A CIMD record is portable, so it is kept and re-stamped, but tokens it carried over from
+        another issuer (or of unknown origin, when the record is unstamped) are dropped. Returns
+        True when the held state was for a different issuer.
+        """
+        client_info = self.context.client_info
+        if client_info is None:
+            return False
+        if not credentials_match_issuer(client_info, issuer, self.context.client_metadata_url):
+            logger.debug("Authorization server changed; discarding bound credentials and re-registering")
+            self.context.client_info = None
+            self.context.clear_tokens()
+            return True
+        if client_info.client_id == self.context.client_metadata_url and client_info.issuer != issuer:
+            self.context.clear_tokens()
+            client_info.issuer = issuer
+            await self.context.storage.set_client_info(client_info)
+            return True
+        return False
+
     async def _initialize(self) -> None:
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
@@ -636,35 +659,13 @@ class OAuthClientProvider(httpx2.Auth):
                         else:
                             logger.debug(f"Protected resource metadata discovery failed: {url}")
 
-                    # SEP-2352: stored credentials are bound to the issuer that registered them.
-                    # If the authorization server changed, drop them (and the old tokens) so the
-                    # flow re-registers instead of presenting another server's credentials.
-                    if (
-                        self.context.client_info is not None
-                        and self.context.auth_server_url is not None
-                        and not credentials_match_issuer(
-                            self.context.client_info, self.context.auth_server_url, self.context.client_metadata_url
-                        )
+                    # SEP-2352: stored credentials and tokens belong to the issuer they came from.
+                    if self.context.auth_server_url is not None and await self._apply_issuer_binding(
+                        self.context.auth_server_url
                     ):
-                        logger.debug("Authorization server changed; discarding bound credentials and re-registering")
-                        self.context.client_info = None
-                        self.context.clear_tokens()
                         # Any cached AS metadata is for the old server; drop it so a failed
-                        # rediscovery cannot leak the old registration/token endpoints into Step 4.
+                        # rediscovery cannot leak the old endpoints into Steps 4-5.
                         self.context.oauth_metadata = None
-                    elif (
-                        self.context.client_info is not None
-                        and self.context.client_info.client_id == self.context.client_metadata_url
-                        and self.context.auth_server_url is not None
-                        and self.context.client_info.issuer != self.context.auth_server_url
-                    ):
-                        # A CIMD client_id is portable across authorization servers; the tokens issued
-                        # under it and the cached metadata are not. Keep the record, re-stamped. An
-                        # unstamped record's tokens have unknown provenance and are dropped the same way.
-                        self.context.clear_tokens()
-                        self.context.oauth_metadata = None
-                        self.context.client_info.issuer = self.context.auth_server_url
-                        await self.context.storage.set_client_info(self.context.client_info)
 
                     asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
                         self.context.auth_server_url, self.context.server_url
@@ -688,21 +689,9 @@ class OAuthClientProvider(httpx2.Auth):
                             logger.debug(f"OAuth metadata discovery failed: {url}")
 
                     # SEP-2352: on the legacy no-PRM path the issuer is only known after ASM
-                    # discovery, so re-evaluate the binding here using the discovered metadata
-                    # issuer (mirroring the bound_issuer fallback in Step 4).
-                    if (
-                        self.context.client_info is not None
-                        and self.context.auth_server_url is None
-                        and self.context.oauth_metadata is not None
-                        and not credentials_match_issuer(
-                            self.context.client_info,
-                            str(self.context.oauth_metadata.issuer),
-                            self.context.client_metadata_url,
-                        )
-                    ):
-                        logger.debug("Authorization server changed; discarding bound credentials and re-registering")
-                        self.context.client_info = None
-                        self.context.clear_tokens()
+                    # discovery (mirroring the bound_issuer fallback in Step 4).
+                    if self.context.auth_server_url is None and self.context.oauth_metadata is not None:
+                        await self._apply_issuer_binding(str(self.context.oauth_metadata.issuer))
 
                     # Step 3: Apply scope selection strategy
                     self.context.client_metadata.scope = get_client_metadata_scopes(
