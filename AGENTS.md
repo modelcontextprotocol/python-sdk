@@ -45,6 +45,8 @@ assigned to their author are closed automatically.
 
 ## Code Quality
 
+- Keep comments brief. Explain only non-obvious reasons or constraints; do not
+  narrate the code or restate names, types, or assertions.
 - Type hints required for all code
 - Public APIs must have docstrings. When a public API raises exceptions a
   caller would reasonably catch, document them in a `Raises:` section. Don't
