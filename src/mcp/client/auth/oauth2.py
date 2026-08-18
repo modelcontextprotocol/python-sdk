@@ -652,6 +652,18 @@ class OAuthClientProvider(httpx2.Auth):
                         # Any cached AS metadata is for the old server; drop it so a failed
                         # rediscovery cannot leak the old registration/token endpoints into Step 4.
                         self.context.oauth_metadata = None
+                    elif (
+                        self.context.client_info is not None
+                        and self.context.client_info.client_id == self.context.client_metadata_url
+                        and self.context.auth_server_url is not None
+                        and self.context.client_info.issuer not in (None, self.context.auth_server_url)
+                    ):
+                        # A CIMD client_id is portable across authorization servers; the tokens issued
+                        # under it and the cached metadata are not. Keep the record, re-stamped.
+                        self.context.clear_tokens()
+                        self.context.oauth_metadata = None
+                        self.context.client_info.issuer = self.context.auth_server_url
+                        await self.context.storage.set_client_info(self.context.client_info)
 
                     asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
                         self.context.auth_server_url, self.context.server_url
@@ -747,21 +759,6 @@ class OAuthClientProvider(httpx2.Auth):
                             await self.context.storage.set_client_info(client_information)
                             # Held tokens belong to a previous client and cannot be refreshed by this one.
                             self.context.clear_tokens()
-
-                    # A CIMD client_id is portable across authorization servers (SEP-2352) but tokens
-                    # issued under it are not: on an issuer change keep the record, drop the tokens.
-                    client_info = self.context.client_info
-                    current_issuer = self.context.auth_server_url or (
-                        str(self.context.oauth_metadata.issuer) if self.context.oauth_metadata else None
-                    )
-                    if (
-                        client_info.client_id == self.context.client_metadata_url
-                        and current_issuer is not None
-                        and client_info.issuer not in (None, current_issuer)
-                    ):
-                        self.context.clear_tokens()
-                        client_info.issuer = current_issuer
-                        await self.context.storage.set_client_info(client_info)
 
                     # Step 5: Refresh with the stored refresh token first (RFC 6749 §6); run the full
                     # authorization only when there is none or the server rejects it.

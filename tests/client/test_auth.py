@@ -3279,3 +3279,55 @@ async def test_expired_token_is_not_refreshed_ahead_of_the_request_before_metada
 
     with pytest.raises(StopAsyncIteration):
         await auth_flow.asend(httpx2.Response(200, request=request))
+
+
+@pytest.mark.anyio
+async def test_cimd_record_is_restamped_and_its_tokens_and_cached_metadata_dropped_when_prm_names_a_new_issuer(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+) -> None:
+    """SEP-2352 for CIMD: the URL client_id survives an authorization-server change, nothing else does.
+
+    A long-lived provider holds a CIMD record stamped with the old issuer, tokens minted there, and
+    the old server's cached metadata. As soon as PRM names a different issuer, the tokens and the
+    cached metadata are dropped and the record is re-stamped and persisted, so a failed
+    rediscovery cannot leave the old endpoints in play and no refresh reaches the new server.
+    """
+    cimd_url = "https://client.example.com/.well-known/mcp-client"
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        client_metadata_url=cimd_url,
+    )
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id=cimd_url, token_endpoint_auth_method="none", issuer="https://old-as.example.com"
+    )
+    provider.context.current_tokens = valid_tokens
+    provider.context.token_expiry_time = time.time() + 1800
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://old-as.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://old-as.example.com/authorize"),
+        token_endpoint=AnyHttpUrl("https://old-as.example.com/token"),
+    )
+    provider._initialized = True
+
+    auth_flow = provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_response = httpx2.Response(
+        200,
+        content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://new-as.example.com"]}',
+        request=prm_req,
+    )
+    asm_req = await auth_flow.asend(prm_response)
+
+    assert str(asm_req.url) == "https://new-as.example.com/.well-known/oauth-authorization-server"
+    assert provider.context.current_tokens is None
+    assert provider.context.oauth_metadata is None
+    assert provider.context.client_info is not None
+    assert (provider.context.client_info.client_id, provider.context.client_info.issuer) == (
+        cimd_url,
+        "https://new-as.example.com",
+    )
+    assert mock_storage._client_info is provider.context.client_info
+    await auth_flow.aclose()
