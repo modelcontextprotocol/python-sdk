@@ -1,7 +1,7 @@
 import base64
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, TypedDict
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
@@ -44,7 +44,7 @@ from mcp_types import (
 from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
-from typing_extensions import NotRequired
+from typing_extensions import NotRequired, TypedDict
 
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
@@ -716,7 +716,6 @@ class TestServerTools:
             assert "Unknown tool" in content.text
 
 
-@pytest.mark.anyio
 async def test_typeddict_tool_omitting_optional_keys_passes_client_validation():
     """The client validates structured content against the tool's output schema, so a `NotRequired`
     key the tool leaves out must be absent from `structured_content` rather than null."""

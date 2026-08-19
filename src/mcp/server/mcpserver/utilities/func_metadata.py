@@ -11,10 +11,19 @@ import anyio
 import anyio.to_thread
 import pydantic_core
 from mcp_types import CallToolResult, ContentBlock, InputRequiredResult, TextContent
-from pydantic import BaseModel, ConfigDict, Field, PydanticUserError, TypeAdapter, WithJsonSchema, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    PydanticUserError,
+    TypeAdapter,
+    WithJsonSchema,
+    create_model,
+)
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
-from typing_extensions import NotRequired, TypedDict, get_type_hints, is_typeddict
+from typing_extensions import NotRequired, ReadOnly, TypedDict, get_type_hints, is_typeddict
 from typing_inspection.introspection import (
     UNKNOWN,
     AnnotationSource,
@@ -84,16 +93,27 @@ class ArgModelBase(BaseModel):
 
 
 class FuncMetadata(BaseModel):
+    """A tool function's argument model plus, for structured output, the published `output_schema` and the
+    `output_model` results are validated against. Constructing one with an `output_model` and no schema derives
+    the schema (and raises if pydantic can't); the fields are read live, so clearing or reassigning them later
+    takes effect on the next call."""
+
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
     output_schema: dict[str, Any] | None = None
     output_model: Annotated[type[Any], WithJsonSchema(None)] | None = None
     wrap_output: bool = False
+    _adapter: tuple[type[Any], TypeAdapter[Any]] | None = PrivateAttr(default=None)
 
-    @functools.cached_property
-    def output_adapter(self) -> TypeAdapter[Any]:
-        """Validates and serializes structured output against `output_model`."""
-        assert self.output_model is not None, "Output model must be set if output schema is defined"
-        return TypeAdapter(self.output_model)
+    def model_post_init(self, context: Any, /) -> None:
+        if self.output_model is not None and self.output_schema is None:
+            # StrictJsonSchema raises instead of warning, so an unserializable return type fails construction.
+            self.output_schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+
+    def _output_adapter(self, output_model: type[Any]) -> TypeAdapter[Any]:
+        """The validator/serializer for `output_model`, built once and rebuilt only if the field is reassigned."""
+        if self._adapter is None or self._adapter[0] is not output_model:
+            self._adapter = (output_model, TypeAdapter(_pydantic_readable_typeddict(output_model)))
+        return self._adapter[1]
 
     def validate_arguments(self, arguments_to_validate: dict[str, Any]) -> dict[str, Any]:
         """Validate raw arguments into a one-level kwargs dict (no function call).
@@ -149,25 +169,29 @@ class FuncMetadata(BaseModel):
         """
         if isinstance(result, InputRequiredResult):
             return result
+        # A schema published without a model (hand-built metadata) is advertised but not validated here.
+        output_model = self.output_model if self.output_schema is not None else None
         if isinstance(result, CallToolResult):
-            if self.output_schema is not None:
-                self.output_adapter.validate_python(result.structured_content)
+            if output_model is not None:
+                self._output_adapter(output_model).validate_python(result.structured_content)
             return result
 
         unstructured_content = _convert_to_content(result)
 
-        if self.output_schema is None:
+        if output_model is None:
             return CallToolResult(content=unstructured_content)
 
         if self.wrap_output:
             result = {"result": result}
 
-        validated = self.output_adapter.validate_python(result)
+        # The tool hands back Python-side names; the wire (and outputSchema) use aliases.
+        adapter = self._output_adapter(output_model)
+        validated = adapter.validate_python(result, by_alias=True, by_name=True)
         if isinstance(validated, BaseModel):
             # Dump via the instance so a returned subclass keeps its own fields.
             structured_content = validated.model_dump(mode="json", by_alias=True)
         else:
-            structured_content = self.output_adapter.dump_python(validated, mode="json", by_alias=True)
+            structured_content = adapter.dump_python(validated, mode="json", by_alias=True)
 
         return CallToolResult(content=unstructured_content, structured_content=structured_content)
 
@@ -257,7 +281,9 @@ def func_metadata(
     Returns:
         A FuncMetadata object containing:
         - arg_model: A Pydantic model representing the function's arguments
-        - output_model: A Pydantic model for the return type if the output is structured
+        - output_schema: The published JSON schema for structured output, or None if the output is unstructured
+        - output_model: The type structured output is validated against: the declared BaseModel or TypedDict,
+            or a synthesized model for wrapped, `dict[str, T]` and annotated-class returns
         - wrap_output: Whether the function result needs to be wrapped in `{"result": ...}` for structured output.
     """
     try:
@@ -386,14 +412,14 @@ def func_metadata(
     output_model, wrap_output = _create_output_model(original_annotation, return_type_expr, func.__name__)
 
     if output_model is not None:
-        meta = FuncMetadata(arg_model=arguments_model, output_model=output_model, wrap_output=wrap_output)
         try:
-            # Building the validator here surfaces unsupported types at registration rather than on the
-            # first call. StrictJsonSchema raises instead of emitting warnings.
-            meta.output_schema = meta.output_adapter.json_schema(schema_generator=StrictJsonSchema)
-            return meta
+            # FuncMetadata builds the validator and schema on construction, so an unsupported return type
+            # surfaces here, at registration, rather than on the first call.
+            return FuncMetadata(arg_model=arguments_model, output_model=output_model, wrap_output=wrap_output)
         except (
             PydanticUserError,
+            ForbiddenQualifier,
+            NameError,
             TypeError,
             ValueError,
             pydantic_core.SchemaError,
@@ -402,7 +428,10 @@ def func_metadata(
             # These are expected errors when a type can't be converted to a Pydantic schema
             # PydanticUserError: When Pydantic can't handle the type (e.g. PydanticInvalidForJsonSchema);
             #   subclasses TypeError on pydantic <2.13 and RuntimeError on pydantic >=2.13
-            # ValueError: When there are issues with the type definition (including our custom warnings)
+            # ForbiddenQualifier, NameError: an invalid qualifier or unresolvable annotation on a TypedDict key,
+            #   met while rebuilding a stdlib TypedDict below 3.12 (pydantic reports both as PydanticUserError)
+            # ValueError: When there are issues with the type definition (including our custom warnings);
+            #   arrives wrapped in a ValidationError when raised during FuncMetadata construction
             # SchemaError: When Pydantic can't build a schema
             # ValidationError: When validation fails
             logger.info(f"Cannot create schema for type {return_type_expr} in {func.__name__}: {type(e).__name__}: {e}")
@@ -468,7 +497,7 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
 
         # Case 2: TypedDicts (pydantic reads qualifiers, totality, docstring and `Annotated` metadata natively)
         elif is_typeddict(type_annotation):
-            model = _pydantic_readable_typeddict(type_annotation)
+            model = type_annotation
 
         # Case 3: Primitive types that need wrapping
         elif type_annotation in (str, int, float, bool, bytes, type(None)):
@@ -520,12 +549,14 @@ def _create_model_from_class(cls: type[Any], type_hints: dict[str, Any]) -> type
     return create_model(cls.__name__, __config__=ConfigDict(from_attributes=True), **model_fields)
 
 
-def _pydantic_readable_typeddict(td_type: type[Any]) -> type[Any]:
-    """pydantic refuses `typing.TypedDict` below Python 3.12 (it needs `__orig_bases__`); rebuild those as an
-    equivalent `typing_extensions.TypedDict` so tool authors don't have to know. Delete once 3.11 support goes."""
-    if sys.version_info >= (3, 12) or type(td_type).__module__ != "typing":
-        return td_type
-    return _as_typing_extensions_typeddict(td_type)  # pragma: lax no cover
+def _pydantic_readable_typeddict(output_model: type[Any]) -> type[Any]:
+    """pydantic refuses `typing.TypedDict` below Python 3.12 (it needs `__orig_bases__`); rebuild such a return
+    type as an equivalent `typing_extensions.TypedDict` so tool authors don't have to know. Only the class itself
+    (its keys, docstring and own config) is rebuilt: stdlib TypedDicts nested inside it, or config inherited from
+    one, still need `typing_extensions` there. Delete with 3.11 support."""
+    if sys.version_info >= (3, 12) or not is_typeddict(output_model) or type(output_model).__module__ != "typing":
+        return output_model
+    return _as_typing_extensions_typeddict(output_model)  # pragma: lax no cover
 
 
 def _as_typing_extensions_typeddict(td_type: type[Any]) -> type[Any]:  # pragma: lax no cover
@@ -533,6 +564,8 @@ def _as_typing_extensions_typeddict(td_type: type[Any]) -> type[Any]:  # pragma:
     for name, hint in get_type_hints(td_type, include_extras=True).items():
         key = inspect_annotation(hint, annotation_source=AnnotationSource.TYPED_DICT)
         item: Any = Annotated[(key.type, *key.metadata)] if key.metadata else key.type
+        if "read_only" in key.qualifiers:
+            item = ReadOnly[item]
         # pydantic's rule: an explicit qualifier wins over class totality. Needed because a stdlib TypedDict
         # this old computes `__required_keys__` without seeing `typing_extensions` qualifiers.
         required = (name in td_type.__required_keys__ or "required" in key.qualifiers) and (
@@ -541,7 +574,9 @@ def _as_typing_extensions_typeddict(td_type: type[Any]) -> type[Any]:  # pragma:
         items[name] = item if required else NotRequired[item]
     # The functional form, spelled so type checkers don't try to evaluate it statically.
     rebuilt = cast("Callable[[str, dict[str, Any]], type[Any]]", TypedDict)(td_type.__name__, items)
-    rebuilt.__doc__ = td_type.__doc__
+    for attr in ("__doc__", "__module__", "__qualname__", "__pydantic_config__"):
+        if hasattr(td_type, attr):
+            setattr(rebuilt, attr, getattr(td_type, attr))
     return rebuilt
 
 
