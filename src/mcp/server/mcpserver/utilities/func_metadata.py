@@ -33,6 +33,25 @@ def _is_input_required_type(obj: Any) -> bool:
     return isinstance(obj, type) and issubclass(obj, InputRequiredResult)
 
 
+_CONTENT_TYPES = (*get_args(ContentBlock), Image, Audio)
+# `_convert_to_content` unrolls list/tuple values; a `Sequence[...]` annotation is one of those at runtime.
+_CONTENT_SEQUENCE_ORIGINS = (list, tuple, Sequence)
+
+
+def _returns_content(annotation: Any) -> bool:
+    """Whether a return annotation declares content blocks or the `Image`/`Audio` helpers, bare or as
+    the items of a list/tuple or the arms of a union: the values `_convert_to_content` renders as blocks
+    rather than dumping as data. Keep the two in sync."""
+    origin = get_origin(annotation)
+    if origin is None:
+        return isinstance(annotation, type) and issubclass(annotation, _CONTENT_TYPES)
+    if origin is Annotated:
+        return _returns_content(get_args(annotation)[0])
+    if is_union_origin(origin) or origin in _CONTENT_SEQUENCE_ORIGINS:
+        return any(_returns_content(arg) for arg in get_args(annotation))
+    return False
+
+
 class StrictJsonSchema(GenerateJsonSchema):
     """A JSON schema generator that raises exceptions instead of emitting warnings.
 
@@ -222,6 +241,9 @@ def func_metadata(
             - TypedDict - converted to a Pydantic model with same fields
             - Dataclasses and other annotated classes - converted to Pydantic models
             - Generic types (list, dict, Union, etc.) - wrapped in a model with a 'result' field
+            - Content blocks (TextContent, EmbeddedResource, ...), Image and Audio, bare or inside a
+                list, tuple or union - unstructured when auto-detecting; structured_output=True bypasses
+                this rule (a content block then publishes its own schema; Image/Audio have none and raise)
 
     Returns:
         A FuncMetadata object containing:
@@ -344,6 +366,13 @@ def func_metadata(
             return FuncMetadata(arg_model=arguments_model)
     else:
         original_annotation = effective_annotation
+
+    if structured_output is None and _returns_content(return_type_expr):
+        # Content blocks and the Image/Audio helpers are what the model reads, not data for the
+        # application: a derived schema would advertise the block's own model as output_schema (and,
+        # unless the tool builds its own CallToolResult, echo every block into structured_content).
+        # structured_output=True still forces one.
+        return FuncMetadata(arg_model=arguments_model)
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(
         original_annotation, return_type_expr, func.__name__
@@ -546,7 +575,7 @@ def _convert_to_content(result: Any) -> list[ContentBlock]:
     Note: This conversion logic comes from previous versions of MCPServer and is being
     retained for purposes of backwards compatibility. It produces different unstructured
     output than the lowlevel server tool call handler, which just serializes structured
-    content verbatim.
+    content verbatim. `_returns_content` is the annotation-level mirror of these branches.
     """
     if result is None:  # pragma: no cover
         return []

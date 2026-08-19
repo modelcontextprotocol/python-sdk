@@ -1,0 +1,85 @@
+# PR intake gate — see CONTRIBUTING.md ("How pull requests get in") for the
+# policy and .github/scripts/pr_intake_gate.js for the rules as applied.
+#
+# In short: a PR from someone without triage rights stays open only if it links
+# an open issue here that is assigned to them (or labeled `help wanted`);
+# otherwise it is labeled `missing-issue-link`, gets one comment, and is closed,
+# and it reopens automatically once the author is assigned. Bots and drafts are
+# skipped. A triage+ user reopening the PR, removing the label, or adding
+# `bypass-issue-check` overrides.
+#
+# Operating it:
+#   - Live by default. To pause it without a revert, set the repository
+#     variable PR_GATE_ENFORCE to "false": runs then only log their verdicts.
+#   - PRs below the number in the job `if:` predate the gate and are ignored
+#     unless evaluated by hand: `gh workflow run require-linked-issue.yml -f pr_number=N`.
+#
+# Security: pull_request_target runs with a write token in the base repo's
+# context, and GitHub takes both this file and the checkout from the default
+# branch whatever the PR targets (so PRs against v1.x are covered too). The
+# job checks out only that, for the script, and never fetches, builds, or runs
+# anything from the pull request.
+#
+# Adapted from PrefectHQ/fastmcp's require-issue-link.yml (Apache-2.0), itself
+# from langchain-ai/langchain (MIT).
+
+name: Require Linked Issue
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] checks out the default branch only and never runs PR code — see header
+    types: [opened, edited, reopened, ready_for_review, labeled, unlabeled]
+  issues:
+    types: [assigned]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to evaluate
+        required: true
+        type: number
+
+permissions: {}
+
+jobs:
+  gate:
+    name: Evaluate
+    # Routing only; the rules are in the script. PR events run at or above the
+    # grandfathering floor, or for PRs the gate has already labeled; label
+    # events only for the two labels the gate cares about.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && !github.event.issue.pull_request && github.event.issue.state == 'open') ||
+      (
+        github.event_name == 'pull_request_target' &&
+        (
+          github.event.pull_request.number >= 3200 ||
+          contains(github.event.pull_request.labels.*.name, 'missing-issue-link') ||
+          github.event.action == 'unlabeled'
+        ) &&
+        (github.event.action != 'unlabeled' || github.event.label.name == 'missing-issue-link') &&
+        (github.event.action != 'labeled' || github.event.label.name == 'bypass-issue-check')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: require-linked-issue-${{ github.event.pull_request.number || inputs.pr_number || format('issue-{0}-{1}', github.event.issue.number, github.event.assignee.login) }}
+      cancel-in-progress: false
+    permissions:
+      contents: read # check out the gate script from the default branch
+      issues: write # read linked issues; label and comment on the PR
+      pull-requests: write # close and reopen the PR
+    env:
+      ENFORCE: ${{ vars.PR_GATE_ENFORCE != 'false' && 'true' || 'false' }} # kill switch: set the variable to "false" to go log-only
+      PR_NUMBER_INPUT: ${{ inputs.pr_number }}
+    steps:
+      - name: Check out the gate script (default branch)
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Evaluate
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const run = require('./.github/scripts/pr_intake_gate.js');
+            await run({ github, context, core });

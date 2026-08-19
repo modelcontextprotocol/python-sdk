@@ -3182,7 +3182,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#sending-messages-to-the-server",
         behavior="A POST containing only notifications or responses returns 202 with no body.",
         transports=("streamable-http",),
-        note="Only observable over HTTP: 202 is an HTTP status code.",
+        removed_in="2026-07-28",
+        superseded_by="hosting:http:modern:notification-post-202",
+        note=(
+            "Only observable over HTTP: 202 is an HTTP status code. At 2026-07-28 clients no longer post "
+            "responses (streamable-http §Sending Messages item 4), so only the notification half carries over."
+        ),
     ),
     "hosting:http:onerror": Requirement(
         source="sdk",
@@ -3374,6 +3379,22 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note="Only observable over streamable HTTP: the modern entry's JSONRPCError-to-HTTP-status mapping.",
+    ),
+    "hosting:http:modern:notification-post-202": Requirement(
+        source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#sending-messages",
+        behavior=(
+            "A 2026-07-28 POST whose body is a single JSON-RPC notification is acknowledged 202 with no "
+            "body (the spec's accept branch) and is not dispatched; a posted JSON-RPC response is rejected "
+            "INVALID_REQUEST at HTTP 400."
+        ),
+        added_in="2026-07-28",
+        supersedes=("hosting:http:notifications-202",),
+        transports=("streamable-http",),
+        note=(
+            "Only observable over streamable HTTP: the HTTP status is the assertion. The revision defines no "
+            "client-to-server notifications on this transport (cancellation is closing the response stream), "
+            "so accept-and-drop is the SDK's choice between the two responses the spec permits."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Client transport: streamable HTTP

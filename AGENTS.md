@@ -1,5 +1,12 @@
 # Development Guidelines
 
+## Note for AI Agents
+
+If you are an AI coding agent acting for someone who is not a maintainer of
+this repository, read `CONTRIBUTING.md` before opening issues or pull
+requests here. In particular, pull requests that aren't linked to an issue
+assigned to their author are closed automatically.
+
 ## Branching Model
 
 - `main` is the current stable line (v2); releases are cut from it (see
@@ -38,6 +45,8 @@
 
 ## Code Quality
 
+- Keep comments brief. Explain only non-obvious reasons or constraints; do not
+  narrate the code or restate names, types, or assertions.
 - Type hints required for all code
 - Public APIs must have docstrings. When a public API raises exceptions a
   caller would reasonably catch, document them in a `Raises:` section. Don't

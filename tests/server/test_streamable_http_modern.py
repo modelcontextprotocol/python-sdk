@@ -25,6 +25,7 @@ from mcp_types import (
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
+    UNSUPPORTED_PROTOCOL_VERSION,
     CallToolRequestParams,
     CallToolResult,
     ClientCapabilities,
@@ -34,10 +35,11 @@ from mcp_types import (
     ListToolsResult,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
+    NotificationParams,
     PaginatedRequestParams,
     Tool,
 )
-from mcp_types.version import LATEST_MODERN_VERSION
+from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 from starlette.types import Message, Receive, Scope, Send
 from trio.testing import MockClock
 
@@ -110,18 +112,91 @@ async def test_handle_modern_request_rejects_non_post_with_http_405_and_allow_he
     assert response.content == b""
 
 
-async def test_handle_modern_request_rejects_a_notification_body_with_invalid_request() -> None:
-    """SDK-defined: well-formed JSON that isn't a single JSON-RPC request object (e.g. a
-    notification, which lacks ``id``) is ``INVALID_REQUEST`` — distinct from ``PARSE_ERROR``,
-    which is for malformed JSON."""
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}, id="cancelled"
+        ),
+        pytest.param({"jsonrpc": "2.0", "method": "notifications/roots/list_changed"}, id="removed-at-2026"),
+        pytest.param({"jsonrpc": "2.0", "method": "acme/heartbeat", "params": {"n": 1}}, id="custom"),
+        pytest.param(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {"requestId": "listen:0", "_meta": {PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION}},
+            },
+            id="with-envelope",
+        ),
+    ],
+)
+async def test_handle_modern_request_acknowledges_a_notification_post_with_202_and_drops_it(
+    body: dict[str, Any],
+) -> None:
+    """Spec-permitted (streamable-http §Sending Messages item 5, the accept branch): a POST whose
+    body is one JSON-RPC notification is answered 202 with no body, whatever its method and
+    whether or not it carries a `_meta` envelope. SDK-defined: it is dropped, not dispatched --
+    a registered handler for the method never runs (strict-no-cover fails CI if it does)."""
+
+    async def on_notify(ctx: Any, params: NotificationParams) -> None:
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    server: Server[Any] = Server("test")
+    server.add_notification_handler(body["method"], NotificationParams, on_notify)
+    async with _asgi_client(server) as http:
+        response = await http.post("/mcp", json=body)
+    assert (response.status_code, response.content) == (202, b"")
+
+
+async def test_handle_modern_request_rejects_a_notification_post_at_an_unserved_version() -> None:
+    """SDK-defined: the manager routes any non-handshake `MCP-Protocol-Version` here, so a
+    notification claiming a version this entry does not serve gets the same
+    `UNSUPPORTED_PROTOCOL_VERSION` answer (HTTP 400, `supported` list) a request would."""
     async with _asgi_client(Server("test")) as http:
         response = await http.post(
             "/mcp",
-            content=b'{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}',
-            headers={"content-type": "application/json"},
+            json={"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}},
+            headers={MCP_PROTOCOL_VERSION_HEADER: "2099-01-01"},
         )
     assert response.status_code == 400
-    assert response.json()["error"]["code"] == INVALID_REQUEST
+    assert response.json() == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {
+            "code": UNSUPPORTED_PROTOCOL_VERSION,
+            "message": "Unsupported protocol version",
+            "data": {"supported": list(MODERN_PROTOCOL_VERSIONS), "requested": "2099-01-01"},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"jsonrpc": "2.0", "id": 1, "result": {}}, id="posted-response"),
+        pytest.param({"jsonrpc": "2.0", "id": 1, "error": {"code": -1, "message": "x"}}, id="posted-error"),
+        pytest.param([{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}], id="batch"),
+        pytest.param({"jsonrpc": "2.0", "id": None, "method": "tools/list"}, id="null-id-request"),
+        pytest.param({"jsonrpc": "2.0", "id": [1], "method": "tools/list"}, id="non-scalar-id-request"),
+        pytest.param({"jsonrpc": "2.0", "method": 7}, id="non-string-method-notification"),
+        pytest.param({"jsonrpc": "1.0", "method": "notifications/cancelled"}, id="wrong-jsonrpc-version"),
+        pytest.param("just a string", id="scalar"),
+    ],
+)
+async def test_handle_modern_request_rejects_a_body_that_is_neither_request_nor_notification(body: Any) -> None:
+    """Spec-mandated (streamable-http §Sending Messages item 4): the body MUST be a single request
+    or notification and clients MUST NOT post responses. SDK-defined: anything else -- a posted
+    response, a batch, a request whose `id` is malformed, a scalar -- is `INVALID_REQUEST` at
+    HTTP 400 with `id: null`, distinct from `PARSE_ERROR` (malformed JSON). A malformed-`id`
+    request in particular must not be mistaken for a notification and silently 202'd."""
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post("/mcp", json=body)
+    assert response.status_code == 400
+    assert response.json() == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": INVALID_REQUEST, "message": "Body must be a single JSON-RPC request or notification object"},
+    }
 
 
 async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -> None:

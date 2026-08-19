@@ -81,6 +81,24 @@ A suffix it doesn't recognise falls back to `application/octet-stream`.
     `Audio` from MP3 bytes that way and the client is told `mime_type="audio/wav"`, then
     faithfully fails to decode it. When you pass `data=`, pass `format=`.
 
+## Embedding a resource
+
+A tool can also return a document: some text or bytes together with the URI it lives at and a MIME type. That is an **`EmbeddedResource`**, another kind of content block. Unlike a plain `str` it tells the client what the content is, so the client can show it as an attachment or recognise a resource it already knows.
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` is an ordinary resource (**[Resources](resources.md)** covers those). The tool hands the same document to the model on request, and calling `guidelines()` directly keeps one source of truth.
+* `EmbeddedResource` and `TextResourceContents` come from `mcp.types`. There is no helper as there is for images: the block you build goes into the result untouched, and there is no `structured_content`.
+* Use the URI the resource is registered under, so a client can tell that the attachment and `brand://guidelines` are the same document. Any URI is legal, registered or not.
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+For binary content, use `BlobResourceContents(uri=..., mime_type=..., blob=...)` with the bytes base64-encoded into `blob`, in place of `TextResourceContents`. To send only a pointer the client can `resources/read` later, return a `ResourceLink(name=..., uri=...)` instead; it is a content block too.
+
 ## Icons
 
 An `Icon` is metadata, not content. It doesn't carry the image; it points at one with a URI, and a client may fetch it and show it next to your server's name, a tool, a resource, or a prompt.
@@ -110,6 +128,7 @@ A tool's icons are on the `Tool` object from `tools/list`, a resource's on the `
 
 * Return an `Image` or `Audio` from a tool and the client receives an `ImageContent` / `AudioContent` block: your bytes base64-encoded, with a MIME type.
 * Build one from a `path=` and let the suffix decide the MIME type, or from in-memory `data=` plus an explicit `format=`.
+* Return an `EmbeddedResource` to put a document (text or a base64 blob, with its URI and MIME type) in the result, or a `ResourceLink` to send just the pointer.
 * Media results carry no `structured_content` and no output schema.
 * An `Icon` is a pointer: a `src` URI plus optional `mime_type`, `sizes`, and `theme`.
 * `icons=[...]` works on the server, on tools, on resources, and on prompts, and clients find them on the matching objects.

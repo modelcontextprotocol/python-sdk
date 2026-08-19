@@ -45,7 +45,7 @@ It is also the command `mcp install` writes into Claude Desktop's config for you
 
     And a host is nothing more than an application with an MCP client inside it, so your own
     Python can play the host's part: **[Client transports](../client/transports.md)** launches
-    this same file as a subprocess with `stdio_client(...)`, and **[Testing](testing.md)**
+    this same file as a subprocess with `Client(StdioServerParameters(...))`, and **[Testing](testing.md)**
     connects to it in memory with no process at all.
 
 ## Claude Desktop

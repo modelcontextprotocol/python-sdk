@@ -13,6 +13,7 @@ from mcp.server.request_state import (
 )
 
 from .context import Context
+from .prompts.base import AssistantMessage, Message, UserMessage
 from .resolve import (
     AcceptedElicitation,
     CancelledElicitation,
@@ -32,6 +33,9 @@ __all__ = [
     "Context",
     "Image",
     "Audio",
+    "Message",
+    "UserMessage",
+    "AssistantMessage",
     "Icon",
     "Resolve",
     "Elicit",

@@ -437,20 +437,8 @@ class TestServerTools:
             assert isinstance(content3, AudioContent)
             assert content3.mime_type == "audio/wav"
             assert content3.data == "def"
-            assert result.structured_content is not None
-            assert "result" in result.structured_content
-            structured_result = result.structured_content["result"]
-            assert len(structured_result) == 3
-
-            expected_content = [
-                {"type": "text", "text": "Hello"},
-                {"type": "image", "data": "abc", "mimeType": "image/png"},
-                {"type": "audio", "data": "def", "mimeType": "audio/wav"},
-            ]
-
-            for i, expected in enumerate(expected_content):
-                for key, value in expected.items():
-                    assert structured_result[i][key] == value
+            # Content blocks are for the model, not data: no output schema, nothing echoed as structured
+            assert result.structured_content is None
 
     async def test_tool_mixed_list_with_audio_and_image(self, tmp_path: Path):
         """Test that lists containing Image objects and other types are handled
@@ -463,10 +451,8 @@ class TestServerTools:
         audio_path = tmp_path / "test.wav"
         audio_path.write_bytes(b"test audio data")
 
-        # TODO(Marcelo): It seems if we add the proper type hint, it generates an invalid JSON schema.
-        # We need to fix this.
-        def mixed_list_fn() -> list:  # type: ignore
-            return [  # type: ignore
+        def mixed_list_fn() -> list[str | Image | Audio | dict[str, str] | TextContent]:
+            return [
                 "text message",
                 Image(image_path),
                 Audio(audio_path),
@@ -475,7 +461,7 @@ class TestServerTools:
             ]
 
         mcp = MCPServer()
-        mcp.add_tool(mixed_list_fn)  # type: ignore
+        mcp.add_tool(mixed_list_fn)
         async with Client(mcp) as client:
             result = await client.call_tool("mixed_list_fn", {})
             assert len(result.content) == 5
@@ -501,7 +487,7 @@ class TestServerTools:
             content5 = result.content[4]
             assert isinstance(content5, TextContent)
             assert content5.text == "direct content"
-            # Check structured content - untyped list with Image objects should NOT have structured output
+            # Image/Audio/TextContent in the annotation: no output schema, so nothing echoed as structured
             assert result.structured_content is None
 
     async def test_tool_structured_output_basemodel(self):

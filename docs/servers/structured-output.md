@@ -208,6 +208,10 @@ No `output_schema`, no wrapping, no validation. `structured_content` is `None` a
 
 The opposite, `structured_output=True`, turns the automatic detection into a requirement: a tool whose return type can't produce a schema raises at import time instead of falling back to text.
 
+## Content blocks and media
+
+Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own, as the items of a `list`, `tuple` or `Sequence`, or as the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
+
 ## A class without type hints
 
 There is one way to end up unstructured without asking for it: return a class that has **no annotations on its body**.
@@ -240,6 +244,6 @@ There is one way to end up unstructured without asking for it: return a class th
 * Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes and `dict[str, ...]` are objects already and stay as they are.
 * Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
-* `structured_output=False` opts a tool out. A class without type hints opts out silently; watch for it.
+* `structured_output=False` opts a tool out. Content blocks, `Image` and `Audio` opt out by default; a class without type hints opts out silently, so watch for it.
 
 You now own everything a tool can say back. Next, the second primitive: **[Resources](resources.md)**.

@@ -111,6 +111,17 @@ The `_meta` block is the server's identity stamp: the SDK adds it to every 2026-
 
 The server never compares the two fields. This SDK's `Client` does: return `structured_content` that doesn't satisfy the `output_schema` you declared and `call_tool` raises a `RuntimeError` that starts with `Invalid structured content returned by tool search_books` and goes on to quote the `jsonschema` failure. Promising a schema is cheap; keeping it is on you. The whole ladder of return types and schemas is in **[Structured Output](../servers/structured-output.md)**.
 
+## The dialect is JSON Schema 2020-12
+
+`input_schema` and `output_schema` are JSON Schema, and the [MCP specification](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) fixes the dialect: a schema with no `$schema` key is **JSON Schema 2020-12**. The schemas `MCPServer` generates rely on that default (Pydantic writes 2020-12 and omits the key), and a hand-written dict is held to it too, so the full 2020-12 vocabulary is available:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* The root of `input_schema` must be `"type": "object"`. Beside it, `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, `$defs` with local `$ref`s and the rest of the 2020-12 keywords reach the client exactly as written.
+* No `$schema` key is needed. Add one only to opt into an older draft: this SDK's `Client`, which validates `structured_content` against a tool's `output_schema`, picks its validator from `$schema` and uses 2020-12 when there is none.
+
 ## `_meta`: for the application, not the model
 
 `content` is the part of the answer the model reads. `structured_content` is the same answer as typed data. `_meta` is the third channel: data that rides along with the result for the **client application**, without being part of the answer at all.
@@ -162,7 +173,7 @@ The constructor covers the methods MCP defines. `add_request_handler` covers eve
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* The first argument is the method string. Notifications have a twin, `add_notification_handler`.
+* The first argument is the method string. Notifications have a twin, `add_notification_handler`. Its handlers fire on stdio and on handshake-era HTTP connections; on the `2026-07-28` streamable-HTTP path a client's notification POST is acknowledged `202` and not dispatched, because that revision defines no client-to-server notifications over HTTP.
 * `params_type` is the model the incoming `params` are validated against **before** your handler runs, so custom methods *do* get the validation tools don't. Subclass `RequestParams` so the `_meta` field parses like every other method's.
 * The handler returns a `BaseModel`, a `dict`, or `None`. The SDK serialises it into the JSON-RPC result.
 
