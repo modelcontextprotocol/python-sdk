@@ -298,7 +298,7 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert content.text == "Error executing tool error_tool_fn"
             assert result.is_error is True
 
     async def test_tool_error_handling(self):
@@ -309,7 +309,7 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert content.text == "Error executing tool error_tool_fn"
             assert result.is_error is True
 
     async def test_tool_error_details(self):
@@ -321,7 +321,7 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert isinstance(content.text, str)
-            assert "Test error" in content.text
+            assert content.text == "Error executing tool error_tool_fn"
             assert result.is_error is True
 
     async def test_tool_return_value_conversion(self):
@@ -1805,6 +1805,51 @@ async def test_completion_decorator() -> None:
         assert result.completion.values == ["bold", "italic", "underline"]
 
 
+async def test_completion_handler_crash_is_logged_and_reaches_the_client_generically(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SDK-defined: a crashing completion handler is one ERROR record with its traceback, and the client
+    gets -32603 naming only the argument, not the exception's text."""
+    mcp = MCPServer()
+    raised = RuntimeError("index warmup failed on shard 3")
+
+    @mcp.completion()
+    async def complete(ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None):
+        raise raised
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.complete(
+                ref=PromptReference(type="ref/prompt", name="greet"), argument={"name": "style", "value": "b"}
+            )
+
+    assert exc.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Error completing argument style"))
+    assert _server_records(caplog) == snapshot(
+        [("ERROR", "Completion for argument 'style' raised an unexpected exception", True)]
+    )
+    assert raised in _cause_chain(_logged_exception(caplog))
+
+
+async def test_completion_handler_raising_mcp_error_passes_through(caplog: pytest.LogCaptureFixture) -> None:
+    """SDK-defined: MCPError from a completion handler keeps its code and message and is not logged."""
+    mcp = MCPServer()
+
+    @mcp.completion()
+    async def complete(ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None):
+        raise MCPError(code=INVALID_PARAMS, message="unknown argument")
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.complete(
+                ref=PromptReference(type="ref/prompt", name="greet"), argument={"name": "style", "value": "b"}
+            )
+
+    assert exc.value.error == snapshot(ErrorData(code=INVALID_PARAMS, message="unknown argument"))
+    assert _server_records(caplog) == []
+
+
 def test_streamable_http_no_redirect() -> None:
     """Test that streamable HTTP routes are correctly configured."""
     mcp = MCPServer()
@@ -2297,7 +2342,7 @@ async def test_tool_raising_unexpected_exception_is_logged_once_at_error_with_it
         result = await client.call_tool("lookup", {})
 
     assert result.is_error is True
-    assert result.content == [TextContent(type="text", text="Error executing tool lookup: 'k'")]
+    assert result.content == [TextContent(type="text", text="Error executing tool lookup")]
     assert _server_records(caplog) == snapshot([("ERROR", "Tool 'lookup' raised an unexpected exception", True)])
     assert raised in _cause_chain(_logged_exception(caplog))
     assert len([r for r in caplog.records if r.levelno >= logging.WARNING]) == 1
@@ -2354,7 +2399,7 @@ async def test_tool_argument_validation_failure_is_logged_at_info_without_traceb
     caplog: pytest.LogCaptureFixture,
 ):
     """SDK-defined: arguments the model got wrong are the model's to correct, so the rejection
-    is logged as one INFO record with no traceback; the message is repr-quoted onto one line."""
+    is logged as one INFO record with no traceback, naming the fields but not the values."""
     mcp = MCPServer()
 
     @mcp.tool()
@@ -2368,9 +2413,8 @@ async def test_tool_argument_validation_failure_is_logged_at_info_without_traceb
     assert result.is_error is True
     ((level, message, has_traceback),) = _server_records(caplog)
     assert (level, has_traceback) == ("INFO", False)
-    # pydantic owns the rest of the text; pin only the SDK's part and the single-line rendering.
-    assert message.startswith("Tool 'add' failed: ") and "Error executing tool add: 1 validation error" in message
-    assert "\n" not in message
+    # Field names only: the rejected values are the caller's data and stay out of the log.
+    assert message == "Tool 'add' rejected arguments: a"
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
@@ -2527,9 +2571,7 @@ async def test_argument_validator_that_crashes_is_the_tools_crash(caplog: pytest
     with pytest.raises(UnexpectedToolError) as exc:
         await mcp.call_tool("redeem", {"code": "SAVE10"})
 
-    assert result.content == [
-        TextContent(type="text", text="Error executing tool redeem: codes are compared as integers")
-    ]
+    assert result.content == [TextContent(type="text", text="Error executing tool redeem")]
     assert exc.value.__cause__ is raised
     assert _server_records(caplog) == snapshot([("ERROR", "Tool 'redeem' raised an unexpected exception", True)])
 
@@ -2847,7 +2889,7 @@ async def test_call_tool_wraps_a_crash_as_unexpected_tool_error_chained_to_the_o
 
     with pytest.raises(UnexpectedToolError) as exc:
         await mcp.call_tool("explode", {})
-    assert str(exc.value) == snapshot("Error executing tool explode: boom")
+    assert str(exc.value) == snapshot("Error executing tool explode")
     assert exc.value.__cause__ is raised
 
 
@@ -2885,9 +2927,7 @@ async def test_nested_tool_crash_stays_unexpected_through_the_outer_tool(caplog:
     async with Client(mcp) as client:
         result = await client.call_tool("outer", {})
 
-    assert result.content == [
-        TextContent(type="text", text="Error executing tool outer: Error executing tool inner: division by zero")
-    ]
+    assert result.content == [TextContent(type="text", text="Error executing tool outer: Error executing tool inner")]
     assert _server_records(caplog) == snapshot([("ERROR", "Tool 'outer' raised an unexpected exception", True)])
     assert raised in _cause_chain(_logged_exception(caplog))
 

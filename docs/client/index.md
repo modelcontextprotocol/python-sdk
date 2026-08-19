@@ -81,7 +81,7 @@ That schema is everything a UI needs to render an argument form, and everything 
 
 `call_tool(name, arguments)` runs the tool and gives you back a `CallToolResult`.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -113,7 +113,7 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
 
 !!! check
     Ask `lookup_book` for `"Solaris"` (a title that isn't in the catalog) and the function raises
-    `ValueError`. The call still returns normally:
+    `ToolError`. The call still returns normally:
 
     ```python
     result.is_error            # True
@@ -121,9 +121,10 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
     result.structured_content  # None
     ```
 
-    The exception's message landed in `content`, where the **model** can read it and try again. That
-    is deliberate: a tool error is part of the conversation, not a crash. Always look at `is_error`
-    before you trust `structured_content`.
+    The `ToolError`'s message landed in `content`, where the **model** can read it and try again. That
+    is deliberate: a tool error is part of the conversation, not a crash. (Had the tool crashed with
+    some other exception, `content` would say only `Error executing tool lookup_book`.) Always look at
+    `is_error` before you trust `structured_content`.
 
 !!! warning
     `is_error=True` covers more than your own `raise`. Ask for a tool the server doesn't even have

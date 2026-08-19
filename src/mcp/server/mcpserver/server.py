@@ -44,7 +44,7 @@ from mcp_types import PromptArgument as MCPPromptArgument
 from mcp_types import Resource as MCPResource
 from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic.networks import AnyUrl
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -427,9 +427,14 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as exc:
-            # %r keeps peer-supplied text (names, pydantic messages) on one line.
             if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError):
-                logger.info("Tool %r failed: %r", params.name, str(exc))
+                if isinstance(exc.__cause__, ValidationError):
+                    # Field names only: the rejected values are the caller's data.
+                    fields = sorted({".".join(str(part) for part in err["loc"]) for err in exc.__cause__.errors()})
+                    logger.info("Tool %r rejected arguments: %s", params.name, ", ".join(fields))
+                else:
+                    # %r keeps peer-supplied text on one line.
+                    logger.info("Tool %r failed: %r", params.name, str(exc))
             else:
                 logger.exception("Tool %r raised an unexpected exception", params.name)
             return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
@@ -733,7 +738,15 @@ class MCPServer(Generic[LifespanResultT]):
             async def handler(
                 ctx: ServerRequestContext[LifespanResultT], params: CompleteRequestParams
             ) -> CompleteResult:
-                result = await func(params.ref, params.argument, params.context)
+                try:
+                    result = await func(params.ref, params.argument, params.context)
+                except MCPError:
+                    raise
+                except Exception as exc:
+                    logger.exception("Completion for argument %r raised an unexpected exception", params.argument.name)
+                    raise MCPError(
+                        code=INTERNAL_ERROR, message=f"Error completing argument {params.argument.name}"
+                    ) from exc
                 return CompleteResult(
                     completion=result if result is not None else Completion(values=[], total=None, has_more=None),
                 )

@@ -1,5 +1,7 @@
 """`docs/servers/structured-output.md`: every claim the page makes, proved against the real SDK."""
 
+import logging
+
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
@@ -151,15 +153,19 @@ async def test_dict_str_return_is_not_wrapped() -> None:
         assert result.structured_content == {"London": 16.2, "Reykjavik": 4.4}
 
 
-async def test_return_value_is_validated_against_the_schema() -> None:
-    """tutorial007: a return value that does not match the output schema is a tool error, not a result."""
+async def test_return_value_is_validated_against_the_schema(caplog: pytest.LogCaptureFixture) -> None:
+    """tutorial007: a return value that does not match the output schema is a tool error, not a result;
+    the field name goes to the server log, not the client."""
+    caplog.set_level(logging.ERROR, logger="mcp.server.mcpserver.server")
     async with Client(tutorial007.mcp) as client:
         result = await client.call_tool("get_weather", {"city": "London"})
         assert result.is_error
         assert result.structured_content is None
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text.startswith("Error executing tool get_weather: 1 validation error for WeatherData")
-        assert "humidity\n  Field required" in result.content[0].text
+        assert result.content == [TextContent(type="text", text="Error executing tool get_weather")]
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.getMessage() == "Tool 'get_weather' raised an unexpected exception"
+    assert record.exc_info is not None and record.exc_info[1] is not None
+    assert "1 validation error for WeatherData\nhumidity\n  Field required" in str(record.exc_info[1].__cause__)
 
 
 async def test_structured_output_false_opts_out() -> None:

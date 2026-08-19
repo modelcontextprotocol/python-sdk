@@ -134,8 +134,10 @@ class Tool(BaseModel):
     ) -> Any:
         """Run the tool with arguments.
 
-        Every failure other than `MCPError` is raised with its message prefixed
-        `Error executing tool <name>: `, and `__cause__` set to what was raised.
+        Every failure other than `MCPError` is raised as a `ToolError` whose message
+        starts `Error executing tool <name>` and whose `__cause__` is what was raised.
+        An anticipated failure keeps its own text after the prefix. A crash does not,
+        so nothing from an unexpected exception reaches the client.
 
         Raises:
             ToolError: If the arguments fail validation against the input schema, or
@@ -153,7 +155,7 @@ class Tool(BaseModel):
             raise
         except Exception as exc:
             # A custom validator or default_factory that raises is a crash.
-            raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
+            raise UnexpectedToolError(f"Error executing tool {self.name}") from exc
 
         try:
             pass_directly: dict[str, Any] = {}
@@ -203,10 +205,12 @@ class Tool(BaseModel):
         # Everything else reaches the model as an is_error result under this tool's
         # name, and the wrapper's type tells the server whether to log a crash.
         except (UnexpectedToolError, UnexpectedResourceError) as exc:
-            # A nested tool call or resource read crashed: still a crash here.
+            # A nested tool call or resource read crashed: still a crash here. Its
+            # message is already the generic one, so it is safe to carry along.
             raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
         except (ToolError, ResourceError) as exc:
             # Raised deliberately by the tool, a resolver, or a resource it read.
             raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
         except Exception as exc:
-            raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
+            # A crash: the exception's own text stays on the server.
+            raise UnexpectedToolError(f"Error executing tool {self.name}") from exc

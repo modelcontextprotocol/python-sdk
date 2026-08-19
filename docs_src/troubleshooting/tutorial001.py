@@ -1,5 +1,5 @@
 from mcp.server import MCPServer
-from mcp.server.mcpserver.exceptions import ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 
 mcp = MCPServer("Weather")
 
@@ -10,7 +10,7 @@ FORECASTS = {"London": "Rain.", "Cairo": "Sun."}
 def forecast(city: str) -> str:
     """Today's forecast for one city."""
     if city not in FORECASTS:
-        raise ValueError(f"No forecast for {city!r}.")
+        raise ToolError(f"No forecast for {city!r}.")
     return FORECASTS[city]
 
 

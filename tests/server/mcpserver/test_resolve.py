@@ -1783,9 +1783,11 @@ async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_er
         result = await client.call_tool("sneaky", {})
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
-        assert "the multi-round flow is driven either by resolvers or by the tool body" in result.content[0].text
-    records = [(r.levelname, r.getMessage()) for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
-    assert records == [("ERROR", "Tool 'sneaky' raised an unexpected exception")]
+        assert result.content[0].text == "Error executing tool sneaky"
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert (record.levelname, record.getMessage()) == ("ERROR", "Tool 'sneaky' raised an unexpected exception")
+    assert record.exc_info is not None and record.exc_info[1] is not None
+    assert "the multi-round flow is driven either by resolvers or by the tool body" in str(record.exc_info[1].__cause__)
 
 
 def test_question_digest_pins_the_rendered_question():

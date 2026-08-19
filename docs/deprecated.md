@@ -119,10 +119,11 @@ That is the whole API. There is no per-method switch, and you don't want one: th
     Run the filter the other way and you get a free regression test. Add
     `"error::mcp.MCPDeprecationWarning"` to the `filterwarnings` setting in your pytest
     configuration and the deprecated call **raises** instead of warning. A tool named
-    `old_log` that still calls `ctx.info()` stops passing and starts reporting:
+    `old_log` that still calls `ctx.info()` stops passing: the call comes back `is_error=True` with
+    `Error executing tool old_log`, and the captured server log names the culprit:
 
     ```text
-    Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    mcp.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
     ```
 
     One line of pytest configuration, and a deprecated call can never sneak back into your

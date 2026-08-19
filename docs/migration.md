@@ -2737,7 +2737,7 @@ One behavioral caveat when moving progress-reporting handlers onto `Client(serve
 
 Every deprecation below is a runtime warning as well as a type-checker one: deprecated methods and helpers emit `mcp.MCPDeprecationWarning` on each call, and the deprecated `Server(...)` constructor parameters (`on_set_logging_level`, `on_roots_list_changed`, `on_progress`) emit it at construction time. The category subclasses `UserWarning`, not `DeprecationWarning`, so it is visible by default; [Deprecated features](deprecated.md) has the full list and each replacement.
 
-Under pytest's `filterwarnings = ["error"]`, that warning becomes an exception at the first deprecated call. Inside an `@mcp.tool()` handler the exception is caught like any other and returned as `CallToolResult(is_error=True)` (`Error executing tool ...: The logging capability is deprecated as of 2026-07-28 (SEP-2577).`), which reads as a failing tool rather than a warning. Keep the warnings visible but non-fatal with:
+Under pytest's `filterwarnings = ["error"]`, that warning becomes an exception at the first deprecated call. Inside an `@mcp.tool()` handler the exception is caught like any other and returned as `CallToolResult(is_error=True)` (`Error executing tool ...`, with the `MCPDeprecationWarning` traceback in the server log), which reads as a failing tool rather than a warning. Keep the warnings visible but non-fatal with:
 
 ```toml
 [tool.pytest.ini_options]
