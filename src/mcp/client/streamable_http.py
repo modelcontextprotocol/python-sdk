@@ -33,7 +33,7 @@ from pydantic import ValidationError
 from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import MCP_SSE_MAX_EVENT_SIZE, create_mcp_http_client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -210,7 +210,7 @@ class StreamableHTTPTransport:
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id
 
-                async with client.sse(self.url, headers=headers) as event_source:
+                async with client.sse(self.url, headers=headers, max_event_size=MCP_SSE_MAX_EVENT_SIZE) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
@@ -253,7 +253,7 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.id
 
-        async with ctx.client.sse(self.url, headers=headers) as event_source:
+        async with ctx.client.sse(self.url, headers=headers, max_event_size=MCP_SSE_MAX_EVENT_SIZE) as event_source:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
@@ -423,7 +423,7 @@ class StreamableHTTPTransport:
         original_request_id = ctx.session_message.message.id
 
         try:
-            event_source = EventSource(response)
+            event_source = EventSource(response, max_event_size=MCP_SSE_MAX_EVENT_SIZE)
             async for sse in event_source:  # pragma: no branch
                 # Track last event ID for potential reconnection
                 if sse.id:
@@ -501,7 +501,7 @@ class StreamableHTTPTransport:
         headers[LAST_EVENT_ID] = last_event_id
 
         try:
-            async with ctx.client.sse(self.url, headers=headers) as event_source:
+            async with ctx.client.sse(self.url, headers=headers, max_event_size=MCP_SSE_MAX_EVENT_SIZE) as event_source:
                 event_source.response.raise_for_status()
                 logger.info("Reconnected to SSE stream")
 

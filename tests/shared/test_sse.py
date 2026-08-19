@@ -225,6 +225,31 @@ async def test_sse_client_exception_handling(
 
 
 @pytest.mark.anyio
+async def test_sse_client_delivers_a_result_larger_than_one_mebibyte() -> None:
+    """A resource read bigger than httpx2's default 1 MiB per-event SSE cap arrives intact. SDK-defined:
+    MCP sets no message size limit, and the legacy transport carries every server message on one
+    event stream, so the cap is lifted there too (#3332)."""
+    oversized = "x" * (1024 * 1024 + 1)
+
+    async def read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+        return ReadResourceResult(
+            contents=[TextResourceContents(uri=str(params.uri), text=oversized, mime_type="text/plain")]
+        )
+
+    factory = in_process_client_factory(make_app(Server(SERVER_NAME, on_read_resource=read_resource)))
+    with anyio.fail_after(5):
+        async with (
+            sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams,
+            ClientSession(*streams) as session,
+        ):
+            await session.initialize()
+            response = await session.read_resource(uri="foobar://bulk")
+
+    assert isinstance(response.contents[0], TextResourceContents)
+    assert response.contents[0].text == oversized
+
+
+@pytest.mark.anyio
 async def test_sse_client_basic_connection_mounted_app() -> None:
     """The SSE transport works unchanged when its app is mounted under a sub-path."""
     main_app = Starlette(routes=[Mount("/mounted_app", app=make_server_app())])
