@@ -1030,10 +1030,8 @@ async def test_modern_post_with_deeply_nested_body_is_rejected_not_a_crash() -> 
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 400
-    if sys.version_info >= (3, 14):
-        assert response.json()["error"]["code"] in (PARSE_ERROR, INVALID_REQUEST)
-    else:
-        assert response.json()["error"]["code"] == PARSE_ERROR
+    allowed_codes = (PARSE_ERROR, INVALID_REQUEST) if sys.version_info >= (3, 14) else (PARSE_ERROR,)
+    assert response.json()["error"]["code"] in allowed_codes
 
 
 async def test_modern_post_recursion_error_during_parse_is_parse_error(monkeypatch: pytest.MonkeyPatch) -> None:
