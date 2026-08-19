@@ -860,12 +860,6 @@ mcp.run(transport="streamable-http", max_request_body_size=8 * 1024 * 1024)
 The limit must be positive and applies to both legacy session-based requests and V2's modern
 single-exchange requests. Keep the smallest value your application actually needs.
 
-The SSE transport's message endpoint applies the same limit, configured the same way
-(`run(transport="sse", max_request_body_size=...)`, `sse_app(...)`, or
-`SseServerTransport(..., max_request_body_size=...)` when you mount the transport yourself), and
-answers HTTP 405 to anything other than POST. The OAuth endpoints built by `create_auth_routes`
-(`/token`, `/register`, `/revoke`, and POST `/authorize`) are limited to the 4 MiB default.
-
 ### Streamable HTTP: lifespan now entered once at manager startup
 
 When serving streamable HTTP (stateful or `stateless_http=True`), the server's `lifespan` context manager is now entered once when `StreamableHTTPSessionManager.run()` starts, and the resulting state is shared across all sessions and requests. Previously each session (stateful) or each request (stateless) entered and exited `lifespan` independently.
