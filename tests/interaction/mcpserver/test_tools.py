@@ -441,3 +441,24 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
     assert received == snapshot(
         [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="tool set changed"))]
     )
+
+
+async def test_tool_returning_empty_list_and_tuple_produces_text_content(connect: Connect, unstamped: Unstamp) -> None:
+    """A tool returning an empty list or tuple produces a TextContent block rather than zero content blocks."""
+    mcp = MCPServer("empty-tools")
+
+    @mcp.tool()
+    def get_empty_list() -> list[str]:
+        return []
+
+    @mcp.tool()
+    def get_empty_tuple() -> tuple[str, ...]:
+        return ()
+
+    async with connect(mcp) as client:
+        list_result = await client.call_tool("get_empty_list", {})
+        tuple_result = await client.call_tool("get_empty_tuple", {})
+
+    assert list_result.content == [TextContent(text="[]")]
+    assert tuple_result.content == [TextContent(text="()")]
+

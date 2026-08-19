@@ -1376,3 +1376,23 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_convert_to_content_empty_list_and_tuple():
+    from mcp.server.mcpserver.utilities.func_metadata import _convert_to_content
+
+    empty_list_res = _convert_to_content([])
+    assert len(empty_list_res) == 1
+    assert isinstance(empty_list_res[0], TextContent)
+    assert empty_list_res[0].text == "[]"
+
+    empty_tuple_res = _convert_to_content(())
+    assert len(empty_tuple_res) == 1
+    assert isinstance(empty_tuple_res[0], TextContent)
+    assert empty_tuple_res[0].text == "()"
+
+    non_empty_res = _convert_to_content(["hello", "world"])
+    assert len(non_empty_res) == 2
+    assert non_empty_res[0].text == "hello"
+    assert non_empty_res[1].text == "world"
+

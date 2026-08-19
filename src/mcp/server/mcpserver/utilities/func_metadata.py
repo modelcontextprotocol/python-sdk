@@ -590,6 +590,9 @@ def _convert_to_content(result: Any) -> list[ContentBlock]:
         return [result.to_audio_content()]
 
     if isinstance(result, list | tuple):
+        if not result:
+            return [TextContent(type="text", text="[]" if isinstance(result, list) else "()")]
+
         return list(
             chain.from_iterable(
                 _convert_to_content(item)
