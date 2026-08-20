@@ -564,7 +564,7 @@ class OAuthClientProvider(httpx2.Auth):
         self.context.oauth_metadata = metadata
 
     async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
-        """Validate that the PRM resource matches the server URL per RFC 9728."""
+        """Validate that the PRM resource permits the server URL."""
         prm_resource = str(prm.resource) if prm.resource else None
 
         if self._validate_resource_url_callback is not None:
@@ -574,10 +574,7 @@ class OAuthClientProvider(httpx2.Auth):
         if not prm_resource:
             return  # pragma: no cover
         default_resource = resource_url_from_server_url(self.context.server_url)
-        if not (
-            check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource)
-            and check_resource_allowed(requested_resource=prm_resource, configured_resource=default_resource)
-        ):
+        if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
     async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:

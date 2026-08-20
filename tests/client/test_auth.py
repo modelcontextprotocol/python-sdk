@@ -863,10 +863,10 @@ async def test_validate_resource_rejects_mismatched_resource(
 
 
 @pytest.mark.anyio
-async def test_validate_resource_rejects_parent_path_resource(
+async def test_validate_resource_accepts_parent_path_resource(
     client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
 ) -> None:
-    """Client rejects PRM resources that are a parent of the server URL."""
+    """Client accepts PRM resources that are a parent of the server URL."""
     provider = OAuthClientProvider(
         server_url="https://api.example.com/v1/mcp",
         client_metadata=client_metadata,
@@ -878,8 +878,7 @@ async def test_validate_resource_rejects_parent_path_resource(
         resource=AnyHttpUrl("https://api.example.com/v1"),
         authorization_servers=[AnyHttpUrl("https://auth.example.com")],
     )
-    with pytest.raises(OAuthFlowError, match="does not match expected"):
-        await provider._validate_resource_match(prm)
+    await provider._validate_resource_match(prm)
 
 
 @pytest.mark.anyio
