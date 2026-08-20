@@ -72,7 +72,7 @@ from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
-from mcp.server.mcpserver.prompts import Prompt, PromptManager
+from mcp.server.mcpserver.prompts import Prompt, PromptManager, PromptValidationError
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
     FunctionResource,
@@ -1301,10 +1301,15 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
 
-        except ValueError as e:
+        except PromptValidationError as e:
             # Expected user-input validation failures, like missing required
-            # arguments, don't need a full traceback for unexpected errors.
-            # Instead, log a concise warning without exc_info.
+            # arguments, don't need a full traceback. Log a concise warning
+            # instead of the exc_info dump reserved for unexpected errors.
+
+            # `Prompt.render` also raises a plain `ValueError` when the prompt
+            # function itself throws, so this narrower type is caught here
+            # instead of `ValueError` to avoid swallowing that traceback too.
+
             logger.warning(f"Error getting prompt {name}: {e}")
             raise ValueError(str(e)) from e
 

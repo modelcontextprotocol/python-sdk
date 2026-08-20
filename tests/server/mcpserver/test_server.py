@@ -1543,7 +1543,7 @@ class TestServerPrompts:
         mcp = MCPServer()
 
         @mcp.prompt()
-        def prompt_fn(name: str) -> str: ...  # Pragma: no branch.
+        def prompt_fn(name: str) -> str: ...  # pragma: no branch.
 
         with caplog.at_level(logging.WARNING, logger="mcp.server.mcpserver.server"):
             async with Client(mcp, mode="legacy") as client:
@@ -1556,6 +1556,29 @@ class TestServerPrompts:
         # ValueError should have warning log without exc_info.
         assert server_records[0].levelno == logging.WARNING
         assert not server_records[0].exc_info
+
+    async def test_get_prompt_unexpected_error_still_logs_traceback(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A prompt function raising an unexpected (non-validation) exception must
+        still be logged with a full traceback, even though `Prompt.render` also
+        wraps it as a plain `ValueError` — same wire type as the missing-argument
+        case, but not a `PromptValidationError`, so it must not be downgraded."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def prompt_fn() -> str:
+            raise KeyError("boom")
+
+        with caplog.at_level(logging.WARNING, logger="mcp.server.mcpserver.server"):
+            async with Client(mcp, mode="legacy") as client:
+                with pytest.raises(MCPError):
+                    await client.get_prompt("prompt_fn")
+
+        server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+        assert len(server_records) == 1
+
+        # Unexpected errors should have error log with exc_info.
+        assert server_records[0].levelno == logging.ERROR
+        assert server_records[0].exc_info is not None
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():

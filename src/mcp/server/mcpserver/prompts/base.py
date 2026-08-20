@@ -22,6 +22,18 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver.context import Context
 
 
+class PromptValidationError(ValueError):
+    """Raised when prompt arguments fail validation (e.g. a required argument is missing).
+
+    A `ValueError` subclass so existing callers that catch `ValueError` are
+    unaffected. It exists to distinguish this expected, user-input validation
+    failure from the generic `ValueError` `Prompt.render` also raises when the
+    prompt function itself raises an unexpected exception - callers that log
+    the two differently (see `MCPServer.get_prompt`) can `except` this
+    specifically without downgrading a genuine crash to a quiet warning.
+    """
+
+
 class Message(BaseModel):
     """Base class for all prompt messages.
 
@@ -166,7 +178,7 @@ class Prompt(BaseModel):
         through unchanged so the multi-round-trip flow reaches the client.
 
         Raises:
-            ValueError: If required arguments are missing, or if rendering fails.
+            PromptValidationError: If required arguments are missing, or if rendering fails.
         """
         # Validate required arguments
         if self.arguments:
@@ -174,7 +186,7 @@ class Prompt(BaseModel):
             provided = set(arguments or {})
             missing = required - provided
             if missing:
-                raise ValueError(f"Missing required arguments: {missing}")
+                raise PromptValidationError(f"Missing required arguments: {missing}")
 
         try:
             # Add context to arguments if needed
