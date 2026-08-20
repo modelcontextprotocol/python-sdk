@@ -1,0 +1,6 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-11-25/server-card.schema.json",
+  "name": "example-org/wrong-schema-url",
+  "version": "1.0.0",
+  "description": "Uses date-versioned schema URL; only /v1/ URLs are valid."
+}

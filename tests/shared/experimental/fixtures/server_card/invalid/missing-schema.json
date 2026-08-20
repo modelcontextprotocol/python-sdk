@@ -1,0 +1,5 @@
+{
+  "name": "example-org/no-schema",
+  "version": "1.0.0",
+  "description": "Missing the required `$schema` field."
+}
