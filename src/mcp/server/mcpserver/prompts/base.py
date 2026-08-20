@@ -178,7 +178,8 @@ class Prompt(BaseModel):
         through unchanged so the multi-round-trip flow reaches the client.
 
         Raises:
-            PromptValidationError: If required arguments are missing, or if rendering fails.
+            PromptValidationError: If required arguments are missing.
+            ValueError: If the prompt function itself raises an unexpected exception.
         """
         # Validate required arguments
         if self.arguments:
@@ -195,6 +196,7 @@ class Prompt(BaseModel):
             fn = self.fn
             if is_async_callable(fn):
                 result = await fn(**call_args)
+
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **call_args))
 
@@ -210,16 +212,21 @@ class Prompt(BaseModel):
             for msg in result:  # type: ignore[reportUnknownVariableType]
                 if isinstance(msg, Message):
                     messages.append(msg)
+
                 elif isinstance(msg, dict):
                     messages.append(message_validator.validate_python(msg))
+
                 elif isinstance(msg, str | ContentBlock | Image | Audio):  # bare content is one user message
                     messages.append(UserMessage(msg))
+
                 else:  # pragma: no cover
                     content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
                     messages.append(Message(role="user", content=content))
 
             return messages
+
         except MCPError:
             raise
+
         except Exception as e:
             raise ValueError(f"Error rendering prompt {self.name}: {e}")
