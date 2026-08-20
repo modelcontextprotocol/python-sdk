@@ -624,6 +624,27 @@ def test_structured_output_basemodel():
     }
 
 
+def test_structured_output_recursive_basemodel():
+    """Recursive BaseModel output schemas must have type: object at the root (#3337)."""
+
+    class Node(BaseModel):
+        name: str
+        children: list["Node"] = []
+
+    def tree() -> Node:  # pragma: no cover
+        return Node(name="root")
+
+    schema = func_metadata(tree).output_schema
+    assert schema is not None
+    assert schema["type"] == "object"
+    assert schema["title"] == "Node"
+    assert "name" in schema["properties"]
+    assert "children" in schema["properties"]
+    assert "$defs" in schema
+    assert "Node" in schema["$defs"]
+    assert "$ref" not in schema
+
+
 def test_structured_output_primitives():
     """Test structured output with primitive return types"""
 

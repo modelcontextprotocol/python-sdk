@@ -524,6 +524,44 @@ class TestServerTools:
             assert isinstance(result.content[0], TextContent)
             assert '"name": "John Doe"' in result.content[0].text
 
+    async def test_tool_recursive_output_schema_lists_on_legacy(self):
+        """Recursive return types must not fail the whole tools/list on 2025-11-25 (#3337)."""
+
+        class Node(BaseModel):
+            name: str
+            children: list["Node"] = []
+
+        def tree() -> Node:
+            """Return a tree node."""
+            return Node(name="root")
+
+        def other() -> int:
+            """Return an integer."""
+            return 1
+
+        mcp = MCPServer("rec")
+        mcp.add_tool(tree)
+        mcp.add_tool(other)
+
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+            names = sorted(t.name for t in tools.tools)
+            assert names == ["other", "tree"]
+            tree_tool = next(t for t in tools.tools if t.name == "tree")
+            assert tree_tool.output_schema is not None
+            assert tree_tool.output_schema["type"] == "object"
+
+        async with Client(mcp, mode="legacy") as client:
+            tools = await client.list_tools()
+            names = sorted(t.name for t in tools.tools)
+            assert names == ["other", "tree"]
+            tree_tool = next(t for t in tools.tools if t.name == "tree")
+            assert tree_tool.output_schema is not None
+            assert tree_tool.output_schema["type"] == "object"
+            other_tool = next(t for t in tools.tools if t.name == "other")
+            assert other_tool.output_schema is not None
+            assert other_tool.output_schema["type"] == "object"
+
     async def test_tool_structured_output_primitive(self):
         """Test tool with structured output returning primitive type"""
 

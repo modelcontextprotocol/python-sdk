@@ -474,7 +474,7 @@ def _try_create_model_and_schema(
         # If we successfully created a model, try to get its schema
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
-            schema = model.model_json_schema(schema_generator=StrictJsonSchema)
+            schema = _ensure_object_root_schema(model.model_json_schema(schema_generator=StrictJsonSchema))
         except (
             PydanticUserError,
             TypeError,
@@ -494,6 +494,45 @@ def _try_create_model_and_schema(
         return model, schema, wrap_output
 
     return None, None, False
+
+
+def _ensure_object_root_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Give recursive Pydantic schemas a root ``type: object``.
+
+    Self-referential models serialize as ``{"$defs": {...}, "$ref": "#/$defs/Name"}``
+    with no root type. That is valid JSON Schema and fine on 2026-07-28 sessions,
+    but 2025-11-25 ``Tool.outputSchema`` requires ``type: "object"`` at the root, so
+    a legacy ``tools/list`` fails validation for the entire listing (issue #3337).
+
+    Inline the root ``$ref`` when it points at an object definition, keeping ``$defs``
+    so nested self-references still resolve. Fall back to an ``allOf`` wrapper if the
+    target is not an object schema.
+    """
+    if schema.get("type") == "object":
+        return schema
+
+    ref = schema.get("$ref")
+    defs = schema.get("$defs")
+    if not isinstance(ref, str) or not ref.startswith("#/$defs/") or not isinstance(defs, dict):
+        return schema
+
+    name = ref.rsplit("/", 1)[-1]
+    target = defs.get(name)
+    if isinstance(target, dict) and target.get("type") == "object":
+        inlined = {
+            **target,
+            **{key: value for key, value in schema.items() if key not in ("$ref", "$defs") and key not in target},
+            "$defs": defs,
+        }
+        return inlined
+
+    wrapped: dict[str, Any] = {
+        "type": "object",
+        "allOf": [{"$ref": ref}],
+        "$defs": defs,
+        **{key: value for key, value in schema.items() if key not in ("$ref", "$defs", "type", "allOf")},
+    }
+    return wrapped
 
 
 _no_default = object()
