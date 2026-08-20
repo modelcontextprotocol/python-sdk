@@ -173,13 +173,7 @@ class Tool(BaseModel):
                     return self.fn_metadata.convert_result(resolved) if convert_result else resolved
                 pass_directly |= resolved
 
-            result = await self.fn_metadata.call_fn_with_arg_validation(
-                self.fn,
-                self.is_async,
-                arguments,
-                pass_directly or None,
-                pre_validated=validated,
-            )
+            result = await self.fn_metadata.call_fn(self.fn, self.is_async, validated, pass_directly)
 
             # Registration rejects the annotated form of this combination; this covers
             # a body that returns an InputRequiredResult without declaring it. It is

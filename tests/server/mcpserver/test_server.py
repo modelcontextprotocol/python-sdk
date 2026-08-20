@@ -1831,6 +1831,30 @@ async def test_completion_handler_crash_is_logged_and_reaches_the_client_generic
     assert raised in _cause_chain(_logged_exception(caplog))
 
 
+async def test_completion_handler_returning_the_wrong_type_is_a_crash(caplog: pytest.LogCaptureFixture) -> None:
+    """SDK-defined: a completion handler whose return value isn't a Completion is the server's bug, so it is
+    logged as a crash and answered with the same generic -32603, not with 'Invalid request parameters'."""
+    mcp = MCPServer()
+
+    @mcp.completion()
+    async def complete(ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None):
+        wrong: Any = ["bold", "italic"]
+        return wrong
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.complete(
+                ref=PromptReference(type="ref/prompt", name="greet"), argument={"name": "style", "value": "b"}
+            )
+
+    assert exc.value.error == snapshot(ErrorData(code=INTERNAL_ERROR, message="Error completing argument style"))
+    assert _server_records(caplog) == snapshot(
+        [("ERROR", "Completion for argument 'style' raised an unexpected exception", True)]
+    )
+    assert isinstance(_cause_chain(_logged_exception(caplog))[-1], ValidationError)
+
+
 async def test_completion_handler_raising_mcp_error_passes_through(caplog: pytest.LogCaptureFixture) -> None:
     """SDK-defined: MCPError from a completion handler keeps its code and message and is not logged."""
     mcp = MCPServer()
@@ -2413,8 +2437,8 @@ async def test_tool_argument_validation_failure_is_logged_at_info_without_traceb
     assert result.is_error is True
     ((level, message, has_traceback),) = _server_records(caplog)
     assert (level, has_traceback) == ("INFO", False)
-    # Field names only: the rejected values are the caller's data and stay out of the log.
-    assert message == "Tool 'add' rejected arguments: a"
+    # Field names only, repr-quoted: the rejected values are the caller's data and stay out of the log.
+    assert message == "Tool 'add' rejected arguments: ['a']"
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 

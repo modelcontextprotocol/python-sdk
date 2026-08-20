@@ -14,6 +14,7 @@ from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequi
 from pydantic import BaseModel, Field, ValidationError
 from typing_extensions import NotRequired, ReadOnly, Required
 
+from mcp import MCPDeprecationWarning
 from mcp.server.mcpserver import Audio, Image
 from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata, func_metadata
@@ -102,33 +103,35 @@ async def test_complex_function_runtime_arg_validation_non_json():
     meta = func_metadata(complex_arguments_fn)
 
     # Test with minimum required arguments
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         complex_arguments_fn,
         fn_is_async=False,
-        arguments_to_validate={
-            "an_int": 1,
-            "must_be_none": None,
-            "must_be_none_dumb_annotation": None,
-            "list_of_ints": [1, 2, 3],
-            "list_str_or_str": "hello",
-            "an_int_annotated_with_field": 42,
-            "an_int_annotated_with_field_and_others": 5,
-            "an_int_annotated_with_junk": 100,
-            "unannotated": "test",
-            "my_model_a": {},
-            "my_model_a_forward_ref": {},
-            "my_model_b": {"how_many_shrimp": 5, "ok": {"x": 1}, "y": None},
-        },
+        arguments=meta.validate_arguments(
+            {
+                "an_int": 1,
+                "must_be_none": None,
+                "must_be_none_dumb_annotation": None,
+                "list_of_ints": [1, 2, 3],
+                "list_str_or_str": "hello",
+                "an_int_annotated_with_field": 42,
+                "an_int_annotated_with_field_and_others": 5,
+                "an_int_annotated_with_junk": 100,
+                "unannotated": "test",
+                "my_model_a": {},
+                "my_model_a_forward_ref": {},
+                "my_model_b": {"how_many_shrimp": 5, "ok": {"x": 1}, "y": None},
+            }
+        ),
         arguments_to_pass_directly=None,
     )
     assert result == "ok!"
 
     # Test with invalid types
     with pytest.raises(ValueError):
-        await meta.call_fn_with_arg_validation(
+        await meta.call_fn(
             complex_arguments_fn,
             fn_is_async=False,
-            arguments_to_validate={"an_int": "not an int"},
+            arguments=meta.validate_arguments({"an_int": "not an int"}),
             arguments_to_pass_directly=None,
         )
 
@@ -138,31 +141,33 @@ async def test_complex_function_runtime_arg_validation_with_json():
     """Test that JSON string arguments are parsed and validated correctly"""
     meta = func_metadata(complex_arguments_fn)
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         complex_arguments_fn,
         fn_is_async=False,
-        arguments_to_validate={
-            "an_int": 1,
-            "must_be_none": None,
-            "must_be_none_dumb_annotation": None,
-            "list_of_ints": "[1, 2, 3]",  # JSON string
-            "list_str_or_str": '["a", "b", "c"]',  # JSON string
-            "an_int_annotated_with_field": 42,
-            "an_int_annotated_with_field_and_others": "5",  # JSON string
-            "an_int_annotated_with_junk": 100,
-            "unannotated": "test",
-            "my_model_a": "{}",  # JSON string
-            "my_model_a_forward_ref": "{}",  # JSON string
-            "my_model_b": '{"how_many_shrimp": 5, "ok": {"x": 1}, "y": null}',
-        },
+        arguments=meta.validate_arguments(
+            {
+                "an_int": 1,
+                "must_be_none": None,
+                "must_be_none_dumb_annotation": None,
+                "list_of_ints": "[1, 2, 3]",  # JSON string
+                "list_str_or_str": '["a", "b", "c"]',  # JSON string
+                "an_int_annotated_with_field": 42,
+                "an_int_annotated_with_field_and_others": "5",  # JSON string
+                "an_int_annotated_with_junk": 100,
+                "unannotated": "test",
+                "my_model_a": "{}",  # JSON string
+                "my_model_a_forward_ref": "{}",  # JSON string
+                "my_model_b": '{"how_many_shrimp": 5, "ok": {"x": 1}, "y": null}',
+            }
+        ),
         arguments_to_pass_directly=None,
     )
     assert result == "ok!"
 
 
 @pytest.mark.anyio
-async def test_call_fn_does_not_mutate_pre_validated():
-    """A caller-provided `pre_validated` dict must not be mutated by the call."""
+async def test_call_fn_does_not_mutate_the_arguments_dict():
+    """The validated-arguments dict a caller passes to `call_fn` is not mutated when injected kwargs are merged."""
 
     def fn(x: int, ctx: str) -> str:
         return f"{x}:{ctx}"
@@ -171,15 +176,32 @@ async def test_call_fn_does_not_mutate_pre_validated():
     pre_validated = meta.validate_arguments({"x": 1})
     snapshot = dict(pre_validated)
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         fn,
         fn_is_async=False,
-        arguments_to_validate={"x": 1},
+        arguments=pre_validated,
         arguments_to_pass_directly={"ctx": "injected"},
-        pre_validated=pre_validated,
     )
     assert result == "1:injected"
     assert pre_validated == snapshot  # `ctx` was not leaked into the caller's dict
+
+
+@pytest.mark.anyio
+async def test_call_fn_with_arg_validation_still_works_and_warns():
+    """The pre-3.0 helper keeps validating-then-calling, and says it is deprecated (visible MCPDeprecationWarning)."""
+
+    def fn(x: int, ctx: str) -> str:
+        return f"{x}:{ctx}"
+
+    meta = func_metadata(fn, skip_names=["ctx"])
+    with pytest.warns(MCPDeprecationWarning, match="call_fn_with_arg_validation"):
+        assert await meta.call_fn_with_arg_validation(fn, False, {"x": "2"}, {"ctx": "a"}) == "2:a"  # pyright: ignore[reportDeprecated]
+    with pytest.warns(MCPDeprecationWarning):
+        validated = meta.validate_arguments({"x": 3})
+        result = await meta.call_fn_with_arg_validation(  # pyright: ignore[reportDeprecated]
+            fn, False, {}, {"ctx": "b"}, pre_validated=validated
+        )
+        assert result == "3:b"
 
 
 def test_str_vs_list_str():
@@ -290,10 +312,10 @@ async def test_lambda_function():
     }
 
     async def check_call(args):
-        return await meta.call_fn_with_arg_validation(
+        return await meta.call_fn(
             fn,
             fn_is_async=False,
-            arguments_to_validate=args,
+            arguments=meta.validate_arguments(args),
             arguments_to_pass_directly=None,
         )
 
@@ -555,10 +577,10 @@ async def test_str_annotation_runtime_validation():
     # Test with a JSON object string
     json_payload = '{"action": "create", "resource": "user", "data": {"name": "Test User"}}'
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         handle_json_payload,
         fn_is_async=False,
-        arguments_to_validate={"payload": json_payload, "strict_mode": True},
+        arguments=meta.validate_arguments({"payload": json_payload, "strict_mode": True}),
         arguments_to_pass_directly=None,
     )
 
@@ -568,10 +590,10 @@ async def test_str_annotation_runtime_validation():
     # Test with JSON array string
     json_array_payload = '["task1", "task2", "task3"]'
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         handle_json_payload,
         fn_is_async=False,
-        arguments_to_validate={"payload": json_array_payload},
+        arguments=meta.validate_arguments({"payload": json_array_payload}),
         arguments_to_pass_directly=None,
     )
 
@@ -1306,17 +1328,19 @@ async def test_basemodel_reserved_names_validation():
     meta = func_metadata(func_with_reserved_names)
 
     # Test validation with reserved names
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         func_with_reserved_names,
         fn_is_async=False,
-        arguments_to_validate={
-            "model_dump": "test_dump",
-            "model_validate": 42,
-            "dict": ["a", "b", "c"],
-            "json": {"key": "value"},
-            "validate": True,
-            "normal_param": "normal",
-        },
+        arguments=meta.validate_arguments(
+            {
+                "model_dump": "test_dump",
+                "model_validate": 42,
+                "dict": ["a", "b", "c"],
+                "json": {"key": "value"},
+                "validate": True,
+                "normal_param": "normal",
+            }
+        ),
         arguments_to_pass_directly=None,
     )
 

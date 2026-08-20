@@ -46,9 +46,10 @@ class ToolError(MCPServerError):
     Raise this from a tool (or a resolver) for a failure you saw coming: the
     call returns `is_error=True` with your message in `content` for the model to
     read, and the server logs it at INFO without a traceback. Any other exception
-    is treated as a crash: the model sees only `Error executing tool <name>`, and
-    the server logs the traceback at ERROR. A `ResourceError` that escapes the tool
-    (say from `ctx.read_resource()`) counts as anticipated too.
+    (bar `MCPError`, which is a protocol error) is treated as a crash: the model
+    sees only `Error executing tool <name>`, and the server logs the traceback at
+    ERROR. A `ResourceError` that escapes the tool (say from `ctx.read_resource()`)
+    counts as anticipated too.
 
     The SDK raises it too, for an unknown tool name and for arguments that fail
     the input schema, and `UnexpectedToolError` subclasses it, so `except ToolError`
@@ -61,8 +62,9 @@ class UnexpectedToolError(ToolError):
 
     The SDK raises this itself, around a crash in the tool (or a resolver) or a
     return value that fails output conversion. You never raise it. The message is
-    only `Error executing tool <name>`, so nothing from the original reaches the
-    client. `__cause__` is the original exception, which the server logs with its
+    only `Error executing tool <name>` (followed by the same for a nested tool or
+    resource that crashed), so nothing from the original reaches the client.
+    `__cause__` is the original exception, which the server logs with its
     traceback before returning the `is_error=True` result. Catch it around
     `MCPServer.call_tool()` to tell a crash from a deliberate `ToolError`.
     """

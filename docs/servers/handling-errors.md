@@ -125,7 +125,7 @@ When it can't, raise `ResourceNotFoundError`. The SDK turns it into the protocol
 }
 ```
 
-Notice there is no `is_error=True` half-result here. A resource read either returns contents or fails: resources have only the protocol path. `ResourceError` is the same thing for a failure that isn't "not found" (`-32603`, your message). Any other exception is a crash: the client gets `-32603` naming only the URI, and the traceback goes to your log at `ERROR`. Templates and everything else about resources live in **[Resources](resources.md)**.
+Notice there is no `is_error=True` half-result here. A resource read either returns contents or fails: resources have only the protocol path. `ResourceError` is the same thing for a failure that isn't "not found" (`-32603`, your message), and both are one `INFO` line in your log. Any other exception bar `MCPError` is a crash: the client gets `-32603` naming only the URI, and the traceback goes to your log at `ERROR`. Templates and everything else about resources live in **[Resources](resources.md)**.
 
 ## Errors you never raise
 
@@ -136,8 +136,8 @@ Send `get_author` a `title` that isn't a string and the SDK rejects it against t
 It means a whole class of `raise` statements you don't write: don't re-validate your own type hints.
 
 !!! info
-    Everything on this page is what a **client** sees, and the in-memory `Client` you'll write
-    tests with sees exactly the same thing. Even `raise_exceptions=True` doesn't hand a failing
+    Everything a **client** sees on this page, the in-memory `Client` you'll write tests with
+    sees too. Even `raise_exceptions=True` doesn't hand a failing
     tool's exception back to the caller: by the time that flag could act, your exception is already
     the `is_error=True` result. Assert on the result. If you need the traceback of a crash, it is in
     the server's log, and pytest's `caplog` captures it. **[Testing](../get-started/testing.md)** covers the pattern.
@@ -150,7 +150,7 @@ It means a whole class of `raise` statements you don't write: don't re-validate 
 * Any **other exception** is a crash -> `is_error=True` with only `Error executing tool <name>` for the model, and an `ERROR` record with the traceback for you.
 * `ResourceNotFoundError` from a resource handler -> the protocol's `-32602`, with the URI in `data`.
 * Bad arguments are rejected against the schema before your function runs; you don't `raise` for those.
-* Imports: `from mcp import MCPError`, `from mcp.server.mcpserver.exceptions import ToolError, ResourceNotFoundError`, and the error-code constants from `mcp.types`.
+* Imports: `from mcp import MCPError`, `from mcp.server.mcpserver.exceptions import ToolError, ResourceError, ResourceNotFoundError`, and the error-code constants from `mcp.types`.
 
 Errors handled. That is everything a server *exposes*. What every handler can read, and do back to the client while it runs, is the next section: **[Inside your handler](../handlers/index.md)**.
 

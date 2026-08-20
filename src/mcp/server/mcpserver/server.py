@@ -431,7 +431,7 @@ class MCPServer(Generic[LifespanResultT]):
                 if isinstance(exc.__cause__, ValidationError):
                     # Field names only: the rejected values are the caller's data.
                     fields = sorted({".".join(str(part) for part in err["loc"]) for err in exc.__cause__.errors()})
-                    logger.info("Tool %r rejected arguments: %s", params.name, ", ".join(fields))
+                    logger.info("Tool %r rejected arguments: %r", params.name, fields)
                 else:
                     # %r keeps peer-supplied text on one line.
                     logger.info("Tool %r failed: %r", params.name, str(exc))
@@ -521,10 +521,10 @@ class MCPServer(Generic[LifespanResultT]):
 
         Raises:
             ToolError: If the tool is unknown, the arguments fail validation, or the
-                tool (or a resolver) raises `ToolError`.
-            UnexpectedToolError: If the tool (or a resolver) raises anything other than
-                `ToolError` or `MCPError`, or its return value fails output conversion.
-                `__cause__` is the original exception.
+                tool (or a resolver) raises `ToolError` or `ResourceError`.
+            UnexpectedToolError: If the tool (or a resolver) raises anything else, or
+                its return value fails output conversion. `__cause__` is the original
+                exception.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
@@ -740,6 +740,9 @@ class MCPServer(Generic[LifespanResultT]):
             ) -> CompleteResult:
                 try:
                     result = await func(params.ref, params.argument, params.context)
+                    return CompleteResult(
+                        completion=result if result is not None else Completion(values=[], total=None, has_more=None),
+                    )
                 except MCPError:
                     raise
                 except Exception as exc:
@@ -747,9 +750,6 @@ class MCPServer(Generic[LifespanResultT]):
                     raise MCPError(
                         code=INTERNAL_ERROR, message=f"Error completing argument {params.argument.name}"
                     ) from exc
-                return CompleteResult(
-                    completion=result if result is not None else Completion(values=[], total=None, has_more=None),
-                )
 
             self._lowlevel_server.add_request_handler("completion/complete", CompleteRequestParams, handler)
             return func

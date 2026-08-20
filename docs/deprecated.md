@@ -123,7 +123,7 @@ That is the whole API. There is no per-method switch, and you don't want one: th
     `Error executing tool old_log`, and the captured server log names the culprit:
 
     ```text
-    mcp.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    mcp.shared.exceptions.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
     ```
 
     One line of pytest configuration, and a deprecated call can never sneak back into your
