@@ -46,6 +46,16 @@ SessionMessageOrError = SessionMessage | Exception
 StreamWriter = ContextSendStream[SessionMessageOrError]
 StreamReader = ContextReceiveStream[SessionMessage]
 
+
+async def _send_or_ignore_closed(read_stream_writer: StreamWriter, message: SessionMessageOrError) -> bool:
+    try:
+        await read_stream_writer.send(message)
+    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+        logger.debug("Read stream closed before Streamable HTTP message could be delivered", exc_info=True)
+        return False
+    return True
+
+
 MCP_SESSION_ID = "mcp-session-id"
 LAST_EVENT_ID = "last-event-id"
 
@@ -179,17 +189,17 @@ class StreamableHTTPTransport:
                 # Otherwise, return False to continue listening
                 return isinstance(message, JSONRPCResponse | JSONRPCError)
 
-            # Forwarding to a closed read stream lands here when the caller cancels mid-SSE
-            # (BrokenResourceError, not a parse failure); coverage is timing-dependent in the
-            # streaming story's modern HTTP cancellation leg.
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                logger.debug("Read stream closed while forwarding SSE message", exc_info=True)
+                return True
             except Exception as exc:  # pragma: lax no cover
                 logger.exception("Error parsing SSE message")
                 if original_request_id is not None:
                     error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse SSE message: {exc}")
                     error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
-                    await read_stream_writer.send(error_msg)
+                    await _send_or_ignore_closed(read_stream_writer, error_msg)
                     return True
-                await read_stream_writer.send(exc)
+                await _send_or_ignore_closed(read_stream_writer, exc)
                 return False
         else:  # pragma: no cover
             logger.warning(f"Unknown SSE event: {sse.event}")
@@ -508,12 +518,15 @@ class StreamableHTTPTransport:
                 # Track for potential further reconnection
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms
+                made_progress = False
 
                 async for sse in event_source:
                     if sse.id:  # pragma: no branch
                         reconnect_last_event_id = sse.id
                     if sse.retry is not None:
                         reconnect_retry_ms = sse.retry
+                    if sse.event == "message" and bool(sse.data):
+                        made_progress = True
 
                     is_complete = await self._handle_sse_event(
                         sse,
@@ -525,10 +538,12 @@ class StreamableHTTPTransport:
                         await event_source.response.aclose()
                         return
 
-                # Stream ended again without response - reconnect again (reset attempt counter)
+                # Stream ended again without response - reconnect again. Only reset
+                # the retry counter when the resumed stream delivered real data.
                 logger.info("SSE stream disconnected, reconnecting...")
-                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
-        except Exception as e:  # pragma: no cover
+                next_attempt = 0 if made_progress else attempt + 1
+                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, next_attempt)
+        except Exception as e:
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
