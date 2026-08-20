@@ -734,7 +734,18 @@ class Server(Generic[LifespanResultT]):
         custom_starlette_routes: list[Route] | None = None,
         debug: bool = False,
     ) -> Starlette:
-        """Return an instance of the StreamableHTTP server app."""
+        """Return an instance of the StreamableHTTP server app.
+
+        `token_verifier` is the bearer gate: with one, every request to the MCP
+        endpoint must carry an `Authorization: Bearer` token the verifier
+        accepts, and anything else is answered 401. `auth` describes that gate
+        to clients: its `required_scopes` are enforced, and when
+        `resource_server_url` is set the app serves RFC 9728 protected-resource
+        metadata and points the 401 challenge at it. Without a verifier nothing
+        is gated. `auth_server_provider` (with `auth`) additionally mounts the
+        SDK's authorization-server routes, advertised with `auth.issuer_url`
+        as the issuer.
+        """
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(
@@ -760,43 +771,33 @@ class Server(Generic[LifespanResultT]):
         # Create routes
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
-        required_scopes: list[str] = []
 
-        # Set up auth if configured
-        if auth:
-            required_scopes = auth.required_scopes or []
-
-            # Add auth middleware if token verifier is available
-            if token_verifier:
-                middleware = [
-                    Middleware(
-                        AuthenticationMiddleware,
-                        backend=BearerAuthBackend(token_verifier),
-                    ),
-                    Middleware(AuthContextMiddleware),
-                ]
-
-            # Add auth endpoints if auth server provider is configured
-            if auth_server_provider:
-                routes.extend(
-                    create_auth_routes(
-                        provider=auth_server_provider,
-                        issuer_url=auth.issuer_url,
-                        service_documentation_url=auth.service_documentation_url,
-                        client_registration_options=auth.client_registration_options,
-                        revocation_options=auth.revocation_options,
-                        identity_assertion_enabled=auth.identity_assertion_enabled,
-                    )
+        # Embedded authorization server (the legacy all-in-one shape)
+        if auth and auth_server_provider:
+            routes.extend(
+                create_auth_routes(
+                    provider=auth_server_provider,
+                    issuer_url=auth.issuer_url,
+                    service_documentation_url=auth.service_documentation_url,
+                    client_registration_options=auth.client_registration_options,
+                    revocation_options=auth.revocation_options,
+                    identity_assertion_enabled=auth.identity_assertion_enabled,
                 )
+            )
 
-        # Set up routes with or without auth
+        # A token verifier is the bearer gate: authenticate every request and
+        # refuse the MCP endpoint to anything the verifier does not accept.
+        # `auth` only adds to that: required scopes, and the RFC 9728 metadata
+        # URL the 401 challenge points at.
         if token_verifier:
-            # Determine resource metadata URL
+            middleware = [
+                Middleware(AuthenticationMiddleware, backend=BearerAuthBackend(token_verifier)),
+                Middleware(AuthContextMiddleware),
+            ]
+            required_scopes = (auth.required_scopes if auth else None) or []
             resource_metadata_url = None
-            if auth and auth.resource_server_url:  # pragma: no branch
-                # Build compliant metadata URL for WWW-Authenticate header
+            if auth and auth.resource_server_url:
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
-
             routes.append(
                 Route(
                     streamable_http_path,
@@ -804,13 +805,7 @@ class Server(Generic[LifespanResultT]):
                 )
             )
         else:
-            # Auth is disabled, no wrapper needed
-            routes.append(
-                Route(
-                    streamable_http_path,
-                    endpoint=streamable_http_app,
-                )
-            )
+            routes.append(Route(streamable_http_path, endpoint=streamable_http_app))
 
         # Add protected resource metadata endpoint if configured as RS
         if auth and auth.resource_server_url:

@@ -18,11 +18,13 @@ from mcp.server.auth.provider import (
     AuthorizationCode,
     AuthorizationParams,
     OAuthAuthorizationServerProvider,
+    ProviderTokenVerifier,
     RefreshToken,
     construct_redirect_uri,
 )
 from mcp.server.auth.routes import create_auth_routes
-from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
@@ -308,6 +310,22 @@ async def auth_code(
         "redirect_uri": auth_params["redirect_uri"],
         "state": query_params.get("state", [None])[0],
     }
+
+
+def test_auth_server_provider_without_auth_settings_is_refused_at_construction() -> None:
+    """An embedded authorization server takes its issuer from `auth=`, so the provider alone is refused."""
+    with pytest.raises(ValueError) as exc_info:
+        MCPServer("as", auth_server_provider=MockOAuthProvider())
+    assert str(exc_info.value) == "Cannot specify auth_server_provider without auth settings"
+
+
+def test_auth_server_provider_and_token_verifier_together_are_refused_at_construction() -> None:
+    """An embedded authorization server verifies its own tokens, so a second verifier alongside it is refused."""
+    provider = MockOAuthProvider()
+    settings = AuthSettings(issuer_url=AnyHttpUrl("https://auth.example.com"), resource_server_url=None)
+    with pytest.raises(ValueError) as exc_info:
+        MCPServer("as", auth=settings, auth_server_provider=provider, token_verifier=ProviderTokenVerifier(provider))
+    assert str(exc_info.value) == "Cannot specify both auth_server_provider and token_verifier"
 
 
 class TestAuthEndpoints:

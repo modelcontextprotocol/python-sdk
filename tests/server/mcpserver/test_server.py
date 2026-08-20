@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
+import httpx2
 import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
@@ -41,12 +42,14 @@ from mcp_types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import BaseModel
+from pydantic import AnyHttpUrl, BaseModel
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 from typing_extensions import NotRequired, TypedDict
 
 from mcp.client import Client
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
@@ -1810,6 +1813,61 @@ def test_streamable_http_no_redirect() -> None:
 
     # Verify path values
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
+
+
+class _PresharedTokenVerifier(TokenVerifier):
+    async def verify_token(self, token: str) -> AccessToken | None:
+        return AccessToken(token=token, client_id="notes-client", scopes=["notes:read"]) if token == "good" else None
+
+
+_NO_DNS_REBINDING_PROTECTION = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+
+async def test_sse_app_with_a_verifier_alone_gates_both_routes_and_publishes_nothing() -> None:
+    """`token_verifier=` without `auth=` puts `/sse` and `/messages/` behind the bearer gate, with no metadata route."""
+    app = MCPServer("test", token_verifier=_PresharedTokenVerifier()).sse_app(
+        transport_security=_NO_DNS_REBINDING_PROTECTION
+    )
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as http:
+        sse = await http.get("/sse")
+        message = await http.post("/messages/", json={})
+        authenticated = await http.post("/messages/", json={}, headers={"Authorization": "Bearer good"})
+        metadata = await http.get("/.well-known/oauth-protected-resource/sse")
+
+    challenge = 'Bearer error="invalid_token", error_description="Authentication required"'
+    assert (sse.status_code, sse.headers["www-authenticate"]) == (401, challenge)
+    assert (message.status_code, message.headers["www-authenticate"]) == (401, challenge)
+    # Past the gate, the transport itself answers: a POST with no session_id is a 400 from SseServerTransport.
+    assert (authenticated.status_code, authenticated.text) == (400, "session_id is required")
+    assert metadata.status_code == 404
+
+
+async def test_sse_app_with_auth_settings_points_the_challenge_at_its_metadata() -> None:
+    """With `auth=`, the SSE gate's 401 carries `resource_metadata` and the RFC 9728 document is served."""
+    settings = AuthSettings(
+        issuer_url=AnyHttpUrl("https://auth.example.com"),
+        resource_server_url=AnyHttpUrl("http://127.0.0.1:8000/sse"),
+        required_scopes=["notes:read"],
+    )
+    app = MCPServer("test", token_verifier=_PresharedTokenVerifier(), auth=settings).sse_app(
+        transport_security=_NO_DNS_REBINDING_PROTECTION
+    )
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as http:
+        sse = await http.get("/sse")
+        metadata = await http.get("/.well-known/oauth-protected-resource/sse")
+
+    assert sse.status_code == 401
+    assert sse.headers["www-authenticate"] == (
+        'Bearer error="invalid_token", error_description="Authentication required", '
+        'resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/sse"'
+    )
+    assert metadata.status_code == 200
+    assert metadata.json() == {
+        "resource": "http://127.0.0.1:8000/sse",
+        "authorization_servers": ["https://auth.example.com/"],
+        "scopes_supported": ["notes:read"],
+        "bearer_methods_supported": ["header"],
+    }
 
 
 async def test_report_progress_delegates_to_session_report_progress():
