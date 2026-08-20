@@ -202,7 +202,7 @@ Invalid Host header
 The fix is the same `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` shown under `Server returned an error response`. Two of its edges are worth naming:
 
 * An `allowed_hosts` entry is an exact string. `"mcp.example.com"` matches a bare `Host` header and `"mcp.example.com:*"` matches any explicit port. List both.
-* A `403` with the body `Invalid Origin header` is the sibling check on the `Origin` header. It only fires for browsers (nothing else sends `Origin`), and `allowed_origins=` is its allowlist.
+* A `403` with the body `Invalid Origin header` is the sibling check on the `Origin` header, and `allowed_origins=` is its allowlist. Browsers send `Origin`, and so does the python `Client`: it stamps a same-origin value (`scheme://host[:port]`) derived from the URL you connect to, so that spec-compliant servers enforcing CSRF / DNS-rebinding protection accept the handshake. That is why the allowlist above names `http://mcp.example.com` alongside the host — the client's own `Origin` has to be on it.
 
 **[Deploy & scale](run/deploy.md)** has the full treatment, including when switching the check off is the honest configuration.
 
