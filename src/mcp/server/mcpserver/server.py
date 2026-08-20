@@ -607,6 +607,20 @@ class MCPServer(Generic[LifespanResultT]):
             structured_output=structured_output,
         )
 
+    def get_tool(self, name: str) -> Tool | None:
+        """Get a registered tool by name.
+
+        Returns the tool registration (including its mutable `parameters` JSON schema)
+        so callers can inspect or update a tool without reaching into `_tool_manager`.
+
+        Args:
+            name: The name of the tool to look up
+
+        Returns:
+            The registered tool, or `None` if no tool with that name exists
+        """
+        return self._tool_manager.get_tool(name)
+
     def remove_tool(self, name: str) -> None:
         """Remove a tool from the server by name.
 

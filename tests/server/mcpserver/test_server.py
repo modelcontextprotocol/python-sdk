@@ -2361,6 +2361,39 @@ def test_remove_prompt_removes_and_unknown_name_raises() -> None:
         mcp.remove_prompt("greeting")
 
 
+def test_get_tool_returns_registered_tool_or_none() -> None:
+    """SDK-defined: public get_tool completes add/remove without using _tool_manager."""
+    mcp = MCPServer()
+
+    def echo(text: str) -> str:  # pragma: no cover
+        return text
+
+    mcp.add_tool(echo)
+    tool = mcp.get_tool("echo")
+    assert tool is not None
+    assert tool.name == "echo"
+    assert mcp.get_tool("missing") is None
+
+
+def test_get_tool_exposes_mutable_parameters_for_schema_updates() -> None:
+    """SDK-defined: callers can update a tool's inputSchema via get_tool after registration."""
+    mcp = MCPServer()
+
+    def act(action: str) -> str:  # pragma: no cover
+        return action
+
+    mcp.add_tool(act)
+    tool = mcp.get_tool("act")
+    assert tool is not None
+    tool.parameters = {
+        "type": "object",
+        "properties": {"action": {"type": "string", "const": "ping"}},
+        "required": ["action"],
+    }
+    assert mcp.get_tool("act") is tool
+    assert tool.parameters["properties"]["action"]["const"] == "ping"
+
+
 @pytest.mark.anyio
 async def test_middleware_kwarg_and_property_share_the_low_level_chain() -> None:
     """SDK-defined: `MCPServer(middleware=[...])` appends to the low-level chain after
