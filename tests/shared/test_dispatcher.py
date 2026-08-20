@@ -474,11 +474,35 @@ async def test_minted_ids_skip_a_caller_supplied_id_still_in_flight(pair_factory
 
                 tg.start_soon(parked)
                 await entered.wait()
-                # The counter mints 1 and 2, then skips the occupied 3 to 4.
+                # Accepting "3" advanced the counter past its coerced key, so
+                # the mints start at 4.
                 for _ in range(3):
                     await client.send_raw_request("plain", None)
                 release.set()
-            assert [request_id for request_id in seen_ids if request_id != "3"] == [1, 2, 4]
+            assert [request_id for request_id in seen_ids if request_id != "3"] == [4, 5, 6]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("supplied_id", [2, "2"], ids=["int", "numeric-string"])
+async def test_minted_ids_never_reuse_a_completed_supplied_id(pair_factory: PairFactory, supplied_id: RequestId):
+    """Ids are single-use within a session (spec: "The request ID MUST NOT have been
+    previously used by the requestor within the same session"), so the mint counter
+    skips a supplied integer key even after that request completes — a peer that
+    tracks ids per session would see two different requests under one id."""
+    seen_ids: list[RequestId | None] = []
+
+    async def record(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        seen_ids.append(ctx.request_id)
+        return {}
+
+    async with running_pair(pair_factory, server_on_request=record) as (client, *_):
+        with anyio.fail_after(5):
+            await client.send_raw_request("supplied", None, {"request_id": supplied_id})
+            await client.send_raw_request("plain", None)
+            await client.send_raw_request("plain", None)
+    assert seen_ids == [supplied_id, 3, 4]
 
 
 @pytest.mark.anyio
