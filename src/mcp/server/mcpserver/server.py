@@ -87,9 +87,9 @@ from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
 
@@ -365,6 +365,7 @@ class MCPServer(Generic[LifespanResultT]):
         port: int = ...,
         sse_path: str = ...,
         message_path: str = ...,
+        max_request_body_size: int = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -1031,6 +1032,7 @@ class MCPServer(Generic[LifespanResultT]):
         port: int = 8000,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using SSE transport."""
@@ -1039,6 +1041,7 @@ class MCPServer(Generic[LifespanResultT]):
         starlette_app = self.sse_app(
             sse_path=sse_path,
             message_path=message_path,
+            max_request_body_size=max_request_body_size,
             transport_security=transport_security,
             host=host,
         )
@@ -1093,6 +1096,7 @@ class MCPServer(Generic[LifespanResultT]):
         *,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -1105,7 +1109,9 @@ class MCPServer(Generic[LifespanResultT]):
                 allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
             )
 
-        sse = SseServerTransport(message_path, security_settings=transport_security)
+        sse = SseServerTransport(
+            message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
+        )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available

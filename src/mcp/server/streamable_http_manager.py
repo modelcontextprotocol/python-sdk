@@ -4,25 +4,25 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections import deque
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import anyio
 from anyio.abc import TaskStatus
 from mcp_types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
-from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import Receive, Scope, Send
 
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
 from mcp.server.connection import Connection
 from mcp.server.runner import serve_connection, serve_loop
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, EventStore, StreamableHTTPServerTransport
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE as DEFAULT_MAX_REQUEST_BODY_SIZE
+from mcp.server.transport_security import RequestBodyLimitMiddleware as RequestBodyLimitMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._compat import resync_tracer
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
@@ -33,9 +33,6 @@ if TYPE_CHECKING:
     from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MAX_REQUEST_BODY_SIZE: Final = 4 * 1024 * 1024
-"""Default maximum Streamable HTTP request body size in bytes (4 MiB)."""
 
 
 class StreamableHTTPSessionManager:
@@ -70,7 +67,7 @@ class StreamableHTTPSessionManager:
             retry_interval is also configured, ensure the idle timeout comfortably exceeds the retry interval to
             avoid reaping sessions during normal SSE polling gaps. Default is None (no timeout). A value of 1800
             (30 minutes) is recommended for most deployments.
-        max_request_body_size: Maximum size in bytes for Streamable HTTP POST request bodies. Requests that
+        max_request_body_size: Maximum size in bytes for Streamable HTTP request bodies. Requests that
             exceed this limit receive a 413 response before parsing or session creation. Defaults to 4 MiB.
     """
 
@@ -369,66 +366,6 @@ class StreamableHTTPSessionManager:
                 body.model_dump_json(by_alias=True, exclude_unset=True), status_code=404, media_type="application/json"
             )
             await response(scope, receive, send)
-
-
-class RequestBodyLimitMiddleware:
-    """Reject oversized HTTP request bodies before invoking an ASGI application."""
-
-    def __init__(self, app: ASGIApp, max_body_size: int) -> None:
-        self.app = app
-        self.max_body_size = max_body_size
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["method"] != "POST":
-            await self.app(scope, receive, send)
-            return
-
-        headers = Headers(scope=scope)
-        content_length = headers.get("content-length")
-        if content_length is not None:
-            try:
-                declared_size = int(content_length)
-            except ValueError:
-                pass
-            else:
-                if declared_size > self.max_body_size:
-                    response = Response("Request body too large", status_code=413)
-                    return await response(scope, receive, send)
-
-        received_body = bytearray()
-        received_request = False
-        body_complete = False
-        trailing_message: Message | None = None
-        while True:
-            message = await receive()
-            if message["type"] != "http.request":
-                trailing_message = message
-                break
-
-            received_request = True
-            body = message.get("body", b"")
-            if len(received_body) + len(body) > self.max_body_size:
-                response = Response("Request body too large", status_code=413)
-                return await response(scope, receive, send)
-            received_body.extend(body)
-            if not message.get("more_body", False):
-                body_complete = True
-                break
-
-        cached_messages: deque[Message] = deque()
-        if received_request:
-            cached_messages.append(
-                {"type": "http.request", "body": bytes(received_body), "more_body": not body_complete}
-            )
-        if trailing_message is not None:
-            cached_messages.append(trailing_message)
-
-        async def replay() -> Message:
-            if cached_messages:
-                return cached_messages.popleft()
-            return await receive()
-
-        await self.app(scope, replay, send)
 
 
 class StreamableHTTPASGIApp:

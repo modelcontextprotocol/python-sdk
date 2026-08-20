@@ -18,7 +18,7 @@ from mcp.server import Server
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.sse import SseServerTransport
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared._stream_protocols import WriteStream
 from mcp.shared.message import SessionMessage
 from tests.interaction.transports import StreamingASGITransport
@@ -204,9 +204,18 @@ def _authenticated_user(client_id: str, subject: str | None = None, issuer: str 
 
 
 def _sse_scope(
-    method: str, path: str, user: AuthenticatedUser | None, *, query_string: bytes = b"", body: bytes = b""
+    method: str,
+    path: str,
+    user: AuthenticatedUser | None,
+    *,
+    query_string: bytes = b"",
+    body: bytes | list[bytes] = b"",
 ) -> tuple[Scope, Receive, Send, list[Message]]:
-    """Build an ASGI scope/receive/send triple for a request to the SSE transport."""
+    """Build an ASGI scope/receive/send triple for a request to the SSE transport.
+
+    `body` may be a list of chunks to deliver the request body over several `http.request` messages;
+    no Content-Length header is set either way.
+    """
     scope: Scope = {
         "type": "http",
         "method": method,
@@ -218,9 +227,11 @@ def _sse_scope(
     if user is not None:
         scope["user"] = user
     sent: list[Message] = []
+    chunks = list(body) if isinstance(body, list) else [body]
 
     async def receive() -> Message:
-        return {"type": "http.request", "body": body, "more_body": False}
+        chunk = chunks.pop(0)
+        return {"type": "http.request", "body": chunk, "more_body": bool(chunks)}
 
     async def send(message: Message) -> None:
         sent.append(message)
@@ -231,6 +242,10 @@ def _sse_scope(
 def _response_status(sent: list[Message]) -> int:
     response_start = next(msg for msg in sent if msg["type"] == "http.response.start")
     return response_start["status"]
+
+
+def _response_body(sent: list[Message]) -> bytes:
+    return b"".join(msg.get("body", b"") for msg in sent if msg["type"] == "http.response.body")
 
 
 async def _post_message(transport: SseServerTransport, session_id: str, user: AuthenticatedUser | None) -> int:
@@ -366,6 +381,80 @@ async def test_sse_post_with_a_disallowed_host_is_rejected_before_session_lookup
 
     await transport.handle_post_message(scope, receive, send)
     assert _response_status(sent) == 421
+
+
+# A well-formed session ID that no live session owns.
+_UNKNOWN_SESSION = b"session_id=12345678123456781234567812345678"
+
+
+@pytest.mark.anyio
+async def test_sse_post_body_over_the_limit_returns_413():
+    """A POST body larger than max_request_body_size is answered with 413 before any session handling."""
+    transport = SseServerTransport("/messages/", max_request_body_size=8)
+    scope, receive, send, sent = _sse_scope(
+        "POST", "/messages/", None, query_string=_UNKNOWN_SESSION, body=b"123456789"
+    )
+
+    await transport.handle_post_message(scope, receive, send)
+    assert _response_status(sent) == 413
+    assert _response_body(sent) == b"Request body too large"
+
+
+@pytest.mark.anyio
+async def test_sse_post_body_limit_defaults_to_four_mib():
+    """Without an explicit limit, a body one byte over 4 MiB (and no Content-Length) is answered with 413."""
+    transport = SseServerTransport("/messages/")
+    body = b"x" * (DEFAULT_MAX_REQUEST_BODY_SIZE + 1)
+    scope, receive, send, sent = _sse_scope("POST", "/messages/", None, query_string=_UNKNOWN_SESSION, body=body)
+
+    await transport.handle_post_message(scope, receive, send)
+    assert _response_status(sent) == 413
+
+
+@pytest.mark.anyio
+async def test_sse_post_streamed_body_over_the_limit_returns_413():
+    """The limit counts bytes across body chunks, not just a declared Content-Length."""
+    transport = SseServerTransport("/messages/", max_request_body_size=8)
+    scope, receive, send, sent = _sse_scope(
+        "POST", "/messages/", None, query_string=_UNKNOWN_SESSION, body=[b"1234", b"56789"]
+    )
+
+    await transport.handle_post_message(scope, receive, send)
+    assert _response_status(sent) == 413
+
+
+@pytest.mark.anyio
+async def test_sse_post_within_the_limit_reaches_session_lookup():
+    """A body within the limit is passed on intact: an unknown session still gets its 404."""
+    transport = SseServerTransport("/messages/", max_request_body_size=64)
+    scope, receive, send, sent = _sse_scope(
+        "POST", "/messages/", None, query_string=_UNKNOWN_SESSION, body=[b'{"jsonrpc": ', b'"2.0"}']
+    )
+
+    await transport.handle_post_message(scope, receive, send)
+    assert _response_status(sent) == 404
+    assert _response_body(sent) == b"Could not find session"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["GET", "PUT"])
+async def test_sse_message_endpoint_answers_405_to_non_post(method: str):
+    """The message endpoint only accepts POST; other methods get 405 with an Allow header."""
+    transport = SseServerTransport("/messages/")
+    scope, receive, send, sent = _sse_scope(method, "/messages/", None, query_string=_UNKNOWN_SESSION, body=b"{}")
+
+    await transport.handle_post_message(scope, receive, send)
+    assert _response_status(sent) == 405
+    response_start = next(msg for msg in sent if msg["type"] == "http.response.start")
+    assert (b"allow", b"POST") in response_start["headers"]
+
+
+@pytest.mark.parametrize("max_request_body_size", [0, -1])
+def test_sse_transport_rejects_a_non_positive_body_limit(max_request_body_size: int):
+    """The body limit must be a positive number of bytes, matching StreamableHTTPSessionManager."""
+    with pytest.raises(ValueError) as exc_info:
+        SseServerTransport("/messages/", max_request_body_size=max_request_body_size)
+    assert str(exc_info.value) == "max_request_body_size must be a positive number of bytes"
 
 
 @pytest.mark.anyio

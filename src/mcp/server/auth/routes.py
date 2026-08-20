@@ -17,6 +17,7 @@ from mcp.server.auth.handlers.token import TokenHandler
 from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 from mcp.shared.auth import JWT_BEARER_GRANT_TYPE, OAuthMetadata, ProtectedResourceMetadata
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 
@@ -51,17 +52,24 @@ REVOCATION_PATH = "/revoke"
 ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 
 
-def cors_middleware(
-    handler: Callable[[Request], Response | Awaitable[Response]],
-    allow_methods: list[str],
-) -> ASGIApp:
-    cors_app = CORSMiddleware(
-        app=request_response(handler),
+def _cors(app: ASGIApp, allow_methods: list[str]) -> ASGIApp:
+    return CORSMiddleware(
+        app=app,
         allow_origins="*",
         allow_methods=allow_methods,
         allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
     )
-    return cors_app
+
+
+def _body_limited(app: ASGIApp) -> ASGIApp:
+    return RequestBodyLimitMiddleware(app, DEFAULT_MAX_REQUEST_BODY_SIZE)
+
+
+def cors_middleware(
+    handler: Callable[[Request], Response | Awaitable[Response]],
+    allow_methods: list[str],
+) -> ASGIApp:
+    return _cors(request_response(handler), allow_methods)
 
 
 def create_auth_routes(
@@ -84,11 +92,13 @@ def create_auth_routes(
         supports_identity_assertion=identity_assertion_enabled,
     )
     client_authenticator = ClientAuthenticator(provider)
+    token_handler = TokenHandler(provider, client_authenticator, identity_assertion_enabled=identity_assertion_enabled)
 
     # Create routes
     # Allow CORS requests for endpoints meant to be hit by the OAuth client
     # (with the client secret). This is intended to support things like MCP Inspector,
-    # where the client runs in a web browser.
+    # where the client runs in a web browser. CORS is the outermost wrapper so that
+    # responses produced by inner layers (such as a 413) still carry CORS headers.
     routes = [
         Route(
             "/.well-known/oauth-authorization-server",
@@ -102,17 +112,12 @@ def create_auth_routes(
             AUTHORIZATION_PATH,
             # do not allow CORS for authorization endpoint;
             # clients should just redirect to this
-            endpoint=AuthorizationHandler(provider).handle,
+            endpoint=_body_limited(request_response(AuthorizationHandler(provider).handle)),
             methods=["GET", "POST"],
         ),
         Route(
             TOKEN_PATH,
-            endpoint=cors_middleware(
-                TokenHandler(
-                    provider, client_authenticator, identity_assertion_enabled=identity_assertion_enabled
-                ).handle,
-                ["POST", "OPTIONS"],
-            ),
+            endpoint=_cors(_body_limited(request_response(token_handler.handle)), ["POST", "OPTIONS"]),
             methods=["POST", "OPTIONS"],
         ),
     ]
@@ -125,10 +130,7 @@ def create_auth_routes(
         routes.append(
             Route(
                 REGISTRATION_PATH,
-                endpoint=cors_middleware(
-                    registration_handler.handle,
-                    ["POST", "OPTIONS"],
-                ),
+                endpoint=_cors(_body_limited(request_response(registration_handler.handle)), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
         )
@@ -138,10 +140,7 @@ def create_auth_routes(
         routes.append(
             Route(
                 REVOCATION_PATH,
-                endpoint=cors_middleware(
-                    revocation_handler.handle,
-                    ["POST", "OPTIONS"],
-                ),
+                endpoint=_cors(_body_limited(request_response(revocation_handler.handle)), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
         )

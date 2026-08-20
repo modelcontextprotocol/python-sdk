@@ -1,12 +1,19 @@
-"""DNS rebinding protection for MCP server transports."""
+"""Request checks shared by the HTTP server transports: Host/Origin header validation and body size limits."""
 
 import logging
+from collections import deque
+from typing import Final
 
 from pydantic import BaseModel, Field
+from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_REQUEST_BODY_SIZE: Final = 4 * 1024 * 1024
+"""Default maximum HTTP request body size in bytes (4 MiB)."""
 
 
 # TODO(Marcelo): We should flatten these settings. To be fair, I don't think we should even have this middleware.
@@ -114,3 +121,63 @@ class TransportSecurityMiddleware:
             return Response("Invalid Origin header", status_code=403)
 
         return None
+
+
+class RequestBodyLimitMiddleware:
+    """Reject oversized HTTP request bodies before invoking an ASGI application."""
+
+    def __init__(self, app: ASGIApp, max_body_size: int) -> None:
+        self.app = app
+        self.max_body_size = max_body_size
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        content_length = headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared_size = int(content_length)
+            except ValueError:
+                pass
+            else:
+                if declared_size > self.max_body_size:
+                    response = Response("Request body too large", status_code=413)
+                    return await response(scope, receive, send)
+
+        received_body = bytearray()
+        received_request = False
+        body_complete = False
+        trailing_message: Message | None = None
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                trailing_message = message
+                break
+
+            received_request = True
+            body = message.get("body", b"")
+            if len(received_body) + len(body) > self.max_body_size:
+                response = Response("Request body too large", status_code=413)
+                return await response(scope, receive, send)
+            received_body.extend(body)
+            if not message.get("more_body", False):
+                body_complete = True
+                break
+
+        cached_messages: deque[Message] = deque()
+        if received_request:
+            cached_messages.append(
+                {"type": "http.request", "body": bytes(received_body), "more_body": not body_complete}
+            )
+        if trailing_message is not None:
+            cached_messages.append(trailing_message)
+
+        async def replay() -> Message:
+            if cached_messages:
+                return cached_messages.popleft()
+            return await receive()
+
+        await self.app(scope, replay, send)
