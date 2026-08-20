@@ -2599,7 +2599,7 @@ class OAuthClientMetadata(OAuthClientMetadataBase): ...          # request: stri
 class OAuthClientInformationFull(OAuthClientMetadataBase): ...   # server record: tolerant
 ```
 
-On `OAuthClientInformationFull`, `application_type` and `token_endpoint_auth_method` are now `str | None`, `grant_types` is `list[str]`, and `redirect_uris` is optional (`list[AnyUrl] | None`, no minimum length). `client_id` is now required (`str`): [RFC 7591 §3.2.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.1) makes it mandatory in the response, and a record of a registered client without one was never meaningful. Code that only reads these fields is unaffected. Code that relied on `isinstance(client_info, OAuthClientMetadata)`, or passed an `OAuthClientInformationFull` where an `OAuthClientMetadata` is expected, must reference the record type directly. `validate_scope()` and `validate_redirect_uri()` moved with the record: they are methods of `OAuthClientInformationFull` (the type authorization-server code holds) and are no longer available on `OAuthClientMetadata`.
+On `OAuthClientInformationFull`, `application_type` and `token_endpoint_auth_method` are now `str | None`, `grant_types` is `list[str]`, and `redirect_uris` is optional (`list[AnyUrl] | None`, no minimum length). `client_id` is now required (`str`): [RFC 7591 §3.2.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.1) makes it mandatory in the response, and a record of a registered client without one was never meaningful. Code that only reads these fields is unaffected. Code that relied on `isinstance(client_info, OAuthClientMetadata)`, or passed an `OAuthClientInformationFull` where an `OAuthClientMetadata` is expected, must reference the record type directly. `validate_redirect_uri()` moved with the record: it is a method of `OAuthClientInformationFull` (the type authorization-server code holds) and is no longer available on `OAuthClientMetadata`. `validate_scope()` is removed altogether; see [The SDK-hosted authorization server no longer enforces a client's registered `scope`](#the-sdk-hosted-authorization-server-no-longer-enforces-a-clients-registered-scope).
 
 A registration response the server sends is no longer rejected on these fields: a member serialized as a placeholder - an explicit `null`, or `""` - reads as an omitted key, so its default applies. Whether a substituted value is usable is judged where it matters, not at parse. When Dynamic Client Registration completes with credentials the authorization-code flow cannot use - a `token_endpoint_auth_method` other than `none`, `client_secret_post`, or `client_secret_basic` (including `private_key_jwt`, whose assertion that flow has no key to sign), or a secret-based method for which the server issued no `client_secret` - the client raises `OAuthRegistrationError` naming the problem, before the record is stored or authorization begins. Separately, a stored or pre-registered record carrying a method the SDK does not know at all raises `OAuthTokenError` when it reaches the token exchange; `private_key_jwt` on such a record does not raise there, so `PrivateKeyJWTOAuthProvider`, which signs its assertion only in the client-credentials exchange, still recovers from a rejected refresh by exchanging afresh.
 
@@ -2644,6 +2644,38 @@ LEGACY_CLIENT = OAuthClientInformationFull(
     redirect_uris=["http://localhost:1234/cb"],
 )
 ```
+
+### The SDK-hosted authorization server no longer enforces a client's registered `scope`
+
+In v1 (and early v2), the authorize endpoint of the SDK-hosted authorization server (`create_auth_routes`) rejected any requested scope that was not in the client's registered `scope` metadata, and treated a client registered without a `scope` as allowed to request nothing at all:
+
+```text
+# v1: client registered without a scope, then GET /authorize?...&scope=mcp
+302 → ?error=invalid_scope&error_description=Client+was+not+registered+with+scope+mcp
+```
+
+That check is gone. A client's registered `scope` is [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591#section-2) client metadata - self-asserted, "scope values that the client can use when requesting access tokens" - not an allowlist the authorization server must enforce, and enforcing it broke the spec's [step-up authorization flow](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#step-up-authorization-flow), in which a client answers a `403 insufficient_scope` challenge by re-authorizing for the union of its previous and challenged scopes without re-registering. The endpoint now enforces only the server-wide scope set: `ClientRegistrationOptions.valid_scopes` (the same list advertised as `scopes_supported` and already enforced at dynamic client registration). A requested scope outside it is redirected back with `error=invalid_scope`; when `valid_scopes` is unset, every requested scope is passed to the provider. An empty `scope=` parameter is now treated as an omitted one instead of being rejected.
+
+Per-client scope policy belongs in your provider, whose `authorize()` already receives the parsed request and can reject it with the same wire result - here an operator-maintained ceiling per client, rather than the client's self-asserted metadata:
+
+```python
+from mcp.server.auth.provider import AuthorizationParams, AuthorizeError
+from mcp.shared.auth import OAuthClientInformationFull
+
+# Scope ceilings you configure per client; anything not listed gets the base set.
+CLIENT_SCOPE_CEILINGS = {"backend-service": {"mcp", "write", "admin"}}
+
+
+class MyProvider:
+    async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
+        requested = set(params.scopes or [])
+        ceiling = CLIENT_SCOPE_CEILINGS.get(client.client_id, {"mcp"})
+        if not requested <= ceiling:
+            raise AuthorizeError(error="invalid_scope", error_description="scope not permitted for this client")
+        ...
+```
+
+`OAuthClientInformationFull.validate_scope()` and `mcp.shared.auth.InvalidScopeError` are removed; both existed only to implement the deleted check. Parse a scope string with `str.split()`, and move any `except InvalidScopeError` handling into the provider.
 
 ## Stricter protocol validation and wire behavior
 

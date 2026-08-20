@@ -192,6 +192,12 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         and MUST generate an authorization code with at least 128 bits of entropy.
         See https://datatracker.ietf.org/doc/html/rfc6749#section-10.10.
 
+        Scope policy is this method's responsibility. `params.scopes` has been checked only
+        against the server-wide `ClientRegistrationOptions.valid_scopes` (when configured); the
+        client's registered `scope` metadata is self-asserted (RFC 7591 §2) and is not enforced.
+        Reject a request the client may not make by raising `AuthorizeError` with
+        `error="invalid_scope"`, or grant a narrower scope set - and issue the token accordingly.
+
         Args:
             client: The client requesting authorization.
             params: The parameters of the authorization request.

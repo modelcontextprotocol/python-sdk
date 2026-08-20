@@ -129,6 +129,47 @@ async def test_authorize_without_a_code_challenge_is_rejected_with_invalid_reque
     assert "code_challenge" in params["error_description"][0]
 
 
+@requirement("hosting:auth:as:authorize-scope")
+async def test_authorize_accepts_scope_beyond_registration_within_valid_scopes_and_rejects_the_rest() -> None:
+    """A client registered with `mcp` may authorize for `mcp write` (`write` is within the server's
+    `valid_scopes`, so step-up needs no re-registration), while a scope the server does not support
+    is redirected back with `error=invalid_scope`. The client's registered `scope` is not an allowlist."""
+    provider = InMemoryAuthorizationServerProvider()
+    settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
+    async with mounted_app(
+        Server("guarded"),
+        auth=settings,
+        token_verifier=ProviderTokenVerifier(provider),
+        auth_server_provider=provider,
+    ) as (http, _):
+        client_info = await _register_client(http)
+        assert client_info.client_id is not None
+        assert client_info.scope == "mcp"
+
+        _, challenge = _pkce_pair()
+        base_params = {
+            "response_type": "code",
+            "client_id": client_info.client_id,
+            "redirect_uri": REDIRECT_URI,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": "s",
+        }
+        widened = await http.get("/authorize", params=base_params | {"scope": "mcp write"}, follow_redirects=False)
+        unknown = await http.get("/authorize", params=base_params | {"scope": "mcp admin"}, follow_redirects=False)
+
+    assert widened.status_code == 302
+    granted = parse_qs(urlsplit(widened.headers["location"]).query)
+    assert "code" in granted
+    assert provider.codes[granted["code"][0]].scopes == ["mcp", "write"]
+
+    assert unknown.status_code == 302
+    rejected = parse_qs(urlsplit(unknown.headers["location"]).query)
+    assert rejected["error"] == ["invalid_scope"]
+    assert rejected["error_description"] == snapshot(["Requested scopes are not valid: admin"])
+    assert rejected["state"] == ["s"]
+
+
 @requirement("hosting:auth:as:verifier-mismatch")
 async def test_a_mismatched_code_verifier_is_rejected_with_invalid_grant(
     as_app: tuple[httpx2.AsyncClient, InMemoryAuthorizationServerProvider],

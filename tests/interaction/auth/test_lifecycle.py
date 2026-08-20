@@ -143,13 +143,14 @@ async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challe
     which reaches the auth flow's step-up handler; the first authenticated POST is the post-401
     retry, after which the generator ends without inspecting the response). The challenge names a
     wider scope; step-up reuses cached metadata and the existing client registration,
-    re-authorizes with the new scope, and the connect completes. The client is pre-registered
-    with both scopes so the server's authorize handler accepts the wider second request. One
-    re-authorize, one retry; the spec's SHOULD-retry-limit ("a few") is not enforced.
+    re-authorizes with the new scope, and the connect completes. The client is registered with
+    only `mcp`, so the server's authorize endpoint accepting the wider `mcp write` (both within
+    its `valid_scopes`) is what lets step-up proceed without re-registering. One re-authorize,
+    one retry; the spec's SHOULD-retry-limit ("a few") is not enforced.
     """
     recorded, on_request = record_requests()
     provider = InMemoryAuthorizationServerProvider()
-    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp"))
     server = Server("guarded", on_list_tools=list_tools)
     settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
     challenge = 'Bearer error="insufficient_scope", scope="mcp write"'
@@ -185,10 +186,11 @@ async def test_a_403_step_up_re_authorizes_with_the_union_of_prior_and_challenge
 
     The first authorization requests `mcp`; the 403 challenges a disjoint `write` (not naming
     `mcp`). Per SEP-2350 the client must re-authorize with `mcp write`, not drop `mcp`. The client
-    is pre-registered with both scopes so the server's authorize handler accepts the wider request.
+    is registered with only `mcp`; the server accepts the wider request because `write` is within
+    its `valid_scopes`, not because the client registered it.
     """
     provider = InMemoryAuthorizationServerProvider()
-    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp write"))
+    storage = InMemoryTokenStorage(client_info=seeded_client(provider, scope="mcp"))
     server = Server("guarded", on_list_tools=list_tools)
     settings = auth_settings(required_scopes=["mcp"], valid_scopes=["mcp", "write"])
     challenge = 'Bearer error="insufficient_scope", scope="write"'
