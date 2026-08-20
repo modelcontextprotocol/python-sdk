@@ -863,6 +863,26 @@ async def test_validate_resource_rejects_mismatched_resource(
 
 
 @pytest.mark.anyio
+async def test_validate_resource_rejects_parent_path_resource(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client rejects PRM resources that are a parent of the server URL."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    with pytest.raises(OAuthFlowError, match="does not match expected"):
+        await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
 async def test_validate_resource_rejects_mismatched_query_component(
     client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
 ) -> None:
@@ -1933,8 +1953,8 @@ class TestSEP985Discovery:
 
     def test_prm_discovery_preserves_server_url_query_component(self):
         """Fallback PRM discovery preserves RFC 9728 query components."""
-        init_response = httpx.Response(
-            status_code=401, headers={}, request=httpx.Request("GET", "https://api.example.com/v1/mcp?tenant=a")
+        init_response = httpx2.Response(
+            status_code=401, headers={}, request=httpx2.Request("GET", "https://api.example.com/v1/mcp?tenant=a")
         )
 
         discovery_urls = build_protected_resource_metadata_discovery_urls(
