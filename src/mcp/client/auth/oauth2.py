@@ -374,7 +374,7 @@ class OAuthClientProvider(httpx2.Auth):
         if self.context.client_metadata.redirect_uris is None:
             raise OAuthFlowError("No redirect URIs provided for authorization code grant")  # pragma: no cover
         if not self.context.redirect_handler:
-            raise OAuthFlowError("No redirect handler provided for authorization code grant")  # pragma: no cover
+            raise OAuthFlowError("No redirect handler provided for authorization code grant")
         if not self.context.callback_handler:
             raise OAuthFlowError("No callback handler provided for authorization code grant")  # pragma: no cover
 
@@ -521,6 +521,8 @@ class OAuthClientProvider(httpx2.Auth):
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
             self.context.clear_tokens()
+            # Re-read storage on the next request: the failure may have been transient.
+            self._initialized = False
             return False
 
         try:
@@ -545,7 +547,31 @@ class OAuthClientProvider(httpx2.Auth):
         except ValidationError:  # pragma: no cover
             logger.exception("Invalid refresh response")
             self.context.clear_tokens()
+            self._initialized = False
             return False
+
+    async def _apply_issuer_binding(self, issuer: str) -> bool:
+        """Apply SEP-2352 to the held registration now that the authorization server's issuer is known.
+
+        Credentials bound to another issuer are discarded with their tokens so the flow re-registers.
+        A CIMD record is portable, so it is kept and re-stamped, but tokens it carried over from
+        another issuer (or of unknown origin, when the record is unstamped) are dropped. Returns
+        True when the held state was for a different issuer.
+        """
+        client_info = self.context.client_info
+        if client_info is None:
+            return False
+        if not credentials_match_issuer(client_info, issuer, self.context.client_metadata_url):
+            logger.debug("Authorization server changed; discarding bound credentials and re-registering")
+            self.context.client_info = None
+            self.context.clear_tokens()
+            return True
+        if client_info.client_id == self.context.client_metadata_url and client_info.issuer != issuer:
+            self.context.clear_tokens()
+            client_info.issuer = issuer
+            await self.context.storage.set_client_info(client_info)
+            return True
+        return False
 
     async def _initialize(self) -> None:
         """Load stored tokens and client info."""
@@ -586,14 +612,15 @@ class OAuthClientProvider(httpx2.Auth):
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
-                # Try to refresh token
-                refresh_request = await self._refresh_token()
-                refresh_response = yield refresh_request
-
-                if not await self._handle_refresh_response(refresh_response):
-                    # Refresh failed, need full re-authentication
-                    self._initialized = False
+            # Refresh ahead of the request only when the token endpoint is already known; on a cold
+            # start the request goes out and the 401 branch discovers, then refreshes.
+            if (
+                not self.context.is_token_valid()
+                and self.context.can_refresh_token()
+                and self.context.oauth_metadata is not None
+            ):
+                refresh_response = yield await self._refresh_token()
+                await self._handle_refresh_response(refresh_response)
 
             if self.context.is_token_valid():
                 self._add_auth_header(request)
@@ -632,21 +659,12 @@ class OAuthClientProvider(httpx2.Auth):
                         else:
                             logger.debug(f"Protected resource metadata discovery failed: {url}")
 
-                    # SEP-2352: stored credentials are bound to the issuer that registered them.
-                    # If the authorization server changed, drop them (and the old tokens) so the
-                    # flow re-registers instead of presenting another server's credentials.
-                    if (
-                        self.context.client_info is not None
-                        and self.context.auth_server_url is not None
-                        and not credentials_match_issuer(
-                            self.context.client_info, self.context.auth_server_url, self.context.client_metadata_url
-                        )
+                    # SEP-2352: stored credentials and tokens belong to the issuer they came from.
+                    if self.context.auth_server_url is not None and await self._apply_issuer_binding(
+                        self.context.auth_server_url
                     ):
-                        logger.debug("Authorization server changed; discarding bound credentials and re-registering")
-                        self.context.client_info = None
-                        self.context.clear_tokens()
                         # Any cached AS metadata is for the old server; drop it so a failed
-                        # rediscovery cannot leak the old registration/token endpoints into Step 4.
+                        # rediscovery cannot leak the old endpoints into Steps 4-5.
                         self.context.oauth_metadata = None
 
                     asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
@@ -671,21 +689,9 @@ class OAuthClientProvider(httpx2.Auth):
                             logger.debug(f"OAuth metadata discovery failed: {url}")
 
                     # SEP-2352: on the legacy no-PRM path the issuer is only known after ASM
-                    # discovery, so re-evaluate the binding here using the discovered metadata
-                    # issuer (mirroring the bound_issuer fallback in Step 4).
-                    if (
-                        self.context.client_info is not None
-                        and self.context.auth_server_url is None
-                        and self.context.oauth_metadata is not None
-                        and not credentials_match_issuer(
-                            self.context.client_info,
-                            str(self.context.oauth_metadata.issuer),
-                            self.context.client_metadata_url,
-                        )
-                    ):
-                        logger.debug("Authorization server changed; discarding bound credentials and re-registering")
-                        self.context.client_info = None
-                        self.context.clear_tokens()
+                    # discovery (mirroring the bound_issuer fallback in Step 4).
+                    if self.context.auth_server_url is None and self.context.oauth_metadata is not None:
+                        await self._apply_issuer_binding(str(self.context.oauth_metadata.issuer))
 
                     # Step 3: Apply scope selection strategy
                     self.context.client_metadata.scope = get_client_metadata_scopes(
@@ -741,10 +747,18 @@ class OAuthClientProvider(httpx2.Auth):
                                 client_information.issuer = discovered_issuer
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
+                            # Held tokens belong to a previous client and cannot be refreshed by this one.
+                            self.context.clear_tokens()
 
-                    # Step 5: Perform authorization and complete token exchange
-                    token_response = yield await self._perform_authorization()
-                    await self._handle_token_response(token_response)
+                    # Step 5: Refresh with the stored refresh token first (RFC 6749 §6); run the full
+                    # authorization only when there is none or the server rejects it.
+                    refreshed = False
+                    if self.context.can_refresh_token():
+                        refresh_response = yield await self._refresh_token()
+                        refreshed = await self._handle_refresh_response(refresh_response)
+                    if not refreshed:
+                        token_response = yield await self._perform_authorization()
+                        await self._handle_token_response(token_response)
                 except Exception:
                     logger.exception("OAuth flow error")
                     raise

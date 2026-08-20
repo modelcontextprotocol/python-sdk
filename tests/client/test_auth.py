@@ -4,7 +4,7 @@ import base64
 import json
 import time
 from unittest import mock
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, parse_qsl, quote, unquote, urlparse
 
 import httpx2
 import pytest
@@ -3253,3 +3253,139 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_expired_token_is_not_refreshed_ahead_of_the_request_before_metadata_is_discovered(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+) -> None:
+    """With no authorization-server metadata yet, an expired token is not refreshed at a guessed endpoint.
+
+    The request goes out unauthenticated instead, so the 401 branch discovers the real token
+    endpoint before the refresh token is presented anywhere (#3240).
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 60
+    oauth_provider.context.client_info = OAuthClientInformationFull(client_id="c", redirect_uris=None)
+    oauth_provider.context.oauth_metadata = None
+    oauth_provider._initialized = True
+
+    request = httpx2.Request("POST", "https://api.example.com/v1/mcp")
+    auth_flow = oauth_provider.async_auth_flow(request)
+    first = await auth_flow.__anext__()
+
+    assert first is request
+    assert "Authorization" not in first.headers
+
+    with pytest.raises(StopAsyncIteration):
+        await auth_flow.asend(httpx2.Response(200, request=request))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stamped_issuer", ["https://old-as.example.com", None], ids=["stamped-elsewhere", "unstamped"])
+async def test_cimd_record_is_restamped_and_its_tokens_and_cached_metadata_dropped_when_prm_names_a_new_issuer(
+    client_metadata: OAuthClientMetadata,
+    mock_storage: MockTokenStorage,
+    valid_tokens: OAuthToken,
+    stamped_issuer: str | None,
+) -> None:
+    """SEP-2352 for CIMD: the URL client_id survives an authorization-server change, nothing else does.
+
+    A long-lived provider holds a CIMD record stamped with another issuer (or, from an older store,
+    not stamped at all), tokens of matching provenance, and cached metadata. As soon as PRM names
+    the issuer in use, the tokens and the cached metadata are dropped and the record is re-stamped
+    and persisted, so a failed rediscovery cannot leave old endpoints in play and no refresh token
+    of unconfirmed origin reaches the named server.
+    """
+    cimd_url = "https://client.example.com/.well-known/mcp-client"
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        client_metadata_url=cimd_url,
+    )
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id=cimd_url, token_endpoint_auth_method="none", issuer=stamped_issuer
+    )
+    provider.context.current_tokens = valid_tokens
+    provider.context.token_expiry_time = time.time() + 1800
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://old-as.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://old-as.example.com/authorize"),
+        token_endpoint=AnyHttpUrl("https://old-as.example.com/token"),
+    )
+    provider._initialized = True
+
+    auth_flow = provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_response = httpx2.Response(
+        200,
+        content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://new-as.example.com"]}',
+        request=prm_req,
+    )
+    asm_req = await auth_flow.asend(prm_response)
+
+    assert str(asm_req.url) == "https://new-as.example.com/.well-known/oauth-authorization-server"
+    assert provider.context.current_tokens is None
+    assert provider.context.oauth_metadata is None
+    assert provider.context.client_info is not None
+    assert (provider.context.client_info.client_id, provider.context.client_info.issuer) == (
+        cimd_url,
+        "https://new-as.example.com",
+    )
+    assert mock_storage._client_info is provider.context.client_info
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_cimd_record_is_restamped_and_its_tokens_dropped_when_only_asm_reveals_a_new_issuer(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+) -> None:
+    """The CIMD rebinding also applies on the legacy no-PRM path, where the issuer is learned from AS metadata.
+
+    PRM discovery 404s, so the issuer only becomes known from the root well-known metadata; it
+    differs from the record's stamp, so the tokens are dropped and the record re-stamped before
+    any refresh could be attempted, and the flow proceeds to authorize rather than refresh.
+    """
+    cimd_url = "https://client.example.com/.well-known/mcp-client"
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        client_metadata_url=cimd_url,
+    )
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id=cimd_url, token_endpoint_auth_method="none", issuer="https://old-as.example.com"
+    )
+    provider.context.current_tokens = valid_tokens
+    provider.context.token_expiry_time = time.time() + 1800
+    provider._initialized = True
+    provider._perform_authorization_code_grant = mock.AsyncMock(return_value=("auth-code", "verifier"))
+
+    auth_flow = provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"client_id_metadata_document_supported": true}'
+        ),
+        request=asm_req,
+    )
+    next_req = await auth_flow.asend(asm_response)
+
+    assert dict(parse_qsl(next_req.content.decode()))["grant_type"] == "authorization_code"
+    assert provider.context.client_info is not None
+    assert (provider.context.client_info.client_id, provider.context.client_info.issuer) == (
+        cimd_url,
+        "https://api.example.com",
+    )
+    assert mock_storage._client_info is provider.context.client_info
+    await auth_flow.aclose()

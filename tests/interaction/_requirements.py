@@ -3883,6 +3883,29 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="OAuth is HTTP-only.",
     ),
+    "client-auth:refresh:on-401": Requirement(
+        source="issue:#3250",
+        behavior=(
+            "A 401 received while a refresh token is held is answered, after rediscovery, with a "
+            "refresh_token grant before any interactive authorization, so a client constructed over "
+            "persisted tokens and client registration recovers from an expired access token headlessly."
+        ),
+        transports=("streamable-http",),
+        note="OAuth is HTTP-only. RFC 6749 §1.5 (E)-(H); matches the TypeScript, C# and Rust SDKs.",
+    ),
+    "client-auth:refresh:discovered-endpoint": Requirement(
+        source="issue:#3240",
+        behavior=(
+            "A refresh in a process that has not yet discovered the authorization server happens only after "
+            "protected-resource and authorization-server metadata discovery and posts to the token endpoint "
+            "that metadata advertises."
+        ),
+        transports=("streamable-http",),
+        note=(
+            "OAuth is HTTP-only. When discovery yields no AS metadata at all, the 2025-03-26 origin-derived "
+            "fallback endpoint is still used, as it is for the authorization itself."
+        ),
+    ),
     "client-auth:resource-parameter": Requirement(
         source=f"{SPEC_BASE_URL}/basic/authorization#resource-parameter-implementation",
         behavior=(
