@@ -1141,7 +1141,9 @@ class ClientSession:
         if output_schema is not None:
             from jsonschema import exceptions as jsonschema_exceptions
 
-            if result.structured_content is None:
+            # SEP-2106 allows JSON null. Pydantic maps both omitted and explicit
+            # null to None; model_fields_set is the presence check (not falsy).
+            if result.structured_content is None and "structured_content" not in result.model_fields_set:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
             validator = self._output_schema_validator(name, output_schema)
             # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
