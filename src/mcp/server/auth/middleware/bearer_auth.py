@@ -114,6 +114,12 @@ class RequireAuthMiddleware:
         """Send an authentication error response with WWW-Authenticate header."""
         # Build WWW-Authenticate header value
         www_auth_parts = [f'error="{error}"', f'error_description="{description}"']
+        # RFC 6750 section 3: the challenge's `scope` attribute advertises the scope
+        # needed to access the resource (section 3.1: an insufficient_scope response
+        # MAY carry it). Clients read it as the highest-priority scope source, both
+        # for initial authorization (401) and for step-up on 403 insufficient_scope.
+        if self.required_scopes:
+            www_auth_parts.append(f'scope="{" ".join(self.required_scopes)}"')
         if self.resource_metadata_url:
             www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
 

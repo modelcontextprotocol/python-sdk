@@ -62,7 +62,7 @@ async def test_a_request_without_a_token_never_reaches_the_protocol() -> None:
     assert response.status_code == 401
     assert response.json() == {"error": "invalid_token", "error_description": "Authentication required"}
     assert response.headers["www-authenticate"] == (
-        'Bearer error="invalid_token", error_description="Authentication required", '
+        'Bearer error="invalid_token", error_description="Authentication required", scope="notes:read", '
         'resource_metadata="http://127.0.0.1:8000/.well-known/oauth-protected-resource/mcp"'
     )
 

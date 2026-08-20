@@ -3,9 +3,12 @@
 import time
 from typing import Any, cast
 
+import anyio
+import httpx2
 import pytest
 from starlette.authentication import AuthCredentials
 from starlette.datastructures import Headers
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.types import Message, Receive, Scope, Send
 
@@ -456,6 +459,72 @@ class TestRequireAuthMiddleware:
         assert app.scope == scope
         assert app.receive == receive
         assert app.send == send
+
+
+@pytest.mark.anyio
+async def test_insufficient_scope_challenge_advertises_required_scopes(
+    mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any], valid_access_token: AccessToken
+):
+    """The 403 insufficient_scope challenge carries a `scope` attribute listing the configured
+    required scopes, per RFC 6750 section 3.1, so clients can step-up (#3103)."""
+    add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
+    inner_app = MockApp()
+    # Production wiring: the authentication middleware populates the connection's user/auth
+    # from the bearer token, then RequireAuthMiddleware enforces the required scopes.
+    app = AuthenticationMiddleware(
+        RequireAuthMiddleware(inner_app, required_scopes=["read", "admin"]),
+        backend=BearerAuthBackend(ProviderTokenVerifier(mock_oauth_provider)),
+    )
+
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        with anyio.fail_after(5):
+            # valid_access_token grants read/write, so the required "admin" scope is missing
+            response = await client.get("/", headers={"Authorization": "Bearer valid_token"})
+
+    assert response.status_code == 403
+    assert response.headers["WWW-Authenticate"] == (
+        'Bearer error="insufficient_scope", error_description="Required scope: admin", scope="read admin"'
+    )
+    assert not inner_app.called
+
+
+@pytest.mark.anyio
+async def test_unauthenticated_challenge_advertises_required_scopes():
+    """The 401 challenge carries a `scope` attribute (RFC 6750 section 3) when required scopes
+    are configured, so clients can request them on initial authorization (#3103)."""
+    inner_app = MockApp()
+    middleware = RequireAuthMiddleware(inner_app, required_scopes=["read", "admin"])
+
+    transport = httpx2.ASGITransport(app=middleware)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        with anyio.fail_after(5):
+            response = await client.get("/")
+
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == (
+        'Bearer error="invalid_token", error_description="Authentication required", scope="read admin"'
+    )
+    assert not inner_app.called
+
+
+@pytest.mark.anyio
+async def test_challenge_omits_scope_when_no_scopes_configured():
+    """A challenge from a middleware with no required scopes carries no `scope` attribute —
+    there is nothing to advertise, and RFC 6750 section 3 makes the attribute optional."""
+    inner_app = MockApp()
+    middleware = RequireAuthMiddleware(inner_app, required_scopes=[])
+
+    transport = httpx2.ASGITransport(app=middleware)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        with anyio.fail_after(5):
+            response = await client.get("/")
+
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == (
+        'Bearer error="invalid_token", error_description="Authentication required"'
+    )
+    assert not inner_app.called
 
 
 def test_authorization_context_is_built_from_principal_components() -> None:
