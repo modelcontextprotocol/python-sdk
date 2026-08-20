@@ -3,7 +3,7 @@
 import pytest
 from mcp_types import Resource
 
-from docs_src.pagination import tutorial001, tutorial002
+from docs_src.pagination import tutorial001, tutorial002, tutorial003
 from mcp import Client, MCPError
 from mcp.server import MCPServer
 from mcp.server.mcpserver.resources import TextResource
@@ -69,6 +69,21 @@ async def test_the_client_program_on_the_page_runs(capsys: pytest.CaptureFixture
     """tutorial002: `main()` is the literal client program on the page and prints the stitched total."""
     await tutorial002.main()
     assert capsys.readouterr().out == "100 resources\n"
+
+
+async def test_list_all_stitches_the_whole_catalog() -> None:
+    """tutorial003: `list_all_resources` drains every page into one list, no cursor handling."""
+    async with Client(tutorial003.server) as client:
+        resources = await client.list_all_resources()
+        assert len(resources) == 100
+        assert resources[0].name == "book-1"
+        assert resources[-1].name == "book-100"
+
+
+async def test_the_drain_helpers_program_runs(capsys: pytest.CaptureFixture[str]) -> None:
+    """tutorial003: `main()` stitches all pages, then streams and stops at the first."""
+    await tutorial003.main()
+    assert capsys.readouterr().out == "100 resources\nfirst: book-1\n"
 
 
 async def test_an_invented_cursor_is_an_error() -> None:

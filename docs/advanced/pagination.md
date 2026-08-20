@@ -50,6 +50,48 @@ Run its `main()` and it prints `100 resources`: ten pages of ten, stitched toget
 
 This is the same loop **[The Client](../client/index.md)** shows for every `list_*` verb, and it costs nothing against a server that doesn't page: `next_cursor` is `None` on the first response and the loop runs once.
 
+## Draining in one call
+
+That loop is the same one in every client that pages, so `Client` ships it. The server here is the bookshop from before; only the client changed:
+
+```python title="client.py" hl_lines="27 31"
+--8<-- "docs_src/pagination/tutorial003.py"
+```
+
+* `list_all_resources()` walks `next_cursor` for you and hands back every page stitched into one list. There is one per pageable list: `list_all_tools`, `list_all_prompts`, `list_all_resources`, `list_all_resource_templates`.
+* `iter_all_resources()` yields one resource at a time and only fetches the next page when you ask for it, so you can stop early without dragging down the whole catalog. Same four: `iter_all_tools`, `iter_all_prompts`, and so on.
+* The single-page `list_*` methods are unchanged. Use them when you want one page and the cursor; use the drains when you want everything and don't want to own the loop.
+
+`ClientSessionGroup` aggregation drains the same way, so a group fronting several servers reports the full collection instead of each server's first page. That aggregator is **[Session groups](../client/session-groups.md)**.
+
+!!! warning
+    A drain trusts the server to advance the cursor. A server that echoes back the
+    `next_cursor` it was handed, or cycles through a longer loop of them, would page forever,
+    so the drains remember every cursor they have seen and raise `RuntimeError` the moment one
+    repeats. A repeated cursor is a broken server, and a loud failure beats a silent hang or a
+    half-read list.
+
+### Drains and the response cache
+
+A server may attach a `ttlMs` freshness hint to a list result (**[Caching](../client/caching.md)**), and the
+client will serve a later `list_*` call for that method from cache instead of going back to the
+server. Only the first page is ever cached; a call carrying a cursor always goes to the wire.
+
+That split matters for a drain. If it started from a cached first page, it would take that
+page's `next_cursor` — minted against a listing that may since have changed — and pair it with
+freshly fetched later pages, returning a stitched-together listing the server never served. So
+the drains default to `cache_mode="refresh"`: the first page is re-fetched, and the fresh copy
+is written back to the cache for later single-page callers.
+
+```python
+async def list_the_tools(client: Client) -> None:
+    fresh = await client.list_all_tools()  # re-fetches the first page: always current
+    saved = await client.list_all_tools(cache_mode="use")  # one fewer request, may be stale
+```
+
+Pass `cache_mode="use"` when you would rather have the saved copy than the current one. The
+single-page `list_*` methods still default to `"use"`, unchanged.
+
 ## The three rules
 
 **Cursors are opaque.** A client must never parse, build, or guess one. The only legal source of a cursor is the previous page's `next_cursor`, verbatim.
