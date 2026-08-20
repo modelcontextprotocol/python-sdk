@@ -67,6 +67,49 @@ async def test_validate_tool_result_raises_on_schema_mismatch() -> None:
 
 
 @pytest.mark.anyio
+async def test_validate_tool_result_accepts_explicit_json_null_when_the_schema_allows_it() -> None:
+    """SEP-2106: JSON null is a legal structuredContent value. A parsed result that
+    includes `"structuredContent": null` must be validated against the schema, not
+    rejected as a missing field. Pydantic stores both omitted and JSON null as None;
+    `model_fields_set` is how the client tells them apart.
+    """
+    server = _make_server({"type": "null"})
+    parsed = CallToolResult.model_validate({"content": [], "structuredContent": None})
+    async with Client(server) as client:
+        await client.session.validate_tool_result("t", parsed)
+
+
+@pytest.mark.anyio
+async def test_validate_tool_result_rejects_explicit_json_null_when_the_schema_does_not_allow_it() -> None:
+    """An explicit JSON null that fails the advertised object schema is a schema mismatch,
+    not a missing structuredContent field.
+    """
+    server = _make_server({"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]})
+    parsed = CallToolResult.model_validate({"content": [], "structuredContent": None})
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError, match="Invalid structured content returned by tool t"):
+            await client.session.validate_tool_result("t", parsed)
+
+
+@pytest.mark.anyio
+async def test_validate_tool_result_still_rejects_omitted_structured_content() -> None:
+    server = _make_server({"type": "null"})
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError, match="Tool t has an output schema but did not return structured content"):
+            await client.session.validate_tool_result("t", CallToolResult(content=[]))
+
+
+@pytest.mark.anyio
+async def test_validate_tool_result_validates_falsy_non_null_structured_content() -> None:
+    """0 / false / "" are present JSON values and must be schema-checked, not treated as missing."""
+    server = _make_server({"type": "number"})
+    async with Client(server) as client:
+        await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content=0))
+        with pytest.raises(RuntimeError, match="Invalid structured content returned by tool t"):
+            await client.session.validate_tool_result("t", CallToolResult(content=[], structured_content=False))
+
+
+@pytest.mark.anyio
 async def test_validate_tool_result_raises_on_an_unusable_output_schema() -> None:
     """A schema that isn't valid JSON Schema is reported as such, on every call."""
     server = _make_server({"type": "not-a-json-schema-type"})
