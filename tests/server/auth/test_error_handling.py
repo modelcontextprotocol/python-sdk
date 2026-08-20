@@ -296,13 +296,25 @@ _FORM = "application/x-www-form-urlencoded"
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("path", "content_type"),
-    [("/token", _FORM), ("/revoke", _FORM), ("/register", "application/json"), ("/authorize", _FORM)],
+    ("method", "path", "content_type"),
+    [
+        ("POST", "/token", _FORM),
+        ("POST", "/revoke", _FORM),
+        ("POST", "/register", "application/json"),
+        ("POST", "/authorize", _FORM),
+        # The other methods these routes accept reach the same body-reading handlers.
+        ("OPTIONS", "/token", _FORM),
+        ("OPTIONS", "/revoke", _FORM),
+        ("OPTIONS", "/register", "application/json"),
+        ("HEAD", "/authorize", _FORM),
+    ],
 )
-async def test_oversized_request_body_returns_413(client: httpx2.AsyncClient, path: str, content_type: str):
-    """Each endpoint that reads a request body rejects one over 4 MiB before parsing it."""
-    response = await client.post(
-        path, content=b"x" * (DEFAULT_MAX_REQUEST_BODY_SIZE + 1), headers={"Content-Type": content_type}
+async def test_oversized_request_body_returns_413(
+    client: httpx2.AsyncClient, method: str, path: str, content_type: str
+):
+    """Each endpoint that reads a request body rejects one over 4 MiB before parsing it, whatever the method."""
+    response = await client.request(
+        method, path, content=b"x" * (DEFAULT_MAX_REQUEST_BODY_SIZE + 1), headers={"Content-Type": content_type}
     )
     assert response.status_code == 413
 
@@ -316,10 +328,22 @@ async def test_request_body_within_the_limit_is_still_parsed(client: httpx2.Asyn
 
 
 @pytest.mark.anyio
-async def test_options_preflight_is_not_body_limited(client: httpx2.AsyncClient):
-    """CORS preflight requests still get their CORS answer; only POST bodies are limited."""
+async def test_cors_preflight_is_still_answered(client: httpx2.AsyncClient):
+    """A CORS preflight to a body-limited endpoint is answered by the CORS layer as before."""
     response = await client.options(
         "/token", headers={"Origin": "https://client.example.com", "Access-Control-Request-Method": "POST"}
     )
     assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+@pytest.mark.anyio
+async def test_oversized_cross_origin_request_gets_413_with_cors_headers(client: httpx2.AsyncClient):
+    """The 413 is produced inside the CORS layer, so a browser client can still read it."""
+    response = await client.post(
+        "/token",
+        content=b"x" * (DEFAULT_MAX_REQUEST_BODY_SIZE + 1),
+        headers={"Content-Type": _FORM, "Origin": "https://client.example.com"},
+    )
+    assert response.status_code == 413
     assert response.headers["access-control-allow-origin"] == "*"

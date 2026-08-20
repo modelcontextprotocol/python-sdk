@@ -70,7 +70,7 @@ class StreamableHTTPSessionManager:
             retry_interval is also configured, ensure the idle timeout comfortably exceeds the retry interval to
             avoid reaping sessions during normal SSE polling gaps. Default is None (no timeout). A value of 1800
             (30 minutes) is recommended for most deployments.
-        max_request_body_size: Maximum size in bytes for Streamable HTTP POST request bodies. Requests that
+        max_request_body_size: Maximum size in bytes for Streamable HTTP request bodies. Requests that
             exceed this limit receive a 413 response before parsing or session creation. Defaults to 4 MiB.
     """
 
@@ -379,7 +379,7 @@ class RequestBodyLimitMiddleware:
         self.max_body_size = max_body_size
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["method"] != "POST":
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
