@@ -100,7 +100,7 @@ Not every shape deserves a class. A `TypedDict` produces the same schema:
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-A `TypedDict` is a plain `dict` at runtime, so that is what you build and return. The schema, the validation, and `structured_content` are identical to the `BaseModel` version (minus the descriptions, which `TypedDict` has no place for).
+A `TypedDict` is a plain `dict` at runtime, so that is what you build and return. The schema, the validation, and `structured_content` follow the same rules as the `BaseModel` version: add a class docstring or `Annotated[..., Field(description=...)]` and they become the descriptions, and a `NotRequired` key you leave out of the dict stays out of `structured_content`.
 
 ## A dataclass
 
