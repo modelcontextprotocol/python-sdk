@@ -72,7 +72,7 @@ The same text the `@mcp.tool()` version produced. Two honest differences:
     MCPError: Internal server error
     ```
 
-    A JSON-RPC error, code `-32603`, with a deliberately generic message: the SDK won't leak your traceback to a remote caller. The model never finds out what it did wrong, so it can't retry. (In a test, `raise_exceptions=True` surfaces the real exception instead; see **[Testing](../get-started/testing.md)**.)
+    A JSON-RPC error, code `-32603`, with a deliberately generic message: the SDK won't leak your traceback to a remote caller. The model never finds out what it did wrong, so it can't retry. (In a test, `Client(server, raise_exceptions=True)` keeps the `MCPError` but puts the real message on it and chains the original as `__cause__`; see **[Testing](../get-started/testing.md)**.)
 
 That generalises. An exception raised from a low-level handler is **always** a protocol error, never an `is_error=True` tool result. If you want the model to read the failure and recover, validate `params.arguments` yourself and return `CallToolResult(content=[TextContent(...)], is_error=True)`. The two kinds of failure are the subject of **[Handling errors](../servers/handling-errors.md)**.
 

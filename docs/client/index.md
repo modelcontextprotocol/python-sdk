@@ -198,7 +198,12 @@ This loop is correct against every server. `MCPServer` returns everything in one
 
 `Client(mcp)` with no process and no port is already a test harness for your server.
 
-There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-memory connections, and **[Testing](../get-started/testing.md)** is the page that explains it and builds the whole pattern around it.
+There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an
+effect on in-memory connections (ignored for URL strings and transports). On the modern
+in-process path it does **not** make the original exception raise in place of `MCPError` — it
+unsanitises an unexpected handler crash so the `MCPError` message is `str(original)` and
+`__cause__` is the original. Tool `is_error=True` results are unchanged. **[Testing](../get-started/testing.md)**
+builds the whole pattern around it.
 
 ## Recap
 
