@@ -8,6 +8,7 @@ the closed back-channel on the dispatch context, and the request-validation ladd
 
 import json
 import logging
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -1138,9 +1139,42 @@ async def test_modern_tools_call_logs_a_handler_raised_validation_error_loudly(
     assert "Mcp-Param header validation skipped: the tools/list listing failed" in caplog.text
 
 
-async def test_modern_post_with_deeply_nested_body_is_parse_error_not_a_crash() -> None:
-    """Deep nesting makes json.loads raise RecursionError; still an unparseable body: 400 + PARSE_ERROR."""
+async def test_modern_post_with_deeply_nested_body_is_rejected_not_a_crash() -> None:
+    """A deeply nested body is rejected with a 400, never a crash.
+
+    Which JSON-RPC code it gets is platform-dependent on CPython 3.14+: the C
+    json scanner there guards recursion by actual C-stack headroom, so whether
+    a 100k-deep body parses depends on the parsing thread's stack size and the
+    per-level cost on that architecture (~112 bytes/level measured on arm64,
+    ~129 on x86_64). It either fails to parse (RecursionError -> PARSE_ERROR)
+    or parses into a giant list that then fails request validation
+    (-> INVALID_REQUEST). CPython gives non-main threads a 16 MiB stack on
+    macOS (THREAD_STACK_SIZE in thread_pthread.h) vs 8-ish MiB defaults
+    elsewhere, which is why macOS parses the body and answers INVALID_REQUEST.
+    Below 3.14 the recursion guard ignores stack size and the 100k-deep body
+    always fails to parse, so the exact PARSE_ERROR code is asserted there.
+    Both codes are correct rejections; the deterministic RecursionError ->
+    PARSE_ERROR mapping is covered by the monkeypatch test below.
+    """
     body = b"[" * 100_000 + b"]" * 100_000
+    async with _asgi_client(_x_mcp_server()) as http:
+        response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 400
+    allowed_codes = (PARSE_ERROR, INVALID_REQUEST) if sys.version_info >= (3, 14) else (PARSE_ERROR,)
+    assert response.json()["error"]["code"] in allowed_codes
+
+
+async def test_modern_post_recursion_error_during_parse_is_parse_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RecursionError raised while parsing the body maps to 400 + PARSE_ERROR (deterministically)."""
+    real_loads = json.loads
+    body = b"[" * 50 + b"]" * 50
+
+    def _raise_for_request_body(s: Any, *args: Any, **kwargs: Any) -> Any:
+        if s == body:  # `json` here is the stdlib module; only fail the request-body parse.
+            raise RecursionError("maximum recursion depth exceeded")
+        return real_loads(s, *args, **kwargs)
+
+    monkeypatch.setattr("mcp.server._streamable_http_modern.json.loads", _raise_for_request_body)
     async with _asgi_client(_x_mcp_server()) as http:
         response = await http.post("/mcp", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 400
