@@ -1283,6 +1283,7 @@ class MCPServer(Generic[LifespanResultT]):
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
+
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
@@ -1296,8 +1297,17 @@ class MCPServer(Generic[LifespanResultT]):
                 description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(rendered),
             )
+
         except MCPError:
             raise
+
+        except ValueError as e:
+            # Expected user-input validation failures, like missing required
+            # arguments, don't need a full traceback for unexpected errors.
+            # Instead, log a concise warning without exc_info.
+            logger.warning(f"Error getting prompt {name}: {e}")
+            raise ValueError(str(e)) from e
+
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e

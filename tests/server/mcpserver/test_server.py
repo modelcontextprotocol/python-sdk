@@ -1,4 +1,5 @@
 import base64
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1526,6 +1527,35 @@ class TestServerPrompts:
         async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+    async def test_get_prompt_missing_args_logs_warning_without_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Regression for issue #3342: missing-argument ValueErrors are an expected
+        validation failure, so `MCPServer.get_prompt`'s own logger should emit
+        a plain warning without exc_info, instead of a full traceback.
+
+        Note: `jsonrpc_dispatcher` has a separate, intentional catch-all that
+        logs a traceback for any handler exception it doesn't recognize as
+        `MCPError`/`ValidationError`. However, that generic safety net is out of
+        scope here and unaffected by this fix PR #3347.
+        """
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def prompt_fn(name: str) -> str: ...  # Pragma: no branch.
+
+        with caplog.at_level(logging.WARNING, logger="mcp.server.mcpserver.server"):
+            async with Client(mcp, mode="legacy") as client:
+                with pytest.raises(MCPError, match="Missing required arguments"):
+                    await client.get_prompt("prompt_fn")
+
+        server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+        assert len(server_records) == 1
+
+        # ValueError should have warning log without exc_info.
+        assert server_records[0].levelno == logging.WARNING
+        assert not server_records[0].exc_info
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():
