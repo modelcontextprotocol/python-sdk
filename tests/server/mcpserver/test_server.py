@@ -1545,15 +1545,20 @@ class TestServerPrompts:
         @mcp.prompt()
         def prompt_fn(name: str) -> str: ...  # pragma: no branch.
 
-        with caplog.at_level(logging.WARNING, logger="mcp.server.mcpserver.server"):
-            async with Client(mcp, mode="legacy") as client:
-                with pytest.raises(MCPError, match="Missing required arguments"):
-                    await client.get_prompt("prompt_fn")
+        # In Python 3.14, coverage.py undercounts a branch when `caplog.at_level`
+        # wraps `async with Client(...): with pytest.raises(...): await ...` as
+        # a 4th nesting level around a single `await` statement (3 levels of
+        # nesting is OK; 4 is not). So `caplog.set_level` avoids extra `with` layer.
+        caplog.set_level(logging.WARNING, logger="mcp.server.mcpserver.server")
+        async with Client(mcp, mode="legacy") as client:
+            with pytest.raises(MCPError, match="Missing required arguments"):
+                await client.get_prompt("prompt_fn")
 
         server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
         assert len(server_records) == 1
 
-        # ValueError should have warning log without exc_info.
+        # Missing-argument PromptValidationError, which is a ValueError subclass,
+        # logs as a plain warning, with no exc_info/traceback at all.
         assert server_records[0].levelno == logging.WARNING
         assert not server_records[0].exc_info
 
@@ -1568,10 +1573,14 @@ class TestServerPrompts:
         def prompt_fn() -> str:
             raise KeyError("boom")
 
-        with caplog.at_level(logging.WARNING, logger="mcp.server.mcpserver.server"):
-            async with Client(mcp, mode="legacy") as client:
-                with pytest.raises(MCPError):
-                    await client.get_prompt("prompt_fn")
+        # In Python 3.14, coverage.py undercounts a branch when `caplog.at_level`
+        # wraps `async with Client(...): with pytest.raises(...): await ...` as
+        # a 4th nesting level around a single `await` statement (3 levels of
+        # nesting is OK; 4 is not). So `caplog.set_level` avoids extra `with` layer.
+        caplog.set_level(logging.WARNING, logger="mcp.server.mcpserver.server")
+        async with Client(mcp, mode="legacy") as client:
+            with pytest.raises(MCPError):
+                await client.get_prompt("prompt_fn")
 
         server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
         assert len(server_records) == 1
