@@ -107,6 +107,8 @@ That is why `main` narrows with `isinstance(block, TextContent)` before touching
 
 When both are present they say the same thing twice on purpose: `content` is for a model, `structured_content` is for code. Where the structured half comes from, and how to control it, is the **[Structured Output](../servers/structured-output.md)** page.
 
+The client validates `structured_content` against schemas learned from `list_tools()`. If a server exposes tools through a search or catalog API instead of listing them all, call `register_tool_schema(name, output_schema)` (on `Client` or `ClientSession`) before `call_tool` so those results are validated the same way. A later complete `list_tools()` that omits that name drops the registration — re-register if you still need it.
+
 ### `is_error`: whether the tool failed
 
 A tool that raises does **not** raise in your client. It comes back as an ordinary result with `is_error=True`.

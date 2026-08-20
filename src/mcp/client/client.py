@@ -948,6 +948,14 @@ class Client:
             ),
         )
 
+    def register_tool_schema(self, name: str, output_schema: dict[str, Any] | None = None) -> None:
+        """Register a tool's output schema for result validation.
+
+        Delegates to `ClientSession.register_tool_schema`. Use when tools are discovered
+        dynamically and will not appear in `list_tools()` responses.
+        """
+        self.session.register_tool_schema(name, output_schema)
+
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
