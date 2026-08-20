@@ -18,8 +18,7 @@ from mcp.server import Server
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.sse import SseServerTransport
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared._stream_protocols import WriteStream
 from mcp.shared.message import SessionMessage
 from tests.interaction.transports import StreamingASGITransport

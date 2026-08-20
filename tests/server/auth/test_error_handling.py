@@ -16,7 +16,7 @@ from starlette.applications import Starlette
 from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
 from mcp.server.auth.routes import create_auth_routes
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE
 from tests.server.mcpserver.auth.test_auth_integration import MockOAuthProvider
 
 

@@ -51,8 +51,9 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 from mcp.server.transport_security import (
+    DEFAULT_MAX_REQUEST_BODY_SIZE,
+    RequestBodyLimitMiddleware,
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
