@@ -4,11 +4,16 @@ from typing import Any, Protocol
 
 import httpx2
 
-__all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT"]
+__all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT", "MCP_SSE_MAX_EVENT_SIZE"]
 
 # Default MCP timeout configuration
 MCP_DEFAULT_TIMEOUT = 30.0  # General operations (seconds)
 MCP_DEFAULT_SSE_READ_TIMEOUT = 300.0  # SSE streams - 5 minutes (seconds)
+
+# httpx2 >= 2.10 caps a single SSE event at 1 MiB by default. One JSON-RPC message
+# is one event and MCP sets no message size limit (the application/json response
+# path is unbounded too), so every SSE reader the SDK opens passes this instead.
+MCP_SSE_MAX_EVENT_SIZE: int | None = None
 
 
 class McpHttpClientFactory(Protocol):  # pragma: no branch

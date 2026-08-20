@@ -12,7 +12,7 @@ from httpx2 import SSEError
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import create_context_streams
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import MCP_SSE_MAX_EVENT_SIZE, McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ async def sse_client(
     async with httpx_client_factory(
         headers=headers, auth=auth, timeout=httpx2.Timeout(timeout, read=sse_read_timeout)
     ) as client:
-        async with client.sse(url) as event_source:
+        async with client.sse(url, max_event_size=MCP_SSE_MAX_EVENT_SIZE) as event_source:
             event_source.response.raise_for_status()
             logger.debug("SSE connection established")
 
