@@ -2188,6 +2188,25 @@ In v1, a non-2xx response to a message POST (other than 404) raised `httpx.HTTPS
 | 404, no session yet | `McpError` with positive code `32600` | `MCPError(-32601, 'Not Found')` |
 | Any other 4xx/5xx | `httpx.HTTPStatusError` escapes as `ExceptionGroup` | `MCPError(-32603, 'Server returned an error response')` |
 
+The same contract covers the resumption GET — a request re-attached with a resumption token (`Last-Event-ID`). In v1 a failure there escaped the context as an `ExceptionGroup` that failed every pending request, or hung the resumed call forever:
+
+| Resumption GET outcome | v1 | v2 |
+| --- | --- | --- |
+| 404, session established | `httpx.HTTPStatusError` escapes as `ExceptionGroup` | `MCPError(-32600, 'Session terminated')` |
+| Any other non-2xx | `httpx.HTTPStatusError` escapes as `ExceptionGroup` | `MCPError(-32603, 'Server returned an error response')` |
+| Stream drops mid-read | error escapes as `ExceptionGroup` | `MCPError(-32000, 'resumption stream ended without a response')` |
+| Stream ends cleanly with no response | resumed call hangs forever | `MCPError(-32000, 'resumption stream ended without a response')` |
+
+The SSE transport (`sse_client`) applies the same rule to its message POST. In v1 *any* POST failure — a non-2xx status, a network error, or an OAuth re-auth failure raised by the configured `auth` — was caught and logged inside the transport's writer task: the waiting caller hung forever and the write loop died, so every later send was silently dropped. In v2 the failing request resolves promptly and the session stays usable:
+
+| Message POST outcome | v1 | v2 |
+| --- | --- | --- |
+| 404, endpoint URL carries a session id | caller hangs forever; write loop dies | `MCPError(-32600, 'Session terminated')` |
+| Any other non-2xx | caller hangs forever; write loop dies | `MCPError(-32603, 'Server returned an error response')` |
+| Network-level failure (`httpx2.ConnectError`, timeouts) or OAuth flow failure | caller hangs forever; write loop dies | `MCPError(-32000, 'Failed to send message: ...')` |
+
+A failed POST of a *notification or response* has no caller to resolve; v2 logs and drops it, keeping the write loop (and every later send) alive.
+
 Both common v1 patterns silently stop working: an `except* httpx.HTTPStatusError` around the transport context becomes dead code because status errors no longer escape the context, and a session-expiry check on `error.code == 32600` never matches again because the code is now the standard negative `-32600`.
 
 **Before (v1):**
@@ -2230,7 +2249,7 @@ async with streamable_http_client(url) as (read, write):
                 raise
 ```
 
-Move HTTP-status failure handling from around the transport context to around the individual calls, catching `MCPError` (see [`McpError` renamed to `MCPError`](#mcperror-renamed-to-mcperror)). Connect-level failures such as `httpx2.ConnectError` still escape the transport context as before; keep context-level handling for those only.
+Move HTTP-status failure handling from around the transport context to around the individual calls, catching `MCPError` (see [`McpError` renamed to `MCPError`](#mcperror-renamed-to-mcperror)). On the streamable HTTP transport, connect-level failures such as `httpx2.ConnectError` on a *request's* message POST still escape the transport context as before — keep context-level handling for those; on the resumption GET and on the SSE transport's message POST they resolve the failing request instead, as above. A connect-level failure POSTing a *notification or response* on streamable HTTP is logged and does not escape the context, but it kills the transport's write loop — pre-existing behavior, unchanged from v1.
 
 ### `terminate_windows_process` removed
 

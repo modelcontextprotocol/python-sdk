@@ -14,7 +14,6 @@ from anyio.abc import TaskGroup
 from httpx2 import EventSource, ServerSentEvent
 from mcp_types import (
     CONNECTION_CLOSED,
-    INTERNAL_ERROR,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
@@ -30,7 +29,7 @@ from mcp_types import (
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ValidationError
 
-from mcp.client._transport import TransportStreams
+from mcp.client._transport import TransportStreams, status_error_data
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
@@ -248,25 +247,44 @@ class StreamableHTTPTransport:
         else:
             raise ResumptionError("Resumption request requires a resumption token")  # pragma: no cover
 
-        # Extract original request ID to map responses
-        original_request_id = None
-        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
-            original_request_id = ctx.session_message.message.id
+        # Only requests resume: post_writer dispatches here on message type as well as
+        # metadata, so the original id is always available to map responses.
+        assert isinstance(ctx.session_message.message, JSONRPCRequest)
+        original_request_id = ctx.session_message.message.id
 
-        async with ctx.client.sse(self.url, headers=headers) as event_source:
-            event_source.response.raise_for_status()
-            logger.debug("Resumption GET SSE connection established")
+        try:
+            async with ctx.client.sse(self.url, headers=headers) as event_source:
+                if not event_source.response.is_success:
+                    # Resolve the waiting caller with an error correlated to its request,
+                    # mirroring `_handle_post_request`: an escaping `HTTPStatusError` would
+                    # tear down the transport's task group and every stream with it (#2110).
+                    error_data = status_error_data(
+                        event_source.response.status_code, has_session=self.session_id is not None
+                    )
+                    await self._resolve_abandoned_request(
+                        ctx.read_stream_writer, original_request_id, error_data.message, code=error_data.code
+                    )
+                    return
+                logger.debug("Resumption GET SSE connection established")
 
-            async for sse in event_source:  # pragma: no branch
-                is_complete = await self._handle_sse_event(
-                    sse,
-                    ctx.read_stream_writer,
-                    original_request_id,
-                    ctx.metadata.on_resumption_token_update if ctx.metadata else None,
-                )
-                if is_complete:
-                    await event_source.response.aclose()
-                    break
+                async for sse in event_source:
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        await event_source.response.aclose()
+                        return
+        except Exception:
+            logger.debug("Resumption stream ended", exc_info=True)
+
+        # Stream ended without a response, cleanly or mid-read: resolve the waiter,
+        # mirroring `_handle_sse_response`, else the caller would hang forever.
+        await self._resolve_abandoned_request(
+            ctx.read_stream_writer, original_request_id, "resumption stream ended without a response"
+        )
 
     def _consume_modern_cancellation(self, session_message: SessionMessage) -> bool:
         """Translate an outbound `notifications/cancelled` at 2026; True means "do not POST".
@@ -358,16 +376,13 @@ class StreamableHTTPTransport:
                         except (httpx2.StreamError, ValidationError):
                             pass
                         logger.debug("Non-2xx body was not a JSON-RPC error; using fallback")
-                    if response.status_code == 404:
-                        if self.session_id is None:
-                            # No session yet → 404 is the HTTP-level spelling of
-                            # METHOD_NOT_FOUND (gateway / legacy server doesn't know
-                            # this method); "Session terminated" would be a lie here.
-                            error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
-                        else:
-                            error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                    if response.status_code == 404 and self.session_id is None:
+                        # No session yet → 404 is the HTTP-level spelling of
+                        # METHOD_NOT_FOUND (gateway / legacy server doesn't know
+                        # this method); "Session terminated" would be a lie here.
+                        error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
                     else:
-                        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                        error_data = status_error_data(response.status_code, has_session=self.session_id is not None)
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
@@ -556,8 +571,10 @@ class StreamableHTTPTransport:
                         else None
                     )
 
-                    # Check if this is a resumption request
-                    is_resumption = bool(metadata and metadata.resumption_token)
+                    # Only a request resumes: the token names an interrupted request's
+                    # stream, and `_handle_resumption_request` needs the id to correlate
+                    # its outcome. A notification stamped with one is POSTed as usual.
+                    is_resumption = bool(metadata and metadata.resumption_token) and isinstance(message, JSONRPCRequest)
 
                     logger.debug(f"Sending client message: {message}")
 
