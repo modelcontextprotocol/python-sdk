@@ -52,6 +52,13 @@ The in-memory version above works. It also forgets everything when the process e
     Store `client_info`, not only the tokens. The provider registers dynamically the first time it
     finds no stored `client_info`. Throw it away and you mint a fresh registration on every run.
 
+    One exception: a stored registration whose dynamically issued secret has expired (a non-zero
+    `client_secret_expires_at` in the past) is treated as absent — the expired secret could never
+    authenticate again, so the provider discards the record and re-registers on the next flow,
+    overwriting it in your storage with the fresh registration. Any refresh token goes with the
+    discarded record (it was issued to that `client_id` and no other client can redeem it), so the
+    stored tokens are rewritten without it; a still-live access token is kept and keeps working.
+
 ### The two handlers
 
 The authorization code flow needs a human exactly once: someone has to sign in and click "allow".
@@ -95,7 +102,7 @@ The repository ships the live version. `examples/servers/simple-auth/` runs a st
 
 The 2026-07-28 revision of the spec deprecates dynamic client registration in favor of **Client ID Metadata Documents** (CIMD). Instead of POSTing a fresh registration to every authorization server it meets, your client publishes one JSON document about itself at a stable HTTPS URL, and that URL *is* its `client_id`. The authorization server fetches the document; the provider never touches it.
 
-The SDK already speaks it: pass the URL as `client_metadata_url=` when you construct the provider. When the authorization server's metadata advertises `client_id_metadata_document_supported: true`, the provider skips the `/register` request entirely: the URL goes into the flow as the `client_id`, and there is no `client_secret`. When the server doesn't advertise it (most don't yet), or you never pass a URL, the provider falls back to dynamic registration **silently**, and everything above works exactly as described. Stored `client_info` still wins over both.
+The SDK already speaks it: pass the URL as `client_metadata_url=` when you construct the provider. When the authorization server's metadata advertises `client_id_metadata_document_supported: true`, the provider skips the `/register` request entirely: the URL goes into the flow as the `client_id`, and there is no `client_secret`. When the server doesn't advertise it (most don't yet), or you never pass a URL, the provider falls back to dynamic registration **silently**, and everything above works exactly as described. Stored `client_info` still wins over both, as long as its registration is usable — a record whose dynamically issued secret has expired is discarded and the provider registers (or resolves the CIMD URL) afresh.
 
 The URL must be HTTPS with a non-root path; anything else is a `ValueError` at construction, before any network happens. The shipped `examples/clients/simple-auth-client/` takes it as the `MCP_CLIENT_METADATA_URL` environment variable.
 
