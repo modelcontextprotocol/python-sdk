@@ -86,7 +86,11 @@ async def test_sse_security_invalid_host_header() -> None:
     async with sse_security_client(security_settings) as client:
         response = await client.get("/sse", headers={"Host": "evil.com"})
         assert response.status_code == 421
-        assert response.text == "Invalid Host header"
+        assert response.json() == {
+            "error": "host_not_allowed",
+            "received_host": "evil.com",
+            "configure": "TransportSecuritySettings.allowed_hosts",
+        }
 
 
 @pytest.mark.anyio
@@ -149,7 +153,11 @@ async def test_sse_security_custom_allowed_hosts() -> None:
 
         response = await client.get("/sse", headers={"Host": "evil.com"})
         assert response.status_code == 421
-        assert response.text == "Invalid Host header"
+        assert response.json() == {
+            "error": "host_not_allowed",
+            "received_host": "evil.com",
+            "configure": "TransportSecuritySettings.allowed_hosts",
+        }
 
 
 @pytest.mark.anyio
