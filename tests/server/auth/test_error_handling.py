@@ -14,7 +14,7 @@ from starlette.applications import Starlette
 
 from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
 from mcp.server.auth.routes import create_auth_routes
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE
 
 # TODO(Marcelo): This TYPE_CHECKING shouldn't be here, but pytest doesn't seem to get the module correctly.
 if TYPE_CHECKING:

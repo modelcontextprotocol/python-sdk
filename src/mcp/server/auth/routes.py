@@ -18,7 +18,7 @@ from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, RequestBodyLimitMiddleware
 from mcp.shared.auth import OAuthMetadata
 
 
