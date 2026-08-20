@@ -1087,6 +1087,11 @@ class FastMCP(Generic[LifespanResultT]):
             raise ValueError(str(e))
 
 
+# `Settings.lifespan` refers to FastMCP, which is only defined above; complete the model now so
+# settings sources never see an unresolved annotation when a FastMCP instance is created.
+Settings.model_rebuild()
+
+
 class StreamableHTTPASGIApp:
     """
     ASGI application for Streamable HTTP server transport.
