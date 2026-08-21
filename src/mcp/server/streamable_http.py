@@ -491,8 +491,14 @@ class StreamableHTTPServerTransport:
             body = await request.body()
 
             try:
-                raw_message = json.loads(body)
-            except json.JSONDecodeError as e:
+                # Decode explicitly rather than passing bytes to json.loads(): the latter
+                # auto-detects UTF-8/16/32 (RFC 4627 sec. 3), so a UTF-16/32 body that is
+                # otherwise valid JSON would parse successfully even though the MCP spec
+                # requires UTF-8.
+                raw_message = json.loads(body.decode("utf-8"))
+            except ValueError as e:
+                # Both json.JSONDecodeError (bad syntax) and UnicodeDecodeError (body bytes
+                # that are not valid UTF-8) subclass ValueError; both are client errors.
                 response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
                 await response(scope, receive, send)
                 return
