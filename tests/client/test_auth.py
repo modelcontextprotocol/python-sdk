@@ -845,6 +845,14 @@ class TestRefreshResourceParamFallback:
         oauth_provider.context.token_expiry_time = time.time() - 3600
         return httpx2.Request("GET", "https://api.example.com/mcp", headers={"mcp-protocol-version": "2025-06-18"})
 
+    def test_refresh_error_code_tolerates_malformed_bodies(self):
+        from mcp.client.auth.oauth2 import _refresh_error_code
+
+        assert _refresh_error_code(b'{"error": "invalid_grant"}') == "invalid_grant"
+        assert _refresh_error_code(b"Bad Request") is None
+        assert _refresh_error_code(b"[1, 2]") is None
+        assert _refresh_error_code(b'{"error": 42}') is None
+
     @pytest.mark.anyio
     async def test_refresh_retries_without_resource_on_400(self, oauth_provider: OAuthClientProvider):
         test_request = self._prepare_expired_session(oauth_provider)
