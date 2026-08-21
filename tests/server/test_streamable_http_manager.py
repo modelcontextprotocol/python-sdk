@@ -3,13 +3,14 @@
 import json
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Final
 from unittest.mock import AsyncMock, patch
 
 import anyio
 import httpx2
 import pytest
 from mcp_types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
+from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from starlette.types import Message, Scope
 
 from mcp import Client
@@ -19,6 +20,19 @@ from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
+
+_INITIALIZE_BODY: Final[bytes] = json.dumps(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": HANDSHAKE_PROTOCOL_VERSIONS[-1],
+            "capabilities": {},
+            "clientInfo": {"name": "test-client", "version": "1.0"},
+        },
+    }
+).encode()
 
 
 @pytest.mark.anyio
@@ -140,6 +154,121 @@ async def test_oversized_streamed_body_is_rejected_before_session_creation(
 
     response_start = next(message for message in sent_messages if message["type"] == "http.response.start")
     assert response_start["status"] == 413
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "headers", "body", "expected_status"),
+    [
+        pytest.param(
+            "POST",
+            [(b"content-type", b"application/json"), (b"accept", b"application/json, text/event-stream")],
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode(),
+            400,
+            id="post-that-is-not-initialize",
+        ),
+        pytest.param(
+            "POST",
+            [(b"content-type", b"application/json"), (b"accept", b"application/json, text/event-stream")],
+            b"{not valid json",
+            400,
+            id="post-with-malformed-body",
+        ),
+        pytest.param(
+            "POST",
+            [(b"content-type", b"application/json"), (b"accept", b"text/plain")],
+            _INITIALIZE_BODY,
+            406,
+            id="post-with-unacceptable-accept",
+        ),
+        pytest.param("GET", [(b"accept", b"text/event-stream")], b"", 400, id="get-without-session"),
+        pytest.param("DELETE", [], b"", 400, id="delete-without-session"),
+        pytest.param("HEAD", [], b"", 405, id="head-is-not-implemented"),
+        pytest.param("OPTIONS", [], b"", 405, id="options-is-not-implemented"),
+    ],
+)
+async def test_refused_request_leaves_no_session_behind(
+    method: str, headers: list[tuple[bytes, bytes]], body: bytes, expected_status: int
+) -> None:
+    """SDK-defined: a request the transport refuses must not leave a registered session behind.
+
+    The session is minted before any validation runs -- Host, Accept, Content-Type, JSON parse,
+    JSON-RPC shape and the "Missing session ID" check all live downstream in the transport -- so a
+    refusal has to undo it. Otherwise a rejected request grows `_server_instances` forever and hands
+    the caller a session id that later requests can still use.
+
+    The property is method-independent: a method the transport does not implement at all is refused
+    by `_handle_unsupported_request`, which also runs downstream of registration and also echoes the
+    session id back. That is why the discard keys off the response status rather than an enumerated
+    list of validation failures.
+
+    This is the same property the suite already asserts by name for the 413 path in
+    `test_oversized_content_length_is_rejected_before_body_read_or_session_creation`.
+    """
+    manager = StreamableHTTPSessionManager(app=Server("test-refused-request"))
+    sent_messages: list[Message] = []
+
+    async def mock_send(message: Message) -> None:
+        sent_messages.append(message)
+
+    async def mock_receive() -> Message:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    scope: Scope = {"type": "http", "method": method, "path": "/mcp", "headers": headers}
+
+    async with manager.run():
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+        assert response_start["status"] == expected_status
+        assert manager._server_instances == {}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("body_messages", "test_id"),
+    [
+        pytest.param(
+            [{"type": "http.request", "body": _INITIALIZE_BODY[:10], "more_body": True}, {"type": "http.disconnect"}],
+            "disconnect-mid-body",
+            id="disconnect-mid-body",
+        ),
+        pytest.param([{"type": "http.disconnect"}], "disconnect-before-body", id="disconnect-before-body"),
+    ],
+)
+async def test_client_disconnect_leaves_no_session_behind(body_messages: list[Message], test_id: str) -> None:
+    """SDK-defined: a client that vanishes mid-establishment must not leave a registered session behind.
+
+    `Request.body()` raises `ClientDisconnect` when the stream ends on `http.disconnect`, so this
+    never reaches the refusal paths above. `_handle_post_request` converts it into a 500 instead of
+    letting it escape, which is why keying the discard off the response status covers this too: 500
+    is not a validation refusal and an enumerated list of them would have missed it.
+
+    Reported by @keeltrace on #3229.
+    """
+    manager = StreamableHTTPSessionManager(app=Server("test-client-disconnect"))
+    sent_messages: list[Message] = []
+    messages = iter(body_messages)
+
+    async def mock_send(message: Message) -> None:
+        sent_messages.append(message)
+
+    async def mock_receive() -> Message:
+        return next(messages)
+
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": [(b"content-type", b"application/json"), (b"accept", b"application/json, text/event-stream")],
+    }
+
+    async with manager.run():
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+        assert response_start["status"] == 500
+        assert manager._server_instances == {}
 
 
 def test_request_body_limit_defaults_to_four_mib() -> None:
@@ -436,34 +565,12 @@ async def test_idle_session_is_reaped(caplog: pytest.LogCaptureFixture, request:
     caplog.set_level(logging.INFO, logger=streamable_http_manager.__name__)
 
     async with manager.run():
-        sent_messages: list[Message] = []
+        # Establish the session with a real `initialize`: a request the transport refuses no
+        # longer leaves a session behind, so there would be nothing for the reaper to reap.
+        session_id = await _open_session(manager, None)
 
-        async def mock_send(message: Message):
-            sent_messages.append(message)
-
-        scope = {
-            "type": "http",
-            "method": "POST",
-            "path": "/mcp",
-            "headers": [(b"content-type", b"application/json")],
-        }
-
-        async def mock_receive():
+        async def mock_receive() -> Message:
             return {"type": "http.request", "body": b"", "more_body": False}
-
-        await manager.handle_request(scope, mock_receive, mock_send)
-
-        session_id = None
-        for msg in sent_messages:  # pragma: no branch
-            if msg["type"] == "http.response.start":  # pragma: no branch
-                for header_name, header_value in msg.get("headers", []):  # pragma: no branch
-                    if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
-                        session_id = header_value.decode()
-                        break
-                if session_id:  # pragma: no branch
-                    break
-
-        assert session_id is not None, "Session ID not found in response headers"
 
         # Wait for the 50ms idle timeout to fire and the session to be unregistered. Re-requesting
         # the session to poll for the 404 would push its idle deadline forward and keep it alive.
@@ -536,18 +643,31 @@ def _request_scope(
 
 
 async def _open_session(manager: StreamableHTTPSessionManager, user: AuthenticatedUser | None) -> str:
-    """Create a new session as `user` and return its session ID."""
+    """Create a new session as `user` and return its session ID.
+
+    Establishes the session the way a real client does, with an `initialize` request, because
+    a request the transport refuses no longer leaves a session behind. The reply is an SSE
+    stream, so the body is followed by a disconnect: that ends the stream and lets
+    `handle_request` return, while the session itself lives on in the manager's task group.
+    """
     sent_messages: list[Message] = []
+    body_sent = False
 
     async def mock_send(message: Message) -> None:
         sent_messages.append(message)
 
     async def mock_receive() -> Message:
-        return {"type": "http.request", "body": b"", "more_body": False}
+        nonlocal body_sent
+        if body_sent:
+            return {"type": "http.disconnect"}
+        body_sent = True
+        return {"type": "http.request", "body": _INITIALIZE_BODY, "more_body": False}
 
-    await manager.handle_request(_request_scope(user=user), mock_receive, mock_send)
+    with anyio.fail_after(5):
+        await manager.handle_request(_request_scope(user=user), mock_receive, mock_send)
 
     response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+    assert response_start["status"] == 200, f"initialize was refused with {response_start['status']}"
     headers = dict(response_start.get("headers", []))
     return headers[MCP_SESSION_ID_HEADER.encode()].decode()
 
