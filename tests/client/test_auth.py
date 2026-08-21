@@ -824,6 +824,124 @@ class TestProtectedResourceMetadata:
         assert "resource=" in content
 
 
+class TestRefreshResourceParamFallback:
+    """Refresh keeps the RFC 8707 resource param per the MCP spec, but retries once
+    without it when the authorization server rejects the refresh with a 400 —
+    some servers (e.g. Microsoft Entra ID v2.0, AADSTS9010010) reject the
+    parameter on refresh_token grants (#2578)."""
+
+    def _prepare_expired_session(self, oauth_provider: OAuthClientProvider) -> httpx2.Request:
+        oauth_provider._initialized = True
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        oauth_provider.context.current_tokens = OAuthToken(
+            access_token="expired_access",
+            token_type="Bearer",
+            refresh_token="test_refresh_token",
+        )
+        oauth_provider.context.token_expiry_time = time.time() - 3600
+        return httpx2.Request("GET", "https://api.example.com/mcp", headers={"mcp-protocol-version": "2025-06-18"})
+
+    @pytest.mark.anyio
+    async def test_refresh_retries_without_resource_on_400(self, oauth_provider: OAuthClientProvider):
+        test_request = self._prepare_expired_session(oauth_provider)
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        first_refresh = await auth_flow.__anext__()
+        first_body = first_refresh.content.decode()
+        assert "grant_type=refresh_token" in first_body
+        assert "resource=" in first_body
+
+        entra_rejection = httpx2.Response(
+            400,
+            content=b'{"error": "invalid_request", "error_description": "AADSTS9010010: ..."}',
+            request=first_refresh,
+        )
+        retry_refresh = await auth_flow.asend(entra_rejection)
+        retry_body = retry_refresh.content.decode()
+        assert "grant_type=refresh_token" in retry_body
+        assert "resource=" not in retry_body
+
+        token_response = httpx2.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer", '
+                b'"expires_in": 3600, "refresh_token": "new_refresh_token"}'
+            ),
+            request=retry_refresh,
+        )
+        original_request = await auth_flow.asend(token_response)
+        assert original_request.headers["Authorization"] == "Bearer new_access_token"
+
+        with pytest.raises(StopAsyncIteration):
+            await auth_flow.asend(httpx2.Response(200, request=original_request))
+
+    @pytest.mark.anyio
+    async def test_refresh_falls_back_to_reauth_when_retry_fails(self, oauth_provider: OAuthClientProvider):
+        test_request = self._prepare_expired_session(oauth_provider)
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        first_refresh = await auth_flow.__anext__()
+        entra_rejection = httpx2.Response(
+            400,
+            content=b'{"error": "invalid_request", "error_description": "AADSTS9010010: ..."}',
+            request=first_refresh,
+        )
+        retry_refresh = await auth_flow.asend(entra_rejection)
+        assert "resource=" not in retry_refresh.content.decode()
+
+        original_request = await auth_flow.asend(httpx2.Response(400, request=retry_refresh))
+        # Both refresh attempts failed: the original request goes out unauthenticated
+        # and the provider is flagged for full re-authentication.
+        assert "Authorization" not in original_request.headers
+        assert oauth_provider._initialized is False
+
+        with pytest.raises(StopAsyncIteration):
+            await auth_flow.asend(httpx2.Response(200, request=original_request))
+
+    @pytest.mark.anyio
+    async def test_no_retry_on_invalid_grant(self, oauth_provider: OAuthClientProvider):
+        test_request = self._prepare_expired_session(oauth_provider)
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        first_refresh = await auth_flow.__anext__()
+        assert "resource=" in first_refresh.content.decode()
+
+        # invalid_grant means the refresh token itself is dead: retrying
+        # without the resource param cannot help, so the flow goes straight
+        # to full re-authentication.
+        dead_grant = httpx2.Response(400, content=b'{"error": "invalid_grant"}', request=first_refresh)
+        original_request = await auth_flow.asend(dead_grant)
+        assert str(original_request.url) == "https://api.example.com/mcp"
+        assert "Authorization" not in original_request.headers
+        assert oauth_provider._initialized is False
+
+        with pytest.raises(StopAsyncIteration):
+            await auth_flow.asend(httpx2.Response(200, request=original_request))
+
+    @pytest.mark.anyio
+    async def test_no_retry_when_resource_was_not_sent(self, oauth_provider: OAuthClientProvider):
+        test_request = self._prepare_expired_session(oauth_provider)
+        test_request.headers["mcp-protocol-version"] = "2025-03-26"
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        first_refresh = await auth_flow.__anext__()
+        assert "resource=" not in first_refresh.content.decode()
+
+        # A 400 without the resource param present is a real failure: no retry,
+        # the next request is the original one, unauthenticated.
+        original_request = await auth_flow.asend(httpx2.Response(400, request=first_refresh))
+        assert str(original_request.url) == "https://api.example.com/mcp"
+        assert "Authorization" not in original_request.headers
+        assert oauth_provider._initialized is False
+
+        with pytest.raises(StopAsyncIteration):
+            await auth_flow.asend(httpx2.Response(200, request=original_request))
+
+
 @pytest.mark.parametrize(
     ("protocol_version", "expected"),
     [
