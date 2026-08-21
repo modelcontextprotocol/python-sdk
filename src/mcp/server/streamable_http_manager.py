@@ -14,7 +14,7 @@ from mcp_types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JS
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 from mcp.server._streamable_http_modern import handle_modern_request
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, AuthorizationContext, authorization_context

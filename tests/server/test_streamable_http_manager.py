@@ -11,7 +11,7 @@ import httpx2
 import pytest
 from mcp_types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
-from starlette.types import Message, Receive, Scope, Send
+from starlette.types import Message, Scope
 
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
@@ -225,76 +225,50 @@ async def test_refused_request_leaves_no_session_behind(
 
 
 @pytest.mark.anyio
-async def test_client_disconnect_while_streaming_request_body_is_replayed() -> None:
-    """SDK-defined: raw ASGI is required to prove a disconnect before body completion reaches the transport."""
-    disconnect: Message = {"type": "http.disconnect"}
-    request_messages: Iterator[Message] = iter(
-        [{"type": "http.request", "body": b"1234", "more_body": True}, disconnect]
-    )
-    received_messages: list[Message] = []
+@pytest.mark.parametrize(
+    ("body_messages", "test_id"),
+    [
+        pytest.param(
+            [{"type": "http.request", "body": _INITIALIZE_BODY[:10], "more_body": True}, {"type": "http.disconnect"}],
+            "disconnect-mid-body",
+            id="disconnect-mid-body",
+        ),
+        pytest.param([{"type": "http.disconnect"}], "disconnect-before-body", id="disconnect-before-body"),
+    ],
+)
+async def test_client_disconnect_leaves_no_session_behind(body_messages: list[Message], test_id: str) -> None:
+    """SDK-defined: a client that vanishes mid-establishment must not leave a registered session behind.
 
-    async def receive() -> Message:
-        return next(request_messages)
+    `Request.body()` raises `ClientDisconnect` when the stream ends on `http.disconnect`, so this
+    never reaches the refusal paths above. `_handle_post_request` converts it into a 500 instead of
+    letting it escape, which is why keying the discard off the response status covers this too: 500
+    is not a validation refusal and an enumerated list of them would have missed it.
 
-    async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        received_messages.append(await receive())
-        received_messages.append(await receive())
+    Reported by @keeltrace on #3229.
+    """
+    manager = StreamableHTTPSessionManager(app=Server("test-client-disconnect"))
+    sent_messages: list[Message] = []
+    messages = iter(body_messages)
 
-    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": []}
-    middleware = RequestBodyLimitMiddleware(app, max_body_size=8)
+    async def mock_send(message: Message) -> None:
+        sent_messages.append(message)
 
-    await middleware(scope, receive, AsyncMock())
+    async def mock_receive() -> Message:
+        return next(messages)
 
-    assert received_messages == [
-        {"type": "http.request", "body": b"1234", "more_body": True},
-        disconnect,
-    ]
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": [(b"content-type", b"application/json"), (b"accept", b"application/json, text/event-stream")],
+    }
 
+    async with manager.run():
+        await manager.handle_request(scope, mock_receive, mock_send)
 
-@pytest.mark.anyio
-async def test_client_disconnect_before_request_body_is_replayed() -> None:
-    """SDK-defined: raw ASGI proves a disconnect before the first body message reaches the transport."""
-    disconnect: Message = {"type": "http.disconnect"}
-    received_messages: list[Message] = []
-
-    async def receive() -> Message:
-        return disconnect
-
-    async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        received_messages.append(await receive())
-
-    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": []}
-    middleware = RequestBodyLimitMiddleware(app, max_body_size=8)
-
-    await middleware(scope, receive, AsyncMock())
-
-    assert received_messages == [disconnect]
-
-
-@pytest.mark.anyio
-async def test_request_body_chunks_are_replayed_as_one_message() -> None:
-    """SDK-defined: raw ASGI proves chunk overhead is discarded before the body reaches the transport."""
-    request_messages: Iterator[Message] = iter(
-        [
-            {"type": "http.request", "body": b"12", "more_body": True},
-            {"type": "http.request", "body": b"34", "more_body": True},
-            {"type": "http.request", "body": b"56", "more_body": False},
-        ]
-    )
-    received_messages: list[Message] = []
-
-    async def receive() -> Message:
-        return next(request_messages)
-
-    async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        received_messages.append(await receive())
-
-    scope: Scope = {"type": "http", "method": "POST", "path": "/mcp", "headers": []}
-    middleware = RequestBodyLimitMiddleware(app, max_body_size=8)
-
-    await middleware(scope, receive, AsyncMock())
-
-    assert received_messages == [{"type": "http.request", "body": b"123456", "more_body": False}]
+        response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+        assert response_start["status"] == 500
+        assert manager._server_instances == {}
 
 
 def test_request_body_limit_defaults_to_four_mib() -> None:
