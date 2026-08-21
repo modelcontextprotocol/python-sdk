@@ -1358,7 +1358,7 @@ class InputSchema(WireModel):
         extra="allow",
     )
     schema_: Annotated[str | None, Field(alias="$schema")] = None
-    properties: dict[str, dict[str, Any]] | None = None
+    properties: dict[str, dict[str, Any] | bool] | None = None
     required: list[str] | None = None
     type: Literal["object"]
 
@@ -1376,7 +1376,7 @@ class OutputSchema(WireModel):
         extra="allow",
     )
     schema_: Annotated[str | None, Field(alias="$schema")] = None
-    properties: dict[str, dict[str, Any]] | None = None
+    properties: dict[str, dict[str, Any] | bool] | None = None
     required: list[str] | None = None
     type: Literal["object"]
 
