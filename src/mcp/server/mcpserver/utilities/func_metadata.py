@@ -182,7 +182,7 @@ class FuncMetadata(BaseModel):
         # A schema published without a model (hand-built metadata) is advertised but not validated here.
         output_model = self.output_model if self.output_schema is not None else None
         if isinstance(result, CallToolResult):
-            if output_model is not None:
+            if output_model is not None and not result.is_error:
                 self._output_adapter(output_model).validate_python(result.structured_content)
             return result
 
@@ -234,8 +234,10 @@ class FuncMetadata(BaseModel):
             if isinstance(data_value, str) and field_info.annotation is not str:
                 try:
                     pre_parsed = json.loads(data_value)
-                except json.JSONDecodeError:
-                    continue  # Not JSON - skip
+                except (ValueError, RecursionError):
+                    # Not JSON, or JSON the parser refuses (over-long integers, deep
+                    # nesting): leave the string for validation to accept or reject.
+                    continue
                 if isinstance(pre_parsed, str | int | float):
                     # This is likely that the raw value is e.g. `"hello"` which we
                     # Should really be parsed as '"hello"' in Python - but if we parse

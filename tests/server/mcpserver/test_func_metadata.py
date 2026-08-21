@@ -126,14 +126,9 @@ async def test_complex_function_runtime_arg_validation_non_json():
     )
     assert result == "ok!"
 
-    # Test with invalid types
-    with pytest.raises(ValueError):
-        await meta.call_fn(
-            complex_arguments_fn,
-            fn_is_async=False,
-            arguments=meta.validate_arguments({"an_int": "not an int"}),
-            arguments_to_pass_directly=None,
-        )
+    # Invalid types are rejected by validate_arguments, before any call
+    with pytest.raises(ValidationError):
+        meta.validate_arguments({"an_int": "not an int"})
 
 
 @pytest.mark.anyio
@@ -229,6 +224,21 @@ def test_str_vs_list_str():
     # Test list input for union type
     result = meta.pre_parse_json({"str_or_list": '["hello", "world"]'})
     assert result["str_or_list"] == ["hello", "world"]
+
+
+def test_pre_parse_json_leaves_strings_the_json_parser_refuses_untouched():
+    """A string json.loads rejects with something other than JSONDecodeError (an over-long integer,
+    nesting past the recursion limit) is left as-is for validation to reject, not raised."""
+
+    def takes_numbers(xs: list[int]) -> None: ...  # pragma: no branch
+
+    meta = func_metadata(takes_numbers)
+    too_long = "9" * 5000
+    too_deep = "[" * 200_000
+    assert meta.pre_parse_json({"xs": too_long}) == {"xs": too_long}
+    assert meta.pre_parse_json({"xs": too_deep}) == {"xs": too_deep}
+    with pytest.raises(ValidationError):
+        meta.validate_arguments({"xs": too_long})
 
 
 def test_skip_names():

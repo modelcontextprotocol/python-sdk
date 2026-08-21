@@ -6,7 +6,7 @@ import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
 import pydantic_core
@@ -524,7 +524,8 @@ class MCPServer(Generic[LifespanResultT]):
                 tool (or a resolver) raises `ToolError` or `ResourceError`.
             UnexpectedToolError: If the tool (or a resolver) raises anything else, or
                 its return value fails output conversion. `__cause__` is the original
-                exception.
+                exception (or, for a nested tool or resource crash, its wrapper).
+            MCPError: Raised by the tool or a resolver; passed through unchanged.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
@@ -580,6 +581,7 @@ class MCPServer(Generic[LifespanResultT]):
             UnexpectedResourceError: If reading the resource (or creating it from a
                 template) raises anything other than `ResourceError` or `MCPError`.
                 `__cause__` is the original exception.
+            MCPError: Raised by the resource or template function; passed through unchanged.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
@@ -587,7 +589,10 @@ class MCPServer(Generic[LifespanResultT]):
             resource = await self._resource_manager.get_resource(uri, context)
             if isinstance(resource, InputRequiredResult):
                 return resource
-            content = await resource.read()
+            # Checked at runtime because a Resource subclass may not honour the annotation.
+            content = cast(object, await resource.read())
+            if not isinstance(content, str | bytes):
+                raise TypeError(f"Resource.read() must return str or bytes, not {type(content).__name__}")
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except (MCPError, ResourceError):
             raise

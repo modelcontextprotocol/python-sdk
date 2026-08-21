@@ -1805,6 +1805,36 @@ async def test_completion_decorator() -> None:
         assert result.completion.values == ["bold", "italic", "underline"]
 
 
+async def test_custom_resource_returning_the_wrong_type_is_a_crash(caplog: pytest.LogCaptureFixture) -> None:
+    """SDK-defined: a Resource subclass whose read() returns something other than str or bytes is the
+    server's bug, so it is logged as a crash and answered with the generic -32603, not with
+    'Invalid request parameters'; read_resource() called directly raises instead of returning it."""
+    mcp = MCPServer()
+
+    class Miscoded(MCPServerResource):
+        async def read(self) -> Any:
+            return 42
+
+    mcp.add_resource(Miscoded(uri="data://answer", name="answer"))
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as exc:
+            await client.read_resource("data://answer")
+
+    assert exc.value.error == snapshot(
+        ErrorData(code=INTERNAL_ERROR, message="Error reading resource data://answer", data={"uri": "data://answer"})
+    )
+    assert _server_records(caplog) == snapshot(
+        [("ERROR", "Resource 'data://answer' raised an unexpected exception", True)]
+    )
+    cause = _logged_exception(caplog).__cause__
+    assert isinstance(cause, TypeError)
+    assert str(cause) == "Resource.read() must return str or bytes, not int"
+    with pytest.raises(UnexpectedResourceError):
+        await mcp.read_resource("data://answer")
+
+
 async def test_completion_handler_crash_is_logged_and_reaches_the_client_generically(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

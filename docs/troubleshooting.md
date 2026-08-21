@@ -92,7 +92,7 @@ result.structured_content  # None
 
 The fix is in your client: **check `result.is_error`**. A `try/except` around `call_tool` catches none of these, because there is nothing to catch. This is deliberate, and it is the single most useful thing on this page to internalise: the *model* chose the call, so the model gets the message and a chance to try again. **[Handling errors](servers/handling-errors.md)** is the whole story, including the `MCPError` path that *does* raise.
 
-The bare form, `Error executing tool <name>` with no message, means the tool **crashed**: something other than `ToolError` was raised while running it (or its return value failed the output schema), and that exception's text is kept off the wire. The traceback is in the **server's log** at `ERROR`, as `Tool '<name>' raised an unexpected exception`.
+The bare form, `Error executing tool <name>` with no message, means the tool **crashed**: an exception it didn't anticipate escaped it (or its return value failed the output schema), and that exception's text is kept off the wire. The traceback is in the **server's log** at `ERROR`, as `Tool '<name>' raised an unexpected exception`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool`
 

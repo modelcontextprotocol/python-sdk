@@ -283,6 +283,34 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
     )
 
 
+@requirement("mcpserver:output-schema:skip-on-error")
+async def test_tool_with_output_schema_returning_is_error_result_skips_output_validation(
+    connect: Connect, unstamped: Unstamp
+) -> None:
+    """A deliberate is_error result from a tool with an output schema reaches the client as written.
+
+    The tool declares `Weather` as its output schema but returns a hand-built
+    `CallToolResult(is_error=True)` with no structured content. An error result has nothing to
+    validate, so the author's message is delivered instead of being replaced by a validation failure.
+    """
+    mcp = MCPServer("forecaster")
+
+    class Weather(BaseModel):
+        temperature: float
+        conditions: str
+
+    @mcp.tool()
+    def forecast() -> Annotated[CallToolResult, Weather]:
+        return CallToolResult(content=[TextContent(text="Upstream is down, try again later.")], is_error=True)
+
+    async with connect(mcp) as client:
+        result = await client.call_tool("forecast", {})
+
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="Upstream is down, try again later.")], is_error=True)
+    )
+
+
 @requirement("mcpserver:tool:duplicate-name")
 async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(
     connect: Connect, unstamped: Unstamp
