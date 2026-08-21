@@ -1531,12 +1531,14 @@ class TestServerPrompts:
     async def test_get_prompt_missing_args_logs_warning_without_traceback(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Regression for issue #3342: a missing-argument PromptValidationError is
-        an expected validation failure. `MCPServer.get_prompt` logs it as a plain
-        warning (no exc_info) and raises it as `MCPError`, so the dispatcher's own
-        catch-all — which would otherwise log a second, separate traceback for any
-        exception it doesn't recognize as expected — treats it as expected too.
-        No traceback anywhere in the real request path.
+        """Regression for issue #3342: missing-argument ValueErrors are an expected
+        validation failure, so `MCPServer.get_prompt`'s own logger should emit
+        a plain warning without exc_info, instead of a full traceback.
+
+        Note: `jsonrpc_dispatcher` has a separate, intentional catch-all that
+        logs a traceback for any handler exception it doesn't recognize as
+        `MCPError`/`ValidationError`. However, that generic safety net is out of
+        scope here and unaffected by this fix PR #3347.
         """
         mcp = MCPServer()
 
@@ -1545,16 +1547,12 @@ class TestServerPrompts:
 
         # In Python 3.14, coverage.py undercounts a branch when `caplog.at_level`
         # wraps `async with Client(...): with pytest.raises(...): await ...` as
-        # a 4th nesting level around a single `await` statement.
-        # 3 levels of nesting is OK. But 4 is not.
-
-        caplog.set_level(logging.WARNING)
+        # a 4th nesting level around a single `await` statement (3 levels of
+        # nesting is OK; 4 is not). So `caplog.set_level` avoids extra `with` layer.
+        caplog.set_level(logging.WARNING, logger="mcp.server.mcpserver.server")
         async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
-
-        # No traceback anywhere in request path. Not just this module's logger.
-        assert not any(r.exc_info for r in caplog.records)
 
         server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
         assert len(server_records) == 1

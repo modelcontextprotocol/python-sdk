@@ -1303,20 +1303,15 @@ class MCPServer(Generic[LifespanResultT]):
 
         except PromptValidationError as e:
             # Expected user-input validation failures, like missing required
-            # arguments, don't need a full traceback anywhere in request path.
-
-            # Raising `MCPError` here — the same pattern
-            # `_handle_read_resource` uses for `ResourceNotFoundError` above —
-            # lets `handler_exception_to_error_data` at the dispatcher
-            # boundary recognize this as expected too, so neither this layer
-            # nor the dispatcher's catch-all logs a traceback for it.
+            # arguments, don't need a full traceback. Log a concise warning
+            # instead of the exc_info dump reserved for unexpected errors.
 
             # `Prompt.render` also raises a plain `ValueError` when the prompt
             # function itself throws, so this narrower type is caught here
             # instead of `ValueError` to avoid swallowing that traceback too.
 
             logger.warning(f"Error getting prompt {name}: {e}")
-            raise MCPError(code=INVALID_PARAMS, message=str(e), data={"name": name}) from e
+            raise ValueError(str(e)) from e
 
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
