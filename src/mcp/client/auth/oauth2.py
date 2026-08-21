@@ -5,6 +5,7 @@ Implements authorization code flow with PKCE and automatic token refresh.
 
 import base64
 import hashlib
+import json
 import logging
 import secrets
 import string
@@ -79,6 +80,15 @@ _SECRET_TOKEN_ENDPOINT_AUTH_METHODS = ("client_secret_post", "client_secret_basi
 _REGISTRATION_USABLE_TOKEN_ENDPOINT_AUTH_METHODS: tuple[str | None, ...] = tuple(
     method for method in _KNOWN_TOKEN_ENDPOINT_AUTH_METHODS if method != "private_key_jwt"
 )
+
+
+def _refresh_error_code(body: bytes) -> str | None:
+    """Extract the RFC 6749 ``error`` code from a failed token response, if any."""
+    try:
+        error = json.loads(body).get("error")
+    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+        return None
+    return error if isinstance(error, str) else None
 
 
 def check_registration_usable(client_info: OAuthClientInformationFull) -> None:
@@ -486,8 +496,15 @@ class OAuthClientProvider(httpx2.Auth):
         self.context.update_token_expiry(token_response)
         await self.context.storage.set_tokens(token_response)
 
-    async def _refresh_token(self) -> httpx2.Request:
-        """Build token refresh request."""
+    async def _refresh_token(self, *, include_resource: bool = True) -> httpx2.Request:
+        """Build token refresh request.
+
+        Args:
+            include_resource: Whether to attach the RFC 8707 ``resource`` parameter
+                (when the protocol version calls for it). The retry path passes False
+                for authorization servers that reject the parameter on
+                ``refresh_token`` grants (e.g. Microsoft Entra ID v2.0, AADSTS9010010).
+        """
         if not self.context.current_tokens or not self.context.current_tokens.refresh_token:
             raise OAuthTokenError("No refresh token available")  # pragma: no cover
 
@@ -507,7 +524,7 @@ class OAuthClientProvider(httpx2.Auth):
         }
 
         # Only include resource param if conditions are met
-        if self.context.should_include_resource_param(self.context.protocol_version):
+        if include_resource and self.context.should_include_resource_param(self.context.protocol_version):
             refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
@@ -588,8 +605,23 @@ class OAuthClientProvider(httpx2.Auth):
 
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Try to refresh token
+                resource_included = self.context.should_include_resource_param(self.context.protocol_version)
                 refresh_request = await self._refresh_token()
                 refresh_response = yield refresh_request
+
+                if (
+                    refresh_response.status_code == 400
+                    and resource_included
+                    and _refresh_error_code(await refresh_response.aread()) != "invalid_grant"
+                ):
+                    # Some authorization servers (e.g. Microsoft Entra ID v2.0,
+                    # AADSTS9010010) reject the RFC 8707 resource parameter on
+                    # refresh_token grants. Retry once without it before giving
+                    # up and forcing a full interactive re-authentication.
+                    # `invalid_grant` is excluded: it means the refresh token
+                    # itself is no longer valid, so a retry cannot succeed.
+                    refresh_request = await self._refresh_token(include_resource=False)
+                    refresh_response = yield refresh_request
 
                 if not await self._handle_refresh_response(refresh_response):
                     # Refresh failed, need full re-authentication
