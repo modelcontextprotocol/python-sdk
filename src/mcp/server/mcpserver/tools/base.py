@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Hashable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
@@ -15,6 +16,7 @@ from mcp.server.mcpserver.resolve import (
     returns_input_required,
 )
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+from mcp.server.mcpserver.utilities.docstring_parsing import parse_docstring
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
@@ -75,7 +77,14 @@ class Tool(BaseModel):
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        func_doc = description or fn.__doc__ or ""
+        if description is not None:
+            func_doc = description
+            docstring_params: dict[str, str] = {}
+        else:
+            raw_doc = inspect.getdoc(fn) or ""
+            summary, docstring_params = parse_docstring(raw_doc)
+            func_doc = summary
+
         is_async = is_async_callable(fn)
 
         if context_kwarg is None:  # pragma: no branch
@@ -96,6 +105,7 @@ class Tool(BaseModel):
             fn,
             skip_names=skip_names,
             structured_output=structured_output,
+            docstring_param_descriptions=docstring_params,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
 

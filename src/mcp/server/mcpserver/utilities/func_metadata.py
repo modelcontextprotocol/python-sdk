@@ -240,10 +240,24 @@ class FuncMetadata(BaseModel):
     )
 
 
+def _has_explicit_field_description(annotation: Any, default: Any) -> bool:
+    """Check whether a parameter already carries an explicit ``Field(description=...)``."""
+    # Check Annotated metadata for a FieldInfo with a description.
+    if get_origin(annotation) is Annotated:
+        for meta in get_args(annotation)[1:]:
+            if isinstance(meta, FieldInfo) and meta.description is not None:
+                return True
+    # Check default value (e.g. ``x: int = Field(1, description="...")``).
+    if isinstance(default, FieldInfo) and default.description is not None:
+        return True
+    return False
+
+
 def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
     structured_output: bool | None = None,
+    docstring_param_descriptions: dict[str, str] | None = None,
 ) -> FuncMetadata:
     """Given a function, return metadata including a Pydantic model representing its signature.
 
@@ -261,6 +275,10 @@ def func_metadata(
         func: The function to convert to a Pydantic model
         skip_names: A list of parameter names to skip. These will not be included in
             the model.
+        docstring_param_descriptions: An optional mapping of parameter names to
+            descriptions extracted from the function's docstring. When provided,
+            descriptions are injected as Pydantic field descriptions for parameters
+            that do not already have an explicit ``Field(description=...)``.
         structured_output: Controls whether the tool's output is structured or unstructured
             - If None, auto-detects based on the function's return type annotation
             - If True, creates a structured tool (return type annotation permitting)
@@ -314,6 +332,14 @@ def func_metadata(
             field_kwargs["alias"] = field_name
             # Use a prefixed field name
             field_name = f"field_{field_name}"
+
+        # Inject docstring-derived description when no explicit Field(description=...) exists.
+        if (
+            docstring_param_descriptions
+            and param.name in docstring_param_descriptions
+            and not _has_explicit_field_description(annotation, param.default)
+        ):
+            field_kwargs["description"] = docstring_param_descriptions[param.name]
 
         if param.default is not inspect.Parameter.empty:
             dynamic_pydantic_model_params[field_name] = (
