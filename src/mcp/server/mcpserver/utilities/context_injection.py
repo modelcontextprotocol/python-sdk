@@ -29,8 +29,16 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
         # If we can't resolve type hints, we can't find the context parameter
         return None
 
+    # Only examine actual function parameters, not the return annotation.
+    # ``typing.get_type_hints`` includes a ``"return"`` key for the return
+    # annotation which is not a parameter.
+    sig_params = set(inspect.signature(fn).parameters)
+
     # Check each parameter's type hint
     for param_name, annotation in hints.items():
+        if param_name not in sig_params:
+            continue
+
         # Handle direct Context type
         if inspect.isclass(annotation) and issubclass(annotation, Context):
             return param_name
