@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 from mcp import Client
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import TextContent
 
 mcp = MCPServer("Bookshop")
@@ -17,7 +18,7 @@ class Book(BaseModel):
 def lookup_book(title: str) -> Book:
     """Look up a book by its exact title."""
     if title != "Dune":
-        raise ValueError(f"No book titled {title!r} in the catalog.")
+        raise ToolError(f"No book titled {title!r} in the catalog.")
     return Book(title="Dune", author="Frank Herbert", year=1965)
 
 

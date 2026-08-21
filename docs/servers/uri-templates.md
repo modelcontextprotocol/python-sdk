@@ -159,7 +159,7 @@ The built-in checks stop the common cases but can't know your sandbox
 boundary. For filesystem access, use `safe_join` to resolve the path
 and verify it stays inside your base directory:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -199,10 +199,10 @@ These checks are a heuristic pre-filter; for filesystem access,
 `safe_join` remains the containment boundary.
 
 !!! tip
-    If your handler can't fulfil the request (the file doesn't exist,
-    the id is unknown), raise an exception. The SDK turns it into an
-    error response. See **[Handling errors](handling-errors.md)** for the difference between a
-    protocol error and a tool error.
+    If your handler can't fulfil the request (the file doesn't exist, the id is unknown), raise
+    `ResourceNotFoundError` as `read_manual` does above. The client gets `-32602` with your message
+    and the URI. An unexpected exception becomes a generic `-32603` instead. See
+    **[Handling errors](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Resources on the low-level Server
 

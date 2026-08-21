@@ -5,9 +5,15 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from mcp_types import Icon, InputRequiredResult, ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from mcp.server.mcpserver.exceptions import InvalidSignature, ToolError
+from mcp.server.mcpserver.exceptions import (
+    InvalidSignature,
+    ResourceError,
+    ToolError,
+    UnexpectedResourceError,
+    UnexpectedToolError,
+)
 from mcp.server.mcpserver.resolve import (
     build_resolver_plans,
     find_resolved_parameters,
@@ -128,39 +134,52 @@ class Tool(BaseModel):
     ) -> Any:
         """Run the tool with arguments.
 
+        Every failure other than `MCPError` is raised as a `ToolError` whose message
+        starts `Error executing tool <name>` and whose `__cause__` is what was raised.
+        An anticipated failure keeps its own text after the prefix. A crash does not,
+        so nothing from an unexpected exception reaches the client.
+
         Raises:
-            ToolError: If the tool function raises during execution.
+            ToolError: If the arguments fail validation against the input schema, or
+                the tool function (or a resolver) raises `ToolError` or `ResourceError`.
+            UnexpectedToolError: If argument validation, the tool function, or a
+                resolver raises anything else, or the return value fails output conversion.
         """
+        try:
+            validated = self.fn_metadata.validate_arguments(arguments)
+        except ValidationError as exc:
+            # The caller's arguments don't match the input schema: the model's mistake
+            # to read and correct, so it is reported like a deliberate ToolError.
+            raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
+        except MCPError:
+            raise
+        except Exception as exc:
+            # A custom validator or default_factory that raises is a crash.
+            raise UnexpectedToolError(f"Error executing tool {self.name}") from exc
+
         try:
             pass_directly: dict[str, Any] = {}
             if self.context_kwarg is not None:
                 pass_directly[self.context_kwarg] = context
 
-            # Resolvers see the same validated arguments the tool body receives:
-            # validate once and reuse it, so a `default_factory`/stateful validator
-            # can't hand a by-name resolver a different value than the body.
-            pre_validated: dict[str, Any] | None = None
+            # Resolvers see the same validated arguments the tool body receives, so a
+            # `default_factory`/stateful validator can't hand a by-name resolver a
+            # different value than the body.
             if self.resolved_params:
-                pre_validated = self.fn_metadata.validate_arguments(arguments)
-                resolved = await resolve_arguments(self.resolved_params, self.resolver_plans, pre_validated, context)
+                resolved = await resolve_arguments(self.resolved_params, self.resolver_plans, validated, context)
                 if isinstance(resolved, InputRequiredResult):
                     # A resolver still needs client input (>= 2026-07-28): surface the
                     # batched questions instead of running the tool body this round.
                     return self.fn_metadata.convert_result(resolved) if convert_result else resolved
                 pass_directly |= resolved
 
-            result = await self.fn_metadata.call_fn_with_arg_validation(
-                self.fn,
-                self.is_async,
-                arguments,
-                pass_directly or None,
-                pre_validated=pre_validated,
-            )
+            result = await self.fn_metadata.call_fn(self.fn, self.is_async, validated, pass_directly)
 
             # Registration rejects the annotated form of this combination; this covers
-            # a body that returns an InputRequiredResult without declaring it.
+            # a body that returns an InputRequiredResult without declaring it. It is
+            # an authoring bug, so it is raised as a crash rather than a ToolError.
             if self.resolved_params and isinstance(result, InputRequiredResult):
-                raise ToolError(
+                raise RuntimeError(
                     "the tool returned an InputRequiredResult but its parameters use Resolve(...); "
                     "a call has one input_required channel, so the multi-round flow is driven "
                     "either by resolvers or by the tool body, not both"
@@ -177,5 +196,15 @@ class Tool(BaseModel):
             # it as a top-level JSON-RPC error rather than wrapping it as a
             # `CallToolResult(isError=True)` execution failure.
             raise
-        except Exception as e:
-            raise ToolError(f"Error executing tool {self.name}: {e}") from e
+        # Everything else reaches the model as an is_error result under this tool's
+        # name, and the wrapper's type tells the server whether to log a crash.
+        except (UnexpectedToolError, UnexpectedResourceError) as exc:
+            # A nested tool call or resource read crashed: still a crash here. Its
+            # message is already the generic one, so it is safe to carry along.
+            raise UnexpectedToolError(f"Error executing tool {self.name}: {exc}") from exc
+        except (ToolError, ResourceError) as exc:
+            # Raised deliberately by the tool, a resolver, or a resource it read.
+            raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
+        except Exception as exc:
+            # A crash: the exception's own text stays on the server.
+            raise UnexpectedToolError(f"Error executing tool {self.name}") from exc

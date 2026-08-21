@@ -83,6 +83,28 @@ async def test_a_failing_tool_returns_is_error_true_instead_of_raising() -> None
     ]
 
 
+async def test_a_crashing_tool_is_the_bare_form_with_its_traceback_in_the_server_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The bare `Error executing tool <name>`: the tool raised something other than ToolError, its text
+    is withheld, and the server log carries the exact ERROR message the page names."""
+    mcp = MCPServer("Weather")
+
+    @mcp.tool()
+    def forecast(city: str) -> str:
+        """Today's forecast for one city. Crashes: the upstream table is missing the key."""
+        forecasts: dict[str, str] = {}
+        return forecasts[city]
+
+    caplog.set_level(logging.ERROR, logger="mcp.server.mcpserver.server")
+    async with Client(mcp) as client:
+        result = await client.call_tool("forecast", {"city": "Atlantis"})
+    assert result.content == [TextContent(type="text", text="Error executing tool forecast")]
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert record.getMessage() == "Tool 'forecast' raised an unexpected exception"
+    assert record.exc_info is not None
+
+
 async def test_an_unknown_tool_is_the_same_kind_of_result() -> None:
     """`Unknown tool: <name>` travels the same `is_error=True` path as a failing tool."""
     async with Client(tutorial001.mcp) as client:
