@@ -13,6 +13,7 @@ from mcp.server.request_state import (
 )
 
 from .context import Context
+from .exceptions import ToolError
 from .prompts.base import AssistantMessage, Message, UserMessage
 from .resolve import (
     AcceptedElicitation,
@@ -31,6 +32,7 @@ from .utilities.types import Audio, Image
 __all__ = [
     "MCPServer",
     "Context",
+    "ToolError",
     "Image",
     "Audio",
     "Message",
