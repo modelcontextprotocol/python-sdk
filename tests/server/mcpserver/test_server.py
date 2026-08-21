@@ -1,4 +1,5 @@
 import base64
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1526,6 +1527,67 @@ class TestServerPrompts:
         async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+    async def test_get_prompt_missing_args_logs_warning_without_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Regression for issue #3342: missing-argument ValueErrors are an expected
+        validation failure, so `MCPServer.get_prompt`'s own logger should emit
+        a plain warning without exc_info, instead of a full traceback.
+
+        Note: `jsonrpc_dispatcher` has a separate, intentional catch-all that
+        logs a traceback for any handler exception it doesn't recognize as
+        `MCPError`/`ValidationError`. However, that generic safety net is out of
+        scope here and unaffected by this fix PR #3347.
+        """
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def prompt_fn(name: str) -> str: ...  # pragma: no branch.
+
+        # In Python 3.14, coverage.py undercounts a branch when `caplog.at_level`
+        # wraps `async with Client(...): with pytest.raises(...): await ...` as
+        # a 4th nesting level around a single `await` statement (3 levels of
+        # nesting is OK; 4 is not). So `caplog.set_level` avoids extra `with` layer.
+        caplog.set_level(logging.WARNING, logger="mcp.server.mcpserver.server")
+        async with Client(mcp, mode="legacy") as client:
+            with pytest.raises(MCPError, match="Missing required arguments"):
+                await client.get_prompt("prompt_fn")
+
+        server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+        assert len(server_records) == 1
+
+        # Missing-argument PromptValidationError, which is a ValueError subclass,
+        # logs as a plain warning, with no exc_info/traceback at all.
+        assert server_records[0].levelno == logging.WARNING
+        assert not server_records[0].exc_info
+
+    async def test_get_prompt_unexpected_error_still_logs_traceback(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A prompt function raising an unexpected (non-validation) exception must
+        still be logged with a full traceback, even though `Prompt.render` also
+        wraps it as a plain `ValueError` — same wire type as the missing-argument
+        case, but not a `PromptValidationError`, so it must not be downgraded."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def prompt_fn() -> str:
+            raise KeyError("boom")
+
+        # In Python 3.14, coverage.py undercounts a branch when `caplog.at_level`
+        # wraps `async with Client(...): with pytest.raises(...): await ...` as
+        # a 4th nesting level around a single `await` statement (3 levels of
+        # nesting is OK; 4 is not). So `caplog.set_level` avoids extra `with` layer.
+        caplog.set_level(logging.WARNING, logger="mcp.server.mcpserver.server")
+        async with Client(mcp, mode="legacy") as client:
+            with pytest.raises(MCPError):
+                await client.get_prompt("prompt_fn")
+
+        server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+        assert len(server_records) == 1
+
+        # Unexpected errors should have error log with exc_info.
+        assert server_records[0].levelno == logging.ERROR
+        assert server_records[0].exc_info is not None
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():

@@ -22,6 +22,18 @@ if TYPE_CHECKING:
     from mcp.server.mcpserver.context import Context
 
 
+class PromptValidationError(ValueError):
+    """Raised when prompt arguments fail validation (e.g. a required argument is missing).
+
+    A `ValueError` subclass so existing callers that catch `ValueError` are
+    unaffected. It exists to distinguish this expected, user-input validation
+    failure from the generic `ValueError` `Prompt.render` also raises when the
+    prompt function itself raises an unexpected exception - callers that log
+    the two differently (see `MCPServer.get_prompt`) can `except` this
+    specifically without downgrading a genuine crash to a quiet warning.
+    """
+
+
 class Message(BaseModel):
     """Base class for all prompt messages.
 
@@ -166,7 +178,8 @@ class Prompt(BaseModel):
         through unchanged so the multi-round-trip flow reaches the client.
 
         Raises:
-            ValueError: If required arguments are missing, or if rendering fails.
+            PromptValidationError: If required arguments are missing.
+            ValueError: If the prompt function itself raises an unexpected exception.
         """
         # Validate required arguments
         if self.arguments:
@@ -174,7 +187,7 @@ class Prompt(BaseModel):
             provided = set(arguments or {})
             missing = required - provided
             if missing:
-                raise ValueError(f"Missing required arguments: {missing}")
+                raise PromptValidationError(f"Missing required arguments: {missing}")
 
         try:
             # Add context to arguments if needed
@@ -183,6 +196,7 @@ class Prompt(BaseModel):
             fn = self.fn
             if is_async_callable(fn):
                 result = await fn(**call_args)
+
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **call_args))
 
@@ -198,16 +212,21 @@ class Prompt(BaseModel):
             for msg in result:  # type: ignore[reportUnknownVariableType]
                 if isinstance(msg, Message):
                     messages.append(msg)
+
                 elif isinstance(msg, dict):
                     messages.append(message_validator.validate_python(msg))
+
                 elif isinstance(msg, str | ContentBlock | Image | Audio):  # bare content is one user message
                     messages.append(UserMessage(msg))
+
                 else:  # pragma: no cover
                     content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
                     messages.append(Message(role="user", content=content))
 
             return messages
+
         except MCPError:
             raise
+
         except Exception as e:
             raise ValueError(f"Error rendering prompt {self.name}: {e}")

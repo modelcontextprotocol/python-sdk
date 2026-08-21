@@ -72,7 +72,7 @@ from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
-from mcp.server.mcpserver.prompts import Prompt, PromptManager
+from mcp.server.mcpserver.prompts import Prompt, PromptManager, PromptValidationError
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
     FunctionResource,
@@ -1283,6 +1283,7 @@ class MCPServer(Generic[LifespanResultT]):
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
+
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
@@ -1296,8 +1297,22 @@ class MCPServer(Generic[LifespanResultT]):
                 description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(rendered),
             )
+
         except MCPError:
             raise
+
+        except PromptValidationError as e:
+            # Expected user-input validation failures, like missing required
+            # arguments, don't need a full traceback. Log a concise warning
+            # instead of the exc_info dump reserved for unexpected errors.
+
+            # `Prompt.render` also raises a plain `ValueError` when the prompt
+            # function itself throws, so this narrower type is caught here
+            # instead of `ValueError` to avoid swallowing that traceback too.
+
+            logger.warning(f"Error getting prompt {name}: {e}")
+            raise ValueError(str(e)) from e
+
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e
