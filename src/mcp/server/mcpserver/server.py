@@ -1298,6 +1298,12 @@ class MCPServer(Generic[LifespanResultT]):
             )
         except MCPError:
             raise
+        except ValueError as e:
+            # Expected validation errors (e.g. missing required arguments)
+            # don't need a full traceback — a warning with the message is
+            # enough for server operators to diagnose the problem.
+            logger.warning(f"Error getting prompt {name}: {e}")
+            raise
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e
