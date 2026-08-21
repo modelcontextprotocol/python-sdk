@@ -395,7 +395,9 @@ async def test_stateless_requests_memory_cleanup():
 
 @pytest.mark.anyio
 async def test_unknown_session_id_returns_404():
-    """Test that requests with unknown session IDs return HTTP 404 per MCP spec."""
+    """Requests with unknown session IDs return HTTP 404 per MCP spec, with a
+    self-describing message -- not a bare "Session not found" -- naming the
+    cause and remedy, mirroring what #19/#26 already did for SseServerTransport."""
     app = Server("test-unknown-session")
     manager = StreamableHTTPSessionManager(app=app)
 
@@ -439,7 +441,14 @@ async def test_unknown_session_id_returns_404():
         assert error_data["jsonrpc"] == "2.0"
         assert error_data["id"] == "server-error"
         assert error_data["error"]["code"] == INVALID_REQUEST
-        assert error_data["error"]["message"] == "Session not found"
+        message = error_data["error"]["message"]
+        assert "restart" in message.lower()
+        assert "reconnect" in message.lower() and "initialize" in message.lower()
+        # This transport (unlike sse) has a session_idle_timeout, so an
+        # expired session is a real, distinct cause the sse-side wording
+        # doesn't need to name -- assert it's actually covered, not just
+        # copied from the sse message.
+        assert "expire" in message.lower()
 
 
 @pytest.mark.anyio

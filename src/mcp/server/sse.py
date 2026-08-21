@@ -237,11 +237,23 @@ class SseServerTransport:
             response = Response("Invalid session ID", status_code=400)
             return await response(scope, receive, send)
 
+        # Both branches below use this identical, self-describing message:
+        # a session can be missing either because it was never valid or
+        # because the credential doesn't match its owner, and the second
+        # case must respond exactly as if the session did not exist (see
+        # below) -- so the two messages can never diverge without leaking
+        # which case occurred.
+        unknown_session_response = Response(
+            f"Could not find session {session_id.hex}: the server may have restarted since this "
+            "session was created, or the session_id was never valid. Reconnect (open a new SSE "
+            "stream) and send a fresh 'initialize' request.",
+            status_code=404,
+        )
+
         writer = self._read_stream_writers.get(session_id)
         if not writer:
             logger.warning(f"Could not find session for ID: {session_id}")
-            response = Response("Could not find session", status_code=404)
-            return await response(scope, receive, send)
+            return await unknown_session_response(scope, receive, send)
 
         user = scope.get("user")
         requestor = authorization_context(user) if isinstance(user, AuthenticatedUser) else None
@@ -249,8 +261,7 @@ class SseServerTransport:
             # A session can only be used with the credential that created it.
             # Respond exactly as if the session did not exist.
             logger.warning("Rejecting message for session %s: credential does not match", session_id)
-            response = Response("Could not find session", status_code=404)
-            return await response(scope, receive, send)
+            return await unknown_session_response(scope, receive, send)
 
         body = await request.body()
         logger.debug(f"Received JSON: {body}")
