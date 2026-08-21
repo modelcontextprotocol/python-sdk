@@ -10,6 +10,7 @@ from starlette.routing import Mount, Route
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
+from mcp.server.fastmcp.server import Settings
 from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
@@ -29,6 +30,11 @@ from mcp.types import (
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import Context
+
+
+def test_settings_model_is_complete_at_import():
+    """The Settings model resolves its FastMCP annotation at import, so building one needs no deferred rebuild."""
+    assert Settings.__pydantic_complete__
 
 
 class TestServer:
