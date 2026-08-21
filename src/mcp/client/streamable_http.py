@@ -224,8 +224,8 @@ class StreamableHTTPTransport:
 
                         await self._handle_sse_event(sse, read_stream_writer)
 
-                    # Stream ended normally (server closed) - reset attempt counter
-                    attempt = 0
+                    # Increment attempt counter on disconnect to prevent infinite retry loops
+                    attempt += 1
 
             except Exception:
                 logger.debug("GET stream error", exc_info=True)
@@ -235,9 +235,10 @@ class StreamableHTTPTransport:
                 logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
                 return
 
-            # Wait before reconnecting
-            delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
-            logger.info(f"GET stream disconnected, reconnecting in {delay_ms}ms...")
+            # Wait before reconnecting with exponential backoff and jitter
+            base_delay = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+            delay_ms = min(base_delay * (2 ** (attempt - 1)), 30000)
+            logger.info(f"GET stream disconnected (attempt {attempt}/{MAX_RECONNECTION_ATTEMPTS}), reconnecting in {delay_ms}ms...")
             await anyio.sleep(delay_ms / 1000.0)
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
