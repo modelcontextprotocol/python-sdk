@@ -144,6 +144,7 @@ dependencies = [
     "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
     "opentelemetry-api>=1.28.0",
+    "griffe>=1.0.0",
 ]
 
 [project.urls]

@@ -36,7 +36,58 @@ from mcp.server.mcpserver.exceptions import InvalidSignature
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 
+import logging as _logging
+
+import griffe
+from griffe import DocstringSectionParameters
+
+# Suppress griffe's "No type or annotation" warnings — we parse descriptions, not types
+_logging.getLogger("griffe").setLevel(_logging.ERROR)
+
 logger = get_logger(__name__)
+
+
+def _parse_docstring_params(func: Callable[..., Any]) -> dict[str, str]:
+    """Parse parameter descriptions from a function's docstring.
+
+    Supports Google, NumPy, and Sphinx docstring styles via griffe.
+    Tries all styles and returns the one that yields the most parameter descriptions.
+
+    Returns:
+        A dict mapping parameter names to their descriptions.
+    """
+    docstring = func.__doc__
+    if not docstring:
+        return {}
+
+    docstring_obj = griffe.Docstring(docstring)
+    best: dict[str, str] = {}
+
+    for parser in (griffe.parse_google, griffe.parse_numpy, griffe.parse_sphinx):
+        try:
+            parsed = parser(docstring_obj)
+            found: dict[str, str] = {}
+            for section in parsed:
+                if isinstance(section, DocstringSectionParameters):
+                    for param in section.value:
+                        if param.description:
+                            found[param.name] = param.description
+            if len(found) > len(best):
+                best = found
+        except Exception:
+            continue
+
+    return best
+
+
+def _has_field_description(annotation: Any) -> bool:
+    """Check if a type annotation already contains a Pydantic Field with a description."""
+    if get_origin(annotation) is Annotated:
+        args = get_args(annotation)
+        for arg in args[1:]:
+            if isinstance(arg, FieldInfo) and arg.description is not None:
+                return True
+    return False
 
 
 def _is_input_required_type(obj: Any) -> bool:
@@ -293,6 +344,7 @@ def func_metadata(
         # model_rebuild right before using it 🤷
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
+    param_descriptions = _parse_docstring_params(func)
     dynamic_pydantic_model_params: dict[str, Any] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
@@ -303,6 +355,9 @@ def func_metadata(
         annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
         field_name = param.name
         field_kwargs: dict[str, Any] = {}
+        # Only add docstring description if the annotation doesn't already have a Field description
+        if param.name in param_descriptions and not _has_field_description(annotation):
+            field_kwargs["description"] = param_descriptions[param.name]
         field_metadata: list[Any] = []
 
         if param.annotation is inspect.Parameter.empty:
