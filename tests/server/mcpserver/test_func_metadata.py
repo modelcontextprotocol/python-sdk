@@ -1458,3 +1458,162 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+# Tests for docstring → JSON Schema description propagation (issue #226)
+
+
+def test_google_style_docstring_descriptions():
+    """Test that Google-style docstrings are parsed and descriptions added to schema."""
+
+    def func_google_style(name: str, age: int, verbose: bool = False) -> str:
+        """A function with Google-style docstring.
+
+        Args:
+            name: The person's full name.
+            age: Age in years.
+            verbose: Whether to print verbose output.
+
+        Returns:
+            A greeting string.
+        """
+        return f"Hello {name}, you are {age}"
+
+    meta = func_metadata(func_google_style)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    assert schema["properties"]["name"]["description"] == "The person's full name."
+    assert schema["properties"]["age"]["description"] == "Age in years."
+    assert schema["properties"]["verbose"]["description"] == "Whether to print verbose output."
+
+
+def test_numpy_style_docstring_descriptions():
+    """Test that NumPy-style docstrings are parsed and descriptions added to schema."""
+
+    def func_numpy_style(filename: str, encoding: str = "utf-8") -> str:
+        """A function with NumPy-style docstring.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the file to read.
+        encoding : str, optional
+            File encoding. Defaults to utf-8.
+
+        Returns
+        -------
+        str
+            File contents.
+        """
+        return f"Reading {filename}"
+
+    meta = func_metadata(func_numpy_style)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    assert schema["properties"]["filename"]["description"] == "Path to the file to read."
+    assert schema["properties"]["encoding"]["description"] == "File encoding. Defaults to utf-8."
+
+
+def test_sphinx_style_docstring_descriptions():
+    """Test that Sphinx-style docstrings are parsed and descriptions added to schema."""
+
+    def func_sphinx_style(url: str, timeout: int = 30) -> str:
+        """A function with Sphinx-style docstring.
+
+        :param url: The URL to fetch.
+        :param timeout: Request timeout in seconds.
+        :returns: Response text.
+        """
+        return f"Fetching {url}"
+
+    meta = func_metadata(func_sphinx_style)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    assert schema["properties"]["url"]["description"] == "The URL to fetch."
+    assert schema["properties"]["timeout"]["description"] == "Request timeout in seconds."
+
+
+def test_no_docstring():
+    """Test that functions without docstrings still work correctly."""
+
+    def func_no_doc(x: int, y: str) -> str:  # pragma: no cover
+        return f"{x}: {y}"
+
+    meta = func_metadata(func_no_doc)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    # No description should be added
+    assert "description" not in schema["properties"]["x"]
+    assert "description" not in schema["properties"]["y"]
+
+
+def test_docstring_no_args_section():
+    """Test docstrings without an Args section don't add descriptions."""
+
+    def func_no_args_section(x: int) -> str:
+        """Just a summary, no args section."""
+        return str(x)
+
+    meta = func_metadata(func_no_args_section)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    assert "description" not in schema["properties"]["x"]
+
+
+def test_docstring_partial_args():
+    """Test that only documented parameters get descriptions."""
+
+    def func_partial(a: int, b: str, c: float) -> str:
+        """Function with partial docstring.
+
+        Args:
+            a: First parameter.
+            c: Third parameter.
+        """
+        return f"{a}{b}{c}"
+
+    meta = func_metadata(func_partial)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    assert schema["properties"]["a"]["description"] == "First parameter."
+    assert "description" not in schema["properties"]["b"]
+    assert schema["properties"]["c"]["description"] == "Third parameter."
+
+
+def test_docstring_with_skip_names():
+    """Test that docstring parsing works correctly with skip_names."""
+
+    def func_skip(name: str, secret: str, verbose: bool = False) -> str:
+        """Function with skip.
+
+        Args:
+            name: User name.
+            secret: Secret to skip.
+            verbose: Be verbose.
+        """
+        return name
+
+    meta = func_metadata(func_skip, skip_names=["secret"])
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    assert "secret" not in schema["properties"]
+    assert schema["properties"]["name"]["description"] == "User name."
+    assert schema["properties"]["verbose"]["description"] == "Be verbose."
+
+
+def test_field_description_preserved_over_docstring():
+    """Test that Annotated Field descriptions take precedence over docstring descriptions."""
+
+    def func_field_priority(name: Annotated[str, Field(description="Field description")]) -> str:
+        """Function.
+
+        Args:
+            name: Docstring description.
+        """
+        return name
+
+    meta = func_metadata(func_field_priority)
+    schema = meta.arg_model.model_json_schema(by_alias=True)
+
+    # Field description should be preserved (Pydantic uses it directly)
+    assert schema["properties"]["name"]["description"] == "Field description"
