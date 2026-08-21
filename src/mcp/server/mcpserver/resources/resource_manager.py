@@ -57,6 +57,28 @@ class ResourceManager:
         self._resources[str(resource.uri)] = resource
         return resource
 
+    def add_resource_template(self, template: ResourceTemplate) -> ResourceTemplate:
+        """Add a resource template to the manager.
+
+        Args:
+            template: A ResourceTemplate instance to add.
+
+        Returns:
+            The added template. If a template with the same uri_template
+            already exists, returns the existing template.
+        """
+        logger.debug(
+            "Adding resource template",
+            extra={"uri_template": template.uri_template, "name": template.name},
+        )
+        existing = self._templates.get(template.uri_template)
+        if existing:
+            if self.warn_on_duplicate_resources:
+                logger.warning(f"Resource template already exists: {template.uri_template}")
+            return existing
+        self._templates[template.uri_template] = template
+        return template
+
     def add_template(
         self,
         fn: Callable[..., Any],
@@ -83,8 +105,7 @@ class ResourceManager:
             meta=meta,
             security=security,
         )
-        self._templates[template.uri_template] = template
-        return template
+        return self.add_resource_template(template)
 
     async def get_resource(
         self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]

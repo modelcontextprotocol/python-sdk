@@ -127,6 +127,10 @@ The same rule applies to anything else JSON-serialisable: a list, a Pydantic mod
     `BinaryResource`, `FileResource`, `HttpResource`, `DirectoryResource`) that you register
     with `mcp.add_resource(...)`.
 
+    Template resources can be registered programmatically too: build a `ResourceTemplate`
+    with `ResourceTemplate.from_function(...)` and call `mcp.add_resource_template(...)`
+    instead of decorating a function.
+
 A client can also **subscribe** to a resource and be notified when it changes; that's the client's half of the story and it lives in **[The Client](../client/index.md)**.
 
 ## Recap

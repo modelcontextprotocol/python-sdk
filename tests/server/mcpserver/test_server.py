@@ -53,6 +53,7 @@ from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.resources import ResourceTemplate as ServerResourceTemplate
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.subscriptions import (
     InMemorySubscriptionBus,
@@ -1539,6 +1540,31 @@ async def test_resource_decorator_rfc6570_reserved_expansion():
 
     templates = await mcp.list_resource_templates()
     assert [t.uri_template for t in templates] == ["file://docs/{+path}"]
+
+
+async def test_add_resource_template():
+    """A ResourceTemplate registered via add_resource_template() is listed and readable."""
+    mcp = MCPServer()
+
+    def get_data(name: str) -> str:
+        return f"Data for {name}"
+
+    template = ServerResourceTemplate.from_function(fn=get_data, uri_template="resource://{name}/data")
+    mcp.add_resource_template(template)
+
+    templates = await mcp.list_resource_templates()
+    assert templates == snapshot(
+        [
+            ResourceTemplate(
+                name="get_data", uri_template="resource://{name}/data", description="", mime_type="text/plain"
+            )
+        ]
+    )
+
+    async with Client(mcp) as client:
+        result = await client.read_resource("resource://test/data")
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "Data for test"
 
 
 async def test_resource_decorator_rejects_malformed_template():

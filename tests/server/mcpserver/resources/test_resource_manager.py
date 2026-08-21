@@ -90,7 +90,7 @@ async def test_get_resource_from_template():
         return f"Hello, {name}!"
 
     template = ResourceTemplate.from_function(fn=greet, uri_template="greet://{name}", name="greeter")
-    manager._templates[template.uri_template] = template
+    manager.add_resource_template(template)
 
     resource = await manager.get_resource(AnyUrl("greet://world"), Context())
     assert isinstance(resource, FunctionResource)
@@ -104,6 +104,45 @@ async def test_get_unknown_resource():
     manager = ResourceManager()
     with pytest.raises(ResourceNotFoundError, match="Unknown resource"):
         await manager.get_resource(AnyUrl("unknown://test"), Context())
+
+
+def test_add_resource_template():
+    """Test adding a template through add_resource_template()."""
+    manager = ResourceManager()
+    template = ResourceTemplate.from_function(fn=get_item, uri_template="resource://items/{id}", name="items")
+    added = manager.add_resource_template(template)
+    assert added == template
+    assert manager.list_templates() == [template]
+
+
+def test_add_duplicate_resource_template(caplog: pytest.LogCaptureFixture):
+    """Adding a template whose uri_template is already registered returns the existing template and warns."""
+    manager = ResourceManager()
+    first = ResourceTemplate.from_function(fn=get_item, uri_template="resource://items/{id}", name="items")
+    second = ResourceTemplate.from_function(fn=get_item, uri_template="resource://items/{id}", name="other")
+    assert first is not second
+
+    added = manager.add_resource_template(first)
+    assert added is first
+
+    returned = manager.add_resource_template(second)
+    assert returned is first
+    assert "Resource template already exists: resource://items/{id}" in caplog.text
+    assert manager.list_templates() == [first]
+
+
+def test_disable_warn_on_duplicate_resource_templates(caplog: pytest.LogCaptureFixture):
+    """Adding a duplicate template does not warn when warnings are disabled."""
+    manager = ResourceManager(warn_on_duplicate_resources=False)
+    first = ResourceTemplate.from_function(fn=get_item, uri_template="resource://items/{id}", name="items")
+    second = ResourceTemplate.from_function(fn=get_item, uri_template="resource://items/{id}", name="other")
+
+    manager.add_resource_template(first)
+    returned = manager.add_resource_template(second)
+
+    assert returned is first
+    assert "Resource template already exists" not in caplog.text
+    assert manager.list_templates() == [first]
 
 
 def test_list_resources(temp_file: Path):

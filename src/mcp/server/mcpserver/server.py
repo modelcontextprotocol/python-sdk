@@ -79,6 +79,7 @@ from mcp.server.mcpserver.resources import (
     Resource,
     ResourceManager,
     ResourceSecurity,
+    ResourceTemplate,
 )
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
@@ -729,6 +730,14 @@ class MCPServer(Generic[LifespanResultT]):
             resource: A Resource instance to add
         """
         self._resource_manager.add_resource(resource)
+
+    def add_resource_template(self, template: ResourceTemplate) -> None:
+        """Add a resource template to the server.
+
+        Args:
+            template: A ResourceTemplate instance to add.
+        """
+        self._resource_manager.add_resource_template(template)
 
     def resource(
         self,
