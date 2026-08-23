@@ -57,6 +57,7 @@ from mcp.client.session import (
     LoggingFnT,
     MessageHandlerFnT,
     SamplingFnT,
+    TransportExceptionHandlerFnT,
 )
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
@@ -329,6 +330,14 @@ class Client:
     message_handler: MessageHandlerFnT | None = None
     """Callback for handling raw messages."""
 
+    transport_exception_handler: TransportExceptionHandlerFnT | None = None
+    """Callback for handling transport-level exceptions (timeouts, connection errors, etc.).
+
+    When provided, this handler receives transport exceptions directly, allowing the caller
+    to propagate, log, or handle them as needed. If not provided, exceptions are delivered
+    to `message_handler` for backwards compatibility.
+    """
+
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
@@ -442,6 +451,7 @@ class Client:
             logging_callback=self.logging_callback,
             log_level=self.log_level,
             message_handler=message_handler,
+            transport_exception_handler=self.transport_exception_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
             extensions=self._folded_extensions.ad,

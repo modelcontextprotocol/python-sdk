@@ -1026,7 +1026,7 @@ async def test_raising_message_handler_on_transport_exception_costs_the_delivery
     assert seen == [exc]
     assert isinstance(out.message, JSONRPCResponse)
     assert out.message.id == 9
-    assert "message_handler raised on transport exception" in caplog.text
+    assert "transport exception handler raised" in caplog.text
 
 
 @pytest.mark.anyio
@@ -1050,6 +1050,66 @@ async def test_message_handler_awaiting_session_traffic_on_transport_exception_c
         assert out.message.method == "ping"
         await to_client.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=out.message.id, result={})))
         await ponged.wait()
+
+
+@pytest.mark.anyio
+async def test_transport_exception_handler_receives_exceptions_separately_from_message_handler(
+    caplog: pytest.LogCaptureFixture,
+):
+    """A dedicated `transport_exception_handler` receives transport exceptions, while
+    `message_handler` only receives server notifications (SDK-defined)."""
+    seen_messages: list[object] = []
+    seen_exceptions: list[Exception] = []
+    msg_delivered = anyio.Event()
+    exc_delivered = anyio.Event()
+
+    async def message_handler(msg: object) -> None:
+        seen_messages.append(msg)
+        msg_delivered.set()
+
+    async def transport_exception_handler(exc: Exception) -> None:
+        seen_exceptions.append(exc)
+        exc_delivered.set()
+
+    async with raw_client_session(
+        message_handler=message_handler,
+        transport_exception_handler=transport_exception_handler,
+    ) as (_session, to_client, _from_client):
+        # Send a transport exception
+        exc = ValueError("transport timeout")
+        await to_client.send(exc)
+        await exc_delivered.wait()
+
+        # Transport exception should only go to transport_exception_handler
+        assert seen_exceptions == [exc]
+        assert seen_messages == []
+
+        # Send a server notification
+        await to_client.send(
+            SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/tools/list_changed"))
+        )
+        await msg_delivered.wait()
+
+    # Server notification should only go to message_handler
+    assert len(seen_messages) == 1
+    assert isinstance(seen_messages[0], type(types.ToolListChangedNotification()))
+
+
+@pytest.mark.anyio
+async def test_transport_exception_handler_fallback_to_message_handler(caplog: pytest.LogCaptureFixture):
+    """When no `transport_exception_handler` is provided, transport exceptions fall back
+    to `message_handler` for backwards compatibility (SDK-defined). The default
+    `message_handler` logs the exception."""
+    async with raw_client_session() as (_session, to_client, _from_client):
+        exc = ValueError("bad bytes")
+        await to_client.send(exc)
+        # Give the handler a moment to run
+        await anyio.sleep(0.01)
+
+    assert "Transport exception received" in caplog.text
+
+    # The default message_handler logs the exception
+    assert "Transport exception received" in caplog.text
 
 
 @pytest.mark.anyio

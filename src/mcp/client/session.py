@@ -249,7 +249,13 @@ class MessageHandlerFnT(Protocol):
     async def __call__(self, message: IncomingMessage) -> None: ...  # pragma: no branch
 
 
+class TransportExceptionHandlerFnT(Protocol):
+    async def __call__(self, exc: Exception) -> None: ...  # pragma: no branch
+
+
 async def _default_message_handler(message: IncomingMessage) -> None:
+    if isinstance(message, Exception):
+        logger.exception("Transport exception received: %s", message)
     await anyio.lowlevel.checkpoint()
 
 
@@ -418,6 +424,7 @@ class ClientSession:
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
+        transport_exception_handler: TransportExceptionHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
         log_level: types.LoggingLevel | None = None,
@@ -444,6 +451,7 @@ class ClientSession:
         self._logging_callback = logging_callback or _default_logging_callback
         self._log_level: types.LoggingLevel | None = log_level
         self._message_handler = message_handler or _default_message_handler
+        self._transport_exception_handler = transport_exception_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
         # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
@@ -1501,7 +1509,10 @@ class ClientSession:
         self._task_group.start_soon(self._deliver_stream_exception, exc)
 
     async def _deliver_stream_exception(self, exc: Exception) -> None:
+        # If a dedicated transport exception handler is provided, use it.
+        # Otherwise fall back to message_handler for backwards compatibility.
+        handler = self._transport_exception_handler or self._message_handler
         try:
-            await self._message_handler(exc)
+            await handler(exc)
         except Exception:
-            logger.exception("message_handler raised on transport exception")
+            logger.exception("transport exception handler raised")
