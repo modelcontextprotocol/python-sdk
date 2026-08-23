@@ -482,6 +482,37 @@ async def test_minted_ids_skip_a_caller_supplied_id_still_in_flight(pair_factory
 
 
 @pytest.mark.anyio
+async def test_minted_ids_advance_past_a_completed_caller_supplied_numeric_id(pair_factory: PairFactory):
+    """Spec: an id MUST NOT be reused by the requestor within a session — not even
+    after its request completed and left the in-flight set. Accepting a numeric
+    supplied id advances the mint counter past it, so minted ids never revisit it."""
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("first", None, {"request_id": 1})
+            for _ in range(3):
+                await client.send_raw_request("plain", None)
+    supplied, *minted = (ctx.request_id for ctx in srec.contexts)
+    assert supplied == 1
+    assert minted == [2, 3, 4]
+
+
+@pytest.mark.anyio
+async def test_minted_ids_advance_past_a_completed_supplied_numeric_string_id(pair_factory: PairFactory):
+    """The collision domain folds "7" and 7 into one key, so accepting the string form
+    retires 7 against future mints even though it left the in-flight set."""
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("first", None, {"request_id": "7"})
+            # Mints walk 1..9 but must skip the retired 7.
+            for _ in range(9):
+                await client.send_raw_request("plain", None)
+    supplied, *minted = (ctx.request_id for ctx in srec.contexts)
+    assert supplied == "7"
+    assert type(supplied) is str
+    assert minted == [1, 2, 3, 4, 5, 6, 8, 9, 10]
+
+
+@pytest.mark.anyio
 async def test_supplied_numeric_string_id_collides_with_its_int_twin(pair_factory: PairFactory):
     """ "7" and 7 are one id in the collision domain on BOTH dispatchers, so the
     in-memory pair raises exactly where the wire dispatcher (whose pending keys

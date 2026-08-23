@@ -117,6 +117,7 @@ class DirectDispatcher:
         self._on_notify_intercept: OnNotifyIntercept | None = None
         self._next_id = 0
         self._in_flight_ids: set[RequestId] = set()
+        self._retired_ids: set[int] = set()
         self._ready = anyio.Event()
         self._close_event = anyio.Event()
         self._running = False
@@ -250,16 +251,21 @@ class DirectDispatcher:
                     in_flight_key = coerce_request_id(request_id)
                     if in_flight_key in self._in_flight_ids:
                         raise ValueError(f"request id {request_id!r} is already in flight")
+                    # Same no-reuse rule as JSONRPCDispatcher: retire the coerced
+                    # key so a later minted request can't land on it.
+                    if isinstance(in_flight_key, int):
+                        self._retired_ids.add(in_flight_key)
                 else:
                     # Synthesize an id (the DispatchContext contract reserves None
                     # for notifications), minting past any key a supplied id
                     # occupies: the collision error is reserved for the caller
                     # who actually chose the id.
                     self._next_id += 1
-                    while self._next_id in self._in_flight_ids:
+                    while self._next_id in self._in_flight_ids or self._next_id in self._retired_ids:
                         self._next_id += 1
                     request_id = self._next_id
                     in_flight_key = request_id
+                    self._retired_ids = {key for key in self._retired_ids if key > request_id}
                 self._in_flight_ids.add(in_flight_key)
                 dctx = self._make_context(on_progress=opts.get("on_progress"), request_id=request_id)
                 try:

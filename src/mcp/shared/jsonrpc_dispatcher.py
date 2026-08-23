@@ -307,6 +307,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
+        self._retired_ids: set[int] = set()
         self._on_notify_intercept: OnNotifyIntercept | None = None
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
@@ -346,12 +347,18 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             pending_key = coerce_request_id(request_id)
             if pending_key in self._pending:
                 raise ValueError(f"request id {request_id!r} is already in flight")
+            # Spec: an id is never reused in a session, even after completion —
+            # retire the coerced key so a later minted request can't land on it.
+            if isinstance(pending_key, int):
+                self._retired_ids.add(pending_key)
         else:
             # Mint past any key a supplied id occupies: the collision error is
             # reserved for the caller who actually chose the id.
             request_id = self._allocate_id()
-            while request_id in self._pending:
+            while request_id in self._pending or request_id in self._retired_ids:
                 request_id = self._allocate_id()
+            # The counter never goes back, so retired keys below it are spent.
+            self._retired_ids = {key for key in self._retired_ids if key > request_id}
             pending_key = request_id
         out_params = dict(params) if params is not None else {}
         out_meta = dict(out_params.get("_meta") or {})
