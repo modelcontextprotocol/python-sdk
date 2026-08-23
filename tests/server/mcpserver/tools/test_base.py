@@ -55,3 +55,63 @@ async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_err
 
     assert isinstance(result, types.CallToolResult)
     assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_call_tool_result_create_error_with_image():
+    """A tool can return CallToolResult.create_error() with Image helper for non-text error content."""
+    mcp = MCPServer(name="srv")
+
+    @mcp.tool()
+    async def image_error() -> types.CallToolResult:
+        from mcp.server.mcpserver.utilities.types import Image
+        img = Image(data=b"fake-png", format="png")
+        return types.CallToolResult.create_error(content=[img])
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("image_error", {})
+
+    assert isinstance(result, types.CallToolResult)
+    assert result.is_error is True
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], types.ImageContent)
+
+
+@pytest.mark.anyio
+async def test_call_tool_result_create_error_with_audio():
+    """A tool can return CallToolResult.create_error() with Audio helper for non-text error content."""
+    mcp = MCPServer(name="srv")
+
+    @mcp.tool()
+    async def audio_error() -> types.CallToolResult:
+        from mcp.server.mcpserver.utilities.types import Audio
+        aud = Audio(data=b"fake-wav", format="wav")
+        return types.CallToolResult.create_error(content=[aud])
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("audio_error", {})
+
+    assert isinstance(result, types.CallToolResult)
+    assert result.is_error is True
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], types.AudioContent)
+
+
+@pytest.mark.anyio
+async def test_call_tool_result_create_error_with_structured_content():
+    """A tool can return CallToolResult.create_error() with structured content."""
+    mcp = MCPServer(name="srv")
+
+    @mcp.tool()
+    async def structured_error() -> types.CallToolResult:
+        return types.CallToolResult.create_error(
+            content=[types.TextContent(type="text", text="Something went wrong")],
+            structured_content={"error_code": "INVALID_INPUT", "details": {"field": "email"}},
+        )
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("structured_error", {})
+
+    assert isinstance(result, types.CallToolResult)
+    assert result.is_error is True
+    assert result.structured_content == {"error_code": "INVALID_INPUT", "details": {"field": "email"}}

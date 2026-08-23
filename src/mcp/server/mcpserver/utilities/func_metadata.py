@@ -174,6 +174,22 @@ class FuncMetadata(BaseModel):
         if isinstance(result, CallToolResult):
             if output_model is not None:
                 self._output_adapter(output_model).validate_python(result.structured_content)
+            # Convert any Image/Audio helpers in content to their wire types
+            converted_content = []
+            for block in result.content:
+                if isinstance(block, Image):
+                    converted_content.append(block.to_image_content())
+                elif isinstance(block, Audio):
+                    converted_content.append(block.to_audio_content())
+                else:
+                    converted_content.append(block)
+            if converted_content != list(result.content):
+                return CallToolResult(
+                    content=converted_content,
+                    structured_content=result.structured_content,
+                    is_error=result.is_error,
+                    result_type=result.result_type,
+                )
             return result
 
         unstructured_content = _convert_to_content(result)

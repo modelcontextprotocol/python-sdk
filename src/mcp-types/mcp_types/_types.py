@@ -1483,6 +1483,60 @@ class CallToolResult(Result):
     result_type: ResultType = "complete"
     """See `ResultType`. Always serialized; older peers ignore it."""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _convert_helpers(cls, data: Any) -> Any:
+        """Auto-convert SDK Image/Audio helpers to wire content types.
+
+        This allows users to pass SDK helper objects (which have `to_image_content()`
+        or `to_audio_content()` methods) directly in `content` without manual conversion.
+        """
+        if isinstance(data, dict) and "content" in data:
+            content = data["content"]
+            if isinstance(content, list):
+                converted = []
+                for item in content:
+                    if hasattr(item, "to_image_content"):
+                        converted.append(item.to_image_content())
+                    elif hasattr(item, "to_audio_content"):
+                        converted.append(item.to_audio_content())
+                    else:
+                        converted.append(item)
+                data["content"] = converted
+        return data
+
+    @classmethod
+    def create_error(
+        cls,
+        content: list[ContentBlock],
+        *,
+        structured_content: Any = None,
+    ) -> Self:
+        """Create a CallToolResult with is_error=True.
+
+        This is a convenience method for returning tool errors with non-text content
+        (images, audio, structured data) without raising an exception.
+
+        Args:
+            content: List of content blocks (text, image, audio, etc.)
+            structured_content: Optional structured data payload
+
+        Returns:
+            CallToolResult with is_error=True
+
+        Example:
+            ```python
+            from mcp.server.mcpserver.utilities.types import Image
+            from mcp.types import CallToolResult
+
+            @mcp.tool()
+            async def my_tool() -> CallToolResult:
+                img = Image(data=b'...', format='png')
+                return CallToolResult.create_error(content=[img])
+            ```
+        """
+        return cls(content=content, structured_content=structured_content, is_error=True)
+
 
 class ToolListChangedNotification(Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]):
     """An optional notification from the server to the client, informing it that the list

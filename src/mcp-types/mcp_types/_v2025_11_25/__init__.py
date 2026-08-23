@@ -6,7 +6,7 @@ Regenerate with `scripts/gen_surface_types.py` from `schema/2025-11-25.json`
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
 from mcp_types._wire_base import WireModel
 from pydantic import ConfigDict, Field, RootModel
@@ -3171,6 +3171,20 @@ class CallToolResult(WireModel):
     """
     An optional JSON object that represents the structured result of the tool call.
     """
+
+    @classmethod
+    def create_error(
+        cls,
+        content: list[ContentBlock],
+        *,
+        structured_content: Any = None,
+    ) -> Self:
+        """Create a CallToolResult with isError=True.
+
+        This is a convenience method for returning tool errors with non-text content
+        (images, audio, structured data) without raising an exception.
+        """
+        return cls(content=content, structured_content=structured_content, is_error=True)
 
 
 class ClientNotification(
