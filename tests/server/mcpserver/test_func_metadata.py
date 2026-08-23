@@ -628,6 +628,41 @@ def test_structured_output_basemodel():
     }
 
 
+def test_structured_output_recursive_model():
+    """A self-referential return type publishes its schema with `type: "object"` at
+    the root — pydantic emits a bare `$ref` root, which the published tool schema
+    contract rejects. The reference is wrapped (not inlined), which terminates on
+    recursive models."""
+
+    class Node(BaseModel):
+        name: str
+        children: list["Node"] = []
+
+    def func_returning_tree() -> Node:  # pragma: no cover
+        raise NotImplementedError
+
+    meta = func_metadata(func_returning_tree)
+    node_def: dict[str, Any] = {
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "children": {
+                "default": [],
+                "items": {"$ref": "#/$defs/Node"},
+                "title": "Children",
+                "type": "array",
+            },
+        },
+        "required": ["name"],
+        "title": "Node",
+        "type": "object",
+    }
+    assert meta.output_schema == {
+        "type": "object",
+        "allOf": [{"$ref": "#/$defs/Node"}],
+        "$defs": {"Node": node_def},
+    }
+
+
 def test_structured_output_primitives():
     """Test structured output with primitive return types"""
 

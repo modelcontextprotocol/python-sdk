@@ -2423,3 +2423,30 @@ async def test_middleware_can_refuse_subscriptions_listen_before_the_ack() -> No
                 pass  # pragma: no cover - the refusal precedes the stream
     assert exc_info.value.error.code == INVALID_REQUEST
     assert exc_info.value.error.message == "not permitted to watch the requested resources"
+
+
+@pytest.mark.anyio
+async def test_recursive_tool_output_schema_serves_on_legacy_sessions() -> None:
+    """A self-referential tool return type publishes `type: "object"` at the schema
+    root, so `tools/list` succeeds on 2025-11-25 sessions whose OutputSchema model
+    rejects a bare `$ref` root instead of failing the entire listing (#3337)."""
+
+    class Node(BaseModel):
+        name: str
+        children: list["Node"] = []
+
+    mcp = MCPServer("rec")
+
+    @mcp.tool()
+    def tree() -> Node:
+        return Node(name="root")
+
+    async with Client(mcp) as client:
+        tools = (await client.list_tools()).tools
+        assert tools[0].output_schema is not None
+        assert tools[0].output_schema["type"] == "object"
+
+    async with Client(mcp, mode="legacy") as client:
+        tools = (await client.list_tools()).tools
+        assert tools[0].output_schema is not None
+        assert tools[0].output_schema["type"] == "object"
