@@ -250,6 +250,9 @@ class MessageHandlerFnT(Protocol):
 
 
 async def _default_message_handler(message: IncomingMessage) -> None:
+    if isinstance(message, Exception):
+        logger.error("ClientSession Error: %s", message)
+        raise message
     await anyio.lowlevel.checkpoint()
 
 
