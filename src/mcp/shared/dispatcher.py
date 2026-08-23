@@ -40,6 +40,7 @@ __all__ = [
     "ProgressFnT",
     "as_request_id",
     "coerce_request_id",
+    "request_id_in",
     "run_notify_intercept",
 ]
 
@@ -51,6 +52,16 @@ def as_request_id(value: object) -> RequestId | None:
     if isinstance(value, str | int) and not isinstance(value, bool):
         return value
     return None
+
+
+def request_id_in(message: Any) -> RequestId | None:
+    """A decoded JSON-RPC message's top-level request id, or None when the message is
+    not an object or carries no scalar string/int id."""
+    try:
+        rid: Any = message.get("id")
+    except AttributeError:
+        return None
+    return as_request_id(rid)
 
 
 def coerce_request_id(request_id: RequestId) -> RequestId:

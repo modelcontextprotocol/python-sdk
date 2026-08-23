@@ -54,7 +54,7 @@ from mcp.server.connection import Connection
 from mcp.server.runner import modern_error_data, serve_one
 from mcp.server.streamable_http import check_accept_headers
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
-from mcp.shared.dispatcher import CallOptions
+from mcp.shared.dispatcher import CallOptions, request_id_in
 from mcp.shared.exceptions import NoBackChannelError
 from mcp.shared.inbound import (
     ERROR_CODE_HTTP_STATUS,
@@ -413,7 +413,10 @@ async def handle_modern_request(
     except ValidationError:
         # A batch, a posted response (clients MUST NOT send those: streamable-http
         # §Sending Messages item 4), or a request whose envelope is malformed.
-        await _write(_INVALID_BODY, scope, receive, send)
+        # Echo the original request id so envelope-invalid failures correlate.
+        request_id = request_id_in(decoded)
+        rej = JSONRPCError(jsonrpc="2.0", id=request_id, error=_INVALID_BODY.error)
+        await _write(rej, scope, receive, send)
         return
 
     if req.method == "subscriptions/listen" and not has_sse:

@@ -510,6 +510,35 @@ async def test_json_parsing(basic_app: Starlette) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}, id="wrong-jsonrpc-version"),
+        pytest.param({"id": 4, "method": "ping", "params": {}}, id="missing-jsonrpc-field"),
+        pytest.param({"jsonrpc": "2.0", "id": 8, "method": 12345, "params": {}}, id="non-string-method"),
+    ],
+)
+async def test_envelope_invalid_request_error_echoes_the_original_id(
+    basic_app: Starlette, body: dict[str, Any]
+) -> None:
+    """An envelope-invalid but id-bearing request is answered -32600 with the
+    original request id, so the client can correlate the failure."""
+    async with make_client(basic_app) as client:
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+    assert response.status_code == 400
+    error = response.json()
+    assert error["id"] == body["id"]
+    assert error["error"]["code"] == INVALID_REQUEST
+
+
+@pytest.mark.anyio
 async def test_method_not_allowed(basic_app: Starlette) -> None:
     """Unsupported HTTP methods are rejected with 405."""
     async with make_client(basic_app) as client:

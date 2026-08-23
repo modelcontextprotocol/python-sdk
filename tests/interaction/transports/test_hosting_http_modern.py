@@ -181,9 +181,10 @@ async def test_modern_notification_post_is_acknowledged_202_and_a_posted_respons
     assert (acknowledged.status_code, acknowledged.content) == (202, b"")
     assert "mcp-session-id" not in acknowledged.headers
     assert refused.status_code == 400
+    # The posted response's own id is echoed so the client can correlate the refusal.
     assert JSONRPCError.model_validate(refused.json()) == JSONRPCError(
         jsonrpc="2.0",
-        id=None,
+        id=1,
         error=ErrorData(code=INVALID_REQUEST, message="Body must be a single JSON-RPC request or notification object"),
     )
 

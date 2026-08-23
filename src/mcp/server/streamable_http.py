@@ -22,7 +22,6 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp_types import (
     DEFAULT_NEGOTIATED_VERSION,
     INTERNAL_ERROR,
-    INVALID_PARAMS,
     INVALID_REQUEST,
     PARSE_ERROR,
     ErrorData,
@@ -43,6 +42,7 @@ from starlette.types import Receive, Scope, Send
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._stream_protocols import ReadStream, WriteStream
+from mcp.shared.dispatcher import request_id_in
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.message import CloseSSEStreamCallback, ServerMessageMetadata, SessionMessage
 
@@ -369,6 +369,7 @@ class StreamableHTTPServerTransport:
         status_code: HTTPStatus,
         error_code: int = INVALID_REQUEST,
         headers: dict[str, str] | None = None,
+        request_id: RequestId | None = None,
     ) -> Response:
         """Create an error response with a simple string message."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
@@ -381,7 +382,7 @@ class StreamableHTTPServerTransport:
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id=None,
+            id=request_id,
             error=ErrorData(code=error_code, message=error_message),
         )
 
@@ -546,10 +547,13 @@ class StreamableHTTPServerTransport:
             try:
                 message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
             except ValidationError as e:
+                # Echo the original request id so envelope-invalid failures correlate (#2848).
+                request_id = request_id_in(raw_message)
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,
-                    INVALID_PARAMS,
+                    INVALID_REQUEST,
+                    request_id=request_id,
                 )
                 await response(scope, receive, send)
                 return

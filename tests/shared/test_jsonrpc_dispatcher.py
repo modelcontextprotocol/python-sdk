@@ -14,6 +14,7 @@ from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     REQUEST_TIMEOUT,
     CallToolRequest,
     CallToolRequestParams,
@@ -40,6 +41,7 @@ from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
     JSONRPCDispatcher,
     PeerCancelMode,
+    UnparseableMessageError,
     _OutboundPlan,
     _Pending,
     _plan_outbound,
@@ -1592,6 +1594,56 @@ async def test_transport_exception_in_read_stream_is_logged_and_dropped():
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
+
+
+@pytest.mark.anyio
+async def test_unparseable_message_with_recoverable_id_is_answered_with_invalid_request():
+    """An envelope-invalid frame whose request id is still recoverable gets an
+    INVALID_REQUEST answer carrying that id, and the loop stays healthy."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](4)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    frame = '{"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}'
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(server.run, on_request, on_notify)
+            await c2s_send.send(UnparseableMessageError(frame, cause=ValueError("invalid envelope")))
+            with anyio.fail_after(5):
+                resp = await s2c_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCError)
+            assert resp.message.id == 3
+            assert resp.message.error.code == INVALID_REQUEST
+
+            await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="t", params=None)))
+            with anyio.fail_after(5):
+                resp = await s2c_recv.receive()
+            assert isinstance(resp, SessionMessage)
+            assert isinstance(resp.message, JSONRPCResponse)
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.parametrize(
+    ("payload", "recovered_id"),
+    [
+        pytest.param('{"jsonrpc": "1.0", "id": 3, "method": "ping"}', 3, id="int-id"),
+        pytest.param('{"jsonrpc": "1.0", "id": "abc", "method": "ping"}', "abc", id="string-id"),
+        pytest.param('{"jsonrpc": "1.0", "id": null, "method": "ping"}', None, id="null-id"),
+        pytest.param('{"jsonrpc": "1.0", "method": "ping"}', None, id="no-id-member"),
+        pytest.param('{"id": [1], "method": "ping"}', None, id="list-id"),
+        pytest.param('{"id": {"x": 1}, "method": "ping"}', None, id="object-id"),
+        pytest.param("not json", None, id="unparseable-json"),
+        pytest.param('"just a string"', None, id="scalar-json"),
+        pytest.param(None, None, id="no-payload"),
+    ],
+)
+def test_unparseable_message_request_id_recovery(payload: str | None, recovered_id: RequestId | None):
+    err = UnparseableMessageError(payload)
+    assert err.request_id == recovered_id
 
 
 @pytest.mark.anyio

@@ -24,6 +24,7 @@ from typing_extensions import Buffer
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
+from mcp.shared.jsonrpc_dispatcher import UnparseableMessageError
 from mcp.shared.message import SessionMessage
 
 
@@ -73,6 +74,39 @@ async def test_stdio_server_round_trips_messages_over_injected_streams() -> None
     received_responses = [jsonrpc_message_adapter.validate_json(line.strip()) for line in output_lines]
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("line", "expected_id"),
+    [
+        pytest.param('{"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}', 3, id="wrong-jsonrpc-version"),
+        pytest.param('{"id": 4, "method": "ping", "params": {}}', 4, id="missing-jsonrpc-field"),
+        pytest.param('{"jsonrpc": "2.0", "id": 8, "method": 12345, "params": {}}', 8, id="non-string-method"),
+    ],
+)
+async def test_stdio_server_envelope_invalid_line_surfaces_with_recoverable_request_id(
+    line: str, expected_id: int
+) -> None:
+    """A line that is valid JSON but not a valid JSON-RPC envelope surfaces as an
+    UnparseableMessageError carrying the raw payload, so the session can still
+    correlate an error response with the request's original id."""
+    stdin = io.StringIO(line + "\n")
+    stdout = io.StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+            read_stream,
+            write_stream,
+        ):
+            async with read_stream:
+                received = await read_stream.receive()
+
+            assert isinstance(received, UnparseableMessageError)
+            assert received.request_id == expected_id
+
+            # Closing write_stream ends stdout_writer so the server context can join.
+            await write_stream.aclose()
 
 
 @pytest.mark.anyio

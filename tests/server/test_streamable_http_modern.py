@@ -171,30 +171,35 @@ async def test_handle_modern_request_rejects_a_notification_post_at_an_unserved_
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "expected_id"),
     [
-        pytest.param({"jsonrpc": "2.0", "id": 1, "result": {}}, id="posted-response"),
-        pytest.param({"jsonrpc": "2.0", "id": 1, "error": {"code": -1, "message": "x"}}, id="posted-error"),
-        pytest.param([{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}], id="batch"),
-        pytest.param({"jsonrpc": "2.0", "id": None, "method": "tools/list"}, id="null-id-request"),
-        pytest.param({"jsonrpc": "2.0", "id": [1], "method": "tools/list"}, id="non-scalar-id-request"),
-        pytest.param({"jsonrpc": "2.0", "method": 7}, id="non-string-method-notification"),
-        pytest.param({"jsonrpc": "1.0", "method": "notifications/cancelled"}, id="wrong-jsonrpc-version"),
-        pytest.param("just a string", id="scalar"),
+        pytest.param({"jsonrpc": "2.0", "id": 1, "result": {}}, 1, id="posted-response"),
+        pytest.param({"jsonrpc": "2.0", "id": 1, "error": {"code": -1, "message": "x"}}, 1, id="posted-error"),
+        pytest.param(
+            [{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}], None, id="batch"
+        ),
+        pytest.param({"jsonrpc": "2.0", "id": None, "method": "tools/list"}, None, id="null-id-request"),
+        pytest.param({"jsonrpc": "2.0", "id": [1], "method": "tools/list"}, None, id="non-scalar-id-request"),
+        pytest.param({"jsonrpc": "2.0", "method": 7}, None, id="non-string-method-notification"),
+        pytest.param({"jsonrpc": "1.0", "method": "notifications/cancelled"}, None, id="wrong-jsonrpc-version"),
+        pytest.param("just a string", None, id="scalar"),
     ],
 )
-async def test_handle_modern_request_rejects_a_body_that_is_neither_request_nor_notification(body: Any) -> None:
+async def test_handle_modern_request_rejects_a_body_that_is_neither_request_nor_notification(
+    body: Any, expected_id: int | None
+) -> None:
     """Spec-mandated (streamable-http §Sending Messages item 4): the body MUST be a single request
     or notification and clients MUST NOT post responses. SDK-defined: anything else -- a posted
     response, a batch, a request whose `id` is malformed, a scalar -- is `INVALID_REQUEST` at
-    HTTP 400 with `id: null`, distinct from `PARSE_ERROR` (malformed JSON). A malformed-`id`
-    request in particular must not be mistaken for a notification and silently 202'd."""
+    HTTP 400 with the original id echoed when one is recoverable (else `id: null`), distinct
+    from `PARSE_ERROR` (malformed JSON). A malformed-`id` request in particular must not be
+    mistaken for a notification and silently 202'd."""
     async with _asgi_client(Server("test")) as http:
         response = await http.post("/mcp", json=body)
     assert response.status_code == 400
     assert response.json() == {
         "jsonrpc": "2.0",
-        "id": None,
+        "id": expected_id,
         "error": {"code": INVALID_REQUEST, "message": "Body must be a single JSON-RPC request or notification object"},
     }
 
@@ -214,6 +219,27 @@ async def test_handle_modern_request_rejects_malformed_body_with_parse_error() -
         "id": None,
         "error": {"code": PARSE_ERROR, "message": "Parse error"},
     }
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_id"),
+    [
+        pytest.param({"jsonrpc": "1.0", "id": 3, "method": "ping", "params": {}}, 3, id="wrong-jsonrpc-version"),
+        pytest.param({"id": 4, "method": "ping", "params": {}}, 4, id="missing-jsonrpc-field"),
+        pytest.param({"jsonrpc": "2.0", "id": 8, "method": 12345, "params": {}}, 8, id="non-string-method"),
+    ],
+)
+async def test_handle_modern_request_envelope_invalid_request_echoes_the_original_id(
+    body: dict[str, Any], expected_id: int
+) -> None:
+    """An envelope-invalid but id-bearing request is answered -32600 with the
+    original request id, so the client can correlate the failure."""
+    async with _asgi_client(Server("test")) as http:
+        response = await http.post("/mcp", json=body)
+    assert response.status_code == 400
+    error = response.json()
+    assert error["id"] == expected_id
+    assert error["error"]["code"] == INVALID_REQUEST
 
 
 async def test_handle_modern_request_returns_transport_security_error_response() -> None:

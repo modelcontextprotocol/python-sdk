@@ -8,6 +8,7 @@ methods and params are otherwise opaque strings and dicts.
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    INVALID_REQUEST,
     REQUEST_TIMEOUT,
     ErrorData,
     JSONRPCError,
@@ -49,6 +51,7 @@ from mcp.shared.dispatcher import (
     ProgressFnT,
     as_request_id,
     coerce_request_id,
+    request_id_in,
     run_notify_intercept,
 )
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -62,6 +65,7 @@ from mcp.shared.transport_context import TransportContext
 
 __all__ = [
     "JSONRPCDispatcher",
+    "UnparseableMessageError",
     "cancelled_request_id_from_params",
     "handler_exception_to_error_data",
     "progress_token_from_params",
@@ -83,6 +87,33 @@ PeerCancelMode = Literal["interrupt", "signal"]
 the handler's scope; `"signal"` only sets `ctx.cancel_requested` and lets the
 handler run to completion. Either way the cancelled request is never
 answered - the handler's eventual result or error is dropped, not written."""
+
+
+class UnparseableMessageError(Exception):
+    """A transport failed to decode an inbound frame as a JSON-RPC message.
+
+    Transports send this instead of a bare parse exception so the receiving
+    side can still correlate an error response with the frame's JSON-RPC
+    request id, when one is recoverable from the raw payload.
+    """
+
+    def __init__(self, payload: str | bytes | None = None, *, cause: BaseException | None = None) -> None:
+        super().__init__(
+            f"failed to decode inbound frame: {cause!r}" if cause is not None else "failed to decode inbound frame"
+        )
+        self.payload = payload
+        self.__cause__ = cause
+
+    @property
+    def request_id(self) -> RequestId | None:
+        """Best-effort recovery of the frame's top-level request id, else None."""
+        if self.payload is None:
+            return None
+        try:
+            decoded = json.loads(self.payload)
+        except (ValueError, RecursionError):
+            return None
+        return request_id_in(decoded)
 
 
 def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
@@ -537,6 +568,17 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         """
         if isinstance(item, Exception):
             if self.on_stream_exception is None:
+                # Answer an envelope-invalid frame whose request id is still
+                # recoverable; bare exceptions stay dropped as before.
+                request_id = item.request_id if isinstance(item, UnparseableMessageError) else None
+                if request_id is not None:
+                    self._spawn(
+                        self._write_error,
+                        request_id,
+                        ErrorData(code=INVALID_REQUEST, message="Invalid Request"),
+                        sender_ctx=sender_ctx,
+                    )
+                    return
                 logger.debug("transport yielded exception: %r", item)
                 return
             try:

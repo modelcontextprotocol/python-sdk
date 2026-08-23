@@ -26,6 +26,7 @@ import mcp_types as types
 
 from mcp.os.win32.utilities import rebind_std_handle_to_fd
 from mcp.shared._context_streams import create_context_streams
+from mcp.shared.jsonrpc_dispatcher import UnparseableMessageError
 from mcp.shared.message import SessionMessage
 
 if sys.platform != "win32":  # pragma: no branch
@@ -188,7 +189,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                         except Exception as exc:
-                            await read_stream_writer.send(exc)
+                            await read_stream_writer.send(UnparseableMessageError(line, cause=exc))
                             continue
 
                         session_message = SessionMessage(message)
