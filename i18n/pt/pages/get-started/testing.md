@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # Testes {#testing}
@@ -85,8 +85,8 @@ Pronto! Agora você pode estender seus testes para cobrir mais cenários.
 Duas coisas diferentes podem dar errado, e essa flag só mexe em uma delas.
 
 Uma exceção dentro de uma das **suas ferramentas** não é uma falha de protocolo. Ela vira um resultado normal com
-`is_error=True`, e o modelo lê a mensagem. `raise_exceptions` não muda isso: com ou
-sem ela, `call_tool` retorna o mesmo resultado com `is_error=True`. Há uma página inteira sobre isso:
+`is_error=True` (e, se for um `ToolError`, o modelo lê a sua mensagem). `raise_exceptions` não
+muda isso: com ou sem ela, `call_tool` retorna o mesmo resultado com `is_error=True`. Há uma página inteira sobre isso:
 **[Tratamento de erros](../servers/handling-errors.md)**.
 
 Uma falha **fora** do corpo de uma ferramenta é diferente. Na conexão que `Client(mcp)` entrega, o

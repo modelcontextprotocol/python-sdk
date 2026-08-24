@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # 媒體 {#media}
@@ -81,6 +81,24 @@ result.structured_content  # None
 !!! check
     用 `data=` 時沒有檔名，也就沒有東西可以猜。忘了 `format=`，SDK 就會退回預設值：圖片是 `image/png`，音訊是 `audio/wav`。這樣用 MP3 位元組建立 `Audio`，用戶端會被告知 `mime_type="audio/wav"`，然後老老實實地解碼失敗。傳 `data=` 的時候，就一起傳 `format=`。
 
+## 內嵌資源 {#embedding-a-resource}
+
+工具也可以回傳一份文件：一些文字或位元組，連同它所在的 URI 和 MIME 型別。這就是 **`EmbeddedResource`**，另一種內容區塊。它跟普通的 `str` 不同，會告訴用戶端這段內容是什麼，讓用戶端可以把它顯示成附件，或認出這是它已經知道的資源。
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` 是一個普通的資源（**[資源](resources.md)** 有完整介紹）。模型要求時，工具會交出同一份文件；直接呼叫 `guidelines()`，真實來源就只有一個。
+* `EmbeddedResource` 和 `TextResourceContents` 來自 `mcp.types`。這裡沒有像圖片那樣的輔助工具：建立的區塊會原封不動放進結果，也沒有 `structured_content`。
+* 使用資源註冊時的 URI，用戶端才能知道附件和 `brand://guidelines` 是同一份文件。任何 URI 都合法，不論有沒有註冊。
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+二進位內容就用 `BlobResourceContents(uri=..., mime_type=..., blob=...)` 取代 `TextResourceContents`，把位元組經 base64 編碼後放進 `blob`。如果只想送出一個指標，讓用戶端之後再用 `resources/read` 讀取，就改回傳 `ResourceLink(name=..., uri=...)`；它也是一種內容區塊。
+
 ## 圖示 {#icons}
 
 `Icon` 是中繼資料，不是內容。它不帶圖片本身，而是用一個 URI 指向圖片；用戶端可以去抓取並顯示在伺服器名稱、工具、資源或提示詞旁邊。
@@ -110,6 +128,7 @@ client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_
 
 * 從工具回傳 `Image` 或 `Audio`，用戶端就會收到一個 `ImageContent`／`AudioContent` 區塊：位元組經 base64 編碼，附上 MIME 型別。
 * 可以用 `path=` 建立並讓副檔名決定 MIME 型別，或用記憶體內的 `data=` 加上明確的 `format=`。
+* 回傳 `EmbeddedResource` 可以把一份文件（文字或 base64 blob，附上 URI 和 MIME 型別）放進結果；只想送出指標的話，回傳 `ResourceLink`。
 * 媒體結果沒有 `structured_content`，也沒有輸出 schema。
 * `Icon` 是個指標：一個 `src` URI，加上選用的 `mime_type`、`sizes` 和 `theme`。
 * `icons=[...]` 在伺服器、工具、資源和提示詞上都能用，用戶端會在對應的物件上找到它們。

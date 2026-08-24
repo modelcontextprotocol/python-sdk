@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
+  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, d30d3c20168b88b2, f5ef38dad59d6f76, 6e38a699ba57fbdf, 2b984a3bf37a0ddd]
   tool: 1
 ---
 # プロンプト {#prompts}
@@ -137,7 +137,52 @@ uv run mcp dev server.py
 ```
 
 !!! info
-    **[ツール](tools.md)** を読んでいれば、このページの内容はもうすべて知っています。同じデコレーター、同じく docstring が説明になる仕組み、同じ `Annotated`/`Field` です。変わるのは、誰が起動するか（ユーザー）と、結果がどこへ行くか（会話の中）だけです。
+    **[ツール](tools.md)** を読んでいれば、ここまでの内容はもうすべて知っています。同じデコレーター、同じく docstring が説明になる仕組み、同じ `Annotated`/`Field` です。変わるのは、誰が起動するか（ユーザー）と、結果がどこへ行くか（会話の中）だけです。
+
+## テキスト以外のコンテンツ {#more-than-text}
+
+`UserMessage` と `AssistantMessage` は、`str` を受け取れる場所ならどこでも、コンテンツブロックや `Image` / `Audio` ヘルパーも受け取れます。プロンプトでよく出てくるケースは 2 つ、ドキュメントの添付と画像の添付です。
+
+### ファイルを埋め込む {#embedding-a-file}
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* スタイルガイドは `style://python` にあるリソースで（リソースについては **[リソース](resources.md)** で扱います）、`server.py` の隣にある `style-guide.md` から読み込まれます。そこに任意の Markdown ファイルを置いてください。
+* `EmbeddedResource(resource=TextResourceContents(...))`（どちらも `mcp.types` にあります）は、URI と MIME タイプ付きのファイルを最初のメッセージとして運びます。そのファイルに言及するリクエストは、プレーンテキストとして後に続きます。
+* ガイドを f-string に貼り付けるのではなく埋め込むことで、クライアントはそれを添付ファイルとして表示でき、後から `style://python` を開き直せます。モデルはファイルをそのままの形で受け取ります。バイナリファイルの場合は、base64 の `blob` を持つ `BlobResourceContents` を使ってください。
+
+レンダリングすると、最初のメッセージの `content` は `resource` ブロックです。
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### 画像を添付する {#attaching-an-image}
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image` は **[画像、音声、アイコン](media.md)** で紹介するヘルパーです。プロンプトがレンダリングされるとき、`UserMessage` はこれを `ImageContent` ブロック（ファイルは base64 エンコードされ、MIME タイプは `.png` から推測されます）に変換します。`Audio` も同じように `AudioContent` になります。
+* `server.py` の隣に `architecture.png` という名前の PNG を何か置いてください。プロンプトの引数は文字列なので、画像は常にサーバー側から来ます。`component` が与えるのは言葉だけです。
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## 実行時にリストを変更する {#changing-the-list-at-runtime}
+
+プロンプトは、クライアントが接続している間にも追加できます。たとえば、ユーザーが指示を自分専用のメニュー項目として保存できるようにする場合です。プロンプトを登録してから、通知します。
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))` は `@mcp.prompt()` とまったく同じように関数を登録し、`mcp.remove_prompt(name)` はその逆です。`add_prompt` は同名の既存エントリを上書きせずそのまま残すので、このツールは保存が置き換えになるよう、先に古いエントリを削除しています。`prompts/list` には変更がすぐに反映されます。
+* `await ctx.notify_prompts_changed()` は、`subscriptions/listen` ストリームで待ち受けているすべての `2026-07-28` クライアントに `notifications/prompts/list_changed` を送ります（**[サブスクリプション](../handlers/subscriptions.md)**）。`await ctx.session.send_prompt_list_changed()` は、呼び出し元のクライアントが 2026 年より前の世代のときに、そのクライアントへ送ります（**[レガシークライアントへの対応](../run/legacy-clients.md)**）。両方を呼んでください。どちらも、伝える相手がいなければ何もしません。
+* 通知を受け取ったクライアントは、もう一度 `prompts/list` を呼びます。Python の `Client` では `async with client.listen(prompts_list_changed=True) as sub:` がそれにあたり、`PromptsListChanged` イベントが届きます。
 
 ## まとめ {#recap}
 
@@ -147,5 +192,7 @@ uv run mcp dev server.py
 * `str` を返すと 1 つのユーザーメッセージになります。`UserMessage` / `AssistantMessage` のリストを返すと、複数ターンの会話の出発点を用意できます。
 * `title=` と `Field(description=...)` は、クライアントが UI に表示するものです。
 * 必須の引数が欠けていると、リクエスト全体が失敗します。プロンプト単位のエラー結果はありません。
+* `EmbeddedResource` や `Image` を `UserMessage` でラップすると、ドキュメントや画像を添付できます。
+* 実行時にプロンプトを追加・削除するには `mcp.add_prompt(...)` / `mcp.remove_prompt(...)` を使い、その後 `await ctx.notify_prompts_changed()` と `await ctx.session.send_prompt_list_changed()` を呼びます。
 
 プロンプト（やリソーステンプレート）の引数をサーバー側でオートコンプリートする機能については、**[補完](completions.md)** を参照してください。

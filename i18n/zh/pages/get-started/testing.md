@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # 测试 {#testing}
@@ -80,7 +80,7 @@ async def test_call_add_tool(client: Client):
 
 可能出错的情况有两种，而这个标志只管其中一种。
 
-**你的工具**内部抛出的异常不算协议失败。它会变成一个带 `is_error=True` 的普通结果，模型会读到其中的消息。`raise_exceptions` 不会改变这一点：不管有没有它，`call_tool` 返回的都是同一个 `is_error=True` 结果。有一整页专门讲这个：**[处理错误](../servers/handling-errors.md)**。
+**你的工具**内部抛出的异常不算协议失败。它会变成一个带 `is_error=True` 的普通结果（如果抛出的是 `ToolError`，模型会读到你写的消息）。`raise_exceptions` 不会改变这一点：不管有没有它，`call_tool` 返回的都是同一个 `is_error=True` 结果。有一整页专门讲这个：**[处理错误](../servers/handling-errors.md)**。
 
 工具函数体**之外**的失败则不同。在 `Client(mcp)` 提供的这条连接上，服务器会先把它脱敏成一条笼统的 `"Internal server error"`，客户端才会看到。意外崩溃的细节绝不应该泄露给远程调用方。但在测试里，这恰恰是你**不**想要的，也正是 `raise_exceptions=True` 所改变的：测试看到的是真实的消息，而不是脱敏后的那条。
 

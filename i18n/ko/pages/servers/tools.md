@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # 도구 {#tools}
@@ -38,6 +38,8 @@ SDK는 이 타입 힌트로부터 JSON Schema를 생성해 `tools/list` 과정�
 ```
 
 두 인자 모두 기본값이 없으므로 `required`에 들어 있습니다. 이 부분은 곧 고칩니다. (`title` 키는 Pydantic이 만들어 내는 부산물입니다. 계약에 해당하는 것은 속성과 그 타입, 그리고 `required`입니다.)
+
+`$schema` 키도 없습니다. MCP는 이 키가 없는 스키마를 **JSON Schema 2020-12**로 취급하는데, Pydantic이 생성하는 것이 바로 이 형식이므로 **[저수준 Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)**에서 스키마를 직접 손으로 작성하기 전까지는 따로 고를 것이 없습니다.
 
 !!! tip
     여기서 타입 힌트는 문서가 아닙니다. 타입 힌트가 바로 **계약**입니다. 클라이언트가 `"limit": "ten"`을 보내면

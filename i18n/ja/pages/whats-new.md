@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
   tool: 1
 ---
 # v2 の新機能 {#whats-new-in-v2}
@@ -41,9 +41,9 @@ v1 では 3 つの層が入れ子になっていました。生のストリー�
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-`Client` が受け取るのは、サーバーオブジェクト（インメモリでトランスポートなし。テストで使う形です）、URL（Streamable HTTP）、または `stdio_client(...)` のような任意のトランスポートのコンテキストマネージャーです。`async with` に入ると接続し、サーバーがどの世代を話すかにかかわらずプロトコルバージョンをネゴシエートします。その後は `client.server_capabilities` と `client.protocol_version` がそのまま使え、サーバーが自身を名乗る場合は `client.server_info` も使えます（2026 年世代では識別情報が省略可能なので、`Implementation | None` になりました）。v1 で登録したサンプリングとエリシテーションのコールバックは引き続き動作します（コールバックの本体には、このページのほかの項目と同じ snake_case への属性名の変更が及びます）。加えて 2026 形式の「結果に埋め込まれたリクエスト」（後述）にも応答するようになり、1 つずつではなく並行して実行されます。低レベルのインターフェースが必要な人のために `ClientSession` は今も下にあり、`client.session` で取り出せます。ただしこちらも変わっています（新しいディスパッチャーエンジンの上で動き、自身のシグネチャも一部変わりました）。下りていく前に**[移行ガイド](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**を読んでください。
+`Client` が受け取るのは、サーバーオブジェクト（インメモリでトランスポートなし。テストで使う形です）、URL（Streamable HTTP）、`StdioServerParameters`（stdio のサブプロセス）、または `sse_client(...)` のようなそれ以外の任意のトランスポートのコンテキストマネージャーです。`async with` に入ると接続し、サーバーがどの世代を話すかにかかわらずプロトコルバージョンをネゴシエートします。その後は `client.server_capabilities` と `client.protocol_version` がそのまま使え、サーバーが自身を名乗る場合は `client.server_info` も使えます（2026 年世代では識別情報が省略可能なので、`Implementation | None` になりました）。v1 で登録したサンプリングとエリシテーションのコールバックは引き続き動作します（コールバックの本体には、このページのほかの項目と同じ snake_case への属性名の変更が及びます）。加えて 2026 形式の「結果に埋め込まれたリクエスト」（後述）にも応答するようになり、1 つずつではなく並行して実行されます。低レベルのインターフェースが必要な人のために `ClientSession` は今も下にあり、`client.session` で取り出せます。ただしこちらも変わっています（新しいディスパッチャーエンジンの上で動き、自身のシグネチャも一部変わりました）。下りていく前に**[移行ガイド](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**を読んでください。
 
-**[Client](client/index.md)** で紹介し、**[クライアントのトランスポート](client/transports.md)**で 3 つの接続形態を、**[クライアントのコールバック](client/callbacks.md)**でコールバックそのものを扱います。**[テスト](get-started/testing.md)**では、v1 の `create_connected_server_and_client_session()` ヘルパーに代わるインメモリのパターンを示します。
+**[Client](client/index.md)** で紹介し、**[クライアントのトランスポート](client/transports.md)**で 4 つの接続形態を、**[クライアントのコールバック](client/callbacks.md)**でコールバックそのものを扱います。**[テスト](get-started/testing.md)**では、v1 の `create_connected_server_and_client_session()` ヘルパーに代わるインメモリのパターンを示します。
 
 ### 低レベルの `Server` は改名ではなく再構築 {#the-low-level-server-was-rebuilt-not-renamed}
 
@@ -129,7 +129,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
 名前の変更は自分から存在を知らせてくれます。次のものは知らせてくれません。
 
 * **同期関数はワーカースレッドで動きます。** `def` のツール（リソース、プロンプト、リゾルバーも同様）はイベントループをブロックしなくなりました。その代わり、本体はイベントループのスレッド上では動かなくなったので、特定のスレッドに縛られたコードには影響します。`async def` のハンドラーはそのままです。詳しくは**[移行ガイド](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**を参照してください。
-* **ツールの中で送出した `MCPError`（v1 の `McpError`）はプロトコルエラーになりました。** モデルがそれを見ることはありません。ほかの例外はすべて、これまでどおりモデルが読んで対応できる `is_error=True` の結果になります。この切り分けは**[エラーの処理](servers/handling-errors.md)**で説明しています。
+* **ツールの中で送出した `MCPError`（v1 の `McpError`）はプロトコルエラーになりました。** モデルがそれを見ることはありません。ほかの例外はすべて、これまでどおり `is_error=True` の結果になりますが、モデルに届くメッセージは `ToolError` のものだけです。それ以外の例外は `Error executing tool <name>` と表示されるようになり、トレースバックはサーバーのログに残ります。この切り分けは**[エラーの処理](servers/handling-errors.md)**で説明しています。
 * **結果は送り出す前に検証されます。** `input_schema` が `{}` の手組みの `Tool` は、`tools/list` で失敗するようになりました（仕様は `"type": "object"` を要求します）。`@mcp.tool()` で作ったサーバーがこれに出会うことはありません。スキーマは SDK が書くからです。
 * **クライアントは受け取ったものを検証します。** `list_tools()` と `call_tool()` は、ネゴシエートしたプロトコルバージョンに照らしてサーバーの応答を検査します。そのため、v1 の寛容なパースが見逃していた「少しだけ不正な」サーバーは `pydantic.ValidationError` を送出するようになりました。自分で管理していないサーバーに接続するなら、そうしたサーバーを見つけるのは自分だと思っておいてください。詳しくは**[移行ガイド](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)**を参照してください。
 * **URI テンプレートは本物の RFC 6570 になりました。** `{+path}`、`{?query}` などが使え、マッチングは正規表現的な緩さではなく厳密になり、取り出した値に含まれるパストラバーサルはデフォルトで拒否されます。厳格になったテンプレートは、最初のリクエストではなくデコレーターの適用時に失敗します。詳しくは **[URI テンプレート](servers/uri-templates.md)**を参照してください。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # 로깅 {#logging}
@@ -54,6 +54,8 @@ MCP에는 프로토콜 수준의 **로깅 기능**이 있습니다. 서버가 `C
 기본값은 `"INFO"`입니다.
 
 `logging.basicConfig()`는 이미 존재하는 핸들러를 절대 교체하지 않습니다. 서버를 만들기 전에 로깅을 직접 설정했다면 그 설정이 우선합니다.
+
+실패를 기록하려는 목적만으로 모든 핸들러에 `try`/`except`를 넣을 필요도 없습니다. 도구나 리소스 함수가 예외를 일으키면 SDK가 대신 로그로 남깁니다. 무엇이 어떤 레벨로 기록되는지는 **[오류 처리](../servers/handling-errors.md#any-other-exception)**에서 설명합니다.
 
 ## 직접 해 보기 {#try-it}
 

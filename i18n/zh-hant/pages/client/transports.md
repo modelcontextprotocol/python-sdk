@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # 用戶端傳輸方式 {#client-transports}
@@ -76,15 +76,15 @@ translation:
 
 **stdio** 伺服器是一個子處理程序。用戶端啟動它，把 JSON-RPC 寫進它的 stdin，再從它的 stdout 讀取 JSON-RPC。桌面版 MCP 主機（host）就是這樣在你的機器上執行伺服器的：主機**就是**這段程式碼加上一個 UI，而 **[連接到真正的主機](../get-started/real-host.md)** 則是從主機那一側、以設定檔的形式看同一個關係。
 
-用 `StdioServerParameters` 描述這個處理程序，用 `stdio_client` 把它變成傳輸，再把**那個**交給 `Client`：
+用 `StdioServerParameters` 描述這個處理程序，再把它交給 `Client`：
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` 不接受單獨的參數物件。`StdioServerParameters` 是設定；`stdio_client(server)` 才是知道怎麼依據它啟動處理程序的傳輸。一定要包起來。
+進入區塊時會啟動處理程序。離開區塊時，子處理程序也會一併關閉：關掉 stdin、等待、拖太久就強制終止。你永遠不需要自己清理。
 
-離開 `async with` 區塊時，子處理程序也會一併關閉：關掉 stdin、等待、拖太久就強制終止。你永遠不需要自己清理。
+子處理程序的 stderr 會接到你的 stderr。想送到別的地方，就自己用 `stdio_client`（來自 `mcp`）建立傳輸，改傳入那個：`Client(stdio_client(server, errlog=log_file))`。
 
 !!! warning
     子處理程序**不會**繼承你的環境。它拿到的是一份精簡的允許清單（POSIX 上是 `HOME`、`LOGNAME`、`PATH`、`SHELL`、`TERM` 和 `USER`），這樣敏感的東西才不會洩漏到一個可能不是你寫的處理程序裡。
@@ -99,16 +99,16 @@ translation:
 
 對 `Client` 來說，上面這些全都是同一種東西。
 
-**傳輸**是任何會產出一對 `(read, write)` 訊息串流的非同步 context manager：正式地說，就是 `mcp.client` 裡的 `Transport` 協定。`Client` 依型別解析它的引數：伺服器物件就在處理程序內連線，`str` 會變成 `streamable_http_client(url)`，其他任何東西則直接當成傳輸進入。最後這條規則就是為什麼 `stdio_client(...)`、`streamable_http_client(...)` 和 `sse_client(...)` 都能放進同一個位置，也是為什麼你可以自己寫一個。
+**傳輸**是任何會產出一對 `(read, write)` 訊息串流的非同步 context manager：正式地說，就是 `mcp.client` 裡的 `Transport` 協定。`Client` 依型別解析它的引數：伺服器物件就在處理程序內連線，`str` 會變成 `streamable_http_client(url)`，`StdioServerParameters` 會變成 `stdio_client(params)`，其他任何東西則直接當成傳輸進入。最後這條規則就是為什麼 `stdio_client(...)`、`streamable_http_client(...)` 和 `sse_client(...)` 都能放進同一個位置，也是為什麼你可以自己寫一個。
 
 ## 重點回顧 {#recap}
 
 * `Client(mcp)`（伺服器物件）在記憶體內連線。用在測試和嵌入。
 * `Client("http://.../mcp")`（URL）透過 Streamable HTTP 連線，也就是正式環境用的傳輸方式。
 * 標頭、驗證、proxy 和逾時都放在你傳給 `streamable_http_client(url, http_client=...)` 的 `httpx2.AsyncClient` 上。沒有 `headers=` 這個關鍵字引數。
-* stdio 是 `Client(stdio_client(StdioServerParameters(...)))`，絕對不是單獨的參數物件。
+* stdio 是 `Client(StdioServerParameters(...))`。只有要把子處理程序的 stderr 導到別處時，才需要自己用 `stdio_client(...)` 包起來。
 * 子處理程序拿到的是允許清單上的環境，不是你的環境；`env=` 會往上加。
-* 傳輸就是任何可以 `async with x as (read, write)` 的東西。只要不是伺服器物件或 URL，`Client` 就會直接交給那個協定處理。
+* 傳輸就是任何可以 `async with x as (read, write)` 的東西。只要不是伺服器物件、URL 或 `StdioServerParameters`，`Client` 就會直接交給那個協定處理。
 * 建立 `Client` 是選定傳輸方式。`async with` 才是開啟它。
 
 傳輸開啟之後，兩邊得對協定版本達成一致。平常根本不需要去想這件事；真的需要的時候，請看 **[協定版本](../protocol-versions.md)**。

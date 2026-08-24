@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # समस्याएँ सुलझाना {#troubleshooting}
@@ -81,11 +81,11 @@ async def main() -> None:
 
 `__aexit__` ही disconnection है, इसीलिए भूल जाने लायक कोई `client.close()` है ही नहीं। **[Testing](get-started/testing.md)** ठीक इसी pattern पर बना है।
 
-## `Error executing tool <name>: <message>` और `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>`, और `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 आप एक **result** पढ़ रहे हैं, exception नहीं। `call_tool` ने raise नहीं किया, और fail होने वाले tool के लिए वह कभी करेगा भी नहीं।
 
-`forecast` को ऐसे city के लिए call करें जिसे server नहीं जानता, तो उसका raise किया हुआ exception वापस आता है और request **सफल** mark होती है:
+`forecast` को ऐसे city के लिए call करें जिसे server नहीं जानता, तो उसका raise किया हुआ `ToolError` वापस आता है और request **सफल** mark होती है:
 
 ```python
 result.is_error  # True
@@ -96,6 +96,8 @@ result.structured_content  # None
 जो नाम server ने कभी register ही नहीं किया, उसके लिए `Unknown tool: get_forecast` इसी shape में आता है, और गलत argument भी इसी तरह, tool के input schema के आधार पर, आपका function चलने से पहले ही reject हो जाता है।
 
 सुधार आपके client में है: **`result.is_error` जाँचें**। `call_tool` के चारों ओर लगा `try/except` इनमें से कुछ नहीं पकड़ता, क्योंकि पकड़ने को कुछ है ही नहीं। यह जान-बूझकर है, और इस page की सबसे काम की बात यही है जिसे मन में बिठा लें: call **model** ने चुना था, इसलिए message भी model को मिलता है और दोबारा कोशिश करने का मौका भी। पूरी जानकारी **[errors संभालना](servers/handling-errors.md)** में है, उस `MCPError` वाले रास्ते समेत जो सच में raise **करता** है।
+
+बिना message वाला सादा रूप, `Error executing tool <name>`, बताता है कि tool **crash हुआ**: कोई exception जिसकी उसने उम्मीद नहीं की थी उससे बाहर निकल गया (या उसकी return value output schema पर खरी नहीं उतरी), और उस exception का text wire से दूर रखा जाता है। traceback **server के log** में `ERROR` पर है, `Tool '<name>' raised an unexpected exception` के रूप में।
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -409,7 +411,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## सारांश {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` कभी असली error नहीं है। **आखिरी line** पढ़ें; `async with Client(...)` block के **अंदर** `MCPError` catch करने से wrapping पूरी तरह टल जाती है।
-* `call_tool` fail होने वाले tool के लिए raise नहीं करता। `Error executing tool ...` और `Unknown tool: ...` results हैं: `result.is_error` जाँचें।
+* `call_tool` fail होने वाले tool के लिए raise नहीं करता। `Error executing tool ...` और `Unknown tool: ...` results हैं: `result.is_error` जाँचें। tool के नाम के बाद कोई message न हो तो मतलब वह crash हुआ, और traceback server log में है।
 * `Client must be used within an async context manager` -> `async with` इस्तेमाल करें। `Use @tool() instead of @tool` -> parentheses जोड़ें।
 * server log में `Tool already exists:` ही इकलौता संकेत है कि एक ही नाम के दो tools सिमटकर एक रह गए।
 * एक 421, तीन रूप: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (बाकी सब), `Invalid Host header: <host>` (server log)। सुधार: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`।

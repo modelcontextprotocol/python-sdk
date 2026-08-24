@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # Sorun giderme {#troubleshooting}
@@ -81,11 +81,11 @@ async def main() -> None:
 
 `__aexit__` ise bağlantının kesilmesidir; unutulacak bir `client.close()` olmamasının nedeni de budur. **[Test etme](get-started/testing.md)** tam olarak bu kalıp üzerine kuruludur.
 
-## `Error executing tool <name>: <message>` ve `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>` ve `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 Okuduğunuz şey bir istisna değil, bir **sonuç**. `call_tool` istisna fırlatmadı ve başarısız olan bir araç için hiçbir zaman fırlatmaz.
 
-`forecast`'i sunucunun tanımadığı bir şehir için çağırın; fırlattığı istisna, istek *başarılı* olarak işaretlenmiş halde geri döner:
+`forecast`'i sunucunun tanımadığı bir şehir için çağırın; fırlattığı `ToolError`, istek *başarılı* olarak işaretlenmiş halde geri döner:
 
 ```python
 result.is_error  # True
@@ -96,6 +96,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast`, sunucunun hiç kaydetmediği bir ad için aynı biçimdir; hatalı bir argüman da aynı şekilde, fonksiyonunuz daha hiç çalışmadan, aracın girdi şemasına göre reddedilir.
 
 Çözüm istemcinizde: **`result.is_error`'ı kontrol edin**. `call_tool` etrafındaki bir `try/except` bunların hiçbirini yakalamaz, çünkü yakalanacak bir şey yoktur. Bu kasıtlıdır ve bu sayfada içselleştirilecek en yararlı tek şeydir: çağrıyı *model* seçti, bu yüzden mesajı ve yeniden deneme şansını da model alır. Ayrıntıların tamamı, *gerçekten* istisna fırlatan `MCPError` yolu dahil, **[Hataları ele alma](servers/handling-errors.md)** sayfasında.
+
+Yalın biçim, yani mesajsız `Error executing tool <name>`, aracın **çöktüğü** anlamına gelir: öngörmediği bir istisna ondan kaçmıştır (ya da dönüş değeri çıktı şemasını geçememiştir) ve o istisnanın metni ağ üzerinden gönderilmez. Traceback, `ERROR` düzeyinde, `Tool '<name>' raised an unexpected exception` olarak **sunucunun log'undadır**.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -410,7 +412,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Özet {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` hiçbir zaman asıl hata değildir. **Son satırı** okuyun; `MCPError`'ı `async with Client(...)` bloğunun *içinde* yakalamak sarmalamayı tamamen atlar.
-* `call_tool` başarısız olan bir araç için istisna fırlatmaz. `Error executing tool ...` ve `Unknown tool: ...` birer sonuçtur: `result.is_error`'ı kontrol edin.
+* `call_tool` başarısız olan bir araç için istisna fırlatmaz. `Error executing tool ...` ve `Unknown tool: ...` birer sonuçtur: `result.is_error`'ı kontrol edin. Araç adından sonra mesaj yoksa araç çökmüş demektir ve traceback sunucu log'undadır.
 * `Client must be used within an async context manager` -> `async with` kullanın. `Use @tool() instead of @tool` -> parantezleri ekleyin.
 * Sunucu log'undaki `Tool already exists:`, aynı adlı iki aracın teke indiğinin tek işaretidir.
 * Tek 421, üç yazım: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (geri kalan her şey), `Invalid Host header: <host>` (sunucu log'u). Çözüm: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.

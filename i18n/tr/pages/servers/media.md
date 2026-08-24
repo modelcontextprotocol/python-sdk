@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # Medya {#media}
@@ -86,6 +86,24 @@ Tanımadığı bir uzantı `application/octet-stream`'e geri düşer.
     MP3 baytlarından bu şekilde bir `Audio` oluşturursanız istemciye `mime_type="audio/wav"`
     söylenir ve o da sadakatle çözmeyi başaramaz. `data=` geçirdiğinizde `format=` da geçirin.
 
+## Bir kaynağı gömme {#embedding-a-resource}
+
+Bir araç bir belge de döndürebilir: bulunduğu URI ve bir MIME türüyle birlikte bir miktar metin ya da bayt. Bu bir **`EmbeddedResource`**'tur, bir başka içerik bloğu türü. Düz bir `str`'den farklı olarak istemciye içeriğin ne olduğunu söyler; böylece istemci onu bir ek olarak gösterebilir ya da zaten bildiği bir kaynağı tanıyabilir.
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` sıradan bir kaynaktır (bunları **[Kaynaklar](resources.md)** sayfası anlatır). Araç, istek üzerine aynı belgeyi modele verir ve `guidelines()`'ı doğrudan çağırmak tek bir doğruluk kaynağını korur.
+* `EmbeddedResource` ve `TextResourceContents`, `mcp.types` modülünden gelir. Görsellerdeki gibi bir yardımcı yoktur: oluşturduğunuz blok sonuca olduğu gibi girer ve `structured_content` yoktur.
+* Kaynağın kaydedildiği URI'yi kullanın; böylece istemci ekin ve `brand://guidelines` kaynağının aynı belge olduğunu anlayabilir. Kayıtlı olsun olmasın her URI geçerlidir.
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+İkili içerik için `TextResourceContents` yerine, baytları base64 ile kodlayıp `blob` alanına koyarak `BlobResourceContents(uri=..., mime_type=..., blob=...)` kullanın. Yalnızca istemcinin daha sonra `resources/read` ile okuyabileceği bir işaretçi göndermek için bunun yerine bir `ResourceLink(name=..., uri=...)` döndürün; o da bir içerik bloğudur.
+
 ## Simgeler {#icons}
 
 `Icon` içerik değil, meta veridir. Görseli taşımaz; bir URI ile ona işaret eder ve istemci onu getirip sunucunuzun adının, bir aracın, bir kaynağın veya bir prompt'un yanında gösterebilir.
@@ -115,6 +133,7 @@ Bir aracın simgeleri `tools/list`'ten gelen `Tool` nesnesinde, bir kaynağınki
 
 * Bir araçtan `Image` veya `Audio` döndürün; istemci bir `ImageContent` / `AudioContent` bloğu alır: base64 ile kodlanmış baytlarınız ve bir MIME türü.
 * Bunu bir `path=` ile oluşturup MIME türünü uzantının belirlemesine bırakın ya da bellekteki `data=` ile açık bir `format=` kullanın.
+* Sonuca bir belge (URI'si ve MIME türüyle birlikte metin ya da base64 blob) koymak için bir `EmbeddedResource`, yalnızca işaretçiyi göndermek için bir `ResourceLink` döndürün.
 * Medya sonuçları `structured_content` ve çıktı şeması taşımaz.
 * `Icon` bir işaretçidir: bir `src` URI'si ile isteğe bağlı `mime_type`, `sizes` ve `theme`.
 * `icons=[...]` sunucuda, araçlarda, kaynaklarda ve prompt'larda çalışır; istemciler bunları eşleşen nesnelerde bulur.

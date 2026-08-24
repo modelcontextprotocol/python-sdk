@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # クライアントのトランスポート {#client-transports}
@@ -74,17 +74,17 @@ TLS について 1 点。`httpx2` は、同梱の CA リストではなく、オ
 
 ## stdio {#stdio}
 
-**stdio** サーバーはサブプロセスです。クライアントがそれを起動し、stdin に JSON-RPC を書き込み、stdout から JSON-RPC を読み取ります。デスクトップのホストが手元のマシンでサーバーを動かす方法がこれです。ホストとは、このコードに UI を加えたもの「そのもの」です。**[本物のホストに接続する](../get-started/real-host.md)** は、同じ関係をホストの側から設定ファイルとして見たものです。
+**stdio** サーバーはサブプロセスです。クライアントがそれを起動し、stdin に JSON-RPC を書き込み、stdout から JSON-RPC を読み取ります。デスクトップのホストが手元のマシンでサーバーを動かす方法がこれです。ホストとは、まさにこのコードに UI を加えたものです。**[本物のホストに接続する](../get-started/real-host.md)** は、同じ関係をホストの側から設定ファイルとして見たものです。
 
-`StdioServerParameters` でプロセスを記述し、`stdio_client` でトランスポートに変換して、「それ」を `Client` に渡します。
+`StdioServerParameters` でプロセスを記述し、それを `Client` に渡します。
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` はパラメーターオブジェクトをそのままでは受け取りません。`StdioServerParameters` は設定であり、`stdio_client(server)` はそこからプロセスを起動する方法を知っているトランスポートです。必ず包んでください。
+ブロックに入るとプロセスが起動します。抜けるとサブプロセスは終了されます。stdin を閉じ、待機し、居残っていれば強制終了します。自分で後始末をすることはありません。
 
-`async with` ブロックを抜けると、サブプロセスも終了されます。stdin を閉じ、待機し、居残っていれば強制終了します。自分で後始末をすることはありません。
+子プロセスの stderr は自分の stderr に流れます。別の場所に送るには、`stdio_client`（`mcp` にあります）でトランスポートを自分で組み立て、代わりにそれを渡してください。`Client(stdio_client(server, errlog=log_file))` のように書きます。
 
 !!! warning
     子プロセスは環境変数を継承**しません**。最小限の許可リスト（POSIX では `HOME`、`LOGNAME`、`PATH`、`SHELL`、`TERM`、`USER`）だけを受け取るので、自分が書いたとは限らないプロセスに機密情報が漏れることはありません。
@@ -99,16 +99,16 @@ TLS について 1 点。`httpx2` は、同梱の CA リストではなく、オ
 
 `Client` から見れば、上記はすべて同じものです。
 
-**トランスポート**とは、`(read, write)` というメッセージストリームのペアを yield する非同期コンテキストマネージャーのことです。正式には `mcp.client` の `Transport` プロトコルです。`Client` は引数を型で解決します。サーバーオブジェクトならインプロセスで接続し、`str` なら `streamable_http_client(url)` になり、それ以外は直接トランスポートとして入ります。この最後の規則があるからこそ、`stdio_client(...)`、`streamable_http_client(...)`、`sse_client(...)` はすべて同じ場所に収まり、自分で独自のものを書くこともできます。
+**トランスポート**とは、`(read, write)` というメッセージストリームのペアを yield する非同期コンテキストマネージャーのことです。正式には `mcp.client` の `Transport` プロトコルです。`Client` は引数を型で解決します。サーバーオブジェクトならインプロセスで接続し、`str` なら `streamable_http_client(url)` になり、`StdioServerParameters` なら `stdio_client(params)` になり、それ以外は直接トランスポートとして入ります。この最後の規則があるからこそ、`stdio_client(...)`、`streamable_http_client(...)`、`sse_client(...)` はすべて同じ場所に収まり、自分で独自のものを書くこともできます。
 
 ## まとめ {#recap}
 
 * `Client(mcp)`（サーバーオブジェクト）はインメモリで接続します。テストと組み込みに使ってください。
 * `Client("http://.../mcp")`（URL）は、本番用のトランスポートである Streamable HTTP で接続します。
 * ヘッダー、認証、プロキシ、タイムアウトは、`streamable_http_client(url, http_client=...)` に渡す `httpx2.AsyncClient` に設定します。`headers=` キーワードはありません。
-* stdio は `Client(stdio_client(StdioServerParameters(...)))` であり、パラメーターオブジェクト単体では決してありません。
+* stdio は `Client(StdioServerParameters(...))` です。自分で `stdio_client(...)` に包むのは、子プロセスの stderr をリダイレクトしたいときだけです。
 * サブプロセスが受け取るのは自分の環境ではなく、許可リストに基づく環境です。`env=` でそこに追加します。
-* トランスポートとは、`async with x as (read, write)` と書けるものすべてです。`Client` は、サーバーオブジェクトでも URL でもないものをそのままこのプロトコルに渡します。
+* トランスポートとは、`async with x as (read, write)` と書けるものすべてです。`Client` は、サーバーオブジェクトでも URL でも `StdioServerParameters` でもないものを、そのままこのプロトコルに渡します。
 * `Client` の構築でトランスポートが選ばれ、`async with` でそれが開かれます。
 
 トランスポートが開いたら、両者はプロトコルバージョンについて合意する必要があります。普段は意識することはありません。意識することになったら、**[プロトコルバージョン](../protocol-versions.md)** のページを参照してください。

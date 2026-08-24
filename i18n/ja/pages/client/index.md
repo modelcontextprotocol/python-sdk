@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # Client {#the-client}
@@ -27,9 +27,10 @@ translation:
 
 * `MCPServer`（または低レベルの `Server`）のインスタンス：**プロセス内**で接続します。
 * URL 文字列（`Client("http://localhost:8000/mcp")`）：Streamable HTTP。本番向けの経路です。
-* **トランスポート**：`async with ... as (read, write)` できるものなら何でも。たとえばサブプロセスをラップする `stdio_client(...)` です。
+* `StdioServerParameters`：**サブプロセス**として起動するコマンドで、その stdin と stdout を通じて対話します。
+* **トランスポート**：`async with ... as (read, write)` できるものなら何でも。たとえば、自分の HTTP クライアントをラップする `streamable_http_client(url, http_client=...)` です。
 
-このページの残りの内容は、3 つのどれでも同じです。ヘッダー、サブプロセス、タイムアウト、そして `Transport` プロトコルについては、専用のページ **[クライアントのトランスポート](transports.md)** があります。
+このページの残りの内容は、4 つのどれでも同じです。ヘッダー、サブプロセス、タイムアウト、そして `Transport` プロトコルについては、専用のページ **[クライアントのトランスポート](transports.md)** があります。
 
 ### 接続済みクライアントが持つもの {#whats-on-a-connected-client}
 
@@ -82,7 +83,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)` はツールを実行し、`CallToolResult` を返します。
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -113,7 +114,7 @@ result.is_error            # False
 例外を送出するツールが、クライアント側で例外を送出することは**ありません**。`is_error=True` の付いた通常の結果として返ってきます。
 
 !!! check
-    `lookup_book` に `"Solaris"`（カタログにない書名）を問い合わせると、関数は `ValueError` を送出します。それでも呼び出しは正常に返ります。
+    `lookup_book` に `"Solaris"`（カタログにない書名）を問い合わせると、関数は `ToolError` を送出します。それでも呼び出しは正常に返ります。
 
     ```python
     result.is_error            # True
@@ -121,7 +122,7 @@ result.is_error            # False
     result.structured_content  # None
     ```
 
-    例外のメッセージは `content` に入りました。そこなら**モデル**が読んで、やり直せます。これは意図的なものです。ツールのエラーはクラッシュではなく、会話の一部です。`structured_content` を信用する前に、必ず `is_error` を確認してください。
+    `ToolError` のメッセージは `content` に入りました。そこなら**モデル**が読んで、やり直せます。これは意図的なものです。ツールのエラーはクラッシュではなく、会話の一部です。（仮にツールが別の例外でクラッシュしていたら、`content` には `Error executing tool lookup_book` とだけ入ります。）`structured_content` を信用する前に、必ず `is_error` を確認してください。
 
 !!! warning
     `is_error=True` がカバーするのは、自分で書いた `raise` だけではありません。サーバーに存在すらしないツールを要求しても（`call_tool("does_not_exist", {})`）、何も送出されません。同じ形の結果が返り、`is_error=True` で `content` には `Unknown tool: does_not_exist` が入ります。`Client` のメソッドが `MCPError` を送出するのは、サーバーが結果ではなく JSON-RPC の**エラー**で応答したときだけです。サーバーがどんなときにどちらを返すかは **[エラーの処理](../servers/handling-errors.md)** で扱っています。

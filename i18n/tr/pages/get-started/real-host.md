@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # Gerçek bir host'a bağlanma {#connect-to-a-real-host}
@@ -11,15 +11,15 @@ Yani bir host'a bağlanmak tek bir eylemdir: ona **sunucunuzu başlatan komutu**
 
 ## Tek sunucu, her host {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
 İki araç ve bir kaynak, tek dosya. Bu dosyayla ilgili üç şey aşağıdaki her host için önemlidir:
 
-* Argümansız `mcp.run()` bir **stdio** sunucusu başlatır: bloklar, protokol mesajlarını stdin'den okur ve stdout'a yazar. Bu sayfadaki her host'un konuştuğu aktarım budur. Host dosyanızı bir alt süreç olarak başlatır ve bu iki kanalın sahibidir; bağlanmanın her zaman yalnızca "işte komut" olmasının nedeni de budur. Hiçbir zaman port seçmezsiniz ve hiçbir şey bir portu dinlemez.
-* `run()`, `if __name__ == "__main__":` altındadır. Aşağıdaki her şey bu dosyayı çalıştırmak yerine **import eder**; bu yüzden korumasız bir `run()`, modülü herhangi bir şey yüklediği anda bir sunucu başlatırdı.
-* Sunucu nesnesi, `mcp` adında modül düzeyinde bir globaldir. `mcp run`'ın aradığı ad budur (`server` ve `app` de olur). Başka bir ad verirseniz açıkça belirtirsiniz: `mcp run server.py:bookshop`.
+* Argümansız `mcp.run()` bir **stdio** sunucusu başlatır: bloke olur, protokol mesajlarını stdin'den okur ve stdout'a yazar. Bu sayfadaki her host'un konuştuğu aktarım budur. Host dosyanızı bir alt süreç olarak başlatır ve bu iki kanalın sahibidir; bağlanmanın her zaman yalnızca "işte komut" olmasının nedeni de budur. Hiçbir zaman port seçmezsiniz ve hiçbir şey bir portu dinlemez.
+* `run()`, `if __name__ == "__main__":` altındadır. Aşağıdaki her şey bu dosyayı çalıştırmak yerine **import eder**; bu yüzden korumasız bir `run()`, herhangi bir şey modülü yüklediği anda bir sunucu başlatırdı.
+* Sunucu nesnesi, `mcp` adında modül düzeyinde bir globaldir. `mcp run`'ın aradığı ad budur (`server` ve `app` de olur). Başka bir ad verirseniz adı açıkça belirtirsiniz: `mcp run server.py:bookshop`.
 
 Bu, bu sayfadaki son Python satırı. Buradan aşağısı tamamen host yapılandırması.
 
@@ -33,7 +33,7 @@ uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 
 Hepsi için tek komut, çünkü `uv run --with` SDK'yı anında yeni bir ortama çözümler: herhangi bir dizinden çalışır, ne bir projeye ne de etkinleştirilecek bir sanal ortama ihtiyaç duyar. Bu, burada başka her yerden daha önemlidir; çünkü host sunucunuzu sizin kabuğunuzdan değil, *kendi* çalışma dizininden ve neredeyse boş bir ortamla başlatır.
 
-Bu aynı zamanda `mcp install`'un sizin için Claude Desktop'ın yapılandırmasına yazdığı komuttur (aşağıda). Böylece elle yazdığınız ile aracın ürettiği, aracın eklediği tam sürüm sabitlemesi dışında örtüşür.
+Bu aynı zamanda `mcp install`'un sizin için Claude Desktop'ın yapılandırmasına yazdığı komuttur (aşağıda). Yani elle yazdığınız ile aracın ürettiği, aracın eklediği tam sürüm sabitlemesi dışında örtüşür.
 
 !!! tip "Host `uv`'yi bulamazsa"
     Host sunucunuzu asgari bir `PATH` ile başlatır ve `uv` bunun üzerinde olmayabilir. Yalın
@@ -43,15 +43,15 @@ Bu aynı zamanda `mcp install`'un sizin için Claude Desktop'ın yapılandırmas
 !!! note "Bu sayfa yerel senaryoyu anlatır"
     Buradaki her şey sunucunuzu host'un bulunduğu makinede çalıştırır: host dosyanızı stdio
     üzerinden başlatır. Kişisel ya da tek makinelik bir araç için bu tam olarak doğru olandır.
-    Dosyanıza sahip *olmayan* insanlara bir sunucu vermek için komut değil **URL** dağıtırsınız:
+    Dosyanız *olmayan* insanlara bir sunucu vermek için komut değil **URL** dağıtırsınız:
     aynı `mcp` nesnesi, Streamable HTTP üzerinden sunulur. **[Sunucunuzu çalıştırma](../run/index.md)**
     bu kararı tek bir tabloda verir, **[Dağıtım ve ölçekleme](../run/deploy.md)** ise oradan
     gerçek bir ana bilgisayar adına giden yoldur.
 
-    Ve host, içinde bir MCP istemcisi olan bir uygulamadan başka bir şey değildir; bu yüzden kendi
+    Host da içinde bir MCP istemcisi olan bir uygulamadan başka bir şey değildir; bu yüzden kendi
     Python kodunuz host rolünü oynayabilir: **[İstemci aktarımları](../client/transports.md)**
-    bu aynı dosyayı `stdio_client(...)` ile bir alt süreç olarak başlatır, **[Test etme](testing.md)**
-    ise ona hiç süreç olmadan bellek içinde bağlanır.
+    bu aynı dosyayı `Client(StdioServerParameters(...))` ile bir alt süreç olarak başlatır,
+    **[Test etme](testing.md)** ise ona hiç süreç olmadan bellek içinde bağlanır.
 
 ## Claude Desktop {#claude-desktop}
 

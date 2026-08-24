@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # O cliente {#the-client}
@@ -27,9 +27,10 @@ O servidor no topo só está ali para você ter algo a que se conectar. O client
 
 * Uma instância de `MCPServer` (ou do `Server` de baixo nível): conectada **no mesmo processo**.
 * Uma string de URL (`Client("http://localhost:8000/mcp")`): Streamable HTTP, o caminho de produção.
-* Um **transporte**: qualquer coisa com que você possa fazer `async with ... as (read, write)`, como `stdio_client(...)` encapsulando um subprocesso.
+* Um `StdioServerParameters`: o comando a iniciar como **subprocesso**, com o qual se conversa pelo stdin e stdout dele.
+* Um **transporte**: qualquer coisa com que você possa fazer `async with ... as (read, write)`, como `streamable_http_client(url, http_client=...)` em volta do seu próprio cliente HTTP.
 
-Todo o resto desta página é idêntico entre os três. Cabeçalhos, subprocessos, timeouts e o protocolo `Transport` têm sua própria página: **[Transportes do cliente](transports.md)**.
+Todo o resto desta página é idêntico entre os quatro. Cabeçalhos, subprocessos, timeouts e o protocolo `Transport` têm sua própria página: **[Transportes do cliente](transports.md)**.
 
 ### O que há em um cliente conectado {#whats-on-a-connected-client}
 
@@ -85,7 +86,7 @@ Esse schema é tudo o que uma UI precisa para renderizar um formulário de argum
 
 `call_tool(name, arguments)` executa a ferramenta e devolve um `CallToolResult`.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +118,7 @@ Uma ferramenta que lança uma exceção **não** lança no seu cliente. Ela volt
 
 !!! check
     Peça `"Solaris"` ao `lookup_book` (um título que não está no catálogo) e a função lança
-    `ValueError`. A chamada ainda retorna normalmente:
+    `ToolError`. A chamada ainda retorna normalmente:
 
     ```python
     result.is_error            # True
@@ -125,9 +126,10 @@ Uma ferramenta que lança uma exceção **não** lança no seu cliente. Ela volt
     result.structured_content  # None
     ```
 
-    A mensagem da exceção foi parar em `content`, onde o **modelo** pode lê-la e tentar de novo. Isso
-    é proposital: um erro de ferramenta faz parte da conversa, não é um crash. Sempre olhe `is_error`
-    antes de confiar em `structured_content`.
+    A mensagem do `ToolError` foi parar em `content`, onde o **modelo** pode lê-la e tentar de novo. Isso
+    é proposital: um erro de ferramenta faz parte da conversa, não é um crash. (Se a ferramenta tivesse
+    quebrado com alguma outra exceção, `content` diria apenas `Error executing tool lookup_book`.) Sempre
+    olhe `is_error` antes de confiar em `structured_content`.
 
 !!! warning
     `is_error=True` cobre mais do que o seu próprio `raise`. Peça uma ferramenta que o servidor nem tem

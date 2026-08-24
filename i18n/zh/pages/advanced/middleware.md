@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # 中间件 {#middleware}
@@ -42,7 +42,7 @@ tools/call took 0.1 ms
 这正是关键所在。中间件包裹**每一条**入站消息：
 
 * 连接建立：`server/discover`，或者旧版会话上的 `initialize` 和 `notifications/initialized`。
-* 每一个请求和每一个通知。对于通知，`ctx.request_id is None`，`call_next(ctx)` 返回 `None`，而你返回的任何东西都会被丢弃。
+* 每一个到达服务器的请求和通知。对于通知，`ctx.request_id is None`，`call_next(ctx)` 返回 `None`，而你返回的任何东西都会被丢弃。（在 `2026-07-28` 的 Streamable HTTP 路径上，客户端的通知 POST 在传输层就以 `202` 确认，从不分发，所以也到不了中间件；该修订版本没有定义任何经由 HTTP 的客户端到服务器通知。）
 * 甚至包括服务器没有处理函数的方法：`call_next` 会抛出 `MCPError(-32601, "Method not found")`，**穿过**你的中间件送往客户端。
 
 ## 在中间件里能做什么 {#what-you-can-do-inside-one}
@@ -75,7 +75,7 @@ SDK 自带的中间件恰好只有一个，而且已经在你服务器的列表�
 ## 回顾 {#recap}
 
 * 中间件是 `async (ctx, call_next) -> result`，以 `MCPServer(middleware=[...])` 传入（或追加到 `mcp.middleware`），在低层 `Server` 上则追加到 `server.middleware`。
-* 它包裹**每一条**入站消息（`server/discover`、`initialize`、请求、通知、未知方法），按从外到内的顺序执行。
+* 它包裹**每一条**到达服务器的入站消息（`server/discover`、`initialize`、请求、通知、未知方法），按从外到内的顺序执行。
 * 用 `ctx.request_id is None` 区分通知和请求。
 * 抛出异常而不调用 `call_next` 即可拒绝一条消息；连接不受影响。
 * SDK 自己的 OpenTelemetry 追踪也是一个中间件，已经在列表上了。见 **[OpenTelemetry](../run/opentelemetry.md)**。

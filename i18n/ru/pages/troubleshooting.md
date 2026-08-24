@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # Устранение неполадок {#troubleshooting}
@@ -81,11 +81,11 @@ async def main() -> None:
 
 `__aexit__` — это отключение, и именно поэтому нет `client.close()`, который можно забыть вызвать. Страница **[Тестирование](get-started/testing.md)** построена ровно на этом шаблоне.
 
-## `Error executing tool <name>: <message>` и `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>` и `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 Перед вами **результат**, а не исключение. `call_tool` ничего не выбросил и никогда не выбросит для инструмента, завершившегося с ошибкой.
 
-Вызовите `forecast` для города, которого сервер не знает, — и исключение, которое он выбрасывает, вернётся вместе с запросом, помеченным как *успешный*:
+Вызовите `forecast` для города, которого сервер не знает, — и `ToolError`, которое он выбрасывает, вернётся вместе с запросом, помеченным как *успешный*:
 
 ```python
 result.is_error  # True
@@ -96,6 +96,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast` — та же форма для имени, которое сервер никогда не регистрировал, а неправильный аргумент отклоняется так же — по входной схеме инструмента, ещё до того, как ваша функция запустится.
 
 Исправление — на стороне клиента: **проверяйте `result.is_error`**. `try/except` вокруг `call_tool` не поймает ничего из этого, потому что ловить нечего. Так задумано, и это самая полезная мысль на всей странице, которую стоит усвоить: вызов выбрала *модель*, поэтому именно модель получает сообщение и шанс попробовать снова. Подробнее — на странице **[Обработка ошибок](servers/handling-errors.md)**, включая путь через `MCPError`, который *действительно* выбрасывает исключение.
+
+Краткая форма, `Error executing tool <name>` без сообщения, означает, что инструмент **упал**: из него вышло исключение, которого он не предусмотрел (или возвращённое значение не прошло выходную схему), и текст этого исключения в передаваемые данные не попадает. Трассировка — в **логе сервера** на уровне `ERROR`, в виде `Tool '<name>' raised an unexpected exception`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -409,7 +411,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Итоги {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` — никогда не сама ошибка. Читайте **последнюю строку**; перехват `MCPError` *внутри* блока `async with Client(...)` полностью избавляет от обёртки.
-* `call_tool` не выбрасывает исключение для инструмента, завершившегося с ошибкой. `Error executing tool ...` и `Unknown tool: ...` — это результаты: проверяйте `result.is_error`.
+* `call_tool` не выбрасывает исключение для инструмента, завершившегося с ошибкой. `Error executing tool ...` и `Unknown tool: ...` — это результаты: проверяйте `result.is_error`. Нет сообщения после имени инструмента — значит, он упал, а трассировка в логе сервера.
 * `Client must be used within an async context manager` -> используйте `async with`. `Use @tool() instead of @tool` -> добавьте скобки.
 * `Tool already exists:` в логе сервера — единственный признак того, что два одноимённых инструмента схлопнулись в один.
 * Один 421, три написания: `Server returned an error response` (`Client` на Python), `421 Misdirected Request` / `Invalid Host header` (всё остальное), `Invalid Host header: <host>` (лог сервера). Исправление: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.

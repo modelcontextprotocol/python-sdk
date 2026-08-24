@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Araçlar {#tools}
@@ -38,6 +38,8 @@ SDK bu tür ipuçlarından bir JSON Schema üretir ve `tools/list` sırasında i
 ```
 
 Hiçbirinin varsayılan değeri olmadığı için iki argüman da `required` içinde. Bunu birazdan düzelteceksiniz. (`title` anahtarları Pydantic'in ürettiği kalıntılardır; sözleşmeyi oluşturan şey özellikler, türleri ve `required`'dır.)
+
+`$schema` anahtarı da yok: MCP, bu anahtarı taşımayan bir şemayı **JSON Schema 2020-12** olarak kabul eder; Pydantic'in ürettiği de budur. Bu yüzden **[alt düzey Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)** üzerinde şemaları elle yazana kadar seçmeniz gereken bir şey yoktur.
 
 !!! tip
     Tür ipuçları burada dokümantasyon değildir. **Sözleşmenin ta kendisidir**. Bir istemci `"limit": "ten"`

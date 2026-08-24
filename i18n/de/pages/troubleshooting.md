@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # Fehlerbehebung {#troubleshooting}
@@ -81,11 +81,11 @@ async def main() -> None:
 
 `__aexit__` ist die Trennung – deshalb gibt es kein `client.close()`, das du vergessen könntest. **[Testen](get-started/testing.md)** baut genau auf diesem Muster auf.
 
-## `Error executing tool <name>: <message>` und `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>` und `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 Du liest ein **Ergebnis**, keine Exception. `call_tool` hat nichts ausgelöst und wird das bei einem fehlschlagenden Tool auch nie tun.
 
-Rufe `forecast` für eine Stadt auf, die der Server nicht kennt, und die Exception, die es auslöst, kommt zurück, während der Request als *erfolgreich* markiert ist:
+Rufe `forecast` für eine Stadt auf, die der Server nicht kennt, und die `ToolError`, die es auslöst, kommt zurück, während der Request als *erfolgreich* markiert ist:
 
 ```python
 result.is_error  # True
@@ -96,6 +96,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast` hat dieselbe Form bei einem Namen, den der Server nie registriert hat, und ein ungültiges Argument wird genauso abgewiesen – anhand des Eingabeschemas des Tools, bevor deine Funktion überhaupt läuft.
 
 Die Lösung liegt in deinem Client: **Prüfe `result.is_error`.** Ein `try/except` um `call_tool` fängt nichts davon ab, weil es nichts abzufangen gibt. Das ist Absicht, und es ist das Nützlichste auf dieser Seite, das du verinnerlichen solltest: Das *Modell* hat den Aufruf gewählt, also bekommt das Modell die Meldung und eine Chance, es erneut zu versuchen. Alles Weitere steht in **[Fehler behandeln](servers/handling-errors.md)**, einschließlich des `MCPError`-Pfads, der *tatsächlich* eine Exception auslöst.
+
+Die nackte Form, `Error executing tool <name>` ohne Meldung, bedeutet, dass das Tool **abgestürzt** ist: Eine Exception, mit der es nicht gerechnet hat, ist ihm entwichen (oder sein Rückgabewert hat das Ausgabeschema nicht bestanden), und der Text dieser Exception bleibt von der Leitung fern. Der Traceback steht im **Log des Servers** auf `ERROR`, als `Tool '<name>' raised an unexpected exception`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -411,7 +413,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Zusammenfassung {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` ist nie der Fehler. Lies die **letzte Zeile**; fängst du `MCPError` *innerhalb* des `async with Client(...)`-Blocks ab, entfällt die Verpackung komplett.
-* `call_tool` löst bei einem fehlschlagenden Tool keine Exception aus. `Error executing tool ...` und `Unknown tool: ...` sind Ergebnisse: Prüfe `result.is_error`.
+* `call_tool` löst bei einem fehlschlagenden Tool keine Exception aus. `Error executing tool ...` und `Unknown tool: ...` sind Ergebnisse: Prüfe `result.is_error`. Keine Meldung nach dem Tool-Namen heißt, es ist abgestürzt, und der Traceback steht im Server-Log.
 * `Client must be used within an async context manager` -> verwende `async with`. `Use @tool() instead of @tool` -> füge die Klammern hinzu.
 * `Tool already exists:` im Server-Log ist das einzige Zeichen, dass zwei gleichnamige Tools zu einem zusammengefallen sind.
 * Ein 421, drei Schreibweisen: `Server returned an error response` (der Python-`Client`), `421 Misdirected Request` / `Invalid Host header` (alles andere), `Invalid Host header: <host>` (das Server-Log). Lösung: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.

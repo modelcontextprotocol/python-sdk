@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
   tool: 1
 ---
 # 低階 Server {#the-low-level-server}
@@ -116,6 +116,17 @@ asyncio.run(main())
 
 伺服器從不比對這兩個欄位。這個 SDK 的 `Client` 會：回傳的 `structured_content` 如果不符合你宣告的 `output_schema`，`call_tool` 就會引發 `RuntimeError`，訊息以 `Invalid structured content returned by tool search_books` 開頭，接著引用 `jsonschema` 的失敗內容。承諾一個 schema 很便宜；守住承諾是你的事。回傳型別與 schema 的完整階梯請見 **[結構化輸出](../servers/structured-output.md)**。
 
+## 方言是 JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` 和 `output_schema` 是 JSON Schema，而 [MCP 規範](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage)把方言定了下來：沒有 `$schema` 鍵的 schema 就是 **JSON Schema 2020-12**。`MCPServer` 產生的 schema 依賴這個預設值（Pydantic 寫的是 2020-12，並省略這個鍵），手寫的 dict 也同樣受它約束，所以整套 2020-12 詞彙都可以用：
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema` 的根必須是 `"type": "object"`。在它旁邊，`oneOf`、`additionalProperties`、`anyOf`、`if`/`then`/`else`、`prefixItems`、帶本地 `$ref` 的 `$defs`，以及其餘的 2020-12 關鍵字，都會照你寫的一字不差地送到用戶端。
+* 不需要 `$schema` 鍵。只有想改用較舊的草案時才加：這個 SDK 的 `Client` 會依工具的 `output_schema` 驗證 `structured_content`，它從 `$schema` 挑選驗證器，沒有的話就用 2020-12。
+
 ## `_meta`：給應用程式，不是給模型 {#\_meta-for-the-application-not-the-model}
 
 `content` 是答案中模型會讀的部分。`structured_content` 是同一個答案的型別化資料。`_meta` 是第三個管道：跟著結果一起送給**用戶端應用程式**的資料，完全不屬於答案的一部分。
@@ -166,7 +177,7 @@ asyncio.run(main())
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* 第一個引數是方法字串。通知有個孿生的 `add_notification_handler`。
+* 第一個引數是方法字串。通知有個孿生的 `add_notification_handler`。它的處理函式在 stdio 和交握世代的 HTTP 連線上會觸發；在 `2026-07-28` 的 Streamable HTTP 路徑上，用戶端的通知 POST 會收到 `202` 確認而不會被分派，因為該修訂版沒有定義任何透過 HTTP 的用戶端到伺服器通知。
 * `params_type` 是傳入的 `params` 在處理函式執行**之前**用來驗證的模型，所以自訂方法**確實**享有工具沒有的驗證。繼承 `RequestParams`，讓 `_meta` 欄位和其他方法一樣解析。
 * 處理函式回傳 `BaseModel`、`dict` 或 `None`。SDK 會把它序列化成 JSON-RPC 結果。
 
@@ -179,7 +190,7 @@ ValueError: 'initialize' is handled by the server runner and cannot be overridde
 use Server.middleware to observe or wrap initialization
 ```
 
-交握屬於執行器。`server/discover`、`ping`，以及其他所有內建方法，都可以替換。
+交握屬於執行器。`server/discover`、`ping`，以及其他所有內建方法，都可以由你替換。
 
 !!! tip
     那則錯誤裡提到的 `Server.middleware` 會包住**每一則**傳入訊息，包括 `initialize`。如果想做的是觀察或改寫流量，而不是回應新方法，請從 **[中介軟體](middleware.md)** 開始。

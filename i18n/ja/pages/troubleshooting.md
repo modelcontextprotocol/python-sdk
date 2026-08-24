@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # トラブルシューティング {#troubleshooting}
@@ -79,11 +79,11 @@ async def main() -> None:
 
 `__aexit__` が切断です。だからこそ、呼び忘れる `client.close()` というものが存在しません。**[テスト](get-started/testing.md)** は、まさにこのパターンの上に組み立てられています。
 
-## `Error executing tool <name>: <message>` と `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`、`Error executing tool <name>`、`Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 読んでいるのは**結果**であって、例外ではありません。`call_tool` は例外を送出しておらず、ツールが失敗しても送出することは決してありません。
 
-サーバーが知らない都市で `forecast` を呼ぶと、ツールが送出した例外は、リクエストが「成功」と記された形で返ってきます。
+サーバーが知らない都市で `forecast` を呼ぶと、ツールが送出した `ToolError` は、リクエストが「成功」と記された形で返ってきます。
 
 ```python
 result.is_error  # True
@@ -94,6 +94,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast` は、サーバーが登録したことのない名前に対する同じ形の結果です。不正な引数も同じように、関数が実行される前にツールの入力スキーマと照合されて拒否されます。
 
 直すのはクライアント側です。**`result.is_error` を確認してください**。`call_tool` を `try/except` で囲んでも、これらはどれも捕まりません。捕まえるものがないからです。これは意図した設計であり、このページで身につけておくと一番役に立つ点です。呼び出しを選んだのは「モデル」なので、メッセージを受け取ってやり直す機会を得るのもモデルです。詳しくは **[エラーの処理](servers/handling-errors.md)** を参照してください。例外を「送出する」側の `MCPError` の経路も含めて説明しています。
+
+メッセージのない素の形、`Error executing tool <name>` は、ツールが**クラッシュした**ことを意味します。ツールが想定していなかった例外が抜け出した（または戻り値が出力スキーマに通らなかった）場合で、その例外の文字列は通信路には載せません。トレースバックは**サーバーのログ**に `ERROR` で、`Tool '<name>' raised an unexpected exception` として記録されています。
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -393,7 +395,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## まとめ {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` がエラーであることは決してありません。**最後の行**を読んでください。`async with Client(...)` ブロックの「内側」で `MCPError` を捕まえれば、包まれること自体を完全に避けられます。
-* `call_tool` は、ツールが失敗しても例外を送出しません。`Error executing tool ...` と `Unknown tool: ...` は結果です。`result.is_error` を確認してください。
+* `call_tool` は、ツールが失敗しても例外を送出しません。`Error executing tool ...` と `Unknown tool: ...` は結果です。`result.is_error` を確認してください。ツール名の後にメッセージがなければクラッシュしたという意味で、トレースバックはサーバーログにあります。
 * `Client must be used within an async context manager` -> `async with` を使ってください。`Use @tool() instead of @tool` -> 括弧を付けてください。
 * サーバーログの `Tool already exists:` は、同名の 2 つのツールが 1 つに潰れた唯一の合図です。
 * 1 つの 421、3 つの綴り：`Server returned an error response`（python の `Client`）、`421 Misdirected Request` / `Invalid Host header`（それ以外すべて）、`Invalid Host header: <host>`（サーバーログ）。直し方：`transport_security=TransportSecuritySettings(allowed_hosts=[...])`。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # 執行伺服器 {#running-your-server}
@@ -70,7 +70,7 @@ Inspector 做的事和真正的主機一模一樣：把 `server.py` 當成子處
 * `streamable_http_path`：MCP 端點的位置。預設為 `/mcp`。
 * `json_response=True`：每個 POST 都用單一 JSON 本體回應，而不是 SSE 串流。那個本體只裝得下回應本身，別的都沒有，所以在請求中途回頭呼叫用戶端的工具（`ctx.elicit()`、取樣（sampling））在這一段會引發 `NoBackChannelError`，而綁在進行中呼叫上的通知（`ctx.report_progress()` 的進度、每次呼叫的記錄訊息）會被丟棄；獨立的 `GET` 串流仍會承載不相關的那些。
 * `stateless_http=True`：每個請求一個全新的傳輸，不追蹤工作階段（session）。
-* `max_request_body_size`：可接受的最大 POST 本體，以位元組計。預設為 4 MiB；更大的請求在解析或建立工作階段之前就會收到 HTTP 413。只有在合法的 MCP 訊息超過這個大小時才調高它。
+* `max_request_body_size`：可接受的最大請求本體，以位元組計。預設為 4 MiB；更大的請求在解析或建立工作階段之前就會收到 HTTP 413。只有在合法的 MCP 訊息超過這個大小時才調高它。
 * `event_store`、`retry_interval`、`transport_security`：可續傳性與 DNS 重新綁定防護。這些可以先放著，等到部署到 localhost 以外的地方再說；`transport_security` 在 **[部署與擴展](deploy.md)** 有說明。
 
 !!! warning

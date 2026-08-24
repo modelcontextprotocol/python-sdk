@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # Усунення несправностей {#troubleshooting}
@@ -81,11 +81,11 @@ async def main() -> None:
 
 `__aexit__` — це від'єднання, тому й немає `client.close()`, про який можна забути. Сторінка **[Тестування](get-started/testing.md)** побудована саме на цьому шаблоні.
 
-## `Error executing tool <name>: <message>` і `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>` і `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 Перед вами **результат**, а не виняток. `call_tool` нічого не викинув і ніколи не викине для інструмента, що завершився збоєм.
 
-Викличте `forecast` для міста, якого сервер не знає, — і виняток, який він викидає, повертається із запитом, позначеним як *успішний*:
+Викличте `forecast` для міста, якого сервер не знає, — і `ToolError`, який він викидає, повертається із запитом, позначеним як *успішний*:
 
 ```python
 result.is_error  # True
@@ -96,6 +96,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast` має ту саму форму для імені, яке сервер ніколи не реєстрував, а неправильний аргумент відхиляється так само — за вхідною схемою інструмента, ще до того, як ваша функція запуститься.
 
 Виправлення — на боці клієнта: **перевіряйте `result.is_error`**. `try/except` навколо `call_tool` не перехопить жодного з цих випадків, бо перехоплювати нічого. Це зроблено навмисно, і це найкорисніше, що варто засвоїти з цієї сторінки: виклик обрала *модель*, тож саме модель отримує повідомлення й шанс спробувати знову. Докладніше — на сторінці **[Обробка помилок](servers/handling-errors.md)**, зокрема про шлях через `MCPError`, який *таки* викидає виняток.
+
+Коротка форма, `Error executing tool <name>` без повідомлення, означає, що інструмент **упав**: з нього вийшов виняток, якого він не передбачав (або його повернене значення не пройшло вихідну схему), і текст цього винятку в передані дані не потрапляє. Трасування — у **лозі сервера** на рівні `ERROR`, як `Tool '<name>' raised an unexpected exception`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -410,7 +412,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Підсумки {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` ніколи не є самою помилкою. Читайте **останній рядок**; перехоплення `MCPError` *всередині* блоку `async with Client(...)` повністю оминає обгортання.
-* `call_tool` не викидає виняток для інструмента, що завершився збоєм. `Error executing tool ...` і `Unknown tool: ...` — це результати: перевіряйте `result.is_error`.
+* `call_tool` не викидає виняток для інструмента, що завершився збоєм. `Error executing tool ...` і `Unknown tool: ...` — це результати: перевіряйте `result.is_error`. Якщо після імені інструмента немає повідомлення, він упав, а трасування — у лозі сервера.
 * `Client must be used within an async context manager` -> використовуйте `async with`. `Use @tool() instead of @tool` -> додайте дужки.
 * `Tool already exists:` у лозі сервера — єдина ознака того, що два однойменні інструменти злилися в один.
 * Один 421, три написання: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (усе інше), `Invalid Host header: <host>` (лог сервера). Виправлення: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.

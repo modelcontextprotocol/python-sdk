@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # Client transports {#client-transports}
@@ -87,15 +87,15 @@ environment variables set करें या अपने `httpx2.AsyncClient` 
 
 **stdio** server एक subprocess है। client उसे launch करता है, उसके stdin पर JSON-RPC लिखता है और उसके stdout से JSON-RPC पढ़ता है। desktop host आपकी machine पर server इसी तरह चलाता है: host यही code **है**, बस ऊपर एक UI के साथ, और **[असली host से जुड़ें](../get-started/real-host.md)** यही रिश्ता host की तरफ़ से, एक config file के रूप में दिखाता है।
 
-process को `StdioServerParameters` से बताएँ, `stdio_client` से उसे transport में बदलें, और **वही** `Client` को दें:
+process को `StdioServerParameters` से बताएँ और उसे `Client` को दें:
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` अकेले parameters object को स्वीकार नहीं करता। `StdioServerParameters` configuration है; `stdio_client(server)` वह transport है जो उससे process spawn करना जानता है। हमेशा wrap करें।
+block में enter करते ही process spawn हो जाता है। बाहर निकलने पर subprocess बंद हो जाता है: stdin बंद, इंतज़ार, और अटका रहे तो kill। आपको उसे खुद कभी साफ़ नहीं करना पड़ता।
 
-`async with` block से बाहर निकलने पर subprocess भी बंद हो जाता है: stdin बंद, इंतज़ार, और अटका रहे तो kill। आपको उसे खुद कभी साफ़ नहीं करना पड़ता।
+child का stderr आपके stderr पर जाता है। उसे कहीं और भेजना हो तो transport खुद `stdio_client` (`mcp` से) के साथ बनाएँ और वही पास करें: `Client(stdio_client(server, errlog=log_file))`।
 
 !!! warning
     child आपका environment inherit **नहीं** करता। उसे एक minimal allow-list मिलती है (POSIX पर `HOME`, `LOGNAME`,
@@ -113,16 +113,16 @@ process को `StdioServerParameters` से बताएँ, `stdio_client` �
 
 `Client` के लिए ऊपर की सभी चीज़ें एक ही हैं।
 
-**transport** कोई भी async context manager है जो message streams का `(read, write)` जोड़ा yield करता है: औपचारिक रूप से, `mcp.client` का `Transport` protocol। `Client` अपने argument को type से resolve करता है: server object in-process जुड़ता है, `str` `streamable_http_client(url)` बन जाता है, और बाकी सब कुछ सीधे transport के रूप में enter किया जाता है। यही आख़िरी नियम वजह है कि `stdio_client(...)`, `streamable_http_client(...)` और `sse_client(...)` सब उसी एक slot में बैठते हैं, और यही वजह है कि आप अपना खुद का भी लिख सकते हैं।
+**transport** कोई भी async context manager है जो message streams का `(read, write)` जोड़ा yield करता है: औपचारिक रूप से, `mcp.client` का `Transport` protocol। `Client` अपने argument को type से resolve करता है: server object in-process जुड़ता है, `str` `streamable_http_client(url)` बन जाता है, `StdioServerParameters` `stdio_client(params)` बन जाता है, और बाकी सब कुछ सीधे transport के रूप में enter किया जाता है। यही आख़िरी नियम वजह है कि `stdio_client(...)`, `streamable_http_client(...)` और `sse_client(...)` सब उसी एक slot में बैठते हैं, और यही वजह है कि आप अपना खुद का भी लिख सकते हैं।
 
 ## सारांश {#recap}
 
 * `Client(mcp)` (server object) memory में जुड़ता है। इसे tests और embedding के लिए इस्तेमाल करें।
 * `Client("http://.../mcp")` (URL) Streamable HTTP पर जुड़ता है, जो production transport है।
 * Headers, auth, proxies और timeouts उस `httpx2.AsyncClient` पर होने चाहिए जो आप `streamable_http_client(url, http_client=...)` को पास करते हैं। कोई `headers=` keyword नहीं है।
-* stdio है `Client(stdio_client(StdioServerParameters(...)))`, अकेला parameters object कभी नहीं।
+* stdio है `Client(StdioServerParameters(...))`। इसे खुद `stdio_client(...)` में सिर्फ़ तब wrap करें जब child का stderr कहीं और भेजना हो।
 * subprocess को allow-list वाला environment मिलता है, आपका नहीं; `env=` उसमें जोड़ता है।
-* transport वह हर चीज़ है जिस पर आप `async with x as (read, write)` कर सकें। जो कुछ server object या URL नहीं है, `Client` उसे सीधे उसी protocol को सौंप देता है।
+* transport वह हर चीज़ है जिस पर आप `async with x as (read, write)` कर सकें। जो कुछ server object, URL या `StdioServerParameters` नहीं है, `Client` उसे सीधे उसी protocol को सौंप देता है।
 * `Client` बनाने से transport चुना जाता है। `async with` उसे खोलता है।
 
 transport खुल जाने के बाद दोनों पक्षों को protocol version पर सहमत होना होता है। आम तौर पर आपको इस बारे में सोचना ही नहीं पड़ता; जब पड़े, तो **[Protocol versions](../protocol-versions.md)** वह page है।

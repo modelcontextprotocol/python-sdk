@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Ferramentas {#tools}
@@ -38,6 +38,8 @@ A partir dessas anotações de tipo, o SDK gera um JSON Schema e o envia ao clie
 ```
 
 Os dois argumentos estão em `required` porque nenhum deles tem valor padrão. Você vai resolver isso daqui a pouco. (As chaves `title` são artefatos do Pydantic; as propriedades, seus tipos e `required` são o contrato.)
+
+Também não há chave `$schema`: o MCP trata um schema sem ela como **JSON Schema 2020-12**, que é o que o Pydantic gera. Então não há nada para escolher até você escrever schemas à mão no **[Server de baixo nível](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)**.
 
 !!! tip
     Aqui, as anotações de tipo não são documentação. Elas são **o contrato**. Se um cliente enviar `"limit": "ten"`,

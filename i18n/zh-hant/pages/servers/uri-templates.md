@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # URI 範本與路徑安全 {#uri-templates-and-path-safety}
@@ -98,7 +98,7 @@ translation:
 
 內建檢查擋得住常見情況，但無從得知你的沙箱邊界。存取檔案系統時，用 `safe_join` 解析路徑，並確認它仍在基底目錄之內：
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -127,7 +127,7 @@ translation:
 這些檢查只是啟發式的前置過濾；存取檔案系統時，`safe_join` 仍然是真正的隔離邊界。
 
 !!! tip
-    如果處理函式無法完成請求（檔案不存在、id 不認識），就引發例外。SDK 會把它轉成錯誤回應。協定錯誤和工具錯誤的差別請見 **[處理錯誤](handling-errors.md)**。
+    如果處理函式無法完成請求（檔案不存在、id 不認識），就像上面的 `read_manual` 那樣引發 `ResourceNotFoundError`。用戶端會收到 `-32602`，附上你的訊息和 URI。非預期的例外則會變成通用的 `-32603`。請見 **[處理錯誤](handling-errors.md#a-resource-that-doesnt-exist)**。
 
 ## 低階 Server 上的資源 {#resources-on-the-low-level-server}
 

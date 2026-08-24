@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # サーバーの実行 {#running-your-server}
@@ -71,7 +71,7 @@ Inspector は本物のホストとまったく同じことをします。`server
 * `streamable_http_path`：MCP エンドポイントの場所です。デフォルトは `/mcp` です。
 * `json_response=True`：各 POST に SSE ストリームではなく単一の JSON ボディで応答します。このボディにはレスポンスしか入る余地がありません。そのため、リクエストの途中でクライアントを呼び返すツール（`ctx.elicit()` やサンプリング）は、この区間で `NoBackChannelError` を送出します。進行中の呼び出しに紐づく通知（`ctx.report_progress()` による進捗や呼び出しごとのログメッセージ）は破棄されますが、独立した `GET` ストリームは無関係な通知を引き続き運びます。
 * `stateless_http=True`：リクエストごとに新しいトランスポートを作り、セッションを追跡しません。
-* `max_request_body_size`：受け付ける POST ボディの最大サイズ（バイト単位）です。デフォルトは 4 MiB で、これより大きいリクエストはパースやセッション作成の前に HTTP 413 を受け取ります。正当な MCP メッセージがこのサイズを超える場合にだけ引き上げてください。
+* `max_request_body_size`：受け付けるリクエストボディの最大サイズ（バイト単位）です。デフォルトは 4 MiB で、これより大きいリクエストはパースやセッション作成の前に HTTP 413 を受け取ります。正当な MCP メッセージがこのサイズを超える場合にだけ引き上げてください。
 * `event_store`、`retry_interval`、`transport_security`：再開可能性と DNS リバインディング保護です。localhost 以外の場所にデプロイするまでは後回しでかまいません。`transport_security` については **[デプロイとスケール](deploy.md)** で扱います。
 
 !!! warning

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # 문제 해결 {#troubleshooting}
@@ -81,11 +81,11 @@ async def main() -> None:
 
 연결을 끊는 일은 `__aexit__`에서 일어나므로, 잊어버릴 `client.close()` 같은 것은 없습니다. **[테스트](get-started/testing.md)**는 바로 이 패턴 위에 만들어져 있습니다.
 
-## `Error executing tool <name>: <message>` 및 `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>`, `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 지금 보고 있는 것은 예외가 아니라 **결과**입니다. `call_tool`은 예외를 일으키지 않았고, 실패한 도구에 대해서는 앞으로도 절대 일으키지 않습니다.
 
-서버가 모르는 도시로 `forecast`를 호출하면, 도구가 일으킨 예외는 **성공**으로 표시된 요청에 담겨 돌아옵니다.
+서버가 모르는 도시로 `forecast`를 호출하면, 도구가 일으킨 `ToolError`는 **성공**으로 표시된 요청에 담겨 돌아옵니다.
 
 ```python
 result.is_error  # True
@@ -96,6 +96,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast`는 서버에 등록된 적 없는 이름에 대해 같은 형태로 나타나며, 잘못된 인자도 함수가 실행되기 전에 도구의 입력 스키마에 비추어 같은 방식으로 거부됩니다.
 
 해결책은 클라이언트 쪽에 있습니다. **`result.is_error`를 확인하세요.** `call_tool`을 `try/except`로 감싸도 잡히는 것은 하나도 없습니다. 잡을 것이 없기 때문입니다. 이것은 의도된 설계이며, 이 페이지에서 가장 체득할 가치가 있는 한 가지입니다. 호출을 선택한 것은 **모델**이므로, 메시지를 받고 다시 시도할 기회를 얻는 것도 모델입니다. 예외를 **실제로** 일으키는 `MCPError` 경로를 포함해 자세한 내용은 **[오류 처리](servers/handling-errors.md)**에서 확인하세요.
+
+메시지 없이 `Error executing tool <name>`만 나오는 형태는 도구가 **죽었다**는 뜻입니다. 도구가 예상하지 못한 예외가 빠져나갔고(또는 반환값이 출력 스키마를 통과하지 못했고), 그 예외의 텍스트는 와이어에 실리지 않습니다. 트레이스백은 **서버 로그**에 `ERROR` 수준으로, `Tool '<name>' raised an unexpected exception`이라는 메시지와 함께 남습니다.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -409,7 +411,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## 요약 {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup`은 절대 진짜 오류가 아닙니다. **마지막 줄**을 읽으세요. `async with Client(...)` 블록 **안에서** `MCPError`를 잡으면 감싸기를 완전히 건너뜁니다.
-* `call_tool`은 실패한 도구에 대해 예외를 일으키지 않습니다. `Error executing tool ...` 및 `Unknown tool: ...` 메시지는 결과이므로 `result.is_error`를 확인하세요.
+* `call_tool`은 실패한 도구에 대해 예외를 일으키지 않습니다. `Error executing tool ...` 및 `Unknown tool: ...` 메시지는 결과이므로 `result.is_error`를 확인하세요. 도구 이름 뒤에 메시지가 없으면 도구가 죽은 것이며, 트레이스백은 서버 로그에 있습니다.
 * `Client must be used within an async context manager` -> `async with`를 사용하세요. `Use @tool() instead of @tool` -> 괄호를 추가하세요.
 * 서버 로그의 `Tool already exists:`는 이름이 같은 두 도구가 하나로 합쳐졌다는 유일한 신호입니다.
 * 421 하나에 표기는 세 가지입니다. `Server returned an error response`(Python `Client`), `421 Misdirected Request` / `Invalid Host header`(그 밖의 모든 곳), `Invalid Host header: <host>`(서버 로그). 해결책은 `transport_security=TransportSecuritySettings(allowed_hosts=[...])`입니다.

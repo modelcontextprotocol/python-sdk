@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # Sortie structurée {#structured-output}
@@ -105,7 +105,7 @@ Toutes les formes ne méritent pas une classe. Un `TypedDict` produit le même s
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-Un `TypedDict` est un simple `dict` à l’exécution : c’est donc ce que vous construisez et renvoyez. Le schéma, la validation et `structured_content` sont identiques à la version `BaseModel` (à l’exception des descriptions, pour lesquelles `TypedDict` n’a pas de place).
+Un `TypedDict` est un simple `dict` à l’exécution : c’est donc ce que vous construisez et renvoyez. Le schéma, la validation et `structured_content` suivent les mêmes règles que la version `BaseModel` : ajoutez une docstring de classe ou `Annotated[..., Field(description=...)]` et elles deviennent les descriptions, et une clé `NotRequired` que vous omettez du dict reste absente de `structured_content`.
 
 ## Une dataclass {#a-dataclass}
 
@@ -188,16 +188,17 @@ L’annotation promet un `WeatherData`. La réponse en amont a cessé d’envoye
 
 !!! check
     Appelez `get_weather` : il ne remet pas discrètement au client un objet à moitié vide. L’appel
-    échoue, et les premières lignes de l’erreur nomment le champ :
+    échoue : le client reçoit `is_error=True` avec `Error executing tool get_weather`, de sorte que le
+    modèle sait que l’appel a échoué au lieu de lire avec assurance une météo qui n’existe pas. Le nom
+    du champ est pour vous, dans le journal du serveur au niveau `ERROR` :
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    Ce texte revient comme résultat de l’outil avec `is_error=True` : le modèle sait donc que l’appel
-    a échoué au lieu de lire avec assurance une météo qui n’existe pas.
 
 Au passage, renvoyer un simple `dict` depuis un outil `-> WeatherData` ne pose aucun problème. C’est exactement ce que `json.loads` a produit. La validation porte sur la valeur, pas sur le type Python.
 
@@ -212,6 +213,10 @@ Parfois, l’annotation de retour est destinée à votre vérificateur de types,
 Aucun `output_schema`, aucune enveloppe, aucune validation. `structured_content` vaut `None` et `content` est la chaîne que vous avez renvoyée.
 
 L’inverse, `structured_output=True`, transforme la détection automatique en exigence : un outil dont le type de retour ne peut pas produire de schéma lève une exception à l’import au lieu de se rabattre sur du texte.
+
+## Blocs de contenu et médias {#content-blocks-and-media}
+
+Les blocs de contenu et les médias (`TextContent`, `EmbeddedResource`, `Image`, `Audio` et consorts, seuls, comme éléments d’une `list`, d’un `tuple` ou d’une `Sequence`, ou comme branches d’une union) sont désactivés pour vous : ils sont destinés à être lus par le modèle, la détection automatique n’en tire donc aucun schéma (la page **[Images, audio et icônes](media.md)** traite de `Image` et `Audio`). `structured_output=True` en impose tout de même un pour les classes de blocs de contenu.
 
 ## Une classe sans annotations de type {#a-class-without-type-hints}
 
@@ -245,6 +250,6 @@ Il existe une façon de se retrouver sans sortie structurée sans l’avoir dema
 * Les scalaires, listes, tuples et unions sont enveloppés dans `{"result": ...}`. Les modèles, les `TypedDict`, les dataclasses, les classes annotées et `dict[str, ...]` sont déjà des objets et restent tels quels.
 * Chaque résultat porte `content` (du texte, pour le modèle) **et** `structured_content` (des données, pour l’application).
 * Ce que vous renvoyez est validé par rapport au schéma. Une incohérence est une erreur d’outil, pas un résultat corrompu.
-* `structured_output=False` désactive la sortie structurée d’un outil. Une classe sans annotations de type la désactive silencieusement ; surveillez ce cas.
+* `structured_output=False` désactive la sortie structurée d’un outil. Les blocs de contenu, `Image` et `Audio` la désactivent par défaut ; une classe sans annotations de type la désactive silencieusement, surveillez donc ce cas.
 
 Vous maîtrisez désormais tout ce qu’un outil peut répondre. Ensuite, la deuxième primitive : **[Ressources](resources.md)**.

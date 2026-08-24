@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # 工具 {#tools}
@@ -38,6 +38,8 @@ SDK 從這些型別提示產生一份 JSON Schema，並在 `tools/list` 時送�
 ```
 
 兩個引數都在 `required` 裡，因為都沒有預設值。等一下就會修正這點。（`title` 鍵是 Pydantic 產生的附帶產物；屬性、它們的型別和 `required` 才是契約。）
+
+也沒有 `$schema` 鍵：MCP 把沒有這個鍵的 schema 當作 **JSON Schema 2020-12**，而這正是 Pydantic 產生的格式，所以在你到 **[低階 Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)** 上親手寫 schema 之前，沒有什麼需要選的。
 
 !!! tip
     這裡的型別提示不是說明文件，而是**契約**。如果用戶端送來 `"limit": "ten"`，SDK 會在函式執行之前就拒絕它。

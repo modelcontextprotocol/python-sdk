@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # 运行服务器 {#running-your-server}
@@ -70,7 +70,7 @@ Inspector 做的事和真实宿主完全一样：它把 `server.py` 作为子进
 * `streamable_http_path`：MCP 端点所在的路径。默认 `/mcp`。
 * `json_response=True`：用单个 JSON 正文回应每个 POST，而不是 SSE 流。这个正文只容得下响应本身，别的什么都放不下，所以在请求中途回调客户端的工具（`ctx.elicit()`、采样（sampling））会在这一段抛出 `NoBackChannelError`；与进行中的调用绑定的通知（`ctx.report_progress()` 的进度、每次调用的日志消息）会被丢弃；独立的 `GET` 流仍然承载与之无关的通知。
 * `stateless_http=True`：每个请求一个全新的传输，不跟踪会话。
-* `max_request_body_size`：接受的最大 POST 正文大小，单位为字节。默认 4 MiB；更大的请求在解析或创建会话之前就会收到 HTTP 413。只有当合法的 MCP 消息确实超过这个大小时才调高它。
+* `max_request_body_size`：接受的最大请求正文大小，单位为字节。默认 4 MiB；更大的请求在解析或创建会话之前就会收到 HTTP 413。只有当合法的 MCP 消息确实超过这个大小时才调高它。
 * `event_store`、`retry_interval`、`transport_security`：可恢复性和 DNS 重绑定防护。它们可以先放一放，等部署到 localhost 以外的地方再说；**[部署与扩展](deploy.md)** 介绍了 `transport_security`。
 
 !!! warning

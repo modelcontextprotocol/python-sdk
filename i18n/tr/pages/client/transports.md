@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # İstemci aktarımları {#client-transports}
@@ -86,15 +86,15 @@ ortam değişkenlerini ayarlayın ya da `httpx2.AsyncClient`'ınıza açıkça b
 
 Bir **stdio** sunucusu bir alt süreçtir. İstemci onu başlatır, stdin'ine JSON-RPC yazar ve stdout'undan JSON-RPC okur. Bir masaüstü host'un makinenizde bir sunucuyu çalıştırma biçimi budur: bir host, bu kod artı bir kullanıcı arayüzü*dür* ve **[Gerçek bir host'a bağlanma](../get-started/real-host.md)**, aynı ilişkinin host'un tarafından, bir yapılandırma dosyası olarak görülen halidir.
 
-Süreci `StdioServerParameters` ile tanımlayın, `stdio_client` ile bir aktarıma dönüştürün ve `Client`'a *onu* verin:
+Süreci `StdioServerParameters` ile tanımlayın ve `Client`'a verin:
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client`, parametre nesnesini tek başına kabul etmez. `StdioServerParameters` yapılandırmadır; `stdio_client(server)` ise ondan bir süreç başlatmayı bilen aktarımdır. Her zaman sarın.
+Bloğa girmek süreci başlatır. Bloktan çıkmak alt süreci kapatır: stdin'i kapatır, bekler, oyalanıyorsa sonlandırır. Onu hiçbir zaman kendiniz temizlemezsiniz.
 
-`async with` bloğundan çıkmak alt süreci de kapatır: stdin'i kapat, bekle, oyalanıyorsa sonlandır. Onu hiçbir zaman kendiniz temizlemezsiniz.
+Alt sürecin stderr'i sizinkine gider. Başka bir yere göndermek için aktarımı `stdio_client` ile (`mcp` içinden) kendiniz oluşturun ve onun yerine bunu geçirin: `Client(stdio_client(server, errlog=log_file))`.
 
 !!! warning
     Alt süreç ortamınızı **devralmaz**. Minimal bir izin listesi alır (POSIX'te `HOME`, `LOGNAME`,
@@ -112,16 +112,16 @@ Süreci `StdioServerParameters` ile tanımlayın, `stdio_client` ile bir aktarı
 
 `Client` için yukarıdakilerin hepsi aynı şeydir.
 
-Bir **aktarım**, `(read, write)` mesaj akışı çifti veren herhangi bir asenkron bağlam yöneticisidir: resmi olarak `mcp.client` içindeki `Transport` protokolü. `Client`, argümanını türüne göre çözümler: bir sunucu nesnesi süreç içinde bağlanır, bir `str` `streamable_http_client(url)` olur ve geri kalan her şeye doğrudan bir aktarım olarak girilir. `stdio_client(...)`, `streamable_http_client(...)` ve `sse_client(...)`'in hepsinin aynı yuvaya oturmasının ve kendinizinkini yazabilmenizin nedeni bu son kuraldır.
+Bir **aktarım**, `(read, write)` mesaj akışı çifti veren herhangi bir asenkron bağlam yöneticisidir: resmi olarak `mcp.client` içindeki `Transport` protokolü. `Client`, argümanını türüne göre çözümler: bir sunucu nesnesi süreç içinde bağlanır, bir `str` `streamable_http_client(url)` olur, bir `StdioServerParameters` `stdio_client(params)` olur ve geri kalan her şeye doğrudan bir aktarım olarak girilir. `stdio_client(...)`, `streamable_http_client(...)` ve `sse_client(...)`'in hepsinin aynı yuvaya oturmasının ve kendinizinkini yazabilmenizin nedeni bu son kuraldır.
 
 ## Özet {#recap}
 
 * `Client(mcp)` (sunucu nesnesi) bellek içinde bağlanır. Testler ve gömme için kullanın.
 * `Client("http://.../mcp")` (bir URL), üretim aktarımı olan Streamable HTTP üzerinden bağlanır.
 * Başlıklar, kimlik doğrulama, vekil sunucular ve zaman aşımları, `streamable_http_client(url, http_client=...)`'a geçirdiğiniz bir `httpx2.AsyncClient` üzerinde yer alır. `headers=` anahtar sözcüğü yoktur.
-* stdio `Client(stdio_client(StdioServerParameters(...)))`'tır; asla tek başına parametre nesnesi değil.
+* stdio, `Client(StdioServerParameters(...))` demektir. Onu `stdio_client(...)` ile yalnızca alt sürecin stderr'ini başka yere yönlendirmek için kendiniz sarın.
 * Alt süreç sizinkini değil, izin listesine göre oluşturulmuş bir ortam alır; `env=` buna ekleme yapar.
-* Bir aktarım, `async with x as (read, write)` yapabildiğiniz herhangi bir şeydir. `Client`, sunucu nesnesi ya da URL olmayan her şeyi doğrudan bu protokole verir.
+* Bir aktarım, `async with x as (read, write)` yapabildiğiniz herhangi bir şeydir. `Client`, sunucu nesnesi, URL ya da `StdioServerParameters` olmayan her şeyi doğrudan bu protokole verir.
 * Bir `Client` oluşturmak aktarımı seçer. Onu `async with` açar.
 
 Aktarım açıldıktan sonra iki tarafın bir protokol sürümünde anlaşması gerekir. Normalde bunu hiç düşünmezsiniz; düşünmeniz gerektiğinde gidilecek sayfa **[Protokol sürümleri](../protocol-versions.md)**'dir.

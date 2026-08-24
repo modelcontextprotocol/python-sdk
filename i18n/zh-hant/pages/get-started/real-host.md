@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # 連接到真正的主機 {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ translation:
 
 ## 一個伺服器，所有主機 {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -41,7 +41,7 @@ uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 !!! note "這一頁講的是本機情境"
     這裡的一切都是在主機所在的那台機器上執行伺服器：主機透過 stdio 啟動你的檔案。對個人用或單機工具來說，這完全正確。要把伺服器交給**沒有**你這個檔案的人，給出去的是 **URL** 而不是指令：同一個 `mcp` 物件，改用 Streamable HTTP 提供服務。**[執行伺服器](../run/index.md)** 用一張表講清楚這個抉擇，**[部署與擴展](../run/deploy.md)** 則是從那裡走到真正主機名稱的路。
 
-    而主機不過就是內含 MCP 用戶端的應用程式，所以你自己的 Python 也能扮演主機的角色：**[用戶端傳輸方式](../client/transports.md)** 用 `stdio_client(...)` 把同一個檔案當成子處理程序啟動，**[測試](testing.md)** 則在記憶體內連接它，完全不需要處理程序。
+    而主機不過就是內含 MCP 用戶端的應用程式，所以你自己的 Python 也能扮演主機的角色：**[用戶端傳輸方式](../client/transports.md)** 用 `Client(StdioServerParameters(...))` 把同一個檔案當成子處理程序啟動，**[測試](testing.md)** 則在記憶體內連接它，完全不需要處理程序。
 
 ## Claude Desktop {#claude-desktop}
 

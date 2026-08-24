@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # Der Client {#the-client}
@@ -27,9 +27,10 @@ Der Server oben ist nur da, damit du etwas hast, womit du dich verbinden kannst.
 
 * Eine Instanz von `MCPServer` (oder des Low-Level-`Server`): Verbindung **im selben Prozess**.
 * Ein URL-String (`Client("http://localhost:8000/mcp")`): Streamable HTTP, der Weg für die Produktion.
-* Ein **Transport**: alles, was sich mit `async with ... as (read, write)` verwenden lässt, etwa `stdio_client(...)` um einen Subprozess herum.
+* Ein `StdioServerParameters`: der Befehl, der als **Subprozess** gestartet wird und mit dem über dessen stdin und stdout gesprochen wird.
+* Ein **Transport**: alles, was sich mit `async with ... as (read, write)` verwenden lässt, etwa `streamable_http_client(url, http_client=...)` um deinen eigenen HTTP-Client herum.
 
-Alles Übrige auf dieser Seite ist in allen drei Fällen identisch. Header, Subprozesse, Timeouts und das `Transport`-Protokoll haben ihre eigene Seite: **[Client-Transporte](transports.md)**.
+Alles Übrige auf dieser Seite ist in allen vier Fällen identisch. Header, Subprozesse, Timeouts und das `Transport`-Protokoll haben ihre eigene Seite: **[Client-Transporte](transports.md)**.
 
 ### Was ein verbundener Client mitbringt {#whats-on-a-connected-client}
 
@@ -85,7 +86,7 @@ Dieses Schema ist alles, was eine UI braucht, um ein Argumentformular zu rendern
 
 `call_tool(name, arguments)` führt das Tool aus und gibt dir ein `CallToolResult` zurück.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +118,7 @@ Ein Tool, das eine Exception auslöst, löst in deinem Client **keine** aus. Es 
 
 !!! check
     Frag `lookup_book` nach `"Solaris"` (einem Titel, der nicht im Katalog steht), und die Funktion löst
-    `ValueError` aus. Der Aufruf kehrt trotzdem normal zurück:
+    `ToolError` aus. Der Aufruf kehrt trotzdem normal zurück:
 
     ```python
     result.is_error            # True
@@ -125,9 +126,10 @@ Ein Tool, das eine Exception auslöst, löst in deinem Client **keine** aus. Es 
     result.structured_content  # None
     ```
 
-    Die Meldung der Exception ist in `content` gelandet, wo das **Modell** sie lesen und es erneut versuchen kann. Das
-    ist Absicht: Ein Tool-Fehler ist Teil des Gesprächs, kein Absturz. Sieh dir immer `is_error` an,
-    bevor du `structured_content` vertraust.
+    Die Meldung des `ToolError` ist in `content` gelandet, wo das **Modell** sie lesen und es erneut versuchen kann. Das
+    ist Absicht: Ein Tool-Fehler ist Teil des Gesprächs, kein Absturz. (Wäre das Tool mit einer
+    anderen Exception abgestürzt, stünde in `content` nur `Error executing tool lookup_book`.) Sieh dir immer
+    `is_error` an, bevor du `structured_content` vertraust.
 
 !!! warning
     `is_error=True` deckt mehr ab als dein eigenes `raise`. Frag nach einem Tool, das der Server gar nicht hat

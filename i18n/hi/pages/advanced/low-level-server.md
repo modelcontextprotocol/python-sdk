@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
   tool: 1
 ---
 # Low-level Server {#the-low-level-server}
@@ -116,6 +116,17 @@ asyncio.run(main())
 
 Server इन दोनों fields की कभी तुलना नहीं करता। इस SDK का `Client` करता है: ऐसा `structured_content` लौटाएँ जो आपके declare किए `output_schema` पर खरा न उतरे, और `call_tool` एक `RuntimeError` raise करता है जो `Invalid structured content returned by tool search_books` से शुरू होता है और आगे `jsonschema` की failure उद्धृत करता है। Schema का वादा करना सस्ता है; उसे निभाना आपकी ज़िम्मेदारी है। Return types और schemas की पूरी सीढ़ी **[Structured Output](../servers/structured-output.md)** में है।
 
+## Dialect JSON Schema 2020-12 है {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` और `output_schema` JSON Schema हैं, और dialect [MCP specification](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) तय करती है: जिस schema में `$schema` key नहीं है वह **JSON Schema 2020-12** है। `MCPServer` जो schemas generate करता है वे इसी default पर टिके हैं (Pydantic 2020-12 लिखता है और key छोड़ देता है), और हाथ से लिखे dict पर भी यही लागू होता है, इसलिए 2020-12 की पूरी vocabulary उपलब्ध है:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema` का root `"type": "object"` होना ज़रूरी है। उसके साथ `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, local `$ref`s वाले `$defs` और बाकी 2020-12 keywords client तक ठीक वैसे ही पहुँचते हैं जैसे लिखे गए।
+* `$schema` key की ज़रूरत नहीं है। इसे सिर्फ़ किसी पुराने draft को चुनने के लिए जोड़ें: इस SDK का `Client`, जो `structured_content` को tool के `output_schema` से validate करता है, अपना validator `$schema` से चुनता है और कोई न होने पर 2020-12 इस्तेमाल करता है।
+
 ## `_meta`: application के लिए, model के लिए नहीं {#\_meta-for-the-application-not-the-model}
 
 `content` जवाब का वह हिस्सा है जिसे model पढ़ता है। `structured_content` वही जवाब typed data के रूप में है। `_meta` तीसरा channel है: ऐसा data जो result के साथ **client application** के लिए चलता है, जवाब का हिस्सा बने बिना।
@@ -167,7 +178,7 @@ Constructor उन methods को cover करता है जिन्हे�
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* पहला argument method string है। Notifications के लिए इसका जुड़वाँ है, `add_notification_handler`।
+* पहला argument method string है। Notifications के लिए इसका जुड़वाँ है, `add_notification_handler`। इसके handlers stdio पर और handshake पीढ़ी के HTTP connections पर चलते हैं; `2026-07-28` के streamable-HTTP रास्ते पर client की notification POST को `202` से acknowledge किया जाता है और dispatch नहीं किया जाता, क्योंकि वह revision HTTP पर client-से-server कोई notification define नहीं करता।
 * `params_type` वह model है जिससे आने वाले `params` आपका handler चलने से **पहले** validate होते हैं, इसलिए custom methods को वह validation **मिलती** है जो tools को नहीं मिलती। `RequestParams` को subclass करें ताकि `_meta` field हर दूसरे method की तरह parse हो।
 * Handler `BaseModel`, `dict`, या `None` लौटाता है। SDK इसे JSON-RPC result में serialise कर देता है।
 

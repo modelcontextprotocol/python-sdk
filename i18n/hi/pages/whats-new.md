@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
   tool: 1
 ---
 # v2 में नया क्या है {#whats-new-in-v2}
@@ -18,7 +18,7 @@ v2 में दो चीज़ें एक साथ हुईं। **SDK �
 
 ### `FastMCP` अब `MCPServer` है {#fastmcp-is-now-mcpserver}
 
-High-level server class का नाम बदला, और उसके module का भी। हर v1 server सबसे पहले इसी से टकराता है, क्योंकि पुराना import path deprecated नहीं, बल्कि हटा दिया गया है:
+high-level server class का नाम बदला, और साथ में उसके module का भी। हर v1 server सबसे पहले इसी से टकराता है, क्योंकि पुराना import path deprecated नहीं, बल्कि हटा दिया गया है:
 
 ```python
 from mcp.server import MCPServer  # v1: from mcp.server.fastmcp import FastMCP
@@ -26,11 +26,11 @@ from mcp.server import MCPServer  # v1: from mcp.server.fastmcp import FastMCP
 mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 ```
 
-Decorator से बने server के लिए port का ज़्यादातर हिस्सा भी बस यही है। `@mcp.tool()`, `@mcp.resource()` और `@mcp.prompt()` वही स्वीकार करते हैं जो v1 में करते थे (`@mcp.resource()` में एक optional `security=` keyword जुड़ा है), और input schema अब भी आपके type hints से आता है। किनारों पर: `mcp.server.fastmcp.*` के नीचे की हर चीज़ अब `mcp.server.mcpserver.*` के नीचे रहती है, `ctx.fastmcp` अब `ctx.mcp_server` है, `get_context()` हटा दिया गया है (उसकी जगह `ctx: Context` parameter declare करें), और exception base `FastMCPError` अब `MCPServerError` है। Import table **[Migration Guide](migration.md#fastmcp-renamed-to-mcpserver)** में है।
+decorator से बने server के लिए port का ज़्यादातर हिस्सा भी बस यही है। `@mcp.tool()`, `@mcp.resource()` और `@mcp.prompt()` वही स्वीकार करते हैं जो v1 में करते थे (`@mcp.resource()` में एक optional `security=` keyword जुड़ा है), और input schema अब भी आपके type hints से आता है। किनारों पर: `mcp.server.fastmcp.*` के नीचे की हर चीज़ अब `mcp.server.mcpserver.*` के नीचे रहती है, `ctx.fastmcp` अब `ctx.mcp_server` है, `get_context()` हटा दिया गया है (उसकी जगह `ctx: Context` parameter declare करें), और exception base `FastMCPError` अब `MCPServerError` है। import table **[Migration Guide](migration.md#fastmcp-renamed-to-mcpserver)** में है।
 
 ### `Resolve`: user से input माँगने का नया तरीका {#resolve-the-new-way-to-ask-the-user-for-input}
 
-Tool को जो कुछ चाहिए, वह सब model से नहीं आना चाहिए। v2 में नया: `Resolve(fn)` से annotate किया गया tool parameter model के बजाय आपके लिखे function से भरा जाता है, model को इसकी भनक तक नहीं लगती, और वह function user के सामने सवाल रखने के लिए `Elicit(...)` लौटा सकता है। Call के बीच client से कुछ भी पाने का यही पसंदीदा तरीका है: SDK सवाल को उसी mechanism पर ले जाता है जिसे connection support करता है (legacy client के लिए live elicitation request, 2026-07-28 पर multi-round-trip), इसलिए एक ही tool body दोनों पीढ़ियों को serve करती है। इसका page **[Dependencies](handlers/dependencies.md)** है।
+tool को जो कुछ चाहिए, वह सब model से नहीं आना चाहिए। v2 में नया: `Resolve(fn)` से annotate किया गया tool parameter model के बजाय आपके लिखे function से भरा जाता है, model को इसकी भनक तक नहीं लगती, और वह function user के सामने सवाल रखने के लिए `Elicit(...)` लौटा सकता है। call के बीच client से कुछ भी पाने का यही पसंदीदा तरीका है: SDK सवाल को उसी mechanism पर ले जाता है जिसे connection support करता है (legacy client के लिए live elicitation request, 2026-07-28 पर multi-round-trip), इसलिए एक ही tool body दोनों पीढ़ियों को serve करती है। इसका page **[Dependencies](handlers/dependencies.md)** है।
 
 !!! note
     बाकी दो रूप ज़रूरत पड़ने पर अब भी मौजूद हैं: legacy connections पर clients के लिए `ctx.elicit()` अब भी काम करता है
@@ -38,7 +38,7 @@ Tool को जो कुछ चाहिए, वह सब model से नह�
     rounds को हाथ से चला सकता है, और 2026-07-28 पर sampling और roots requests भी इसी रास्ते से जाती हैं
     (**[Multi-round-trip requests](handlers/multi-round-trip.md)**)।
 
-### एक first-class `Client` {#a-first-class-client}
+### first-class `Client` {#a-first-class-client}
 
 v1 आपको तीन nested परतें थमाता था: raw streams देने वाला transport context manager, उनके चारों ओर लिपटा `ClientSession`, और हाथ से call किया जाने वाला `await session.initialize()`। v2 में एक ही object है:
 
@@ -46,11 +46,11 @@ v1 आपको तीन nested परतें थमाता था: raw str
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-`Client` एक server object लेता है (in memory, कोई transport नहीं: testing की कहानी), एक URL (Streamable HTTP), या कोई भी transport context manager जैसे `stdio_client(...)`। `async with` में प्रवेश करते ही connect होता है और protocol version negotiate होता है, server चाहे जिस पीढ़ी का हो; उसके बाद `client.server_capabilities` और `client.protocol_version` बस उपलब्ध रहते हैं, और जब server अपनी पहचान बताता है तो `client.server_info` भी (यह अब `Implementation | None` है, क्योंकि 2026 पीढ़ी में identity optional है)। v1 में register किए गए sampling और elicitation callbacks अब भी काम करते हैं (उनकी bodies में वही snake_case attribute rename दिखता है जो इस page की हर चीज़ में), वे अब 2026-style requests-inside-results (नीचे) का जवाब भी देते हैं, और वे एक-एक करके नहीं, बल्कि concurrently चलते हैं। जिसे low-level surface चाहिए, उसके लिए `ClientSession` अब भी नीचे मौजूद है, और `client.session` उसे आपको देता है; वह भी बदला है (वह नए dispatcher engine पर चलता है, और उसके कुछ अपने signatures बदले हैं), इसलिए नीचे उतरने से पहले **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** पढ़ें।
+`Client` server object लेता है (in memory, कोई transport नहीं: testing वाली कहानी), URL (Streamable HTTP), `StdioServerParameters` (stdio subprocess), या `sse_client(...)` जैसा कोई भी दूसरा transport context manager। `async with` में प्रवेश करते ही connect होता है और protocol version negotiate होता है, server चाहे जिस पीढ़ी का हो; उसके बाद `client.server_capabilities` और `client.protocol_version` बस उपलब्ध रहते हैं, और जब server अपनी पहचान बताता है तो `client.server_info` भी (यह अब `Implementation | None` है, क्योंकि 2026 पीढ़ी में identity optional है)। v1 में register किए गए sampling और elicitation callbacks अब भी काम करते हैं (उनकी bodies में वही snake_case attribute rename दिखता है जो इस page की हर चीज़ में), वे अब 2026-style requests-inside-results (नीचे) का जवाब भी देते हैं, और वे एक-एक करके नहीं, बल्कि concurrently चलते हैं। जिसे low-level surface चाहिए, उसके लिए `ClientSession` अब भी नीचे मौजूद है, और `client.session` उसे आपको देता है; वह भी बदला है (वह नए dispatcher engine पर चलता है, और उसके कुछ अपने signatures बदले हैं), इसलिए नीचे उतरने से पहले **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** पढ़ें।
 
-**[The Client](client/index.md)** इसका परिचय देता है, **[Client transports](client/transports.md)** connection के तीनों रूप समझाता है, **[Client callbacks](client/callbacks.md)** खुद callbacks को, और **[Testing](get-started/testing.md)** वह in-memory pattern दिखाता है जो v1 के `create_connected_server_and_client_session()` helper की जगह लेता है।
+**[The Client](client/index.md)** इसका परिचय देता है, **[Client transports](client/transports.md)** connection के चारों रूप समझाता है, **[Client callbacks](client/callbacks.md)** खुद callbacks को, और **[Testing](get-started/testing.md)** वह in-memory pattern दिखाता है जो v1 के `create_connected_server_and_client_session()` helper की जगह लेता है।
 
-### Low-level `Server` का नाम नहीं बदला, उसे दोबारा बनाया गया {#the-low-level-server-was-rebuilt-not-renamed}
+### low-level `Server` का नाम नहीं बदला, उसे दोबारा बनाया गया {#the-low-level-server-was-rebuilt-not-renamed}
 
 अगर आप JSON-RPC layer पर काम करते हैं, तो v2 का "सब कुछ अलग है" वाला हिस्सा यही है। यहाँ वही one-tool server दोनों तरह से है; क्या बदला, यह देखने के लिए markers पर click करें।
 
@@ -90,66 +90,66 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
     return [types.TextContent(type="text", text=f"Found 3 books matching {arguments['query']!r}.")]  # (7)!
 ```
 
-1. Handlers decorators से register होते हैं (call किए गए, parentheses के साथ), server बनने के बाद कभी भी।
+1. handlers decorators से register होते हैं (call किए गए, parentheses के साथ), server बनने के बाद कभी भी।
 2. आप bare `list[Tool]` लौटाते हैं और SDK उसे `ListToolsResult` में लपेट देता है।
 3. Python में fields camelCase हैं, और schema **enforce होता है**: SDK आपके function के चलने से पहले `call_tool` arguments को इसके सामने jsonschema-validate करता है, इसीलिए नीचे `arguments["query"]` सुरक्षित है।
 4. एक ही `call_tool` handler हर tool को serve करता है, और उसे tool का नाम और पहले से validate किए हुए arguments मिलते हैं, unpack किए हुए और कभी `None` नहीं।
 5. v1 tool failure का संकेत raise करके देता है: कोई भी exception पकड़ा जाता है और `CallToolResult(isError=True)` के रूप में लौटाया जाता है, text में `str(e)` के साथ, इसलिए call करने वाला model यह message पढ़ता है और retry कर सकता है।
-6. Context एक ambient ContextVar से आता है, जिस तक request के बीच server object के ज़रिए पहुँचा जाता है।
-7. Bare content blocks आपके लिए `CallToolResult` में लपेट दिए जाते हैं।
+6. context एक ambient ContextVar से आता है, जिस तक request के बीच server object के ज़रिए पहुँचा जाता है।
+7. bare content blocks आपके लिए `CallToolResult` में लपेट दिए जाते हैं।
 
 ```python title="v2"
 --8<-- "docs_src/whats_new/tutorial001.py"
 ```
 
-1. Fields अब snake_case हैं, और schema **advertise होता है, पर कभी apply नहीं होता**: आपके handler के चलने से पहले arguments को कोई नहीं जाँचता।
-2. हर handler का आकार एक जैसा है: `async (ctx, params) -> result`। Context पहला argument है (`ctx.session`, `ctx.request_id`, `ctx.protocol_version` इसी पर रहते हैं); `server.request_context` यहीं गया।
-3. पूरा `ListToolsResult` आप खुद बनाते हैं। Bare list लौटाना अब server-side `TypeError` है, SDK उसे लपेटता नहीं।
-4. Typed params अंदर (`params.name`, `params.arguments`), पूरा result बाहर। आपके लिए कुछ भी unpack, wrap या convert नहीं किया जाता।
+1. fields अब snake_case हैं, और schema **advertise होता है, पर कभी apply नहीं होता**: आपके handler के चलने से पहले arguments को कोई नहीं जाँचता।
+2. हर handler का आकार एक जैसा है: `async (ctx, params) -> result`। context पहला argument है (`ctx.session`, `ctx.request_id`, `ctx.protocol_version` इसी पर रहते हैं); `server.request_context` यहीं गया।
+3. पूरा `ListToolsResult` आप खुद बनाते हैं। bare list लौटाना अब server-side `TypeError` है, SDK उसे लपेटता नहीं।
+4. typed params अंदर (`params.name`, `params.arguments`), पूरा result बाहर। आपके लिए कुछ भी unpack, wrap या convert नहीं किया जाता।
 5. वही जाँच, अलग verb। यहाँ `ValueError` model तक एक opaque `-32603` बनकर पहुँचता (नीचे देखें), इसलिए जानबूझकर भेजा जाने वाला wire error `MCPError` के रूप में raise किया जाता है: वह अपने code और message के साथ जस का तस निकल जाता है, और unknown tool के लिए इस text के साथ `-32602` spec का अपना जवाब है।
-6. `params.arguments` `None` हो सकता है; v1 इसे आपके code तक पहुँचने से पहले ही `{}` कर देता था। Handler के सामने कोई validation न होने से यह line ज़रूरी है।
+6. `params.arguments` `None` हो सकता है; v1 इसे आपके code तक पहुँचने से पहले ही `{}` कर देता था। handler के सामने कोई validation न होने से इस line पर बहुत कुछ टिका है।
 7. यहाँ raise हुआ कोई अनपेक्षित exception एक **sanitized** protocol error बनता है, `-32603` `"Internal server error"`: model को message कभी नहीं दिखता। ऐसे failure के लिए जिसे model पढ़े और उस पर प्रतिक्रिया दे, `CallToolResult(is_error=True, ...)` लौटाएँ।
-8. Handlers constructor arguments हैं, इसलिए server बनते ही उसकी surface पूरी हो जाती है; `add_request_handler()` construction के बाद का escape hatch है, और custom methods का दरवाज़ा भी।
+8. handlers constructor arguments हैं, इसलिए server बनते ही उसकी surface पूरी हो जाती है; `add_request_handler()` construction के बाद का escape hatch है, और custom methods का दरवाज़ा भी।
 
-यह उदाहरण ही pattern है। और आम तौर पर: हर handler का आकार एक जैसा है, typed params अंदर और पूरा result type बाहर; tool arguments की पुरानी jsonschema जाँच हट गई है; exception एक protocol error है, कभी `is_error=True` tool result नहीं; और ambient `server.request_context` ContextVar हट गया है। Custom, vendor-namespaced methods `add_request_handler(method, params_type, handler)` के ज़रिए first class हैं, जो आपके handler के चलने से पहले inbound params को आपके model के सामने validate करता है। और एक `middleware` list (जानबूझकर provisional चिह्नित) हर inbound message को लपेटती है, उन private `_handle_*` methods की जगह जिन्हें लोग override किया करते थे।
+यह उदाहरण ही pattern है। और आम तौर पर: हर handler का आकार एक जैसा है, typed params अंदर और पूरा result type बाहर; tool arguments की पुरानी jsonschema जाँच हट गई है; exception एक protocol error है, कभी `is_error=True` tool result नहीं; और ambient `server.request_context` ContextVar हट गया है। custom, vendor-namespaced methods `add_request_handler(method, params_type, handler)` के ज़रिए first class हैं, जो आपके handler के चलने से पहले inbound params को आपके model के सामने validate करता है। और एक `middleware` list (जानबूझकर provisional चिह्नित) हर inbound message को लपेटती है, उन private `_handle_*` methods की जगह जिन्हें लोग override किया करते थे।
 
 अंदर ही अंदर, v1 के `BaseSession` receive loop की जगह एक dispatcher engine ने ली है जिसे अब client और server दोनों साझा करते हैं, और इसी की वजह से इस page की कई बातें एक साथ सच हैं: एक ही `Server` object दोनों protocol पीढ़ियों को serve करता है, `Client(server)` बिना JSON-RPC framing के in process dispatch करता है, और timed-out client request अब वाकई server-side handler को cancel करती है।
 
 इसका page **[The low-level Server](advanced/low-level-server.md)** है; **[Migration Guide](migration.md#lowlevel-server-decorator-based-handlers-replaced-with-constructor-on_-params)** हर हटाए गए hook से गुज़रता है। अगर आप कभी `MCPServer` से नीचे नहीं उतरे, तो इनमें से कुछ भी आपको नहीं छूता।
 
-### Wire types `mcp-types` में चले गए, और हर field snake_case है {#the-wire-types-moved-to-mcp-types-and-every-field-is-snake_case}
+### wire types `mcp-types` में चले गए, और हर field snake_case है {#the-wire-types-moved-to-mcp-types-and-every-field-is-snake_case}
 
-Protocol types अब अपने अलग distribution, `mcp-types`, में रहते हैं। यह pydantic और typing-extensions के सिवा किसी पर निर्भर नहीं है, इसलिए कोई gateway, proxy या code generator बिना HTTP stack install किए MCP के wire shapes इस्तेमाल कर सकता है: ऐसा project `mcp-types` install करता है और `mcp_types` import करता है। खुद `mcp` उस package पर exact version के साथ निर्भर है और उसे दोबारा expose करता है, इसलिए SDK पर निर्भर code पहले की तरह `import mcp.types as types` और `from mcp.types import Tool` लिखता रहता है (एक स्थायी alias, हर नाम वही object) और सिर्फ़ अपनी एक असली dependency, `mcp`, declare करता है। मोटा नियम: जिस package पर आप वाकई निर्भर हैं, उसी से import करें।
+protocol types अब अपने अलग distribution, `mcp-types`, में रहते हैं। यह pydantic और typing-extensions के सिवा किसी पर निर्भर नहीं है, इसलिए कोई gateway, proxy या code generator बिना HTTP stack install किए MCP के wire shapes इस्तेमाल कर सकता है: ऐसा project `mcp-types` install करता है और `mcp_types` import करता है। खुद `mcp` उस package पर exact version के साथ निर्भर है और उसे दोबारा expose करता है, इसलिए SDK पर निर्भर code पहले की तरह `import mcp.types as types` और `from mcp.types import Tool` लिखता रहता है (एक स्थायी alias, हर नाम वही object) और सिर्फ़ अपनी एक असली dependency, `mcp`, declare करता है। मोटा नियम: जिस package पर आप वाकई निर्भर हैं, उसी से import करें।
 
-उन types पर हर Python attribute अब snake_case है: `result.is_error`, `tool.input_schema`, `listing.next_cursor`। Wire पर जाने वाला JSON camelCase है, बिल्कुल पहले जैसा; सिर्फ़ attribute की spelling बदली है। दो और सख्त defaults साथ आते हैं: unknown fields round-trip होने के बजाय ignore किए जाते हैं (extras `_meta` में रखें), और दोनों पक्ष traffic को उस protocol version के सामने validate करते हैं जो उन्होंने negotiate किया। Rename table के लिए **[Migration Guide](migration.md#field-names-changed-from-camelcase-to-snake_case)** देखें।
+उन types पर हर Python attribute अब snake_case है: `result.is_error`, `tool.input_schema`, `listing.next_cursor`। wire पर जाने वाला JSON camelCase है, बिल्कुल पहले जैसा; सिर्फ़ attribute की spelling बदली है। दो और सख्त defaults साथ आते हैं: unknown fields round-trip होने के बजाय ignore किए जाते हैं (extras `_meta` में रखें), और दोनों पक्ष traffic को उस protocol version के सामने validate करते हैं जो उन्होंने negotiate किया। rename table के लिए **[Migration Guide](migration.md#field-names-changed-from-camelcase-to-snake_case)** देखें।
 
-### Transport configuration `run()` में चली गई {#transport-configuration-moved-to-run}
+### transport configuration `run()` में चली गई {#transport-configuration-moved-to-run}
 
-`MCPServer(...)` इस बारे में है कि आपका server **क्या है**: उसका नाम, उसके instructions, उसका lifespan, उसका auth। उसे **serve कैसे** किया जाता है, यह अब `run()` और app builders का काम है, और `host`, `port`, `stateless_http`, `json_response`, endpoint paths और `transport_security` वहीं गए (`MCPServer("x", port=9000)` अब `TypeError` है)। Overloads हर transport के लिए typed हैं, इसलिए आपका editor बताता है कि `stdio` कौन से options लेता है और `streamable-http` कौन से। एक हटाव जानने लायक है: `mount_path` हट गया है; prefix के नीचे serve करने का supported तरीका ASGI app को mount करना है।
+`MCPServer(...)` इस बारे में है कि आपका server **क्या है**: उसका नाम, उसके instructions, उसका lifespan, उसका auth। उसे **serve कैसे** किया जाता है, यह अब `run()` और app builders का काम है, और `host`, `port`, `stateless_http`, `json_response`, endpoint paths और `transport_security` वहीं गए (`MCPServer("x", port=9000)` अब `TypeError` है)। overloads हर transport के लिए typed हैं, इसलिए आपका editor बताता है कि `stdio` कौन से options लेता है और `streamable-http` कौन से। एक हटाव जानने लायक है: `mount_path` हट गया है; prefix के नीचे serve करने का supported तरीका ASGI app को mount करना है।
 
-Options के लिए **[अपना server चलाना](run/index.md)** देखें; mounting के लिए **[मौजूदा app में जोड़ना](run/asgi.md)**।
+options के लिए **[अपना server चलाना](run/index.md)** देखें; mounting के लिए **[मौजूदा app में जोड़ना](run/asgi.md)**।
 
 ### बिना import error के बदलने वाला व्यवहार {#behavior-that-changes-without-an-import-error}
 
-Renames खुद अपनी घोषणा करते हैं। ये नहीं करते:
+renames खुद अपनी घोषणा करते हैं। ये नहीं करते:
 
-* **Sync functions worker thread पर चलते हैं।** `def` tool (या resource, prompt, या resolver) अब event loop को block नहीं करता; बदले में उसकी body अब event-loop thread **पर** नहीं चलती, जो thread-affine code के लिए मायने रखता है। `async def` handlers अछूते हैं। **[Migration Guide](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**।
-* **Tool के अंदर raise हुआ `MCPError` (v1 का `McpError`) अब protocol error है।** Model उसे कभी नहीं देखता। बाकी हर exception अब भी `is_error=True` result बनता है जिसे model पढ़ सकता है और उस पर प्रतिक्रिया दे सकता है। यह विभाजन **[Errors संभालना](servers/handling-errors.md)** में है।
-* **Results निकलने से पहले validate होते हैं।** हाथ से बना `Tool` जिसका `input_schema` `{}` है, अब `tools/list` में fail होता है (spec को `"type": "object"` चाहिए)। `@mcp.tool()` पर बने servers को यह कभी नहीं दिखता; उनके schemas SDK लिखता है।
+* **sync functions worker thread पर चलते हैं।** `def` tool (या resource, prompt, या resolver) अब event loop को block नहीं करता; बदले में उसकी body अब event-loop thread **पर** नहीं चलती, जो thread-affine code के लिए मायने रखता है। `async def` handlers अछूते हैं। **[Migration Guide](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**।
+* **tool के अंदर raise हुआ `MCPError` (v1 का `McpError`) अब protocol error है।** model उसे कभी नहीं देखता। बाकी हर exception अब भी `is_error=True` result बनता है, लेकिन model तक सिर्फ़ `ToolError` का message पहुँचता है: कोई भी दूसरा exception अब `Error executing tool <name>` पढ़ा जाता है, और traceback आपके server log में जाता है। यह विभाजन **[errors संभालना](servers/handling-errors.md)** में है।
+* **results निकलने से पहले validate होते हैं।** हाथ से बना `Tool` जिसका `input_schema` `{}` है, अब `tools/list` में fail होता है (spec को `"type": "object"` चाहिए)। `@mcp.tool()` पर बने servers को यह कभी नहीं दिखता; उनके schemas SDK लिखता है।
 * **आपका client जो पाता है उसे validate करता है।** `list_tools()` और `call_tool()` server के जवाब को negotiated protocol version के सामने जाँचते हैं, इसलिए पूरी तरह valid न रहने वाला server, जिसे v1 का ढीला parse सह लेता था, अब `pydantic.ValidationError` raise करता है। अगर आप ऐसे servers से connect करते हैं जो आपके नियंत्रण में नहीं हैं, तो मानकर चलें कि उन्हें खोजने वाले आप ही होंगे; ब्योरा **[Migration Guide](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)** में है।
 * **URI templates अब असली RFC 6570 हैं।** `{+path}`, `{?query}` वगैरह काम करते हैं, matching regex-loose के बजाय exact है, और निकाली गई values में path traversal default रूप से reject होता है। ज़्यादा सख्त templates decoration के समय fail होते हैं, पहली request पर नहीं। **[URI templates](servers/uri-templates.md)**।
-* **Streamable HTTP lifespan एक बार चलता है**, startup पर, और उसका state हर session और request के बीच साझा होता है। v1 में यह हर session पर एक बार चलता था, और `stateless_http=True` के तहत हर request पर एक बार। Lifespan में बने pools और caches बहुत सस्ते हो जाते हैं; जो कुछ वहाँ per-connection resource लेता था, वह अब handler body में होना चाहिए। **[Lifespan](handlers/lifespan.md)**।
+* **Streamable HTTP lifespan एक बार चलता है**, startup पर, और उसका state हर session और request के बीच साझा होता है। v1 में यह हर session पर एक बार चलता था, और `stateless_http=True` के तहत हर request पर एक बार। lifespan में बने pools और caches बहुत सस्ते हो जाते हैं; जो कुछ वहाँ per-connection resource लेता था, वह अब handler body में होना चाहिए। **[Lifespan](handlers/lifespan.md)**।
 * **`mcp dev` और `mcp install` जो environment spawn करते हैं उसे** आपके installed SDK version पर pin करते हैं। दोनों commands आपके server को नए `uv run --with ...` environment में चलाते हैं, जो पहले `mcp` को उस version के बजाय newest stable release पर resolve करता था जिसके सामने आप develop कर रहे हैं। **[Migration Guide](migration.md#mcp-dev-and-mcp-install-pin-the-spawned-environment-to-your-sdk-version)**।
-* **HTTP client अब `httpx` नहीं, `httpx2` है।** Dependency बदलने से यह बदलता है कि आपका code क्या catch करता और pass करता है (`httpx2.AsyncClient`, `httpx2.ConnectError`), और यह भी कि TLS certificates कैसे verify होते हैं: `httpx2` certifi की bundled CA list के बजाय `truststore` के ज़रिए operating system trust store के सामने validate करता है। ज़्यादातर environments को पता भी नहीं चलता; बिना system CA store वाला minimal container, या ऐसा private CA जिसे सिर्फ़ certifi का bundle जानता था, TLS handshake fail करने लगता है। `SSL_CERT_FILE`/`SSL_CERT_DIR` set करें या अपने client को `verify=ssl_context` pass करें। **[Migration Guide](migration.md#httpx-and-httpx-sse-replaced-by-httpx2)**।
+* **HTTP client अब `httpx` नहीं, `httpx2` है।** dependency बदलने से यह बदलता है कि आपका code क्या catch करता और pass करता है (`httpx2.AsyncClient`, `httpx2.ConnectError`), और यह भी कि TLS certificates कैसे verify होते हैं: `httpx2` certifi की bundled CA list के बजाय `truststore` के ज़रिए operating system trust store के सामने validate करता है। ज़्यादातर environments को पता भी नहीं चलता; बिना system CA store वाला minimal container, या ऐसा private CA जिसे सिर्फ़ certifi का bundle जानता था, TLS handshake fail करने लगता है। `SSL_CERT_FILE`/`SSL_CERT_DIR` set करें या अपने client को `verify=ssl_context` pass करें। **[Migration Guide](migration.md#httpx-and-httpx-sse-replaced-by-httpx2)**।
 
 ### पूरी तरह हटाए गए {#removed-outright}
 
 इनमें से हर एक **[Migration Guide](migration.md)** में एक section है:
 
 * **WebSocket transport**, दोनों तरफ़, और `mcp[ws]` extra। यह कभी MCP specification का हिस्सा नहीं था।
-* **Experimental Tasks** API (`mcp.*.experimental`)। 2026-07-28 tasks को core protocol से निकालकर एक official extension में ले जाता है ([SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663)), जिसे यह SDK अभी implement नहीं करता।
-* Import paths के रूप में `mcp.shared.version`, `mcp.shared.progress` और `mcp.shared.session` (उस `RequestResponder` stub के साथ जिसे v1 के `message_handler` annotations import करते थे)। (`mcp.types` हटाया **नहीं** गया है: यह standalone `mcp_types` package के स्थायी alias के रूप में बना रहता है।)
-* Deprecated `streamablehttp_client` spelling, और `streamable_http_client` से `get_session_id` callback (जो अब ठीक दो streams देता है)।
+* **experimental Tasks** API (`mcp.*.experimental`)। 2026-07-28 tasks को core protocol से निकालकर एक official extension में ले जाता है ([SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663)), जिसे यह SDK अभी implement नहीं करता।
+* import paths के रूप में `mcp.shared.version`, `mcp.shared.progress` और `mcp.shared.session` (उस `RequestResponder` stub के साथ जिसे v1 के `message_handler` annotations import करते थे)। (`mcp.types` हटाया **नहीं** गया है: यह standalone `mcp_types` package के स्थायी alias के रूप में बना रहता है।)
+* deprecated `streamablehttp_client` spelling, और `streamable_http_client` से `get_session_id` callback (जो अब ठीक दो streams देता है)।
 * `McpError`, जिसका नाम बदलकर **`MCPError`** हुआ, सीधे `(code, message, data)` constructor के साथ।
 * `MCPServer.get_context()`, `mount_path=`, और lowlevel `Server` के decorator methods, ContextVar और handler dicts।
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # 測試 {#testing}
@@ -80,7 +80,7 @@ async def test_call_add_tool(client: Client):
 
 可能出錯的地方有兩種，而這個旗標只影響其中一種。
 
-**你的工具**內部引發的例外不算協定失敗。它會變成一個帶有 `is_error=True` 的正常結果，模型會讀到那則訊息。`raise_exceptions` 不會改變這一點：不管有沒有設定，`call_tool` 都回傳同樣的 `is_error=True` 結果。這部分有一整頁的說明：**[處理錯誤](../servers/handling-errors.md)**。
+**你的工具**內部引發的例外不算協定失敗。它會變成一個帶有 `is_error=True` 的正常結果（如果是 `ToolError`，模型會讀到你寫的訊息）。`raise_exceptions` 不會改變這一點：不管有沒有設定，`call_tool` 都回傳同樣的 `is_error=True` 結果。這部分有一整頁的說明：**[處理錯誤](../servers/handling-errors.md)**。
 
 發生在工具本體**之外**的失敗就不一樣了。在 `Client(mcp)` 給你的連線上，伺服器會先把它淨化成通用的 `"Internal server error"`，用戶端才看得到。意外當掉的細節本來就不該洩漏給遠端呼叫端。但在測試裡，這正是你**不**想要的，也正是 `raise_exceptions=True` 改變的地方：測試會看到真正的訊息，而不是淨化過的版本。
 

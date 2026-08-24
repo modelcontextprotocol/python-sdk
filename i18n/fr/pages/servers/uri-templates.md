@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # Modèles d’URI et sûreté des chemins {#uri-templates-and-path-safety}
@@ -180,7 +180,7 @@ connaître la frontière de votre bac à sable. Pour l’accès au système de
 fichiers, utilisez `safe_join` pour résoudre le chemin et vérifier qu’il
 reste à l’intérieur de votre répertoire de base :
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -224,9 +224,11 @@ de fichiers, `safe_join` reste la frontière de confinement.
 
 !!! tip
     Si votre gestionnaire ne peut pas satisfaire la requête (le fichier
-    n’existe pas, l’identifiant est inconnu), levez une exception. Le SDK
-    la transforme en réponse d’erreur. Consultez **[Gérer les erreurs](handling-errors.md)** pour la
-    différence entre une erreur de protocole et une erreur d’outil.
+    n’existe pas, l’identifiant est inconnu), levez `ResourceNotFoundError`
+    comme le fait `read_manual` ci-dessus. Le client reçoit `-32602` avec
+    votre message et l’URI. Une exception inattendue devient, elle, une
+    erreur générique `-32603`. Consultez
+    **[Gérer les erreurs](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Les ressources sur le Server de bas niveau {#resources-on-the-low-level-server}
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # असली host से connect करना {#connect-to-a-real-host}
@@ -11,13 +11,13 @@ translation:
 
 ## एक server, हर host {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
 दो tools और एक resource, एक ही file में। इस file की तीन बातें नीचे के हर host के लिए मायने रखती हैं:
 
-* बिना arguments के `mcp.run()` एक **stdio** server शुरू करता है: यह block होता है, stdin पर protocol messages पढ़ता है और stdout पर लिखता है। इस page का हर host यही transport बोलता है। host आपकी file को child process के रूप में शुरू करता है और उन दोनों pipes का मालिक होता है, इसीलिए connect करना हमेशा बस "यह रहा command" ही होता है। आप कभी port नहीं चुनते, और किसी port पर कुछ listen नहीं करता।
+* बिना arguments के `mcp.run()` **stdio** server शुरू करता है: यह block होता है, stdin पर protocol messages पढ़ता है और stdout पर लिखता है। इस page का हर host यही transport बोलता है। host आपकी file को child process के रूप में शुरू करता है और उन दोनों pipes का मालिक होता है, इसीलिए connect करना हमेशा बस "यह रहा command" ही होता है। आप कभी port नहीं चुनते, और किसी port पर कुछ listen नहीं करता।
 * `run()` `if __name__ == "__main__":` के नीचे है। नीचे की हर चीज़ इस file को execute करने के बजाय **import** करती है, इसलिए बिना guard वाला `run()` module के load होते ही server शुरू कर देता।
 * server object module-level global है जिसका नाम `mcp` है। `mcp run` इसी नाम को ढूँढता है (`server` और `app` भी चलते हैं)। कोई और नाम रखें तो उसे साफ़-साफ़ बताना होगा: `mcp run server.py:bookshop`।
 
@@ -31,7 +31,7 @@ translation:
 uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 ```
 
-सबके लिए एक ही command, क्योंकि `uv run --with` उसी वक़्त SDK को एक नए environment में resolve कर देता है: यह किसी भी directory से चलता है और इसे न कोई project चाहिए, न activate करने के लिए कोई virtual environment। यहाँ यह बात कहीं और से ज़्यादा मायने रखती है, क्योंकि host आपके server को आपके shell से नहीं, बल्कि **अपनी** working directory से, लगभग खाली environment के साथ launch करता है।
+सबके लिए एक ही command, क्योंकि `uv run --with` उसी वक़्त SDK को नए environment में resolve कर देता है: यह किसी भी directory से चलता है और इसे न कोई project चाहिए, न activate करने के लिए कोई virtual environment। यहाँ यह बात कहीं और से ज़्यादा मायने रखती है, क्योंकि host आपके server को आपके shell से नहीं, बल्कि **अपनी** working directory से, लगभग खाली environment के साथ launch करता है।
 
 यही वह command है जो `mcp install` आपके लिए Claude Desktop के config में लिखता है (नीचे देखें), इसलिए जो आप हाथ से लिखते हैं और जो tool बनाता है, दोनों मेल खाते हैं, सिवाय उस exact version pin के जो tool जोड़ता है।
 
@@ -50,7 +50,7 @@ uv run --with "mcp[cli]" mcp run /absolute/path/to/server.py
 
     और host किसी application से ज़्यादा कुछ नहीं जिसके अंदर MCP client हो, इसलिए आपका अपना
     Python भी host की भूमिका निभा सकता है: **[Client transports](../client/transports.md)** इसी
-    file को `stdio_client(...)` से subprocess के रूप में launch करता है, और **[Testing](testing.md)**
+    file को `Client(StdioServerParameters(...))` से subprocess के रूप में launch करता है, और **[Testing](testing.md)**
     बिना किसी process के, memory में ही उससे connect करता है।
 
 ## Claude Desktop {#claude-desktop}

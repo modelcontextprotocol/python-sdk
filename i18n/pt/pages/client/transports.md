@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # Transportes do cliente {#client-transports}
@@ -87,15 +87,15 @@ sem um repositório de CAs do sistema utilizável (alguns contêineres mínimos)
 
 Um servidor **stdio** é um subprocesso. O cliente o inicia, escreve JSON-RPC no stdin dele e lê JSON-RPC do stdout dele. É assim que um host de desktop executa um servidor na sua máquina: um host *é* este código mais uma interface, e **[Conecte a um host real](../get-started/real-host.md)** é a mesma relação vista do lado do host, como um arquivo de configuração.
 
-Descreva o processo com `StdioServerParameters`, transforme-o em um transporte com `stdio_client` e entregue *isso* ao `Client`:
+Descreva o processo com `StdioServerParameters` e entregue-o ao `Client`:
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` não aceita o objeto de parâmetros sozinho. `StdioServerParameters` é configuração; `stdio_client(server)` é o transporte que sabe como iniciar um processo a partir dela. Sempre envolva.
+Entrar no bloco inicia o processo. Sair dele encerra o subprocesso: fecha o stdin, espera e mata o processo se ele demorar. Você nunca limpa isso por conta própria.
 
-Sair do bloco `async with` também encerra o subprocesso: fecha o stdin, espera e mata o processo se ele demorar. Você nunca limpa isso por conta própria.
+O stderr do processo filho vai para o seu. Para mandá-lo para outro lugar, construa o transporte você mesmo com `stdio_client` (de `mcp`) e passe isso no lugar: `Client(stdio_client(server, errlog=log_file))`.
 
 !!! warning
     O processo filho **não** herda o seu ambiente. Ele recebe uma allow-list mínima (`HOME`, `LOGNAME`,
@@ -113,16 +113,16 @@ Sair do bloco `async with` também encerra o subprocesso: fecha o stdin, espera 
 
 Para o `Client`, tudo acima é a mesma coisa.
 
-Um **transporte** é qualquer gerenciador de contexto assíncrono que produz um par `(read, write)` de streams de mensagens: formalmente, o protocolo `Transport` em `mcp.client`. `Client` resolve seu argumento pelo tipo: um objeto de servidor conecta no próprio processo, uma `str` vira `streamable_http_client(url)` e qualquer outra coisa é aberta diretamente como transporte. É por causa dessa última regra que `stdio_client(...)`, `streamable_http_client(...)` e `sse_client(...)` se encaixam todos no mesmo lugar, e que você pode escrever o seu próprio.
+Um **transporte** é qualquer gerenciador de contexto assíncrono que produz um par `(read, write)` de streams de mensagens: formalmente, o protocolo `Transport` em `mcp.client`. `Client` resolve seu argumento pelo tipo: um objeto de servidor conecta no próprio processo, uma `str` vira `streamable_http_client(url)`, um `StdioServerParameters` vira `stdio_client(params)` e qualquer outra coisa é aberta diretamente como transporte. É por causa dessa última regra que `stdio_client(...)`, `streamable_http_client(...)` e `sse_client(...)` se encaixam todos no mesmo lugar, e que você pode escrever o seu próprio.
 
 ## Recapitulando {#recap}
 
 * `Client(mcp)` (o objeto do servidor) conecta em memória. Use para testes e para embutir.
 * `Client("http://.../mcp")` (uma URL) conecta por Streamable HTTP, o transporte de produção.
 * Headers, auth, proxies e timeouts pertencem a um `httpx2.AsyncClient` que você passa a `streamable_http_client(url, http_client=...)`. Não existe o argumento `headers=`.
-* stdio é `Client(stdio_client(StdioServerParameters(...)))`, nunca o objeto de parâmetros sozinho.
+* stdio é `Client(StdioServerParameters(...))`. Envolva-o em `stdio_client(...)` você mesmo apenas para redirecionar o stderr do processo filho.
 * O subprocesso recebe um ambiente em allow-list, não o seu; `env=` acrescenta a ele.
-* Um transporte é qualquer coisa com que você possa fazer `async with x as (read, write)`. `Client` entrega direto a esse protocolo tudo que não for um objeto de servidor ou uma URL.
+* Um transporte é qualquer coisa com que você possa fazer `async with x as (read, write)`. `Client` entrega direto a esse protocolo tudo que não for um objeto de servidor, uma URL ou um `StdioServerParameters`.
 * Construir um `Client` escolhe o transporte. `async with` o abre.
 
 Depois que o transporte está aberto, os dois lados precisam concordar sobre uma versão do protocolo. Normalmente você nunca pensa nisso; quando pensar, **[Versões do protocolo](../protocol-versions.md)** é a página.

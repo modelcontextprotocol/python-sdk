@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # エリシテーション {#elicitation}
@@ -83,7 +83,7 @@ translation:
 このスキーマがフォームです。`Field(description=...)` がラベルになり、デフォルト値は入力欄にあらかじめ入って、そのフィールドを省略可能にします。これは、**[ツール](../servers/tools.md)** のページがツールの引数について説明しているのと同じ、Pydantic から JSON Schema への変換の仕組みです。
 
 !!! warning
-    エリシテーションのスキーマは、ツールの入力スキーマほど表現力がありません。フラットなプリミティブ型のフィールドだけです。`str`、`int`、`float`、`bool`、または文字列の `Literal`（`enum` になります）。モデルの中にモデルを入れると、クライアントに何かを送る前に `ctx.elicit` が例外を送出します。
+    エリシテーションのスキーマは、ツールの入力スキーマほど表現力がありません。フラットなプリミティブ型のフィールドだけです。`str`、`int`、`float`、`bool`、または文字列の `Literal`（`enum` になります）。モデルの中にモデルを入れると、クライアントに何かを送る前に `ctx.elicit` が例外を送出します。ツール呼び出しは `Error executing tool <name>` で失敗し、サーバーログにはその理由が残ります。
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -104,7 +104,7 @@ translation:
 断られてもエラーではありません。断られたことが何を意味するか（ここでは、予約しないこと）はツールが決め、モデルには普通に答えます。
 
 !!! tip
-    答えは、コードに届く前にモデルに照らして検証されます。`bool` に `"maybe"` を送ってくるクライアントがいても、予約が壊れることはありません。呼び出しはスキーマ不一致のエラーで失敗し、`if` は実行されません。
+    答えは、コードに届く前にモデルに照らして検証されます。`bool` に `"maybe"` を送ってくるクライアントがいても、予約が壊れることはありません。`ctx.elicit` が `ValueError` を送出し、呼び出しは失敗し、`if` は実行されません。
 
 ## ユーザーを URL へ誘導する {#send-the-user-to-a-url}
 

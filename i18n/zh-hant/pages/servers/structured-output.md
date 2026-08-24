@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # 結構化輸出 {#structured-output}
@@ -103,7 +103,7 @@ result.structured_content  # {"temperature": 16.2, "humidity": 0.83, "conditions
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-`TypedDict` 在執行時就是普通的 `dict`，所以建立並回傳的就是它。schema、驗證和 `structured_content` 都跟 `BaseModel` 版本一模一樣（少了描述，因為 `TypedDict` 沒有地方放）。
+`TypedDict` 在執行時就是普通的 `dict`，所以建立並回傳的就是它。schema、驗證和 `structured_content` 都遵循跟 `BaseModel` 版本一樣的規則：加上類別 docstring 或 `Annotated[..., Field(description=...)]`，它們就成為描述；dict 裡沒放進去的 `NotRequired` 鍵，也不會出現在 `structured_content` 裡。
 
 ## dataclass {#a-dataclass}
 
@@ -185,15 +185,15 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 註記承諾的是 `WeatherData`，但上游回應不再送 `humidity` 了。
 
 !!! check
-    呼叫 `get_weather`，它不會默默把一個半空的物件交給用戶端。呼叫會失敗，錯誤的頭幾行就點名了那個欄位：
+    呼叫 `get_weather`，它不會默默把一個半空的物件交給用戶端。呼叫會失敗：用戶端收到 `is_error=True` 和 `Error executing tool get_weather`，所以模型知道呼叫失敗了，而不是信心滿滿地讀一份根本不存在的天氣。欄位名稱是留給你看的，在伺服器記錄裡以 `ERROR` 層級出現：
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    這段文字會以 `is_error=True` 的工具結果回傳，所以模型知道呼叫失敗了，而不是信心滿滿地讀一份根本不存在的天氣。
 
 順帶一提，從 `-> WeatherData` 的工具回傳普通的 `dict` 沒問題，`json.loads` 產生的正是這個。驗證看的是值，不是 Python 型別。
 
@@ -208,6 +208,10 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 沒有 `output_schema`、沒有包裝、沒有驗證。`structured_content` 是 `None`，`content` 就是你回傳的字串。
 
 反過來，`structured_output=True` 會把自動偵測變成硬性要求：回傳型別產生不出 schema 的工具，會在匯入時引發例外，而不是退回文字。
+
+## 內容區塊與媒體 {#content-blocks-and-media}
+
+內容區塊和媒體（`TextContent`、`EmbeddedResource`、`Image`、`Audio` 這一類，不論是單獨出現、作為 `list`、`tuple` 或 `Sequence` 的元素，還是作為 union 的分支）會自動幫你退出：它們是給模型讀的，所以自動偵測不會從中推導出 schema（`Image` 和 `Audio` 在 **[圖片、音訊與圖示](media.md)** 說明）。對內容區塊類別，`structured_output=True` 仍然會強制產生一個 schema。
 
 ## 沒有型別提示的類別 {#a-class-without-type-hints}
 
@@ -237,6 +241,6 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 * 純量、串列、tuple 和 union 會包進 `{"result": ...}`。模型、`TypedDict`、dataclass、帶註記的類別和 `dict[str, ...]` 本來就是物件，維持原樣。
 * 每個結果都帶有 `content`（文字，給模型）**和** `structured_content`（資料，給應用程式）。
 * 回傳的東西會拿 schema 驗證。不符合就是工具錯誤，不會是一份壞掉的結果。
-* `structured_output=False` 讓工具退出。沒有型別提示的類別會默默退出，要留意。
+* `structured_output=False` 讓工具退出。內容區塊、`Image` 和 `Audio` 預設就退出；沒有型別提示的類別會默默退出，要留意。
 
 工具能回覆的一切，現在都掌握在你手上了。接下來是第二個基本元件：**[資源](resources.md)**。

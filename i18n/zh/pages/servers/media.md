@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 043f526230dd243d, 6ee3e9bcfd24047a]
+  sections: [496394d24d221bf1, 4ceb4591180dc6c3, 0fd63e4682d02e0c, 969ede0bd3686a16, 864137b5e9c61e91, 043f526230dd243d, db1ef91db7d6b3f3]
   tool: 1
 ---
 # 媒体 {#media}
@@ -81,6 +81,24 @@ result.structured_content  # None
 !!! check
     用 `data=` 时没有文件名，也就无从推断。漏掉 `format=`，SDK 就会回退到默认值：图片是 `image/png`，音频是 `audio/wav`。照这样用 MP3 字节构建一个 `Audio`，客户端会被告知 `mime_type="audio/wav"`，然后老老实实地解码失败。传 `data=` 时，就要一并传 `format=`。
 
+## 嵌入资源 {#embedding-a-resource}
+
+工具还可以返回一份文档：一段文本或字节，连同它所在的 URI 和一个 MIME 类型。这就是 **`EmbeddedResource`**，另一种内容块。和普通的 `str` 不同，它会告诉客户端内容是什么，客户端因此可以把它作为附件显示，或者认出这是一个它已经知道的资源。
+
+```python title="server.py" hl_lines="7 14 16-18"
+--8<-- "docs_src/media/tutorial005.py"
+```
+
+* `brand://guidelines` 是一个普通的资源（**[资源](resources.md)** 讲的就是这些）。工具按请求把同一份文档交给模型，直接调用 `guidelines()` 能保持唯一的事实来源。
+* `EmbeddedResource` 和 `TextResourceContents` 来自 `mcp.types`。这里没有像图片那样的辅助类型：你构建的块原封不动地放进结果，也没有 `structured_content`。
+* 使用资源注册时所用的 URI，这样客户端才能分辨出附件和 `brand://guidelines` 是同一份文档。任何 URI 都合法，不管注册过没有。
+
+```python
+result.content  # [EmbeddedResource(type="resource", resource=TextResourceContents(uri="brand://guidelines", mime_type="text/markdown", text="# Brand guidelines\n\n..."))]
+```
+
+二进制内容用 `BlobResourceContents(uri=..., mime_type=..., blob=...)` 代替 `TextResourceContents`，把字节 base64 编码后放进 `blob`。如果只想发送一个指针，让客户端之后再 `resources/read`，就改为返回 `ResourceLink(name=..., uri=...)`；它同样是一个内容块。
+
 ## 图标 {#icons}
 
 `Icon` 是元数据，不是内容。它不携带图片本身，而是用一个 URI 指向图片；客户端可以获取它，并显示在服务器名称、某个工具、资源或提示词旁边。
@@ -110,6 +128,7 @@ client.server_info.icons  # [Icon(src="https://example.com/brand-kit.png", mime_
 
 * 从工具返回 `Image` 或 `Audio`，客户端就会收到一个 `ImageContent` / `AudioContent` 块：字节经 base64 编码，附带 MIME 类型。
 * 可以用 `path=` 构建，让后缀决定 MIME 类型；也可以用内存中的 `data=` 加上显式的 `format=` 构建。
+* 返回 `EmbeddedResource` 可以把一份文档（文本或 base64 blob，附带 URI 和 MIME 类型）放进结果；返回 `ResourceLink` 则只发送指针。
 * 媒体结果不带 `structured_content`，也没有输出模式。
 * `Icon` 是一个指针：一个 `src` URI，加上可选的 `mime_type`、`sizes` 和 `theme`。
 * `icons=[...]` 可用于服务器、工具、资源和提示词，客户端在对应的对象上就能找到它们。

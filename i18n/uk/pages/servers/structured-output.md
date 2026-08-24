@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # Структурований вивід {#structured-output}
@@ -105,7 +105,7 @@ result.structured_content  # {"temperature": 16.2, "humidity": 0.83, "conditions
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-Під час виконання `TypedDict` — це звичайний `dict`, тож саме його ви будуєте й повертаєте. Схема, валідація і `structured_content` ідентичні версії з `BaseModel` (за винятком описів, для яких у `TypedDict` немає місця).
+Під час виконання `TypedDict` — це звичайний `dict`, тож саме його ви будуєте й повертаєте. Схема, валідація і `structured_content` підпорядковуються тим самим правилам, що й у версії з `BaseModel`: додайте docstring класу або `Annotated[..., Field(description=...)]` — і вони стануть описами, а ключ `NotRequired`, якого немає в словнику, не потрапить і до `structured_content`.
 
 ## Dataclass {#a-dataclass}
 
@@ -187,17 +187,18 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 Анотація обіцяє `WeatherData`. Відповідь зовнішнього сервісу перестала надсилати `humidity`.
 
 !!! check
-    Викличте `get_weather` — і він не передасть клієнту тихцем напівпорожній об'єкт. Виклик завершується помилкою,
-    і перші рядки помилки називають поле:
+    Викличте `get_weather` — і він не передасть клієнту тихцем напівпорожній об'єкт. Виклик завершується помилкою:
+    клієнт отримує `is_error=True` з `Error executing tool get_weather`, тож модель знає, що виклик
+    не вдався, замість того щоб упевнено читати погоду, якої немає. Назва поля — для вас,
+    у лозі сервера на рівні `ERROR`:
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    Цей текст повертається як результат інструмента з `is_error=True`, тож модель знає, що виклик не вдався,
-    замість того щоб упевнено читати погоду, якої немає.
 
 До речі, повертати звичайний `dict` з інструмента з `-> WeatherData` цілком можна. Саме це й видав `json.loads`. Перевіряється значення, а не тип Python.
 
@@ -212,6 +213,10 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 Ні `output_schema`, ні обгортки, ні валідації. `structured_content` дорівнює `None`, а `content` — рядок, який ви повернули.
 
 Протилежне, `structured_output=True`, перетворює автоматичне визначення на вимогу: інструмент, чий тип повернення не може дати схему, викидає виняток під час імпорту замість відкоту до тексту.
+
+## Блоки вмісту й медіа {#content-blocks-and-media}
+
+Блоки вмісту й медіа (`TextContent`, `EmbeddedResource`, `Image`, `Audio` та подібні — самі по собі, як елементи `list`, `tuple` чи `Sequence` або як варіанти об'єднання типів) вимкнено за вас: вони призначені для читання моделлю, тож автоматичне визначення не виводить із них схеми (`Image` та `Audio` описано на сторінці **[Зображення, аудіо та іконки](media.md)**). `structured_output=True` усе одно примусово створює схему для класів блоків вмісту.
 
 ## Клас без анотацій типів {#a-class-without-type-hints}
 
@@ -245,6 +250,6 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 * Скаляри, списки, кортежі й об'єднання типів загортаються в `{"result": ...}`. Моделі, `TypedDict`, dataclass, анотовані класи й `dict[str, ...]` — уже об'єкти й лишаються як є.
 * Кожен результат несе `content` (текст, для моделі) **і** `structured_content` (дані, для застосунку).
 * Те, що ви повертаєте, перевіряється на відповідність схемі. Невідповідність — це помилка інструмента, а не зіпсований результат.
-* `structured_output=False` вимикає це для інструмента. Клас без анотацій типів вимикає це мовчки; пильнуйте.
+* `structured_output=False` вимикає це для інструмента. Блоки вмісту, `Image` та `Audio` вимкнено за замовчуванням; клас без анотацій типів вимикає це мовчки, тож пильнуйте.
 
 Тепер ви володієте всім, що інструмент може сказати у відповідь. Далі — другий примітив: **[Ресурси](resources.md)**.

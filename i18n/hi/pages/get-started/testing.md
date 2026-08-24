@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # Testing {#testing}
@@ -84,12 +84,12 @@ async def test_call_add_tool(client: Client):
 
 दो अलग-अलग चीज़ें गड़बड़ हो सकती हैं, और यह flag उनमें से सिर्फ़ एक को छूता है।
 
-**आपके tools** में से किसी के अंदर हुआ exception protocol failure नहीं है। वह `is_error=True` वाला सामान्य result बन जाता है, और model उसका message पढ़ता है। `raise_exceptions` इसमें कुछ नहीं बदलता: इसके साथ या इसके बिना, `call_tool` वही `is_error=True` वाला result लौटाता है। इस पर एक पूरा page है:
-**[Errors संभालना](../servers/handling-errors.md)**।
+**आपके tools** में से किसी के अंदर हुआ exception protocol failure नहीं है। वह `is_error=True` वाला सामान्य result बन जाता है (और अगर वह `ToolError` था, तो model आपका message पढ़ता है)। `raise_exceptions` इसमें कुछ नहीं बदलता: इसके साथ या इसके बिना, `call_tool` वही `is_error=True` वाला result लौटाता है। इस पर पूरा एक page है:
+**[errors संभालना](../servers/handling-errors.md)**।
 
-Tool body के **बाहर** की failure अलग है। `Client(mcp)` जो connection देता है, उस पर server इसे client तक पहुँचने से पहले एक सामान्य `"Internal server error"` में sanitise कर देता है। किसी अनपेक्षित crash की बारीकियाँ remote caller तक कभी leak नहीं होनी चाहिए। Test में आप ठीक यही **नहीं** चाहते, और `raise_exceptions=True` यही बदलता है: आपके test को sanitise किया हुआ message नहीं, बल्कि असली message दिखता है।
+tool body के **बाहर** का failure अलग है। `Client(mcp)` जो connection देता है, उस पर server इसे client तक पहुँचने से पहले एक सामान्य `"Internal server error"` में sanitise कर देता है। किसी अनपेक्षित crash की बारीकियाँ remote caller तक कभी leak नहीं होनी चाहिए। test में आप ठीक यही **नहीं** चाहते, और `raise_exceptions=True` यही बदलता है: आपके test को sanitise किया हुआ message नहीं, बल्कि असली message दिखता है।
 
-Tests में इसे चालू रहने दें। Production code में इसका कोई मतलब नहीं है।
+tests में इसे चालू रहने दें। production code में इसका कोई मतलब नहीं है।
 
 ## Default रूप से in-process {#in-process-by-default}
 

@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: [20541a40dbdd5980, 01262a123ad9501d, 429db5b574a2ac08, 56b2d49da412cb28, 6a1717123fe4513c]
+  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
   tool: 1
 ---
 # Deprecated features {#deprecated-features}
 
-2026-07-28 spec पाँच चीज़ों को retire करता है। SDK अब भी इनमें से हर एक को implement करता है, और अब हर एक पर **deprecation warning** लगी है।
+2026-07-28 spec पाँच चीज़ों को retire करता है। SDK अब भी इनमें से हर एक को implement करता है, और अब हर एक पर **deprecation warning** लगी है। एक SDK helper अपनी अलग वजह से deprecated है और [आख़िर में](#deprecated-sdk-helpers) दिया गया है।
 
-नीचे दी गई table हर deprecated feature का नाम, उसके हटने की वजह, और उसकी जगह किस पर build करना है, यह बताती है।
+नीचे दी गई table हर deprecated feature का नाम, उसके हटने की वजह, और उसकी जगह किस replacement पर build करना है, यह बताती है।
 
 ## क्या deprecated है {#what-is-deprecated}
 
@@ -55,6 +55,55 @@ MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SE
     कोशिश करता है। ये दोनों end-to-end सिर्फ़ ऐसे `mode="legacy"` connection पर काम करते हैं
     जिसके client ने matching callback register किया हो।
 
+## legacy session पर `ping` {#ping-on-a-legacy-session}
+
+**ping** एक खाली request है जिसे कोई भी पक्ष यह जाँचने के लिए भेज सकता है कि दूसरा अब भी जवाब दे रहा है। 2026-07-28 spec इसे हटा देता है ([SEP-2575](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575)): modern client की भेजी हर request पहले ही साबित कर देती है कि server मौजूद है, और modern server के पास इसे भेजने का कोई channel नहीं है। दोनों SDK methods handshake वाली पीढ़ी के session पर अब भी काम करते हैं। client से:
+
+```python
+async def main() -> None:
+    async with Client("http://localhost:8000/mcp", mode="legacy") as client:
+        await client.send_ping()  # warns; returns an EmptyResult
+```
+
+और server से, किसी भी handler के अंदर:
+
+```python
+@mcp.tool()
+async def check_client(ctx: Context) -> str:
+    """A tool that still pings the client mid-call."""
+    await ctx.session.send_ping()  # no warning; an EmptyResult while the client is connected
+    return "client answered"
+```
+
+* `client.send_ping()` हर call पर `MCPDeprecationWarning` के साथ warn करता है। default (`2026-07-28`) connection पर server इसके बजाय `MCPError: Method not found` जवाब देता है।
+* `ctx.session.send_ping()` पर कोई warning नहीं है। modern connection पर यह वही no-back-channel error raise करता है जो कोई भी दूसरी server-initiated request करती है।
+* ping का जवाब देने के लिए कोई भी पक्ष कुछ register नहीं करता।
+
+## roots में बदलाव के notifications {#roots-change-notifications}
+
+roots capability declare करने वाला 2025 पीढ़ी का client `notifications/roots/list_changed` भेजकर server को बता सकता है कि उसके workspace folders बदल गए हैं; जवाब में server दोबारा `roots/list` की request करता है। 2026-07-28 spec बाकी push-style roots flow के साथ इस notification को भी हटा देता है। client पर `list_roots_callback=` देना (**[Client callbacks](client/callbacks.md)**) ही `"roots": {"listChanged": true}` declare करता है, और एक call वह वादा निभाता है:
+
+```python
+async def open_folder(client: Client, uri: str, name: str) -> None:
+    """The user opened another folder: expose it through the roots callback, then tell the server."""
+    workspace.append(Root(uri=FileUrl(uri), name=name))
+    await client.send_roots_list_changed()
+```
+
+server पर, इसे पाने वाला handler low-level `Server` लेता है:
+
+```python
+async def roots_changed(ctx: ServerRequestContext, params: NotificationParams | None) -> None:
+    """The client's roots changed: ask for the new list."""
+    roots = (await ctx.session.list_roots()).roots
+
+
+server = Server("Bookshop", on_roots_list_changed=roots_changed)
+```
+
+* `workspace` वह list है जो आपका `list_roots_callback` लौटाता है। `client.send_roots_list_changed()` warn करता है, और इसे `mode="legacy"` client चाहिए: modern connection पर notification चुपचाप drop हो जाता है। इसके बाद session खुला रखें, क्योंकि server की follow-up `roots/list` उसी पर आती है।
+* `MCPServer` के पास इस notification के लिए कोई hook नहीं है। low-level `Server` पर `on_roots_list_changed=` handler register करता है (यह भी deprecated है, और construction के समय warn करता है)। notification में कोई payload नहीं होता, इसलिए handler नई list के लिए `ctx.session.list_roots()` call करता है।
+
 ## warning को चुप कराना {#silencing-the-warning}
 
 नए code में ऐसा न करें।
@@ -75,14 +124,24 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
     filter को उल्टा चलाएँ और आपको मुफ़्त में regression test मिलता है। अपनी pytest
     configuration की `filterwarnings` setting में `"error::mcp.MCPDeprecationWarning"`
     जोड़ें और deprecated call warn करने के बजाय **raise** करता है। `old_log` नाम का tool
-    जो अब भी `ctx.info()` call करता है, pass होना बंद कर देता है और यह report करने लगता है:
+    जो अब भी `ctx.info()` call करता है, pass होना बंद कर देता है: call `is_error=True` और
+    `Error executing tool old_log` के साथ वापस आता है, और capture किया गया server log
+    असली दोषी का नाम बताता है:
 
     ```text
-    Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    mcp.shared.exceptions.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
     ```
 
     pytest configuration की एक line, और कोई deprecated call बिना test fail किए आपके
     codebase में चुपके से वापस नहीं आ सकता।
+
+## Deprecated SDK helpers {#deprecated-sdk-helpers}
+
+ये spec के बदलाव नहीं हैं, सिर्फ़ SDK के अंदरूनी हिस्से हैं जिनका बेहतर replacement मौजूद है। ये उसी `MCPDeprecationWarning` के साथ warn करते हैं और 3.0 में हटा दिए जाएँगे।
+
+| Deprecated | इसके बजाय क्या करें |
+|---|---|
+| `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` और फिर `FuncMetadata.call_fn()`। इसे सिर्फ़ वही code call करता था जो `FuncMetadata` को सीधे चलाता है (जैसे कोई custom `Tool` subclass)। |
 
 ## सारांश {#recap}
 
@@ -91,6 +150,7 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 * Deprecated होना बस सलाह भर है: wire में कोई बदलाव नहीं, 2026 से पहले के sessions पर सब कुछ काम करता रहता है, और आपको साफ़ दिखने वाली `MCPDeprecationWarning` मिलती है (यह `UserWarning` है, इसलिए default रूप से चालू है)।
 * sampling और roots को इसके अलावा back-channel चाहिए जो 2026-07-28 session के पास नहीं है। modern connection पर ये warn करते हैं और फिर raise करते हैं।
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` पूरी category को चुप कराता है; pytest में `"error::mcp.MCPDeprecationWarning"` इसे test failure में बदल देता है।
+* एक SDK helper, `FuncMetadata.call_fn_with_arg_validation()`, अलग से deprecated है और 3.0 में हटाया जाएगा।
 * नया code इनमें से किसी पर भी नहीं बनना चाहिए।
 
 इन docs का बाकी हर page मौजूदा API सिखाता है।

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # Log tutma {#logging}
@@ -54,6 +54,8 @@ Standart kütüphane zaten doğru olanı yapar: log çıktısı varsayılan olar
 Varsayılan değer `"INFO"`.
 
 `logging.basicConfig()` hâlihazırda var olan işleyicileri asla değiştirmez. Sunucuyu oluşturmadan önce log yapılandırmasını kendiniz yaparsanız sizin yapılandırmanız geçerli olur.
+
+Yalnızca hataları kaydetmek için her işleyiciye bir `try`/`except` koymanız da gerekmez. Bir araç ya da kaynak fonksiyonu istisna fırlattığında SDK bunu sizin yerinize loglar. Neyin hangi düzeyde loglandığını **[Hataları ele alma](../servers/handling-errors.md#any-other-exception)** sayfası açıklar.
 
 ## Deneyin {#try-it}
 
