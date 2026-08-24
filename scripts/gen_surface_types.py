@@ -55,6 +55,18 @@ SCHEMA_PATCHES: dict[str, list[tuple[str, Any, Any]]] = {
             {"$ref": "#/$defs/PrimitiveSchemaDefinition"},
             {},
         ),
+        # JSON Schema 2020-12 allows a boolean wherever a sub-schema is expected, and
+        # 2026-07-28 already leaves these free-form; accept `true`/`false` property schemas.
+        (
+            "$defs/Tool/properties/inputSchema/properties/properties/additionalProperties",
+            {"additionalProperties": True, "properties": {}, "type": "object"},
+            {"anyOf": [{"additionalProperties": True, "properties": {}, "type": "object"}, {"type": "boolean"}]},
+        ),
+        (
+            "$defs/Tool/properties/outputSchema/properties/properties/additionalProperties",
+            {"additionalProperties": True, "properties": {}, "type": "object"},
+            {"anyOf": [{"additionalProperties": True, "properties": {}, "type": "object"}, {"type": "boolean"}]},
+        ),
     ],
     "2026-07-28": [
         ("$defs/NumberSchema/properties/default/type", "number", ["integer", "number"]),
