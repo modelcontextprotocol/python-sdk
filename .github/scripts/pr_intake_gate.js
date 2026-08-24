@@ -78,11 +78,10 @@ module.exports = async function run({ github, context, core }) {
     if (pr.merged_at) return log('merged — nothing to do');
     if (pr.state === 'closed' && !gated) return log('closed by someone else — not ours');
 
-    // 1. Exempt authors: bots, anyone with triage or better, and drafts (which
-    //    are checked again on ready_for_review).
+    // 1. Exempt authors: bots and anyone with triage or better. Drafts are
+    //    gated like any other PR.
     if (pr.user.type === 'Bot') return log('author is a bot — exempt');
     if (await isTrusted(pr.user.login)) return pass('author has triage+ on this repo');
-    if (pr.draft) return log('draft — skipped until ready for review');
 
     // 2. Overrides: a triage+ user reopening the PR or removing the label wants
     //    it open. Anyone else doing so just triggers a re-check.
@@ -137,21 +136,33 @@ module.exports = async function run({ github, context, core }) {
 
   function closedComment(linkedIssues) {
     const issues = linkedIssues.map((n) => `#${n}`).join(', ');
-    const why = linkedIssues.length
-      ? `you aren't currently assigned to ${issues}`
-      : "its description doesn't yet link an open issue in this repository (with `Fixes #123` or similar)";
-    const next = linkedIssues.length
-      ? `If a maintainer would like this change as a PR from you, they'll assign you to ${issues} and this PR will reopen automatically — there's nothing more you need to do. (If you opened the issue, this PR already shows up on its timeline.)`
-      : `If there isn't an issue for this yet, please [open one](https://github.com/${owner}/${repo}/issues/new/choose) — a clear description of the problem is genuinely the most useful thing for us. Then add \`Fixes #<number>\` to this PR's description. If a maintainer would like the change as a PR from you, they'll assign you to the issue and this PR will reopen automatically.`;
+    const rule =
+      'This PR has been closed automatically. This repo only keeps pull requests open when they come from a maintainer, or from a contributor a maintainer has assigned to the linked issue';
+    const situation = linkedIssues.length
+      ? [
+          `${rule}, and you aren't currently assigned to ${issues}.`,
+          '',
+          `If a maintainer assigns you to ${issues}, this PR reopens on its own and there's nothing more you need to do here. Assignment is a maintainer call based on capacity; comments that only ask to be assigned don't factor in. What does help is engaging on the issue itself by confirming the repro, explaining why it matters for your use case, or describing the approach you'd take.`,
+        ]
+      : [
+          `${rule}, and this PR doesn't link an issue yet.`,
+          '',
+          "- **If you're already assigned to an issue for this**, add `Fixes #<n>` to the description and the PR will reopen on its own.",
+          `- **If there's no issue yet**, please [open one](https://github.com/${owner}/${repo}/issues/new/choose) instead: what you ran into, why it matters for your use case, and a minimal reproduction. That context is super important to us and is what we use to decide what to prioritise.`,
+          "- **If there's an issue but you're not assigned**, add `Fixes #<n>` anyway so they're linked, then engage on the issue itself by confirming the repro or describing the approach you'd take. Assignment is a maintainer call based on capacity; comments that only ask to be assigned don't factor in. If you are assigned, this PR reopens automatically.",
+        ];
     return [
       MARKER,
-      `Thanks for the contribution. This repository only keeps pull requests open when they're linked to an issue that a maintainer has assigned to the author — [CONTRIBUTING.md](${contributingUrl}) explains why and how we work. This PR has been closed for now because ${why}.`,
+      ...situation,
       '',
-      next,
+      "You're welcome to keep pushing commits here (just avoid force-pushing, since GitHub can't reopen a rewritten branch), but that on its own won't get the PR reviewed or the issue assigned, and realistically most auto-closed PRs stay closed. There's no need to open a new PR either way.",
       '',
-      "There's no need to open a new PR — this one will be reopened. While it's closed, please push any updates as new commits rather than force-pushing, since GitHub can't reopen a PR whose branch has been rewritten.",
+      `[CONTRIBUTING.md](${contributingUrl}) has the full reasoning, but in short:`,
       '',
-      `*Maintainers: reopening this PR, removing the \`${LABEL}\` label, or adding \`${BYPASS_LABEL}\` bypasses the check.*`,
+      "- We're a small team with very little capacity to review community PRs right now.",
+      '- Many recent PRs are AI-generated with little human review, and reviewing one carefully still costs a maintainer as much time as it ever did. A well-described issue is usually more useful to us than the code.',
+      '',
+      `*Maintainers: reopen, remove \`${LABEL}\`, or add \`${BYPASS_LABEL}\` to override.*`,
     ].join('\n');
   }
 

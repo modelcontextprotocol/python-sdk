@@ -146,14 +146,13 @@ const scenarios = [
     writes: 0,
   },
   {
-    name: 'draft PR is skipped until it is marked ready for review',
+    name: 'draft PR with no issue link is closed like any other',
     prs: [pr(3300, 'outsider', { draft: true })],
     event: opened(3300, 'outsider'),
-    expect: { 3300: { state: 'open', labels: [], comment: null } },
-    writes: 0,
+    expect: { 3300: { state: 'closed', labels: [LABEL], comment: 'closed' } },
   },
   {
-    name: 'draft marked ready for review with no link → closed',
+    name: 'pre-existing draft marked ready for review with no link → closed',
     prs: [pr(3300, 'outsider')],
     event: readyForReview(3300, 'outsider'),
     expect: { 3300: { state: 'closed', labels: [LABEL], comment: 'closed' } },
