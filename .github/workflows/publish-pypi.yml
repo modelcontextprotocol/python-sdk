@@ -21,7 +21,7 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
-          version: 0.9.5
+          version: 0.12.5
 
       - name: Set up Python 3.12
         run: uv python install 3.12
@@ -57,7 +57,7 @@ jobs:
           path: dist/
 
       - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           # Lets a re-run after a partially failed upload publish the remaining
           # files instead of erroring on the ones already on PyPI.
