@@ -2167,6 +2167,29 @@ async def test_prompt_input_required_result_on_legacy_session_is_a_serialization
     assert exc.value.error.message == "Handler returned an invalid result"
 
 
+async def test_recursive_tool_return_type_lists_and_calls_on_legacy_session():
+    """A 2025-11-25 session requires `type: object` at the outputSchema root; a self-referential
+    return type must not fail the whole listing, and its result validates client-side via `$defs`."""
+
+    class Node(BaseModel):
+        name: str
+        children: list["Node"] = []
+
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def tree() -> Node:
+        return Node(name="root", children=[Node(name="leaf")])
+
+    async with Client(mcp, mode="legacy") as client:
+        [tool] = (await client.list_tools()).tools
+        assert tool.output_schema is not None
+        assert tool.output_schema["type"] == "object"
+        assert tool.output_schema["properties"]["children"]["items"] == {"$ref": "#/$defs/Node"}
+        result = await client.call_tool("tree", {})
+    assert result.structured_content == {"name": "root", "children": [{"name": "leaf", "children": []}]}
+
+
 async def test_resource_template_input_required_result_on_legacy_session_is_a_serialization_error():
     """Pins the shared era gate for resources/read: a pre-2026 session has no
     input_required vocabulary, so the runner rejects the frame with -32603."""
