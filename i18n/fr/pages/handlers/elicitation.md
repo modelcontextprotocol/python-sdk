@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # Élicitation {#elicitation}
@@ -89,7 +89,8 @@ Ce schéma, c’est le formulaire. `Field(description=...)` est le libellé ; un
 !!! warning
     Un schéma d’élicitation n’est pas aussi expressif que le schéma d’entrée d’un outil. Des champs plats et primitifs
     uniquement : `str`, `int`, `float`, `bool`, ou un `Literal` de chaînes (il devient un `enum`).
-    Mettez un modèle dans le modèle et `ctx.elicit` lève une exception avant que quoi que ce soit ne soit envoyé au client :
+    Mettez un modèle dans le modèle et `ctx.elicit` lève une exception avant que quoi que ce soit ne soit envoyé au client.
+    L’appel d’outil échoue avec `Error executing tool <name>`, et le journal de votre serveur en donne la raison :
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -112,8 +113,8 @@ Un refus n’est pas une erreur. L’outil décide de ce que signifie décliner 
 
 !!! tip
     La réponse est validée par rapport à votre modèle avant que votre code ne la voie. Un client qui envoie
-    `"maybe"` pour un `bool` ne corrompt pas votre réservation : l’appel échoue avec une
-    erreur de non-conformité au schéma, votre `if` ne s’exécute jamais.
+    `"maybe"` pour un `bool` ne corrompt pas votre réservation : `ctx.elicit` lève `ValueError`, l’appel
+    échoue, et votre `if` ne s’exécute jamais.
 
 ## Envoyer l’utilisateur vers une URL {#send-the-user-to-a-url}
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # Salida estructurada {#structured-output}
@@ -105,7 +105,7 @@ No todas las formas merecen una clase. Un `TypedDict` produce el mismo esquema:
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-Un `TypedDict` es un `dict` normal en tiempo de ejecución, así que eso es lo que construyes y devuelves. El esquema, la validación y `structured_content` son idénticos a los de la versión con `BaseModel` (salvo las descripciones, para las que `TypedDict` no tiene sitio).
+Un `TypedDict` es un `dict` normal en tiempo de ejecución, así que eso es lo que construyes y devuelves. El esquema, la validación y `structured_content` siguen las mismas reglas que la versión con `BaseModel`: añade un docstring a la clase o `Annotated[..., Field(description=...)]` y se convierten en las descripciones, y una clave `NotRequired` que dejes fuera del dict se queda fuera de `structured_content`.
 
 ## Una dataclass {#a-dataclass}
 
@@ -187,17 +187,18 @@ No lo notas mientras construyes el valor a mano: Pydantic ya se aseguró de que 
 La anotación promete `WeatherData`. La respuesta del servicio externo dejó de enviar `humidity`.
 
 !!! check
-    Llama a `get_weather` y no le entrega al cliente en silencio un objeto medio vacío. La llamada falla,
-    y las primeras líneas del error nombran el campo:
+    Llama a `get_weather` y no le entrega al cliente en silencio un objeto medio vacío. La llamada falla:
+    el cliente recibe `is_error=True` con `Error executing tool get_weather`, así que el modelo sabe que la
+    llamada falló en lugar de leer con toda confianza un tiempo que no existe. El nombre del campo es para ti,
+    en el log del servidor con nivel `ERROR`:
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    Ese texto vuelve como resultado de la herramienta con `is_error=True`, así que el modelo sabe que la
-    llamada falló en lugar de leer con toda confianza un tiempo que no existe.
 
 Por cierto, devolver un `dict` normal desde una herramienta `-> WeatherData` está bien. Es exactamente lo que produjo `json.loads`. La validación se aplica al valor, no al tipo de Python.
 
@@ -212,6 +213,10 @@ A veces la anotación de retorno es para tu verificador de tipos, no para el pro
 Sin `output_schema`, sin envoltorio, sin validación. `structured_content` es `None` y `content` es la cadena que devolviste.
 
 Lo contrario, `structured_output=True`, convierte la detección automática en un requisito: una herramienta cuyo tipo de retorno no pueda producir un esquema lanza una excepción al importar el módulo en lugar de recurrir al texto.
+
+## Bloques de contenido y medios {#content-blocks-and-media}
+
+Los bloques de contenido y los medios (`TextContent`, `EmbeddedResource`, `Image`, `Audio` y compañía, ya sea solos, como elementos de un `list`, `tuple` o `Sequence`, o como ramas de una unión) quedan excluidos sin que hagas nada: son para que los lea el modelo, así que la detección automática no deriva ningún esquema de ellos (**[Imágenes, audio e iconos](media.md)** se ocupa de `Image` y `Audio`). `structured_output=True` sigue forzando uno para las clases de bloques de contenido.
 
 ## Una clase sin anotaciones de tipo {#a-class-without-type-hints}
 
@@ -245,6 +250,6 @@ Hay una forma de acabar sin salida estructurada sin haberlo pedido: devolver una
 * Los escalares, las listas, las tuplas y las uniones se envuelven en `{"result": ...}`. Los modelos, los `TypedDict`, las dataclasses, las clases con anotaciones y `dict[str, ...]` ya son objetos y se quedan como están.
 * Cada resultado lleva `content` (texto, para el modelo) **y** `structured_content` (datos, para la aplicación).
 * Lo que devuelves se valida contra el esquema. Una discrepancia es un error de herramienta, no un resultado corrupto.
-* `structured_output=False` excluye una herramienta. Una clase sin anotaciones de tipo queda excluida en silencio; vigílalo.
+* `structured_output=False` excluye una herramienta. Los bloques de contenido, `Image` y `Audio` quedan excluidos por defecto; una clase sin anotaciones de tipo queda excluida en silencio, así que vigílalo.
 
 Ahora dominas todo lo que una herramienta puede responder. A continuación, la segunda primitiva: **[Recursos](resources.md)**.

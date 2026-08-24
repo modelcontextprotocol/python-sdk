@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Tools {#tools}
@@ -38,6 +38,8 @@ translation:
 ```
 
 दोनों arguments `required` में हैं क्योंकि किसी का भी default नहीं है। इसे आप थोड़ी ही देर में ठीक करेंगे। (`title` keys Pydantic की देन हैं; properties, उनके types और `required` ही असली contract हैं।)
+
+`$schema` key भी नहीं है: जिस schema में यह न हो उसे MCP **JSON Schema 2020-12** मानता है, और Pydantic यही बनाता है, इसलिए चुनने को कुछ नहीं है जब तक आप **[low-level Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)** पर हाथ से schemas न लिखें।
 
 !!! tip
     यहाँ type hints documentation नहीं हैं। वे ही **contract** हैं। अगर कोई client `"limit": "ten"` भेजता है,

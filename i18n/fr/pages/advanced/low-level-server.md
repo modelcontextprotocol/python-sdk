@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
   tool: 1
 ---
 # Le Server de bas niveau {#the-low-level-server}
@@ -116,6 +116,17 @@ Le bloc `_meta` est la marque d’identité du serveur : le SDK l’ajoute à ch
 
 Le serveur ne compare jamais les deux champs. Le `Client` de ce SDK, si : renvoyez un `structured_content` qui ne satisfait pas le `output_schema` que vous avez déclaré et `call_tool` lève une `RuntimeError` qui commence par `Invalid structured content returned by tool search_books` puis cite l’échec de `jsonschema`. Promettre un schéma ne coûte rien ; le tenir vous incombe. Toute l’échelle des types de retour et des schémas est dans **[Sortie structurée](../servers/structured-output.md)**.
 
+## Le dialecte est JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` et `output_schema` sont du JSON Schema, et la [spécification MCP](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) fixe le dialecte : un schéma sans clé `$schema` est du **JSON Schema 2020-12**. Les schémas que génère `MCPServer` s’appuient sur cette valeur par défaut (Pydantic écrit du 2020-12 et omet la clé), et un dict écrit à la main y est tenu lui aussi ; tout le vocabulaire 2020-12 est donc disponible :
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* La racine de `input_schema` doit être `"type": "object"`. À côté, `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, `$defs` avec des `$ref` locaux et le reste des mots-clés 2020-12 parviennent au client exactement tels qu’écrits.
+* Aucune clé `$schema` n’est nécessaire. N’en ajoutez une que pour opter pour une version (draft) antérieure : le `Client` de ce SDK, qui valide `structured_content` par rapport au `output_schema` d’un outil, choisit son validateur d’après `$schema` et utilise 2020-12 en son absence.
+
 ## `_meta` : pour l’application, pas pour le modèle {#\_meta-for-the-application-not-the-model}
 
 `content` est la partie de la réponse que lit le modèle. `structured_content` est la même réponse sous forme de données typées. `_meta` est le troisième canal : des données qui voyagent avec le résultat à destination de l’**application cliente**, sans faire partie de la réponse du tout.
@@ -167,7 +178,7 @@ Le constructeur couvre les méthodes que MCP définit. `add_request_handler` cou
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* Le premier argument est la chaîne de la méthode. Les notifications ont un jumeau, `add_notification_handler`.
+* Le premier argument est la chaîne de la méthode. Les notifications ont un jumeau, `add_notification_handler`. Ses gestionnaires se déclenchent sur stdio et sur les connexions HTTP de la génération à poignée de main (handshake) ; sur le chemin Streamable HTTP en version `2026-07-28`, le POST de notification d’un client reçoit un accusé de réception `202` et n’est pas distribué, car cette révision ne définit aucune notification du client vers le serveur sur HTTP.
 * `params_type` est le modèle par rapport auquel les `params` entrants sont validés **avant** l’exécution de votre gestionnaire ; les méthodes personnalisées *ont* donc droit à la validation dont les outils sont privés. Dérivez de `RequestParams` pour que le champ `_meta` s’analyse comme celui de toute autre méthode.
 * Le gestionnaire renvoie un `BaseModel`, un `dict` ou `None`. Le SDK le sérialise dans le résultat JSON-RPC.
 

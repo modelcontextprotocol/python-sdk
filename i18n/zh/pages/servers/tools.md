@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # 工具 {#tools}
@@ -38,6 +38,8 @@ SDK 根据这些类型提示生成一份 JSON Schema，并在 `tools/list` 时�
 ```
 
 两个参数都在 `required` 里，因为都没有默认值。这一点马上就会改。（`title` 键是 Pydantic 附带生成的；属性、属性的类型和 `required` 才是契约。）
+
+也没有 `$schema` 键：不带这个键的模式，MCP 一律按 **JSON Schema 2020-12** 处理，而 Pydantic 生成的正是它，所以在你到 **[底层 Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)** 上手写模式之前，没有什么需要选择的。
 
 !!! tip
     类型提示在这里不是文档，而是**契约**。如果客户端发来 `"limit": "ten"`，SDK 会在你的函数运行之前就把它拒掉。

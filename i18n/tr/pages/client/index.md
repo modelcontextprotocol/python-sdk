@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # İstemci {#the-client}
@@ -27,9 +27,10 @@ Tek bir yaşam döngüsü olan tek bir nesnedir: oluşturun, `async with` bloğu
 
 * Bir `MCPServer` (veya düşük seviyeli `Server`) örneği: **süreç içinde** bağlanır.
 * Bir URL dizesi (`Client("http://localhost:8000/mcp")`): Streamable HTTP, yani üretim yolu.
-* Bir **aktarım**: `async with ... as (read, write)` ile kullanabileceğiniz herhangi bir şey; örneğin bir alt süreci saran `stdio_client(...)`.
+* Bir `StdioServerParameters`: **alt süreç** olarak başlatılacak komut; onunla stdin ve stdout'u üzerinden konuşulur.
+* Bir **aktarım**: `async with ... as (read, write)` ile kullanabileceğiniz herhangi bir şey; örneğin kendi HTTP istemcinizi saran `streamable_http_client(url, http_client=...)`.
 
-Bu sayfadaki geri kalan her şey üçünde de aynıdır. Başlıklar, alt süreçler, zaman aşımları ve `Transport` protokolünün kendi sayfası var: **[İstemci aktarımları](transports.md)**.
+Bu sayfadaki geri kalan her şey dördünde de aynıdır. Başlıklar, alt süreçler, zaman aşımları ve `Transport` protokolünün kendi sayfası var: **[İstemci aktarımları](transports.md)**.
 
 ### Bağlı bir istemcide bulunanlar {#whats-on-a-connected-client}
 
@@ -85,7 +86,7 @@ Bu şema, bir arayüzün argüman formu oluşturması için gereken her şeydir;
 
 `call_tool(name, arguments)` aracı çalıştırır ve size bir `CallToolResult` geri verir.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +118,7 @@ Tek dönüş değeri, okunacak üç şey. Her birinin tüketicisi farklı.
 
 !!! check
     `lookup_book`'tan `"Solaris"`'i isteyin (katalogda olmayan bir başlık); fonksiyon
-    `ValueError` fırlatır. Çağrı yine de normal biçimde döner:
+    `ToolError` fırlatır. Çağrı yine de normal biçimde döner:
 
     ```python
     result.is_error            # True
@@ -125,9 +126,10 @@ Tek dönüş değeri, okunacak üç şey. Her birinin tüketicisi farklı.
     result.structured_content  # None
     ```
 
-    İstisnanın mesajı `content`'e düştü; **model** onu orada okuyup yeniden deneyebilir. Bu
-    kasıtlıdır: bir araç hatası çökme değil, konuşmanın bir parçasıdır. `structured_content`'e
-    güvenmeden önce her zaman `is_error`'a bakın.
+    `ToolError`'ın mesajı `content`'e düştü; **model** onu orada okuyup yeniden deneyebilir. Bu
+    kasıtlıdır: bir araç hatası çökme değil, konuşmanın bir parçasıdır. (Araç başka bir istisnayla
+    çökmüş olsaydı `content`'te yalnızca `Error executing tool lookup_book` yazardı.)
+    `structured_content`'e güvenmeden önce her zaman `is_error`'a bakın.
 
 !!! warning
     `is_error=True`, kendi `raise`'inizden fazlasını kapsar. Sunucuda hiç olmayan bir araç isteyin

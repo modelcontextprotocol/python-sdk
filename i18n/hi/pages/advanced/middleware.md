@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -52,8 +52,11 @@ client ने connection तैयार करने के लिए भेज
 यही असली बात है। middleware **हर** inbound message को wrap करता है:
 
 * connection setup: `server/discover`, या legacy session पर `initialize` और `notifications/initialized`।
-* हर request और हर notification। notification के लिए `ctx.request_id is None` होता है,
+* हर request और हर notification जो server तक पहुँचे। notification के लिए `ctx.request_id is None` होता है,
   `call_next(ctx)` `None` लौटाता है, और आप जो भी लौटाएँ वह फेंक दिया जाता है।
+  (`2026-07-28` वाले streamable-HTTP path पर client का notification POST transport पर ही `202` से
+  acknowledge हो जाता है और कभी dispatch नहीं होता, इसलिए वह middleware तक भी नहीं पहुँचता; वह revision
+  HTTP पर कोई client-to-server notifications define ही नहीं करता।)
 * वह method भी जिसके लिए server के पास कोई handler नहीं है: `call_next`
   `MCPError(-32601, "Method not found")` को client की ओर जाते हुए आपके middleware के **बीच से** raise करता है।
 
@@ -109,8 +112,8 @@ SDK ठीक एक middleware साथ देता है, और वह प
 
 * middleware `async (ctx, call_next) -> result` है, जिसे `MCPServer(middleware=[...])` के रूप में पास किया जाता है (या
   `mcp.middleware` में append किया जाता है), और low-level `Server` पर `server.middleware` में append किया जाता है।
-* यह **हर** inbound message को wrap करता है (`server/discover`, `initialize`, requests, notifications,
-  अनजान methods) और outermost-first चलता है।
+* यह server तक पहुँचने वाले **हर** inbound message को wrap करता है (`server/discover`, `initialize`, requests,
+  notifications, अनजान methods) और outermost-first चलता है।
 * `ctx.request_id is None` से आप notification और request में फ़र्क करते हैं।
 * एक message को अस्वीकार करने के लिए `call_next` call करने के बजाय raise करें; connection बचा रहता है।
 * SDK का अपना OpenTelemetry tracing भी एक middleware है, जो पहले से list में है। देखें

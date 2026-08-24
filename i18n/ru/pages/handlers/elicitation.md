@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # Элицитация {#elicitation}
@@ -89,7 +89,8 @@ translation:
 !!! warning
     Схема элицитации не так выразительна, как входная схема инструмента. Только плоские
     примитивные поля: `str`, `int`, `float`, `bool` или `Literal` из строк (он становится `enum`).
-    Вложите модель в модель — и `ctx.elicit` выбросит исключение ещё до того, как что-либо уйдёт клиенту:
+    Вложите модель в модель — и `ctx.elicit` выбросит исключение ещё до того, как что-либо уйдёт клиенту.
+    Вызов инструмента завершится ошибкой `Error executing tool <name>`, а причина будет в логе сервера:
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -112,8 +113,8 @@ translation:
 
 !!! tip
     Ответ проверяется по вашей модели до того, как его увидит ваш код. Клиент, приславший
-    `"maybe"` вместо `bool`, не испортит бронирование: вызов завершится ошибкой
-    несоответствия схеме, а ваш `if` так и не выполнится.
+    `"maybe"` вместо `bool`, не испортит бронирование: `ctx.elicit` выбросит `ValueError`, вызов
+    завершится ошибкой, а ваш `if` так и не выполнится.
 
 ## Отправка пользователя по URL {#send-the-user-to-a-url}
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -56,8 +56,12 @@ C’est tout l’intérêt. Le middleware enveloppe **chaque** message entrant :
 
 * La mise en place de la connexion : `server/discover`, ou `initialize` et
   `notifications/initialized` sur une session historique.
-* Chaque requête et chaque notification. Pour une notification, `ctx.request_id is None`,
-  `call_next(ctx)` renvoie `None`, et tout ce que vous renvoyez est ignoré.
+* Chaque requête et chaque notification qui atteint le serveur. Pour une notification,
+  `ctx.request_id is None`, `call_next(ctx)` renvoie `None`, et tout ce que vous renvoyez est
+  ignoré. (Sur le chemin Streamable HTTP en version `2026-07-28`, le POST de notification d’un
+  client reçoit un accusé de réception `202` au niveau du transport et n’est jamais distribué ;
+  il n’atteint donc pas non plus le middleware. Cette révision ne définit aucune notification du
+  client vers le serveur sur HTTP.)
 * Même une méthode pour laquelle le serveur n’a pas de gestionnaire : `call_next` lève
   `MCPError(-32601, "Method not found")` *à travers* votre middleware en route vers le client.
 
@@ -119,8 +123,9 @@ page : **[OpenTelemetry](../run/opentelemetry.md)**.
 
 * Un middleware est `async (ctx, call_next) -> result`, passé via `MCPServer(middleware=[...])`
   (ou ajouté à `mcp.middleware`), et ajouté à `server.middleware` sur le `Server` bas niveau.
-* Il enveloppe **chaque** message entrant (`server/discover`, `initialize`, requêtes,
-  notifications, méthodes inconnues) et s’exécute de l’extérieur vers l’intérieur.
+* Il enveloppe **chaque** message entrant qui atteint le serveur (`server/discover`,
+  `initialize`, requêtes, notifications, méthodes inconnues) et s’exécute de l’extérieur vers
+  l’intérieur.
 * `ctx.request_id is None` est ce qui distingue une notification d’une requête.
 * Levez une exception au lieu d’appeler `call_next` pour refuser un message ; la connexion
   survit.

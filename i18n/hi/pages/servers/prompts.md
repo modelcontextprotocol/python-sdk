@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
+  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, d30d3c20168b88b2, f5ef38dad59d6f76, 6e38a699ba57fbdf, 2b984a3bf37a0ddd]
   tool: 1
 ---
 # Prompts {#prompts}
@@ -112,9 +112,9 @@ Code review एक message है। Debugging session एक बातचीत
 
 आख़िरी message पर ध्यान दें। `assistant` turn पहले से भरना ही वह तरीका है जिससे आप model के **अगले** जवाब की दिशा तय करते हैं, बिना user से वह निर्देश खुद type करवाए।
 
-## Titles और argument descriptions {#titles-and-argument-descriptions}
+## titles और argument descriptions {#titles-and-argument-descriptions}
 
-`review_code` function का नाम है, label नहीं। Client को button पर लगाने के लिए कुछ बेहतर दें, और हर argument का description लिखें ताकि form खुद ही समझ में आ जाए:
+`review_code` function का नाम है, label नहीं। client को button पर लगाने के लिए कुछ बेहतर दें, और हर argument का description लिखें ताकि form खुद ही समझ में आ जाए:
 
 ```python title="server.py" hl_lines="10-13"
 --8<-- "docs_src/prompts/tutorial003.py"
@@ -139,17 +139,64 @@ Code review एक message है। Debugging session एक बातचीत
 ```
 
 !!! info
-    अगर आपने **[Tools](tools.md)** पढ़ लिया है, तो इस page की हर बात आप पहले से जानते हैं। वही decorator, वही
+    अगर आपने **[Tools](tools.md)** पढ़ लिया है, तो यहाँ तक की हर बात आप पहले से जानते हैं। वही decorator, वही
     docstring-as-description, वही `Annotated`/`Field`। बदलता सिर्फ़ इतना है कि इसे
     trigger कौन करता है (user) और result कहाँ जाता है (बातचीत में)।
 
+## सिर्फ़ text ही नहीं {#more-than-text}
+
+`UserMessage` और `AssistantMessage` जहाँ भी `str` लेते हैं, वहाँ content block या `Image` / `Audio` helper भी ले लेते हैं। prompts में दो मामले सामने आते हैं: document जोड़ना और तस्वीर जोड़ना।
+
+### file embed करना {#embedding-a-file}
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* style guide `style://python` पर एक resource है (**[Resources](resources.md)** में इनकी बात है), जो `server.py` के बगल में रखी `style-guide.md` से पढ़ा जाता है। वहाँ कोई भी Markdown file रख दें।
+* `EmbeddedResource(resource=TextResourceContents(...))`, दोनों `mcp.types` से, file को उसके URI और MIME type के साथ पहले message के रूप में ले जाता है; उसका ज़िक्र करने वाली request उसके बाद plain text के रूप में आती है।
+* guide को f-string में चिपकाने के बजाय embed करने से client उसे attachment की तरह दिखा सकता है और बाद में `style://python` फिर से खोल सकता है, और model को file ज्यों की त्यों मिलती है। binary file के लिए base64 `blob` के साथ `BlobResourceContents` इस्तेमाल करें।
+
+render होने पर पहले message का `content` एक `resource` block है:
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### image जोड़ना {#attaching-an-image}
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image` **[Images, audio और icons](media.md)** वाला helper है। prompt render होते समय `UserMessage` इसे `ImageContent` block में बदल देता है (file base64-encoded, MIME type `.png` से अंदाज़ा लगाया गया); `Audio` इसी तरह `AudioContent` बन जाता है।
+* `server.py` के बगल में `architecture.png` नाम की कोई भी PNG रख दें। prompt arguments strings होते हैं, इसलिए तस्वीर हमेशा server से आती है; `component` सिर्फ़ शब्द देता है।
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## runtime पर list बदलना {#changing-the-list-at-runtime}
+
+clients जुड़े रहते हुए भी prompts जोड़े जा सकते हैं, उदाहरण के लिए ताकि user किसी निर्देश को अपनी खुद की menu entry के रूप में save कर सके। prompt register करें, फिर notify करें:
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))` किसी function को ठीक वैसे ही register करता है जैसे `@mcp.prompt()` करता, और `mcp.remove_prompt(name)` इसका उल्टा है। `add_prompt` उसी नाम की मौजूदा entry को overwrite करने के बजाय बनाए रखता है, इसलिए tool पहले कोई भी पुरानी entry हटा देता है ताकि save करना replace बन जाए। `prompts/list` बदलाव तुरंत दिखाती है।
+* `await ctx.notify_prompts_changed()` हर उस `2026-07-28` client को `notifications/prompts/list_changed` भेजता है जो `subscriptions/listen` stream पर सुन रहा हो (**[Subscriptions](../handlers/subscriptions.md)**)। `await ctx.session.send_prompt_list_changed()` इसे call करने वाले client को भेजता है, जब वह client 2026 से पहले का हो (**[legacy clients को serve करना](../run/legacy-clients.md)**)। दोनों call करें; जब बताने के लिए कोई न हो तो दोनों में से कोई कुछ नहीं करता।
+* जिस client को notification मिलता है, वह `prompts/list` फिर से call करता है। Python `Client` में यह `async with client.listen(prompts_list_changed=True) as sub:` है, जो `PromptsListChanged` event देता है।
+
 ## सारांश {#recap}
 
-* Function पर `@mcp.prompt()` लगाने से वह prompt बन जाता है। नाम function से, description docstring से।
-* Prompts **user-controlled** हैं: client इन्हें list करता है, user कोई एक चुनता है और arguments भरता है।
-* Arguments named strings की flat list हैं (कोई schema नहीं)। Default वाला parameter optional है।
-* `str` लौटाएँ और वह एक user message बन जाता है। Multi-turn बातचीत की शुरुआत करने के लिए `UserMessage` / `AssistantMessage` की list लौटाएँ।
+* function पर `@mcp.prompt()` लगाने से वह prompt बन जाता है। नाम function से, description docstring से।
+* prompts **user-controlled** हैं: client इन्हें list करता है, user कोई एक चुनता है और arguments भरता है।
+* arguments named strings की flat list हैं (कोई schema नहीं)। default वाला parameter optional है।
+* `str` लौटाएँ और वह एक user message बन जाता है। multi-turn बातचीत की शुरुआत करने के लिए `UserMessage` / `AssistantMessage` की list लौटाएँ।
 * `title=` और `Field(description=...)` वही हैं जो client अपने UI में दिखाता है।
 * कोई required argument छूट जाए तो पूरी request fail होती है। हर prompt का अलग error result नहीं होता।
+* document या तस्वीर जोड़ने के लिए `EmbeddedResource` या `Image` को `UserMessage` में wrap करें।
+* runtime पर `mcp.add_prompt(...)` / `mcp.remove_prompt(...)` से prompts जोड़ें या हटाएँ, फिर `await ctx.notify_prompts_changed()` और `await ctx.session.send_prompt_list_changed()` call करें।
 
-Prompt के (या resource template के) arguments के लिए server-side autocomplete **[Completions](completions.md)** में है।
+prompt के (या resource template के) arguments के लिए server-side autocomplete **[Completions](completions.md)** में है।

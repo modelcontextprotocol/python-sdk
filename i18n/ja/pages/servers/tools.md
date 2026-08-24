@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # ツール {#tools}
@@ -38,6 +38,8 @@ SDK はこれらの型ヒントから JSON Schema を生成し、`tools/list` �
 ```
 
 どちらの引数にもデフォルト値がないため、両方とも `required` に入っています。これはすぐ後で直します。（`title` キーは Pydantic が生成した付随物です。契約にあたるのは、プロパティとその型、そして `required` です。）
+
+`$schema` キーもありません。MCP はこのキーのないスキーマを **JSON Schema 2020-12** として扱い、Pydantic が生成するのもまさにこの形式です。そのため、**[低レベル Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)** でスキーマを手書きするようになるまで、選ぶべきものは何もありません。
 
 !!! tip
     ここでの型ヒントはドキュメントではありません。**契約そのもの**です。クライアントが `"limit": "ten"` を送ってきても、関数が実行される前に SDK が拒否します。

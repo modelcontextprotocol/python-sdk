@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # 미들웨어 {#middleware}
@@ -53,8 +53,11 @@ tools/call took 0.1 ms
 
 * 연결 설정. `server/discover`이거나, 레거시 세션에서는 `initialize`와
   `notifications/initialized`입니다.
-* 모든 요청과 모든 알림. 알림의 경우 `ctx.request_id is None`이고,
+* 서버에 도달하는 모든 요청과 모든 알림. 알림의 경우 `ctx.request_id is None`이고,
   `call_next(ctx)`는 `None`을 반환하며, 무엇을 반환하든 버려집니다.
+  (`2026-07-28` Streamable HTTP 경로에서는 클라이언트의 알림 POST가 트랜스포트에서 `202`로
+  확인 응답되고 디스패치되지 않으므로 미들웨어에도 도달하지 않습니다. 해당 리비전은 HTTP를
+  통한 클라이언트에서 서버로의 알림을 정의하지 않습니다.)
 * 서버에 핸들러가 없는 메서드까지도 포함됩니다. `call_next`가
   `MCPError(-32601, "Method not found")`를 일으키고, 이 예외는 클라이언트로 가는 길에
   미들웨어를 **통과합니다**.
@@ -113,8 +116,8 @@ OpenTelemetry 스팬을 내보내는 미들웨어입니다. 직접 추가할 필
 * 미들웨어는 `async (ctx, call_next) -> result` 형태이며, `MCPServer(middleware=[...])`로
   전달하거나(또는 `mcp.middleware`에 추가하거나) 저수준 `Server`에서는 `server.middleware`에
   추가합니다.
-* 들어오는 **모든** 메시지(`server/discover`, `initialize`, 요청, 알림, 알 수 없는 메서드)를
-  감싸며 바깥쪽부터 실행됩니다.
+* 서버에 도달하는 들어오는 **모든** 메시지(`server/discover`, `initialize`, 요청, 알림,
+  알 수 없는 메서드)를 감싸며 바깥쪽부터 실행됩니다.
 * `ctx.request_id is None`으로 알림과 요청을 구분합니다.
 * `call_next`를 호출하는 대신 예외를 일으키면 메시지 하나를 거부합니다. 연결은 유지됩니다.
 * SDK 자체의 OpenTelemetry 트레이싱도 미들웨어이며, 이미 목록에 있습니다.

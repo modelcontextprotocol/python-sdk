@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # URI-Templates und Pfadsicherheit {#uri-templates-and-path-safety}
@@ -174,7 +174,7 @@ Sandbox-Grenze nicht kennen. Für Dateisystemzugriffe verwende `safe_join`,
 um den Pfad aufzulösen und zu verifizieren, dass er innerhalb deines
 Basisverzeichnisses bleibt:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -215,9 +215,11 @@ bleibt `safe_join` die Eindämmungsgrenze.
 
 !!! tip
     Kann dein Handler den Request nicht erfüllen (die Datei existiert nicht,
-    die ID ist unbekannt), löse eine Exception aus. Das SDK macht daraus eine
-    Fehler-Response. Den Unterschied zwischen einem Protokollfehler und einem
-    Tool-Fehler erklärt **[Fehler behandeln](handling-errors.md)**.
+    die ID ist unbekannt), löse `ResourceNotFoundError` aus, wie es
+    `read_manual` oben tut. Der Client bekommt `-32602` mit deiner Meldung
+    und dem URI. Eine unerwartete Exception wird stattdessen zu einem
+    generischen `-32603`. Siehe
+    **[Fehler behandeln](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Ressourcen auf dem Low-Level-Server {#resources-on-the-low-level-server}
 

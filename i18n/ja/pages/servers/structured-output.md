@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # 構造化出力 {#structured-output}
@@ -103,7 +103,7 @@ result.structured_content  # {"temperature": 16.2, "humidity": 0.83, "conditions
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-`TypedDict` は実行時にはただの `dict` なので、組み立てて返すのもそれです。スキーマもバリデーションも `structured_content` も、`BaseModel` 版と同一です（説明だけは付きません。`TypedDict` には説明を書く場所がないからです）。
+`TypedDict` は実行時にはただの `dict` なので、組み立てて返すのもそれです。スキーマもバリデーションも `structured_content` も、`BaseModel` 版と同じルールに従います。クラスの docstring や `Annotated[..., Field(description=...)]` を足せばそれが説明になり、dict に入れなかった `NotRequired` のキーは `structured_content` にも入りません。
 
 ## データクラス {#a-dataclass}
 
@@ -185,15 +185,15 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 アノテーションは `WeatherData` を約束しています。ところが、上流のレスポンスが `humidity` を送ってこなくなりました。
 
 !!! check
-    `get_weather` を呼び出しても、中身が半分欠けたオブジェクトがこっそりクライアントに渡ることはありません。呼び出しは失敗し、エラーの冒頭の数行にそのフィールド名が示されます。
+    `get_weather` を呼び出しても、中身が半分欠けたオブジェクトがこっそりクライアントに渡ることはありません。呼び出しは失敗します。クライアントは `Error executing tool get_weather` とともに `is_error=True` を受け取るので、モデルは、ありもしない天気を自信満々に読み上げる代わりに、呼び出しが失敗したと分かります。フィールド名は開発者向けに、サーバーログの `ERROR` レベルに出力されます。
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    このテキストは `is_error=True` の付いたツール結果として返ってくるので、モデルは、ありもしない天気を自信満々に読み上げる代わりに、呼び出しが失敗したと分かります。
 
 ちなみに、`-> WeatherData` のツールから単なる `dict` を返してもかまいません。`json.loads` が返したのはまさにそれです。バリデーションの対象は Python の型ではなく、値です。
 
@@ -208,6 +208,10 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 `output_schema` も、ラップも、バリデーションもありません。`structured_content` は `None` になり、`content` は返した文字列そのものです。
 
 その逆の `structured_output=True` は、自動検出を必須要件に変えます。戻り値の型からスキーマを作れないツールは、テキストにフォールバックするのではなく、インポート時に例外を送出します。
+
+## コンテンツブロックとメディア {#content-blocks-and-media}
+
+コンテンツブロックとメディア（`TextContent`、`EmbeddedResource`、`Image`、`Audio` など）は、何もしなくてもオプトアウトされます。単体で返しても、`list`、`tuple`、`Sequence` の要素にしても、ユニオンの一方にしても同じです。これらはモデルが読むためのものなので、自動検出はそこからスキーマを導き出しません（`Image` と `Audio` については **[画像、音声、アイコン](media.md)** で扱っています）。それでも `structured_output=True` を渡せば、コンテンツブロックのクラスにはスキーマが強制されます。
 
 ## 型ヒントのないクラス {#a-class-without-type-hints}
 
@@ -237,6 +241,6 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 * スカラー、リスト、タプル、ユニオンは `{"result": ...}` でラップされます。モデル、`TypedDict`、データクラス、アノテーション付きクラス、`dict[str, ...]` はもともとオブジェクトなので、そのままです。
 * どの結果も `content`（モデル向けのテキスト）**と** `structured_content`（アプリケーション向けのデータ）の両方を持ちます。
 * 返したものはスキーマに照らして検証されます。食い違いは壊れた結果ではなく、ツールエラーになります。
-* `structured_output=False` を渡すと、そのツールはオプトアウトします。型ヒントのないクラスは黙ってオプトアウトするので、気をつけてください。
+* `structured_output=False` を渡すと、そのツールはオプトアウトします。コンテンツブロック、`Image`、`Audio` はデフォルトでオプトアウトします。型ヒントのないクラスは黙ってオプトアウトするので、気をつけてください。
 
 これで、ツールが返せるものはすべて押さえました。次は 2 つ目のプリミティブ、**[リソース](resources.md)** です。

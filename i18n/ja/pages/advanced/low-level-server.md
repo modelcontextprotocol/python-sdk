@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
   tool: 1
 ---
 # 低レベルの Server {#the-low-level-server}
@@ -116,6 +116,17 @@ asyncio.run(main())
 
 サーバーは 2 つのフィールドを比較しません。この SDK の `Client` は比較します。宣言した `output_schema` を満たさない `structured_content` を返すと、`call_tool` は `Invalid structured content returned by tool search_books` で始まり、続けて `jsonschema` の失敗内容を引用する `RuntimeError` を送出します。スキーマを約束するのは簡単ですが、守るのは自分の仕事です。戻り値の型とスキーマの全段階については **[構造化出力](../servers/structured-output.md)** を参照してください。
 
+## ダイアレクトは JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` と `output_schema` は JSON Schema であり、[MCP 仕様](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) がそのダイアレクトを定めています。`$schema` キーのないスキーマは **JSON Schema 2020-12** です。`MCPServer` が生成するスキーマはこのデフォルトに依存しています（Pydantic は 2020-12 を書き出し、キーを省略します）。手書きの dict にも同じ基準が適用されるので、2020-12 の語彙がすべて使えます。
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema` のルートは `"type": "object"` でなければなりません。その横に置く `oneOf`、`additionalProperties`、`anyOf`、`if`/`then`/`else`、`prefixItems`、ローカルな `$ref` を伴う `$defs`、そのほかの 2020-12 キーワードは、書いたとおりにクライアントに届きます。
+* `$schema` キーは不要です。古いドラフトにオプトインする場合にだけ追加してください。この SDK の `Client` はツールの `output_schema` に照らして `structured_content` を検証しますが、バリデーターは `$schema` から選び、キーがなければ 2020-12 を使います。
+
 ## `_meta`：モデルではなくアプリケーションのために {#\_meta-for-the-application-not-the-model}
 
 `content` は答えのうちモデルが読む部分です。`structured_content` は同じ答えを型付きデータにしたものです。`_meta` は 3 つ目のチャネルで、答えの一部ではまったくなく、**クライアントアプリケーション**のために結果に同乗するデータです。
@@ -166,7 +177,7 @@ asyncio.run(main())
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* 最初の引数はメソッド文字列です。通知には対になる `add_notification_handler` があります。
+* 最初の引数はメソッド文字列です。通知には対になる `add_notification_handler` があります。そのハンドラーは stdio と、ハンドシェイク世代の HTTP 接続で発火します。`2026-07-28` の Streamable HTTP 経路では、クライアントの通知 POST は `202` で受理されるだけでディスパッチされません。このリビジョンは HTTP 上でのクライアントからサーバーへの通知を定義していないからです。
 * `params_type` は、受信した `params` をハンドラーの実行**前**に検証するためのモデルです。つまり、カスタムメソッドはツールが受けられない検証を受けられます。`_meta` フィールドがほかのメソッドと同じようにパースされるよう、`RequestParams` をサブクラス化してください。
 * ハンドラーは `BaseModel`、`dict`、または `None` を返します。SDK がそれを JSON-RPC の結果にシリアライズします。
 

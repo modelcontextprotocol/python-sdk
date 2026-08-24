@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # Elicitation {#elicitation}
@@ -89,7 +89,8 @@ Dieses Schema ist das Formular. `Field(description=...)` ist die Beschriftung; e
 !!! warning
     Ein Elicitation-Schema ist nicht so ausdrucksstark wie das Input-Schema eines Tools. Nur flache,
     primitive Felder: `str`, `int`, `float`, `bool` oder ein `Literal` aus Strings (daraus wird ein `enum`).
-    Steckst du ein Modell in das Modell, löst `ctx.elicit` eine Exception aus, bevor irgendetwas an den Client geht:
+    Steckst du ein Modell in das Modell, löst `ctx.elicit` eine Exception aus, bevor irgendetwas an den Client geht.
+    Der Tool-Aufruf schlägt mit `Error executing tool <name>` fehl, und dein Server-Log nennt den Grund:
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -112,8 +113,8 @@ Eine Absage ist kein Fehler. Das Tool entscheidet, was Ablehnen bedeutet (hier: 
 
 !!! tip
     Die Antwort wird gegen dein Modell validiert, bevor dein Code sie sieht. Ein Client, der
-    `"maybe"` für ein `bool` schickt, bringt deine Buchung nicht durcheinander: Der Aufruf schlägt mit einem
-    Schema-Mismatch-Fehler fehl, dein `if` läuft nie.
+    `"maybe"` für ein `bool` schickt, bringt deine Buchung nicht durcheinander: `ctx.elicit` löst einen
+    `ValueError` aus, der Aufruf schlägt fehl, und dein `if` läuft nie.
 
 ## Die Person zu einer URL schicken {#send-the-user-to-a-url}
 

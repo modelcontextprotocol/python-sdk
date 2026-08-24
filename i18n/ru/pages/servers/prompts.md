@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, ffe823cb0fedd488, f33651add1b59094]
+  sections: [d65c098f37f5b6c3, dd0c2724d6f2877e, 6835bb3570c6714c, d30d3c20168b88b2, f5ef38dad59d6f76, 6e38a699ba57fbdf, 2b984a3bf37a0ddd]
   tool: 1
 ---
 # Промпты {#prompts}
@@ -140,9 +140,54 @@ uv run mcp dev server.py
 ```
 
 !!! info
-    Если вы читали страницу **[Инструменты](tools.md)**, то уже знаете всё, что здесь написано. Тот же декоратор,
+    Если вы читали страницу **[Инструменты](tools.md)**, всё сказанное до этого места вам уже знакомо. Тот же декоратор,
     та же строка документации в роли описания, те же `Annotated`/`Field`. Меняется только то, кто
-    запускает промпт (пользователь) и куда идёт результат (в диалог).
+    запускает промпт (пользователь), и куда идёт результат (в диалог).
+
+## Больше, чем текст {#more-than-text}
+
+`UserMessage` и `AssistantMessage` везде, где принимают `str`, принимают также блок содержимого или вспомогательный объект `Image` / `Audio`. В промптах встречаются два случая: вложить документ и вложить картинку.
+
+### Встраивание файла {#embedding-a-file}
+
+```python title="server.py" hl_lines="5 12 21 23"
+--8<-- "docs_src/prompts/tutorial004.py"
+```
+
+* Руководство по стилю — это ресурс по адресу `style://python` (о ресурсах — на странице **[Ресурсы](resources.md)**), который читается из файла `style-guide.md` рядом с `server.py`. Положите туда любой файл Markdown.
+* `EmbeddedResource(resource=TextResourceContents(...))` (оба из `mcp.types`) несёт файл вместе с его URI и MIME-типом первым сообщением; запрос, который на него ссылается, идёт следом обычным текстом.
+* Встраивание, в отличие от вставки руководства прямо в f-строку, позволяет клиенту показать его как вложение и позже снова открыть `style://python`, а модель получает файл дословно. Для двоичного файла используйте `BlobResourceContents` с `blob` в base64.
+
+После рендеринга `content` первого сообщения — это блок `resource`:
+
+```json
+{"type": "resource", "resource": {"uri": "style://python", "mimeType": "text/markdown", "text": "* Prefer early returns.\n..."}}
+```
+
+### Вложение изображения {#attaching-an-image}
+
+```python title="server.py" hl_lines="4 15"
+--8<-- "docs_src/prompts/tutorial005.py"
+```
+
+* `Image` — вспомогательный класс со страницы **[Изображения, аудио и иконки](media.md)**. `UserMessage` преобразует его в блок `ImageContent` (файл в base64, MIME-тип угадывается по `.png`) при рендеринге промпта; `Audio` точно так же становится `AudioContent`.
+* Положите рядом с `server.py` любой PNG с именем `architecture.png`. Аргументы промпта — строки, поэтому картинка всегда берётся с сервера; `component` даёт только слова.
+
+```json
+{"type": "image", "data": "iVBORw0KGgoAAAANSUhEUg...", "mimeType": "image/png"}
+```
+
+## Изменение списка во время работы {#changing-the-list-at-runtime}
+
+Промпты можно добавлять, пока клиенты подключены, — например, чтобы пользователь мог сохранить инструкцию как собственный пункт меню. Зарегистрируйте промпт, затем отправьте уведомление:
+
+```python title="server.py" hl_lines="5 23-27"
+--8<-- "docs_src/prompts/tutorial006.py"
+```
+
+* `mcp.add_prompt(Prompt.from_function(fn, name=..., description=...))` регистрирует функцию ровно так же, как это сделал бы `@mcp.prompt()`, а `mcp.remove_prompt(name)` — обратная операция. `add_prompt` сохраняет существующую запись с тем же именем, а не перезаписывает её, поэтому инструмент сначала удаляет старую, чтобы сохранение работало как замена. `prompts/list` отражает изменение сразу.
+* `await ctx.notify_prompts_changed()` отправляет `notifications/prompts/list_changed` каждому клиенту `2026-07-28`, который слушает поток `subscriptions/listen` (**[Подписки](../handlers/subscriptions.md)**). `await ctx.session.send_prompt_list_changed()` отправляет его вызывающему клиенту, если тот старше поколения 2026 (**[Обслуживание клиентов старого поколения](../run/legacy-clients.md)**). Вызывайте оба; каждый ничего не делает, когда сообщать некому.
+* Клиент, получивший уведомление, снова вызывает `prompts/list`. В классе `Client` на Python это `async with client.listen(prompts_list_changed=True) as sub:`, который выдаёт событие `PromptsListChanged`.
 
 ## Итоги {#recap}
 
@@ -152,5 +197,7 @@ uv run mcp dev server.py
 * Верните `str` — и она станет одним сообщением пользователя. Верните список `UserMessage` / `AssistantMessage`, чтобы задать многоходовой диалог.
 * `title=` и `Field(description=...)` — это то, что клиент показывает в интерфейсе.
 * Отсутствующий обязательный аргумент проваливает весь запрос. Отдельного результата с ошибкой у промпта нет.
+* Оберните `EmbeddedResource` или `Image` в `UserMessage`, чтобы вложить документ или картинку.
+* Добавляйте и удаляйте промпты во время работы через `mcp.add_prompt(...)` / `mcp.remove_prompt(...)`, затем вызывайте `await ctx.notify_prompts_changed()` и `await ctx.session.send_prompt_list_changed()`.
 
 Автодополнение аргументов промпта (или шаблона ресурса) на стороне сервера — на странице **[Автодополнение](completions.md)**.

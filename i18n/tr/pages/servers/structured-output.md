@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # Yapılandırılmış çıktı {#structured-output}
@@ -105,7 +105,7 @@ Her biçim bir sınıfı hak etmez. Bir `TypedDict` aynı şemayı üretir:
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-`TypedDict` çalışma zamanında düz bir `dict`'tir; siz de onu oluşturup döndürürsünüz. Şema, doğrulama ve `structured_content`, `BaseModel` sürümüyle birebir aynıdır (`TypedDict`'te yeri olmayan açıklamalar hariç).
+`TypedDict` çalışma zamanında düz bir `dict`'tir; siz de onu oluşturup döndürürsünüz. Şema, doğrulama ve `structured_content`, `BaseModel` sürümüyle aynı kurallara uyar: bir sınıf docstring'i ya da `Annotated[..., Field(description=...)]` ekleyin, bunlar şemadaki tanımlar (description) olur; dict'in dışında bıraktığınız bir `NotRequired` anahtar da `structured_content`'in dışında kalır.
 
 ## Bir dataclass {#a-dataclass}
 
@@ -188,16 +188,17 @@ Açıklama `WeatherData` vaat ediyor. Üst servisin yanıtı `humidity` gönderm
 
 !!! check
     `get_weather`'ı çağırdığınızda istemciye sessizce yarı boş bir nesne vermez. Çağrı başarısız
-    olur ve hatanın ilk satırları alanın adını verir:
+    olur: istemci `Error executing tool get_weather` iletisiyle birlikte `is_error=True` alır; böylece
+    model, var olmayan bir hava durumunu kendinden emin biçimde okumak yerine çağrının başarısız
+    olduğunu bilir. Alanın adı ise sizin için, sunucu log'unda `ERROR` düzeyinde:
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    Bu metin, `is_error=True` ile araç sonucu olarak geri döner; böylece model, var olmayan bir hava
-    durumunu kendinden emin biçimde okumak yerine çağrının başarısız olduğunu bilir.
 
 Bu arada, `-> WeatherData` bir araçtan düz bir `dict` döndürmek sorun değil. `json.loads`'un ürettiği tam olarak buydu. Doğrulama Python türüne değil, değere uygulanır.
 
@@ -212,6 +213,10 @@ Bazen dönüş açıklaması protokol için değil, tür denetleyiciniz içindir
 `output_schema` yok, sarmalama yok, doğrulama yok. `structured_content` `None`'dır ve `content` döndürdüğünüz dizgedir.
 
 Tersi olan `structured_output=True`, otomatik algılamayı bir zorunluluğa çevirir: dönüş türü şema üretemeyen bir araç, metne geri düşmek yerine içe aktarma anında istisna fırlatır.
+
+## İçerik blokları ve medya {#content-blocks-and-media}
+
+İçerik blokları ve medya (`TextContent`, `EmbeddedResource`, `Image`, `Audio` ve benzerleri; tek başlarına, bir `list`, `tuple` ya da `Sequence`'in öğeleri olarak veya bir union'ın kolları olarak) sizin yerinize devre dışı bırakılır: bunlar modelin okuması içindir, bu yüzden otomatik algılama onlardan şema türetmez (`Image` ve `Audio`'yu **[Görseller, ses ve simgeler](media.md)** sayfası anlatır). `structured_output=True`, içerik bloğu sınıfları için yine de bir şemayı zorunlu kılar.
 
 ## Tür ipucu olmayan bir sınıf {#a-class-without-type-hints}
 
@@ -245,6 +250,6 @@ Tersi olan `structured_output=True`, otomatik algılamayı bir zorunluluğa çev
 * Skalerler, listeler, tuple'lar ve union'lar `{"result": ...}` içine sarılır. Modeller, `TypedDict`'ler, dataclass'lar, açıklamalı sınıflar ve `dict[str, ...]` zaten nesnedir ve oldukları gibi kalırlar.
 * Her sonuç hem `content` (metin, model için) **hem de** `structured_content` (veri, uygulama için) taşır.
 * Döndürdüğünüz şey şemaya göre doğrulanır. Uyuşmazlık bozuk bir sonuç değil, bir araç hatasıdır.
-* `structured_output=False` bir aracı devre dışı bırakır. Tür ipucu olmayan bir sınıf sessizce devre dışı kalır; buna dikkat edin.
+* `structured_output=False` bir aracı devre dışı bırakır. İçerik blokları, `Image` ve `Audio` varsayılan olarak devre dışıdır; tür ipucu olmayan bir sınıf sessizce devre dışı kalır, buna dikkat edin.
 
 Artık bir aracın geri söyleyebileceği her şeye hâkimsiniz. Sırada ikinci ilkel yapı var: **[Kaynaklar](resources.md)**.

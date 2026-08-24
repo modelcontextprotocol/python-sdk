@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
   tool: 1
 ---
 # Düşük seviyeli Server {#the-low-level-server}
@@ -116,6 +116,17 @@ Bu genellenebilir. Düşük seviyeli bir işleyiciden fırlatılan istisna **her
 
 Sunucu bu iki alanı asla karşılaştırmaz. Bu SDK'nın `Client`'ı karşılaştırır: bildirdiğiniz `output_schema`'yı karşılamayan bir `structured_content` döndürün, `call_tool` `Invalid structured content returned by tool search_books` ile başlayıp `jsonschema` hatasını alıntılayarak devam eden bir `RuntimeError` fırlatır. Bir şema vaat etmek ucuzdur; sözünüzü tutmak size kalır. Dönüş türleri ve şemaların tüm basamakları **[Yapılandırılmış çıktı](../servers/structured-output.md)** sayfasında.
 
+## Lehçe: JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` ve `output_schema` birer JSON Schema'dır ve lehçeyi [MCP belirtimi](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) sabitler: `$schema` anahtarı olmayan bir şema **JSON Schema 2020-12**'dir. `MCPServer`'ın ürettiği şemalar bu varsayılana dayanır (Pydantic 2020-12 yazar ve anahtarı koymaz); elle yazılmış bir dict de aynı kurala tabidir. Yani 2020-12 söz dağarcığının tamamı kullanılabilir:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* `input_schema`'nın kökü `"type": "object"` olmalıdır. Onun yanında `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, yerel `$ref`'lerle `$defs` ve 2020-12 anahtar sözcüklerinin geri kalanı istemciye tam yazıldığı gibi ulaşır.
+* `$schema` anahtarı gerekmez. Yalnızca daha eski bir taslağı seçmek için ekleyin: `structured_content`'i bir aracın `output_schema`'sına göre doğrulayan bu SDK'nın `Client`'ı, doğrulayıcısını `$schema`'ya göre seçer ve hiç yoksa 2020-12 kullanır.
+
 ## `_meta`: model için değil, uygulama için {#\_meta-for-the-application-not-the-model}
 
 `content`, yanıtın modelin okuduğu kısmıdır. `structured_content`, aynı yanıtın tür bilgisi taşıyan veri halidir. `_meta` üçüncü kanaldır: yanıtın hiçbir şekilde parçası olmadan, **istemci uygulama** için sonuçla birlikte yolculuk eden veri.
@@ -167,7 +178,7 @@ Yapıcı, MCP'nin tanımladığı metotları kapsar. `add_request_handler` geri 
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* İlk argüman metot dizesidir. Bildirimlerin bir ikizi vardır: `add_notification_handler`.
+* İlk argüman metot dizesidir. Bildirimlerin bir ikizi vardır: `add_notification_handler`. Onun işleyicileri stdio'da ve el sıkışma neslinden HTTP bağlantılarında tetiklenir; `2026-07-28` Streamable HTTP yolunda istemcinin bildirim POST'u `202` ile onaylanır ve işleyiciye iletilmez, çünkü o revizyon HTTP üzerinden istemciden sunucuya hiçbir bildirim tanımlamaz.
 * `params_type`, gelen `params`'ın işleyiciniz çalışmadan **önce** doğrulandığı modeldir; yani özel metotlar, araçların almadığı doğrulamayı *alır*. `_meta` alanının diğer her metotta olduğu gibi ayrıştırılması için `RequestParams`'tan alt sınıf türetin.
 * İşleyici bir `BaseModel`, bir `dict` ya da `None` döndürür. SDK bunu JSON-RPC sonucuna serileştirir.
 

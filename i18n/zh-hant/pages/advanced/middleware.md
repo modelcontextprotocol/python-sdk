@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # 中介軟體 {#middleware}
@@ -42,7 +42,7 @@ tools/call took 0.1 ms
 重點就在這裡。中介軟體包住**每一則**傳入的訊息：
 
 * 連線建立階段：`server/discover`，或在舊版工作階段（session）上的 `initialize` 和 `notifications/initialized`。
-* 每一個請求和每一則通知。對通知而言，`ctx.request_id is None`，`call_next(ctx)` 回傳 `None`，而你回傳的任何東西都會被丟棄。
+* 每一個抵達伺服器的請求和每一則通知。對通知而言，`ctx.request_id is None`，`call_next(ctx)` 回傳 `None`，而你回傳的任何東西都會被丟棄。（在 `2026-07-28` 的 Streamable HTTP 路徑上，用戶端以 POST 送出的通知會在傳輸層直接以 `202` 確認收到、從不分派，所以也不會抵達中介軟體；該修訂版沒有定義任何透過 HTTP 由用戶端送往伺服器的通知。）
 * 連伺服器沒有處理函式的方法也一樣：`call_next` 會引發 `MCPError(-32601, "Method not found")`，**穿過**你的中介軟體一路送到用戶端。
 
 ## 在裡面能做什麼 {#what-you-can-do-inside-one}
@@ -75,7 +75,7 @@ SDK 只附帶一個中介軟體，而且它已經在伺服器的清單上了：�
 ## 重點回顧 {#recap}
 
 * 中介軟體是 `async (ctx, call_next) -> result`，以 `MCPServer(middleware=[...])` 傳入（或附加到 `mcp.middleware`），在低階的 `Server` 上則附加到 `server.middleware`。
-* 它包住**每一則**傳入的訊息（`server/discover`、`initialize`、請求、通知、未知的方法），並由最外層開始執行。
+* 它包住**每一則**抵達伺服器的傳入訊息（`server/discover`、`initialize`、請求、通知、未知的方法），並由最外層開始執行。
 * 用 `ctx.request_id is None` 區分通知和請求。
 * 不呼叫 `call_next` 改為引發例外，就能拒絕一則訊息；連線會存活下來。
 * SDK 自己的 OpenTelemetry 追蹤也是一個中介軟體，已經在清單上。請見 **[OpenTelemetry](../run/opentelemetry.md)**。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # URI templates और path safety {#uri-templates-and-path-safety}
@@ -115,7 +115,7 @@ template parameters client से आते हैं। अगर वे बि
 
 built-in जाँचें आम मामलों को रोकती हैं लेकिन आपकी sandbox सीमा नहीं जान सकतीं। filesystem access के लिए, path resolve करने और यह पक्का करने के लिए कि वह आपकी base directory के अंदर ही रहे, `safe_join` इस्तेमाल करें:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -146,7 +146,7 @@ configure की जा सकने वाली जाँचें:
 `safe_join` ही containment boundary बना रहता है।
 
 !!! tip
-    अगर आपका handler request पूरी नहीं कर सकता (file मौजूद नहीं है, id अनजान है), तो exception raise करें। SDK उसे error response में बदल देता है। protocol error और tool error के बीच के फ़र्क़ के लिए **[errors संभालना](handling-errors.md)** देखें।
+    अगर आपका handler request पूरी नहीं कर सकता (file मौजूद नहीं है, id अनजान है), तो `ResourceNotFoundError` raise करें, जैसा ऊपर `read_manual` करता है। client को आपके message और URI के साथ `-32602` मिलता है। कोई अनपेक्षित exception इसकी जगह generic `-32603` बन जाता है। **[errors संभालना](handling-errors.md#a-resource-that-doesnt-exist)** देखें।
 
 ## Low-level Server पर resources {#resources-on-the-low-level-server}
 

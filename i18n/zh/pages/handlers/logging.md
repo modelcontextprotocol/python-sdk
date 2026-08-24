@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # 日志 {#logging}
@@ -48,6 +48,8 @@ MCP 在协议层面有一个**日志能力**（logging capability）：服务器
 默认值是 `"INFO"`。
 
 `logging.basicConfig()` 永远不会替换已经存在的 handler。如果你在创建服务器之前自己配置了日志，以你的配置为准。
+
+也不需要只为了记录失败而在每个处理函数里都写 `try`/`except`。工具或资源函数抛出异常时，SDK 会替你记录下来。记录了什么、用哪个级别，详见 **[处理错误](../servers/handling-errors.md#any-other-exception)**。
 
 ## 试一试 {#try-it}
 

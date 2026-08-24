@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # Conectarse a un host real {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ Esto significa que conectarse a un host es un único acto: le indicas **el coman
 
 ## Un servidor, todos los hosts {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -50,7 +50,7 @@ También es el comando que `mcp install` escribe por ti en la configuración de 
 
     Y un host no es más que una aplicación con un cliente MCP dentro, así que tu propio código
     Python puede hacer el papel del host: **[Transportes del cliente](../client/transports.md)** lanza
-    este mismo archivo como subproceso con `stdio_client(...)`, y **[Pruebas](testing.md)**
+    este mismo archivo como subproceso con `Client(StdioServerParameters(...))`, y **[Pruebas](testing.md)**
     se conecta a él en memoria, sin ningún proceso.
 
 ## Claude Desktop {#claude-desktop}

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # 클라이언트 {#the-client}
@@ -27,9 +27,10 @@ translation:
 
 * `MCPServer`(또는 저수준 `Server`) 인스턴스: **프로세스 내부**에서 연결합니다.
 * URL 문자열(`Client("http://localhost:8000/mcp")`): 프로덕션 경로인 Streamable HTTP입니다.
-* **트랜스포트**: `async with ... as (read, write)`로 사용할 수 있는 모든 것, 예를 들어 서브프로세스를 감싸는 `stdio_client(...)`입니다.
+* `StdioServerParameters`: **서브프로세스**로 실행할 명령이며, 그 stdin과 stdout을 통해 통신합니다.
+* **트랜스포트**: `async with ... as (read, write)`로 사용할 수 있는 모든 것, 예를 들어 직접 만든 HTTP 클라이언트를 감싸는 `streamable_http_client(url, http_client=...)`입니다.
 
-이 페이지의 나머지 내용은 세 가지 모두에서 동일합니다. 헤더, 서브프로세스, 타임아웃, `Transport` 프로토콜은 별도의 페이지인 **[클라이언트 트랜스포트](transports.md)**에서 다룹니다.
+이 페이지의 나머지 내용은 네 가지 모두에서 동일합니다. 헤더, 서브프로세스, 타임아웃, `Transport` 프로토콜은 별도의 페이지인 **[클라이언트 트랜스포트](transports.md)**에서 다룹니다.
 
 ### 연결된 클라이언트에 있는 것 {#whats-on-a-connected-client}
 
@@ -85,7 +86,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)`는 도구를 실행하고 `CallToolResult`를 돌려줍니다.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +118,7 @@ result.is_error            # False
 
 !!! check
     `lookup_book`에 `"Solaris"`(카탈로그에 없는 제목)를 요청하면 함수가
-    `ValueError`를 발생시킵니다. 그래도 호출은 정상적으로 반환됩니다.
+    `ToolError`를 발생시킵니다. 그래도 호출은 정상적으로 반환됩니다.
 
     ```python
     result.is_error            # True
@@ -125,8 +126,9 @@ result.is_error            # False
     result.structured_content  # None
     ```
 
-    예외 메시지는 **모델**이 읽고 다시 시도할 수 있는 `content`에 담겼습니다. 이는
-    의도된 것입니다. 도구 오류는 충돌이 아니라 대화의 일부입니다. `structured_content`를
+    `ToolError`의 메시지는 **모델**이 읽고 다시 시도할 수 있는 `content`에 담겼습니다. 이는
+    의도된 것입니다. 도구 오류는 충돌이 아니라 대화의 일부입니다. (도구가 다른 예외로
+    충돌했다면 `content`에는 `Error executing tool lookup_book`만 담겼을 것입니다.) `structured_content`를
     믿기 전에 항상 `is_error`를 확인하세요.
 
 !!! warning

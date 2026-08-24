@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # Pruebas {#testing}
@@ -84,9 +84,10 @@ async def test_call_add_tool(client: Client):
 Pueden fallar dos cosas distintas, y este indicador solo afecta a una de ellas.
 
 Una excepción dentro de una de **tus herramientas** no es un fallo del protocolo. Se convierte en un
-resultado normal con `is_error=True`, y el modelo lee el mensaje. `raise_exceptions` no cambia eso:
-con o sin él, `call_tool` devuelve el mismo resultado con `is_error=True`. Hay una página entera
-dedicada a esto: **[Manejo de errores](../servers/handling-errors.md)**.
+resultado normal con `is_error=True` (y si era un `ToolError`, el modelo lee tu mensaje).
+`raise_exceptions` no cambia eso: con o sin él, `call_tool` devuelve el mismo resultado con
+`is_error=True`. Hay una página entera dedicada a esto:
+**[Manejo de errores](../servers/handling-errors.md)**.
 
 Un fallo **fuera** del cuerpo de una herramienta es otra cosa. En la conexión que te da
 `Client(mcp)`, el servidor lo depura y lo convierte en un genérico `"Internal server error"` antes de

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # Executando seu servidor {#running-your-server}
@@ -72,7 +72,7 @@ Cada transporte tem seus próprios argumentos nomeados, todos em `run()`:
 * `streamable_http_path`: onde fica o endpoint MCP. Padrão `/mcp`.
 * `json_response=True`: responde a cada POST com um único corpo JSON em vez de um fluxo SSE. Esse corpo tem espaço para a resposta e nada mais, então uma ferramenta que chama o cliente de volta no meio da requisição (`ctx.elicit()`, amostragem (sampling)) lança `NoBackChannelError` nesse trecho, e as notificações ligadas à chamada em andamento (progresso de `ctx.report_progress()`, mensagens de log por chamada) são descartadas; o fluxo `GET` avulso continua transportando as que não têm relação.
 * `stateless_http=True`: um transporte novo por requisição, sem rastreamento de sessão.
-* `max_request_body_size`: maior corpo de POST aceito, em bytes. O padrão é 4 MiB; requisições maiores
+* `max_request_body_size`: maior corpo de requisição aceito, em bytes. O padrão é 4 MiB; requisições maiores
   recebem HTTP 413 antes do parsing ou da criação da sessão. Aumente apenas quando mensagens MCP legítimas
   ultrapassarem esse tamanho.
 * `event_store`, `retry_interval`, `transport_security`: retomada e proteção contra DNS rebinding. Podem esperar até você fazer o deploy em algum lugar que não seja o localhost; **[Deploy e escala](deploy.md)** cobre `transport_security`.
