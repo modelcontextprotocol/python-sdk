@@ -1,4 +1,5 @@
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 mcp = MCPServer("Bookshop")
 
@@ -20,7 +21,7 @@ def search_books(query: str) -> list[str]:
 def get_author(title: str) -> str:
     """Look up the author of a book in the catalog."""
     if title not in CATALOG:
-        raise ValueError(f"No book titled {title!r} in the catalog.")
+        raise ToolError(f"No book titled {title!r} in the catalog.")
     return CATALOG[title]
 
 

@@ -85,7 +85,7 @@ async def test_call_tool_result_has_three_things_to_read() -> None:
 
 
 async def test_a_raising_tool_is_a_result_not_an_exception() -> None:
-    """tutorial003 `!!! check`: the exception's message comes back in content with is_error=True."""
+    """tutorial003 `!!! check`: the ToolError's message comes back in content with is_error=True."""
     async with Client(tutorial003.mcp) as client:
         result = await client.call_tool("lookup_book", {"title": "Solaris"})
         assert result.is_error

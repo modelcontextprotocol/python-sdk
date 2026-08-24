@@ -84,7 +84,8 @@ That schema is the form. `Field(description=...)` is the label; a default pre-fi
 !!! warning
     An elicitation schema is not as expressive as a tool's input schema. Flat, primitive fields
     only: `str`, `int`, `float`, `bool`, or a `Literal` of strings (it becomes an `enum`).
-    Put a model inside the model and `ctx.elicit` raises before anything is sent to the client:
+    Put a model inside the model and `ctx.elicit` raises before anything is sent to the client.
+    The tool call fails with `Error executing tool <name>`, and your server log has the reason:
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -107,8 +108,8 @@ A refusal is not an error. The tool decides what declining means (here, no booki
 
 !!! tip
     The answer is validated against your model before your code sees it. A client that sends
-    `"maybe"` for a `bool` doesn't corrupt your booking: the call fails with a
-    schema-mismatch error, your `if` never runs.
+    `"maybe"` for a `bool` doesn't corrupt your booking: `ctx.elicit` raises `ValueError`, the call
+    fails, and your `if` never runs.
 
 ## Send the user to a URL
 

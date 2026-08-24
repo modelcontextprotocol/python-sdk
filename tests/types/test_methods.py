@@ -474,6 +474,22 @@ def test_elicit_request_surface_accepts_loose_property_schemas():
     assert isinstance(parsed, types.ElicitRequest)
 
 
+def test_2025_11_25_tool_schema_surfaces_accept_boolean_sub_schemas():
+    """JSON Schema 2020-12 allows `true`/`false` wherever a sub-schema is expected; real servers emit them."""
+    tool = {
+        "name": "echo",
+        "inputSchema": {"type": "object", "properties": {"arg": True}},
+        "outputSchema": {
+            "type": "object",
+            "properties": {"result": True, "hidden": False, "rows": {"type": "array", "items": True}},
+            "required": ["result"],
+        },
+    }
+    sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
+    assert sieved["tools"][0]["inputSchema"] == tool["inputSchema"]
+    assert sieved["tools"][0]["outputSchema"] == tool["outputSchema"]
+
+
 def test_response_map_keys_mirror_the_request_map_keys():
     assert set(methods.SERVER_RESULTS) == set(methods.CLIENT_REQUESTS)
     assert set(methods.CLIENT_RESULTS) == set(methods.SERVER_REQUESTS)

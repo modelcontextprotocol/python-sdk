@@ -169,8 +169,12 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             The resource content as either text or bytes
 
         Raises:
-            ResourceNotFoundError: If no resource or template matches the URI.
-            ResourceError: If template creation or resource reading fails.
+            ResourceNotFoundError: If no resource or template matches the URI, or the
+                handler raised it.
+            ResourceError: If the resource or template function raises `ResourceError`.
+            UnexpectedResourceError: If the resource or template function raises anything
+                else. `__cause__` is the original exception. Left uncaught in a tool, this
+                is logged as the tool's crash, while the two above are not.
             RuntimeError: If the resource returned an `InputRequiredResult`.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"

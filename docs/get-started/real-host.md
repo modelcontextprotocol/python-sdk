@@ -6,7 +6,7 @@ Which means connecting to a host is one act: you tell it **the command that star
 
 ## One server, every host
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
