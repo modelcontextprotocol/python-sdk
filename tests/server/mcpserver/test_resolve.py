@@ -1,6 +1,7 @@
 """Tests for resolver dependency injection (MRTR) on MCPServer tools."""
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Literal, TypeVar, cast
@@ -1761,10 +1762,13 @@ def test_unevaluable_alias_and_parameterized_generics_declare_no_arm():
 
 
 @pytest.mark.anyio
-async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_error():
+async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_error(
+    caplog: pytest.LogCaptureFixture,
+):
     # The annotated form of this combination is rejected at registration; a body
     # that returns an InputRequiredResult without declaring it fails loudly at the
     # same boundary instead of silently fighting the resolvers for the channel.
+    # It is an authoring bug, so it is logged as a crash rather than at INFO.
     mcp = MCPServer(name="DynamicChannelClash", request_state_security=RequestStateSecurity.ephemeral())
 
     async def lookup(ctx: Context) -> Login:
@@ -1774,11 +1778,16 @@ async def test_tool_returning_input_required_dynamically_with_resolvers_is_an_er
     async def sneaky(login: Annotated[Login, Resolve(lookup)]):
         return InputRequiredResult(input_requests={}, request_state="opaque")
 
+    caplog.set_level(logging.INFO)
     async with Client(mcp) as client:
         result = await client.call_tool("sneaky", {})
         assert result.is_error
         assert isinstance(result.content[0], TextContent)
-        assert "the multi-round flow is driven either by resolvers or by the tool body" in result.content[0].text
+        assert result.content[0].text == "Error executing tool sneaky"
+    (record,) = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
+    assert (record.levelname, record.getMessage()) == ("ERROR", "Tool 'sneaky' raised an unexpected exception")
+    assert record.exc_info is not None and record.exc_info[1] is not None
+    assert "the multi-round flow is driven either by resolvers or by the tool body" in str(record.exc_info[1].__cause__)
 
 
 def test_question_digest_pins_the_rendered_question():

@@ -992,8 +992,8 @@ its behavior is unchanged.
 `MCPError` carries `ErrorData` and is the SDK's protocol-error type — raise it
 when the request itself should be rejected (missing client capability,
 elicitation required, invalid parameters). For tool *execution* failures the
-calling LLM should see and react to, raise any other exception or return
-`CallToolResult(is_error=True, ...)` directly; that path is unchanged.
+calling LLM should see and react to, raise `ToolError` or return
+`CallToolResult(is_error=True, ...)` directly.
 
 The client sees this change too. `Client.call_tool()` and
 `ClientSession.call_tool()` raise on a JSON-RPC error response, so a tool that
@@ -1016,7 +1016,7 @@ except MCPError as e:
 
 ### Resource not found returns `-32602` and resource lookups raise typed exceptions (SEP-2164)
 
-Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a template handler that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
+Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a resource handler (static or template) that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
 
@@ -2737,7 +2737,7 @@ One behavioral caveat when moving progress-reporting handlers onto `Client(serve
 
 Every deprecation below is a runtime warning as well as a type-checker one: deprecated methods and helpers emit `mcp.MCPDeprecationWarning` on each call, and the deprecated `Server(...)` constructor parameters (`on_set_logging_level`, `on_roots_list_changed`, `on_progress`) emit it at construction time. The category subclasses `UserWarning`, not `DeprecationWarning`, so it is visible by default; [Deprecated features](deprecated.md) has the full list and each replacement.
 
-Under pytest's `filterwarnings = ["error"]`, that warning becomes an exception at the first deprecated call. Inside an `@mcp.tool()` handler the exception is caught like any other and returned as `CallToolResult(is_error=True)` (`Error executing tool ...: The logging capability is deprecated as of 2026-07-28 (SEP-2577).`), which reads as a failing tool rather than a warning. Keep the warnings visible but non-fatal with:
+Under pytest's `filterwarnings = ["error"]`, that warning becomes an exception at the first deprecated call. Inside an `@mcp.tool()` handler the exception is caught like any other and returned as `CallToolResult(is_error=True)` (`Error executing tool ...`, with the `MCPDeprecationWarning` traceback in the server log), which reads as a failing tool rather than a warning. Keep the warnings visible but non-fatal with:
 
 ```toml
 [tool.pytest.ini_options]

@@ -14,6 +14,7 @@ from mcp_types import (
 
 from mcp import MCPError
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
@@ -149,6 +150,28 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
 
     assert exc_info.value.error == snapshot(
         ErrorData(code=-32603, message="Error reading resource res://boom", data={"uri": "res://boom"})
+    )
+
+
+@requirement("mcpserver:resource:static-not-found")
+async def test_static_resource_function_raising_not_found_is_invalid_params(connect: Connect) -> None:
+    """ResourceNotFoundError from a fixed-URI resource function reaches the caller as -32602 with its message.
+
+    A static resource can still be absent (a report not generated yet, a file that comes and goes),
+    and the handler's message passes through exactly as it does from a template function.
+    """
+    mcp = MCPServer("library")
+
+    @mcp.resource("reports://latest")
+    def latest() -> str:
+        raise ResourceNotFoundError("no report has been generated yet")
+
+    async with connect(mcp) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("reports://latest")
+
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=-32602, message="no report has been generated yet", data={"uri": "reports://latest"})
     )
 
 
