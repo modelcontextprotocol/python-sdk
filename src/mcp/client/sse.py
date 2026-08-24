@@ -115,21 +115,49 @@ async def sse_client(
                 finally:
                     await read_stream_writer.aclose()
 
+            async def _fail_request(message: types.JSONRPCMessage, exc: httpx2.HTTPError) -> None:
+                """Resolve the request this failed POST carried, so its caller raises instead of hanging.
+
+                Correlated by request id rather than fanned out across the session:
+                one rejected POST must not tear down unrelated in-flight requests.
+                A notification has no waiter, so there is nothing to resolve.
+                """
+                if not isinstance(message, types.JSONRPCRequest):
+                    return
+                status = exc.response.status_code if isinstance(exc, httpx2.HTTPStatusError) else None
+                error = types.ErrorData(
+                    code=types.INTERNAL_ERROR,
+                    message=f"Sending the request failed: {exc}",
+                    # The HTTP status is the whole diagnosis for 401/403 vs 5xx, and
+                    # the JSON-RPC code cannot carry it.
+                    data={"http_status": status} if status is not None else None,
+                )
+                reply = SessionMessage(types.JSONRPCError(jsonrpc="2.0", id=message.id, error=error))
+                try:
+                    await read_stream_writer.send(reply)
+                except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
+                    logger.debug("read stream closed before request %r could be failed", message.id)
+
             async def post_writer(endpoint_url: str):
                 try:
                     async with write_stream_reader, write_stream:
 
                         async def _send_message(session_message: SessionMessage) -> None:
                             logger.debug(f"Sending client message: {session_message}")
-                            response = await client.post(
-                                endpoint_url,
-                                json=session_message.message.model_dump(
-                                    by_alias=True,
-                                    mode="json",
-                                    exclude_unset=True,
-                                ),
-                            )
-                            response.raise_for_status()
+                            try:
+                                response = await client.post(
+                                    endpoint_url,
+                                    json=session_message.message.model_dump(
+                                        by_alias=True,
+                                        mode="json",
+                                        exclude_unset=True,
+                                    ),
+                                )
+                                response.raise_for_status()
+                            except httpx2.HTTPError as exc:
+                                logger.exception("Error sending client message")
+                                await _fail_request(session_message.message, exc)
+                                return
                             logger.debug(f"Client message sent successfully: {response.status_code}")
 
                         async for session_message in write_stream_reader:

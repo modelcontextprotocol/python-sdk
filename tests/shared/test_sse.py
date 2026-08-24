@@ -480,3 +480,42 @@ async def test_sse_session_cleanup_on_disconnect() -> None:
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 404
+
+
+def make_post_rejecting_app(status_code: int) -> Starlette:
+    """SSE transport whose message POST endpoint always fails with `status_code`."""
+    sse = SseServerTransport(
+        "/messages/", security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    )
+    server = Server(SERVER_NAME, on_read_resource=_handle_read_resource)
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+        return Response()
+
+    async def reject_post(request: Request) -> Response:
+        return Response(status_code=status_code)
+
+    return Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Route("/messages/", endpoint=reject_post, methods=["POST"]),
+        ]
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [401, 403, 500])
+async def test_sse_post_error_reaches_caller(status_code: int) -> None:
+    """A non-2xx POST surfaces to the awaiting caller instead of hanging it forever."""
+    factory = in_process_client_factory(make_post_rejecting_app(status_code))
+
+    with anyio.fail_after(5):
+        async with sse_client(f"{BASE_URL}/sse", httpx_client_factory=factory) as streams:
+            async with ClientSession(*streams) as session:
+                with pytest.raises(MCPError) as exc_info:
+                    await session.initialize()
+
+    # The HTTP status survives on `data` — 401/403 must stay distinguishable from 5xx.
+    assert exc_info.value.error.data == {"http_status": status_code}

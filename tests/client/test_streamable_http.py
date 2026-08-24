@@ -748,3 +748,28 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
             )
     send.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [401, 403, 500, 502])
+async def test_non_2xx_post_preserves_http_status(status_code: int) -> None:
+    """The HTTP status survives on `ErrorData.data` so 401/403 stay distinguishable from 5xx.
+
+    The JSON-RPC code cannot carry it: every non-404 failure maps to INTERNAL_ERROR,
+    which on its own says nothing about whether the caller should re-authenticate.
+    """
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(status_code)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})))
+            reply = await read.receive()
+
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.data == {"http_status": status_code}

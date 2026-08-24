@@ -367,7 +367,13 @@ class StreamableHTTPTransport:
                         else:
                             error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     else:
-                        error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                        # The status rides on `data`: INTERNAL_ERROR alone can't tell a
+                        # caller whether to re-authenticate (401/403) or retry (5xx).
+                        error_data = ErrorData(
+                            code=INTERNAL_ERROR,
+                            message="Server returned an error response",
+                            data={"http_status": response.status_code},
+                        )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
