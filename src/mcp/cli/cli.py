@@ -45,7 +45,7 @@ def _get_npx_command():
         # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
             try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
+                subprocess.run([cmd, "--version"], check=True, capture_output=True)
                 return cmd
             except subprocess.CalledProcessError:
                 continue
@@ -271,12 +271,13 @@ def dev(
             )
             sys.exit(1)
 
-        # Run the MCP Inspector command with shell=True on Windows
-        shell = sys.platform == "win32"
+        # Pass an argv list directly to the process. Using cmd.exe on Windows
+        # makes every argument part of a shell command and can reinterpret
+        # repository/file-controlled values.
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
-            shell=shell,
+            shell=False,
             env=dict(os.environ.items()),  # Copy the environment for subprocess launch
         )
         sys.exit(process.returncode)
