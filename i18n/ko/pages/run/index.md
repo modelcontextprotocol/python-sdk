@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 7a53ead3e704a7f0, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # 서버 실행하기 {#running-your-server}
@@ -72,7 +72,7 @@ Inspector는 실제 호스트가 하는 일을 그대로 합니다. `server.py`�
 * `streamable_http_path`: MCP 엔드포인트가 위치하는 경로. 기본값은 `/mcp`입니다.
 * `json_response=True`: 각 POST에 SSE 스트림 대신 단일 JSON 본문으로 응답합니다. 이 본문에는 응답 외에 다른 것을 담을 자리가 없으므로, 요청 도중 클라이언트를 다시 호출하는 도구(`ctx.elicit()`, 샘플링)는 이 구간에서 `NoBackChannelError`를 발생시키고, 진행 중인 호출에 묶인 알림(`ctx.report_progress()`의 진행 상황, 호출별 로그 메시지)은 버려집니다. 독립된 `GET` 스트림은 관련 없는 알림을 여전히 전달합니다.
 * `stateless_http=True`: 요청마다 새 트랜스포트를 만들고 세션을 추적하지 않습니다.
-* `max_request_body_size`: 허용되는 POST 본문의 최대 크기(바이트). 기본값은 4MiB이며, 더 큰 요청은
+* `max_request_body_size`: 허용되는 요청 본문의 최대 크기(바이트). 기본값은 4MiB이며, 더 큰 요청은
   파싱이나 세션 생성 전에 HTTP 413을 받습니다. 정상적인 MCP 메시지가 이 크기를 넘을 때만
   올리세요.
 * `event_store`, `retry_interval`, `transport_security`: 재개 가능성과 DNS 리바인딩 보호. localhost가 아닌 곳에 배포하기 전까지는 미뤄도 됩니다. `transport_security`는 **[배포와 확장](deploy.md)**에서 다룹니다.

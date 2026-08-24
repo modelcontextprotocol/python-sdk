@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # ミドルウェア {#middleware}
@@ -42,7 +42,7 @@ tools/call took 0.1 ms
 ここがポイントです。ミドルウェアは受信する**すべての**メッセージを包みます。
 
 * 接続のセットアップ。`server/discover`、あるいはレガシーセッションでは `initialize` と `notifications/initialized` です。
-* すべてのリクエストとすべての通知。通知の場合は `ctx.request_id is None` であり、`call_next(ctx)` は `None` を返し、何を返しても破棄されます。
+* サーバーに届くすべてのリクエストとすべての通知。通知の場合は `ctx.request_id is None` であり、`call_next(ctx)` は `None` を返し、何を返しても破棄されます。（`2026-07-28` の Streamable HTTP 経路では、クライアントの通知 POST はトランスポートで `202` として受領されるだけでディスパッチされないため、ミドルウェアにも届きません。このリビジョンは HTTP 上でのクライアントからサーバーへの通知を定義していません。）
 * サーバーにハンドラーがないメソッドでさえ対象です。`call_next` は `MCPError(-32601, "Method not found")` を送出し、それがミドルウェアを「通り抜けて」クライアントへ向かいます。
 
 ## ミドルウェアの中でできること {#what-you-can-do-inside-one}
@@ -75,7 +75,7 @@ SDK が同梱するミドルウェアはちょうど 1 つで、すでにサー�
 ## まとめ {#recap}
 
 * ミドルウェアは `async (ctx, call_next) -> result` です。`MCPServer(middleware=[...])` として渡すか（または `mcp.middleware` に追加し）、低レベルの `Server` では `server.middleware` に追加します。
-* 受信する**すべての**メッセージ（`server/discover`、`initialize`、リクエスト、通知、未知のメソッド）を包み、外側から順に実行されます。
+* サーバーに届く**すべての**受信メッセージ（`server/discover`、`initialize`、リクエスト、通知、未知のメソッド）を包み、外側から順に実行されます。
 * `ctx.request_id is None` で、通知とリクエストを見分けます。
 * `call_next` を呼ぶ代わりに例外を送出すると、メッセージを 1 つ拒否できます。接続は維持されます。
 * SDK 自身の OpenTelemetry トレースもミドルウェアであり、すでにリストに載っています。**[OpenTelemetry](../run/opentelemetry.md)** を参照してください。

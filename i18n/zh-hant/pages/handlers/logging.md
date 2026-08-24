@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # 記錄 {#logging}
@@ -48,6 +48,8 @@ MCP 有一個協定層級的 **logging 能力**：伺服器可以透過 `Context
 預設值是 `"INFO"`。
 
 `logging.basicConfig()` 永遠不會取代已經存在的 handler。如果在建立伺服器之前就自己設定好記錄，以你的設定為準。
+
+也不需要只為了記下失敗，就在每個處理函式裡包一層 `try`/`except`。工具或資源函式引發例外時，SDK 會替你記錄下來。記錄了什麼、用哪個層級，請見 **[處理錯誤](../servers/handling-errors.md#any-other-exception)**。
 
 ## 試試看 {#try-it}
 

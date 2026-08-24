@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [e4cc390d56573409, 8566e2b68594e9ad, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
+  sections: [e4cc390d56573409, f30cf8103a6e918c, 2c97b9f888398951, 048e5471dfa71aea, 3076b1e16ad95950, edbedf2a16e71311, 3d8ef8da89fa87c1, f6c0e02e6ea5a363]
   tool: 1
 ---
 # Tools {#tools}
@@ -38,6 +38,8 @@ Aus diesen Type Hints erzeugt das SDK ein JSON Schema und sendet es während `to
 ```
 
 Beide Argumente stehen in `required`, weil keines einen Standardwert hat. Das änderst du gleich. (Die `title`-Schlüssel sind Pydantic-Artefakte; die Properties, ihre Typen und `required` sind der Vertrag.)
+
+Einen `$schema`-Schlüssel gibt es auch nicht: MCP behandelt ein Schema ohne ihn als **JSON Schema 2020-12** – genau das, was Pydantic erzeugt. Es gibt also nichts zu wählen, solange du nicht auf dem **[Low-Level-Server](../advanced/low-level-server.md#the-dialect-is-json-schema-2020-12)** Schemas von Hand schreibst.
 
 !!! tip
     Type Hints sind hier keine Dokumentation. Sie sind **der Vertrag**. Sendet ein Client `"limit": "ten"`,

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # Logging {#logging}
@@ -54,6 +54,8 @@ Du musst `logging.basicConfig()` nicht selbst aufrufen. Das Erzeugen eines `MCPS
 Der Standardwert ist `"INFO"`.
 
 `logging.basicConfig()` ersetzt nie Handler, die bereits existieren. Wenn du das Logging selbst konfigurierst, bevor du den Server erzeugst, gewinnt deine Konfiguration.
+
+Du brauchst auch kein `try`/`except` in jedem Handler, nur um Fehlschläge festzuhalten. Wenn eine Tool- oder Ressourcen-Funktion eine Exception auslöst, loggt das SDK sie für dich. **[Fehler behandeln](../servers/handling-errors.md#any-other-exception)** erklärt, was geloggt wird und auf welchem Level.
 
 ## Ausprobieren {#try-it}
 

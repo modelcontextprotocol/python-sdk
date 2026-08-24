@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # Client {#the-client}
@@ -27,9 +27,10 @@ translation:
 
 * `MCPServer`（或低层 `Server`）实例：**进程内**连接。
 * URL 字符串（`Client("http://localhost:8000/mcp")`）：Streamable HTTP，生产环境的路径。
-* **传输**：任何可以 `async with ... as (read, write)` 的对象，比如包装子进程的 `stdio_client(...)`。
+* `StdioServerParameters`：要作为**子进程**启动的命令，通过它的 stdin 和 stdout 通信。
+* **传输**：任何可以 `async with ... as (read, write)` 的对象，比如用 `streamable_http_client(url, http_client=...)` 包装你自己的 HTTP 客户端。
 
-本页其余内容在这三种方式下完全相同。请求头、子进程、超时以及 `Transport` 协议另有专页：**[客户端传输](transports.md)**。
+本页其余内容在这四种方式下完全相同。请求头、子进程、超时以及 `Transport` 协议另有专页：**[客户端传输](transports.md)**。
 
 ### 已连接的客户端上有什么 {#whats-on-a-connected-client}
 
@@ -82,7 +83,7 @@ UI 渲染参数表单所需的一切，以及模型生成合法参数所需的�
 
 `call_tool(name, arguments)` 运行工具，返回 `CallToolResult`。
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -113,7 +114,7 @@ result.is_error            # False
 抛出异常的工具**不会**在客户端里抛出异常。它作为一个普通结果返回，带 `is_error=True`。
 
 !!! check
-    向 `lookup_book` 查询 `"Solaris"`（目录里没有的书名），函数会抛出 `ValueError`。调用仍然正常返回：
+    向 `lookup_book` 查询 `"Solaris"`（目录里没有的书名），函数会抛出 `ToolError`。调用仍然正常返回：
 
     ```python
     result.is_error            # True
@@ -121,7 +122,7 @@ result.is_error            # False
     result.structured_content  # None
     ```
 
-    异常消息落在了 `content` 里，**模型**可以读到它并重试。这是有意为之：工具错误是对话的一部分，不是崩溃。在相信 `structured_content` 之前，务必先看 `is_error`。
+    `ToolError` 的消息落在了 `content` 里，**模型**可以读到它并重试。这是有意为之：工具错误是对话的一部分，不是崩溃。（如果工具是因为别的异常崩溃的，`content` 里只会写 `Error executing tool lookup_book`。）在相信 `structured_content` 之前，务必先看 `is_error`。
 
 !!! warning
     `is_error=True` 涵盖的不只是你自己的 `raise`。请求一个服务器根本没有的工具（`call_tool("does_not_exist", {})`），什么异常都不会抛出。返回的形状相同：`is_error=True`，`content` 里是 `Unknown tool: does_not_exist`。只有当服务器回复的是 JSON-RPC **错误**而不是结果时，`Client` 方法才会抛出 `MCPError`；服务器在什么情况下产生哪一种，见 **[处理错误](../servers/handling-errors.md)**。

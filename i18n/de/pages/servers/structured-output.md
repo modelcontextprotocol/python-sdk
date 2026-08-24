@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # Strukturierte Ausgabe {#structured-output}
@@ -105,7 +105,7 @@ Nicht jede Form verdient eine Klasse. Ein `TypedDict` erzeugt dasselbe Schema:
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-Ein `TypedDict` ist zur Laufzeit ein einfaches `dict`, also baust du genau das und gibst es zurück. Das Schema, die Validierung und `structured_content` sind identisch mit der `BaseModel`-Variante (abgesehen von den Beschreibungen, für die ein `TypedDict` keinen Platz hat).
+Ein `TypedDict` ist zur Laufzeit ein einfaches `dict`, also baust du genau das und gibst es zurück. Das Schema, die Validierung und `structured_content` folgen denselben Regeln wie die `BaseModel`-Variante: Füge einen Klassen-Docstring oder `Annotated[..., Field(description=...)]` hinzu, und sie werden zu den Beschreibungen; ein `NotRequired`-Schlüssel, den du im Dict weglässt, bleibt auch aus `structured_content` draußen.
 
 ## Eine Dataclass {#a-dataclass}
 
@@ -187,17 +187,18 @@ Solange du den Wert von Hand baust, merkst du davon nichts: Pydantic hat schon s
 Die Annotation verspricht `WeatherData`. Die Upstream-Response liefert `humidity` nicht mehr mit.
 
 !!! check
-    Ruf `get_weather` auf, und es reicht dem Client nicht stillschweigend ein halb leeres Objekt weiter. Der Aufruf schlägt fehl,
-    und die ersten Zeilen des Fehlers nennen das Feld:
+    Ruf `get_weather` auf, und es reicht dem Client nicht stillschweigend ein halb leeres Objekt weiter. Der Aufruf schlägt fehl:
+    Der Client bekommt `is_error=True` mit `Error executing tool get_weather`, sodass das Modell weiß, dass der
+    Aufruf fehlgeschlagen ist, statt selbstbewusst Wetterdaten abzulesen, die gar nicht da sind. Der Feldname ist für dich
+    bestimmt, im Server-Log auf Stufe `ERROR`:
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    Dieser Text kommt als Tool-Ergebnis mit `is_error=True` zurück. So weiß das Modell, dass der Aufruf fehlgeschlagen ist,
-    statt selbstbewusst Wetterdaten abzulesen, die gar nicht da sind.
 
 Ein einfaches `dict` aus einem `-> WeatherData`-Tool zurückzugeben ist übrigens in Ordnung. Genau das hat `json.loads` erzeugt. Validiert wird der Wert, nicht der Python-Typ.
 
@@ -212,6 +213,10 @@ Manchmal ist die Annotation des Rückgabetyps für den Type Checker da, nicht f�
 Kein `output_schema`, keine Hülle, keine Validierung. `structured_content` ist `None`, und `content` ist der String, den du zurückgegeben hast.
 
 Das Gegenteil, `structured_output=True`, macht aus der automatischen Erkennung eine Anforderung: Ein Tool, dessen Rückgabetyp kein Schema erzeugen kann, löst beim Import eine Exception aus, statt auf Text zurückzufallen.
+
+## Content-Blöcke und Medien {#content-blocks-and-media}
+
+Content-Blöcke und Medien (`TextContent`, `EmbeddedResource`, `Image`, `Audio` und Verwandte – allein, als Elemente einer `list`, eines `tuple` oder einer `Sequence` oder als Zweige einer Union) sind schon für dich abgeschaltet: Sie sind zum Lesen für das Modell gedacht, also leitet die automatische Erkennung kein Schema aus ihnen ab (**[Bilder, Audio und Icons](media.md)** behandelt `Image` und `Audio`). `structured_output=True` erzwingt für die Content-Block-Klassen trotzdem eins.
 
 ## Eine Klasse ohne Type Hints {#a-class-without-type-hints}
 
@@ -245,6 +250,6 @@ Es gibt einen Weg, unstrukturiert zu enden, ohne es gewollt zu haben: eine Klass
 * Skalare, Listen, Tupel und Unions werden in `{"result": ...}` verpackt. Modelle, `TypedDict`s, Dataclasses, annotierte Klassen und `dict[str, ...]` sind schon Objekte und bleiben, wie sie sind.
 * Jedes Ergebnis trägt `content` (Text, für das Modell) **und** `structured_content` (Daten, für die Anwendung).
 * Was du zurückgibst, wird gegen das Schema validiert. Eine Abweichung ist ein Tool-Fehler, kein kaputtes Ergebnis.
-* `structured_output=False` nimmt ein Tool davon aus. Eine Klasse ohne Type Hints nimmt sich stillschweigend aus; achte darauf.
+* `structured_output=False` nimmt ein Tool davon aus. Content-Blöcke, `Image` und `Audio` sind standardmäßig ausgenommen; eine Klasse ohne Type Hints nimmt sich stillschweigend aus, achte also darauf.
 
 Damit hast du alles in der Hand, was ein Tool zurückmelden kann. Als Nächstes das zweite Primitiv: **[Ressourcen](resources.md)**.

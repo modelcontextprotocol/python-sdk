@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # 结构化输出 {#structured-output}
@@ -103,7 +103,7 @@ result.structured_content  # {"temperature": 16.2, "humidity": 0.83, "conditions
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-`TypedDict` 在运行时就是普通的 `dict`，所以构建并返回的也就是它。模式、校验和 `structured_content` 都与 `BaseModel` 版本完全相同（只是少了描述，`TypedDict` 里没有地方写）。
+`TypedDict` 在运行时就是普通的 `dict`，所以构建并返回的也就是它。模式、校验和 `structured_content` 遵循与 `BaseModel` 版本相同的规则：加上类的 docstring 或 `Annotated[..., Field(description=...)]`，它们就成为描述；dict 里省略不写的 `NotRequired` 键也不会出现在 `structured_content` 中。
 
 ## dataclass {#a-dataclass}
 
@@ -185,15 +185,15 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 注解承诺的是 `WeatherData`，上游响应却不再发送 `humidity` 了。
 
 !!! check
-    调用 `get_weather`，它不会悄悄把一个缺了一半的对象递给客户端。调用会失败，错误的头几行直接点名那个字段：
+    调用 `get_weather`，它不会悄悄把一个缺了一半的对象递给客户端。调用会失败：客户端收到 `is_error=True` 和 `Error executing tool get_weather`，于是模型知道调用失败了，而不会信心十足地去读根本不存在的天气数据。字段名是留给你看的，记录在服务器日志的 `ERROR` 级别：
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    这段文本作为工具结果返回，并带着 `is_error=True`，于是模型知道调用失败了，而不会信心十足地去读根本不存在的天气数据。
 
 顺带一提，从 `-> WeatherData` 的工具里返回普通 `dict` 完全没问题。`json.loads` 产出的正是它。校验针对的是值，而不是 Python 类型。
 
@@ -208,6 +208,10 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 没有 `output_schema`，没有包装，没有校验。`structured_content` 为 `None`，`content` 就是你返回的字符串。
 
 反过来，`structured_output=True` 会把自动检测变成硬性要求：返回类型产不出模式的工具会在导入时直接抛错，而不是退回到纯文本。
+
+## 内容块与媒体 {#content-blocks-and-media}
+
+内容块与媒体（`TextContent`、`EmbeddedResource`、`Image`、`Audio` 等等，无论是单独返回、作为 `list`、`tuple` 或 `Sequence` 的元素，还是作为联合类型的分支）已经替你退出了：它们是给模型读的，所以自动检测不会从中推导出模式（`Image` 和 `Audio` 详见 **[图像、音频与图标](media.md)**）。对内容块类，`structured_output=True` 仍然会强制生成一个模式。
 
 ## 没有类型提示的类 {#a-class-without-type-hints}
 
@@ -237,6 +241,6 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 * 标量、列表、元组和联合类型会被包装进 `{"result": ...}`。模型、`TypedDict`、dataclass、带注解的类以及 `dict[str, ...]` 本身已是对象，保持原样。
 * 每个结果都同时带有 `content`（文本，给模型）**和** `structured_content`（数据，给应用程序）。
 * 返回的内容会对照模式校验。不匹配就是工具错误，而不是一个损坏的结果。
-* `structured_output=False` 让工具退出结构化输出。没有类型提示的类会悄无声息地退出；要当心。
+* `structured_output=False` 让工具退出结构化输出。内容块、`Image` 和 `Audio` 默认退出；没有类型提示的类会悄无声息地退出，要当心。
 
 至此，工具能回传的一切都由你掌控。接下来是第二种原语：**[资源](resources.md)**。

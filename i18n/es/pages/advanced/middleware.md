@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -54,8 +54,11 @@ Ese es el punto. El middleware envuelve **cada** mensaje entrante:
 
 * El establecimiento de la conexión: `server/discover`, o `initialize` y `notifications/initialized`
   en una sesión heredada.
-* Cada solicitud y cada notificación. Para una notificación, `ctx.request_id is None`,
-  `call_next(ctx)` devuelve `None` y lo que devuelvas se descarta.
+* Cada solicitud y cada notificación que llega al servidor. Para una notificación,
+  `ctx.request_id is None`, `call_next(ctx)` devuelve `None` y lo que devuelvas se descarta.
+  (En la ruta Streamable HTTP de `2026-07-28`, el POST de notificación de un cliente se confirma
+  con `202` en el transporte y nunca se despacha, así que tampoco llega al middleware; esa
+  revisión no define notificaciones del cliente al servidor sobre HTTP.)
 * Incluso un método para el que el servidor no tiene handler: `call_next` lanza el
   `MCPError(-32601, "Method not found")` *a través de* tu middleware de camino al cliente.
 
@@ -114,8 +117,8 @@ span de OpenTelemetry por cada mensaje. No lo añades y, la mayor parte del tiem
 
 * Un middleware es `async (ctx, call_next) -> result`, se pasa como `MCPServer(middleware=[...])` (o
   se añade a `mcp.middleware`), y se añade a `server.middleware` en el `Server` de bajo nivel.
-* Envuelve **cada** mensaje entrante (`server/discover`, `initialize`, solicitudes, notificaciones,
-  métodos desconocidos) y se ejecuta de fuera hacia dentro.
+* Envuelve **cada** mensaje entrante que llega al servidor (`server/discover`, `initialize`,
+  solicitudes, notificaciones, métodos desconocidos) y se ejecuta de fuera hacia dentro.
 * `ctx.request_id is None` es la forma de distinguir una notificación de una solicitud.
 * Lanza una excepción en lugar de llamar a `call_next` para rechazar un mensaje; la conexión sobrevive.
 * El trazado con OpenTelemetry del propio SDK también es un middleware, ya incluido en la lista. Consulta

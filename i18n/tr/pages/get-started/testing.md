@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # Test etme {#testing}
@@ -85,9 +85,9 @@ async def test_call_add_tool(client: Client):
 İki farklı şey ters gidebilir ve bu bayrak yalnızca birine dokunur.
 
 **Araçlarınızdan** birinin içindeki bir istisna, protokol hatası değildir. `is_error=True` taşıyan
-normal bir sonuca dönüşür ve model mesajı okur. `raise_exceptions` bunu değiştirmez: onunla da
-onsuz da `call_tool` aynı `is_error=True` sonucunu döndürür. Bu konuda ayrı bir sayfa var:
-**[Hataları ele alma](../servers/handling-errors.md)**.
+normal bir sonuca dönüşür (istisna bir `ToolError` ise model sizin mesajınızı okur). `raise_exceptions`
+bunu değiştirmez: onunla da onsuz da `call_tool` aynı `is_error=True` sonucunu döndürür. Bu konuda
+ayrı bir sayfa var: **[Hataları ele alma](../servers/handling-errors.md)**.
 
 Araç gövdesinin **dışındaki** bir hata ise farklıdır. `Client(mcp)`'nin size verdiği bağlantıda
 sunucu, istemci görmeden önce onu genel bir `"Internal server error"` mesajına dönüştürerek

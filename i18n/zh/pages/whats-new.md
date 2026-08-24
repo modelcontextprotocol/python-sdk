@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 11d93f1fa09eadf5, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
   tool: 1
 ---
 # v2 的新变化 {#whats-new-in-v2}
@@ -41,9 +41,9 @@ v1 交给你的是三层嵌套：一个产出原始流的传输上下文管理�
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-`Client` 接受一个服务器对象（内存直连，没有传输：这就是测试的做法）、一个 URL（Streamable HTTP），或者任意传输上下文管理器，比如 `stdio_client(...)`。进入 `async with` 就会建立连接并协商协议版本，不管服务器讲的是哪一代协议；之后 `client.server_capabilities` 和 `client.protocol_version` 直接就在那里，服务器表明身份时 `client.server_info` 也一样（它现在是 `Implementation | None`，因为 2026 版的身份信息是可选的）。你在 v1 注册的采样和征询回调仍然能用（它们的函数体会看到和本页其他地方一样的 snake_case 属性重命名），现在还会回答 2026 风格的、嵌在结果里的请求（见下文），并且是并发运行而不是一次一个。想要底层接口的人仍然可以用底下的 `ClientSession`，`client.session` 会把它交给你；它也变了（运行在新的调度器引擎上，自身的一些签名也改了），所以下探之前先读 **[迁移指南](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**。
+`Client` 接受一个服务器对象（内存直连，没有传输：这就是测试的做法）、一个 URL（Streamable HTTP）、一个 `StdioServerParameters`（stdio 子进程），或者其他任意传输上下文管理器，比如 `sse_client(...)`。进入 `async with` 就会建立连接并协商协议版本，不管服务器讲的是哪一代协议；之后 `client.server_capabilities` 和 `client.protocol_version` 直接就在那里，服务器表明身份时 `client.server_info` 也一样（它现在是 `Implementation | None`，因为 2026 版的身份信息是可选的）。你在 v1 注册的采样和征询回调仍然能用（它们的函数体会看到和本页其他地方一样的 snake_case 属性重命名），现在还会回答 2026 风格的、嵌在结果里的请求（见下文），并且是并发运行而不是一次一个。想要底层接口的人仍然可以用底下的 `ClientSession`，`client.session` 会把它交给你；它也变了（运行在新的调度器引擎上，自身的一些签名也改了），所以下探之前先读 **[迁移指南](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**。
 
-**[Client](client/index.md)** 介绍它，**[客户端传输](client/transports.md)** 讲三种连接形式，**[客户端回调](client/callbacks.md)** 讲回调本身，**[测试](get-started/testing.md)** 展示取代 v1 `create_connected_server_and_client_session()` 辅助函数的内存模式。
+**[Client](client/index.md)** 介绍它，**[客户端传输](client/transports.md)** 讲四种连接形式，**[客户端回调](client/callbacks.md)** 讲回调本身，**[测试](get-started/testing.md)** 展示取代 v1 `create_connected_server_and_client_session()` 辅助函数的内存模式。
 
 ### 底层 `Server` 是重建，不是改名 {#the-low-level-server-was-rebuilt-not-renamed}
 
@@ -129,7 +129,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
 重命名会自己跳出来提醒你。下面这些不会：
 
 * **同步函数在工作线程上运行。** `def` 定义的工具（或资源、提示词、解析器）不再阻塞事件循环；代价是它的函数体不再 **在** 事件循环线程上运行，这对有线程亲和性的代码有影响。`async def` 处理函数不受影响。**[迁移指南](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**。
-* **在工具内部抛出的 `MCPError`（v1 的 `McpError`）现在是协议错误。** 模型永远看不到它。其他所有异常仍然会变成模型能读到并做出反应的 `is_error=True` 结果。两者的划分见 **[错误处理](servers/handling-errors.md)**。
+* **在工具内部抛出的 `MCPError`（v1 的 `McpError`）现在是协议错误。** 模型永远看不到它。其他所有异常仍然会变成 `is_error=True` 结果，但只有 `ToolError` 的消息能到达模型：其他任何异常现在显示为 `Error executing tool <name>`，traceback 则写进你的服务器日志。两者的划分见 **[错误处理](servers/handling-errors.md)**。
 * **结果在发出之前会被校验。** 手工构建的 `Tool` 如果 `input_schema` 是 `{}`，现在会让 `tools/list` 失败（规范要求 `"type": "object"`）。基于 `@mcp.tool()` 构建的服务器永远不会遇到这个；它们的模式是 SDK 写的。
 * **你的客户端会校验收到的东西。** `list_tools()` 和 `call_tool()` 会按协商好的协议版本检查服务器的答复，所以 v1 宽松解析能容忍的不太合规的服务器，现在会抛 `pydantic.ValidationError`。如果你连接的是自己不控制的服务器，要做好由你来发现它们的准备；细节见 **[迁移指南](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)**。
 * **URI 模板现在是真正的 RFC 6570。** `{+path}`、`{?query}` 之类都能用，匹配是精确的而不是正则式的宽松匹配，提取出的值里的路径穿越默认会被拒绝。更严格的模板在装饰时就失败，而不是等到第一个请求。**[URI 模板](servers/uri-templates.md)**。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # 疑難排解 {#troubleshooting}
@@ -79,11 +79,11 @@ async def main() -> None:
 
 `__aexit__` 就是斷線，這也是為什麼沒有 `client.close()` 可以忘記。**[測試](get-started/testing.md)** 正是建立在這個模式上。
 
-## `Error executing tool <name>: <message>` 與 `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`、`Error executing tool <name>` 與 `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 你讀到的是**結果**，不是例外。`call_tool` 沒有引發例外，而且遇到失敗的工具它永遠不會引發。
 
-用伺服器不認識的城市呼叫 `forecast`，它引發的例外會跟著一個標記為**成功**的請求一起回來：
+用伺服器不認識的城市呼叫 `forecast`，它引發的 `ToolError` 會跟著一個標記為**成功**的請求一起回來：
 
 ```python
 result.is_error  # True
@@ -94,6 +94,8 @@ result.structured_content  # None
 對於伺服器從未註冊的名稱，`Unknown tool: get_forecast` 也是同樣的形狀；錯誤的引數也一樣，在你的函式執行之前，就會依工具的輸入 schema 遭到拒絕。
 
 修正在用戶端：**檢查 `result.is_error`**。包在 `call_tool` 外面的 `try/except` 一個都攔不到，因為根本沒有東西可以攔。這是刻意的設計，也是這一頁最值得內化的一件事：是**模型**選擇了這個呼叫，所以訊息交給模型，讓它有機會再試一次。完整說明請見 **[處理錯誤](servers/handling-errors.md)**，包括**確實會**引發例外的 `MCPError` 路徑。
+
+不帶訊息的簡略形式 `Error executing tool <name>` 表示工具**當掉了**：一個它沒預料到的例外逃了出來（或是它的回傳值沒通過輸出 schema），而那個例外的文字不會送上線路。traceback 在**伺服器的記錄**裡，以 `ERROR` 層級記錄為 `Tool '<name>' raised an unexpected exception`。
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -393,7 +395,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## 重點回顧 {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` 永遠不是錯誤本身。讀**最後一行**；在 `async with Client(...)` 區塊**裡面**攔截 `MCPError` 就完全跳過包裝。
-* `call_tool` 不會因為工具失敗而引發例外。`Error executing tool ...` 和 `Unknown tool: ...` 是結果：檢查 `result.is_error`。
+* `call_tool` 不會因為工具失敗而引發例外。`Error executing tool ...` 和 `Unknown tool: ...` 是結果：檢查 `result.is_error`。工具名稱後面沒有訊息表示它當掉了，traceback 在伺服器記錄裡。
 * `Client must be used within an async context manager` -> 用 `async with`。`Use @tool() instead of @tool` -> 加上括號。
 * 伺服器記錄裡的 `Tool already exists:` 是兩個同名工具合併成一個的唯一跡象。
 * 一個 421，三種寫法：`Server returned an error response`（python `Client`）、`421 Misdirected Request` / `Invalid Host header`（其他所有東西）、`Invalid Host header: <host>`（伺服器記錄）。修正：`transport_security=TransportSecuritySettings(allowed_hosts=[...])`。

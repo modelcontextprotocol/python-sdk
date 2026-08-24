@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # Conecte-se a um host de verdade {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ Ou seja, conectar a um host é um ato só: você informa a ele **o comando que i
 
 ## Um servidor, todos os hosts {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -50,7 +50,7 @@ Um comando só para todos eles porque `uv run --with` resolve o SDK em um ambien
 
     E um host nada mais é que uma aplicação com um cliente MCP dentro, então seu próprio
     código Python pode fazer o papel do host: **[Transportes do cliente](../client/transports.md)**
-    inicia este mesmo arquivo como subprocesso com `stdio_client(...)`, e **[Testes](testing.md)**
+    inicia este mesmo arquivo como subprocesso com `Client(StdioServerParameters(...))`, e **[Testes](testing.md)**
     se conecta a ele em memória, sem processo nenhum.
 
 ## Claude Desktop {#claude-desktop}

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # Journalisation {#logging}
@@ -53,6 +53,8 @@ Vous n’avez pas à appeler `logging.basicConfig()` vous-même. La construction
 La valeur par défaut est `"INFO"`.
 
 `logging.basicConfig()` ne remplace jamais des gestionnaires de journalisation qui existent déjà. Si vous configurez la journalisation vous-même avant de créer le serveur, votre configuration l’emporte.
+
+Vous n’avez pas non plus besoin d’un `try`/`except` dans chaque gestionnaire simplement pour consigner les échecs. Lorsqu’une fonction d’outil ou de ressource lève une exception, le SDK la journalise pour vous. **[Gérer les erreurs](../servers/handling-errors.md#any-other-exception)** explique ce qui est journalisé et à quel niveau.
 
 ## Essayer {#try-it}
 

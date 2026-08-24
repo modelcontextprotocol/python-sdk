@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # Client {#the-client}
@@ -27,9 +27,10 @@ translation:
 
 * `MCPServer` (या low-level `Server`) instance: **in-process** connect होता है।
 * URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, production वाला रास्ता।
-* **transport**: कोई भी चीज़ जिसे आप `async with ... as (read, write)` कर सकें, जैसे subprocess को wrap करने वाला `stdio_client(...)`।
+* `StdioServerParameters`: वह command जो **subprocess** के रूप में launch होता है, और जिससे उसके stdin और stdout के ज़रिए बात होती है।
+* **transport**: कोई भी चीज़ जिसे आप `async with ... as (read, write)` कर सकें, जैसे आपके अपने HTTP client के ऊपर `streamable_http_client(url, http_client=...)`।
 
-इस page की बाकी हर चीज़ तीनों में एक जैसी है। Headers, subprocesses, timeouts और `Transport` protocol का अपना अलग page है: **[Client transports](transports.md)**।
+इस page की बाकी हर चीज़ चारों में एक जैसी है। Headers, subprocesses, timeouts और `Transport` protocol का अपना अलग page है: **[Client transports](transports.md)**।
 
 ### connected client पर क्या है {#whats-on-a-connected-client}
 
@@ -85,7 +86,7 @@ UI को argument form दिखाने के लिए, और model को
 
 `call_tool(name, arguments)` tool चलाता है और आपको `CallToolResult` वापस देता है।
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +118,7 @@ result.is_error            # False
 
 !!! check
     `lookup_book` से `"Solaris"` माँगें (ऐसा title जो catalog में नहीं है) और function
-    `ValueError` raise करता है। call फिर भी सामान्य रूप से लौटता है:
+    `ToolError` raise करता है। call फिर भी सामान्य रूप से लौटता है:
 
     ```python
     result.is_error            # True
@@ -125,9 +126,10 @@ result.is_error            # False
     result.structured_content  # None
     ```
 
-    exception का message `content` में पहुँचा, जहाँ **model** उसे पढ़कर दोबारा कोशिश कर सकता है। यह
-    जानबूझकर है: tool error बातचीत का हिस्सा है, crash नहीं। `structured_content` पर भरोसा करने से
-    पहले हमेशा `is_error` देखें।
+    `ToolError` का message `content` में पहुँचा, जहाँ **model** उसे पढ़कर दोबारा कोशिश कर सकता है। यह
+    जानबूझकर है: tool error बातचीत का हिस्सा है, crash नहीं। (अगर tool किसी और exception से crash
+    हुआ होता, तो `content` में सिर्फ़ `Error executing tool lookup_book` लिखा होता।) `structured_content`
+    पर भरोसा करने से पहले हमेशा `is_error` देखें।
 
 !!! warning
     `is_error=True` सिर्फ़ आपके अपने `raise` तक सीमित नहीं है। ऐसा tool माँगें जो server के पास है ही नहीं

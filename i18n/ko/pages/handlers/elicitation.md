@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 0bb1396c86daeba4, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
+  sections: [335ca2a0b266f003, d1ad562d3fe87bc0, 25b49f89c9e6f9d0, d1cb1235bb9ee267, 833179c09d239c83, e5d6dec2d2e655e8]
   tool: 1
 ---
 # 엘리시테이션 {#elicitation}
@@ -90,6 +90,7 @@ translation:
     엘리시테이션 스키마는 도구의 입력 스키마만큼 표현력이 높지 않습니다. 평평한 원시 타입 필드만
     가능합니다. `str`, `int`, `float`, `bool`, 또는 문자열 `Literal`(`enum`이 됩니다)입니다.
     모델 안에 모델을 넣으면 클라이언트에 아무것도 보내기 전에 `ctx.elicit`이 예외를 일으킵니다.
+    도구 호출은 `Error executing tool <name>`으로 실패하고, 그 이유는 서버 로그에 남습니다.
 
     ```text
     TypeError: Elicitation schema field 'address' rendered as {'$ref': '#/$defs/Address'}, which is not a valid PrimitiveSchemaDefinition
@@ -112,8 +113,8 @@ translation:
 
 !!! tip
     답은 코드가 보기 전에 모델을 기준으로 검증됩니다. `bool` 자리에 `"maybe"`를 보내는 클라이언트가
-    예약을 망가뜨리지는 않습니다. 호출은 스키마 불일치 오류로 실패하고, `if` 문은 실행되지
-    않습니다.
+    예약을 망가뜨리지는 않습니다. `ctx.elicit`이 `ValueError`를 일으키고, 호출은 실패하며, `if` 문은
+    실행되지 않습니다.
 
 ## 사용자를 URL로 보내기 {#send-the-user-to-a-url}
 

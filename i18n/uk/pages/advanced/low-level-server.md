@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, b3530fcf4d11fd56, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
   tool: 1
 ---
 # Низькорівневий Server {#the-low-level-server}
@@ -116,6 +116,17 @@ asyncio.run(main())
 
 Сервер ніколи не порівнює ці два поля. `Client` цього SDK — порівнює: поверніть `structured_content`, що не відповідає оголошеній вами `output_schema`, і `call_tool` викине `RuntimeError`, який починається з `Invalid structured content returned by tool search_books` і далі цитує помилку `jsonschema`. Пообіцяти схему легко; дотримати її — ваша справа. Уся драбина типів повернення та схем — на сторінці **[Структурований вивід](../servers/structured-output.md)**.
 
+## Діалект — JSON Schema 2020-12 {#the-dialect-is-json-schema-2020-12}
+
+`input_schema` і `output_schema` — це JSON Schema, а [специфікація MCP](https://modelcontextprotocol.io/specification/latest/basic#json-schema-usage) фіксує діалект: схема без ключа `$schema` — це **JSON Schema 2020-12**. Схеми, які генерує `MCPServer`, покладаються на це типове значення (Pydantic пише 2020-12 і пропускає ключ), і написаний вручну словник теж має його дотримуватися, тож доступний увесь набір ключових слів 2020-12:
+
+```python title="server.py" hl_lines="8 14-15"
+--8<-- "docs_src/lowlevel/tutorial007.py"
+```
+
+* Корінь `input_schema` мусить бути `"type": "object"`. Поруч із ним `oneOf`, `additionalProperties`, `anyOf`, `if`/`then`/`else`, `prefixItems`, `$defs` з локальними `$ref` та решта ключових слів 2020-12 доходять до клієнта точно так, як написано.
+* Ключ `$schema` не потрібен. Додавайте його лише щоб перейти на давнішу чернетку стандарту: `Client` цього SDK, який перевіряє `structured_content` за `output_schema` інструмента, обирає валідатор за `$schema` і використовує 2020-12, коли ключа немає.
+
 ## `_meta`: для застосунку, а не для моделі {#\_meta-for-the-application-not-the-model}
 
 `content` — це частина відповіді, яку читає модель. `structured_content` — та сама відповідь у вигляді типізованих даних. `_meta` — третій канал: дані, що їдуть разом із результатом для **клієнтського застосунку** і взагалі не є частиною відповіді.
@@ -167,7 +178,7 @@ asyncio.run(main())
 --8<-- "docs_src/lowlevel/tutorial006.py"
 ```
 
-* Перший аргумент — рядок методу. Для сповіщень є близнюк — `add_notification_handler`.
+* Перший аргумент — рядок методу. Для сповіщень є близнюк — `add_notification_handler`. Його обробники спрацьовують на stdio та на HTTP-з'єднаннях покоління рукостискання; на шляху Streamable HTTP версії `2026-07-28` POST-запит клієнта зі сповіщенням підтверджується кодом `202` і не диспетчеризується, бо ця редакція не визначає сповіщень від клієнта до сервера через HTTP.
 * `params_type` — це модель, за якою вхідні `params` перевіряються **до** запуску вашого обробника, тож власні методи *отримують* перевірку, якої інструменти не мають. Успадковуйтеся від `RequestParams`, щоб поле `_meta` розбиралося так само, як у кожного іншого методу.
 * Обробник повертає `BaseModel`, `dict` або `None`. SDK серіалізує це в результат JSON-RPC.
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -53,8 +53,11 @@ cliente enviou para estabelecer a conexão, antes de você pedir qualquer coisa.
 
 * O estabelecimento da conexão: `server/discover`, ou `initialize` e `notifications/initialized`
   em uma sessão legada.
-* Toda requisição e toda notificação. Para uma notificação, `ctx.request_id is None`,
-  `call_next(ctx)` retorna `None` e o que quer que você retorne é descartado.
+* Toda requisição e toda notificação que chega ao servidor. Para uma notificação,
+  `ctx.request_id is None`, `call_next(ctx)` retorna `None` e o que quer que você retorne é
+  descartado. (No caminho Streamable HTTP de `2026-07-28`, o POST de notificação de um cliente
+  recebe a confirmação `202` no transporte e nunca é despachado, então também não chega ao
+  middleware; essa revisão não define nenhuma notificação do cliente para o servidor sobre HTTP.)
 * Até um método para o qual o servidor não tem handler: `call_next` lança o
   `MCPError(-32601, "Method not found")` *através* do seu middleware a caminho do cliente.
 
@@ -111,8 +114,8 @@ nele. Ele é um no-op até você instalar um exportador, e tem a própria págin
 
 * Um middleware é `async (ctx, call_next) -> result`, passado como `MCPServer(middleware=[...])` (ou
   adicionado a `mcp.middleware`) e adicionado a `server.middleware` no `Server` de baixo nível.
-* Ele envolve **toda** mensagem de entrada (`server/discover`, `initialize`, requisições,
-  notificações, métodos desconhecidos) e executa do mais externo para o mais interno.
+* Ele envolve **toda** mensagem de entrada que chega ao servidor (`server/discover`, `initialize`,
+  requisições, notificações, métodos desconhecidos) e executa do mais externo para o mais interno.
 * `ctx.request_id is None` é como você distingue uma notificação de uma requisição.
 * Lance uma exceção em vez de chamar `call_next` para recusar uma mensagem; a conexão sobrevive.
 * O tracing do OpenTelemetry do próprio SDK também é um middleware, já na lista. Veja

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 4835ed1772f1d113, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, 954dc21efdb532a3]
+  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
   tool: 1
 ---
 # Solución de problemas {#troubleshooting}
@@ -81,11 +81,11 @@ async def main() -> None:
 
 `__aexit__` es la desconexión, y por eso no hay ningún `client.close()` que olvidar. **[Pruebas](get-started/testing.md)** se basa exactamente en este patrón.
 
-## `Error executing tool <name>: <message>` y `Unknown tool: <name>` {#error-executing-tool-name-message-and-unknown-tool-name}
+## `Error executing tool <name>: <message>`, `Error executing tool <name>` y `Unknown tool: <name>` {#error-executing-tool-name-message-error-executing-tool-name-and-unknown-tool-name}
 
 Estás leyendo un **resultado**, no una excepción. `call_tool` no lanzó nada, y nunca lo hará para una herramienta que falla.
 
-Llama a `forecast` con una ciudad que el servidor no conoce y la excepción que lanza vuelve con la solicitud marcada como *correcta*:
+Llama a `forecast` con una ciudad que el servidor no conoce y el `ToolError` que lanza vuelve con la solicitud marcada como *correcta*:
 
 ```python
 result.is_error  # True
@@ -96,6 +96,8 @@ result.structured_content  # None
 `Unknown tool: get_forecast` tiene la misma forma para un nombre que el servidor nunca registró, y un argumento incorrecto se rechaza igual, contra el esquema de entrada de la herramienta, antes de que tu función llegue a ejecutarse.
 
 La solución está en tu cliente: **comprueba `result.is_error`**. Un `try/except` alrededor de `call_tool` no captura ninguno de estos casos, porque no hay nada que capturar. Es deliberado, y es lo más útil de esta página que puedes interiorizar: el *modelo* eligió la llamada, así que el modelo recibe el mensaje y la oportunidad de intentarlo de nuevo. **[Manejo de errores](servers/handling-errors.md)** tiene todos los detalles, incluida la vía de `MCPError` que *sí* lanza.
+
+La forma escueta, `Error executing tool <name>` sin mensaje, significa que la herramienta **se cayó**: se le escapó una excepción que no había previsto (o su valor devuelto no pasó el esquema de salida), y el texto de esa excepción no se transmite. El traceback está en el **log del servidor** con nivel `ERROR`, como `Tool '<name>' raised an unexpected exception`.
 
 ## `TypeError: The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool` {#typeerror-the-tool-decorator-was-used-incorrectly-did-you-forget-to-call-it-use-tool-instead-of-tool}
 
@@ -409,7 +411,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 ## Resumen {#recap}
 
 * `ExceptionGroup: unhandled errors in a TaskGroup` nunca es el error. Lee la **última línea**; capturar `MCPError` *dentro* del bloque `async with Client(...)` evita el envoltorio por completo.
-* `call_tool` no lanza nada para una herramienta que falla. `Error executing tool ...` y `Unknown tool: ...` son resultados: comprueba `result.is_error`.
+* `call_tool` no lanza nada para una herramienta que falla. `Error executing tool ...` y `Unknown tool: ...` son resultados: comprueba `result.is_error`. Si no hay mensaje después del nombre de la herramienta, se cayó, y el traceback está en el log del servidor.
 * `Client must be used within an async context manager` -> usa `async with`. `Use @tool() instead of @tool` -> añade los paréntesis.
 * `Tool already exists:` en el log del servidor es la única señal de que dos herramientas con el mismo nombre se fundieron en una.
 * Un 421, tres formas de escribirlo: `Server returned an error response` (el `Client` de python), `421 Misdirected Request` / `Invalid Host header` (todo lo demás), `Invalid Host header: <host>` (el log del servidor). Solución: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.

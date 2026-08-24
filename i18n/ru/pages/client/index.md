@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # Объект Client {#the-client}
@@ -27,9 +27,10 @@ translation:
 
 * Экземпляр `MCPServer` (или низкоуровневого `Server`): подключение **внутри процесса**.
 * Строка с URL (`Client("http://localhost:8000/mcp")`): Streamable HTTP, основной вариант для реального развёртывания.
-* **Транспорт**: всё, что можно использовать как `async with ... as (read, write)`, например `stdio_client(...)`, оборачивающий подпроцесс.
+* `StdioServerParameters`: команда, которая запускается как **подпроцесс**; общение с ним идёт через его stdin и stdout.
+* **Транспорт**: всё, что можно использовать как `async with ... as (read, write)`, например `streamable_http_client(url, http_client=...)` поверх вашего собственного HTTP-клиента.
 
-Всё остальное на этой странице одинаково для всех трёх вариантов. Заголовкам, подпроцессам, тайм-аутам и протоколу `Transport` посвящена отдельная страница: **[Транспорты клиента](transports.md)**.
+Всё остальное на этой странице одинаково для всех четырёх вариантов. Заголовкам, подпроцессам, тайм-аутам и протоколу `Transport` посвящена отдельная страница: **[Транспорты клиента](transports.md)**.
 
 ### Что есть у подключённого клиента {#whats-on-a-connected-client}
 
@@ -85,7 +86,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)` запускает инструмент и возвращает `CallToolResult`.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +118,7 @@ result.is_error            # False
 
 !!! check
     Запросите у `lookup_book` `"Solaris"` (название, которого нет в каталоге), и функция выбросит
-    `ValueError`. Вызов всё равно завершится нормально:
+    `ToolError`. Вызов всё равно завершится нормально:
 
     ```python
     result.is_error            # True
@@ -125,9 +126,10 @@ result.is_error            # False
     result.structured_content  # None
     ```
 
-    Сообщение исключения попало в `content`, где **модель** может его прочитать и попробовать снова. Так
-    и задумано: ошибка инструмента — часть диалога, а не крах. Всегда проверяйте `is_error`,
-    прежде чем доверять `structured_content`.
+    Сообщение `ToolError` попало в `content`, где **модель** может его прочитать и попробовать снова. Так
+    и задумано: ошибка инструмента — часть диалога, а не крах. (Если бы инструмент упал с
+    каким-то другим исключением, в `content` было бы только `Error executing tool lookup_book`.) Всегда проверяйте
+    `is_error`, прежде чем доверять `structured_content`.
 
 !!! warning
     `is_error=True` покрывает не только ваш собственный `raise`. Запросите инструмент, которого у сервера вообще нет

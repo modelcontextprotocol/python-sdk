@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [20541a40dbdd5980, 01262a123ad9501d, 429db5b574a2ac08, 56b2d49da412cb28, 6a1717123fe4513c]
+  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
   tool: 1
 ---
 # 非推奨の機能 {#deprecated-features}
 
-2026-07-28 の仕様では、5 つのものが役目を終えます。SDK は今もその 5 つすべてを実装しており、そのすべてに**非推奨の警告**が付くようになりました。
+2026-07-28 の仕様では、5 つのものが役目を終えます。SDK は今もその 5 つすべてを実装しており、そのすべてに**非推奨の警告**が付くようになりました。SDK のヘルパーが 1 つ、仕様とは別の理由で非推奨になっており、[ページの最後](#deprecated-sdk-helpers)に挙げています。
 
 下の表は、非推奨になった機能それぞれについて、なくなる理由と、代わりに土台にすべきものを挙げています。
 
@@ -49,6 +49,55 @@ MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SE
 
     シグナルは 2 つ、この順番です。`MCPDeprecationWarning` は、どの接続でもメソッドを呼び出した瞬間に発生します。エラーは、そのあと SDK が送信を試みたときに返ってくるものです。この 2 つの機能がエンドツーエンドで動作するのは、対応するコールバックをクライアントが登録した `mode="legacy"` の接続だけです。
 
+## レガシーセッションでの `ping` {#ping-on-a-legacy-session}
+
+**ping** は、相手がまだ応答しているかを確かめるために、どちらの側からでも送れる空のリクエストです。2026-07-28 の仕様はこれを削除します（[SEP-2575](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575)）。現行仕様のクライアントが送るリクエストはどれも、それ自体がサーバーの存在を証明していますし、現行仕様のサーバーには ping を送るチャネルがありません。SDK の 2 つのメソッドはどちらも、ハンドシェイク世代のセッションでは引き続き動作します。クライアント側からは次のように書きます。
+
+```python
+async def main() -> None:
+    async with Client("http://localhost:8000/mcp", mode="legacy") as client:
+        await client.send_ping()  # warns; returns an EmptyResult
+```
+
+サーバー側からは、任意のハンドラーの中で次のように書きます。
+
+```python
+@mcp.tool()
+async def check_client(ctx: Context) -> str:
+    """A tool that still pings the client mid-call."""
+    await ctx.session.send_ping()  # no warning; an EmptyResult while the client is connected
+    return "client answered"
+```
+
+* `client.send_ping()` は呼び出しのたびに `MCPDeprecationWarning` で警告します。デフォルト（`2026-07-28`）の接続では、サーバーは代わりに `MCPError: Method not found` と応答します。
+* `ctx.session.send_ping()` には警告がありません。現行仕様の接続では、ほかのサーバー起点のリクエストと同じく、バックチャネル（back-channel）がないというエラーを送出します。
+* どちらの側も、ping に応答するために何かを登録する必要はありません。
+
+## ルートの変更通知 {#roots-change-notifications}
+
+ルートのケイパビリティを宣言した 2025 年世代のクライアントは、`notifications/roots/list_changed` を送ることで、ワークスペースのフォルダーが変わったことをサーバーに伝えられます。サーバーはそれを受けて `roots/list` をもう一度リクエストします。2026-07-28 の仕様は、プッシュ型のルートのフローの残りとともに、この通知を削除します。クライアント側では、`list_roots_callback=` を渡すこと（**[クライアントのコールバック](client/callbacks.md)**）が `"roots": {"listChanged": true}` の宣言にあたり、1 回の呼び出しでその約束を果たします。
+
+```python
+async def open_folder(client: Client, uri: str, name: str) -> None:
+    """The user opened another folder: expose it through the roots callback, then tell the server."""
+    workspace.append(Root(uri=FileUrl(uri), name=name))
+    await client.send_roots_list_changed()
+```
+
+サーバー側では、低レベルの `Server` が受信側のハンドラーを受け取ります。
+
+```python
+async def roots_changed(ctx: ServerRequestContext, params: NotificationParams | None) -> None:
+    """The client's roots changed: ask for the new list."""
+    roots = (await ctx.session.list_roots()).roots
+
+
+server = Server("Bookshop", on_roots_list_changed=roots_changed)
+```
+
+* `workspace` は `list_roots_callback` が返すリストです。`client.send_roots_list_changed()` は警告を出し、`mode="legacy"` のクライアントが必要です。現行仕様の接続では、通知は黙って捨てられます。サーバーからの後続の `roots/list` は同じセッションに届くので、呼び出したあともセッションは開いたままにしてください。
+* `MCPServer` にはこの通知のフックがありません。低レベルの `Server` では `on_roots_list_changed=` がハンドラーを登録します（これも非推奨で、構築時に警告を出します）。通知はペイロードを運ばないので、ハンドラーは `ctx.session.list_roots()` を呼んで新しいリストを取得します。
+
 ## 警告を抑止する {#silencing-the-warning}
 
 新しいコードでは、しないでください。
@@ -66,21 +115,30 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 API はこれだけです。メソッドごとのスイッチはありませんし、必要もありません。カテゴリが 1 つである利点は、1 行で黙らせ、1 行で元に戻せることです。
 
 !!! check
-    フィルターを逆向きにかければ、無料で回帰テストが手に入ります。pytest の設定の `filterwarnings` に `"error::mcp.MCPDeprecationWarning"` を追加すると、非推奨の呼び出しは警告ではなく**例外を送出**します。まだ `ctx.info()` を呼んでいる `old_log` という名前のツールは通らなくなり、次のように報告し始めます。
+    フィルターを逆向きにかければ、無料で回帰テストが手に入ります。pytest の設定の `filterwarnings` に `"error::mcp.MCPDeprecationWarning"` を追加すると、非推奨の呼び出しは警告ではなく**例外を送出**します。まだ `ctx.info()` を呼んでいる `old_log` という名前のツールは通らなくなります。呼び出しは `is_error=True` と `Error executing tool old_log` を伴って返り、キャプチャされたサーバーのログが原因を名指しします。
 
     ```text
-    Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    mcp.shared.exceptions.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
     ```
 
     pytest の設定を 1 行足すだけで、非推奨の呼び出しがテストを失敗させずにコードベースへ紛れ込むことは二度とありません。
+
+## 非推奨の SDK ヘルパー {#deprecated-sdk-helpers}
+
+これらは仕様の変更ではなく、よりよい代替がある SDK の内部実装にすぎません。同じ `MCPDeprecationWarning` で警告し、3.0 で削除されます。
+
+| 非推奨 | 代わりにすること |
+|---|---|
+| `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` を呼んでから `FuncMetadata.call_fn()` を呼びます。これを呼んでいたのは、`FuncMetadata` を直接扱うコード（たとえば独自の `Tool` サブクラス）だけです。 |
 
 ## まとめ {#recap}
 
 * 2026-07-28 の仕様は、**ルート**、サーバー起点の**サンプリング**、プロトコルの**ロギング**を非推奨にし（いずれも [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577)）、**進捗**をサーバーからクライアントへの方向に限定し、**`ping`** を削除します。
 * 「代わりにすること」の列が次の行き先を示しています。サンプリングとルートには **[マルチラウンドトリップリクエスト](handlers/multi-round-trip.md)**、ロギングには **[ロギング](handlers/logging.md)**、進捗には **[進捗](handlers/progress.md)** です。`ping` には何も必要ありません。
 * 非推奨は勧告にすぎません。通信上の変更はなく、2026 年より前のセッションに対してはすべてが引き続き動作します。そして目に見える `MCPDeprecationWarning` が出ます（`UserWarning` なので、デフォルトで有効です）。
-* サンプリングとルートにはさらに、2026-07-28 のセッションにはないバックチャネル（back-channel）が必要です。現行仕様の接続では警告を出し、そのあと例外を送出します。
+* サンプリングとルートにはさらに、2026-07-28 のセッションにはないバックチャネルが必要です。現行仕様の接続では警告を出し、そのあと例外を送出します。
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` でカテゴリ全体を黙らせます。pytest で `"error::mcp.MCPDeprecationWarning"` を指定すれば、テストの失敗に変わります。
+* SDK のヘルパー `FuncMetadata.call_fn_with_arg_validation()` は、これとは別に非推奨になっており、3.0 で削除されます。
 * 新しいコードは、これらのどれの上にも築くべきではありません。
 
 このドキュメントのほかのページはすべて、現行の API を扱っています。

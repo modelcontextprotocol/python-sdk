@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # 用戶端 {#the-client}
@@ -27,9 +27,10 @@ Python 程式要和 MCP 伺服器對話，靠的就是 **`Client`**。
 
 * `MCPServer`（或低階的 `Server`）實例：在**同一個處理程序內**連線。
 * URL 字串（`Client("http://localhost:8000/mcp")`）：Streamable HTTP，也就是正式環境的路徑。
-* 一個**傳輸**：任何可以 `async with ... as (read, write)` 的東西，例如包住子處理程序的 `stdio_client(...)`。
+* `StdioServerParameters`：要當作**子處理程序**啟動的命令，透過它的 stdin 和 stdout 溝通。
+* 一個**傳輸**：任何可以 `async with ... as (read, write)` 的東西，例如用 `streamable_http_client(url, http_client=...)` 包住你自己的 HTTP 用戶端。
 
-這一頁其餘的內容在這三種情況下完全相同。標頭、子處理程序、逾時，以及 `Transport` 協定另外有專屬的頁面：**[用戶端傳輸方式](transports.md)**。
+這一頁其餘的內容在這四種情況下完全相同。標頭、子處理程序、逾時，以及 `Transport` 協定另外有專屬的頁面：**[用戶端傳輸方式](transports.md)**。
 
 ### 連線後的用戶端上有什麼 {#whats-on-a-connected-client}
 
@@ -82,7 +83,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)` 會執行工具，並回傳一個 `CallToolResult`。
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -113,7 +114,7 @@ result.is_error            # False
 會引發例外的工具，在用戶端這邊**不會**引發例外。它會以一個普通的結果回來，帶著 `is_error=True`。
 
 !!! check
-    向 `lookup_book` 要 `"Solaris"`（目錄裡沒有的書名），函式會引發 `ValueError`。呼叫仍然正常回傳：
+    向 `lookup_book` 要 `"Solaris"`（目錄裡沒有的書名），函式會引發 `ToolError`。呼叫仍然正常回傳：
 
     ```python
     result.is_error            # True
@@ -121,7 +122,7 @@ result.is_error            # False
     result.structured_content  # None
     ```
 
-    例外的訊息落在 `content` 裡，**模型**可以讀到它並再試一次。這是刻意的設計：工具錯誤是對話的一部分，不是當機。在信任 `structured_content` 之前，一定要先看 `is_error`。
+    `ToolError` 的訊息落在 `content` 裡，**模型**可以讀到它並再試一次。這是刻意的設計：工具錯誤是對話的一部分，不是當機。（假如工具是因為其他例外而當掉，`content` 就只會寫 `Error executing tool lookup_book`。）在信任 `structured_content` 之前，一定要先看 `is_error`。
 
 !!! warning
     `is_error=True` 涵蓋的不只是你自己的 `raise`。要一個伺服器根本沒有的工具（`call_tool("does_not_exist", {})`），也不會引發任何例外。你會拿回同樣的形狀：`is_error=True`，`content` 裡是 `Unknown tool: does_not_exist`。只有在伺服器回的是 JSON-RPC **錯誤**而不是結果時，`Client` 的方法才會引發 `MCPError`；伺服器什麼時候產生哪一種，請見 **[處理錯誤](../servers/handling-errors.md)**。

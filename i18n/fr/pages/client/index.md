@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, a4c687d3d627d516, 8e79141fc2985342, b345dd05b9c3c7ab, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
   tool: 1
 ---
 # Le client {#the-client}
@@ -27,9 +27,10 @@ Le serveur en haut n’est là que pour vous donner quelque chose à quoi vous c
 
 * Une instance de `MCPServer` (ou du `Server` bas niveau) : connexion **dans le processus**.
 * Une chaîne d’URL (`Client("http://localhost:8000/mcp")`) : Streamable HTTP, la voie de production.
-* Un **transport** : tout ce sur quoi vous pouvez faire `async with ... as (read, write)`, comme `stdio_client(...)` qui enveloppe un sous-processus.
+* Un `StdioServerParameters` : la commande à lancer en **sous-processus**, avec laquelle le client dialogue via son stdin et son stdout.
+* Un **transport** : tout ce sur quoi vous pouvez faire `async with ... as (read, write)`, comme `streamable_http_client(url, http_client=...)` autour de votre propre client HTTP.
 
-Tout le reste de cette page est identique pour les trois. Les en-têtes, les sous-processus, les délais d’expiration et le protocole `Transport` ont leur propre page : **[Transports côté client](transports.md)**.
+Tout le reste de cette page est identique pour les quatre. Les en-têtes, les sous-processus, les délais d’expiration et le protocole `Transport` ont leur propre page : **[Transports côté client](transports.md)**.
 
 ### Ce que porte un client connecté {#whats-on-a-connected-client}
 
@@ -85,7 +86,7 @@ Ce schéma est tout ce dont une interface a besoin pour afficher un formulaire d
 
 `call_tool(name, arguments)` exécute l’outil et vous renvoie un `CallToolResult`.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -117,7 +118,7 @@ Un outil qui lève une exception ne lève **rien** dans votre client. Il revient
 
 !!! check
     Demandez `"Solaris"` à `lookup_book` (un titre qui n’est pas au catalogue) et la fonction lève
-    `ValueError`. L’appel revient pourtant normalement :
+    `ToolError`. L’appel revient pourtant normalement :
 
     ```python
     result.is_error            # True
@@ -125,9 +126,10 @@ Un outil qui lève une exception ne lève **rien** dans votre client. Il revient
     result.structured_content  # None
     ```
 
-    Le message de l’exception a atterri dans `content`, où le **modèle** peut le lire et réessayer. C’est
-    délibéré : une erreur d’outil fait partie de la conversation, ce n’est pas un plantage. Regardez toujours `is_error`
-    avant de faire confiance à `structured_content`.
+    Le message de la `ToolError` a atterri dans `content`, où le **modèle** peut le lire et réessayer. C’est
+    délibéré : une erreur d’outil fait partie de la conversation, ce n’est pas un plantage. (Si l’outil avait planté avec
+    une autre exception, `content` dirait seulement `Error executing tool lookup_book`.) Regardez toujours
+    `is_error` avant de faire confiance à `structured_content`.
 
 !!! warning
     `is_error=True` couvre plus que vos propres `raise`. Demandez un outil que le serveur n’a même pas

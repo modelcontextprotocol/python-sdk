@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # 客户端传输 {#client-transports}
@@ -79,15 +79,15 @@ translation:
 
 **stdio** 服务器是一个子进程。客户端启动它，向它的 stdin 写 JSON-RPC，从它的 stdout 读 JSON-RPC。桌面宿主就是这样在你的机器上运行服务器的：宿主**就是**这段代码加上一个 UI，而 **[连接到真实宿主](../get-started/real-host.md)** 是从宿主一侧、以配置文件的形式看到的同一种关系。
 
-用 `StdioServerParameters` 描述进程，用 `stdio_client` 把它变成传输，再把**它**交给 `Client`：
+用 `StdioServerParameters` 描述进程，再把它交给 `Client`：
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` 不接受单独的参数对象。`StdioServerParameters` 是配置；`stdio_client(server)` 才是知道如何据此启动进程的传输。一定要包一层。
+进入块时启动进程。离开块时关停子进程：关闭 stdin，等待，如果它迟迟不退出就杀掉。你从来不需要自己清理。
 
-离开 `async with` 块也会关停子进程：关闭 stdin，等待，如果它迟迟不退出就杀掉。你从来不需要自己清理。
+子进程的 stderr 会输出到你的 stderr。要把它送到别处，就用 `stdio_client`（来自 `mcp`）自己构建传输，改为传入它：`Client(stdio_client(server, errlog=log_file))`。
 
 !!! warning
     子进程**不会**继承你的环境。它只拿到一个最小的允许列表（POSIX 上是 `HOME`、`LOGNAME`、`PATH`、`SHELL`、`TERM` 和 `USER`），这样敏感信息就不会泄漏进一个可能不是你写的进程。
@@ -102,16 +102,16 @@ translation:
 
 对 `Client` 来说，上面这些都是同一种东西。
 
-**传输**是任何能产出一对 `(read, write)` 消息流的异步上下文管理器：正式地说，就是 `mcp.client` 中的 `Transport` 协议。`Client` 按类型解析它的参数：服务器对象在进程内连接，`str` 变成 `streamable_http_client(url)`，其他任何东西都直接作为传输进入。正是最后这条规则让 `stdio_client(...)`、`streamable_http_client(...)` 和 `sse_client(...)` 都能放进同一个位置，也让你可以自己写一个。
+**传输**是任何能产出一对 `(read, write)` 消息流的异步上下文管理器：正式地说，就是 `mcp.client` 中的 `Transport` 协议。`Client` 按类型解析它的参数：服务器对象在进程内连接，`str` 变成 `streamable_http_client(url)`，`StdioServerParameters` 变成 `stdio_client(params)`，其他任何东西都直接作为传输进入。正是最后这条规则让 `stdio_client(...)`、`streamable_http_client(...)` 和 `sse_client(...)` 都能放进同一个位置，也让你可以自己写一个。
 
 ## 回顾 {#recap}
 
 * `Client(mcp)`（服务器对象）在内存中连接。用于测试和嵌入。
 * `Client("http://.../mcp")`（URL）通过 Streamable HTTP 连接，即生产环境的传输方式。
 * 请求头、认证、代理和超时应放在 `httpx2.AsyncClient` 上，再传给 `streamable_http_client(url, http_client=...)`。没有 `headers=` 关键字参数。
-* stdio 是 `Client(stdio_client(StdioServerParameters(...)))`，绝不是单独的参数对象。
+* stdio 是 `Client(StdioServerParameters(...))`。只有在需要重定向子进程的 stderr 时，才自己用 `stdio_client(...)` 包一层。
 * 子进程拿到的是允许列表里的环境，不是你的环境；`env=` 往里添加。
-* 传输就是任何可以 `async with x as (read, write)` 的东西。凡不是服务器对象或 URL 的参数，`Client` 都直接交给这个协议。
+* 传输就是任何可以 `async with x as (read, write)` 的东西。凡不是服务器对象、URL 或 `StdioServerParameters` 的参数，`Client` 都直接交给这个协议。
 * 构造 `Client` 选定传输方式。`async with` 打开它。
 
 传输打开之后，两边必须就协议版本达成一致。通常根本不用考虑它；需要考虑的时候，去看 **[协议版本](../protocol-versions.md)**。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # Client-Transporte {#client-transports}
@@ -87,15 +87,15 @@ oder übergibst deinem `httpx2.AsyncClient` ein explizites `verify=ssl_context`
 
 Ein **stdio**-Server ist ein Subprozess. Der Client startet ihn, schreibt JSON-RPC in seine stdin und liest JSON-RPC aus seiner stdout. So betreibt ein Desktop-Host einen Server auf deinem Rechner: Ein Host *ist* dieser Code plus eine UI, und **[Mit einem echten Host verbinden](../get-started/real-host.md)** zeigt dieselbe Beziehung von der Seite des Hosts, als Konfigurationsdatei.
 
-Beschreibe den Prozess mit `StdioServerParameters`, mach daraus mit `stdio_client` einen Transport und übergib *den* an `Client`:
+Beschreibe den Prozess mit `StdioServerParameters` und übergib das Objekt an `Client`:
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client` akzeptiert das Parameter-Objekt allein nicht. `StdioServerParameters` ist Konfiguration; `stdio_client(server)` ist der Transport, der weiß, wie er daraus einen Prozess startet. Immer einpacken.
+Beim Eintreten in den Block wird der Prozess gestartet. Beim Verlassen wird der Subprozess beendet: stdin schließen, warten, abschießen, falls er hängen bleibt. Du räumst ihn nie selbst auf.
 
-Beim Verlassen des `async with`-Blocks wird auch der Subprozess beendet: stdin schließen, warten, abschießen, falls er hängen bleibt. Du räumst ihn nie selbst auf.
+Die stderr des Kindprozesses landet in deiner. Um sie woandershin zu leiten, baust du den Transport selbst mit `stdio_client` (aus `mcp`) und übergibst stattdessen diesen: `Client(stdio_client(server, errlog=log_file))`.
 
 !!! warning
     Der Kindprozess erbt **nicht** deine Umgebung. Er bekommt eine minimale Allow-List (`HOME`, `LOGNAME`,
@@ -113,16 +113,16 @@ Beim Verlassen des `async with`-Blocks wird auch der Subprozess beendet: stdin s
 
 Für `Client` ist alles oben Genannte dasselbe.
 
-Ein **Transport** ist ein beliebiger asynchroner Kontextmanager, der ein `(read, write)`-Paar von Nachrichten-Streams liefert: formal das `Transport`-Protokoll in `mcp.client`. `Client` löst sein Argument nach Typ auf: Ein Server-Objekt verbindet im Prozess, ein `str` wird zu `streamable_http_client(url)`, und alles andere wird direkt als Transport betreten. Diese letzte Regel ist der Grund, warum `stdio_client(...)`, `streamable_http_client(...)` und `sse_client(...)` alle in denselben Platz passen – und warum du deinen eigenen schreiben kannst.
+Ein **Transport** ist ein beliebiger asynchroner Kontextmanager, der ein `(read, write)`-Paar von Nachrichten-Streams liefert: formal das `Transport`-Protokoll in `mcp.client`. `Client` löst sein Argument nach Typ auf: Ein Server-Objekt verbindet im Prozess, ein `str` wird zu `streamable_http_client(url)`, ein `StdioServerParameters` wird zu `stdio_client(params)`, und alles andere wird direkt als Transport betreten. Diese letzte Regel ist der Grund, warum `stdio_client(...)`, `streamable_http_client(...)` und `sse_client(...)` alle in denselben Platz passen – und warum du deinen eigenen schreiben kannst.
 
 ## Zusammenfassung {#recap}
 
 * `Client(mcp)` (das Server-Objekt) verbindet im Speicher. Nutze es für Tests und zum Einbetten.
 * `Client("http://.../mcp")` (eine URL) verbindet über Streamable HTTP, den Produktions-Transport.
 * Header, Auth, Proxys und Timeouts gehören auf einen `httpx2.AsyncClient`, den du an `streamable_http_client(url, http_client=...)` übergibst. Es gibt kein Keyword `headers=`.
-* stdio ist `Client(stdio_client(StdioServerParameters(...)))`, nie das Parameter-Objekt allein.
+* stdio ist `Client(StdioServerParameters(...))`. Pack es nur dann selbst in `stdio_client(...)` ein, wenn du die stderr des Kindprozesses umleiten willst.
 * Der Subprozess bekommt eine Umgebung per Allow-List, nicht deine; `env=` ergänzt sie.
-* Ein Transport ist alles, womit du `async with x as (read, write)` schreiben kannst. Alles, was weder Server-Objekt noch URL ist, reicht `Client` direkt an dieses Protokoll weiter.
+* Ein Transport ist alles, womit du `async with x as (read, write)` schreiben kannst. Alles, was weder Server-Objekt noch URL noch `StdioServerParameters` ist, reicht `Client` direkt an dieses Protokoll weiter.
 * Das Erzeugen eines `Client` wählt den Transport. `async with` öffnet ihn.
 
 Sobald der Transport offen ist, müssen sich beide Seiten auf eine Protokollversion einigen. Normalerweise denkst du nie darüber nach; wenn doch, ist **[Protokollversionen](../protocol-versions.md)** die richtige Seite.

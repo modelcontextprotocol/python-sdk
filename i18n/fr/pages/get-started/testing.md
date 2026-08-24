@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # Tests {#testing}
@@ -85,9 +85,10 @@ Et voilà. Vous pouvez maintenant étendre vos tests pour couvrir davantage de s
 Deux choses différentes peuvent mal tourner, et cet indicateur n’en concerne qu’une seule.
 
 Une exception dans l’un de **vos outils** n’est pas un échec du protocole. Elle devient un résultat
-normal avec `is_error=True`, et le modèle lit le message. `raise_exceptions` n’y change rien : avec
-ou sans lui, `call_tool` renvoie le même résultat `is_error=True`. Une page entière y est
-consacrée : **[Gérer les erreurs](../servers/handling-errors.md)**.
+normal avec `is_error=True` (et s’il s’agissait d’une `ToolError`, le modèle lit votre message).
+`raise_exceptions` n’y change rien : avec ou sans lui, `call_tool` renvoie le même résultat
+`is_error=True`. Une page entière y est consacrée :
+**[Gérer les erreurs](../servers/handling-errors.md)**.
 
 Un échec **en dehors** du corps d’un outil est différent. Sur la connexion que vous donne
 `Client(mcp)`, le serveur le neutralise en un `"Internal server error"` générique avant que le

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -53,8 +53,11 @@ Genau darum geht es. Middleware umschließt **jede** eingehende Nachricht:
 
 * Den Verbindungsaufbau: `server/discover`, oder `initialize` und `notifications/initialized`
   in einer Legacy-Session.
-* Jeden Request und jede Benachrichtigung. Bei einer Benachrichtigung gilt `ctx.request_id is None`,
-  `call_next(ctx)` gibt `None` zurück, und was immer du zurückgibst, wird verworfen.
+* Jeden Request und jede Benachrichtigung, die den Server erreichen. Bei einer Benachrichtigung gilt
+  `ctx.request_id is None`, `call_next(ctx)` gibt `None` zurück, und was immer du zurückgibst, wird
+  verworfen. (Auf dem Streamable-HTTP-Pfad der Revision `2026-07-28` wird der Benachrichtigungs-POST
+  eines Clients schon im Transport mit `202` quittiert und nie weitergeleitet, erreicht die Middleware
+  also ebenfalls nicht; diese Revision definiert keine Client-zu-Server-Benachrichtigungen über HTTP.)
 * Sogar eine Methode, für die der Server keinen Handler hat: `call_next` wirft den
   `MCPError(-32601, "Method not found")` *durch* deine Middleware hindurch auf dem Weg zum Client.
 
@@ -114,8 +117,8 @@ du gar nicht an sie. Sie tut nichts, bis du einen Exporter installierst, und sie
 
 * Eine Middleware ist `async (ctx, call_next) -> result`, übergeben als `MCPServer(middleware=[...])`
   (oder an `mcp.middleware` angehängt) und beim Low-Level-`Server` an `server.middleware` angehängt.
-* Sie umschließt **jede** eingehende Nachricht (`server/discover`, `initialize`, Requests,
-  Benachrichtigungen, unbekannte Methoden) und läuft von außen nach innen.
+* Sie umschließt **jede** eingehende Nachricht, die den Server erreicht (`server/discover`,
+  `initialize`, Requests, Benachrichtigungen, unbekannte Methoden), und läuft von außen nach innen.
 * An `ctx.request_id is None` unterscheidest du eine Benachrichtigung von einem Request.
 * Wirf eine Exception, statt `call_next` aufzurufen, um eine einzelne Nachricht abzulehnen; die
   Verbindung überlebt.

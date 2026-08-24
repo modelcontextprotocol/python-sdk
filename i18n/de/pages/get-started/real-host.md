@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3c4f2f06b4e978b6, 22520eecae3d1961, f4e1709db18d635a, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
+  sections: [3c4f2f06b4e978b6, 51ea5fbcb0e93563, 32d8808606ffdae0, 2eb57992049671d9, 1ba83e9af37cc1b4, 4822586344b08d9e, 1c93afef72478992, b6b448f9eddd51dc, fe55370fd931815b]
   tool: 1
 ---
 # Mit einem echten Host verbinden {#connect-to-a-real-host}
@@ -11,7 +11,7 @@ Das heißt: Sich mit einem Host zu verbinden ist eine einzige Handlung. Du nenns
 
 ## Ein Server, jeder Host {#one-server-every-host}
 
-```python title="server.py" hl_lines="3 33-34"
+```python title="server.py" hl_lines="4 34-35"
 --8<-- "docs_src/real_host/tutorial001.py"
 ```
 
@@ -51,7 +51,7 @@ Es ist außerdem der Befehl, den `mcp install` für dich in die Konfiguration vo
 
     Und ein Host ist nichts weiter als eine Anwendung mit einem MCP-Client darin. Dein eigenes
     Python kann also die Rolle des Hosts übernehmen: **[Client-Transporte](../client/transports.md)**
-    startet genau diese Datei als Subprozess mit `stdio_client(...)`, und **[Testen](testing.md)**
+    startet genau diese Datei als Subprozess mit `Client(StdioServerParameters(...))`, und **[Testen](testing.md)**
     verbindet sich im Speicher mit ihr, ganz ohne Prozess.
 
 ## Claude Desktop {#claude-desktop}

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [6048b4f308edbb8c, 068bda0f21ee9c1b, c3e565b61acd75c5, c62422b159c6ed09, 47204fab253cc45c]
+  sections: [6048b4f308edbb8c, 46056f318ef205e4, c3e565b61acd75c5, c62422b159c6ed09, 420968f514138f43]
   tool: 1
 ---
 # Middleware {#middleware}
@@ -21,7 +21,7 @@ Onu `async (ctx, call_next)` biçiminde yazar ve `server.middleware` listesine e
 
 ## Bir zamanlama middleware'i {#a-timing-middleware}
 
-Bir sunucu, bir araç ve her mesajın ne kadar sürdüğünü loglayan bir middleware:
+Bir sunucu, bir araç ve her mesajın ne kadar sürdüğünü log'a yazan bir middleware:
 
 ```python title="server.py" hl_lines="39-45 49"
 --8<-- "docs_src/middleware/tutorial001.py"
@@ -38,7 +38,7 @@ Bir sunucu, bir araç ve her mesajın ne kadar sürdüğünü loglayan bir middl
 
 ### Deneyin {#try-it}
 
-Bir istemci bağlayın, araçları listeleyin, birini çağırın. Logunuzda **üç** satır var:
+Bir istemci bağlayın, araçları listeleyin, birini çağırın. Log'unuzda **üç** satır var:
 
 ```text
 server/discover took 18.3 ms
@@ -53,8 +53,11 @@ istemeden önce, istemcinin bağlantıyı kurmak için gönderdiği istek.
 
 * Bağlantı kurulumu: `server/discover` ya da eski nesil bir oturumda `initialize` ve
   `notifications/initialized`.
-* Her istek ve her bildirim. Bir bildirimde `ctx.request_id is None` olur,
-  `call_next(ctx)` `None` döndürür ve sizin döndürdüğünüz her şey atılır.
+* Sunucuya ulaşan her istek ve her bildirim. Bir bildirimde
+  `ctx.request_id is None` olur, `call_next(ctx)` `None` döndürür ve sizin döndürdüğünüz her şey atılır.
+  (`2026-07-28` Streamable HTTP yolunda istemcinin bildirim POST'u aktarım katmanında `202` ile
+  onaylanır ve hiçbir zaman işlenmek üzere iletilmez; bu yüzden middleware'e de ulaşmaz. O revizyon
+  HTTP üzerinden istemciden sunucuya hiçbir bildirim tanımlamaz.)
 * Sunucunun işleyicisi olmayan bir metot bile: `call_next`,
   `MCPError(-32601, "Method not found")` istisnasını istemciye giderken middleware'inizin *içinden* fırlatır.
 
@@ -110,7 +113,7 @@ aklınıza bile gelmez. Bir exporter kurana kadar hiçbir şey yapmaz ve kendi s
 
 * Bir middleware `async (ctx, call_next) -> result` biçimindedir; `MCPServer(middleware=[...])` olarak geçirilir (ya da
   `mcp.middleware` listesine eklenir), alt düzey `Server`'da ise `server.middleware` listesine eklenir.
-* Gelen **her** mesajı sarar (`server/discover`, `initialize`, istekler, bildirimler,
+* Sunucuya ulaşan **her** gelen mesajı sarar (`server/discover`, `initialize`, istekler, bildirimler,
   bilinmeyen metotlar) ve dıştan içe doğru çalışır.
 * Bir bildirimi bir istekten `ctx.request_id is None` ile ayırt edersiniz.
 * Tek bir mesajı reddetmek için `call_next`'i çağırmak yerine istisna fırlatın; bağlantı ayakta kalır.

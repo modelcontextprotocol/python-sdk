@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, e866c192e11d1c14, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c6f7d2a148aa49f4, c851964bb3301907, d715db6f8dccc9cc, ef86634aa70498a7]
+  sections: [a838d57f003aed44, 857d03886a0137ed, 42d9efcb9f542867, 2290ff08435b5573, 91be9b73602abcf1, 6cdbad079f7b47f0, d4b607372fb28b51, 18dbf726ac45e0b7, c7eff2a5698225fa, c851964bb3301907, 8f296f1f09e4c400, d715db6f8dccc9cc, a0c344a48450dbe4]
   tool: 1
 ---
 # 구조화된 출력 {#structured-output}
@@ -103,7 +103,7 @@ result.structured_content  # {"temperature": 16.2, "humidity": 0.83, "conditions
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-`TypedDict`는 런타임에 평범한 `dict`이므로, 바로 그 형태로 만들어서 반환하면 됩니다. 스키마와 검증, `structured_content`는 `BaseModel` 버전과 똑같습니다(설명은 빠지는데, `TypedDict`에는 설명을 둘 자리가 없기 때문입니다).
+`TypedDict`는 런타임에 평범한 `dict`이므로, 바로 그 형태로 만들어서 반환하면 됩니다. 스키마와 검증, `structured_content`는 `BaseModel` 버전과 같은 규칙을 따릅니다. 클래스 독스트링이나 `Annotated[..., Field(description=...)]` 표기를 추가하면 그 내용이 설명이 되고, 딕셔너리에서 빼 둔 `NotRequired` 키는 `structured_content`에서도 빠집니다.
 
 ## 데이터클래스 {#a-dataclass}
 
@@ -185,15 +185,15 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 어노테이션은 `WeatherData`를 약속합니다. 그런데 업스트림 응답이 더 이상 `humidity`를 보내지 않습니다.
 
 !!! check
-    `get_weather`를 호출해도 반쯤 빈 객체를 클라이언트에 슬그머니 넘기지 않습니다. 호출은 실패하고, 오류의 첫 몇 줄이 문제의 필드를 지목합니다.
+    `get_weather`를 호출해도 반쯤 빈 객체를 클라이언트에 슬그머니 넘기지 않습니다. 호출은 실패합니다. 클라이언트는 `is_error=True`와 함께 `Error executing tool get_weather`를 받으므로, 모델은 있지도 않은 날씨를 자신 있게 읽어 내는 대신 호출이 실패했다는 사실을 알게 됩니다. 필드 이름은 개발자를 위한 것으로, 서버 로그에 `ERROR` 수준으로 남습니다.
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    이 텍스트는 `is_error=True` 상태의 도구 결과로 돌아오므로, 모델은 있지도 않은 날씨를 자신 있게 읽어 내는 대신 호출이 실패했다는 사실을 알게 됩니다.
 
 참고로 `-> WeatherData` 도구에서 평범한 `dict`를 반환해도 괜찮습니다. 위 예제에서 `json.loads`가 만들어 낸 결과가 바로 평범한 딕셔너리였습니다. 검증 대상은 Python 타입이 아니라 값입니다.
 
@@ -208,6 +208,10 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 `output_schema`도, 감싸기도, 검증도 없습니다. `structured_content`는 `None`이고 `content`는 반환한 문자열 그대로입니다.
 
 반대로 `structured_output=True` 옵션은 자동 감지를 필수 요건으로 바꿉니다. 반환 타입으로 스키마를 만들 수 없는 도구는 텍스트로 물러나는 대신 임포트 시점에 예외를 일으킵니다.
+
+## 콘텐츠 블록과 미디어 {#content-blocks-and-media}
+
+콘텐츠 블록과 미디어(`TextContent`, `EmbeddedResource`, `Image`, `Audio` 등이 단독으로 쓰이거나, `list`, `tuple`, `Sequence`의 항목으로 쓰이거나, 유니언의 갈래로 쓰이는 경우)는 구조화된 출력이 자동으로 꺼집니다. 모델이 읽기 위한 것이므로 자동 감지가 여기서는 스키마를 만들지 않습니다(`Image`와 `Audio`는 **[이미지, 오디오, 아이콘](media.md)**에서 다룹니다). 다만 `structured_output=True` 옵션을 주면 콘텐츠 블록 클래스에 대해서는 여전히 스키마를 강제로 만듭니다.
 
 ## 타입 힌트가 없는 클래스 {#a-class-without-type-hints}
 
@@ -237,6 +241,6 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 * 스칼라, 리스트, 튜플, 유니언은 `{"result": ...}` 형태로 감싸집니다. 모델, `TypedDict`, 데이터클래스, 어노테이션이 달린 클래스, 그리고 `dict[str, ...]` 타입은 이미 객체이므로 그대로 유지됩니다.
 * 모든 결과에는 `content`(모델을 위한 텍스트)와 `structured_content`(애플리케이션을 위한 데이터)가 **함께** 담깁니다.
 * 반환한 값은 스키마에 맞춰 검증됩니다. 어긋나면 손상된 결과가 아니라 도구 오류가 됩니다.
-* `structured_output=False` 옵션으로 도구의 구조화된 출력을 끌 수 있습니다. 타입 힌트가 없는 클래스는 아무 경고 없이 꺼지므로 주의하세요.
+* `structured_output=False` 옵션으로 도구의 구조화된 출력을 끌 수 있습니다. 콘텐츠 블록, `Image`, `Audio`는 기본적으로 꺼집니다. 타입 힌트가 없는 클래스는 아무 경고 없이 꺼지므로 주의하세요.
 
 이제 도구가 돌려줄 수 있는 모든 것을 손에 넣었습니다. 다음은 두 번째 프리미티브인 **[리소스](resources.md)**입니다.

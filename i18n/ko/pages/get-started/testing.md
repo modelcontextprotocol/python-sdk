@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 2e410b412c25f314, 627195f7159e24ef]
+  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
   tool: 1
 ---
 # 테스트 {#testing}
@@ -84,9 +84,9 @@ async def test_call_add_tool(client: Client):
 잘못될 수 있는 일은 서로 다른 두 가지이고, 이 플래그는 그중 하나에만 관여합니다.
 
 **작성한 도구** 안에서 발생한 예외는 프로토콜 실패가 아닙니다. `is_error=True`인 정상적인 결과가
-되고, 모델이 그 메시지를 읽습니다. `raise_exceptions`는 이 점을 바꾸지 않습니다. 플래그가 있든
-없든 `call_tool`은 똑같은 `is_error=True` 결과를 반환합니다. 이 주제를 통째로 다루는 페이지가
-따로 있습니다. **[오류 처리](../servers/handling-errors.md)**를 참고하세요.
+됩니다(`ToolError`였다면 모델이 작성한 메시지를 읽습니다). `raise_exceptions`는 이 점을 바꾸지
+않습니다. 플래그가 있든 없든 `call_tool`은 똑같은 `is_error=True` 결과를 반환합니다. 이 주제를
+통째로 다루는 페이지가 따로 있습니다. **[오류 처리](../servers/handling-errors.md)**를 참고하세요.
 
 도구 본문 **바깥**에서 일어난 실패는 다릅니다. `Client(mcp)`가 제공하는 연결에서는 클라이언트가
 보기 전에 서버가 이 실패를 일반적인 `"Internal server error"`로 정제합니다. 예상치 못한 크래시의

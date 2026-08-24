@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, ff7401df479af877, 3d0832f39b0d7059, d4bf7e4479637768, 05e20c0a798860e7]
+  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
   tool: 1
 ---
 # 클라이언트 트랜스포트 {#client-transports}
@@ -87,15 +87,15 @@ TLS 관련 참고 사항이 하나 있습니다. `httpx2`는 번들된 CA 목록
 
 **stdio** 서버는 서브프로세스입니다. 클라이언트가 이를 실행하고, stdin에 JSON-RPC를 쓰고, stdout에서 JSON-RPC를 읽습니다. 데스크톱 호스트가 사용자 컴퓨터에서 서버를 실행하는 방식이 바로 이것입니다. 호스트는 **곧** 이 코드에 UI를 더한 것이며, **[실제 호스트에 연결하기](../get-started/real-host.md)**는 같은 관계를 호스트 쪽에서 설정 파일로 바라본 것입니다.
 
-`StdioServerParameters`로 프로세스를 기술하고, `stdio_client`로 트랜스포트로 바꾼 다음, **그것**을 `Client`에 넘기세요.
+`StdioServerParameters`로 프로세스를 기술하고 `Client`에 넘기세요.
 
-```python title="client.py" hl_lines="4-8 12"
+```python title="client.py" hl_lines="3-7 11"
 --8<-- "docs_src/client_transports/tutorial004.py"
 ```
 
-`Client`는 매개변수 객체를 단독으로 받지 않습니다. `StdioServerParameters`는 설정이고, `stdio_client(server)`는 그 설정으로 프로세스를 띄우는 방법을 아는 트랜스포트입니다. 항상 감싸서 전달하세요.
+블록에 진입하면 프로세스가 생성됩니다. 블록을 벗어나면 서브프로세스도 종료됩니다. stdin을 닫고, 기다리고, 남아 있으면 강제 종료합니다. 직접 정리할 일은 없습니다.
 
-`async with` 블록을 벗어나면 서브프로세스도 함께 종료됩니다. stdin을 닫고, 기다리고, 남아 있으면 강제 종료합니다. 직접 정리할 일은 없습니다.
+자식 프로세스의 stderr는 부모 프로세스의 stderr로 나갑니다. 다른 곳으로 보내려면 `mcp`의 `stdio_client`로 트랜스포트를 직접 만들어 `Client(stdio_client(server, errlog=log_file))`처럼 대신 전달하세요.
 
 !!! warning
     자식 프로세스는 환경 변수를 상속하지 **않습니다**. 직접 작성하지 않았을 수도 있는 프로세스로
@@ -113,16 +113,16 @@ TLS 관련 참고 사항이 하나 있습니다. `httpx2`는 번들된 CA 목록
 
 `Client`에게 위의 모든 것은 같은 것입니다.
 
-**트랜스포트**란 `(read, write)` 메시지 스트림 쌍을 내어주는 비동기 컨텍스트 매니저라면 무엇이든 해당합니다. 정식으로는 `mcp.client`의 `Transport` 프로토콜입니다. `Client`는 인자를 타입으로 구분합니다. 서버 객체는 프로세스 내에서 연결하고, `str`은 `streamable_http_client(url)`이 되며, 그 밖의 것은 트랜스포트로 직접 진입합니다. 마지막 규칙 덕분에 `stdio_client(...)`, `streamable_http_client(...)`, `sse_client(...)`가 모두 같은 자리에 들어가고, 직접 만든 트랜스포트도 쓸 수 있습니다.
+**트랜스포트**란 `(read, write)` 메시지 스트림 쌍을 내어주는 비동기 컨텍스트 매니저라면 무엇이든 해당합니다. 정식으로는 `mcp.client`의 `Transport` 프로토콜입니다. `Client`는 인자를 타입으로 구분합니다. 서버 객체는 프로세스 내에서 연결하고, `str`은 `streamable_http_client(url)`이 되며, `StdioServerParameters`는 `stdio_client(params)`가 되고, 그 밖의 것은 트랜스포트로 직접 진입합니다. 마지막 규칙 덕분에 `stdio_client(...)`, `streamable_http_client(...)`, `sse_client(...)`가 모두 같은 자리에 들어가고, 직접 만든 트랜스포트도 쓸 수 있습니다.
 
 ## 요약 {#recap}
 
 * `Client(mcp)`(서버 객체)는 인메모리로 연결합니다. 테스트와 임베딩에 사용하세요.
 * `Client("http://.../mcp")`(URL)는 프로덕션 트랜스포트인 Streamable HTTP로 연결합니다.
 * 헤더, 인증, 프록시, 타임아웃은 `streamable_http_client(url, http_client=...)`에 전달하는 `httpx2.AsyncClient`에 설정합니다. `headers=` 키워드는 없습니다.
-* stdio는 `Client(stdio_client(StdioServerParameters(...)))`이며, 매개변수 객체만 단독으로 쓰는 일은 절대 없습니다.
+* stdio는 `Client(StdioServerParameters(...))`입니다. 자식 프로세스의 stderr를 다른 곳으로 돌릴 때만 직접 `stdio_client(...)`로 감싸세요.
 * 서브프로세스는 현재 환경이 아니라 허용 목록에 있는 환경 변수만 받습니다. `env=`로 여기에 추가합니다.
-* 트랜스포트는 `async with x as (read, write)`로 쓸 수 있는 것이면 무엇이든 됩니다. `Client`는 서버 객체나 URL이 아닌 것은 모두 그 프로토콜에 그대로 넘깁니다.
+* 트랜스포트는 `async with x as (read, write)`로 쓸 수 있는 것이면 무엇이든 됩니다. `Client`는 서버 객체, URL, `StdioServerParameters`가 아닌 것은 모두 그 프로토콜에 그대로 넘깁니다.
 * `Client`를 생성하면 트랜스포트가 정해집니다. `async with`가 이를 엽니다.
 
 트랜스포트가 열리면 양쪽은 프로토콜 버전에 합의해야 합니다. 보통은 신경 쓸 일이 없지만, 필요할 때는 **[프로토콜 버전](../protocol-versions.md)** 페이지를 확인하세요.

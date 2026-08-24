@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, c03764bd9dfeef7b, 4a0391691a674ae4, 2df5cd279eabf9f5]
+  sections: [c93a3e1aefd77955, 7851abd5ec54393b, f49d1ca2f330f9cd, 4cc0a00347c3f534, 4a0391691a674ae4, 2df5cd279eabf9f5]
   tool: 1
 ---
 # Registro de logs {#logging}
@@ -54,6 +54,8 @@ No tienes que llamar a `logging.basicConfig()` tú mismo. Construir un `MCPServe
 El valor por defecto es `"INFO"`.
 
 `logging.basicConfig()` nunca reemplaza handlers que ya existen. Si configuras el logging tú mismo antes de crear el servidor, tu configuración gana.
+
+Tampoco necesitas un `try`/`except` en cada handler solo para registrar los fallos. Cuando una función de herramienta o de recurso lanza una excepción, el SDK la registra por ti. **[Manejo de errores](../servers/handling-errors.md#any-other-exception)** explica qué se registra y con qué nivel.
 
 ## Pruébalo {#try-it}
 

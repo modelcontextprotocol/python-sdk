@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 101ef9d14bf4ec46, 4b6c4a845438abc7, f98b46bafbee4acd]
+  sections: [4a7033e1ed8ad602, 55dcbfff0c6271bf, 317f4256a650cab6, 4b6c4a845438abc7, f98b46bafbee4acd]
   tool: 1
 ---
 # URI-шаблони та безпека шляхів {#uri-templates-and-path-safety}
@@ -170,7 +170,7 @@ SDK підтримує підмножину, відібрану для зіст�
 `safe_join`, щоб розв'язати шлях і впевнитися, що він лишається всередині
 базового каталогу:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -211,9 +211,10 @@ SDK підтримує підмножину, відібрану для зіст�
 
 !!! tip
     Якщо обробник не може виконати запит (файл не існує, ідентифікатор
-    невідомий), викиньте виняток. SDK перетворить його на відповідь з
-    помилкою. Про різницю між помилкою протоколу та помилкою інструмента —
-    на сторінці **[Обробка помилок](handling-errors.md)**.
+    невідомий), викиньте `ResourceNotFoundError`, як це робить `read_manual`
+    вище. Клієнт отримає `-32602` з вашим повідомленням і URI. Неочікуваний
+    виняток натомість стає загальною помилкою `-32603`. Див.
+    **[Обробка помилок](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Ресурси на низькорівневому Server {#resources-on-the-low-level-server}
 
