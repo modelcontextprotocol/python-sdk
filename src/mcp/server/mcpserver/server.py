@@ -52,7 +52,7 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
-from starlette.types import Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
@@ -136,6 +136,17 @@ _MISSING_AUDIENCE = (
     "all stamp the same placeholder and the check would mean nothing. Name the\n"
     'server (MCPServer("my-service", ...)) or set RequestStateSecurity(audience=...).'
 )
+
+
+class _RawASGIEndpoint:
+    """Passes a raw ASGI callable to `Route`, which treats plain functions as request/response
+    endpoints and would send a second response after the handler already sent one (#883)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self._app(scope, receive, send)
 
 
 def lifespan_wrapper(
@@ -1153,14 +1164,13 @@ class MCPServer(Generic[LifespanResultT]):
             message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
         )
 
-        async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
-            # Add client ID from auth context into request context if available
-
+        async def handle_sse(scope: Scope, receive: Receive, send: Send) -> None:
+            # connect_sse sends the complete SSE response; sending anything after it would
+            # deliver a second http.response.start, which crashes BaseHTTPMiddleware (#883).
             async with sse.connect_sse(scope, receive, send) as streams:
                 await self._lowlevel_server.run(
                     streams[0], streams[1], self._lowlevel_server.create_initialization_options()
                 )
-            return Response()
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -1213,7 +1223,9 @@ class MCPServer(Generic[LifespanResultT]):
             routes.append(
                 Route(
                     sse_path,
-                    endpoint=RequireAuthMiddleware(handle_sse, required_scopes, resource_metadata_url),
+                    endpoint=RequireAuthMiddleware(
+                        _RawASGIEndpoint(handle_sse), required_scopes, resource_metadata_url
+                    ),
                     methods=["GET"],
                 )
             )
@@ -1225,15 +1237,10 @@ class MCPServer(Generic[LifespanResultT]):
             )
         else:
             # Auth is disabled, no need for RequireAuthMiddleware
-            # Since handle_sse is an ASGI app, we need to create a compatible endpoint
-            async def sse_endpoint(request: Request) -> Response:  # pragma: no cover
-                # Convert the Starlette request to ASGI parameters
-                return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
-
             routes.append(
                 Route(
                     sse_path,
-                    endpoint=sse_endpoint,
+                    endpoint=_RawASGIEndpoint(handle_sse),
                     methods=["GET"],
                 )
             )

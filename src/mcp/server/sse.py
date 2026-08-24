@@ -7,31 +7,30 @@ Example:
     # Create an SSE transport at an endpoint
     sse = SseServerTransport("/messages/")
 
+    # Define a raw ASGI handler for the SSE connection
+    class HandleSSE:
+        async def __call__(self, scope, receive, send):
+            async with sse.connect_sse(scope, receive, send) as streams:
+                await app.run(
+                    streams[0], streams[1], app.create_initialization_options()
+                )
+
     # Create Starlette routes for SSE and message handling
     routes = [
-        Route("/sse", endpoint=handle_sse, methods=["GET"]),
+        Route("/sse", endpoint=HandleSSE(), methods=["GET"]),
         Mount("/messages/", app=sse.handle_post_message),
     ]
-
-    # Define handler functions
-    async def handle_sse(request):
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
-            await app.run(
-                streams[0], streams[1], app.create_initialization_options()
-            )
-        # Return empty response to avoid NoneType error
-        return Response()
 
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
     ```
 
-Note: The handle_sse function must return a Response to avoid a
-"TypeError: 'NoneType' object is not callable" error when client disconnects. The example above returns
-an empty Response() after the SSE connection ends to fix this.
+Note: The SSE handler must be registered as a raw ASGI app (a class instance with
+`__call__`, as above), not a plain function. Starlette wraps function endpoints in
+`request_response`, which sends a second response after `connect_sse` has already
+sent the complete SSE response — crashing middleware such as `BaseHTTPMiddleware`
+when the client disconnects.
 
 See SseServerTransport class documentation for more details.
 """

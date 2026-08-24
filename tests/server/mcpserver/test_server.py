@@ -1,5 +1,6 @@
 import base64
 import logging
+from collections.abc import MutableMapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Any
@@ -46,7 +47,12 @@ from mcp_types import (
 )
 from pydantic import AfterValidator, BaseModel, ValidationError
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
+from starlette.responses import Response
 from starlette.routing import Mount, Route
+from starlette.types import Receive, Scope, Send
 from typing_extensions import NotRequired, TypedDict
 
 from mcp.client import Client
@@ -74,6 +80,7 @@ from mcp.server.subscriptions import (
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import InvalidUriTemplate
+from tests.interaction.transports import StreamingASGITransport
 
 pytestmark = pytest.mark.anyio
 
@@ -1932,6 +1939,44 @@ async def test_sse_app_applies_the_configured_request_body_limit() -> None:
             headers={"Content-Type": "application/json"},
         )
     assert response.status_code == 413
+
+
+async def test_sse_app_under_base_http_middleware_survives_client_disconnect_without_second_response() -> None:
+    """A client disconnecting from the SSE stream must not make the app send a second
+    `http.response.start` — `BaseHTTPMiddleware` crashes on it (issue #883; pins the SDK's
+    Starlette wiring, not a spec mandate)."""
+    inner = MCPServer("test").sse_app(host="0.0.0.0")
+    sent_types: list[str] = []
+
+    async def recording_inner(scope: Scope, receive: Receive, send: Send) -> None:
+        async def recording_send(message: MutableMapping[str, Any]) -> None:
+            sent_types.append(message["type"])
+            await send(message)
+
+        await inner(scope, receive, recording_send)
+
+    class PassthroughMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+            return await call_next(request)
+
+    outer = Starlette(routes=[Mount("/", app=recording_inner)], middleware=[Middleware(PassthroughMiddleware)])
+
+    with anyio.fail_after(5):
+        # cancel_on_close=False: closing the client waits for the app's own disconnect handling,
+        # which is where a second response would be sent.
+        transport = StreamingASGITransport(outer, cancel_on_close=False)
+        async with httpx2.AsyncClient(transport=transport, base_url="http://localhost") as http:
+            async with http.stream("GET", "/sse") as response:
+                assert response.status_code == 200
+                first_event: list[str] = []
+                async for line in response.aiter_lines():
+                    if not line:  # blank line terminates the first SSE event
+                        break
+                    first_event.append(line)
+                assert first_event[0] == "event: endpoint"
+            # leaving the stream block closes the response: the app sees http.disconnect
+
+    assert sent_types.count("http.response.start") == 1
 
 
 async def test_report_progress_delegates_to_session_report_progress():
