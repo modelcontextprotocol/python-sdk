@@ -189,15 +189,16 @@ class FakeProcess:
 
 
 def install_fake_process(
-    monkeypatch: pytest.MonkeyPatch, process: FakeProcess, *, grace_period: float | None = 0.2
+    monkeypatch: pytest.MonkeyPatch, *processes: FakeProcess, grace_period: float | None = 0.2
 ) -> list[FakeProcess]:
-    """Route stdio_client's spawn and terminate seams to `process`.
+    """Route stdio_client's spawn and terminate seams to `processes`, one per spawn.
 
     Returns the list of processes the (fake) tree termination was invoked on.
     `grace_period=None` keeps the production stdin-close grace (affordable only on a
     virtual clock).
     """
     terminated: list[FakeProcess] = []
+    to_spawn = iter(processes)
 
     async def fake_spawn(
         command: str,
@@ -206,7 +207,7 @@ def install_fake_process(
         errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
-        return process
+        return next(to_spawn)
 
     async def fake_terminate_tree(proc: FakeProcess) -> None:
         terminated.append(proc)
@@ -478,6 +479,59 @@ async def test_cancelling_the_client_still_runs_the_full_shutdown(monkeypatch: p
 
     assert process.stdin_closed.is_set()
     assert terminated == [process]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("close_order", [(0, 1), (1, 0)], ids=["oldest-first", "newest-first"])
+async def test_two_transports_held_by_one_task_close_in_either_order(
+    monkeypatch: pytest.MonkeyPatch, close_order: tuple[int, int]
+) -> None:
+    """One task holding two transports may close them oldest-first, not only newest-first.
+
+    Pins issue #577: a multi-server manager, independent exit stacks, or unordered pytest
+    fixtures got a cancel-scope RuntimeError out of the oldest-first teardown. Asyncio
+    only (this module's backend): on trio the transport still borrows the caller's
+    nursery, so newest-first stays the requirement there.
+    """
+    first = FakeProcess(on_stdin_close=lambda: first.exit(0))
+    second = FakeProcess(on_stdin_close=lambda: second.exit(0))
+    terminated = install_fake_process(monkeypatch, first, second)
+
+    stacks = [AsyncExitStack(), AsyncExitStack()]
+
+    with anyio.fail_after(5):
+        for stack in stacks:
+            await stack.enter_async_context(stdio_client(FAKE_PARAMS))
+        for index in close_order:
+            await stacks[index].aclose()
+
+    # Both servers went through the full shutdown, so neither needed terminating.
+    assert first.stdin_closed.is_set()
+    assert second.stdin_closed.is_set()
+    assert terminated == []
+
+
+@pytest.mark.anyio
+async def test_an_unhandled_pipe_task_failure_surfaces_out_of_the_context_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pipe task failing in a way the transport does not handle reaches the caller.
+
+    Undecodable server output crashes the reader (the encoding error handler defaults to
+    `strict`); exiting still shuts the server down cleanly, but the error is re-raised
+    rather than swallowed.
+    """
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    terminated = install_fake_process(monkeypatch, process)
+
+    with pytest.raises(UnicodeDecodeError):
+        with anyio.fail_after(5):
+            async with stdio_client(FAKE_PARAMS):
+                await process.feed(b"\xff\xfe not utf-8\n")
+                # Wait until the reader has actually decoded the bytes and died.
+                await anyio.wait_all_tasks_blocked()
+
+    assert terminated == []
 
 
 @pytest.mark.anyio

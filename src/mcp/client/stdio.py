@@ -8,13 +8,14 @@ with every wait bounded, so a cancelled caller can neither leak a live server
 process nor hang on one.
 """
 
+import asyncio
 import logging
 import os
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import Any, Literal, TextIO
 
 import anyio
 import anyio.lowlevel
@@ -130,7 +131,7 @@ async def stdio_client(
         cwd=server.cwd,
     )
 
-    # The spawn succeeded; no awaits until the task group is entered, or a
+    # The spawn succeeded; no awaits until the pipe tasks are running, or a
     # cancellation delivered in the gap would leak the live process.
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
@@ -197,9 +198,7 @@ async def stdio_client(
         # One pass so unblocked tasks exit via their except paths before the cancel.
         await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(stdout_reader)
-        tg.start_soon(stdin_writer)
+    async with _run_pipe_tasks(stdout_reader, stdin_writer) as cancel_pipe_tasks:
         try:
             yield read_stream, write_stream
         finally:
@@ -210,9 +209,70 @@ async def stdio_client(
             with anyio.CancelScope(shield=True):
                 await shutdown()
             # Unstick pipe tasks a kill survivor's open pipe end could still block.
-            tg.cancel_scope.cancel()
+            cancel_pipe_tasks()
     # The cancel lands via throw(); one yield resyncs 3.11 coverage (gh-106749).
     await anyio.lowlevel.cancel_shielded_checkpoint()
+
+
+@asynccontextmanager
+async def _run_pipe_tasks(
+    *pipes: Callable[[], Coroutine[Any, Any, None]],
+) -> AsyncGenerator[Callable[[], None], None]:
+    """Runs the pipe tasks for the duration of the body, yielding their canceller.
+
+    On asyncio they are plain asyncio tasks rather than an anyio task group: a task
+    group binds its cancel scope to the task that opened the transport, and anyio then
+    requires that task to close its transports in the reverse of the order it opened
+    them. Callers holding several servers (a multi-server manager, independent exit
+    stacks, pytest fixtures) legitimately close them in other orders, and got a
+    "cancel scope" RuntimeError instead of a clean teardown -- see #577. Trio cannot
+    spawn a task outside a nursery, so it keeps the task group and still requires
+    LIFO closing.
+    """
+    if not _on_asyncio():
+        async with anyio.create_task_group() as tg:
+            for pipe in pipes:
+                tg.start_soon(pipe)
+            yield tg.cancel_scope.cancel
+        return
+
+    tasks = [asyncio.ensure_future(pipe()) for pipe in pipes]
+
+    def cancel_pipe_tasks() -> None:
+        for task in tasks:
+            task.cancel()
+
+    errors: list[Exception] = []
+    try:
+        yield cancel_pipe_tasks
+    finally:
+        cancel_pipe_tasks()
+        # Shielded, as the task group's own reaping was: a cancelled caller must
+        # still leave no pipe task behind. Every task is awaited before anything is
+        # re-raised, so a second failure cannot surface as an unretrieved exception.
+        with anyio.CancelScope(shield=True):
+            for task in tasks:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass  # our own cancellation above, not a failure
+                except Exception as exc:  # the pipe tasks' top-level handler
+                    errors.append(exc)
+    # Outside the finally: a body that raised keeps its own exception.
+    if errors:
+        raise errors[0]
+
+
+def _on_asyncio() -> bool:
+    """Whether the caller is running on anyio's asyncio backend.
+
+    True exactly when an asyncio task is executing, which is when spawning further
+    asyncio tasks is meaningful; on trio there is no running loop to ask.
+    """
+    try:
+        return asyncio.current_task() is not None
+    except RuntimeError:
+        return False
 
 
 def _parse_line(line: str) -> SessionMessage | Exception:
