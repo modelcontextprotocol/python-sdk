@@ -525,6 +525,30 @@ class TestServerTools:
             assert '"name": "John Doe"' in result.content[0].text
 
     @pytest.mark.anyio
+    async def test_tool_structured_output_self_referential_model(self):
+        """A self-referential return type publishes an object-rooted outputSchema (required by the
+        2025-11-25 Tool shape) and its result validates client-side through the kept `$defs`."""
+
+        class Node(BaseModel):
+            name: str
+            children: list["Node"] = []
+
+        def tree() -> Node:
+            return Node(name="root", children=[Node(name="leaf")])
+
+        mcp = FastMCP()
+        mcp.add_tool(tree)
+
+        async with client_session(mcp._mcp_server) as client:
+            [tool] = (await client.list_tools()).tools
+            assert tool.outputSchema is not None
+            assert tool.outputSchema["type"] == "object"
+            assert tool.outputSchema["properties"]["children"]["items"] == {"$ref": "#/$defs/Node"}
+            result = await client.call_tool("tree", {})
+            assert result.isError is False
+            assert result.structuredContent == {"name": "root", "children": [{"name": "leaf", "children": []}]}
+
+    @pytest.mark.anyio
     async def test_tool_structured_output_primitive(self):
         """Test tool with structured output returning primitive type"""
 
