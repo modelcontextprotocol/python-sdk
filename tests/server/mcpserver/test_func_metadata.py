@@ -1202,6 +1202,34 @@ def test_structured_output_nested_models():
     }
 
 
+def test_structured_output_self_referential_model_gets_an_object_root():
+    """pydantic publishes a recursive model as a bare root `$ref`; the definition is inlined onto the
+    root and `$defs` is kept for the nested reference."""
+
+    class Node(BaseModel):
+        name: str
+        children: list["Node"] = []
+
+    def tree() -> Node:
+        return Node(name="root", children=[Node(name="leaf")])
+
+    node_definition: dict[str, Any] = {
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "children": {"default": [], "items": {"$ref": "#/$defs/Node"}, "title": "Children", "type": "array"},
+        },
+        "required": ["name"],
+        "title": "Node",
+        "type": "object",
+    }
+    meta = func_metadata(tree)
+    assert meta.output_schema == {**node_definition, "$defs": {"Node": node_definition}}
+
+    result = meta.convert_result(tree())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"name": "root", "children": [{"name": "leaf", "children": []}]}
+
+
 def test_structured_output_unserializable_type_error():
     """Test error when structured_output=True is used with unserializable types"""
 

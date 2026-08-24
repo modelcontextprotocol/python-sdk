@@ -74,6 +74,25 @@ class StrictJsonSchema(GenerateJsonSchema):
         raise ValueError(f"JSON schema warning: {kind} - {detail}")
 
 
+_LOCAL_DEFS_PREFIX = "#/$defs/"
+
+
+def _inline_root_ref(schema: dict[str, Any]) -> dict[str, Any]:
+    """Give a schema whose root is a bare `$ref` into `$defs` an inline root.
+
+    pydantic emits a self-referential model as `{"$defs": {...}, "$ref": "#/$defs/Model"}`, with no
+    `type` at the root; `Tool.outputSchema` needs an object root (required on the wire through
+    2025-11-25). The referenced definition is copied onto the root and `$defs` is kept, since nested
+    references still point into it. Root siblings of the `$ref` win over the definition's keys.
+    """
+    ref = schema.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith(_LOCAL_DEFS_PREFIX):
+        return schema
+    definition = cast(dict[str, Any], schema["$defs"][ref.removeprefix(_LOCAL_DEFS_PREFIX)])
+    siblings = {key: value for key, value in schema.items() if key != "$ref"}
+    return {**definition, **siblings}
+
+
 class ArgModelBase(BaseModel):
     """A model representing the arguments to a function."""
 
@@ -108,7 +127,8 @@ class FuncMetadata(BaseModel):
     def model_post_init(self, context: Any, /) -> None:
         if self.output_model is not None and self.output_schema is None:
             # StrictJsonSchema raises instead of warning, so an unserializable return type fails construction.
-            self.output_schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            self.output_schema = _inline_root_ref(schema)
 
     def _output_adapter(self, output_model: type[Any]) -> TypeAdapter[Any]:
         """The validator/serializer for `output_model`, built once and rebuilt only if the field is reassigned."""
