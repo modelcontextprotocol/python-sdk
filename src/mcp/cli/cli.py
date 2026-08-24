@@ -138,6 +138,7 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
         sys.exit(1)
 
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
     def _check_server_object(server_object: Any, object_name: str):
