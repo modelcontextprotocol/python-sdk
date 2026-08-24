@@ -1585,17 +1585,17 @@ class TestServerPrompts:
         # wraps `async with Client(...): with pytest.raises(...): await ...` as
         # a 4th nesting level around a single `await` statement (3 levels of
         # nesting is OK; 4 is not). So `caplog.set_level` avoids extra `with` layer.
-        caplog.set_level(logging.WARNING, logger="mcp.server.mcpserver.server")
+        caplog.set_level(logging.WARNING, logger="mcp.shared.jsonrpc_dispatcher")
         async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError):
                 await client.get_prompt("prompt_fn")
 
-        server_records = [r for r in caplog.records if r.name == "mcp.server.mcpserver.server"]
-        assert len(server_records) == 1
+        dispatcher_records = [r for r in caplog.records if r.name == "mcp.shared.jsonrpc_dispatcher"]
+        assert len(dispatcher_records) == 1
 
         # Unexpected errors should have error log with exc_info.
-        assert server_records[0].levelno == logging.ERROR
-        assert server_records[0].exc_info is not None
+        assert dispatcher_records[0].levelno == logging.ERROR
+        assert dispatcher_records[0].exc_info is not None
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():
