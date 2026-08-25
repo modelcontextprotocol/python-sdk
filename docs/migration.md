@@ -17,7 +17,7 @@ Every section heading below names the API it affects, so searching this page for
 
 | Change | First symptom | Section |
 |---|---|---|
-| `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
+| `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` (newer 2.x releases follow it with a pointer to this guide) | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
 | Fields renamed from camelCase to snake_case | `AttributeError: 'Tool' object has no attribute 'inputSchema'` | [snake_case fields](#field-names-changed-from-camelcase-to-snake_case) |
 | `mcp.types` names removed | `ImportError: cannot import name 'Content' from 'mcp.types'` | [Removed types](#removed-type-aliases-and-classes) |
 | `McpError` renamed to `MCPError` | `ImportError: cannot import name 'McpError' from 'mcp'` | [`McpError` renamed](#mcperror-renamed-to-mcperror) |
@@ -671,6 +671,8 @@ All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.
 - `Message`, `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver.prompts.base`
 - `ToolError`, `ResourceError` — from `mcp.server.mcpserver.exceptions`
 - `MCPServerError` (renamed from `FastMCPError`) — from `mcp.server.mcpserver.exceptions`
+
+Importing `mcp.server.fastmcp`, or anything below it, raises `ModuleNotFoundError` (newer 2.x releases include a link to this section in its message), so existing `except ImportError` or `except ModuleNotFoundError` fallbacks around the v1 import keep working.
 
 ### What is unchanged on `MCPServer`
 
