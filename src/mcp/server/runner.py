@@ -329,6 +329,7 @@ class ServerRunner(Generic[LifespanT]):
             session=session,
             lifespan_context=self.lifespan_state,
             method=method,
+            cancel_requested=dctx.cancel_requested,
             params=params,
             request_id=dctx.request_id,
             meta=meta,

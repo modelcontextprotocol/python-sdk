@@ -1,8 +1,9 @@
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, Protocol
 
+import anyio
 from mcp_types import LoggingLevel, RequestId, RequestParamsMeta
 from pydantic import BaseModel
 from typing_extensions import TypeVar, deprecated
@@ -41,6 +42,7 @@ class ServerRequestContext(Generic[LifespanContextT, RequestT]):
     lifespan_context: LifespanContextT
     protocol_version: str
     method: str
+    cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     params: Mapping[str, Any] | None = None
     request_id: RequestId | None = None
     meta: RequestParamsMeta | None = None

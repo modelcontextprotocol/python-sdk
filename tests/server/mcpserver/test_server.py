@@ -1970,6 +1970,33 @@ def _request_context(request: object | None) -> ServerRequestContext[None, objec
     )
 
 
+def test_context_cancel_requested_exposes_request_cancellation_event():
+    cancellation_event = anyio.Event()
+
+    request_context = ServerRequestContext(
+        session=AsyncMock(),
+        method="tools/call",
+        lifespan_context=None,
+        protocol_version="2025-11-25",
+        cancel_requested=cancellation_event,
+    )
+
+    ctx = Context(request_context=request_context, mcp_server=MagicMock())
+
+    assert ctx.cancel_requested is cancellation_event
+
+    cancellation_event.set()
+
+    assert ctx.cancel_requested.is_set()
+
+
+def test_context_cancel_requested_raises_outside_request():
+    ctx = Context(mcp_server=MagicMock())
+
+    with pytest.raises(ValueError, match="Context is not available outside of a request"):
+        _ = ctx.cancel_requested
+
+
 def test_context_headers_returns_request_headers():
     request = SimpleNamespace(headers={"x-github-user": "octocat"})
     ctx = Context(request_context=_request_context(request), mcp_server=MagicMock())

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, cast
 
+import anyio
 from mcp_types import ClientCapabilities, InputRequiredResult, InputResponseRequestParams, InputResponses, LoggingLevel
 from pydantic import AnyUrl, BaseModel
 from typing_extensions import deprecated
@@ -97,6 +98,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         if self._request_context is None:
             raise ValueError("Context is not available outside of a request")
         return self._request_context
+
+    @property
+    def cancel_requested(self) -> anyio.Event:
+        """Set when the client requests cancellation of the current request."""
+        return self.request_context.cancel_requested
 
     def _nested_invocation(self) -> Context[LifespanContextT, RequestT]:
         """A Context for invoking another handler's function from inside this request.
