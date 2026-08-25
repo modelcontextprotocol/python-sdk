@@ -295,6 +295,31 @@ async def test_client_session_group_disconnect_non_existent_server():
         await group.disconnect_from_server(session)
 
 
+@pytest.mark.anyio
+async def test_client_session_group_connect_empty_server_succeeds():
+    """Test connecting to a server that exposes no tools, resources, or prompts."""
+    group = ClientSessionGroup()
+    mock_session = mock.AsyncMock(spec=mcp.ClientSession)
+    mock_session.list_tools.return_value = mock.AsyncMock(tools=[])
+    mock_session.list_resources.return_value = mock.AsyncMock(resources=[])
+    mock_session.list_prompts.return_value = mock.AsyncMock(prompts=[])
+
+    server_info = types.Implementation(name="empty_server", version="1.0")
+
+    # Should not raise KeyError when connecting via connect_with_session
+    connected_session = await group.connect_with_session(server_info, mock_session)
+    assert connected_session is mock_session
+    assert mock_session in group._sessions
+    assert len(group.tools) == 0
+    assert len(group.resources) == 0
+    assert len(group.prompts) == 0
+
+    # Should disconnect cleanly
+    await group.disconnect_from_server(mock_session)
+    assert mock_session not in group._sessions
+
+
+
 # TODO(Marcelo): This is horrible. We should drop this test.
 @pytest.mark.anyio
 @pytest.mark.parametrize(
