@@ -74,6 +74,22 @@ class StrictJsonSchema(GenerateJsonSchema):
         raise ValueError(f"JSON schema warning: {kind} - {detail}")
 
 
+class NoAutoTitleJsonSchema(GenerateJsonSchema):
+    """A JSON schema generator that omits pydantic's auto-derived field titles.
+
+    Pydantic titles every field by title-casing its name, so ``exercise_id``
+    gains ``"title": "Exercise Id"`` - a restatement of the key it sits under.
+    Tool schemas are sent to a model on every request, where that repetition is
+    paid for in context and carries nothing the field name does not.
+
+    Titles set explicitly via ``Field(title=...)`` are untouched: this only
+    suppresses the automatic ones.
+    """
+
+    def field_title_should_be_set(self, schema: Any) -> bool:
+        return False
+
+
 _LOCAL_DEFS_PREFIX = "#/$defs/"
 
 

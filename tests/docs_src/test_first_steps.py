@@ -27,8 +27,8 @@ async def test_each_decorator_registers_one_primitive() -> None:
             {
                 "type": "object",
                 "properties": {
-                    "a": {"title": "A", "type": "integer"},
-                    "b": {"title": "B", "type": "integer"},
+                    "a": {"type": "integer"},
+                    "b": {"type": "integer"},
                 },
                 "required": ["a", "b"],
                 "title": "addArguments",

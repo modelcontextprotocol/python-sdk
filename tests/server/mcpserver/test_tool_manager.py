@@ -1,11 +1,11 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import pytest
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from mcp.server.context import LifespanContextT, RequestT
 from mcp.server.mcpserver import Context, MCPServer
@@ -904,3 +904,33 @@ class TestRemoveTools:
         # Remove with correct case
         manager.remove_tool("test_func")
         assert manager.get_tool("test_func") is None
+
+
+def test_tool_input_schema_omits_auto_derived_titles():
+    """Auto-derived field titles are dropped; explicit ones survive.
+
+    Pydantic titles every field by title-casing its name, which restates the key
+    it sits under. Tool schemas are sent to the model on every request, so that
+    repetition costs context for nothing.
+    """
+
+    def log_set(
+        exercise_id: str,
+        reps: Annotated[int, Field(title="Repetitions performed")],
+        weight: Annotated[float, Field(description="in kilograms")] = 0.0,
+    ) -> str:
+        """Log a set."""
+        return "ok"
+
+    manager = ToolManager()
+    tool = manager.add_tool(log_set)
+    properties = tool.parameters["properties"]
+
+    assert "title" not in properties["exercise_id"]
+    assert "title" not in properties["weight"]
+    # An explicitly-set title is the author's choice, not pydantic's default.
+    assert properties["reps"]["title"] == "Repetitions performed"
+    # Nothing else about the schema changes.
+    assert properties["exercise_id"]["type"] == "string"
+    assert properties["weight"]["description"] == "in kilograms"
+    assert properties["weight"]["default"] == 0.0

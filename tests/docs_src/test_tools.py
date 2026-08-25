@@ -21,8 +21,8 @@ async def test_signature_becomes_the_schema() -> None:
             {
                 "type": "object",
                 "properties": {
-                    "query": {"title": "Query", "type": "string"},
-                    "limit": {"title": "Limit", "type": "integer"},
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer"},
                 },
                 "required": ["query", "limit"],
                 "title": "search_booksArguments",
@@ -50,8 +50,8 @@ async def test_default_value_makes_the_argument_optional() -> None:
             {
                 "type": "object",
                 "properties": {
-                    "query": {"title": "Query", "type": "string"},
-                    "limit": {"default": 10, "title": "Limit", "type": "integer"},
+                    "query": {"type": "string"},
+                    "limit": {"default": 10, "type": "integer"},
                 },
                 "required": ["query"],
                 "title": "search_booksArguments",
@@ -73,7 +73,6 @@ async def test_field_constraints_land_in_the_schema() -> None:
                 "description": "Maximum number of results.",
                 "maximum": 50,
                 "minimum": 1,
-                "title": "Limit",
                 "type": "integer",
             }
         )

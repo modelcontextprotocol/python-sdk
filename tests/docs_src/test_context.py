@@ -20,7 +20,7 @@ async def test_the_context_parameter_is_not_in_the_input_schema() -> None:
         assert tool.input_schema == snapshot(
             {
                 "type": "object",
-                "properties": {"query": {"title": "Query", "type": "string"}},
+                "properties": {"query": {"type": "string"}},
                 "required": ["query"],
                 "title": "search_booksArguments",
             }

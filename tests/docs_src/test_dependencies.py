@@ -31,7 +31,7 @@ async def test_the_resolved_parameter_is_invisible_to_the_model() -> None:
     assert tool.input_schema == snapshot(
         {
             "type": "object",
-            "properties": {"title": {"title": "Title", "type": "string"}},
+            "properties": {"title": {"type": "string"}},
             "required": ["title"],
             "title": "reserve_bookArguments",
         }
