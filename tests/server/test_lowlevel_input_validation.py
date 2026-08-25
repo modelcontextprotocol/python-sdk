@@ -309,3 +309,84 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
     assert any(
         "Tool 'unknown_tool' not listed, no validation will be performed" in record.message for record in caplog.records
     )
+
+
+_META_KEY = "io.modelcontextprotocol/schema-validation-error"
+
+
+@pytest.mark.anyio
+async def test_input_validation_error_carries_structured_meta():
+    """Missing-required and type-mismatch failures both attach structured
+    `_meta["io.modelcontextprotocol/schema-validation-error"]` with the
+    `jsonschema` validator name and JSON path, so clients can classify
+    them without regexing the free-text message."""
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
+        raise RuntimeError("Should not reach here")
+
+    async def missing_required(client_session: ClientSession) -> CallToolResult:
+        return await client_session.call_tool("add", {"a": 5})  # missing 'b'
+
+    result_missing = await run_tool_test([create_add_tool()], call_tool_handler, missing_required)
+
+    assert result_missing is not None
+    assert result_missing.isError
+    assert result_missing.meta is not None
+    payload = result_missing.meta[_META_KEY]
+    assert payload["kind"] == "input"
+    assert payload["validator"] == "required"
+    assert payload["json_path"] == "$"
+    assert "b" in payload["message"]
+
+    async def wrong_type(client_session: ClientSession) -> CallToolResult:
+        return await client_session.call_tool("add", {"a": "five", "b": 3})  # 'a' should be number
+
+    result_wrong = await run_tool_test([create_add_tool()], call_tool_handler, wrong_type)
+
+    assert result_wrong is not None
+    assert result_wrong.isError
+    assert result_wrong.meta is not None
+    payload = result_wrong.meta[_META_KEY]
+    assert payload["kind"] == "input"
+    assert payload["validator"] == "type"
+    assert payload["validator_value"] == "number"
+    assert payload["json_path"] == "$.a"
+
+
+@pytest.mark.anyio
+async def test_enum_validation_error_carries_structured_meta():
+    """Enum mismatches surface `validator="enum"` with the allowed values
+    intact in `validator_value`, so a client can render the choice list
+    without re-fetching the tool schema."""
+    tools = [
+        Tool(
+            name="greet",
+            description="Greet someone",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "title": {"type": "string", "enum": ["Mr", "Ms", "Dr"]},
+                },
+                "required": ["name"],
+            },
+        )
+    ]
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
+        raise RuntimeError("Should not reach here")
+
+    async def test_callback(client_session: ClientSession) -> CallToolResult:
+        return await client_session.call_tool("greet", {"name": "Smith", "title": "Prof"})
+
+    result = await run_tool_test(tools, call_tool_handler, test_callback)
+
+    assert result is not None
+    assert result.isError
+    assert result.meta is not None
+    payload = result.meta[_META_KEY]
+    assert payload["kind"] == "input"
+    assert payload["validator"] == "enum"
+    assert payload["validator_value"] == ["Mr", "Ms", "Dr"]
+    assert payload["json_path"] == "$.title"
+

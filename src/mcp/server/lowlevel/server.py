@@ -109,6 +109,23 @@ CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
 
 
+def _jsonable(value: Any) -> Any:
+    """Best-effort coerce a `jsonschema` schema fragment to JSON-serializable form.
+
+    `ValidationError.validator_value` and `schema_path` elements can be
+    arbitrary Python objects (deques, sets, custom validators). We keep
+    JSON-native values as-is and fall back to `str(...)` for anything else
+    so the result can safely cross the JSON-RPC transport in `_meta`.
+    """
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_jsonable(v) for v in value]
+    return str(value)
+
+
 class NotificationOptions:
     def __init__(
         self,
@@ -470,14 +487,48 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def _make_error_result(self, error_message: str) -> types.ServerResult:
-        """Create a ServerResult with an error CallToolResult."""
+    def _make_error_result(
+        self,
+        error_message: str,
+        *,
+        structured_data: dict[str, Any] | None = None,
+    ) -> types.ServerResult:
+        """Create a ServerResult with an error CallToolResult.
+
+        When `structured_data` is provided, it is exposed on the result's `_meta`
+        field under `io.modelcontextprotocol/schema-validation-error`, so clients
+        can programmatically distinguish failure kinds (e.g. `required` vs
+        `type` vs `enum`) without regex-matching the free-text message.
+        """
+        meta: dict[str, Any] | None = None
+        if structured_data is not None:
+            meta = {"io.modelcontextprotocol/schema-validation-error": structured_data}
         return types.ServerResult(
             types.CallToolResult(
                 content=[types.TextContent(type="text", text=error_message)],
                 isError=True,
+                **({"_meta": meta} if meta is not None else {}),
             )
         )
+
+    @staticmethod
+    def _validation_error_data(
+        e: jsonschema.ValidationError, *, kind: str
+    ) -> dict[str, Any]:
+        """Extract machine-readable fields from a `jsonschema.ValidationError`.
+
+        `kind` distinguishes input-schema vs output-schema failures, and the
+        remaining fields mirror `jsonschema.ValidationError`'s stable
+        attributes so a client can classify failures without parsing prose.
+        """
+        return {
+            "kind": kind,
+            "validator": e.validator,
+            "validator_value": _jsonable(e.validator_value),
+            "schema_path": [_jsonable(p) for p in e.schema_path],
+            "json_path": e.json_path,
+            "message": e.message,
+        }
 
     async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
         """Get tool definition from cache, refreshing if necessary.
@@ -535,7 +586,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                         try:
                             jsonschema.validate(instance=arguments, schema=tool.inputSchema)
                         except jsonschema.ValidationError as e:
-                            return self._make_error_result(f"Input validation error: {e.message}")
+                            return self._make_error_result(
+                                f"Input validation error: {e.message}",
+                                structured_data=self._validation_error_data(e, kind="input"),
+                            )
 
                     # tool call
                     results = await func(tool_name, arguments)
@@ -572,7 +626,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                             try:
                                 jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
                             except jsonschema.ValidationError as e:
-                                return self._make_error_result(f"Output validation error: {e.message}")
+                                return self._make_error_result(
+                                    f"Output validation error: {e.message}",
+                                    structured_data=self._validation_error_data(e, kind="output"),
+                                )
 
                     # result
                     return types.ServerResult(
