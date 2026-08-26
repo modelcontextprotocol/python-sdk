@@ -121,7 +121,7 @@ module.exports = async function run({ github, context, core }) {
     async function fail(linkedIssues) {
       console.log(`FAIL: ${linkedIssues.length ? `not assigned to ${linkedIssues.map((n) => `#${n}`).join(', ')}` : 'no usable issue link'}`);
       await addLabel(prNumber, LABEL);
-      await upsertGateComment(prNumber, closedComment(linkedIssues));
+      await upsertGateComment(prNumber, closedComment(pr.draft, linkedIssues));
       if (pr.state === 'open') {
         await mutate(`close PR #${prNumber}`, () => github.rest.pulls.update({ owner, repo, pull_number: prNumber, state: 'closed' }));
       }
@@ -134,10 +134,12 @@ module.exports = async function run({ github, context, core }) {
 
   // ── Comment text ─────────────────────────────────────────────────────────
 
-  function closedComment(linkedIssues) {
+  function closedComment(draft, linkedIssues) {
     const issues = linkedIssues.map((n) => `#${n}`).join(', ');
-    const rule =
-      'This PR has been closed automatically. This repo only keeps pull requests open when they come from a maintainer, or from a contributor a maintainer has assigned to the linked issue';
+    const opener = draft
+      ? "This PR has been closed automatically. It's still a draft, but we close those early so you don't put in more time only to have it closed the moment you mark it ready.\n\n"
+      : 'This PR has been closed automatically. ';
+    const rule = `${opener}This repo only keeps pull requests open when they come from a maintainer, or from a contributor a maintainer has assigned to the linked issue`;
     const situation = linkedIssues.length
       ? [
           `${rule}, and you aren't currently assigned to ${issues}.`,
