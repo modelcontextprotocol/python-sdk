@@ -45,6 +45,25 @@ class StrictJsonSchema(GenerateJsonSchema):
         raise ValueError(f"JSON schema warning: {kind} - {detail}")
 
 
+_LOCAL_DEFS_PREFIX = "#/$defs/"
+
+
+def _inline_root_ref(schema: dict[str, Any]) -> dict[str, Any]:
+    """Give a schema whose root is a bare `$ref` into `$defs` an inline root.
+
+    pydantic emits a self-referential model as `{"$defs": {...}, "$ref": "#/$defs/Model"}`, with no
+    `type` at the root; `Tool.outputSchema` requires `type: object` at the root. The referenced
+    definition is copied onto the root and `$defs` is kept, since nested references still point into
+    it. Root siblings of the `$ref` win over the definition's keys.
+    """
+    ref = schema.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith(_LOCAL_DEFS_PREFIX):
+        return schema
+    definition = cast(dict[str, Any], schema["$defs"][ref.removeprefix(_LOCAL_DEFS_PREFIX)])
+    siblings = {key: value for key, value in schema.items() if key != "$ref"}
+    return {**definition, **siblings}
+
+
 class ArgModelBase(BaseModel):
     """A model representing the arguments to a function."""
 
@@ -428,7 +447,7 @@ def _try_create_model_and_schema(
             logger.info(f"Cannot create schema for type {type_expr} in {func_name}: {type(e).__name__}: {e}")
             return None, None, False
 
-        return model, schema, wrap_output
+        return model, _inline_root_ref(schema), wrap_output
 
     return None, None, False
 
