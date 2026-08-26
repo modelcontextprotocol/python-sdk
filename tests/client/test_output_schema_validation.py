@@ -1,9 +1,11 @@
 import logging
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from referencing.exceptions import Unresolvable
 
 from mcp.server.lowlevel import Server
 from mcp.shared.memory import (
@@ -215,3 +217,34 @@ class TestClientOutputSchemaValidation:
 
                 # Check that warning was logged
                 assert "Tool mystery_tool not listed" in caplog.text
+
+
+# jsonschema's fallback retriever emits this DeprecationWarning; keep it a plain warning so the
+# assertions below decide the outcome rather than the suite's warnings-as-errors filter.
+@pytest.mark.filterwarnings("default:Automatically retrieving remote references:DeprecationWarning")
+@pytest.mark.anyio
+async def test_output_schema_ref_outside_the_document_is_rejected(tmp_path: Path):
+    """A `$ref` to a URI outside the output schema is not resolved, and a result whose validation
+    reaches one fails as an invalid schema (spec `$ref` resolution; applying it to `file:` URIs too
+    is SDK-defined)."""
+    target = tmp_path / "schema.json"
+    target.write_text("{}", encoding="utf-8")
+    server = Server("test-server")
+
+    @server.list_tools()
+    async def list_tools():
+        return [
+            Tool(name="probe", description="", inputSchema={"type": "object"}, outputSchema={"$ref": target.as_uri()})
+        ]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]):
+        return {"v": 1}
+
+    with bypass_server_output_validation():
+        async with client_session(server) as client:
+            with pytest.raises(RuntimeError) as exc_info:
+                await client.call_tool("probe", {})
+            # SDK-authored prefix only; the tail is `referencing`'s text.
+            assert str(exc_info.value).startswith("Invalid schema for tool probe: ")
+            assert isinstance(exc_info.value.__cause__, Unresolvable)
