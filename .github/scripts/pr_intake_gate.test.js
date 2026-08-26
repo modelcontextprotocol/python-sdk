@@ -28,7 +28,8 @@ const PEOPLE = {
 // ── Scenarios ──────────────────────────────────────────────────────────────
 // `prs` / `issues` describe the world before the event; `expect` describes each
 // PR afterwards: state, labels, and comment ('closed' = the "this PR has been
-// closed" comment, 'cannot-reopen' = the refused-reopen comment, null = none).
+// closed" comment, 'closed-draft' = its draft wording, 'cannot-reopen' = the
+// refused-reopen comment, null = none).
 // `writes: 0` additionally asserts the gate touched nothing at all.
 
 const scenarios = [
@@ -146,14 +147,13 @@ const scenarios = [
     writes: 0,
   },
   {
-    name: 'draft PR is skipped until it is marked ready for review',
+    name: 'draft PR with no issue link is closed like any other, with a note about why drafts are closed early',
     prs: [pr(3300, 'outsider', { draft: true })],
     event: opened(3300, 'outsider'),
-    expect: { 3300: { state: 'open', labels: [], comment: null } },
-    writes: 0,
+    expect: { 3300: { state: 'closed', labels: [LABEL], comment: 'closed-draft' } },
   },
   {
-    name: 'draft marked ready for review with no link → closed',
+    name: 'pre-existing draft marked ready for review with no link → closed',
     prs: [pr(3300, 'outsider')],
     event: readyForReview(3300, 'outsider'),
     expect: { 3300: { state: 'closed', labels: [LABEL], comment: 'closed' } },
@@ -299,7 +299,8 @@ function observe(world, expect) {
     const p = world.prs.get(Number(num));
     const gateComments = p.comments.filter((c) => c.user === 'github-actions[bot]' && c.body.includes('<!-- require-linked-issue -->'));
     assert.ok(gateComments.length <= 1, `PR #${num} has ${gateComments.length} gate comments`);
-    const kind = !gateComments.length ? null : gateComments[0].body.includes("won't let it be reopened") ? 'cannot-reopen' : 'closed';
+    const body = gateComments[0]?.body;
+    const kind = !body ? null : body.includes("won't let it be reopened") ? 'cannot-reopen' : body.includes('still a draft') ? 'closed-draft' : 'closed';
     out[num] = { state: p.state, labels: [...p.labels].sort(), comment: kind };
     if ('foreignComments' in expect[num]) out[num].foreignComments = p.comments.length - gateComments.length;
   }

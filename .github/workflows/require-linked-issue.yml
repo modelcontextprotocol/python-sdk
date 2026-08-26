@@ -4,9 +4,9 @@
 # In short: a PR from someone without triage rights stays open only if it links
 # an open issue here that is assigned to them (or labeled `help wanted`);
 # otherwise it is labeled `missing-issue-link`, gets one comment, and is closed,
-# and it reopens automatically once the author is assigned. Bots and drafts are
-# skipped. A triage+ user reopening the PR, removing the label, or adding
-# `bypass-issue-check` overrides.
+# and it reopens automatically once the author is assigned. Drafts are gated
+# too; bots are skipped. A triage+ user reopening the PR, removing the label,
+# or adding `bypass-issue-check` overrides.
 #
 # Operating it:
 #   - Live by default. To pause it without a revert, set the repository
