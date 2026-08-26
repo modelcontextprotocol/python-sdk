@@ -2499,7 +2499,9 @@ metadata's `issuer` exactly matches the authorization server URL advertised in t
 resource metadata, as required by [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414)
 section 3.3 ([SEP-2468](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2468)).
 The comparison is a simple string comparison ([RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986)
-section 6.2.1), so even a trailing-slash disagreement counts as a mismatch. v1 accepted the
+section 6.2.1), so even a trailing-slash disagreement counts as a mismatch. (For an older server
+that publishes no protected resource metadata the expected value is the MCP server's own origin,
+and there a root issuer with a trailing slash is accepted too.) v1 accepted the
 metadata without checking, so a server pairing whose two values disagree authenticated fine
 under v1 and now fails the entire flow. For example, when the MCP server's protected resource
 metadata advertises
@@ -2517,7 +2519,7 @@ OAuthFlowError: Authorization server metadata issuer mismatch: https://as.exampl
 
 There is no client-side override. Fix the deployment instead: make the authorization server's
 `issuer` string-equal the URL in the protected resource metadata's `authorization_servers`
-list. See [OAuth metadata URLs no longer gain a trailing slash](#oauth-metadata-urls-no-longer-gain-a-trailing-slash)
+list (or the MCP server's origin, without protected resource metadata). See [OAuth metadata URLs no longer gain a trailing slash](#oauth-metadata-urls-no-longer-gain-a-trailing-slash)
 for how v2 preserves the exact string form of these URLs.
 
 ### OAuth client requests `offline_access` and adds `prompt=consent` when the authorization server supports it ([SEP-2207](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2207))

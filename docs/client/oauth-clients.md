@@ -76,7 +76,7 @@ Look at `main()`. The provider goes on the **httpx2 client**, the httpx2 client 
 
 The first time `Client` sends a request, the server answers `401`. The provider takes over:
 
-1. **Discovery.** It reads the `WWW-Authenticate` header, fetches the server's Protected Resource Metadata from `/.well-known/oauth-protected-resource`, learns which authorization server protects this resource, and fetches *that* server's metadata.
+1. **Discovery.** It reads the `WWW-Authenticate` header, fetches the server's Protected Resource Metadata from `/.well-known/oauth-protected-resource`, learns which authorization server protects this resource, and fetches *that* server's metadata. (An older server that publishes no resource metadata is asked for authorization server metadata at its own origin instead.) Either way the metadata must name, as its `issuer`, the server it was fetched for; anything else is refused.
 2. **Registration.** Nothing in storage? It registers you dynamically with your `OAuthClientMetadata` and stores the result.
 3. **Authorization.** It generates the PKCE pair and a `state`, builds the authorization URL, awaits your `redirect_handler`, then awaits your `callback_handler` for the code.
 4. **Exchange.** It trades the code for an `OAuthToken`, stores it, and replays your original request with `Authorization: Bearer ...`.
