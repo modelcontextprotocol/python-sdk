@@ -1126,7 +1126,8 @@ class ClientSession:
         """Revalidate a `CallToolResult` against the tool's declared output schema.
 
         Raises:
-            RuntimeError: Structured content is missing or does not conform to the schema.
+            RuntimeError: Structured content is missing or does not conform to the schema, or the
+                schema is invalid or has a `$ref` that does not resolve within the schema document.
         """
         if name not in self._tool_output_schemas:
             # refresh output schema cache
@@ -1140,6 +1141,7 @@ class ClientSession:
 
         if output_schema is not None:
             from jsonschema import exceptions as jsonschema_exceptions
+            from referencing.exceptions import Unresolvable
 
             if result.structured_content is None:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
@@ -1147,10 +1149,14 @@ class ClientSession:
             # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
             # so the message a caller sees is unchanged. It is untyped upstream.
             errors = validator.iter_errors(result.structured_content)
-            error = cast(
-                "Exception | None",
-                jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
-            )
+            try:
+                error = cast(
+                    "Exception | None",
+                    jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
+                )
+            except Unresolvable as e:
+                # A `$ref` did not resolve within the schema document.
+                raise RuntimeError(f"Invalid schema for tool {name}: {e}") from e
             if error is not None:
                 raise RuntimeError(f"Invalid structured content returned by tool {name}: {error}") from error
 
@@ -1168,6 +1174,7 @@ class ClientSession:
         """
         from jsonschema import SchemaError
         from jsonschema.validators import validator_for
+        from referencing import Registry
 
         if (validator := self._tool_output_validators.get(name)) is not None:
             return validator
@@ -1177,9 +1184,8 @@ class ClientSession:
             validator_cls.check_schema(output_schema)
         except SchemaError as e:
             raise RuntimeError(f"Invalid schema for tool {name}: {e}")
-        # jsonschema ships no `py.typed`, so pyright reads typeshed's stub, which declares
-        # `registry` as required (concrete validators default it); cast to a schema-only ctor.
-        validator = cast("Callable[[dict[str, Any]], Validator]", validator_cls)(output_schema)
+        # An explicit empty registry: `$ref`s resolve within the schema document and the bundled metaschemas.
+        validator = validator_cls(output_schema, registry=Registry())
         self._tool_output_validators[name] = validator
         return validator
 

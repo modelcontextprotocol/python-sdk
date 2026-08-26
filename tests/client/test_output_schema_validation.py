@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from mcp_types import (
     TextContent,
     Tool,
 )
+from referencing.exceptions import Unresolvable
 
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
@@ -163,3 +165,26 @@ async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
         assert result.is_error is False
 
         assert "Tool mystery_tool not listed" in caplog.text
+
+
+# jsonschema's fallback retriever emits this DeprecationWarning; keep it a plain warning so the
+# assertions below decide the outcome rather than the suite's warnings-as-errors filter.
+@pytest.mark.filterwarnings("default:Automatically retrieving remote references:DeprecationWarning")
+@pytest.mark.anyio
+async def test_output_schema_ref_outside_the_document_is_rejected(tmp_path: Path):
+    """A `$ref` to a URI outside the output schema is not resolved, and a result whose validation
+    reaches one fails as an invalid schema (spec `$ref` resolution; applying it to `file:` URIs too
+    is SDK-defined)."""
+    target = tmp_path / "schema.json"
+    target.write_text("{}", encoding="utf-8")
+    server = _make_server(
+        tools=[Tool(name="probe", input_schema={"type": "object"}, output_schema={"$ref": target.as_uri()})],
+        structured_content={"v": 1},
+    )
+
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("probe", {})
+    # SDK-authored prefix only; the tail is `referencing`'s text.
+    assert str(exc_info.value).startswith("Invalid schema for tool probe: ")
+    assert isinstance(exc_info.value.__cause__, Unresolvable)
