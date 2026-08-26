@@ -33,7 +33,12 @@ from pydantic import ValidationError
 from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import (
+    create_mcp_http_client,
+    request_within_origin,
+    sse_within_origin,
+    stream_within_origin,
+)
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -210,7 +215,7 @@ class StreamableHTTPTransport:
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id
 
-                async with client.sse(self.url, headers=headers) as event_source:
+                async with sse_within_origin(client, self.url, headers=headers) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
@@ -253,7 +258,7 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.id
 
-        async with ctx.client.sse(self.url, headers=headers) as event_source:
+        async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
@@ -320,7 +325,8 @@ class StreamableHTTPTransport:
         if ctx.metadata is not None and ctx.metadata.headers is not None:
             headers.update(ctx.metadata.headers)
 
-        async with ctx.client.stream(
+        async with stream_within_origin(
+            ctx.client,
             "POST",
             self.url,
             json=message.model_dump(by_alias=True, mode="json", exclude_unset=True),
@@ -335,6 +341,21 @@ class StreamableHTTPTransport:
                         ctx.read_stream_writer,
                         message.id,
                         "server answered a request with 202 Accepted",
+                        code=INVALID_REQUEST,
+                    )
+                return
+
+            if response.next_request is not None:
+                # Left unfollowed by stream_within_origin: the location is outside the endpoint's origin.
+                location = response.next_request.url
+                logger.warning(
+                    f"Server redirected {self.url} to {location}, outside the endpoint's origin; not followed"
+                )
+                if isinstance(message, JSONRPCRequest):
+                    await self._resolve_abandoned_request(
+                        ctx.read_stream_writer,
+                        message.id,
+                        f"Redirect to {location} not followed: it is outside the endpoint's origin",
                         code=INVALID_REQUEST,
                     )
                 return
@@ -501,7 +522,7 @@ class StreamableHTTPTransport:
         headers[LAST_EVENT_ID] = last_event_id
 
         try:
-            async with ctx.client.sse(self.url, headers=headers) as event_source:
+            async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
                 event_source.response.raise_for_status()
                 logger.info("Reconnected to SSE stream")
 
@@ -626,7 +647,7 @@ class StreamableHTTPTransport:
 
         try:
             headers = self._prepare_headers()
-            response = await client.delete(self.url, headers=headers)
+            response = await request_within_origin(client, "DELETE", self.url, headers=headers)
 
             if response.status_code == 405:
                 logger.debug("Server does not allow session termination")
@@ -650,6 +671,11 @@ async def streamable_http_client(
         http_client: Optional pre-configured httpx2.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx2.AsyncClient and pass it here.
+            Whichever client is used, MCP requests follow a redirect only within the endpoint's
+            origin (same scheme, host and port, or http to https on the same host with default
+            ports); a redirect anywhere else is not followed and the message it answered fails with
+            an error naming the location. The client's `follow_redirects` setting is not consulted,
+            and requests its `auth` handler makes during an MCP request do not follow redirects.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:

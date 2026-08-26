@@ -29,7 +29,7 @@ Pass a URL string and you get **Streamable HTTP**, the transport you deploy behi
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx2.AsyncClient` configured the way MCP needs: `follow_redirects=True`, a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open.
+That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx2.AsyncClient` configured the way MCP needs: a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open. Whichever client is underneath, the transport follows a redirect only when it stays on the endpoint's origin (same scheme, host and port, or `http` to `https` on the same host with the default ports), which covers a trailing-slash redirect. A redirect anywhere else is not followed, and the call it answered fails with an `MCPError` naming the location; if that address is the server you meant, use it as the URL.
 
 !!! check
     A `Client` you have constructed is **not** connected. Construction only picks the transport;
@@ -45,7 +45,7 @@ That is the whole production client. `Client` wraps the URL in `streamable_http_
 
 The moment you need an `Authorization` header, a cookie, a proxy, mTLS, or a different timeout, build the `httpx2.AsyncClient` yourself and hand it to `streamable_http_client`:
 
-```python title="client.py" hl_lines="8-14"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client_transports/tutorial003.py"
 ```
 
@@ -75,7 +75,10 @@ environment variables or pass an explicit `verify=ssl_context` to your `httpx2.A
 !!! info
     `httpx2` keeps the familiar `httpx` API, so if you know `httpx` you already know how to do auth,
     proxies, event hooks, retries and connection limits here. The SDK adds nothing on top and takes
-    nothing away. It is also where OAuth plugs in:
+    nothing away, with one exception: redirects. MCP requests follow the same-origin rule above rather
+    than the client's `follow_redirects`, and requests an `auth=` handler makes while one is in flight
+    (OAuth discovery, registration, token) do not follow redirects, so those URLs must answer directly.
+    It is also where OAuth plugs in:
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](oauth-clients.md)**.
 
 ## stdio
