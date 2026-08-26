@@ -8,7 +8,7 @@ import json
 import multiprocessing
 import socket
 import time
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
@@ -2353,3 +2353,229 @@ async def test_streamablehttp_client_deprecation_warning(basic_server: None, bas
                 await session.initialize()
                 tools = await session.list_tools()
                 assert len(tools.tools) > 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [401, 403, 500, 503])
+async def test_non_2xx_status_reaches_the_waiting_caller(status: int) -> None:
+    """A 4xx/5xx to a request is answered as a JSON-RPC error rather than raised into the void.
+
+    Regression test for #3091: the status used to escape `raise_for_status()` inside the POST's
+    background task, where nothing caught it and nothing resolved the caller, so the request hung
+    until its read timeout — a 401 was indistinguishable from a slow server. The `fail_after` below
+    is what pins that: without the fix this test hangs rather than failing an assertion.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(request)))
+            reply = await read.receive()
+
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message.root, types.JSONRPCError)
+            assert reply.message.root.id == 1
+            assert reply.message.root.error == types.ErrorData(
+                code=types.INTERNAL_ERROR, message="Server returned an error response"
+            )
+
+
+@pytest.mark.anyio
+async def test_404_still_reports_session_terminated() -> None:
+    """The 404 spelling is unchanged by #3091: same message, same (positive) code callers match on."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(request)))
+            reply = await read.receive()
+
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message.root, types.JSONRPCError)
+            assert reply.message.root.error == types.ErrorData(code=32600, message="Session terminated")
+
+
+@pytest.mark.anyio
+async def test_non_2xx_prefers_the_servers_own_jsonrpc_error_body() -> None:
+    """When the server explains itself in the body, the caller gets that, not our stand-in.
+
+    The reply is re-stamped with the request's id rather than trusting the body's, so a server that
+    echoes a different id cannot resolve the wrong caller (or, echoing none, no caller at all).
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        error = {"code": types.INVALID_PARAMS, "message": "Unknown tool: nope"}
+        return httpx.Response(400, json={"jsonrpc": "2.0", "id": 99, "error": error})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=7, method="tools/call", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(request)))
+            reply = await read.receive()
+
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message.root, types.JSONRPCError)
+            assert reply.message.root.id == 7
+            assert reply.message.root.error == types.ErrorData(code=types.INVALID_PARAMS, message="Unknown tool: nope")
+
+
+@pytest.mark.anyio
+async def test_a_failed_request_leaves_the_session_usable() -> None:
+    """The connection survives a 500: the error resolves one call, it does not tear down the transport.
+
+    In v1 the escaping `HTTPStatusError` cancelled the transport's task group, so a single 500 took
+    the whole session with it.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_id = json.loads(request.content)["id"]
+        if request_id == 1:
+            return httpx.Response(500)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": request_id, "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            failing = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(failing)))
+            first = await read.receive()
+
+            following = types.JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(following)))
+            second = await read.receive()
+
+            assert isinstance(first, SessionMessage)
+            assert isinstance(first.message.root, types.JSONRPCError)
+            assert isinstance(second, SessionMessage)
+            assert isinstance(second.message.root, types.JSONRPCResponse)
+
+
+@pytest.mark.anyio
+async def test_non_2xx_to_a_notification_resolves_nobody_and_keeps_the_session_alive() -> None:
+    """A notification has no id and no waiter, so a 4xx to one cannot be surfaced — only survived.
+
+    The following request still gets its answer: the rejected notification must not take the
+    transport down with it.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "id" not in body:
+            return httpx.Response(500)
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            notification = types.JSONRPCNotification(jsonrpc="2.0", method="notifications/progress")
+            await write.send(SessionMessage(types.JSONRPCMessage(notification)))
+
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(request)))
+            reply = await read.receive()
+
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message.root, types.JSONRPCResponse)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("body", "case"),
+    [
+        ({"jsonrpc": "2.0", "id": 1, "result": {}}, "valid JSON-RPC, but not an error"),
+        ({"detail": "gateway rejected the request"}, "JSON, but not JSON-RPC at all"),
+    ],
+)
+async def test_a_json_body_that_is_not_a_jsonrpc_error_falls_back_to_the_stand_in(
+    body: dict[str, Any], case: str
+) -> None:
+    """`Content-Type: application/json` is not a promise of a JSON-RPC error body.
+
+    Proxies and gateways send JSON that is nothing of the sort. Neither shape may be handed to the
+    caller as their answer, and neither may be allowed to escape: both fall back to the stand-in.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json=body)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(request)))
+            reply = await read.receive()
+
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message.root, types.JSONRPCError)
+            assert reply.message.root.error == types.ErrorData(
+                code=types.INTERNAL_ERROR, message="Server returned an error response"
+            )
+
+
+@pytest.mark.anyio
+async def test_a_non_2xx_body_that_fails_to_read_still_resolves_the_caller() -> None:
+    """A stalled or truncated error body must not strand the caller.
+
+    `aread()` on the non-2xx body raises `ReadTimeout`/`RemoteProtocolError` when the connection
+    dies mid-body. Those derive from `httpx.HTTPError`, not `httpx.StreamError`, so letting the
+    body-parsing `except` miss them would put the escaping exception right back into the POST's
+    background task — the very bug this path exists to fix.
+    """
+
+    class _DyingStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            raise httpx.ReadTimeout("connection died mid-body")
+            yield b""  # pragma: no cover
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, headers={"content-type": "application/json"}, stream=_DyingStream())
+
+    with anyio.fail_after(5):
+        async with (
+            httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client,
+            streamable_http_client("http://test/mcp", http_client=http_client) as (read, write, _),
+            read,
+            write,
+        ):
+            request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+            await write.send(SessionMessage(types.JSONRPCMessage(request)))
+            reply = await read.receive()
+
+            assert isinstance(reply, SessionMessage)
+            assert isinstance(reply.message.root, types.JSONRPCError)
+            assert reply.message.root.error == types.ErrorData(
+                code=types.INTERNAL_ERROR, message="Server returned an error response"
+            )
