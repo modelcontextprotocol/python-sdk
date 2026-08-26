@@ -428,17 +428,24 @@ class ClientSession(
 
         if output_schema is not None:
             from jsonschema import SchemaError, ValidationError, validate
+            from referencing import Registry
+            from referencing.exceptions import Unresolvable
 
             if result.structuredContent is None:
                 raise RuntimeError(
                     f"Tool {name} has an output schema but did not return structured content"
                 )  # pragma: no cover
+            # An explicit empty registry: `$ref`s resolve within the schema document and the bundled metaschemas.
+            registry: Registry[Any] = Registry()
             try:
-                validate(result.structuredContent, output_schema)
+                validate(result.structuredContent, output_schema, registry=registry)
             except ValidationError as e:
                 raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")  # pragma: no cover
             except SchemaError as e:  # pragma: no cover
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
+            except Unresolvable as e:
+                # A `$ref` did not resolve within the schema document.
+                raise RuntimeError(f"Invalid schema for tool {name}: {e}") from e
 
     @overload
     @deprecated("Use list_prompts(params=PaginatedRequestParams(...)) instead")
