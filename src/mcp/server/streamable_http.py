@@ -199,12 +199,12 @@ class StreamableHTTPServerTransport:
 
         Raises:
             ValueError: If the session ID contains invalid characters, or if `idle_timeout`
-                        is not a positive number.
+                        is not a positive, finite number.
         """
         if mcp_session_id is not None and not SESSION_ID_PATTERN.fullmatch(mcp_session_id):
             raise ValueError("Session ID must only contain visible ASCII characters (0x21-0x7E)")
-        if idle_timeout is not None and idle_timeout <= 0:
-            raise ValueError("idle_timeout must be a positive number of seconds")
+        if idle_timeout is not None and not (math.isfinite(idle_timeout) and idle_timeout > 0):
+            raise ValueError("idle_timeout must be a positive, finite number of seconds")
 
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
@@ -474,6 +474,15 @@ class StreamableHTTPServerTransport:
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests."""
         if self.idle_scope is None or self._idle_timeout is None:
+            await self._handle_request(scope, receive, send)
+            return
+
+        if self.idle_scope.cancel_called:
+            # The idle period already ran out and the host is ending this
+            # session: answer as terminated rather than dispatch into a
+            # message loop that is going away.
+            if not self._terminated:
+                await self.terminate()
             await self._handle_request(scope, receive, send)
             return
 

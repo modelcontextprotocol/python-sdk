@@ -601,11 +601,12 @@ def test_streamable_http_transport_init_validation() -> None:
         StreamableHTTPServerTransport(mcp_session_id="test\n")
 
 
-@pytest.mark.parametrize("idle_timeout", [0, -1])
-def test_streamable_http_transport_rejects_non_positive_idle_timeout(idle_timeout: float) -> None:
-    """A transport's idle timeout must be a positive number of seconds; without one it never expires."""
-    with pytest.raises(ValueError, match="positive number of seconds"):
+@pytest.mark.parametrize("idle_timeout", [0, -1, float("inf"), float("nan")])
+def test_streamable_http_transport_rejects_invalid_idle_timeout(idle_timeout: float) -> None:
+    """A transport's idle timeout must be a positive, finite number of seconds; without one it never expires."""
+    with pytest.raises(ValueError) as exc_info:
         StreamableHTTPServerTransport(mcp_session_id="valid-id", idle_timeout=idle_timeout)
+    assert str(exc_info.value) == "idle_timeout must be a positive, finite number of seconds"
     assert StreamableHTTPServerTransport(mcp_session_id="valid-id").idle_scope is None
 
 
@@ -625,6 +626,50 @@ async def test_streamable_http_transport_creates_its_idle_scope_on_connect() -> 
     async with transport.connect():
         assert isinstance(transport.idle_scope, anyio.CancelScope)
         await transport.terminate()
+
+
+async def _post_to_transport(transport: StreamableHTTPServerTransport, body: dict[str, Any]) -> int:
+    """POST `body` straight to `transport` in process, as a client that then holds the connection open,
+    and return the status it answered with."""
+    assert transport.mcp_session_id is not None
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"accept", b"application/json, text/event-stream"),
+            (MCP_SESSION_ID_HEADER.encode(), transport.mcp_session_id.encode()),
+        ],
+    }
+    sent: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    request_body, incoming = anyio.create_memory_object_stream[Message](1)
+    async with request_body, incoming:
+        await request_body.send({"type": "http.request", "body": json.dumps(body).encode(), "more_body": False})
+        with anyio.fail_after(5):
+            await transport.handle_request(scope, incoming.receive, send)
+    return next(message["status"] for message in sent if message["type"] == "http.response.start")
+
+
+@pytest.mark.anyio
+async def test_transport_whose_idle_period_ran_out_answers_as_terminated() -> None:
+    """Once the idle scope has fired, a request that still reaches the transport is answered 404 and the
+    transport is terminated, instead of being dispatched into the message loop the host is leaving."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id", idle_timeout=5)
+    ping = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+    async with transport.connect():
+        assert transport.idle_scope is not None
+        # Exactly what the scope's deadline passing does.
+        transport.idle_scope.cancel()
+
+        assert await _post_to_transport(transport, ping) == 404
+        assert transport.is_terminated
+        assert await _post_to_transport(transport, ping) == 404
 
 
 @pytest.mark.anyio
