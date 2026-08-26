@@ -1,5 +1,12 @@
 """Custom exceptions for MCPServer."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mcp_types import ContentBlock
+
 
 class MCPServerError(Exception):
     """Base error for MCPServer."""
@@ -44,18 +51,42 @@ class ToolError(MCPServerError):
     """A tool failure you anticipated.
 
     Raise this from a tool (or a resolver) for a failure you saw coming: the
-    call returns `is_error=True` with your message in `content` for the model to
-    read, and the server logs it at INFO without a traceback. A `ResourceError`
-    that escapes the tool (say from `ctx.read_resource()`) counts the same. Any
-    other exception bar `MCPError` (a protocol error) is treated as a crash: the
-    model sees only `Error executing tool <name>`, and the server logs the
-    traceback at ERROR. Inside a pydantic validator, raise `ValueError` as pydantic
-    expects; it arrives as an argument-validation failure, which is anticipated too.
+    call returns ``is_error=True`` with your message in ``content`` for the model
+    to read, and the server logs it at INFO without a traceback.  A
+    ``ResourceError`` that escapes the tool (say from ``ctx.read_resource()``)
+    counts the same.  Any other exception bar ``MCPError`` (a protocol error) is
+    treated as a crash: the model sees only ``Error executing tool <name>``, and
+    the server logs the traceback at ERROR.  Inside a pydantic validator, raise
+    ``ValueError`` as pydantic expects; it arrives as an argument-validation
+    failure, which is anticipated too.
 
     The SDK raises it too, for an unknown tool name and for arguments that fail
-    the input schema, and `UnexpectedToolError` subclasses it, so `except ToolError`
-    around `MCPServer.call_tool()` catches every tool failure, crash or not.
+    the input schema, and ``UnexpectedToolError`` subclasses it, so
+    ``except ToolError`` around ``MCPServer.call_tool()`` catches every tool
+    failure, crash or not.
+
+    Pass *content* to return rich error content (images, embedded resources,
+    multiple text blocks, etc.) alongside ``is_error=True``.  When *content* is
+    ``None`` (the default) the string message is wrapped in a single
+    ``TextContent`` block, preserving backward compatibility.
+
+    Example::
+
+        raise ToolError(
+            "screenshot of the failure",
+            content=[
+                TextContent(type="text", text="rendering failed"),
+                ImageContent(type="image", data=b64_png, mime_type="image/png"),
+            ],
+        )
     """
+
+    content: list[ContentBlock] | None
+    """Optional rich content blocks for the error result."""
+
+    def __init__(self, message: str = "", *, content: list[ContentBlock] | None = None) -> None:
+        super().__init__(message)
+        self.content = content
 
 
 class UnexpectedToolError(ToolError):

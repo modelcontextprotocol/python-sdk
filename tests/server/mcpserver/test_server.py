@@ -2486,6 +2486,92 @@ async def test_tool_error_subclass_is_still_anticipated(caplog: pytest.LogCaptur
     )
 
 
+async def test_tool_error_with_custom_content_returns_rich_is_error_result():
+    """ToolError with custom content returns that content with is_error=True
+    instead of wrapping the message string."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def render(url: str) -> str:
+        raise ToolError(
+            "rendering failed",
+            content=[
+                TextContent(type="text", text="could not render the page"),
+                ImageContent(type="image", data="iVBORw0KGgo=", mime_type="image/png"),
+            ],
+        )
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("render", {"url": "https://example.com"})
+
+    assert result.is_error is True
+    assert len(result.content) == 2
+    assert result.content[0] == TextContent(type="text", text="could not render the page")
+    assert isinstance(result.content[1], ImageContent)
+    assert result.content[1].mime_type == "image/png"
+
+
+async def test_tool_error_without_content_falls_back_to_text(caplog: pytest.LogCaptureFixture):
+    """A plain ToolError (no content kwarg) still wraps str(exc) in TextContent,
+    preserving backward compatibility."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def fail() -> str:
+        raise ToolError("something broke")
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("fail", {})
+
+    assert result.is_error is True
+    assert result.content == [TextContent(type="text", text="Error executing tool fail: something broke")]
+
+
+async def test_tool_error_with_content_propagates_through_programmatic_call():
+    """When call_tool is called programmatically, the re-raised ToolError
+    preserves the custom content attribute."""
+    mcp = MCPServer()
+
+    error_content = [
+        TextContent(type="text", text="structured error info"),
+        ImageContent(type="image", data="iVBORw0KGgo=", mime_type="image/png"),
+    ]
+
+    @mcp.tool()
+    def analyze() -> str:
+        raise ToolError("analysis failed", content=error_content)
+
+    with pytest.raises(ToolError) as exc:
+        await mcp.call_tool("analyze", {})
+
+    assert exc.value.content is not None
+    assert len(exc.value.content) == 2
+    assert exc.value.content[0] == TextContent(type="text", text="structured error info")
+
+
+async def test_tool_error_with_content_is_logged_at_info(caplog: pytest.LogCaptureFixture):
+    """A ToolError with custom content is still logged at INFO, same as a plain ToolError."""
+    mcp = MCPServer()
+
+    @mcp.tool()
+    def render() -> str:
+        raise ToolError(
+            "rendering failed",
+            content=[TextContent(type="text", text="detailed failure info")],
+        )
+
+    caplog.set_level(logging.INFO)
+    async with Client(mcp) as client:
+        result = await client.call_tool("render", {})
+
+    assert result.is_error is True
+    assert result.content == [TextContent(type="text", text="detailed failure info")]
+    assert _server_records(caplog) == snapshot(
+        [("INFO", "Tool 'render' failed: 'Error executing tool render: rendering failed'", False)]
+    )
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
 async def test_tool_argument_validation_failure_is_logged_at_info_without_traceback(
     caplog: pytest.LogCaptureFixture,
 ):

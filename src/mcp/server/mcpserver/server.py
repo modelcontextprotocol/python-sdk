@@ -438,6 +438,10 @@ class MCPServer(Generic[LifespanResultT]):
                     logger.info("Tool %r failed: %r", params.name, str(exc))
             else:
                 logger.exception("Tool %r raised an unexpected exception", params.name)
+            # Use custom content from the ToolError when provided; otherwise
+            # fall back to wrapping the message string as a single TextContent.
+            if isinstance(exc, ToolError) and exc.content is not None:
+                return CallToolResult(content=list(exc.content), is_error=True)
             return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
 
     async def _handle_list_resources(
