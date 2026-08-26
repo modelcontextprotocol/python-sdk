@@ -10,6 +10,7 @@ process nor hang on one.
 
 import logging
 import os
+import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
@@ -68,6 +69,9 @@ _KILL_REAP_TIMEOUT = 2.0
 # Time for the writer to flush accepted messages before stdin closes.
 _WRITER_FLUSH_TIMEOUT = 0.5
 
+# Time for the forwarder to drain the dead server's remaining stderr into errlog.
+_STDERR_DRAIN_TIMEOUT = 0.5
+
 # How often to poll returncode while waiting for the process to die.
 _EXIT_POLL_INTERVAL = 0.01
 
@@ -122,11 +126,16 @@ async def stdio_client(
     """
     command = _get_executable_command(server.command)
 
+    # A child process inherits stderr as an OS file descriptor. Writer objects that
+    # have none (Jupyter's ipykernel stream, io.StringIO) cannot be inherited, so the
+    # server's stderr is piped back and forwarded into errlog by a reader task instead.
+    forward_stderr = _lacks_file_descriptor(errlog)
+
     process = await _create_platform_compatible_process(
         command=command,
         args=server.args,
         env=get_default_environment() | (server.env or {}),
-        errlog=errlog,
+        errlog=subprocess.PIPE if forward_stderr else errlog,
         cwd=server.cwd,
     )
 
@@ -137,6 +146,7 @@ async def stdio_client(
 
     shutting_down = False
     writer_done = anyio.Event()
+    stderr_done = anyio.Event()
 
     async def stdout_reader() -> None:
         assert process.stdout, "Opened process is missing stdout"
@@ -165,6 +175,28 @@ async def stdio_client(
             if not shutting_down:
                 logger.exception("Reading from the MCP server's stdout failed mid-session")
 
+    async def stderr_reader() -> None:
+        """Forwards the server's piped stderr into errlog.
+
+        Only runs when errlog could not be inherited by the child; keeps the
+        server's diagnostics visible where a bare fd hand-off would have lost them.
+        """
+        assert process.stderr, "Piped stderr is missing from the opened process"
+
+        stderr = TextReceiveStream(process.stderr, encoding=server.encoding, errors="replace")
+        try:
+            async for chunk in stderr:
+                errlog.write(chunk)
+                errlog.flush()
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError, ConnectionError):
+            pass  # the pipe went away with the process; nothing left to forward
+        except ValueError:
+            # errlog was closed under us (a notebook cell finishing, a StringIO
+            # released). The server's own traffic must not fail over a lost log sink.
+            logger.debug("Stopped forwarding the MCP server's stderr: the log stream was closed")
+        finally:
+            stderr_done.set()
+
     async def stdin_writer() -> None:
         assert process.stdin, "Opened process is missing stdin"
 
@@ -192,6 +224,12 @@ async def stdio_client(
             await writer_done.wait()
         if flush_scope.cancelled_caught:
             await anyio.lowlevel.cancel_shielded_checkpoint()  # resync coverage on 3.11 (gh-106749)
+        # When forwarding stderr, let the forwarder drain the dead server's remaining
+        # output before we close the subprocess transport. Waiting here (before
+        # _stop_server_process closes the transport) ensures no final bytes are lost.
+        if forward_stderr:
+            with anyio.move_on_after(_STDERR_DRAIN_TIMEOUT):
+                await stderr_done.wait()
         await _stop_server_process(process)
         await _aclose_all(read_stream, write_stream, read_stream_writer, write_stream_reader)
         # One pass so unblocked tasks exit via their except paths before the cancel.
@@ -200,6 +238,8 @@ async def stdio_client(
     async with anyio.create_task_group() as tg:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        if forward_stderr:
+            tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -317,6 +357,22 @@ def _close_subprocess_transport(process: ServerProcess) -> None:
             close()
 
 
+def _lacks_file_descriptor(errlog: TextIO) -> bool:
+    """Reports whether errlog has no OS file descriptor for a child to inherit.
+
+    Jupyter's ipykernel stream and io.StringIO answer fileno() with an error;
+    real files, pipes and terminals return one. ipykernel does expose a
+    descriptor once fd capture is on, and that path already reaches the
+    notebook, so inheriting it stays correct.
+    """
+    try:
+        errlog.fileno()
+    except (AttributeError, OSError, ValueError):
+        # io.UnsupportedOperation derives from OSError and ValueError.
+        return True
+    return False
+
+
 def _get_executable_command(command: str) -> str:
     """Normalizes the command for the current platform."""
     if sys.platform == "win32":  # pragma: no cover
@@ -329,7 +385,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | int = sys.stderr,
     cwd: Path | str | None = None,
 ) -> ServerProcess:
     """Spawns the server in its own kill scope.

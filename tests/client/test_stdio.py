@@ -16,6 +16,7 @@ import signal
 import sys
 from collections.abc import Callable
 from contextlib import AsyncExitStack, suppress
+from io import StringIO
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -35,6 +36,7 @@ from mcp.client.stdio import (
     _EXIT_POLL_INTERVAL,
     StdioServerParameters,
     _create_platform_compatible_process,
+    _lacks_file_descriptor,
     _terminate_process_tree,
     stdio_client,
 )
@@ -127,6 +129,10 @@ class _FakeStdout:
         # Real async closes yield; keeps the fake honest and shutdown scheduling realistic.
         await anyio.lowlevel.checkpoint()
 
+    def close(self) -> None:
+        """Release the read end, as the kernel does when the process's pipe goes away."""
+        self._inner.close()
+
 
 class FakeProcess:
     """In-memory stand-in for the spawned server process.
@@ -145,6 +151,7 @@ class FakeProcess:
         stdout_eof_error: Exception | None = None,
         stdout_aclose_error: Exception | None = None,
         on_stdout_receive: Callable[[], None] | None = None,
+        stderr_eof_error: Exception | None = None,
     ) -> None:
         self._stdout_send, stdout_receive = anyio.create_memory_object_stream[bytes](math.inf)
         self.stdout = _FakeStdout(
@@ -152,6 +159,13 @@ class FakeProcess:
             eof_error=stdout_eof_error,
             aclose_error=stdout_aclose_error,
             on_receive=self._dispatch_stdout_receive,
+        )
+        self._stderr_send, stderr_receive = anyio.create_memory_object_stream[bytes](math.inf)
+        # Only read when errlog has no descriptor to inherit, so the client pipes stderr.
+        self.stderr = _FakeStdout(
+            stderr_receive,
+            eof_error=stderr_eof_error,
+            on_receive=lambda: None,
         )
         self.pid = 424242
         self.written: list[bytes] = []
@@ -174,12 +188,24 @@ class FakeProcess:
         """Make `data` readable on the fake process's stdout."""
         await self._stdout_send.send(data)
 
+    async def feed_stderr(self, data: bytes) -> None:
+        """Make `data` readable on the fake process's stderr."""
+        await self._stderr_send.send(data)
+
     def close_stdout(self) -> None:
-        """End the fake process's stdout, as the kernel does when it dies."""
+        """End the fake process's stdout and stderr, as the kernel does when it dies."""
         self._stdout_send.close()
+        # Also close the stderr pipe ends: a real kernel closes all fds together.
+        self._stderr_send.close()
+        self.stderr.close()
+
+    def close_stderr(self) -> None:
+        """End the fake process's stderr only."""
+        self._stderr_send.close()
+        self.stderr.close()
 
     def exit(self, code: int = 0) -> None:
-        """Die: set the exit code and EOF stdout, as the kernel does."""
+        """Die: set the exit code and EOF stdout/stderr, as the kernel does."""
         self.returncode = code
         self.close_stdout()
 
@@ -203,7 +229,7 @@ def install_fake_process(
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
+        errlog: TextIO | int = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         return process
@@ -535,7 +561,7 @@ async def test_spawn_failure_propagates_the_error_and_leaks_no_streams(monkeypat
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
+        errlog: TextIO | int = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         raise OSError(errno.EACCES, "Permission denied")
@@ -581,7 +607,7 @@ async def test_cancellation_during_spawn_leaks_no_streams(monkeypatch: pytest.Mo
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
+        errlog: TextIO | int = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         spawn_started.set()
@@ -623,7 +649,7 @@ async def test_a_non_oserror_spawn_failure_propagates_and_leaks_no_streams(monke
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
+        errlog: TextIO | int = sys.stderr,
         cwd: Path | str | None = None,
     ) -> FakeProcess:
         raise ValueError("embedded null byte")
@@ -1201,7 +1227,7 @@ def _record_spawned_processes(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc
         command: str,
         args: list[str],
         env: dict[str, str] | None = None,
-        errlog: TextIO = sys.stderr,
+        errlog: TextIO | int = sys.stderr,
         cwd: Path | str | None = None,
     ) -> anyio.abc.Process | FallbackProcess:
         process = await _create_platform_compatible_process(command, args, env, errlog, cwd)
@@ -1406,3 +1432,108 @@ async def test_a_graceful_exit_with_a_surviving_child_leaks_no_pipe_fds(  # prag
         # Subset, not equality: other machinery may close fds, but never open new
         # ones; a leaked pipe fd would show up as an extra entry.
         assert set(os.listdir("/proc/self/fd")) <= baseline
+
+
+# ---------------------------------------------------------------------------
+# Stderr forwarding for environments without a real file descriptor
+# ---------------------------------------------------------------------------
+#
+# When errlog lacks a file descriptor (Jupyter's ipykernel stream, io.StringIO),
+# stderr is piped back and forwarded into errlog by an async reader task.
+
+
+def test_lacks_file_descriptor_returns_true_for_stringio() -> None:
+    """io.StringIO has no OS file descriptor."""
+    assert _lacks_file_descriptor(StringIO()) is True
+
+
+def test_lacks_file_descriptor_returns_false_for_real_stderr() -> None:
+    """sys.stderr backed by a real terminal/pipe has a descriptor."""
+    assert _lacks_file_descriptor(sys.stderr) is False
+
+
+@pytest.mark.anyio
+async def test_stderr_is_forwarded_to_errlog_when_fd_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Server stderr output reaches errlog when errlog has no file descriptor.
+
+    A StringIO errlog triggers the pipe-and-forward path; all stderr output from
+    the server appears in the StringIO buffer.
+    """
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    install_fake_process(monkeypatch, process)
+
+    errlog = StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS, errlog=errlog):
+            await process.feed_stderr(b"server starting up\n")
+            await process.feed_stderr(b"listening on port 8080\n")
+            # Wait until the stderr reader has processed the chunks.
+            await anyio.wait_all_tasks_blocked()
+
+    assert "server starting up" in errlog.getvalue()
+    assert "listening on port 8080" in errlog.getvalue()
+
+
+@pytest.mark.anyio
+async def test_stderr_forwarding_tolerates_errlog_closed_during_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closing errlog mid-session (a notebook cell finishing) must not crash the transport.
+
+    The stderr forwarder stops forwarding gracefully. The server's main traffic
+    on stdout continues unaffected and the context manager exits cleanly.
+    """
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    install_fake_process(monkeypatch, process)
+
+    errlog = StringIO()
+
+    with anyio.fail_after(5):
+        async with stdio_client(FAKE_PARAMS, errlog=errlog):
+            await process.feed_stderr(b"first line\n")
+            await anyio.wait_all_tasks_blocked()
+            # Capture what was forwarded before we close the errlog.
+            captured = errlog.getvalue()
+            # Close the errlog under the forwarder: the next write should raise ValueError.
+            errlog.close()
+            process.close_stderr()
+            await anyio.wait_all_tasks_blocked()
+
+    assert "first line" in captured
+
+
+@pytest.mark.anyio
+async def test_stderr_not_piped_when_errlog_has_a_file_descriptor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When errlog has a real file descriptor, stderr is inherited directly (no forwarding).
+
+    The server process gets the real fd, and the stderr_reader task is not started.
+    """
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+
+    spawned_errlog: list[object] = []
+
+    async def spy_spawn(
+        command: str,
+        args: list[str],
+        env: dict[str, str] | None = None,
+        errlog: TextIO | int = sys.stderr,
+        cwd: Path | str | None = None,
+    ) -> FakeProcess:
+        spawned_errlog.append(errlog)
+        return process
+
+    async def fake_terminate_tree(proc: FakeProcess) -> None:
+        proc.exit(-15)
+
+    monkeypatch.setattr(stdio, "_create_platform_compatible_process", spy_spawn)
+    monkeypatch.setattr(stdio, "_terminate_process_tree", fake_terminate_tree)
+    monkeypatch.setattr(stdio, "PROCESS_TERMINATION_TIMEOUT", 0.2)
+
+    with anyio.fail_after(5):
+        # Use the real sys.stderr which has a file descriptor.
+        async with stdio_client(FAKE_PARAMS, errlog=sys.stderr):
+            pass
+
+    # The spawn received the real stderr, not subprocess.PIPE.
+    assert spawned_errlog[0] is sys.stderr
