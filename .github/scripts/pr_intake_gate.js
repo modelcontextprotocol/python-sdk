@@ -147,7 +147,7 @@ module.exports = async function run({ github, context, core }) {
           `If a maintainer assigns you to ${issues}, this PR reopens on its own and there's nothing more you need to do here. Assignment is a maintainer call based on capacity; comments that only ask to be assigned don't factor in. What does help is engaging on the issue itself by confirming the repro, explaining why it matters for your use case, or describing the approach you'd take.`,
         ]
       : [
-          `${rule}, and this PR doesn't link an issue yet.`,
+          `${rule}, and this PR doesn't link an open issue yet.`,
           '',
           "- **If you're already assigned to an issue for this**, add `Fixes #<n>` to the description and the PR will reopen on its own.",
           `- **If there's no issue yet**, please [open one](https://github.com/${owner}/${repo}/issues/new/choose) instead: what you ran into, why it matters for your use case, and a minimal reproduction. That context is super important to us and is what we use to decide what to prioritise.`,
