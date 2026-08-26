@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import anyio
 from anyio.abc import TaskStatus
-from mcp_types import DEFAULT_NEGOTIATED_VERSION, INVALID_REQUEST, ErrorData, JSONRPCError
+from mcp_types import DEFAULT_NEGOTIATED_VERSION, INTERNAL_ERROR, INVALID_REQUEST, ErrorData, JSONRPCError
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 from starlette.requests import Request
 from starlette.responses import Response
@@ -287,82 +287,99 @@ class StreamableHTTPSessionManager:
             return
 
         if request_mcp_session_id is None:
-            # New session case
-            logger.debug("Creating new transport")
+            # New session case. Admission (the session limit and registration)
+            # is decided under the lock; the request itself is served outside
+            # it, so one client that is slow to send its opening request does
+            # not hold up the others.
             async with self._session_creation_lock:
-                if self.max_sessions is not None and len(self._server_instances) >= self.max_sessions:
-                    logger.warning("Refusing to open a new session: %d sessions are already open", self.max_sessions)
-                    await _error_response("Too many open sessions", 503)(scope, receive, send)
-                    return
-
-                new_session_id = uuid4().hex
-                http_transport = StreamableHTTPServerTransport(
-                    mcp_session_id=new_session_id,
-                    is_json_response_enabled=self.json_response,
-                    event_store=self.event_store,  # May be None (no resumability)
-                    security_settings=self.security_settings,
-                    retry_interval=self.retry_interval,
-                    idle_timeout=self.session_idle_timeout,
-                )
-
-                async def run_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
-                    async with http_transport.connect() as streams:
-                        read_stream, write_stream = streams
-                        task_status.started()
-                        try:
-                            # The transport cancels its idle scope once no request
-                            # has been in flight for `session_idle_timeout`; that
-                            # ends the loop and execution continues after the
-                            # `with` block. Without a timeout there is nothing to fire.
-                            idle_scope = http_transport.idle_scope
-                            if idle_scope is None:
-                                idle_scope = anyio.CancelScope()
-                            with idle_scope:
-                                # Drive via `serve_loop` (not `Server.run()`) so the
-                                # manager's already-entered lifespan is reused
-                                # rather than re-entered per session.
-                                await serve_loop(
-                                    self.app,
-                                    read_stream,
-                                    write_stream,
-                                    lifespan_state=self._lifespan_state,
-                                    session_id=http_transport.mcp_session_id,
-                                )
-
-                            if idle_scope.cancelled_caught:
-                                logger.info(f"Session {new_session_id} idle timeout")
-                        except Exception:
-                            logger.exception(f"Session {new_session_id} crashed")
-                        finally:
-                            # However the session ended (client DELETE, idle
-                            # timeout, crash), discard it.
-                            await self._discard_session(new_session_id, http_transport)
-
-                if requestor is not None:
-                    self._session_owners[new_session_id] = requestor
-                self._server_instances[new_session_id] = http_transport
-                logger.info(f"Created new transport with session ID: {new_session_id}")
-
-                # Without a session ID only an initialize request can succeed,
-                # so if this one is refused, fails or is cancelled (or the
-                # session's server task cannot even be started) nothing was
-                # established: discard the session again rather than keep it
-                # (and its server task) around.
-                established = False
-                try:
-                    assert self._task_group is not None
-                    await self._task_group.start(run_server)
-                    status = await _send_and_report_status(http_transport.handle_request, scope, receive, send)
-                    established = status is not None and status < 400
-                finally:
-                    if not established:  # pragma: no branch
-                        await self._discard_session(new_session_id, http_transport)
+                http_transport = self._admit_session(requestor)
+            if http_transport is None:
+                logger.warning("Refusing to open a new session: %d sessions are already open", self.max_sessions)
+                await _error_response("Too many open sessions", 503, INTERNAL_ERROR)(scope, receive, send)
+                return
+            await self._serve_opening_request(http_transport, scope, receive, send)
         else:
             # Unknown or expired session ID - return 404 per MCP spec
             # TODO(L62): Align error code once spec clarifies
             # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
             logger.info(f"Rejected request with unknown or expired session ID: {request_mcp_session_id[:64]}")
             await _error_response("Session not found", 404)(scope, receive, send)
+
+    def _admit_session(self, requestor: AuthorizationContext | None) -> StreamableHTTPServerTransport | None:
+        """Register a new session for `requestor` and return its transport, or None at the session limit."""
+        if self.max_sessions is not None and len(self._server_instances) >= self.max_sessions:
+            return None
+        http_transport = StreamableHTTPServerTransport(
+            mcp_session_id=uuid4().hex,
+            is_json_response_enabled=self.json_response,
+            event_store=self.event_store,  # May be None (no resumability)
+            security_settings=self.security_settings,
+            retry_interval=self.retry_interval,
+            idle_timeout=self.session_idle_timeout,
+        )
+        session_id = http_transport.mcp_session_id
+        assert session_id is not None
+        if requestor is not None:
+            self._session_owners[session_id] = requestor
+        self._server_instances[session_id] = http_transport
+        logger.info(f"Created new transport with session ID: {session_id}")
+        return http_transport
+
+    async def _serve_opening_request(
+        self, http_transport: StreamableHTTPServerTransport, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Start the session's server task and let its transport answer the request that opens it.
+
+        Without a session ID only an initialize request can succeed, so if this
+        one is refused, fails or is cancelled (or the session's server task
+        cannot even be started) nothing was established: the session is
+        discarded again rather than kept (with its server task) around.
+        """
+        session_id = http_transport.mcp_session_id
+        assert session_id is not None
+
+        async def run_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
+            async with http_transport.connect() as streams:
+                read_stream, write_stream = streams
+                task_status.started()
+                try:
+                    # The transport cancels its idle scope once no request
+                    # has been in flight for `session_idle_timeout`; that
+                    # ends the loop and execution continues after the
+                    # `with` block. Without a timeout there is nothing to fire.
+                    idle_scope = http_transport.idle_scope
+                    if idle_scope is None:
+                        idle_scope = anyio.CancelScope()
+                    with idle_scope:
+                        # Drive via `serve_loop` (not `Server.run()`) so the
+                        # manager's already-entered lifespan is reused
+                        # rather than re-entered per session.
+                        await serve_loop(
+                            self.app,
+                            read_stream,
+                            write_stream,
+                            lifespan_state=self._lifespan_state,
+                            session_id=session_id,
+                        )
+
+                    if idle_scope.cancelled_caught:
+                        logger.info(f"Session {session_id} idle timeout")
+                except Exception:
+                    logger.exception(f"Session {session_id} crashed")
+                finally:
+                    # However the session ended (client DELETE, idle
+                    # timeout, crash), discard it.
+                    await self._discard_session(session_id, http_transport)
+
+        established = False
+        try:
+            assert self._task_group is not None
+            await self._task_group.start(run_server)
+            status = await _send_and_report_status(http_transport.handle_request, scope, receive, send)
+            established = status is not None and status < 400
+        finally:
+            if not established:  # pragma: no branch
+                await self._discard_session(session_id, http_transport)
 
     async def _discard_session(self, session_id: str, transport: StreamableHTTPServerTransport) -> None:
         """Stop tracking the session and make sure its transport refuses anything that still reaches it.
@@ -378,9 +395,9 @@ class StreamableHTTPSessionManager:
                 await transport.terminate()
 
 
-def _error_response(message: str, status_code: int) -> Response:
+def _error_response(message: str, status_code: int, code: int = INVALID_REQUEST) -> Response:
     """A JSON-RPC error body (no request id) with the given HTTP status."""
-    body = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=INVALID_REQUEST, message=message))
+    body = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=code, message=message))
     return Response(
         body.model_dump_json(by_alias=True, exclude_unset=True), status_code=status_code, media_type="application/json"
     )

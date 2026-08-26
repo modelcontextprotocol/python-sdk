@@ -5,13 +5,14 @@ import logging
 import math
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import anyio
 import httpx2
 import pytest
 from mcp_types import (
+    INTERNAL_ERROR,
     INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
@@ -846,13 +847,45 @@ async def test_new_session_is_refused_at_max_sessions() -> None:
         assert json.loads(response_body) == {
             "jsonrpc": "2.0",
             "id": None,
-            "error": {"code": INVALID_REQUEST, "message": "Too many open sessions"},
+            "error": {"code": INTERNAL_ERROR, "message": "Too many open sessions"},
         }
         assert list(manager._server_instances) == [first]
 
         assert await _request_session(manager, first, None, method="DELETE") == 200
         second = await _open_session(manager, None)
         assert list(manager._server_instances) == [second]
+
+
+@pytest.mark.anyio
+async def test_client_that_is_slow_to_send_its_opening_request_does_not_hold_up_others() -> None:
+    """While one client has yet to finish sending the request that would open its session, another
+    client can still open one."""
+    manager = StreamableHTTPSessionManager(app=Server("test-slow-open"))
+    body_awaited = anyio.Event()
+
+    async def stall() -> None:
+        # This client has sent its headers but never finishes sending the body.
+        body_awaited.set()
+        await anyio.sleep_forever()
+
+    async def discard(message: Message) -> None: ...
+
+    slow_client = anyio.CancelScope()
+
+    async def open_slowly() -> None:
+        with slow_client:
+            await manager.handle_request(_request_scope(), cast(Receive, stall), discard)
+
+    session_id: str | None = None
+    async with manager.run():
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(open_slowly)
+            with anyio.fail_after(5):
+                await body_awaited.wait()
+                session_id = await _open_session(manager, None)
+            slow_client.cancel()
+        assert session_id is not None
+        assert list(manager._server_instances) == [session_id]
 
 
 def test_max_sessions_defaults_to_ten_thousand() -> None:
