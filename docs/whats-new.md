@@ -4,13 +4,10 @@ Two things happened at once in v2. The **SDK was rebuilt**: a new engine under b
 
 This page is the tour of both halves, one section per headline, each ending in the page that owns the topic. It is not the porting manual. That is the **[Migration Guide](migration.md)**: every breaking change, with before and after code.
 
-!!! note "v2 is a beta"
-    `pip install mcp` still installs v1.x: you opt into v2 with an exact version pin, and the
-    API can still move before the stable release, which lands alongside the spec release.
-    **[Installation](get-started/installation.md)** has the copy-paste install line and the
-    pinning rules. And if anything in v2 breaks, surprises, or slows you down,
-    [tell us](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml):
-    while v2 is in beta, that is the most useful thing you can send us.
+!!! note "v2 is the stable line"
+    `pip install mcp` installs 2.x, and **[Installation](get-started/installation.md)** has the
+    copy-paste install line. If anything in v2 breaks, surprises, or slows you down,
+    [tell us](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml).
 
 ## The SDK: v1 to v2
 
@@ -44,9 +41,9 @@ v1 handed you three nested layers: a transport context manager yielding raw stre
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-`Client` takes a server object (in memory, no transport: the testing story), a URL (Streamable HTTP), or any transport context manager such as `stdio_client(...)`. Entering `async with` connects and negotiates the protocol version, whichever era the server speaks; `client.server_capabilities` and `client.protocol_version` are simply there afterwards, and `client.server_info` is too when the server identifies itself (it is `Implementation | None` now, since 2026-era identity is optional). The sampling and elicitation callbacks you registered in v1 still work (their bodies see the same snake_case attribute rename as everything else on this page), they now also answer the 2026-style requests-inside-results (below), and they run concurrently instead of one at a time. `ClientSession` is still underneath for anyone who wants the low-level surface, and `client.session` hands it to you; it moved too (it runs on the new dispatcher engine, and some of its own signatures changed), so read the **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** before you drop down.
+`Client` takes a server object (in memory, no transport: the testing story), a URL (Streamable HTTP), a `StdioServerParameters` (a stdio subprocess), or any other transport context manager such as `sse_client(...)`. Entering `async with` connects and negotiates the protocol version, whichever era the server speaks; `client.server_capabilities` and `client.protocol_version` are simply there afterwards, and `client.server_info` is too when the server identifies itself (it is `Implementation | None` now, since 2026-era identity is optional). The sampling and elicitation callbacks you registered in v1 still work (their bodies see the same snake_case attribute rename as everything else on this page), they now also answer the 2026-style requests-inside-results (below), and they run concurrently instead of one at a time. `ClientSession` is still underneath for anyone who wants the low-level surface, and `client.session` hands it to you; it moved too (it runs on the new dispatcher engine, and some of its own signatures changed), so read the **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** before you drop down.
 
-**[The Client](client/index.md)** introduces it, **[Client transports](client/transports.md)** covers the three connection forms, **[Client callbacks](client/callbacks.md)** covers the callbacks themselves, and **[Testing](get-started/testing.md)** shows the in-memory pattern that replaces v1's `create_connected_server_and_client_session()` helper.
+**[The Client](client/index.md)** introduces it, **[Client transports](client/transports.md)** covers the four connection forms, **[Client callbacks](client/callbacks.md)** covers the callbacks themselves, and **[Testing](get-started/testing.md)** shows the in-memory pattern that replaces v1's `create_connected_server_and_client_session()` helper.
 
 ### The low-level `Server` was rebuilt, not renamed
 
@@ -117,7 +114,7 @@ Underneath, the v1 `BaseSession` receive loop was replaced by a dispatcher engin
 
 ### The wire types moved to `mcp-types`, and every field is snake_case
 
-The protocol types now live in their own distribution, `mcp-types`, imported as `mcp_types`. It depends on nothing but pydantic and typing-extensions, so a gateway, a proxy, or a code generator can consume MCP's wire shapes without installing an HTTP stack. `mcp` depends on it at an exact version and re-exports the common names, so `from mcp import Tool` still works; `import mcp.types` does not.
+The protocol types now live in their own distribution, `mcp-types`. It depends on nothing but pydantic and typing-extensions, so a gateway, a proxy, or a code generator can consume MCP's wire shapes without installing an HTTP stack: such a project installs `mcp-types` and imports `mcp_types`. `mcp` itself depends on that package at an exact version and re-exposes it, so code that depends on the SDK keeps writing `import mcp.types as types` and `from mcp.types import Tool` (a permanent alias, every name the same object) and declares only its one real dependency, `mcp`. The rule of thumb: import through whichever package you actually depend on.
 
 On those types, every Python attribute is now snake_case: `result.is_error`, `tool.input_schema`, `listing.next_cursor`. The JSON on the wire is camelCase, exactly as before; only the attribute spelling changed. Two stricter defaults ride along: unknown fields are ignored instead of round-tripped (put extras in `_meta`), and both sides validate traffic against the protocol version they negotiated. See the **[Migration Guide](migration.md#field-names-changed-from-camelcase-to-snake_case)** for the rename table.
 
@@ -132,7 +129,7 @@ On those types, every Python attribute is now snake_case: `result.is_error`, `to
 The renames announce themselves. These do not:
 
 * **Sync functions run on a worker thread.** A `def` tool (or resource, prompt, or resolver) no longer blocks the event loop; the trade is that its body no longer runs *on* the event-loop thread, which matters to thread-affine code. `async def` handlers are untouched. **[Migration Guide](migration.md#sync-handler-functions-now-run-on-a-worker-thread)**.
-* **`MCPError` (v1's `McpError`) raised inside a tool is a protocol error now.** The model never sees it. Every other exception still becomes an `is_error=True` result the model can read and react to. **[Handling errors](servers/handling-errors.md)** is the split.
+* **`MCPError` (v1's `McpError`) raised inside a tool is a protocol error now.** The model never sees it. Every other exception still becomes an `is_error=True` result, but only a `ToolError`'s message reaches the model: any other exception now reads `Error executing tool <name>`, with the traceback in your server log. **[Handling errors](servers/handling-errors.md)** is the split.
 * **Results are validated before they leave.** A hand-built `Tool` whose `input_schema` is `{}` now fails `tools/list` (the spec requires `"type": "object"`). Servers built on `@mcp.tool()` never see this; the SDK writes their schemas.
 * **Your client validates what it receives.** `list_tools()` and `call_tool()` check the server's answer against the negotiated protocol version, so a not-quite-valid server that v1's lenient parse tolerated now raises `pydantic.ValidationError`. If you connect to servers you do not control, expect to be the one who finds them; the **[Migration Guide](migration.md#client-validates-inbound-traffic-against-the-protocol-schema)** has the details.
 * **URI templates are real RFC 6570 now.** `{+path}`, `{?query}` and friends work, matching is exact instead of regex-loose, and path traversal in extracted values is rejected by default. Stricter templates fail at decoration time, not on the first request. **[URI templates](servers/uri-templates.md)**.
@@ -146,7 +143,7 @@ Each of these is a section in the **[Migration Guide](migration.md)**:
 
 * The **WebSocket transport**, both sides, and the `mcp[ws]` extra. It was never part of the MCP specification.
 * The **experimental Tasks** API (`mcp.*.experimental`). 2026-07-28 moves tasks out of the core protocol and into an official extension ([SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663)), which this SDK does not implement yet.
-* `mcp.types`, `mcp.shared.version`, and `mcp.shared.progress` as import paths.
+* `mcp.shared.version`, `mcp.shared.progress`, and `mcp.shared.session` (with the `RequestResponder` stub v1 `message_handler` annotations imported) as import paths. (`mcp.types` is *not* removed: it remains as a permanent alias for the standalone `mcp_types` package.)
 * The deprecated `streamablehttp_client` spelling, and the `get_session_id` callback from `streamable_http_client` (which now yields exactly two streams).
 * `McpError`, renamed **`MCPError`** with a direct `(code, message, data)` constructor.
 * `MCPServer.get_context()`, `mount_path=`, and the lowlevel `Server`'s decorator methods, ContextVar, and handler dicts.
@@ -191,13 +188,13 @@ That file is the pitch in one place: one server, one `Resolve`-backed tool, and 
 
 ### Change notifications become one stream
 
-At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), and multi-replica deployments plug in a shared `SubscriptionBus`. On the client (since `2.0.0b2`), `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver. One honest caveat: over stdio the server does not serve the stream yet.
+At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are replaced by `subscriptions/listen`: the client opens one long-lived stream and names the notification kinds it wants. `MCPServer` serves it out of the box; you publish with `await ctx.notify_resource_updated(uri)` (and `notify_tools_changed()`, and so on), a middleware can refuse a listen request per caller, and multi-replica deployments plug in a shared `SubscriptionBus`. On the client, `async with client.listen(...)` opens the stream: the filter goes in as keyword arguments, typed change events come back, and `sub.honored` is the subset the server agreed to deliver.
 
 **[Subscriptions](handlers/subscriptions.md)** covers publishing and serving, **[its Clients twin](client/subscriptions.md)** the watching end, and **[Deploy & scale](run/deploy.md)** the bus.
 
 ### The rest, quickly
 
-* **Identity is optional, per-message metadata.** The request-side `clientInfo` `_meta` key is optional (the required pair is `protocolVersion` + `clientCapabilities`), and `serverInfo` moved out of the `server/discover` result body: servers stamp it into every 2026-era result's `_meta` instead (since `2.0.0b3`; [spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). The SDK always stamps; `client.server_info` is `None` when a server does not identify itself (for example, a middleware stripped the key). **[The low-level Server](advanced/low-level-server.md)** shows the stamp on the wire.
+* **Identity is optional, per-message metadata.** The request-side `clientInfo` `_meta` key is optional (the required pair is `protocolVersion` + `clientCapabilities`), and `serverInfo` moved out of the `server/discover` result body: servers stamp it into every 2026-era result's `_meta` instead ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002)). The SDK always stamps; `client.server_info` is `None` when a server does not identify itself (for example, a middleware stripped the key). **[The low-level Server](advanced/low-level-server.md)** shows the stamp on the wire.
 * **Requests are routable without parsing bodies.** Modern HTTP requests carry `Mcp-Method` (and, for the three tool-ish calls, `Mcp-Name`); a tool input-schema property annotated with `x-mcp-header` is mirrored into an `Mcp-Param-*` header and cross-checked by the server ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243)). Gateways and rate limiters can route on headers alone; the **[Migration Guide](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** has the rules.
 * **Results carry cache hints.** List and read results declare `ttlMs` and `cacheScope` ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); you set them per method with `cache_hints=`, and `Client` honors them with a built-in response cache. A server that sends no hints (every pre-2026 server) sees identical, uncached traffic. **[Caching hints](client/caching.md)**.
 * **Extensions are first class.** Servers and clients declare optional capability bundles under reverse-DNS identifiers ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); the built-in `Apps` extension (MCP Apps) is the reference. **[Extensions](advanced/extensions.md)** and **[MCP Apps](advanced/apps.md)**.
@@ -208,5 +205,5 @@ At 2026-07-28 the standalone HTTP GET stream and `resources/subscribe` are repla
 ## Upgrading from v1?
 
 * The **[Migration Guide](migration.md)** is the complete, exact list of what to change; this page was the why.
-* **v1.x is not going anywhere.** It stays the stable line, with critical fixes and security patches, and nothing about the 2026-07-28 spec release breaks it. If you publish a library that depends on `mcp`, add an upper bound (for example `mcp>=1.27,<2`) so stable v2 does not surprise your users.
+* **v1.x is not going anywhere.** It moves to maintenance, keeps getting critical fixes and security patches, and nothing about the 2026-07-28 spec release breaks it; its docs live at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/). If you publish a library that depends on `mcp` and are not ready to migrate, keep an upper bound (for example `mcp>=1.28,<2`) so an unpinned resolve stays on 1.x.
 * Something rough, confusing, or broken? **[File v2 feedback](https://github.com/modelcontextprotocol/python-sdk/issues/new?template=v2-feedback.yaml)**; it all gets read.

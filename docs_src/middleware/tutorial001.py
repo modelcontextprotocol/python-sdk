@@ -1,7 +1,9 @@
 import logging
 import time
 
-from mcp_types import (
+from mcp.server import Server, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult
+from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -9,9 +11,6 @@ from mcp_types import (
     TextContent,
     Tool,
 )
-
-from mcp.server import Server, ServerRequestContext
-from mcp.server.context import CallNext, HandlerResult
 
 logger = logging.getLogger(__name__)
 

@@ -19,21 +19,21 @@ from urllib.parse import urlsplit
 
 import anyio
 import httpx2
-from mcp_types.version import LATEST_MODERN_VERSION
 
-from mcp import StdioServerParameters, stdio_client
+from mcp import StdioServerParameters
 from mcp.client import Transport
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.types.version import LATEST_MODERN_VERSION
 
 if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
 
-Target: TypeAlias = "Server[Any] | MCPServer | Transport | str"
-"""Anything ``Client(...)`` accepts: an in-process server, a ``Transport``, or an HTTP URL."""
+Target: TypeAlias = "Server[Any] | MCPServer | Transport | StdioServerParameters | str"
+"""Anything ``Client(...)`` accepts: an HTTP URL, stdio launch parameters, a ``Transport``, or an in-process server."""
 
 TargetFactory = Callable[[], Target]
 """Yields a FRESH target against the same server/app on every call (``multi_connection`` stories)."""
@@ -63,7 +63,7 @@ def target_from_args(file: str, url: str | None) -> TargetFactory:
     # stdio is legacy-only until serve_stdio() lands; the modern arm is --http only for now.
     server = Path(file).parent / f"{argv_after('--server', default='server')}.py"
     params = StdioServerParameters(command=sys.executable, args=[str(server)])
-    return lambda: stdio_client(params)  # becomes Client(params) once that overload lands
+    return lambda: params
 
 
 def _explicit_http_url() -> str | None:
@@ -123,7 +123,7 @@ async def _self_hosted(name: str, cfg: dict[str, Any]) -> AsyncIterator[str]:
 
 def _story_cfg(name: str) -> dict[str, Any]:
     """The manifest entry for the story ``name`` with ``[defaults]`` applied."""
-    manifest: dict[str, Any] = tomllib.loads((Path(__file__).parent / "manifest.toml").read_text())
+    manifest: dict[str, Any] = tomllib.loads((Path(__file__).parent / "manifest.toml").read_text(encoding="utf-8"))
     return manifest["defaults"] | manifest["story"].get(name, {})
 
 

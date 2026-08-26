@@ -17,12 +17,12 @@ from mcp_types import (
 from pydantic import BaseModel, Field
 
 from mcp import MCPError
+from mcp.client import IncomingMessage
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -84,9 +84,9 @@ async def test_complex_parameter_types_are_validated_and_coerced_before_the_tool
 async def test_call_tool_function_exception_becomes_error_result(connect: Connect, unstamped: Unstamp) -> None:
     """An exception raised by a tool function is returned as an is_error result, not a JSON-RPC error.
 
-    The function's `-> str` annotation gives the tool a derived output schema, but the error
-    result is built before any schema validation runs, so no validation failure is layered on
-    top of the original exception.
+    The exception's own text ("boom") is withheld: an unexpected exception is a crash, and only
+    ToolError carries a message to the client. The function's `-> str` annotation gives the tool
+    a derived output schema, but the error result is built before any schema validation runs.
     """
     mcp = MCPServer("errors")
 
@@ -98,7 +98,7 @@ async def test_call_tool_function_exception_becomes_error_result(connect: Connec
         result = await client.call_tool("explode", {})
 
     assert unstamped(result) == snapshot(
-        CallToolResult(content=[TextContent(text="Error executing tool explode: boom")], is_error=True)
+        CallToolResult(content=[TextContent(text="Error executing tool explode")], is_error=True)
     )
 
 
@@ -245,7 +245,7 @@ async def test_call_tool_invalid_arguments_become_error_result(connect: Connect)
 @requirement("mcpserver:output-schema:server-validate")
 @requirement("mcpserver:output-schema:missing-structured")
 async def test_tool_with_output_schema_returning_mismatched_structured_content_is_an_error_result(
-    connect: Connect,
+    connect: Connect, unstamped: Unstamp
 ) -> None:
     """Structured content that fails the tool's own output schema is rejected on the server side.
 
@@ -273,16 +273,42 @@ async def test_tool_with_output_schema_returning_mismatched_structured_content_i
         mismatched_result = await client.call_tool("mismatched", {})
         missing_result = await client.call_tool("missing", {})
 
-    # The body of each message is raw pydantic ValidationError output (model name, field paths,
-    # an errors.pydantic.dev URL) and changes across pydantic versions, so only the SDK's stable
-    # prefix is asserted.
-    assert mismatched_result.is_error is True
-    assert isinstance(mismatched_result.content[0], TextContent)
-    assert mismatched_result.content[0].text.startswith("Error executing tool mismatched: 2 validation errors")
+    # A return value that fails its own output schema is the tool's bug, so the pydantic detail
+    # goes to the server log and the client gets only the generic crash text.
+    assert unstamped(mismatched_result) == snapshot(
+        CallToolResult(content=[TextContent(text="Error executing tool mismatched")], is_error=True)
+    )
+    assert unstamped(missing_result) == snapshot(
+        CallToolResult(content=[TextContent(text="Error executing tool missing")], is_error=True)
+    )
 
-    assert missing_result.is_error is True
-    assert isinstance(missing_result.content[0], TextContent)
-    assert missing_result.content[0].text.startswith("Error executing tool missing: 1 validation error")
+
+@requirement("mcpserver:output-schema:skip-on-error")
+async def test_tool_with_output_schema_returning_is_error_result_skips_output_validation(
+    connect: Connect, unstamped: Unstamp
+) -> None:
+    """A deliberate is_error result from a tool with an output schema reaches the client as written.
+
+    The tool declares `Weather` as its output schema but returns a hand-built
+    `CallToolResult(is_error=True)` with no structured content. An error result has nothing to
+    validate, so the author's message is delivered instead of being replaced by a validation failure.
+    """
+    mcp = MCPServer("forecaster")
+
+    class Weather(BaseModel):
+        temperature: float
+        conditions: str
+
+    @mcp.tool()
+    def forecast() -> Annotated[CallToolResult, Weather]:
+        return CallToolResult(content=[TextContent(text="Upstream is down, try again later.")], is_error=True)
+
+    async with connect(mcp) as client:
+        result = await client.call_tool("forecast", {})
+
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="Upstream is down, try again later.")], is_error=True)
+    )
 
 
 @requirement("mcpserver:tool:duplicate-name")
@@ -431,7 +457,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients(conne
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
 
-    async with connect(mcp, message_handler=collect) as client:
+    async with connect(mcp, message_handler=collect, log_level="debug") as client:
         before = await client.list_tools()
         await client.call_tool("grow", {})
         after = await client.list_tools()

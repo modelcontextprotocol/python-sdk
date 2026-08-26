@@ -100,7 +100,7 @@ Not every shape deserves a class. A `TypedDict` produces the same schema:
 --8<-- "docs_src/structured_output/tutorial003.py"
 ```
 
-A `TypedDict` is a plain `dict` at runtime, so that is what you build and return. The schema, the validation, and `structured_content` are identical to the `BaseModel` version (minus the descriptions, which `TypedDict` has no place for).
+A `TypedDict` is a plain `dict` at runtime, so that is what you build and return. The schema, the validation, and `structured_content` follow the same rules as the `BaseModel` version: add a class docstring or `Annotated[..., Field(description=...)]` and they become the descriptions, and a `NotRequired` key you leave out of the dict stays out of `structured_content`.
 
 ## A dataclass
 
@@ -182,17 +182,18 @@ You don't notice while you build the value by hand: Pydantic already made sure y
 The annotation promises `WeatherData`. The upstream response stopped sending `humidity`.
 
 !!! check
-    Call `get_weather` and it does not quietly hand the client a half-empty object. The call fails,
-    and the first lines of the error name the field:
+    Call `get_weather` and it does not quietly hand the client a half-empty object. The call fails:
+    the client gets `is_error=True` with `Error executing tool get_weather`, so the model knows the
+    call failed instead of confidently reading weather that isn't there. The field name is for you,
+    in the server log at `ERROR`:
 
     ```text
-    Error executing tool get_weather: 1 validation error for WeatherData
+    Tool 'get_weather' raised an unexpected exception
+    ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for WeatherData
     humidity
       Field required [type=missing, input_value={'temperature': 16.2, 'conditions': 'Overcast'}, input_type=dict]
     ```
-
-    That text comes back as the tool result with `is_error=True`, so the model knows the call failed
-    instead of confidently reading weather that isn't there.
 
 Returning a plain `dict` from a `-> WeatherData` tool is fine, by the way. That's exactly what `json.loads` produced. Validation is on the value, not on the Python type.
 
@@ -207,6 +208,10 @@ Sometimes the return annotation is for your type checker, not for the protocol. 
 No `output_schema`, no wrapping, no validation. `structured_content` is `None` and `content` is the string you returned.
 
 The opposite, `structured_output=True`, turns the automatic detection into a requirement: a tool whose return type can't produce a schema raises at import time instead of falling back to text.
+
+## Content blocks and media
+
+Content blocks and media (`TextContent`, `EmbeddedResource`, `Image`, `Audio` and friends, on their own, as the items of a `list`, `tuple` or `Sequence`, or as the arms of a union) are opted out for you: they are for the model to read, so auto-detection derives no schema from them (**[Images, audio & icons](media.md)** covers `Image` and `Audio`). `structured_output=True` still forces one for the content-block classes.
 
 ## A class without type hints
 
@@ -240,6 +245,6 @@ There is one way to end up unstructured without asking for it: return a class th
 * Scalars, lists, tuples and unions are wrapped in `{"result": ...}`. Models, `TypedDict`s, dataclasses, annotated classes and `dict[str, ...]` are objects already and stay as they are.
 * Every result carries `content` (text, for the model) **and** `structured_content` (data, for the application).
 * What you return is validated against the schema. A mismatch is a tool error, not a corrupt result.
-* `structured_output=False` opts a tool out. A class without type hints opts out silently; watch for it.
+* `structured_output=False` opts a tool out. Content blocks, `Image` and `Audio` opt out by default; a class without type hints opts out silently, so watch for it.
 
 You now own everything a tool can say back. Next, the second primitive: **[Resources](resources.md)**.

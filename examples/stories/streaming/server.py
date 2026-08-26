@@ -1,8 +1,8 @@
 """Progress, in-flight logging, and cancellation from a single long-running tool."""
 
 import anyio
-import mcp_types as types
 
+import mcp.types as types
 from mcp.server.mcpserver import Context, MCPServer
 from stories._hosting import run_server_from_args
 
@@ -16,9 +16,10 @@ def build_server() -> MCPServer:
         try:
             for i in range(1, steps + 1):
                 await ctx.report_progress(float(i), float(steps), f"step {i}/{steps}")
-                # No non-deprecated logging helper on Context yet, so send the raw
-                # notification. `related_request_id` keeps it on this request's response
-                # stream (matters over streamable HTTP).
+                # Protocol logging is deprecated (SEP-2577), so the raw notification
+                # keeps this warning-free. On 2026-07-28+ the client only receives it
+                # because it opts in with `log_level=`; `related_request_id` keeps it on
+                # this request's response stream (matters over streamable HTTP).
                 await ctx.request_context.session.send_notification(
                     types.LoggingMessageNotification(
                         params=types.LoggingMessageNotificationParams(

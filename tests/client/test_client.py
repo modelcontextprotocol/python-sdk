@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import patch
@@ -35,7 +36,7 @@ from mcp_types import (
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 from pydantic import FileUrl
 
-from mcp import MCPDeprecationWarning, MCPError
+from mcp import MCPDeprecationWarning, MCPError, StdioServerParameters
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import TransportStreams
 from mcp.client.client import Client
@@ -414,6 +415,24 @@ async def test_client_uses_transport_directly(app: MCPServer):
         )
 
 
+async def test_client_with_stdio_parameters_launches_the_server_as_a_subprocess() -> None:
+    """SDK-defined: `Client` routes a `StdioServerParameters` through `stdio_client`, so entering it
+    spawns the command and negotiates over the child's stdin/stdout. The process boundary is the
+    behaviour, hence a real child interpreter running a one-line `MCPServer`."""
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "from mcp.server import MCPServer; MCPServer('stdio-demo').run()"],
+    )
+    # Wider than the standard 5: a cold interpreter start plus `import mcp.server` in the child takes
+    # seconds on a loaded Windows runner, and exit may wait out stdio_client's terminate/kill
+    # escalation (PROCESS_TERMINATION_TIMEOUT + FORCE_KILL_TIMEOUT + reap, ~6s) if the child is slow.
+    with anyio.fail_after(20):
+        async with Client(params) as client:
+            assert client.server_info is not None
+            assert client.server_info.name == "stdio-demo"
+            assert (await client.list_tools()).tools == []
+
+
 _TEST_CONTEXTVAR = contextvars.ContextVar("test_var", default="initial")
 
 
@@ -657,12 +676,16 @@ async def test_a_complete_listing_prunes_per_tool_state_for_tools_it_no_longer_c
     with anyio.fail_after(5):
         async with Client(server) as client:
             await client.session.list_tools()
+            # Compile the retired tool's output-schema validator so its eviction is observable.
+            await client.session.validate_tool_result("retired", CallToolResult(content=[], structured_content={}))
             assert set(client.session._x_mcp_header_maps) == {"retired", "survivor"}
             assert set(client.session._tool_output_schemas) == {"retired", "survivor"}
+            assert set(client.session._tool_output_validators) == {"retired"}
 
             await client.session.list_tools()
             assert set(client.session._x_mcp_header_maps) == {"survivor"}
             assert set(client.session._tool_output_schemas) == {"survivor"}
+            assert client.session._tool_output_validators == {}
 
 
 async def test_a_complete_listing_prunes_output_schemas_on_a_legacy_session_too() -> None:

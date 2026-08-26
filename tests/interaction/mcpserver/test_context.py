@@ -17,12 +17,11 @@ from mcp_types import (
 from pydantic import BaseModel
 
 from mcp import MCPError
-from mcp.client import ClientRequestContext
+from mcp.client import ClientRequestContext, IncomingMessage
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
 from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -51,7 +50,7 @@ async def test_context_logging_helpers_send_log_notifications(connect: Connect) 
     async def collect(params: LoggingMessageNotificationParams) -> None:
         received.append(params)
 
-    async with connect(mcp, logging_callback=collect) as client:
+    async with connect(mcp, logging_callback=collect, log_level="debug") as client:
         result = await client.call_tool("narrate", {})
         advertised_logging = client.server_capabilities.logging
 
@@ -143,7 +142,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing(connect: C
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
 
-    async with connect(mcp, message_handler=collect) as client:
+    async with connect(mcp, message_handler=collect, log_level="debug") as client:
         result = await client.call_tool("mill", {})
 
     assert unstamped(result) == snapshot(

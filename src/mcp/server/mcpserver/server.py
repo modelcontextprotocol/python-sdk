@@ -6,7 +6,7 @@ import base64
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
 import pydantic_core
@@ -44,8 +44,8 @@ from mcp_types import PromptArgument as MCPPromptArgument
 from mcp_types import Resource as MCPResource
 from mcp_types import ResourceTemplate as MCPResourceTemplate
 from mcp_types import Tool as MCPTool
+from pydantic import BaseModel, ValidationError
 from pydantic.networks import AnyUrl
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -59,7 +59,7 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.caching import CacheableMethod, CacheHint
-from mcp.server.context import HandlerResult, ServerRequestContext
+from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.extension import (
     Extension,
     MethodBinding,
@@ -71,7 +71,13 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ResourceNotFoundError,
+    ToolError,
+    UnexpectedResourceError,
+    UnexpectedToolError,
+)
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
@@ -87,9 +93,9 @@ from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import DEFAULT_MAX_REQUEST_BODY_SIZE, StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.shared.uri_template import UriTemplate
 
@@ -98,20 +104,8 @@ logger = get_logger(__name__)
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
-class Settings(BaseSettings, Generic[LifespanResultT]):
-    """MCPServer settings.
-
-    All settings can be configured via environment variables with the prefix MCP_.
-    For example, MCP_DEBUG=true will set debug=True.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="MCP_",
-        env_file=".env",
-        env_nested_delimiter="__",
-        nested_model_default_partial_update=True,
-        extra="ignore",
-    )
+class Settings(BaseModel, Generic[LifespanResultT]):
+    """MCPServer settings, as passed to the `MCPServer` constructor."""
 
     # Server settings
     debug: bool
@@ -184,6 +178,7 @@ class MCPServer(Generic[LifespanResultT]):
         request_state_security: RequestStateSecurity | None = None,
         cache_hints: Mapping[CacheableMethod, CacheHint] | None = None,
         subscriptions: SubscriptionBus | None = None,
+        middleware: Sequence[ServerMiddleware[Any]] | None = None,
     ):
         self._resource_security = resource_security
         self.settings = Settings(
@@ -240,6 +235,9 @@ class MCPServer(Generic[LifespanResultT]):
                 raise ValueError(_MISSING_AUDIENCE)
             security = request_state_security
         self._lowlevel_server.middleware.append(RequestStateBoundary(security, default_audience=self.name))
+        # User middleware runs inside the SDK's built-ins (OpenTelemetry, then the
+        # request-state boundary), outermost-first in the order given.
+        self._lowlevel_server.middleware.extend(middleware or ())
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -268,6 +266,17 @@ class MCPServer(Generic[LifespanResultT]):
     @property
     def name(self) -> str:
         return self._lowlevel_server.name
+
+    @property
+    def middleware(self) -> list[ServerMiddleware[Any]]:
+        """The middleware chain wrapping every inbound message, outermost-first.
+
+        The same list as the low-level `Server.middleware`: append an
+        `async (ctx, call_next)` callable to observe, refuse, or rewrite
+        messages before they reach a handler. Provisional - the signature may
+        change in a 2.x minor release; see the middleware guide.
+        """
+        return self._lowlevel_server.middleware
 
     @property
     def title(self) -> str | None:
@@ -362,6 +371,7 @@ class MCPServer(Generic[LifespanResultT]):
         port: int = ...,
         sse_path: str = ...,
         message_path: str = ...,
+        max_request_body_size: int = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -417,8 +427,18 @@ class MCPServer(Generic[LifespanResultT]):
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
-        except Exception as e:
-            return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        except Exception as exc:
+            if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError):
+                if isinstance(exc.__cause__, ValidationError):
+                    # Field names only: the rejected values are the caller's data.
+                    fields = sorted({".".join(str(part) for part in err["loc"]) for err in exc.__cause__.errors()})
+                    logger.info("Tool %r rejected arguments: %r", params.name, fields)
+                else:
+                    # %r keeps peer-supplied text on one line.
+                    logger.info("Tool %r failed: %r", params.name, str(exc))
+            else:
+                logger.exception("Tool %r raised an unexpected exception", params.name)
+            return CallToolResult(content=[TextContent(type="text", text=str(exc))], is_error=True)
 
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
@@ -431,10 +451,13 @@ class MCPServer(Generic[LifespanResultT]):
         context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             results = await self.read_resource(params.uri, context)
-        except ResourceNotFoundError as err:
-            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
         except ResourceError as err:
-            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
+            if isinstance(err, UnexpectedResourceError):
+                logger.exception("Resource %r raised an unexpected exception", str(params.uri))
+            else:
+                logger.info("Resource %r failed: %r", str(params.uri), str(err))
+            code = INVALID_PARAMS if isinstance(err, ResourceNotFoundError) else INTERNAL_ERROR
+            raise MCPError(code=code, message=str(err), data={"uri": str(params.uri)})
         if isinstance(results, InputRequiredResult):
             return results
         contents: list[TextResourceContents | BlobResourceContents] = []
@@ -495,7 +518,16 @@ class MCPServer(Generic[LifespanResultT]):
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
     ) -> CallToolResult | InputRequiredResult:
-        """Call a tool by name with arguments."""
+        """Call a tool by name with arguments.
+
+        Raises:
+            ToolError: If the tool is unknown, the arguments fail validation, or the
+                tool (or a resolver) raises `ToolError` or `ResourceError`.
+            UnexpectedToolError: If the tool (or a resolver) raises anything else, or
+                its return value fails output conversion. `__cause__` is the original
+                exception (or, for a nested tool or resource crash, its wrapper).
+            MCPError: Raised by the tool or a resolver; passed through unchanged.
+        """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
@@ -546,23 +578,27 @@ class MCPServer(Generic[LifespanResultT]):
 
         Raises:
             ResourceNotFoundError: If no resource or template matches the URI.
-            ResourceError: If template creation or resource reading fails.
+            ResourceError: If the resource or template function raises `ResourceError`.
+            UnexpectedResourceError: If reading the resource (or creating it from a
+                template) raises anything other than `ResourceError` or `MCPError`.
+                `__cause__` is the original exception.
+            MCPError: Raised by the resource or template function; passed through unchanged.
         """
         if context is None:
             context = Context(mcp_server=self, subscriptions=self._subscriptions)
-        resource = await self._resource_manager.get_resource(uri, context)
-        if isinstance(resource, InputRequiredResult):
-            return resource
-
         try:
-            content = await resource.read()
+            resource = await self._resource_manager.get_resource(uri, context)
+            if isinstance(resource, InputRequiredResult):
+                return resource
+            # Checked at runtime because a Resource subclass may not honour the annotation.
+            content = cast(object, await resource.read())
+            if not isinstance(content, str | bytes):
+                raise TypeError(f"Resource.read() must return str or bytes, not {type(content).__name__}")
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
-        except MCPError:
+        except (MCPError, ResourceError):
             raise
         except Exception as exc:
-            logger.exception(f"Error getting resource {uri}")
-            # If an exception happens when reading the resource, we should not leak the exception to the client.
-            raise ResourceError(f"Error reading resource {uri}") from exc
+            raise UnexpectedResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
         self,
@@ -708,10 +744,18 @@ class MCPServer(Generic[LifespanResultT]):
             async def handler(
                 ctx: ServerRequestContext[LifespanResultT], params: CompleteRequestParams
             ) -> CompleteResult:
-                result = await func(params.ref, params.argument, params.context)
-                return CompleteResult(
-                    completion=result if result is not None else Completion(values=[], total=None, has_more=None),
-                )
+                try:
+                    result = await func(params.ref, params.argument, params.context)
+                    return CompleteResult(
+                        completion=result if result is not None else Completion(values=[], total=None, has_more=None),
+                    )
+                except MCPError:
+                    raise
+                except Exception as exc:
+                    logger.exception("Completion for argument %r raised an unexpected exception", params.argument.name)
+                    raise MCPError(
+                        code=INTERNAL_ERROR, message=f"Error completing argument {params.argument.name}"
+                    ) from exc
 
             self._lowlevel_server.add_request_handler("completion/complete", CompleteRequestParams, handler)
             return func
@@ -915,8 +959,8 @@ class MCPServer(Generic[LifespanResultT]):
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a prompt.
 
-        The function returns the prompt messages (a string, `Message`, dict,
-        or a sequence of these), or an `InputRequiredResult` to request
+        The function returns the prompt messages (a string, content block, `Image`/`Audio`,
+        `Message`, dict, or a sequence of these), or an `InputRequiredResult` to request
         client input first (the 2026-07-28 multi-round-trip flow — read
         `ctx.input_responses` on the retry).
 
@@ -1028,6 +1072,7 @@ class MCPServer(Generic[LifespanResultT]):
         port: int = 8000,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using SSE transport."""
@@ -1036,6 +1081,7 @@ class MCPServer(Generic[LifespanResultT]):
         starlette_app = self.sse_app(
             sse_path=sse_path,
             message_path=message_path,
+            max_request_body_size=max_request_body_size,
             transport_security=transport_security,
             host=host,
         )
@@ -1090,6 +1136,7 @@ class MCPServer(Generic[LifespanResultT]):
         *,
         sse_path: str = "/sse",
         message_path: str = "/messages/",
+        max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -1102,7 +1149,9 @@ class MCPServer(Generic[LifespanResultT]):
                 allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
             )
 
-        sse = SseServerTransport(message_path, security_settings=transport_security)
+        sse = SseServerTransport(
+            message_path, security_settings=transport_security, max_request_body_size=max_request_body_size
+        )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
@@ -1290,7 +1339,7 @@ class MCPServer(Generic[LifespanResultT]):
         except MCPError:
             raise
         except Exception as e:
-            logger.exception(f"Error getting prompt {name}")
+            # Not logged here: the dispatcher boundary logs it once.
             raise ValueError(str(e)) from e
 
 

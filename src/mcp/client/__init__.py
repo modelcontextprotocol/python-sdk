@@ -20,7 +20,7 @@ from mcp.client.extension import (
     UnexpectedClaimedResult,
     advertise,
 )
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, IncomingMessage
 
 __all__ = [
     "CacheConfig",
@@ -33,6 +33,7 @@ __all__ = [
     "ClientRequestContext",
     "ClientSession",
     "CursorCycleError",
+    "IncomingMessage",
     "InMemoryResponseCacheStore",
     "InputRequiredRoundsExceededError",
     "NotificationBinding",

@@ -1,6 +1,6 @@
 # Deprecated features
 
-The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**.
+The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**. One SDK helper is deprecated on its own account and is listed [at the end](#deprecated-sdk-helpers).
 
 The table below names each deprecated feature, why it is going away, and the replacement to build on.
 
@@ -50,6 +50,55 @@ MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SE
     send. These two only work end-to-end on a `mode="legacy"` connection whose client
     registered the matching callback.
 
+## `ping` on a legacy session
+
+A **ping** is an empty request either side can send to check that the other is still answering. The 2026-07-28 spec removes it ([SEP-2575](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575)): every request a modern client sends already proves the server is there, and a modern server has no channel to send one. Both SDK methods still work on a handshake-era session. From the client:
+
+```python
+async def main() -> None:
+    async with Client("http://localhost:8000/mcp", mode="legacy") as client:
+        await client.send_ping()  # warns; returns an EmptyResult
+```
+
+And from the server, inside any handler:
+
+```python
+@mcp.tool()
+async def check_client(ctx: Context) -> str:
+    """A tool that still pings the client mid-call."""
+    await ctx.session.send_ping()  # no warning; an EmptyResult while the client is connected
+    return "client answered"
+```
+
+* `client.send_ping()` warns with `MCPDeprecationWarning` on every call. On a default (`2026-07-28`) connection the server answers `MCPError: Method not found` instead.
+* `ctx.session.send_ping()` carries no warning. On a modern connection it raises the same no-back-channel error as any other server-initiated request.
+* Neither side registers anything to answer a ping.
+
+## Roots change notifications
+
+A 2025-era client that declared the roots capability can tell the server that its workspace folders changed by sending `notifications/roots/list_changed`; the server responds by requesting `roots/list` again. The 2026-07-28 spec removes the notification along with the rest of the push-style roots flow. On the client, passing `list_roots_callback=` (**[Client callbacks](client/callbacks.md)**) is what declares `"roots": {"listChanged": true}`, and one call keeps that promise:
+
+```python
+async def open_folder(client: Client, uri: str, name: str) -> None:
+    """The user opened another folder: expose it through the roots callback, then tell the server."""
+    workspace.append(Root(uri=FileUrl(uri), name=name))
+    await client.send_roots_list_changed()
+```
+
+On the server, the low-level `Server` takes the receiving handler:
+
+```python
+async def roots_changed(ctx: ServerRequestContext, params: NotificationParams | None) -> None:
+    """The client's roots changed: ask for the new list."""
+    roots = (await ctx.session.list_roots()).roots
+
+
+server = Server("Bookshop", on_roots_list_changed=roots_changed)
+```
+
+* `workspace` is the list your `list_roots_callback` returns. `client.send_roots_list_changed()` warns, and it needs a `mode="legacy"` client: on a modern connection the notification is silently dropped. Keep the session open afterwards, because the server's follow-up `roots/list` arrives on it.
+* `MCPServer` has no hook for the notification. On the low-level `Server`, `on_roots_list_changed=` registers the handler (deprecated too, and it warns at construction). The notification carries no payload, so the handler calls `ctx.session.list_roots()` for the new list.
+
 ## Silencing the warning
 
 Don't, in new code.
@@ -70,14 +119,23 @@ That is the whole API. There is no per-method switch, and you don't want one: th
     Run the filter the other way and you get a free regression test. Add
     `"error::mcp.MCPDeprecationWarning"` to the `filterwarnings` setting in your pytest
     configuration and the deprecated call **raises** instead of warning. A tool named
-    `old_log` that still calls `ctx.info()` stops passing and starts reporting:
+    `old_log` that still calls `ctx.info()` stops passing: the call comes back `is_error=True` with
+    `Error executing tool old_log`, and the captured server log names the culprit:
 
     ```text
-    Error executing tool old_log: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
+    mcp.shared.exceptions.MCPDeprecationWarning: The logging capability is deprecated as of 2026-07-28 (SEP-2577).
     ```
 
     One line of pytest configuration, and a deprecated call can never sneak back into your
     codebase without failing a test.
+
+## Deprecated SDK helpers
+
+These are not spec changes, only SDK internals with a better replacement. They warn with the same `MCPDeprecationWarning` and will be removed in 3.0.
+
+| Deprecated | What you do instead |
+|---|---|
+| `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` and then `FuncMetadata.call_fn()`. Only code that drives `FuncMetadata` directly (a custom `Tool` subclass, say) ever called it. |
 
 ## Recap
 
@@ -86,6 +144,7 @@ That is the whole API. There is no per-method switch, and you don't want one: th
 * Deprecated is advisory: no wire changes, everything keeps working against pre-2026 sessions, and you get a visible `MCPDeprecationWarning` (a `UserWarning`, so it is on by default).
 * Sampling and roots additionally need a back-channel that a 2026-07-28 session does not have. On a modern connection they warn and then they raise.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` silences the whole category; `"error::mcp.MCPDeprecationWarning"` in pytest turns it into a test failure.
+* One SDK helper, `FuncMetadata.call_fn_with_arg_validation()`, is deprecated separately for removal in 3.0.
 * New code should not be built on any of these.
 
 Every other page in these docs teaches the current API.

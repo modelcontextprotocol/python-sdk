@@ -13,6 +13,7 @@ from mcp_types import (
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     REQUEST_TIMEOUT,
@@ -37,7 +38,7 @@ from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, LATEST_HANDSHAKE_VERS
 from pydantic import FileUrl, ValidationError
 
 from mcp import MCPError
-from mcp.client import ClientRequestContext
+from mcp.client import ClientRequestContext, IncomingMessage
 from mcp.client.client import Client
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.client.subscriptions import ToolsListChanged, listen
@@ -45,7 +46,6 @@ from mcp.server import Server, ServerRequestContext
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.dispatcher import CallOptions, DispatchContext, OnNotify, OnNotifyIntercept, OnRequest
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY
 from mcp.shared.transport_context import TransportContext
 
@@ -123,9 +123,7 @@ async def test_client_session_initialize():
             )
 
     # Create a message handler to catch exceptions
-    async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: IncomingMessage) -> None:  # pragma: no cover
         if isinstance(message, Exception):
             raise message
 
@@ -1228,10 +1226,8 @@ async def test_raising_notification_callbacks_over_direct_dispatch_cost_only_tha
     async def logging_callback(params: types.LoggingMessageNotificationParams) -> None:
         raise ValueError("logging callback boom")
 
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
-        assert not isinstance(message, RequestResponder | Exception)
+    async def message_handler(message: IncomingMessage) -> None:
+        assert not isinstance(message, Exception)
         teed.append(message)
         raise ValueError("message handler boom")
 
@@ -1554,6 +1550,21 @@ async def test_discover_adopts_the_returned_result_and_installs_the_modern_stamp
 
 
 @pytest.mark.anyio
+async def test_log_level_opt_in_is_stamped_on_modern_requests_and_overridable_per_call() -> None:
+    """SDK-defined: `log_level` stamps the reserved log-level `_meta` key on every modern
+    request, and a request supplying that key in its own `_meta` overrides the default."""
+    dispatcher = _ScriptedDispatcher(_discover_result_dict(), {}, {})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher, log_level="warning") as session:
+            await session.discover()
+            await session.send_ping()
+            await session.send_ping(meta={LOG_LEVEL_META_KEY: "debug"})
+    default_meta, override_meta = (params["_meta"] for _, params in dispatcher.calls[-2:] if params is not None)
+    assert default_meta[LOG_LEVEL_META_KEY] == "warning"
+    assert override_meta[LOG_LEVEL_META_KEY] == "debug"
+
+
+@pytest.mark.anyio
 async def test_discover_retries_once_on_unsupported_version_then_adopts() -> None:
     """Spec SHOULD: a -32022 reply that names a mutually-supported version
     triggers exactly one retry at that version, and the retry's result is adopted."""
@@ -1746,6 +1757,75 @@ async def test_a_boolean_inbound_ttl_is_not_clamped_only_coerced_by_validation(w
             await session.discover()
             result = await session.list_tools()
     assert result.ttl_ms == int(wire_ttl)
+
+
+_LEGACY_HINTED_RESULTS: list[tuple[str, dict[str, Any]]] = [
+    ("list_tools", {"tools": []}),
+    ("list_prompts", {"prompts": []}),
+    ("list_resources", {"resources": []}),
+    ("list_resource_templates", {"resourceTemplates": []}),
+    ("read_resource", {"contents": []}),
+]
+
+_LEGACY_TAGGED_RESULTS: list[tuple[str, dict[str, Any]]] = [
+    ("call_tool", {"content": []}),
+    ("get_prompt", {"messages": []}),
+]
+
+
+def _legacy_init(version: str) -> dict[str, Any]:
+    return InitializeResult(
+        protocol_version=version,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    ).model_dump(by_alias=True, mode="json", exclude_none=True)
+
+
+async def _call_legacy(session: ClientSession, verb: str) -> Any:
+    if verb == "read_resource":
+        return await session.read_resource("mem://x")
+    if verb == "call_tool":
+        return await session.call_tool("t", {})
+    if verb == "get_prompt":
+        return await session.get_prompt("p")
+    return await getattr(session, verb)()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("version", HANDSHAKE_PROTOCOL_VERSIONS)
+@pytest.mark.parametrize(("verb", "body"), _LEGACY_HINTED_RESULTS)
+async def test_cache_hints_from_a_legacy_server_never_reach_the_result(
+    version: str, verb: str, body: dict[str, Any]
+) -> None:
+    """SDK-defined: on any pre-2026 session the caching fields are outside the negotiated
+    schema, so whatever a server puts in them - even values the 2026-07-28 enum
+    rejects - is dropped and the model shows its conservative defaults."""
+    dispatcher = _ScriptedDispatcher(_legacy_init(version), {**body, "ttlMs": -1, "cacheScope": "session"})
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            result = await _call_legacy(session, verb)
+    assert (result.ttl_ms, result.cache_scope) == (0, "private")
+    assert not {"ttl_ms", "cache_scope"} & result.model_fields_set
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("verb", "body"), _LEGACY_TAGGED_RESULTS)
+async def test_a_2026_result_type_tag_from_a_legacy_server_never_reaches_the_result(
+    verb: str, body: dict[str, Any]
+) -> None:
+    """SDK-defined: `resultType` is 2026-07-28 vocabulary that also feeds result-union
+    routing, so a tag on a pre-2026 wire (even one no union arm claims) is dropped and
+    the plain result is returned rather than mis-routing or failing."""
+    # `call_tool` re-lists tools to validate structured content; that answer trails harmlessly for `get_prompt`.
+    dispatcher = _ScriptedDispatcher(
+        _legacy_init(LATEST_HANDSHAKE_VERSION), {**body, "resultType": "task"}, {"tools": []}
+    )
+    with anyio.fail_after(5):
+        async with ClientSession(dispatcher=dispatcher) as session:
+            await session.initialize()
+            result = await _call_legacy(session, verb)
+    assert result.result_type == "complete"
 
 
 @pytest.mark.anyio

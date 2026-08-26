@@ -6,8 +6,8 @@ from types import MappingProxyType, UnionType
 from typing import Any, get_args
 
 import mcp_types as types
-import mcp_types.v2025_11_25 as v2025
-import mcp_types.v2026_07_28 as v2026
+import mcp_types._v2025_11_25 as v2025
+import mcp_types._v2026_07_28 as v2026
 import pydantic
 import pytest
 from mcp_types import methods
@@ -295,11 +295,11 @@ EMPTY_CLIENT_RESPONSE_METHODS = frozenset({"ping"})
 
 # Pre-2026 versions share the 2025-11-25 surface package.
 PACKAGE_BY_VERSION = {
-    "2024-11-05": "mcp_types.v2025_11_25",
-    "2025-03-26": "mcp_types.v2025_11_25",
-    "2025-06-18": "mcp_types.v2025_11_25",
-    "2025-11-25": "mcp_types.v2025_11_25",
-    "2026-07-28": "mcp_types.v2026_07_28",
+    "2024-11-05": "mcp_types._v2025_11_25",
+    "2025-03-26": "mcp_types._v2025_11_25",
+    "2025-06-18": "mcp_types._v2025_11_25",
+    "2025-11-25": "mcp_types._v2025_11_25",
+    "2026-07-28": "mcp_types._v2026_07_28",
 }
 
 # The reserved `params._meta` entries the 2026 surface accepts on every request.
@@ -472,6 +472,22 @@ def test_elicit_request_surface_accepts_loose_property_schemas():
     }
     parsed = methods.parse_server_request("elicitation/create", "2025-11-25", params)
     assert isinstance(parsed, types.ElicitRequest)
+
+
+def test_2025_11_25_tool_schema_surfaces_accept_boolean_sub_schemas():
+    """JSON Schema 2020-12 allows `true`/`false` wherever a sub-schema is expected; real servers emit them."""
+    tool = {
+        "name": "echo",
+        "inputSchema": {"type": "object", "properties": {"arg": True}},
+        "outputSchema": {
+            "type": "object",
+            "properties": {"result": True, "hidden": False, "rows": {"type": "array", "items": True}},
+            "required": ["result"],
+        },
+    }
+    sieved = methods.serialize_server_result("tools/list", "2025-11-25", {"tools": [tool]})
+    assert sieved["tools"][0]["inputSchema"] == tool["inputSchema"]
+    assert sieved["tools"][0]["outputSchema"] == tool["outputSchema"]
 
 
 def test_response_map_keys_mirror_the_request_map_keys():

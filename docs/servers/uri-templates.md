@@ -159,7 +159,7 @@ The built-in checks stop the common cases but can't know your sandbox
 boundary. For filesystem access, use `safe_join` to resolve the path
 and verify it stays inside your base directory:
 
-```python title="server.py" hl_lines="4 14"
+```python title="server.py" hl_lines="5 15"
 --8<-- "docs_src/uri_templates/tutorial002.py"
 ```
 
@@ -199,10 +199,10 @@ These checks are a heuristic pre-filter; for filesystem access,
 `safe_join` remains the containment boundary.
 
 !!! tip
-    If your handler can't fulfil the request (the file doesn't exist,
-    the id is unknown), raise an exception. The SDK turns it into an
-    error response. See **[Handling errors](handling-errors.md)** for the difference between a
-    protocol error and a tool error.
+    If your handler can't fulfil the request (the file doesn't exist, the id is unknown), raise
+    `ResourceNotFoundError` as `read_manual` does above. The client gets `-32602` with your message
+    and the URI. An unexpected exception becomes a generic `-32603` instead. See
+    **[Handling errors](handling-errors.md#a-resource-that-doesnt-exist)**.
 
 ## Resources on the low-level Server
 
@@ -215,7 +215,7 @@ return the protocol types yourself.
 
 For fixed URIs, keep a registry and dispatch on exact match:
 
-```python title="server.py" hl_lines="18 22 28"
+```python title="server.py" hl_lines="17 21 27"
 --8<-- "docs_src/uri_templates/tutorial004.py"
 ```
 
@@ -229,7 +229,7 @@ The template engine `MCPServer` uses lives in `mcp.shared.uri_template`
 and works on its own. You get the same parsing and matching; you wire
 up the routing and security policy yourself.
 
-```python title="server.py" hl_lines="14-17 23-26 30 34 46"
+```python title="server.py" hl_lines="13-16 22-25 29 33 45"
 --8<-- "docs_src/uri_templates/tutorial005.py"
 ```
 

@@ -43,6 +43,7 @@ from mcp.shared.inbound import (
     find_duplicated_routing_header,
     find_invalid_x_mcp_header,
     mcp_param_headers,
+    unsupported_protocol_version_rejection,
     validate_mcp_param_headers,
     x_mcp_header_map,
 )
@@ -223,6 +224,22 @@ def test_version_rung_data_reflects_supplied_supported_list() -> None:
         UNSUPPORTED_PROTOCOL_VERSION,
     )
     assert rejection.data == {"supported": list(custom), "requested": LATEST_MODERN_VERSION}
+
+
+def test_unsupported_protocol_version_rejection_is_the_version_rung_standalone() -> None:
+    """SDK-defined: the standalone helper (used by the HTTP notification arm) yields `None` for a
+    served version and otherwise the very rejection the request ladder's version rung produces."""
+    assert unsupported_protocol_version_rejection(LATEST_MODERN_VERSION) is None
+    assert unsupported_protocol_version_rejection("2099-01-01") == classify_inbound_request(
+        envelope(version="2099-01-01")
+    )
+    assert unsupported_protocol_version_rejection(LATEST_MODERN_VERSION, (LATEST_HANDSHAKE_VERSION,)) == (
+        InboundLadderRejection(
+            code=UNSUPPORTED_PROTOCOL_VERSION,
+            message="Unsupported protocol version",
+            data={"supported": [LATEST_HANDSHAKE_VERSION], "requested": LATEST_MODERN_VERSION},
+        )
+    )
 
 
 # --- rung 3: header ↔ envelope agreement ---------------------------------------

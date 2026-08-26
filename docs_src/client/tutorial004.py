@@ -1,7 +1,6 @@
-from mcp_types import TextResourceContents
-
 from mcp import Client
 from mcp.server import MCPServer
+from mcp.types import TextResourceContents
 
 mcp = MCPServer("Bookshop")
 

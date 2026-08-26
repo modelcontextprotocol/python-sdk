@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from functools import reduce
+from functools import cache, reduce
 from operator import or_
-from types import TracebackType
-from typing import Annotated, Any, Final, Literal, Protocol, cast, overload
+from types import TracebackType, UnionType
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol, TypeAlias, cast, get_args, overload
 
 import anyio
 import anyio.abc
@@ -18,6 +19,7 @@ from mcp_types import (
     CLIENT_INFO_META_KEY,
     CONNECTION_CLOSED,
     INTERNAL_ERROR,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
@@ -28,6 +30,7 @@ from mcp_types import (
 from mcp_types import methods as _methods
 from mcp_types.version import (
     HANDSHAKE_PROTOCOL_VERSIONS,
+    KNOWN_PROTOCOL_VERSIONS,
     LATEST_HANDSHAKE_VERSION,
     LATEST_MODERN_VERSION,
     MODERN_PROTOCOL_VERSIONS,
@@ -53,9 +56,13 @@ from mcp.shared.inbound import (
 )
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher, cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY, event_from_wire
 from mcp.shared.transport_context import TransportContext
+
+if TYPE_CHECKING:
+    # `jsonschema` is imported lazily inside `validate_tool_result`: pulling it (and its
+    # `attrs`/`referencing` tree) in at module scope costs every client that never validates.
+    from jsonschema.protocols import Validator
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 DISCOVER_TIMEOUT_SECONDS = 10.0
@@ -69,6 +76,56 @@ def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
     ttl = raw.get("ttlMs")
     if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl < 0:
         raw["ttlMs"] = 0
+
+
+@cache
+def _wire_fields(target: type[BaseModel] | UnionType) -> frozenset[str]:
+    """Top-level wire keys `target` declares (its members', for a union).
+
+    A `RootModel` row (e.g. an empty result carried as `RootModel[Result]`)
+    reports its wrapped type's keys, not the pydantic-internal `root`.
+    """
+    members: tuple[Any, ...] = get_args(target) if isinstance(target, UnionType) else (target,)
+    models = [m for m in members if isinstance(m, type) and issubclass(m, BaseModel)]
+    fields: set[str] = set()
+    for model in models:
+        if getattr(model, "__pydantic_root_model__", False):  # a RootModel wrapper row
+            fields |= _wire_fields(model.model_fields["root"].annotation)
+        else:
+            fields.update(field.alias or name for name, field in model.model_fields.items())
+    return frozenset(fields)
+
+
+@cache
+def _later_revision_fields(method: str, version: str) -> frozenset[str]:
+    """Result keys a revision newer than `version` declares for `method` but `version` doesn't.
+
+    The version-free result types carry every revision's fields, so such a key
+    (e.g. 2026-07-28 `ttlMs`/`cacheScope` on a pre-2026 session) is outside the
+    negotiated contract yet would still parse into the model and trip that later
+    revision's constraints. Empty at the newest known revision.
+    """
+    current = _methods.SERVER_RESULTS.get((method, version))
+    if current is None or version not in KNOWN_PROTOCOL_VERSIONS:
+        return frozenset()
+    newer = KNOWN_PROTOCOL_VERSIONS[KNOWN_PROTOCOL_VERSIONS.index(version) + 1 :]
+    later: set[str] = set()
+    for revision in newer:
+        row = _methods.SERVER_RESULTS.get((method, revision))
+        if row is not None:
+            later |= _wire_fields(row)
+    return frozenset(later) - _wire_fields(current)
+
+
+def _same_schema(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
+    """JSON equality for two output schemas.
+
+    Python `==` is not JSON equality: it conflates `True`/`1` and `False`/`0`, which JSON
+    Schema keeps distinct (`const: true` vs `const: 1`). Canonical serialization compares as
+    JSON does; where it is stricter (`1` vs `1.0`), erring toward "changed" only costs a
+    recompile, never a stale validator.
+    """
+    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def _preconnect_stamp(data: dict[str, Any], opts: CallOptions) -> None:
@@ -105,6 +162,8 @@ def _make_modern_stamp(
     client_info: dict[str, Any],
     capabilities: dict[str, Any],
     resolve_param_headers: Callable[[str, Mapping[str, Any]], dict[str, str]],
+    *,
+    log_level: types.LoggingLevel | None = None,
 ) -> Callable[[dict[str, Any], CallOptions], None]:
     def stamp(data: dict[str, Any], opts: CallOptions) -> None:
         params = data.setdefault("params", {})
@@ -112,6 +171,11 @@ def _make_modern_stamp(
         meta[PROTOCOL_VERSION_META_KEY] = protocol_version
         meta[CLIENT_INFO_META_KEY] = client_info
         meta[CLIENT_CAPABILITIES_META_KEY] = capabilities
+        # The per-request log-delivery opt-in (2026 logging is opt-in per
+        # request). A default the caller can override on any single call by
+        # supplying the key in that request's `_meta`, hence setdefault.
+        if log_level is not None:
+            meta.setdefault(LOG_LEVEL_META_KEY, log_level)
         # `cancel_on_abandon` stays at the dispatcher default (True): the
         # courtesy `notifications/cancelled` is the abandon signal. On the
         # stream transports it is the 2026 wire's cancellation spelling; the
@@ -172,16 +236,20 @@ class LoggingFnT(Protocol):
     async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
 
 
+IncomingMessage: TypeAlias = types.ServerNotification | Exception
+"""What `message_handler` receives: the server notifications the session surfaces, plus transport-level exceptions.
+
+`notifications/cancelled` is applied by the dispatcher and never surfaced, and a
+`notifications/subscriptions/acknowledged` for a live `listen()` stream is consumed by that
+stream, so neither reaches the handler.
+"""
+
+
 class MessageHandlerFnT(Protocol):
-    async def __call__(
-        self,
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None: ...  # pragma: no branch
+    async def __call__(self, message: IncomingMessage) -> None: ...  # pragma: no branch
 
 
-async def _default_message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-) -> None:
+async def _default_message_handler(message: IncomingMessage) -> None:
     await anyio.lowlevel.checkpoint()
 
 
@@ -331,8 +399,10 @@ class ClientSession:
     `dispatcher=`), enter as an async context manager, then call
     `initialize()`. The dispatcher owns the receive loop and request
     correlation; this class owns the typed MCP layer and the constructor
-    callbacks. Transport `Exception` items reach `message_handler` only when
-    the session builds its own dispatcher from a stream pair.
+    callbacks. Transport `Exception` items reach `message_handler` on any
+    stream-backed dispatcher (`JSONRPCDispatcher`), whether built here from a
+    stream pair or supplied without a stream-exception hook of its own; an
+    in-process `DirectDispatcher` carries none.
 
     Extension `result_claims` fold into tools/call parsing at `adopt()`;
     `notification_bindings` observe vendor notifications via bounded FIFOs.
@@ -350,6 +420,7 @@ class ClientSession:
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
+        log_level: types.LoggingLevel | None = None,
         sampling_capabilities: types.SamplingCapability | None = None,
         extensions: dict[str, dict[str, Any]] | None = None,
         result_claims: Mapping[str, Sequence[ResultClaim[Any]]] | None = None,
@@ -371,8 +442,12 @@ class ClientSession:
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
+        self._log_level: types.LoggingLevel | None = log_level
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
+        # Compiled output-schema validators, derived from `_tool_output_schemas` and owned by
+        # `_absorb_tool_listing`, which evicts a tool's entry whenever its schema changes.
+        self._tool_output_validators: dict[str, Validator] = {}
         self._x_mcp_header_maps: dict[str, dict[tuple[str, ...], str]] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._discover_result: types.DiscoverResult | None = None
@@ -523,6 +598,11 @@ class ClientSession:
             _methods.validate_server_result(method, version, raw)
         except KeyError:
             pass
+        # Drop a later revision's fields (e.g. 2026-07-28 cache hints on a pre-2026
+        # session): they are outside the negotiated contract, and the version-free
+        # result type would otherwise apply that revision's constraints to them.
+        if not (foreign := _later_revision_fields(method, version)).isdisjoint(raw):
+            raw = {key: value for key, value in raw.items() if key not in foreign}
         if isinstance(result_type, TypeAdapter):
             return result_type.validate_python(raw, by_name=False)
         return result_type.model_validate(raw, by_name=False)
@@ -620,7 +700,9 @@ class ClientSession:
             version = mutual[-1]
             client_info = self._client_info.model_dump(by_alias=True, mode="json", exclude_none=True)
             capabilities = self._build_capabilities(version).model_dump(by_alias=True, mode="json", exclude_none=True)
-            self._stamp = _make_modern_stamp(version, client_info, capabilities, self._resolve_param_headers)
+            self._stamp = _make_modern_stamp(
+                version, client_info, capabilities, self._resolve_param_headers, log_level=self._log_level
+            )
             self._discover_result = result
             self._discover_server_info = _parse_server_info_stamp(result)
             self._initialize_result = None
@@ -1057,16 +1139,49 @@ class ClientSession:
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
-            from jsonschema import SchemaError, ValidationError, validate
+            from jsonschema import exceptions as jsonschema_exceptions
 
             if result.structured_content is None:
                 raise RuntimeError(f"Tool {name} has an output schema but did not return structured content")
-            try:
-                validate(result.structured_content, output_schema)
-            except ValidationError as e:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
-            except SchemaError as e:  # pragma: no cover
-                raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
+            validator = self._output_schema_validator(name, output_schema)
+            # `best_match` picks the same error the previous `jsonschema.validate()` call raised,
+            # so the message a caller sees is unchanged. It is untyped upstream.
+            errors = validator.iter_errors(result.structured_content)
+            error = cast(
+                "Exception | None",
+                jsonschema_exceptions.best_match(errors),  # pyright: ignore[reportUnknownMemberType]
+            )
+            if error is not None:
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {error}") from error
+
+    def _output_schema_validator(self, name: str, output_schema: dict[str, Any]) -> Validator:
+        """Compiled validator for the tool's cached output schema, built once per schema value.
+
+        Compiling is ~60x the cost of validating, so a one-shot `jsonschema.validate()` per
+        result dominates `call_tool`; the compiled validator is cached instead. It stays valid
+        because `_absorb_tool_listing` evicts a tool's validator whenever it absorbs a different
+        schema for that tool, so a cached entry always matches `output_schema`.
+
+        Raises:
+            RuntimeError: The schema is not a valid JSON Schema. Raised on every call, since a
+                failed compile is never cached.
+        """
+        from jsonschema import SchemaError
+        from jsonschema.validators import validator_for
+
+        if (validator := self._tool_output_validators.get(name)) is not None:
+            return validator
+
+        validator_cls = validator_for(output_schema)
+        try:
+            validator_cls.check_schema(output_schema)
+        except SchemaError as e:
+            raise RuntimeError(f"Invalid schema for tool {name}: {e}")
+        # jsonschema ships no `py.typed`, so pyright reads typeshed's stub, which declares
+        # `registry` as required (concrete validators default it); cast to a schema-only ctor.
+        validator = cast("Callable[[dict[str, Any]], Validator]", validator_cls)(output_schema)
+        self._tool_output_validators[name] = validator
+        return validator
 
     async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.
@@ -1195,8 +1310,14 @@ class ClientSession:
                 kept.append(tool)
             result.tools = kept
 
-        # Cache tool output schemas for future validation; cursor pages only ever add.
+        # Cache tool output schemas for future validation; cursor pages only ever add. A
+        # changed schema evicts its compiled validator; an unchanged one (a re-listing, or the
+        # response cache re-absorbing a served hit) keeps it. Only validated tools pay the check.
         for tool in result.tools:
+            if tool.name in self._tool_output_validators and not _same_schema(
+                self._tool_output_schemas.get(tool.name), tool.output_schema
+            ):
+                del self._tool_output_validators[tool.name]
             self._tool_output_schemas[tool.name] = tool.output_schema
 
         if complete:
@@ -1205,6 +1326,7 @@ class ClientSession:
             names = {tool.name for tool in result.tools}
             self._x_mcp_header_maps = {k: v for k, v in self._x_mcp_header_maps.items() if k in names}
             self._tool_output_schemas = {k: v for k, v in self._tool_output_schemas.items() if k in names}
+            self._tool_output_validators = {k: v for k, v in self._tool_output_validators.items() if k in names}
 
         return result
 

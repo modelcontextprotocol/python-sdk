@@ -53,11 +53,13 @@ from mcp.client.session import (
     ClientRequestContext,
     ClientSession,
     ElicitationFnT,
+    IncomingMessage,
     ListRootsFnT,
     LoggingFnT,
     MessageHandlerFnT,
     SamplingFnT,
 )
+from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.subscriptions import ServerEvent, Subscription
 from mcp.client.subscriptions import listen as _listen
@@ -69,7 +71,6 @@ from mcp.shared.dispatcher import Dispatcher, ProgressFnT
 from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp.shared.extension import validate_extension_identifier
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
-from mcp.shared.session import RequestResponder
 from mcp.shared.subscriptions import event_to_notification
 
 logger = logging.getLogger(__name__)
@@ -187,9 +188,7 @@ def _strip_userinfo(url: str) -> str:
 def _evicting_message_handler(cache: ClientResponseCache, user_handler: MessageHandlerFnT | None) -> MessageHandlerFnT:
     """Wrap the session message handler with cache eviction on server notifications."""
 
-    async def handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    async def handler(message: IncomingMessage) -> None:
         if isinstance(message, types.ServerNotification):
             try:
                 await cache.evict_for_notification(message)
@@ -295,8 +294,9 @@ def _fold_extensions(extensions: Sequence[ClientExtension] | None) -> _FoldedExt
 class Client:
     """A high-level MCP client for connecting to MCP servers.
 
-    Supports in-memory transport for testing (pass a Server or MCPServer instance),
-    Streamable HTTP transport (pass a URL string), or a custom Transport instance.
+    Pass a URL string (Streamable HTTP), a `StdioServerParameters` (launch the command as a
+    subprocess and talk over its stdin/stdout), any `Transport`, or - in tests - a `Server` or
+    `MCPServer` instance to connect to it in-process.
 
     Example:
         ```python
@@ -317,12 +317,13 @@ class Client:
         ```
     """
 
-    server: Server[Any] | MCPServer | Transport | str
+    server: Server[Any] | MCPServer | Transport | StdioServerParameters | str
     """The MCP server to connect to.
 
-    If the server is a `Server` or `MCPServer` instance, it will be connected in-process.
     If the server is a URL string, it will be used as the URL for a `streamable_http_client` transport.
+    If the server is a `StdioServerParameters`, the command is launched with `stdio_client`.
     If the server is a `Transport` instance, it will be used directly.
+    If the server is a `Server` or `MCPServer` instance, it will be connected in-process.
     """
 
     _: KW_ONLY
@@ -345,6 +346,16 @@ class Client:
 
     logging_callback: LoggingFnT | None = None
     """Callback for handling logging notifications."""
+
+    log_level: LoggingLevel | None = None
+    """The log level to opt in to on 2026-07-28+ connections (deprecated logging feature, SEP-2577).
+
+    Modern (2026-07-28+) servers send `notifications/message` only for requests that opt in by
+    carrying `io.modelcontextprotocol/logLevel` in `_meta`, and only at or above that level. Setting
+    this stamps that opt-in on every request; `None` (the default) means no opt-in, so no log
+    messages arrive - a `logging_callback` alone is not an opt-in. No effect on handshake-era
+    connections, where the deprecated `logging/setLevel` request governs delivery instead. A
+    per-request `_meta` entry with the same key overrides this default."""
 
     # TODO(Marcelo): Why do we have both "callback" and "handler"?
     message_handler: MessageHandlerFnT | None = None
@@ -381,14 +392,15 @@ class Client:
     transparently by `call_tool`), and its notification bindings. For an
     ad-only entry use `mcp.client.advertise(identifier, settings)`."""
 
-    cache: CacheConfig | Literal[False] | None = None
+    cache: CacheConfig | None = field(default_factory=CacheConfig)
     """Client-side response caching for the SEP-2549 cacheable methods (2026-07-28).
 
-    `None` (the default) honors server `ttlMs`/`cacheScope` hints with a per-client
-    in-memory store; pass a `CacheConfig` to customize, or `False` to disable. The
-    cacheable verbs take a per-call `cache_mode` (see `CacheMode`); calls carrying
-    `meta` always reach the server. A `CacheConfig` with a custom `store` requires
-    `target_id` when the server is not a URL (no identity can be derived)."""
+    The default `CacheConfig()` honors server `ttlMs`/`cacheScope` hints with a
+    per-client in-memory store; pass a customized `CacheConfig`, or `None` to
+    disable. The cacheable verbs take a per-call `cache_mode` (see `CacheMode`);
+    calls carrying `meta` always reach the server. A `CacheConfig` with a custom
+    `store` requires `target_id` when the server is not a URL (no identity can be
+    derived)."""
 
     list_max_pages: int = _DEFAULT_LIST_MAX_PAGES
     """Maximum number of pages to fetch during ``list_all_*`` auto-pagination.
@@ -425,11 +437,13 @@ class Client:
             self._connect = _connect_inproc(srv)
         elif isinstance(srv, str):
             self._connect = _connect_transport(streamable_http_client(srv))
+        elif isinstance(srv, StdioServerParameters):
+            self._connect = _connect_transport(stdio_client(srv))
         else:
             self._connect = _connect_transport(srv)
 
-        if self.cache is not False:
-            config = self.cache if self.cache is not None else CacheConfig()
+        if self.cache is not None:
+            config = self.cache
             # Only the hash below leaves this scope - the raw identity may carry credentials; never log or store it.
             target_id = config.target_id
             if target_id is None and isinstance(self.server, str):
@@ -466,6 +480,7 @@ class Client:
             sampling_capabilities=self.sampling_capabilities,
             list_roots_callback=self.list_roots_callback,
             logging_callback=self.logging_callback,
+            log_level=self.log_level,
             message_handler=message_handler,
             client_info=self.client_info,
             elicitation_callback=self.elicitation_callback,
@@ -1072,5 +1087,4 @@ class Client:
     @deprecated("The roots capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
-        # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
         await self.session.send_roots_list_changed()  # pyright: ignore[reportDeprecated]

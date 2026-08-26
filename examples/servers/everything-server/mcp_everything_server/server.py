@@ -13,10 +13,12 @@ from typing import Annotated, Any
 import click
 from mcp.server import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.shared.exceptions import MCPError
-from mcp_types import (
+from mcp.types import (
+    MISSING_REQUIRED_CLIENT_CAPABILITY,
     AudioContent,
     Completion,
     CompletionArgument,
@@ -44,7 +46,6 @@ from mcp_types import (
     TextResourceContents,
     UnsubscribeRequestParams,
 )
-from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -328,7 +329,7 @@ async def test_elicitation_sep1330_enums(ctx: Context) -> str:
 @mcp.tool()
 def test_error_handling() -> str:
     """Tests error response handling"""
-    raise RuntimeError("This tool intentionally returns an error for testing")
+    raise ToolError("This tool intentionally returns an error for testing")
 
 
 @mcp.tool()

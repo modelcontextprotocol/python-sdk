@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 #
-# Serve the v2 documentation locally with live reload.
+# Serve the v2 documentation locally with live reload (the English site only).
 #
 # Regenerates the API reference and the concrete Zensical config, then serves
 # it. Re-run the script to pick up changes to `src/` (the API reference) or the
-# nav; edits to prose pages under `docs/` are picked up by live reload.
+# nav; edits to prose pages under `docs/` are picked up by live reload. The
+# translated sites are never served here, so the language switcher's other
+# entries 404 locally; preview them with `scripts/docs/build.sh` and any static
+# file server over site/.
 #
 # Usage:
 #   scripts/serve-docs.sh [<extra zensical serve args>...]

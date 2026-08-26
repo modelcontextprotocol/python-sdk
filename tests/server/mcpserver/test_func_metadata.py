@@ -5,16 +5,22 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Final, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, TypedDict
 
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
-from mcp_types import CallToolResult, InputRequiredResult
-from pydantic import BaseModel, Field
+from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
+from pydantic import BaseModel, Field, ValidationError
+from typing_extensions import NotRequired, ReadOnly, Required
 
+from mcp import MCPDeprecationWarning
+from mcp.server.mcpserver import Audio, Image
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata, func_metadata
+
+if TYPE_CHECKING:
+    from decimal import Decimal
 
 
 class SomeInputModelA(BaseModel):
@@ -97,35 +103,32 @@ async def test_complex_function_runtime_arg_validation_non_json():
     meta = func_metadata(complex_arguments_fn)
 
     # Test with minimum required arguments
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         complex_arguments_fn,
         fn_is_async=False,
-        arguments_to_validate={
-            "an_int": 1,
-            "must_be_none": None,
-            "must_be_none_dumb_annotation": None,
-            "list_of_ints": [1, 2, 3],
-            "list_str_or_str": "hello",
-            "an_int_annotated_with_field": 42,
-            "an_int_annotated_with_field_and_others": 5,
-            "an_int_annotated_with_junk": 100,
-            "unannotated": "test",
-            "my_model_a": {},
-            "my_model_a_forward_ref": {},
-            "my_model_b": {"how_many_shrimp": 5, "ok": {"x": 1}, "y": None},
-        },
+        arguments=meta.validate_arguments(
+            {
+                "an_int": 1,
+                "must_be_none": None,
+                "must_be_none_dumb_annotation": None,
+                "list_of_ints": [1, 2, 3],
+                "list_str_or_str": "hello",
+                "an_int_annotated_with_field": 42,
+                "an_int_annotated_with_field_and_others": 5,
+                "an_int_annotated_with_junk": 100,
+                "unannotated": "test",
+                "my_model_a": {},
+                "my_model_a_forward_ref": {},
+                "my_model_b": {"how_many_shrimp": 5, "ok": {"x": 1}, "y": None},
+            }
+        ),
         arguments_to_pass_directly=None,
     )
     assert result == "ok!"
 
-    # Test with invalid types
-    with pytest.raises(ValueError):
-        await meta.call_fn_with_arg_validation(
-            complex_arguments_fn,
-            fn_is_async=False,
-            arguments_to_validate={"an_int": "not an int"},
-            arguments_to_pass_directly=None,
-        )
+    # Invalid types are rejected by validate_arguments, before any call
+    with pytest.raises(ValidationError):
+        meta.validate_arguments({"an_int": "not an int"})
 
 
 @pytest.mark.anyio
@@ -133,31 +136,33 @@ async def test_complex_function_runtime_arg_validation_with_json():
     """Test that JSON string arguments are parsed and validated correctly"""
     meta = func_metadata(complex_arguments_fn)
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         complex_arguments_fn,
         fn_is_async=False,
-        arguments_to_validate={
-            "an_int": 1,
-            "must_be_none": None,
-            "must_be_none_dumb_annotation": None,
-            "list_of_ints": "[1, 2, 3]",  # JSON string
-            "list_str_or_str": '["a", "b", "c"]',  # JSON string
-            "an_int_annotated_with_field": 42,
-            "an_int_annotated_with_field_and_others": "5",  # JSON string
-            "an_int_annotated_with_junk": 100,
-            "unannotated": "test",
-            "my_model_a": "{}",  # JSON string
-            "my_model_a_forward_ref": "{}",  # JSON string
-            "my_model_b": '{"how_many_shrimp": 5, "ok": {"x": 1}, "y": null}',
-        },
+        arguments=meta.validate_arguments(
+            {
+                "an_int": 1,
+                "must_be_none": None,
+                "must_be_none_dumb_annotation": None,
+                "list_of_ints": "[1, 2, 3]",  # JSON string
+                "list_str_or_str": '["a", "b", "c"]',  # JSON string
+                "an_int_annotated_with_field": 42,
+                "an_int_annotated_with_field_and_others": "5",  # JSON string
+                "an_int_annotated_with_junk": 100,
+                "unannotated": "test",
+                "my_model_a": "{}",  # JSON string
+                "my_model_a_forward_ref": "{}",  # JSON string
+                "my_model_b": '{"how_many_shrimp": 5, "ok": {"x": 1}, "y": null}',
+            }
+        ),
         arguments_to_pass_directly=None,
     )
     assert result == "ok!"
 
 
 @pytest.mark.anyio
-async def test_call_fn_does_not_mutate_pre_validated():
-    """A caller-provided `pre_validated` dict must not be mutated by the call."""
+async def test_call_fn_does_not_mutate_the_arguments_dict():
+    """The validated-arguments dict a caller passes to `call_fn` is not mutated when injected kwargs are merged."""
 
     def fn(x: int, ctx: str) -> str:
         return f"{x}:{ctx}"
@@ -166,15 +171,32 @@ async def test_call_fn_does_not_mutate_pre_validated():
     pre_validated = meta.validate_arguments({"x": 1})
     snapshot = dict(pre_validated)
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         fn,
         fn_is_async=False,
-        arguments_to_validate={"x": 1},
+        arguments=pre_validated,
         arguments_to_pass_directly={"ctx": "injected"},
-        pre_validated=pre_validated,
     )
     assert result == "1:injected"
     assert pre_validated == snapshot  # `ctx` was not leaked into the caller's dict
+
+
+@pytest.mark.anyio
+async def test_call_fn_with_arg_validation_still_works_and_warns():
+    """The pre-3.0 helper keeps validating-then-calling, and says it is deprecated (visible MCPDeprecationWarning)."""
+
+    def fn(x: int, ctx: str) -> str:
+        return f"{x}:{ctx}"
+
+    meta = func_metadata(fn, skip_names=["ctx"])
+    with pytest.warns(MCPDeprecationWarning, match="call_fn_with_arg_validation"):
+        assert await meta.call_fn_with_arg_validation(fn, False, {"x": "2"}, {"ctx": "a"}) == "2:a"  # pyright: ignore[reportDeprecated]
+    with pytest.warns(MCPDeprecationWarning):
+        validated = meta.validate_arguments({"x": 3})
+        result = await meta.call_fn_with_arg_validation(  # pyright: ignore[reportDeprecated]
+            fn, False, {}, {"ctx": "b"}, pre_validated=validated
+        )
+        assert result == "3:b"
 
 
 def test_str_vs_list_str():
@@ -202,6 +224,21 @@ def test_str_vs_list_str():
     # Test list input for union type
     result = meta.pre_parse_json({"str_or_list": '["hello", "world"]'})
     assert result["str_or_list"] == ["hello", "world"]
+
+
+def test_pre_parse_json_leaves_strings_the_json_parser_refuses_untouched():
+    """A string json.loads rejects with something other than JSONDecodeError (an over-long integer,
+    nesting past the recursion limit) is left as-is for validation to reject, not raised."""
+
+    def takes_numbers(xs: list[int]) -> None: ...  # pragma: no branch
+
+    meta = func_metadata(takes_numbers)
+    too_long = "9" * 5000
+    too_deep = "[" * 200_000
+    assert meta.pre_parse_json({"xs": too_long}) == {"xs": too_long}
+    assert meta.pre_parse_json({"xs": too_deep}) == {"xs": too_deep}
+    with pytest.raises(ValidationError):
+        meta.validate_arguments({"xs": too_long})
 
 
 def test_skip_names():
@@ -285,10 +322,10 @@ async def test_lambda_function():
     }
 
     async def check_call(args):
-        return await meta.call_fn_with_arg_validation(
+        return await meta.call_fn(
             fn,
             fn_is_async=False,
-            arguments_to_validate=args,
+            arguments=meta.validate_arguments(args),
             arguments_to_pass_directly=None,
         )
 
@@ -550,10 +587,10 @@ async def test_str_annotation_runtime_validation():
     # Test with a JSON object string
     json_payload = '{"action": "create", "resource": "user", "data": {"name": "Test User"}}'
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         handle_json_payload,
         fn_is_async=False,
-        arguments_to_validate={"payload": json_payload, "strict_mode": True},
+        arguments=meta.validate_arguments({"payload": json_payload, "strict_mode": True}),
         arguments_to_pass_directly=None,
     )
 
@@ -563,10 +600,10 @@ async def test_str_annotation_runtime_validation():
     # Test with JSON array string
     json_array_payload = '["task1", "task2", "task3"]'
 
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         handle_json_payload,
         fn_is_async=False,
-        arguments_to_validate={"payload": json_array_payload},
+        arguments=meta.validate_arguments({"payload": json_array_payload}),
         arguments_to_pass_directly=None,
     )
 
@@ -772,22 +809,28 @@ def test_structured_output_dataclass():
 def test_structured_output_typeddict():
     """Test structured output with TypedDict return types"""
 
+    # stdlib TypedDict with a qualifier: exercises the typing_extensions rebuild below Python 3.12
     class PersonTypedDictOptional(TypedDict, total=False):
-        name: str
+        name: Required[str]
         age: int
 
-    def func_returning_typeddict_optional() -> PersonTypedDictOptional:  # pragma: no cover
+    def func_returning_typeddict_optional() -> PersonTypedDictOptional:
         return {"name": "Dave"}  # Only returning one field to test partial dict
 
     meta = func_metadata(func_returning_typeddict_optional)
     assert meta.output_schema == {
         "type": "object",
         "properties": {
-            "name": {"title": "Name", "type": "string", "default": None},
-            "age": {"title": "Age", "type": "integer", "default": None},
+            "name": {"title": "Name", "type": "string"},
+            "age": {"title": "Age", "type": "integer"},
         },
+        "required": ["name"],
         "title": "PersonTypedDictOptional",
     }
+    # An optional key the tool leaves out is absent, not null, so it validates against the schema above
+    result = meta.convert_result(func_returning_typeddict_optional())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"name": "Dave"}
 
     # Test with total=True (all required)
     class PersonTypedDictRequired(TypedDict):
@@ -809,6 +852,78 @@ def test_structured_output_typeddict():
         "required": ["name", "age", "email"],
         "title": "PersonTypedDictRequired",
     }
+
+
+def test_structured_output_typeddict_qualifiers_and_metadata():
+    """PEP 655/705 qualifiers register on every supported Python and decide `required`; the docstring and
+    `Annotated` field metadata reach the schema like they do for a BaseModel, and an alias names the wire key.
+    A stdlib TypedDict, so below 3.12 all of this goes through the typing_extensions rebuild."""
+
+    class Forecast(TypedDict, total=False):
+        """Tomorrow's weather."""
+
+        city: Required[Annotated[str, Field(alias="cityName", description="City name")]]
+        high: ReadOnly[Required[float]]
+        low: float
+        summary: NotRequired[Annotated[str, Field(max_length=80)]]
+
+    def forecast() -> Forecast:
+        return {"city": "Berlin", "high": 21.5}
+
+    with pytest.warns(UserWarning, match="ReadOnly"):  # pydantic notes it won't enforce ReadOnly
+        meta = func_metadata(forecast)
+    result = meta.convert_result(forecast())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"cityName": "Berlin", "high": 21.5}
+    assert meta.output_schema == {
+        "type": "object",
+        "title": "Forecast",
+        "description": "Tomorrow's weather.",
+        "properties": {
+            "cityName": {"title": "Cityname", "type": "string", "description": "City name"},
+            "high": {"title": "High", "type": "number"},
+            "low": {"title": "Low", "type": "number"},
+            "summary": {"title": "Summary", "type": "string", "maxLength": 80},
+        },
+        "required": ["cityName", "high"],
+    }
+
+
+def test_func_metadata_built_by_hand_keeps_a_given_output_schema():
+    """A hand-built FuncMetadata publishes the schema it was given but still validates results against output_model."""
+    meta = FuncMetadata(arg_model=ArgModelBase, output_model=SomeInputModelB.InnerModel, output_schema={"x": 1})
+    assert meta.output_schema == {"x": 1}
+    with pytest.raises(ValidationError):
+        meta.convert_result({"x": "not an int"})
+
+
+def test_func_metadata_output_fields_are_read_live():
+    """Code in the wild switches structured output off or on by assigning the fields after registration."""
+
+    def total() -> int:
+        return 3
+
+    meta = func_metadata(total)
+    meta.output_schema = None
+    off = meta.convert_result(total())
+    meta.output_schema, meta.output_model, meta.wrap_output = {"type": "object"}, SomeInputModelB.InnerModel, False
+    on = meta.convert_result({"x": 3})
+    assert isinstance(off, CallToolResult) and isinstance(on, CallToolResult)
+    assert (off.structured_content, on.structured_content) == (None, {"x": 3})
+
+
+def test_structured_output_typeddict_with_unresolvable_annotation_is_unstructured():
+    """An annotation only importable under TYPE_CHECKING degrades the same way on every supported Python."""
+
+    class Report(TypedDict):
+        total: "Decimal"
+
+    def report() -> Report:  # pragma: no cover
+        raise NotImplementedError
+
+    assert func_metadata(report).output_schema is None
+    with pytest.raises(InvalidSignature):
+        func_metadata(report, structured_output=True)
 
 
 def test_structured_output_ordinary_class():
@@ -852,6 +967,73 @@ def test_unstructured_output_unannotated_class():
 
     meta = func_metadata(func_returning_unannotated)
     assert meta.output_schema is None
+
+
+def _returns_block() -> EmbeddedResource:
+    raise NotImplementedError
+
+
+def _returns_blocks() -> list[ContentBlock]:
+    raise NotImplementedError
+
+
+def _returns_strings_and_images() -> list[str | Image]:
+    raise NotImplementedError
+
+
+def _returns_audio_clips() -> tuple[Audio, ...]:
+    raise NotImplementedError
+
+
+def _returns_described_blocks() -> list[Annotated[TextContent, Field(description="one line each")]]:
+    raise NotImplementedError
+
+
+def _returns_call_tool_result_annotated_with_blocks() -> Annotated[CallToolResult, list[TextContent]]:
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        _returns_block,
+        _returns_blocks,
+        _returns_strings_and_images,
+        _returns_audio_clips,
+        _returns_described_blocks,
+        _returns_call_tool_result_annotated_with_blocks,
+    ],
+)
+def test_content_block_return_annotation_yields_no_output_schema(tool: Callable[..., Any]):
+    """SDK-defined: content blocks and the Image/Audio helpers anywhere in the return annotation are
+    presentation, not data, so auto-detection derives no output schema (and `list[str | Image]` /
+    `tuple[Audio, ...]`, which pydantic cannot build a schema for, register instead of raising)."""
+    assert func_metadata(tool).output_schema is None
+
+
+def test_structured_output_true_overrides_the_content_block_rule():
+    """SDK-defined: the explicit flag still publishes the block's own schema for callers who want it."""
+    assert func_metadata(_returns_block, structured_output=True).output_model is EmbeddedResource
+
+
+class _Report(BaseModel):
+    summary: str
+    attachment: EmbeddedResource
+
+
+def _returns_report() -> _Report:
+    raise NotImplementedError
+
+
+def _returns_blocks_by_key() -> dict[str, TextContent]:
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize("tool", [_returns_report, _returns_blocks_by_key])
+def test_content_blocks_as_model_fields_or_mapping_values_stay_structured(tool: Callable[..., Any]):
+    """SDK-defined: the rule mirrors `_convert_to_content`, which renders blocks only when they are the
+    value itself or list/tuple items; a model field or a mapping value is data and keeps its schema."""
+    assert func_metadata(tool).output_schema is not None
 
 
 def test_tool_call_result_is_unstructured_and_not_converted():
@@ -1020,6 +1202,34 @@ def test_structured_output_nested_models():
     }
 
 
+def test_structured_output_self_referential_model_gets_an_object_root():
+    """pydantic publishes a recursive model as a bare root `$ref`; the definition is inlined onto the
+    root and `$defs` is kept for the nested reference."""
+
+    class Node(BaseModel):
+        name: str
+        children: list["Node"] = []
+
+    def tree() -> Node:
+        return Node(name="root", children=[Node(name="leaf")])
+
+    node_definition: dict[str, Any] = {
+        "properties": {
+            "name": {"title": "Name", "type": "string"},
+            "children": {"default": [], "items": {"$ref": "#/$defs/Node"}, "title": "Children", "type": "array"},
+        },
+        "required": ["name"],
+        "title": "Node",
+        "type": "object",
+    }
+    meta = func_metadata(tree)
+    assert meta.output_schema == {**node_definition, "$defs": {"Node": node_definition}}
+
+    result = meta.convert_result(tree())
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content == {"name": "root", "children": [{"name": "leaf", "children": []}]}
+
+
 def test_structured_output_unserializable_type_error():
     """Test error when structured_output=True is used with unserializable types"""
 
@@ -1156,17 +1366,19 @@ async def test_basemodel_reserved_names_validation():
     meta = func_metadata(func_with_reserved_names)
 
     # Test validation with reserved names
-    result = await meta.call_fn_with_arg_validation(
+    result = await meta.call_fn(
         func_with_reserved_names,
         fn_is_async=False,
-        arguments_to_validate={
-            "model_dump": "test_dump",
-            "model_validate": 42,
-            "dict": ["a", "b", "c"],
-            "json": {"key": "value"},
-            "validate": True,
-            "normal_param": "normal",
-        },
+        arguments=meta.validate_arguments(
+            {
+                "model_dump": "test_dump",
+                "model_validate": 42,
+                "dict": ["a", "b", "c"],
+                "json": {"key": "value"},
+                "validate": True,
+                "normal_param": "normal",
+            }
+        ),
         arguments_to_pass_directly=None,
     )
 

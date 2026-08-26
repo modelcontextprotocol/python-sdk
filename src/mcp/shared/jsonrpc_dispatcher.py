@@ -80,7 +80,9 @@ TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportCont
 
 PeerCancelMode = Literal["interrupt", "signal"]
 """How `notifications/cancelled` is applied: `"interrupt"` (default) cancels
-the handler's scope; `"signal"` only sets `ctx.cancel_requested`."""
+the handler's scope; `"signal"` only sets `ctx.cancel_requested` and lets the
+handler run to completion. Either way the cancelled request is never
+answered - the handler's eventual result or error is dropped, not written."""
 
 
 def handler_exception_to_error_data(exc: BaseException) -> ErrorData | None:
@@ -182,8 +184,17 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
         self._closed = True
 
 
-def _default_transport_builder(_meta: MessageMetadata) -> TransportContext:
-    return TransportContext(kind="jsonrpc", can_send_request=True)
+def _default_transport_builder(metadata: MessageMetadata) -> TransportContext:
+    """The `TransportContext` for a message, honoring the transport's own verdict when it stamps one.
+
+    A message reads as riding a full duplex pipe (`can_send_request=True`)
+    unless the transport that framed it says otherwise on the metadata it
+    attached, so a transport whose response has no room for a server request
+    (streamable HTTP in JSON-response mode) needs no wiring from whoever drives
+    its streams.
+    """
+    can_send_request = metadata.can_send_request if isinstance(metadata, ServerMessageMetadata) else True
+    return TransportContext(kind="jsonrpc", can_send_request=can_send_request)
 
 
 def _shielded_progress(fn: ProgressFnT) -> ProgressFnT:
@@ -696,9 +707,13 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     ) -> None:
         """Run `on_request` for one inbound request and write its response.
 
-        The single exception-to-wire boundary: handler exceptions become `JSONRPCError` here.
+        The single exception-to-wire boundary: handler exceptions become
+        `JSONRPCError` here. A request the peer cancelled is never answered
+        (spec: MUST NOT send further messages for it) - it settles unanswered
+        instead, and `_settle_unanswered` tells the transport.
         """
         answer_write_started = False
+        handler_failure: BaseException | None = None  # re-raised once the request settles
         try:
             with scope:
                 try:
@@ -711,27 +726,21 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     key = coerce_request_id(req.id)
                     if (entry := self._in_flight.get(key)) is not None and entry.dctx is dctx:
                         del self._in_flight[key]
-                # A write interrupted by cancellation may still have delivered
-                # (a memory-stream send can hand its item to the receiver and
-                # still raise), so a started answer write counts as sent below:
-                # peers drop late responses, while a second answer for one id
-                # would break JSON-RPC.
-                answer_write_started = True
-                await self._write_result(req.id, result)
-            if scope.cancelled_caught:
-                # anyio absorbs the scope's own cancel at __exit__, and
-                # `cancelled_caught` (unlike `cancel_called`) guarantees the
-                # result write above did not happen - no double response.
-                # TODO(L38): spec says SHOULD NOT respond after cancel;
-                # the existing server always has, so match that for now.
-                answer_write_started = True
-                await self._write_error(req.id, ErrorData(code=0, message="Request cancelled"))
+                if not dctx.cancel_requested.is_set():
+                    # A write interrupted by cancellation may still have delivered
+                    # (a memory-stream send can hand its item to the receiver and
+                    # still raise), so a started answer write counts as sent below:
+                    # peers drop late responses, while a second answer for one id
+                    # would break JSON-RPC.
+                    answer_write_started = True
+                    await self._write_result(req.id, result)
         except anyio.get_cancelled_exc_class():
             # Shutdown: answer the request so the peer isn't left waiting - unless
             # an answer write already started (it may have reached the transport;
-            # prefer possibly-zero answers over possibly-two). The shielded helper
-            # is needed because bare awaits re-raise here.
-            if not answer_write_started:
+            # prefer possibly-zero answers over possibly-two), or the peer already
+            # cancelled it and stopped waiting. The shielded helper is needed
+            # because bare awaits re-raise here.
+            if not answer_write_started and not dctx.cancel_requested.is_set():
                 await self._final_write(
                     partial(self._write_error, req.id, ErrorData(code=CONNECTION_CLOSED, message="Connection closed")),
                     shield=True,
@@ -741,15 +750,24 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             raise
         except Exception as e:
             error = handler_exception_to_error_data(e)
-            if error is not None:
-                await self._write_error(req.id, error)
-            else:
+            if error is None:
                 logger.exception("handler for %r raised", req.method)
                 # TODO(L58): code=0 pins existing-server compat; JSON-RPC says
                 # INTERNAL_ERROR. Revisit per the suite's divergence entry.
-                await self._write_error(req.id, ErrorData(code=0, message=str(e)))
+                error = ErrorData(code=0, message=str(e))
                 if self._raise_handler_exceptions:
-                    raise
+                    handler_failure = e
+            # A cancel silences only the wire; the failure stays as visible as before.
+            if not dctx.cancel_requested.is_set():
+                answer_write_started = True
+                await self._write_error(req.id, error)
+        # The one place a cancelled request settles: the handler is done (any
+        # mode) with nothing written. A peer-interrupt cancel is absorbed at
+        # scope __exit__ and lands here too.
+        if not answer_write_started:
+            await self._settle_unanswered(dctx)
+        if handler_failure is not None:
+            raise handler_failure
         # No `_in_flight` pop here: the inner finally covers every path, and a late pop could evict a reused id.
 
     def _allocate_id(self) -> int:
@@ -770,6 +788,23 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             await self._write(JSONRPCError(jsonrpc="2.0", id=request_id, error=error))
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             logger.debug("dropped error for %r: write stream closed", request_id)
+
+    async def _settle_unanswered(self, dctx: _JSONRPCDispatchContext[TransportT]) -> None:
+        """Run the transport's `on_request_unanswered` hook: this request settled with no response.
+
+        The dispatcher writes nothing for it; a transport whose wire must still
+        end the request (2025-era streamable HTTP) does so from this hook. A
+        raising hook is contained here, like the other callback boundaries.
+        """
+        metadata = dctx.message_metadata
+        if not isinstance(metadata, ServerMessageMetadata) or metadata.on_request_unanswered is None:
+            return
+        try:
+            await metadata.on_request_unanswered()
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("on_request_unanswered dropped: connection closing")
+        except Exception:
+            logger.exception("on_request_unanswered hook raised")
 
     async def _final_write(
         self,

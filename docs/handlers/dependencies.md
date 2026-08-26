@@ -138,7 +138,7 @@ That's the right default for a precondition: no answer, no order. When declining
 
 Elicitation is one of the three questions a resolver can ask, and the multi-round-trip flow allows no others. The other two go to the **client** rather than the user: return `Sample(...)` to run an LLM call through the client (a `sampling/createMessage` request), or `ListRoots()` to fetch the client's current roots. Neither has an accept/decline outcome; the consumer annotates the result type directly, `CreateMessageResult` (`CreateMessageResultWithTools` when the request carries `tools` or `tool_choice`) or `ListRootsResult`:
 
-```python title="server.py" hl_lines="11-16 22"
+```python title="server.py" hl_lines="10-15 21"
 --8<-- "docs_src/dependencies/tutorial004.py"
 ```
 

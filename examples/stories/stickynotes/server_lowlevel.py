@@ -5,8 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-import mcp_types as types
-
+import mcp.types as types
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from stories._hosting import run_server_from_args

@@ -21,6 +21,7 @@ on:
     paths:
       - docs/**
       - docs_src/**
+      - i18n/**
       - mkdocs.yml
       - scripts/docs/**
       - pyproject.toml

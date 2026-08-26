@@ -22,10 +22,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
-from typing import Any, TypeVar, overload
+from typing import Any, Final, TypeVar, get_args, overload
 
 import anyio
 from mcp_types import (
+    LOG_LEVEL_META_KEY,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageResult,
@@ -41,17 +42,52 @@ from mcp_types import (
     Request,
 )
 from mcp_types import methods as _methods
-from mcp_types.version import LATEST_HANDSHAKE_VERSION
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel, ValidationError
 from typing_extensions import deprecated
 
 from mcp.shared.dispatcher import CallOptions, Outbound
 from mcp.shared.exceptions import MCPDeprecationWarning, NoBackChannelError
 from mcp.shared.peer import Meta, dump_params
+from mcp.shared.subscriptions import LISTEN_STREAM_METHODS
 
 __all__ = ["Connection"]
 
 logger = logging.getLogger(__name__)
+# `Connection.log`'s `logger` parameter (public API, the spec's logger-name
+# field) shadows the module logger inside that method; this alias keeps the
+# module logger reachable there.
+_logger = logger
+
+_LOG_LEVELS: Final[tuple[LoggingLevel, ...]] = get_args(LoggingLevel)
+"""Severity-ascending, from the `LoggingLevel` literal's declaration order (the
+RFC 5424 scale) - the literal is the single source of the ordering."""
+
+_ALL_LOG_LEVELS: Final[frozenset[LoggingLevel]] = frozenset(_LOG_LEVELS)
+
+
+def allowed_log_levels(protocol_version: str, meta: Mapping[str, Any] | None) -> frozenset[LoggingLevel]:
+    """The `notifications/message` levels deliverable for one inbound request.
+
+    2026-07-28+ makes log delivery a per-request opt-in (server/utilities/
+    logging): the client sets the reserved `io.modelcontextprotocol/logLevel`
+    `_meta` key, absent means no levels - the server MUST NOT send - and
+    present means that level and above. An unrecognized value reads as absent;
+    spec methods already reject a malformed value at surface validation
+    before any handler runs, so that arm only serves custom methods, where
+    dropping is the safe direction. Connection-scoped emitters pass
+    `meta=None`: `logging/setLevel` is gone at 2026 and log delivery is
+    request-scoped only, so they deliver nothing. Handshake versions keep
+    their `logging/setLevel`-era semantics: every level may be sent, filtering
+    is the application's `logging/setLevel` handler's job as before.
+    """
+    if protocol_version not in MODERN_PROTOCOL_VERSIONS:
+        return _ALL_LOG_LEVELS
+    requested = (meta or {}).get(LOG_LEVEL_META_KEY)
+    if requested not in _LOG_LEVELS:
+        return frozenset()
+    return frozenset(_LOG_LEVELS[_LOG_LEVELS.index(requested) :])
+
 
 ResultT = TypeVar("ResultT", bound=BaseModel)
 
@@ -124,12 +160,25 @@ class NotifyOnlyOutbound(_NoChannelOutbound):
     over duplex stream transports: the pipe is real, so server notifications
     ride it, but the modern protocol forbids server-initiated JSON-RPC
     requests, so `send_raw_request` (inherited) refuses by construction.
+
+    Change notifications (`notifications/*/list_changed`,
+    `notifications/resources/updated`) are dropped with a debug log: at this
+    era they reach a client only through a `subscriptions/listen` stream it
+    opened, so a bare copy on the shared channel would be an unrequested
+    notification. Publish them on the server's `SubscriptionBus` instead.
     """
 
     def __init__(self, outbound: Outbound) -> None:
         self._outbound = outbound
 
     async def notify(self, method: str, params: Mapping[str, Any] | None, opts: CallOptions | None = None) -> None:
+        # At the 2026-07-28 era these are `subscriptions/listen` stream goods
+        # only: the spec forbids sending a change notification a subscription
+        # did not request, and listen streams deliver them (stamped, filtered)
+        # via the request-scoped outbound, never this connection-scoped channel.
+        if method in LISTEN_STREAM_METHODS:
+            logger.debug("dropped %s: delivered via subscriptions/listen at this era", method)
+            return
         await self._outbound.notify(method, params, opts)
 
 
@@ -373,7 +422,17 @@ class Connection:
 
     @deprecated("The logging capability is deprecated as of 2026-07-28 (SEP-2577).", category=MCPDeprecationWarning)
     async def log(self, level: LoggingLevel, data: Any, logger: str | None = None, *, meta: Meta | None = None) -> None:
-        """Send a `notifications/message` log entry on the standalone stream. Best-effort."""
+        """Send a `notifications/message` log entry on the standalone stream. Best-effort.
+
+        On 2026-07-28+ connections this never sends: log delivery is a
+        per-request opt-in that rides the requesting stream (`ctx.log`,
+        `ctx.session.send_log_message`), and the standalone stream is
+        forbidden from carrying `notifications/message`, so the entry is
+        debug-logged and dropped.
+        """
+        if level not in allowed_log_levels(self.protocol_version, None):
+            _logger.debug("dropped notifications/message: no connection-wide log delivery at %s", self.protocol_version)
+            return
         params: dict[str, Any] = {"level": level, "data": data}
         if logger is not None:
             params["logger"] = logger

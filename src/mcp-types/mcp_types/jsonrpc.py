@@ -6,6 +6,29 @@ from typing import Annotated, Any, Final, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
+__all__ = [
+    "CONNECTION_CLOSED",
+    "HEADER_MISMATCH",
+    "INTERNAL_ERROR",
+    "INVALID_PARAMS",
+    "INVALID_REQUEST",
+    "JSONRPC_VERSION",
+    "METHOD_NOT_FOUND",
+    "MISSING_REQUIRED_CLIENT_CAPABILITY",
+    "PARSE_ERROR",
+    "REQUEST_TIMEOUT",
+    "UNSUPPORTED_PROTOCOL_VERSION",
+    "URL_ELICITATION_REQUIRED",
+    "ErrorData",
+    "JSONRPCError",
+    "JSONRPCMessage",
+    "JSONRPCNotification",
+    "JSONRPCRequest",
+    "JSONRPCResponse",
+    "RequestId",
+    "jsonrpc_message_adapter",
+]
+
 RequestId = Annotated[int, Field(strict=True)] | str
 """The ID of a JSON-RPC request."""
 

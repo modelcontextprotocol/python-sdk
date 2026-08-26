@@ -1,6 +1,5 @@
-from mcp_types import Icon
-
 from mcp.server import MCPServer
+from mcp.types import Icon
 
 LOGO = Icon(src="https://example.com/brand-kit.png", mime_type="image/png", sizes=["48x48"])
 PALETTE = Icon(src="https://example.com/palette.svg", mime_type="image/svg+xml", sizes=["any"])

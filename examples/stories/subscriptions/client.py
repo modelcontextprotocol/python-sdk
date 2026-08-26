@@ -1,8 +1,8 @@
 """Open a `subscriptions/listen` stream, watch one URI and the tool list, then close it."""
 
 import anyio
-import mcp_types as types
 
+import mcp.types as types
 from mcp.client import Client
 from mcp.client.subscriptions import ResourceUpdated, ToolsListChanged
 from stories._harness import Target, run_client

@@ -26,10 +26,10 @@ from mcp_types import (
 )
 
 from mcp import MCPError
+from mcp.client import IncomingMessage
 from mcp.server import Server, ServerRequestContext
 from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
-from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio

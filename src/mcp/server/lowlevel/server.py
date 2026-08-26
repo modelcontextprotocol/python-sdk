@@ -65,12 +65,8 @@ from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestCon
 from mcp.server.models import InitializationOptions
 from mcp.server.runner import serve_dual_era_loop
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import (
-    DEFAULT_MAX_REQUEST_BODY_SIZE,
-    StreamableHTTPASGIApp,
-    StreamableHTTPSessionManager,
-)
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
+from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.shared.message import SessionMessage
@@ -433,9 +429,9 @@ class Server(Generic[LifespanResultT]):
         # `OpenTelemetryMiddleware` ships on by default so every server emits a
         # SERVER span per message; it is a no-op until an OTel exporter is
         # installed. Drop it from this list to opt out.
-        # TODO(L54): provisional - signature and semantics change with the
-        # Context/middleware rework (covariant `Context[L]`, outbound seam) before
-        # v2 final.
+        # TODO(L54): provisional - signature and semantics may change in a 2.x
+        # minor release with the Context/middleware rework (covariant
+        # `Context[L]`, outbound seam).
         self.middleware: list[ServerMiddleware[LifespanResultT]] = [OpenTelemetryMiddleware()]
         # SEP-2133 extension settings advertised under `ServerCapabilities.extensions`
         # (identifier -> settings). Higher layers (e.g. `MCPServer(extensions=...)`)
@@ -703,9 +699,9 @@ class Server(Generic[LifespanResultT]):
 
         Thin wrapper over `serve_dual_era_loop`: enters the server lifespan,
         then drives the loop, serving the legacy handshake era and the modern
-        per-request-envelope era (the first era-distinctive message to succeed
-        locks the connection). Transports with their own lifespan owner (the
-        streamable-HTTP manager) call `serve_loop` directly instead.
+        per-request-envelope era (the client's first request decides which).
+        Transports with their own lifespan owner (the streamable-HTTP manager)
+        call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:
             await serve_dual_era_loop(

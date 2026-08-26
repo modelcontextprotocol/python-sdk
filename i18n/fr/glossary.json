@@ -1,0 +1,307 @@
+{
+  "keep": [
+    "MCP",
+    "Model Context Protocol",
+    "MCPServer",
+    "FastMCP",
+    "ClientSession",
+    "Context",
+    "ctx",
+    "stdio",
+    "Streamable HTTP",
+    "SSE",
+    "JSON-RPC",
+    "JSON",
+    "OAuth",
+    "PKCE",
+    "JWT",
+    "CIMD",
+    "HTTP",
+    "HTTPS",
+    "TLS",
+    "CORS",
+    "URI",
+    "URL",
+    "ASGI",
+    "WebSocket",
+    "API",
+    "SDK",
+    "CLI",
+    "IDE",
+    "LLM",
+    "SEP",
+    "RFC",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "PyPI",
+    "Pydantic",
+    "Starlette",
+    "FastAPI",
+    "uvicorn",
+    "httpx",
+    "anyio",
+    "asyncio",
+    "trio",
+    "pytest",
+    "OpenTelemetry",
+    "Inspector",
+    "Claude",
+    "GitHub",
+    "VS Code",
+    "Windows",
+    "macOS",
+    "Linux",
+    "llms.txt",
+    "2026-07-28",
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "terms": [
+    {
+      "source": "tool",
+      "target": "outil",
+      "note": "MCP protocol noun (a server exposes tools), masculine: un outil / les outils, l’appel d’outil. First mention on a page may read \"outil (tool)\". Wire identifiers such as `tools/call` and the `@mcp.tool()` decorator are code and stay untouched; the Inspector's **Tools** tab is a UI label and stays English. Provisional pending native review."
+    },
+    {
+      "source": "resource",
+      "target": "ressource",
+      "note": "MCP protocol noun (data a server exposes for reading) and the general noun alike, feminine, French spelling with double s: la ressource / les ressources. `resources/read` and `@mcp.resource()` are code; the Inspector's **Resources** tab is a UI label and stays English."
+    },
+    {
+      "source": "prompt",
+      "target": "prompt",
+      "note": "The MCP feature (a reusable prompt template a server exposes) and the general AI sense; kept in English as French AI writing does. Masculine: le prompt / les prompts. Not invite, which is the command-line prompt (invite de commandes) and the wrong sense. `prompts/get` and `@mcp.prompt()` are code. Provisional pending native review."
+    },
+    {
+      "source": "sampling",
+      "target": "échantillonnage",
+      "note": "The (deprecated) client feature that lets a server borrow the client's model for a completion. Masculine: l’échantillonnage. First mention on a page reads \"échantillonnage (sampling)\" so the reader can map it to `sampling/createMessage`, which is code. Provisional pending native review; keeping the English word is the open alternative."
+    },
+    {
+      "source": "roots",
+      "target": "racines",
+      "note": "The (deprecated) client feature listing the workspace directories a client exposes. Feminine plural: les racines (\"the client's roots\" → les racines du client, i.e. ses répertoires racine). First mention on a page reads \"racines (roots)\" so the reader can map it to `roots/list`, which is code; a `Root` object in code font stays Latin. Provisional pending native review; keeping roots in English is the open alternative."
+    },
+    {
+      "source": "elicitation",
+      "target": "élicitation",
+      "note": "The MCP feature where the server asks the user a question through the client mid-request. The French noun exists (élicitation des exigences) and is exact; feminine: l’élicitation. First mention on a page reads \"élicitation (elicitation)\". `elicitation/create`, `ctx.elicit()` and the `Elicit` class are code. Provisional pending native review."
+    },
+    {
+      "source": "capability",
+      "target": "capacité",
+      "note": "What client and server declare during initialization (\"capability negotiation\" → la négociation des capacités): la capacité / les capacités. Not fonctionnalité, which is a feature and a different thing, and not aptitude. The `capabilities` field and keys such as `sampling.tools` stay Latin. Provisional pending native review."
+    },
+    {
+      "source": "transport",
+      "target": "transport",
+      "note": "The connection layer, masculine: le transport / les transports. The individual transports — stdio, Streamable HTTP, SSE — are names on the keep list and stay in English (le transport stdio, le transport Streamable HTTP)."
+    },
+    {
+      "source": "session",
+      "target": "session",
+      "note": "An MCP session (the negotiated connection state), feminine: la session / les sessions, l’identifiant de session. The `session` object, `ClientSession` and `ServerSession` are code and stay untouched."
+    },
+    {
+      "source": "handler",
+      "target": "gestionnaire",
+      "note": "The tool, resource or prompt function you register (nav section \"Inside your handler\" → Dans votre gestionnaire): le gestionnaire / les gestionnaires. First mention on a page may read \"gestionnaire (handler)\". Provisional pending native review; keeping le handler is the open alternative, but never alternate the two on one page."
+    },
+    {
+      "source": "dependency",
+      "target": "dépendance",
+      "note": "Both package dependencies and the SDK's parameter-injection feature — parameters declared with `Resolve(...)` (\"dependency injection\" → l’injection de dépendances; the \"Dependencies\" page → Dépendances). Feminine: la dépendance. The `Resolve` marker class stays Latin."
+    },
+    {
+      "source": "resolver",
+      "target": "résolveur",
+      "note": "The plain function attached to a parameter with `Resolve(...)` that computes or asks for its value before the tool runs: le résolveur / les résolveurs (the word French already uses for a DNS resolver). The `Resolve` class stays Latin. Provisional pending native review."
+    },
+    {
+      "source": "client",
+      "target": "client",
+      "note": "An MCP client, and the client side of a connection: le client / les clients. The `Client` class and the `mcp.client` module are code and stay untouched."
+    },
+    {
+      "source": "server",
+      "target": "serveur",
+      "note": "An MCP server (the program you build): le serveur / les serveurs, un serveur MCP. The `MCPServer`, `Server` and `ServerSession` classes are code and stay untouched."
+    },
+    {
+      "source": "host",
+      "target": "hôte",
+      "note": "The MCP host — the application the user talks to, which embeds the client and drives the model (Claude Desktop, an IDE) — and also a network host: l’hôte (masculine) / les hôtes in both senses. Hébergeur is a hosting provider and a different thing. Provisional pending native review."
+    },
+    {
+      "source": "context",
+      "target": "contexte",
+      "note": "The generic lower-case word (\"provide context to LLMs\" → fournir du contexte aux LLM): le contexte. The capitalised `Context` is the SDK object injected as `ctx`; it is on the keep list and stays Latin in prose (\"The Context\" → L’objet Context, la classe `Context`)."
+    },
+    {
+      "source": "request",
+      "target": "requête",
+      "note": "A JSON-RPC or HTTP request (\"the initialize request\" → la requête initialize, \"request body\" → le corps de la requête): la requête / les requêtes. Demande stays the everyday word for a request a person makes; never alternate the two for protocol messages. `Request` types in code font stay Latin."
+    },
+    {
+      "source": "response",
+      "target": "réponse",
+      "note": "A JSON-RPC or HTTP response, and equally the answer a person, model or tool gives: la réponse / les réponses. `Response` types in code font stay Latin."
+    },
+    {
+      "source": "notification",
+      "target": "notification",
+      "note": "A JSON-RPC notification (a message that expects no response) and change notifications alike: la notification / les notifications, \"change notification\" → notification de changement. Method strings such as `notifications/tools/list_changed` are code."
+    },
+    {
+      "source": "callback",
+      "target": "fonction de rappel",
+      "note": "Client callbacks such as `sampling_callback` and `elicitation_callback` (the \"Callbacks\" page → Fonctions de rappel): la fonction de rappel / les fonctions de rappel; first mention on a page may read \"fonction de rappel (callback)\". An OAuth redirect callback is l’URL de rappel / le rappel OAuth. Parameter names stay Latin. Provisional pending native review; le callback is the open alternative."
+    },
+    {
+      "source": "decorator",
+      "target": "décorateur",
+      "note": "The Python decorators the SDK is built on: le décorateur / les décorateurs. `@mcp.tool()` and its siblings are code and stay untouched."
+    },
+    {
+      "source": "type hint",
+      "target": "annotation de type",
+      "note": "Python type hints (\"from your type hints\" → à partir de vos annotations de type): l’annotation de type / les annotations de type — the plural goes on annotation, type stays singular. Translated on every page rather than left as type hints in the prose; `type hints` inside code font is code."
+    },
+    {
+      "source": "round trip",
+      "target": "aller-retour",
+      "note": "One request/response exchange: un aller-retour / des allers-retours (\"zero negotiation round trips\" → aucun aller-retour de négociation). Provisional pending native review."
+    },
+    {
+      "source": "multi-round-trip",
+      "target": "à plusieurs allers-retours",
+      "note": "The 2026-07-28 request pattern (\"Multi-round-trip requests\" → Requêtes à plusieurs allers-retours). Provisional pending native review: gloss the English on first use per page — requêtes à plusieurs allers-retours (multi-round-trip). The abbreviation MRTR stays Latin."
+    },
+    {
+      "source": "lifespan",
+      "target": "cycle de vie",
+      "note": "The server's startup/shutdown scope (the \"Lifespan\" page, as in the ASGI lifespan): le cycle de vie (du serveur). First mention on a page reads \"cycle de vie (lifespan)\" so the reader can connect it to the `lifespan=` parameter, which is code. Durée de vie is the neighbouring \"lifetime\" (\"for the lifetime of the app\" → pendant toute la durée de vie de l’application) and is not banned; espérance de vie is always wrong. Provisional pending native review.",
+      "avoid": ["espérance de vie"]
+    },
+    {
+      "source": "back-channel",
+      "target": "canal de retour",
+      "note": "This documentation's term for the server calling back into the client during a request, which exists only on legacy connections: le canal de retour. First mention on a page reads \"canal de retour (back-channel)\" so the reader can connect it to the `NoBackChannelError` exception, which is code. Provisional pending native review."
+    },
+    {
+      "source": "deprecated",
+      "target": "obsolète",
+      "note": "Advisory status: still works, scheduled for removal later — obsolète, as French Python and web documentation render \"deprecated\" (\"Deprecated features\" → Fonctionnalités obsolètes); \"deprecation\" → l’obsolescence (avertissement d’obsolescence, tied to the `MCPDeprecationWarning` class, which stays Latin); \"removed\" is supprimé, a different state. Provisional pending native review; the anglicism déprécié is widespread and is the open alternative, but never alternate the two."
+    },
+    {
+      "source": "legacy",
+      "target": "historique",
+      "note": "\"A legacy connection / client / session\" = one negotiated at spec version 2025-11-25 or earlier → une connexion historique, un client historique, une session historique (\"Serving legacy clients\" → Prendre en charge les clients historiques). Keep it distinct from obsolète, which renders \"deprecated\", and from ancien, which before the noun means \"former\". Provisional pending native review; hérité and d’ancienne génération are the open alternatives."
+    },
+    {
+      "source": "era",
+      "target": "génération",
+      "note": "\"Protocol era\" (\"a 2025-era client\", \"whatever era the client speaks\", \"any era of server\") → la génération du protocole, un client de génération 2025, un serveur de n’importe quelle génération. Provisional pending native review; not ère or époque, which read grandiose."
+    },
+    {
+      "source": "wire",
+      "target": "liaison",
+      "note": "The corpus's light metaphor for the byte stream between client and server: \"on the wire\" → sur la liaison, \"stdout is the wire\" → stdout est la liaison elle-même, \"invisible on the wire\" → invisible sur la liaison, \"the JSON on the wire\" → le JSON qui circule sur la liaison. Not the literal fil or câble. Provisional pending native review."
+    },
+    {
+      "source": "handshake",
+      "target": "poignée de main",
+      "note": "The initialization handshake (\"the classic handshake\" → la poignée de main classique), the term French protocol documentation uses for TCP and TLS alike: la poignée de main. First mention on a page may read \"poignée de main (handshake)\". Provisional pending native review; keeping le handshake is the open alternative."
+    },
+    {
+      "source": "escape hatch",
+      "target": "échappatoire",
+      "note": "The API-design metaphor for the lower-level mechanism you drop to when the convenience layer is in the way (`client.session`, `add_request_handler()`, the low-level `Server`): une échappatoire / des échappatoires. Pinned so every page uses one rendering; not trappe de secours or porte dérobée (a backdoor). Provisional pending native review."
+    },
+    {
+      "source": "library",
+      "target": "bibliothèque",
+      "note": "A software library: la bibliothèque / les bibliothèques. The false friend librairie means a bookshop and is never right here.",
+      "avoid": ["librairie"]
+    },
+    {
+      "source": "framework",
+      "target": "framework",
+      "note": "Kept in English as French developers say it: le framework / les frameworks (\"the framework supplies it\" → le framework le fournit). The purist coinage cadriciel is never used.",
+      "avoid": ["cadriciel"]
+    },
+    {
+      "source": "middleware",
+      "target": "middleware",
+      "note": "Kept in English as French developers say it, and matching `server.middleware`: le middleware / les middlewares (the \"Middleware\" page → Middleware). The purist coinage intergiciel is never used.",
+      "avoid": ["intergiciel"]
+    },
+    {
+      "source": "token",
+      "target": "jeton",
+      "note": "OAuth and bearer tokens, as French security documentation writes them: le jeton / les jetons, jeton d’accès (access token), jeton d’actualisation (refresh token), jeton porteur (bearer token). Provisional pending native review: for LLM tokens (a model's context or output length) le token is what French AI writing uses and is acceptable in that sense only."
+    },
+    {
+      "source": "logging",
+      "target": "journalisation",
+      "note": "The activity and the page title (\"Logging\" → Journalisation); \"a log message\" → un message de journal, \"the server's log\" → le journal du serveur, \"to log\" → journaliser or consigner, never logger / loguer. The `logging` module and `ctx.log()` are code. Provisional pending native review; les logs is common in speech and is the open alternative for the noun."
+    },
+    {
+      "source": "subscription",
+      "target": "abonnement",
+      "note": "Resource and list-change subscriptions (the two \"Subscriptions\" pages → Abonnements): l’abonnement / les abonnements, \"subscribe\" → s’abonner, \"subscriber\" → l’abonné. `subscriptions/listen` and `resources/subscribe` are code."
+    },
+    {
+      "source": "completion",
+      "target": "complétion",
+      "note": "Two senses, one word. The MCP feature that autocompletes prompt and resource-template arguments (the \"Completions\" page, `completion/complete`) → la complétion / les complétions (des arguments). The text a model produces in the sampling pages (\"an LLM completion\") may also read la complétion, or more plainly la réponse du modèle. Provisional pending native review."
+    },
+    {
+      "source": "structured output",
+      "target": "sortie structurée",
+      "note": "The tools feature and its page title (\"Structured Output\" → Sortie structurée): la sortie structurée. `structured_output` and `outputSchema` are code."
+    },
+    {
+      "source": "troubleshooting",
+      "target": "dépannage",
+      "note": "The page title and the activity: le dépannage. Not résolution des problèmes on some pages and dépannage on others. Provisional pending native review."
+    },
+    {
+      "source": "authorization",
+      "target": "autorisation",
+      "note": "The OAuth sense and the page title (\"Authorization\" → Autorisation); \"authentication\" is l’authentification — keep the two apart as the English does. The `Authorization` header is code."
+    },
+    {
+      "source": "return value",
+      "target": "valeur de retour",
+      "note": "A function's return value: la valeur de retour; \"returns X\" → renvoie X, never retourne X. The `return` keyword and annotations are code."
+    },
+    {
+      "source": "default value",
+      "target": "valeur par défaut",
+      "note": "A parameter's default: la valeur par défaut; \"by default\" → par défaut; \"required\" (of a parameter) → obligatoire, not requis."
+    },
+    {
+      "source": "Get started",
+      "target": "Prise en main",
+      "note": "The nav section that opens the guide, and the title of its index page. \"First steps\" is a separate page inside that section (Premiers pas), so the two need distinct renderings or the sidebar shows the same title twice — never Premiers pas for this one. Provisional pending native review; Démarrer is the open alternative."
+    },
+    {
+      "source": "First steps",
+      "target": "Premiers pas",
+      "note": "The tutorial page inside the \"Get started\" section; never reuse this rendering for the section itself (see that entry). Provisional pending native review."
+    },
+    {
+      "source": "Recap",
+      "target": "Récapitulatif",
+      "note": "Recurring section heading that closes most pages; one rendering everywhere, not En résumé on some pages and Récapitulatif on others. Provisional pending native review."
+    },
+    {
+      "source": "Try it",
+      "target": "Essayer",
+      "note": "Recurring section heading above a runnable example; one rendering everywhere (the infinitive, per the heading rule), not Essayez on some pages and À vous de jouer on others. Provisional pending native review."
+    }
+  ]
+}

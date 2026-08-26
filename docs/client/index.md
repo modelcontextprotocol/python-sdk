@@ -22,9 +22,10 @@ The server at the top is only there so you have something to connect to. The cli
 
 * An `MCPServer` (or low-level `Server`) instance: connected **in-process**.
 * A URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, the production path.
-* A **transport**: anything you can `async with ... as (read, write)`, such as `stdio_client(...)` wrapping a subprocess.
+* A `StdioServerParameters`: the command to launch as a **subprocess**, spoken to over its stdin and stdout.
+* A **transport**: anything you can `async with ... as (read, write)`, such as `streamable_http_client(url, http_client=...)` around your own HTTP client.
 
-Everything else on this page is identical across all three. Headers, subprocesses, timeouts, and the `Transport` protocol get their own page: **[Client transports](transports.md)**.
+Everything else on this page is identical across all four. Headers, subprocesses, timeouts, and the `Transport` protocol get their own page: **[Client transports](transports.md)**.
 
 ### What's on a connected client
 
@@ -80,7 +81,7 @@ That schema is everything a UI needs to render an argument form, and everything 
 
 `call_tool(name, arguments)` runs the tool and gives you back a `CallToolResult`.
 
-```python title="client.py" hl_lines="26-33"
+```python title="client.py" hl_lines="27-34"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -112,7 +113,7 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
 
 !!! check
     Ask `lookup_book` for `"Solaris"` (a title that isn't in the catalog) and the function raises
-    `ValueError`. The call still returns normally:
+    `ToolError`. The call still returns normally:
 
     ```python
     result.is_error            # True
@@ -120,9 +121,10 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
     result.structured_content  # None
     ```
 
-    The exception's message landed in `content`, where the **model** can read it and try again. That
-    is deliberate: a tool error is part of the conversation, not a crash. Always look at `is_error`
-    before you trust `structured_content`.
+    The `ToolError`'s message landed in `content`, where the **model** can read it and try again. That
+    is deliberate: a tool error is part of the conversation, not a crash. (Had the tool crashed with
+    some other exception, `content` would say only `Error executing tool lookup_book`.) Always look at
+    `is_error` before you trust `structured_content`.
 
 !!! warning
     `is_error=True` covers more than your own `raise`. Ask for a tool the server doesn't even have
@@ -135,7 +137,7 @@ A tool that raises does **not** raise in your client. It comes back as an ordina
 
 The resource verbs come in pairs: two ways to list, one way to read.
 
-```python title="client.py" hl_lines="23-32"
+```python title="client.py" hl_lines="22-31"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -174,7 +176,7 @@ A host hands those messages straight to the model. That is the whole feature.
 
 A server with a completion handler can autocomplete prompt and resource-template arguments as the user types.
 
-```python title="client.py" hl_lines="28-32"
+```python title="client.py" hl_lines="27-31"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -187,7 +189,7 @@ The answer is in `result.completion.values`. Type `"p"` and the server comes bac
 
 Every `list_*` method takes a `cursor=` keyword and every result carries a `next_cursor`. When `next_cursor` is `None`, you have everything.
 
-```python title="client.py" hl_lines="23-31"
+```python title="client.py" hl_lines="22-30"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 

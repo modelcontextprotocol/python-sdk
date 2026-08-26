@@ -4,20 +4,27 @@ This guide covers the breaking changes introduced in v2 of the MCP Python SDK an
 
 Version 2 of the MCP Python SDK introduces several breaking changes to improve the API, align with the MCP specification, and provide better type safety.
 
+!!! note "Not ready to migrate yet?"
+    The v1.x maintenance line keeps receiving critical bug fixes and security patches, and its
+    documentation is at [/v1/](https://py.sdk.modelcontextprotocol.io/v1/). If your package depends
+    on `mcp`, keep a `<2` upper bound until you've migrated.
+
 ## Find your changes
 
-Every section heading below names the API it affects, so searching this page for the symbol your code uses is the fastest route to the change that broke it.
+Every section heading below names the API it affects, so searching this page for the symbol your code uses is the fastest route to the change that broke it. The guide lists changes only: an SDK API not mentioned here behaves as it did in v1, and the "what did not change" summaries — [`MCPServer`](#what-is-unchanged-on-mcpserver), [lowlevel `Server`](#lowlevel-server-what-did-not-change), and [auth](#unchanged-auth-surfaces) — spell out the surfaces most migrators stop to check.
 
 ### Changes almost every project hits
 
 | Change | First symptom | Section |
 |---|---|---|
-| `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
+| `FastMCP` renamed to `MCPServer` | `ModuleNotFoundError: No module named 'mcp.server.fastmcp'` (newer 2.x releases follow it with a pointer to this guide) | [`FastMCP` renamed](#fastmcp-renamed-to-mcpserver) |
 | Fields renamed from camelCase to snake_case | `AttributeError: 'Tool' object has no attribute 'inputSchema'` | [snake_case fields](#field-names-changed-from-camelcase-to-snake_case) |
-| `mcp.types` moved to the `mcp-types` package | `ModuleNotFoundError: No module named 'mcp.types'` | [`mcp.types` moved](#mcptypes-moved-to-the-mcp-types-package) |
+| `mcp.types` names removed | `ImportError: cannot import name 'Content' from 'mcp.types'` | [Removed types](#removed-type-aliases-and-classes) |
 | `McpError` renamed to `MCPError` | `ImportError: cannot import name 'McpError' from 'mcp'` | [`McpError` renamed](#mcperror-renamed-to-mcperror) |
 | Resource URIs are `str`, not `AnyUrl` | `AttributeError: 'str' object has no attribute 'host'` | [URI type](#resource-uri-type-changed-from-anyurl-to-str) |
+| Message unions (`ServerNotification`, `JSONRPCMessage`, ...) are plain unions, not `RootModel` | `AttributeError: 'LoggingMessageNotification' object has no attribute 'root'` | [`RootModel` → unions](#replace-rootmodel-by-union-types-with-typeadapter-validation) |
 | `streamablehttp_client` removed | `ImportError: cannot import name 'streamablehttp_client'` | [`streamablehttp_client`](#streamablehttp_client-removed) |
+| `httpx` and `httpx-sse` replaced by `httpx2` | `ModuleNotFoundError: No module named 'httpx'`, or `TypeError: Invalid "auth" argument` from `httpx.AsyncClient(auth=provider)` | [`httpx2` swap](#httpx-and-httpx-sse-replaced-by-httpx2) |
 | `Client` defaults to `mode='auto'` | servers log an unexpected `server/discover` request | [`mode='auto'`](#client-defaults-to-modeauto) |
 | Transport parameters moved off the `MCPServer` constructor | `TypeError: MCPServer.__init__() got an unexpected keyword argument 'port'` | [constructor parameters](#transport-specific-parameters-moved-from-mcpserver-constructor-to-runapp-methods) |
 | Sync handlers run on a worker thread | `asyncio.get_running_loop()` in a `def` handler raises `RuntimeError` | [worker threads](#sync-handler-functions-now-run-on-a-worker-thread) |
@@ -99,11 +106,13 @@ The SDK now depends on [`httpx2`](https://pypi.org/project/httpx2/) instead of
 `httpx`) with server-sent events support built in, so the separate `httpx-sse`
 dependency is gone.
 
-The swap itself does not change any SDK signatures - `streamable_http_client`
-and `sse_client` accept the same arguments as elsewhere in v2 - but the client
-type they expect is now `httpx2.AsyncClient`. If you construct your own client to pass as
-`http_client` (or build an `httpx2.Auth` subclass for `auth`), import from
-`httpx2`:
+The swap changes types, not parameter lists: `streamable_http_client` and `sse_client`
+keep their keyword arguments (covered, with the removed `streamablehttp_client` alias and the
+`get_session_id` callback, under [Transports](#transports)), and only the objects they take
+become `httpx2` types — the pre-built `http_client` you hand `streamable_http_client`,
+`sse_client`'s `auth=` (an `httpx2.Auth`, the base class `OAuthClientProvider` now uses), and
+the client a custom `httpx_client_factory` returns. Import from `httpx2` when building any of
+them:
 
 **Before (v1):**
 
@@ -125,21 +134,45 @@ http_client = httpx2.AsyncClient(follow_redirects=True)
 changes. To consume SSE directly, use `httpx2.EventSource` (or
 `AsyncClient.sse()`) instead of the `httpx-sse` helpers.
 
+mcp no longer installs `httpx` at all. If your own code imports `httpx` and relied on mcp
+v1 to pull it in, that import now fails with
+`ModuleNotFoundError: No module named 'httpx'` — a traceback that never mentions mcp. Either
+add `httpx` to your own dependencies (the two packages install side by side; only objects
+handed to the SDK via `http_client=` or `auth=` have to be `httpx2` types) or port those
+calls to `httpx2`, whose `Client` and `AsyncClient` are drop-in replacements.
+
 Exception handlers need the same rename: the SDK now raises `httpx2`
 exceptions (`httpx2.ConnectError`, `httpx2.HTTPStatusError`, and so on), and
-this failure mode is silent. `httpx` usually stays installed as a transitive
-dependency of other packages, so an old `except httpx.ConnectError:` block
+this failure mode is silent. If `httpx` is still installed — your own code or another
+package depends on it — an old `except httpx.ConnectError:` block
 keeps importing fine and simply never matches again. Audit `except httpx.`
-clauses and `isinstance` checks along with the imports. The same identity
-split applies to objects: `httpx` and `httpx2` types are not interchangeable
-at runtime, so an `httpx.AsyncClient` passed as `http_client` degrades in
-subtle ways (server-initiated messages stop arriving) instead of raising
-immediately.
+clauses and `isinstance` checks along with the imports, and switch test fixtures in the
+same change: `pytest.raises(httpx.ConnectError)`, an `httpx.MockTransport`, or a test-only
+`httpx.Auth` subclass all target the wrong types once the code under test moves to `httpx2`.
+The same identity split applies to objects: `httpx` and `httpx2` types are not
+interchangeable at runtime, so an `httpx.AsyncClient` passed as `http_client` degrades in
+subtle ways (server-initiated messages stop arriving) instead of raising immediately.
+
+Retry and error-classification logic keyed to HTTP status codes needs a look too: through
+the SDK's client, timeouts and non-2xx responses surface as `MCPError` with JSON-RPC codes,
+not `408`s or `httpx.HTTPStatusError` — see the client request timeouts section
+(`REQUEST_TIMEOUT`, `-32001`) under [Clients](#clients) and
+[Streamable HTTP: non-2xx responses now surface as per-request JSON-RPC errors](#streamable-http-non-2xx-responses-now-surface-as-per-request-json-rpc-errors).
+
+The SDK's own auth providers made the same move: `OAuthClientProvider`,
+`ClientCredentialsOAuthProvider`, `PrivateKeyJWTOAuthProvider`, and
+`IdentityAssertionOAuthProvider` now subclass `httpx2.Auth` (v1: `httpx.Auth`),
+so the client you attach one to must be an `httpx2.AsyncClient`. Unlike the
+silent `http_client` degradation, this direction fails loudly at
+construction: `httpx.AsyncClient(auth=provider)` raises
+`TypeError: Invalid "auth" argument`. See [OAuth clients](client/oauth-clients.md)
+for the `httpx2.AsyncClient(auth=...)` wiring.
 
 The client also identifies itself differently: the default User-Agent is now
 `python-httpx2/<version>`, and log lines come from the `httpx2` and
 `httpcore2.*` loggers, so a `logging.getLogger("httpx")` or
-`logging.getLogger("httpcore")` suppression no longer matches anything.
+`logging.getLogger("httpcore")` suppression no longer matches anything — target
+`logging.getLogger("httpx2")` and `logging.getLogger("httpcore2")` instead.
 Telemetry integrations keyed to the `httpx` module (such as OpenTelemetry's
 httpx instrumentation) stop seeing the SDK's traffic as well.
 
@@ -158,8 +191,8 @@ in `httpx2`; build an `ssl.SSLContext` and configure it instead.
 
 Both commands run your server through a fresh `uv run --with ...` environment. In v1 the
 `mcp` requirement in that command was unpinned, so the spawned environment resolved to the
-newest stable release rather than the version you had installed; with a v2 pre-release
-installed, `mcp dev server.py` built a v1 environment that could not import a v2 server.
+newest stable release rather than the version you had installed; while v2 was in
+pre-release, `mcp dev server.py` built a v1 environment that could not import a v2 server.
 Both commands now pin the requirement to the version you are running
 (`mcp==<installed version>`). Source builds and other unpublished versions, which have
 nothing on PyPI to pin to, keep the unpinned form.
@@ -168,16 +201,38 @@ nothing on PyPI to pin to, keep the unpinned form.
 
 ### `mcp.types` moved to the `mcp-types` package
 
-The protocol wire types now live in a standalone distribution, `mcp-types`, imported as
-`mcp_types`. Its only runtime dependencies are `pydantic` and `typing-extensions`, so code
-that just needs to (de)serialize MCP traffic can install it without the full SDK. The `mcp` package depends on `mcp-types` and
-continues to re-export the type names at the top level, so `from mcp import Tool` is
-unchanged. Only the `mcp.types` submodule and `mcp.shared.version` were removed. The
-package's API reference is at [`mcp_types`](api/mcp_types/index.md).
+The protocol wire types now live in a standalone distribution, `mcp-types` (import package
+`mcp_types`). Its only runtime dependencies are `pydantic` and `typing-extensions`, so code
+that just needs to (de)serialize MCP traffic can install it without the full SDK. Its API
+reference is at [`mcp_types`](api/mcp_types/index.md).
 
-**Why:** keeping the wire types in their own package lets tooling and lightweight clients
-depend on the protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the
-rest of the server/transport stack.
+**If your project depends on `mcp`, nothing changes for you.** `import mcp.types`,
+`from mcp.types import ...`, `from mcp import types`, and `import mcp` followed by
+`mcp.types.Tool` all keep working: `mcp.types` is a permanent alias that mirrors `mcp_types`
+exactly (every name is the same object), and `mcp.types.version` mirrors
+`mcp_types.version` the same way. Keep importing through `mcp` — the package you actually
+depend on — rather than writing `import mcp_types`, which would reach past your declared
+dependency into a transitive one. The old `mcp.shared.version` module was removed; import the
+version registry from `mcp.types.version` instead. The top-level `from mcp import Tool`
+re-exports are unchanged too.
+
+**Import `mcp_types` directly only in a project that depends on `mcp-types` without the
+SDK.** That is the point of the split: tooling and lightweight clients can depend on the
+protocol schema without pulling in `httpx2`, `starlette`, `uvicorn`, and the rest of the
+server/transport stack.
+
+Names that no longer exist (listed under
+[Removed type aliases and classes](#removed-type-aliases-and-classes)) fail on import or
+attribute access with an ordinary `ImportError` / `AttributeError`; the table below names each
+replacement.
+
+The supported import surface is the package plus its `jsonrpc`, `methods`, and `version`
+submodules, and each has both spellings: `mcp.types` / `mcp_types`, `mcp.types.jsonrpc` /
+`mcp_types.jsonrpc`, `mcp.types.methods` / `mcp_types.methods`, and `mcp.types.version` /
+`mcp_types.version` (each `mcp.types` module mirrors its `mcp_types` counterpart, name for
+name, the same objects). Underscore-prefixed submodules (`mcp_types._types`, and the generated
+per-protocol-version packages `mcp_types._v2025_11_25` / `mcp_types._v2026_07_28`) are internal
+validators with unstable class names; don't import from them, under either spelling.
 
 **Before (v1):**
 
@@ -186,19 +241,23 @@ from mcp.types import Tool, Resource
 from mcp.shared.version import LATEST_PROTOCOL_VERSION
 ```
 
-**After (v2):**
+**After (v2), depending on `mcp`:**
+
+```python
+from mcp.types import Tool, Resource  # unchanged
+from mcp.types.version import LATEST_PROTOCOL_VERSION
+```
+
+**After (v2), depending only on `mcp-types` (no SDK):**
 
 ```python
 from mcp_types import Tool, Resource
 from mcp_types.version import LATEST_PROTOCOL_VERSION
-
-# Names `mcp` already re-exported at the top level are unchanged:
-from mcp import Tool, Resource
 ```
 
 ### Removed type aliases and classes
 
-The following type aliases and classes have been removed from `mcp_types`:
+The following type aliases and classes have been removed from the protocol types (`mcp.types` / `mcp_types`):
 
 | Removed | Replacement |
 |---------|-------------|
@@ -221,13 +280,13 @@ from mcp.types import Content, ResourceReference, Cursor
 **After (v2):**
 
 ```python
-from mcp_types import ContentBlock, ResourceTemplateReference
+from mcp.types import ContentBlock, ResourceTemplateReference
 # Use `str` instead of `Cursor` for pagination cursors
 ```
 
 ### Field names changed from camelCase to snake_case
 
-All Pydantic model fields in `mcp_types` now use snake_case names for Python attribute access. The JSON wire format is unchanged — traffic the SDK sends still uses camelCase via Pydantic aliases, but your own `model_dump()` calls now need `by_alias=True` to produce it.
+All Pydantic model fields in the protocol types now use snake_case names for Python attribute access. The JSON wire format is unchanged — traffic the SDK sends still uses camelCase via Pydantic aliases, but your own `model_dump()` calls now need `by_alias=True` to produce it.
 
 **Before (v1):**
 
@@ -287,7 +346,7 @@ In v1, MCP protocol types were configured with `extra="allow"`: unknown fields p
 In v2, MCP types silently ignore extra fields. Unknown constructor keyword arguments and unknown keys in wire data are dropped during validation — no error is raised, and the values do not round-trip:
 
 ```python
-from mcp_types import CallToolRequestParams
+from mcp.types import CallToolRequestParams
 
 params = CallToolRequestParams(
     name="my_tool",
@@ -323,7 +382,7 @@ resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validatio
 **After (v2):**
 
 ```python
-from mcp_types import Resource
+from mcp.types import Resource
 
 # Plain strings accepted
 resource = Resource(name="test", uri="users/me")  # Works
@@ -393,7 +452,7 @@ actual_notification = notification.root
 **After (v2):**
 
 ```python
-from mcp_types import client_request_adapter, server_notification_adapter
+from mcp.types import client_request_adapter, server_notification_adapter
 
 # Using TypeAdapter.validate_python()
 request = client_request_adapter.validate_python(data)
@@ -417,6 +476,11 @@ await session.send_request(ClientRequest(PingRequest()), EmptyResult)
 ```python
 await session.send_notification(InitializedNotification())
 await session.send_request(PingRequest(), EmptyResult)
+
+# Params are constructed as before; only the outer wrapper is gone
+await session.send_notification(
+    CancelledNotification(params=CancelledNotificationParams(request_id=request_id, reason="timeout"))
+)
 ```
 
 **Available adapters:**
@@ -431,7 +495,24 @@ await session.send_request(PingRequest(), EmptyResult)
 | `ServerResult` | `server_result_adapter` |
 | `JSONRPCMessage` | `jsonrpc_message_adapter` |
 
-All adapters are exported from `mcp_types`.
+All adapters are exported from `mcp.types`.
+
+These are ordinary `X | Y` unions of the concrete pydantic classes, so `isinstance(msg, ServerNotification)`, `isinstance(msg, LoggingMessageNotification)`, and `match`/`case` on the member classes keep working (unlike `ElicitationResult`, which became a `TypeAliasType` — see [`isinstance()` checks against `ElicitationResult` raise `TypeError`](#isinstance-checks-against-elicitationresult-raise-typeerror)).
+
+Values the SDK hands you are the member instances themselves, so delete `.root` accesses. A `message_handler`, for example, now receives the notification directly (v1 code fails with `AttributeError: 'LoggingMessageNotification' object has no attribute 'root'`):
+
+```python
+# Before (v1)
+if isinstance(message, ServerNotification):
+    if isinstance(message.root, LoggingMessageNotification):
+        print(message.root.params.data)
+
+# After (v2)
+if isinstance(message, LoggingMessageNotification):
+    print(message.params.data)
+```
+
+Custom transports and `EventStore` implementations follow the same rule: `mcp.shared.message.SessionMessage` takes the member directly (`SessionMessage(JSONRPCNotification(...))`, not `SessionMessage(JSONRPCMessage(JSONRPCNotification(...)))`), and raw JSON parses with `jsonrpc_message_adapter.validate_json(raw)` instead of `JSONRPCMessage.model_validate_json(raw)`.
 
 ### `RequestParams.Meta` replaced with `RequestParamsMeta` TypedDict
 
@@ -470,7 +551,7 @@ attribute access. The JSON wire format is unchanged.
 
 ### `SUPPORTED_PROTOCOL_VERSIONS` deprecated; `LATEST_PROTOCOL_VERSION` changed meaning
 
-`SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`. Named scalars derived from these tuples are now exported alongside them — `LATEST_HANDSHAKE_VERSION`, `LATEST_MODERN_VERSION`, `OLDEST_SUPPORTED_VERSION` — so prefer those over indexing the tuples directly. All of these live in `mcp_types.version` (previously `mcp.shared.version`): `from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS`.
+`SUPPORTED_PROTOCOL_VERSIONS` is deprecated — it's now the union of `HANDSHAKE_PROTOCOL_VERSIONS` (initialize-handshake versions) and `MODERN_PROTOCOL_VERSIONS` (per-request-envelope versions). If you were using it to mean "versions the initialize handshake accepts", switch to `HANDSHAKE_PROTOCOL_VERSIONS`. Named scalars derived from these tuples are now exported alongside them — `LATEST_HANDSHAKE_VERSION`, `LATEST_MODERN_VERSION`, `OLDEST_SUPPORTED_VERSION` — so prefer those over indexing the tuples directly. All of these live in `mcp.types.version` (an alias of `mcp_types.version`; previously `mcp.shared.version`): `from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS`.
 
 `LATEST_PROTOCOL_VERSION` also changed value and meaning. In v1 it was `"2025-11-25"`, the version the client offered during initialization. In v2 it is the newest revision the SDK speaks in any era, currently `"2026-07-28"`, which the initialize handshake cannot negotiate. If you offered it in a hand-built `initialize` request or compared the negotiated version against it, use `LATEST_HANDSHAKE_VERSION` instead. These tuples really are tuples now (`SUPPORTED_PROTOCOL_VERSIONS` was a `list` in v1), so list-only operations such as concatenating with a list raise `TypeError`.
 
@@ -521,18 +602,49 @@ raise McpError(ErrorData(code=INVALID_REQUEST, message="bad input"))
 
 ```python
 from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_REQUEST
+from mcp.types import INVALID_REQUEST
 
 raise MCPError(INVALID_REQUEST, "bad input")
 # or, if you already have an ErrorData:
 raise MCPError.from_error_data(error_data)
 ```
 
+### `JSONRPCError.id` is now `RequestId | None`
+
+In v1 `JSONRPCError.id` was typed `str | int`, so an error response with `"id": null` failed validation even though JSON-RPC 2.0 allows it (the id is null when the receiver could not determine the request id, e.g. a parse error). In v2 the field is `RequestId | None`: still required, but `None` is accepted, and `jsonrpc_message_adapter` parses a null-id error into a `JSONRPCError`.
+
+**Before (v1):**
+
+```python
+from mcp.types import JSONRPCMessage
+
+# Raised ValidationError: id could not be None
+JSONRPCMessage.model_validate(
+    {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
+)
+```
+
+**After (v2):**
+
+```python
+from mcp.types import PARSE_ERROR, ErrorData, JSONRPCError, jsonrpc_message_adapter
+
+message = jsonrpc_message_adapter.validate_python(
+    {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
+)
+assert isinstance(message, JSONRPCError) and message.id is None
+
+# Constructing one: `id` is required but nullable
+JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
+```
+
+Delete any shim that accepted or synthesized null-id error responses. Code that assumed `error.id` was always a `str | int` must now handle `None`, and tests that pinned v1's rejection of `"id": null` now fail because validation succeeds.
+
 ## MCPServer (formerly FastMCP)
 
 ### `FastMCP` renamed to `MCPServer`
 
-The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. This is a simple rename with no functional changes to the class itself.
+The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. Beyond the name and import path, the changes to the class are covered in the sections that follow, and [What is unchanged on `MCPServer`](#what-is-unchanged-on-mcpserver) lists the everyday surface that carries over as-is.
 
 **Before (v1):**
 
@@ -555,9 +667,24 @@ mcp = MCPServer("Demo")
 All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.*` with the same structure. Common imports:
 
 - `Image`, `Audio` — from `mcp.server.mcpserver` (or `.utilities.types`)
-- `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver.prompts.base`
+- `Icon` — from `mcp.server.mcpserver` or `mcp.types` (not a top-level `mcp` export); its `mimeType` field is now `mime_type` per the [snake_case renames](#field-names-changed-from-camelcase-to-snake_case), though the `mimeType=` kwarg still constructs
+- `Message`, `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver.prompts.base`
 - `ToolError`, `ResourceError` — from `mcp.server.mcpserver.exceptions`
 - `MCPServerError` (renamed from `FastMCPError`) — from `mcp.server.mcpserver.exceptions`
+
+Importing `mcp.server.fastmcp`, or anything below it, raises `ModuleNotFoundError` (newer 2.x releases include a link to this section in its message), so existing `except ImportError` or `except ModuleNotFoundError` fallbacks around the v1 import keep working.
+
+### What is unchanged on `MCPServer`
+
+Beyond the changes covered in this section, the everyday `FastMCP` surface carries over to `MCPServer` as-is:
+
+- **Decorators.** `@mcp.tool()`, `@mcp.resource()`, `@mcp.prompt()`, and `@mcp.completion()` take the same arguments and handler signatures as v1. The lowlevel [`on_completion` reshape](#lowlevel-server-decorator-based-handlers-replaced-with-constructor-on_-params) applies only to the lowlevel `Server`; a high-level `@mcp.completion()` handler is still called as `(ref, argument, context)`.
+- **Tool return handling.** A returned `CallToolResult` (including an `Annotated[CallToolResult, YourModel]` output schema, and `_meta`) is passed through, `Image` and `Audio` convert to content blocks as before, ready-made content blocks are kept as-is, and dict, list, scalar, and model returns are wrapped into `content` and `structured_content` by the same rules.
+- **Listing and registration methods.** `list_tools()`, `list_resources()`, `list_resource_templates()`, and `list_prompts()` return the same lists and are still what the protocol handlers call, so subclass overrides still take effect. `add_tool()`, `add_resource()`, and `add_prompt()` are unchanged.
+- **Helpers.** `Image.to_image_content()`, `Audio.to_audio_content()`, and the prompt `Message`, `UserMessage`, and `AssistantMessage` classes.
+- **Lifespan.** The `lifespan=` constructor argument and `ctx.request_context.lifespan_context` work as before, and the class is still generic over the lifespan result: `FastMCP[MyState]` becomes `MCPServer[MyState]`. (`Context`'s own type parameters did change; see [`RequestContext` type parameters simplified](#requestcontext-type-parameters-simplified).)
+- **Tool internals.** `Tool`, `Tool.from_function()`, `FuncMetadata`, `ArgModelBase`, and `func_metadata()` keep their v1 shapes; the one change is the now-required `context` argument to `Tool.run()`, described [below](#mcpservercall_tool-read_resource-get_prompt-now-accept-a-context-parameter).
+- **Auxiliary import paths.** `TransportSecuritySettings` (`mcp.server.transport_security`) and `AcceptedElicitation`/`DeclinedElicitation`/`CancelledElicitation` (`mcp.server.elicitation`) have not moved; the server auth surface is inventoried under [Unchanged auth surfaces](#unchanged-auth-surfaces).
 
 ### Default server name changed from `FastMCP` to `mcp-server`
 
@@ -622,17 +749,19 @@ This parameter was redundant because the SSE transport already handles sub-path 
 
 ### Transport-specific parameters moved from MCPServer constructor to run()/app methods
 
-Transport-specific parameters have been moved from the `MCPServer` constructor to the `run()`, `sse_app()`, and `streamable_http_app()` methods. This provides better separation of concerns - the constructor now only handles server identity and authentication, while transport configuration is passed when starting the server.
+Transport-specific parameters have been moved off the `MCPServer` constructor and onto `run()`, `sse_app()`, and `streamable_http_app()`, so transport configuration is passed when starting or building the server. The rest of the constructor is unchanged: identity (`name`, `instructions`, `website_url`, `icons`, plus the newly added positional `title`, `description`, and `version` covered [above](#mcpserver-constructor-title-description-and-version-added-to-the-positional-parameters)), authentication (`auth`, `token_verifier`, `auth_server_provider`), `lifespan`, `dependencies`, `tools`, `debug`, `log_level`, and the `warn_on_duplicate_*` flags; the new keyword-only parameters (`resources`, `extensions`, `resource_security`, `request_state_security`, `cache_hints`, `subscriptions`, `middleware`) are additive.
 
 **Parameters moved:**
 
-- `host`, `port` - HTTP server binding
-- `sse_path`, `message_path` - SSE transport paths
-- `streamable_http_path` - StreamableHTTP endpoint path
-- `json_response`, `stateless_http` - StreamableHTTP behavior
-- `max_request_body_size` - StreamableHTTP request-body limit
-- `event_store`, `retry_interval` - StreamableHTTP event handling
-- `transport_security` - DNS rebinding protection
+- `host`, `port` - HTTP server binding, on `run()` only. The app factories have no `port` (`streamable_http_app(port=...)` raises `TypeError`; a mounted app binds wherever the outer ASGI server does) but do take `host` (default `"127.0.0.1"`), used only to decide whether DNS rebinding protection auto-enables (see the note below)
+- `sse_path`, `message_path` - SSE transport paths, on `run(transport="sse", ...)` and `sse_app()`
+- `streamable_http_path` - StreamableHTTP endpoint path, on `run(transport="streamable-http", ...)` and `streamable_http_app()`
+- `json_response`, `stateless_http` - StreamableHTTP behavior, same two places; each also removes a server-to-client channel, see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror)
+- `max_request_body_size` - HTTP request-body limit, on `run()` for both HTTP transports and on both app methods
+- `event_store`, `retry_interval` - StreamableHTTP event handling, same two places
+- `transport_security` - DNS rebinding protection, on `run()` for both HTTP transports and on both app methods
+
+`run()` is `@overload`ed per transport, so type checkers validate the keywords each transport accepts (`transport="stdio"` takes none); at runtime the HTTP transports raise `TypeError` on an unrecognised keyword when they start.
 
 **Before (v1):**
 
@@ -655,7 +784,7 @@ from mcp.server.mcpserver import MCPServer
 
 # Transport params passed to run()
 mcp = MCPServer("Demo")
-mcp.run(transport="streamable-http", json_response=True, stateless_http=True)
+mcp.run(transport="streamable-http", host="0.0.0.0", port=9000, json_response=True, stateless_http=True)
 
 # Or for SSE
 mcp = MCPServer("Server")
@@ -664,25 +793,59 @@ mcp.run(transport="sse", host="0.0.0.0", port=9000, sse_path="/events")
 
 **For mounted apps:**
 
-When mounting in a Starlette app, pass transport params to the app methods:
+When mounting in a Starlette app, pass transport params to `streamable_http_app()`. As in v1, the host app's lifespan must enter `mcp.session_manager.run()` — a mounted sub-app's own lifespan never runs, so nothing else starts the session manager:
 
 ```python
+import contextlib
+
 # Before (v1)
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("App", json_response=True)
-app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())])
 
 # After (v2)
 from mcp.server.mcpserver import MCPServer
 
 mcp = MCPServer("App")
-app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=True))])
+
+
+# Unchanged from v1: the host app's lifespan runs the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with mcp.session_manager.run():
+        yield
+
+
+# Before (v1)
+app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lifespan)
+
+# After (v2)
+app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=True))], lifespan=lifespan)
 ```
 
-**Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
+Without `lifespan=lifespan` the app starts but every request to the mounted path fails with `RuntimeError: Task group is not initialized. Make sure to use run().` — `mcp.session_manager` is the same public property v1's `FastMCP.session_manager` was, and it still exists only after `streamable_http_app()` has been called, so build the routes at module level and touch the manager only inside the lifespan. See [Add to an existing app](run/asgi.md) for the full pattern, including several servers in one app.
 
-If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
+v2 has no settings object that carries transport configuration, so if the module that configures the server is not the one that builds the ASGI app, carry the keywords yourself, e.g. `build_app = functools.partial(mcp.streamable_http_app, json_response=True, stateless_http=True)` next to the server definition and `Mount("/", app=build_app())` wherever it is mounted.
+
+**Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1` and no `transport_security` is passed. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor, and because those default to `host="127.0.0.1"`, a mounted app has protection on until you configure it. The auto-allowlist entries are `host:port` patterns (`127.0.0.1:*`, `localhost:*`, `[::1]:*`), so a request whose `Host` header carries no port (some in-process test clients send a bare `Host: localhost`) is rejected with `421 Invalid Host header`. To serve a real hostname, pass `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` (from `mcp.server.transport_security`); [Deploy & scale](run/deploy.md) and [Troubleshooting](troubleshooting.md) cover the allowlist and the `421` in detail.
+
+`Settings` (what `mcp.settings` holds) now has only the constructor-owned fields: `debug`, `log_level`, the `warn_on_duplicate_*` flags, `dependencies`, `lifespan`, and `auth`. If you were mutating transport values via `mcp.settings` after construction (e.g. `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead: assigning a removed field now raises `ValueError: "Settings" object has no field "port"`. `settings.lifespan` is read once, at construction, so reassigning it afterwards has no effect. Once `streamable_http_app()` has been called, the values it was built with live on the runtime objects (e.g. `mcp.session_manager.stateless`, `mcp.session_manager.json_response`).
+
+### `MCP_*` environment variables and `.env` files are no longer read
+
+The `Settings` docstring advertised configuration via `MCP_*` environment variables and a `.env` file (e.g. `MCP_DEBUG=true`), but constructor arguments have always taken precedence, so those environment variables never took effect. `Settings` is now a plain Pydantic model rather than a `pydantic-settings` `BaseSettings`, and `pydantic-settings` is no longer a dependency of the SDK.
+
+If you want environment-driven configuration, read the environment yourself and pass the values to the constructor:
+
+```python
+import os
+
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo", debug=os.environ.get("MCP_DEBUG") == "true")
+```
+
+If your own code uses `pydantic-settings`, add it to your project's dependencies directly.
 
 ### Streamable HTTP request bodies are limited to 4 MiB
 
@@ -705,6 +868,17 @@ When serving streamable HTTP (stateful or `stateless_http=True`), the server's `
 
 Lifespans that set up process-wide state (connection pools, caches, background tasks) are unaffected — they now run once instead of per session/request. If your lifespan was acquiring per-connection resources, move that acquisition into the handler body; per-connection cleanup belongs on the connection's `exit_stack` (a public way to reach it from high-level `@mcp.tool()` handlers is planned).
 
+### Streamable HTTP: session manager, `EventStore`, and stateless mode unchanged
+
+Beyond the constructor parameters that moved to `run()`/`streamable_http_app()` and the lifespan change above, the server-side Streamable HTTP machinery is as in v1:
+
+- `mcp.server.streamable_http` still exports the `EventStore` ABC (`store_event()`, `replay_events_after()`), `EventMessage`, `EventCallback`, `EventId`, and `StreamId` with unchanged signatures; a custom `EventStore` keeps importing `JSONRPCMessage` from `mcp.types`, unchanged.
+- `StreamableHTTPSessionManager` keeps its constructor and its `run()` / `handle_request()` methods (see [Lowlevel `Server`: what did not change](#lowlevel-server-what-did-not-change)); its `stateless=` parameter is unrelated to the removed [`Server.run(stateless=)` flag](#serverrun-no-longer-takes-a-stateless-flag).
+- `mcp.session_manager` still returns the manager once `streamable_http_app()` has been called, with the same `stateless`, `json_response`, `event_store`, and `retry_interval` attributes.
+- `stateless_http=True` still serves each request with a fresh transport, no `Mcp-Session-Id`, and no state carried between requests; `ctx.close_sse_stream()` and `ctx.close_standalone_sse_stream()` are still available on the handler `Context`.
+
+Only private attributes moved: `mcp._mcp_server` is now `mcp._lowlevel_server` (see [Registering lowlevel handlers from `MCPServer`](#registering-lowlevel-handlers-from-mcpserver)), and `_session_manager` now lives on that lowlevel `Server`. Prefer the public `mcp.session_manager` property to either.
+
 ### `MCPServer.get_context()` removed
 
 `MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.
@@ -717,7 +891,7 @@ Lifespans that set up process-wide state (connection pools, caches, background t
 @mcp.tool()
 async def my_tool(x: int) -> str:
     ctx = mcp.get_context()
-    await ctx.info("Processing...")
+    await ctx.report_progress(1, 2)
     return str(x)
 ```
 
@@ -728,7 +902,7 @@ from mcp.server.mcpserver import Context
 
 @mcp.tool()
 async def my_tool(x: int, ctx: Context) -> str:
-    await ctx.info("Processing...")
+    await ctx.report_progress(1, 2)
     return str(x)
 ```
 
@@ -796,8 +970,11 @@ enforce the spec's egress rule: an undeclared capability (form-mode `elicitation
 or `tool_choice`) fails the call with a `-32021`
 `MISSING_REQUIRED_CLIENT_CAPABILITY` JSON-RPC error instead of sending a
 request the client cannot handle. This applies on 2025-11-25 sessions with a
-live back-channel too; a session with no back-channel keeps failing with its
-no-back-channel error. To migrate, declare the capability: the SDK client
+live back-channel too; a pre-`2026-07-28` session with no back-channel
+(stateless HTTP, or streamable HTTP with `json_response=True`) keeps failing
+with its no-back-channel error. At `2026-07-28` a resolver never uses a
+back-channel — it answers with an `InputRequiredResult` — so the `-32021`
+check applies there unconditionally. To migrate, declare the capability: the SDK client
 declares `elicitation`, `sampling`, and `roots` when the matching callback is
 set, and `sampling.tools` needs an explicit
 `Client(sampling_capabilities=SamplingCapability(tools=...))`. Direct
@@ -817,14 +994,64 @@ its behavior is unchanged.
 `MCPError` carries `ErrorData` and is the SDK's protocol-error type — raise it
 when the request itself should be rejected (missing client capability,
 elicitation required, invalid parameters). For tool *execution* failures the
-calling LLM should see and react to, raise any other exception or return
-`CallToolResult(is_error=True, ...)` directly; that path is unchanged.
+calling LLM should see and react to, raise `ToolError` or return
+`CallToolResult(is_error=True, ...)` directly.
+
+The client sees this change too. `Client.call_tool()` and
+`ClientSession.call_tool()` raise on a JSON-RPC error response, so a tool that
+rejects with `MCPError` now raises `MCPError` on the calling side (`code`,
+`message`, and `data` intact) instead of returning a `CallToolResult` with
+`isError=True` and the message in `content`:
+
+```python
+# Before (v1)
+result = await session.call_tool("book_flight", {"date": "yesterday"})
+if result.isError:
+    ...  # error text is in result.content
+
+# After (v2)
+try:
+    result = await client.call_tool("book_flight", {"date": "yesterday"})
+except MCPError as e:
+    ...  # e.code, e.message, e.data
+```
 
 ### Resource not found returns `-32602` and resource lookups raise typed exceptions (SEP-2164)
 
-Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a template handler that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
+Reading a missing resource now returns JSON-RPC error code `-32602` (invalid params) with the requested URI in `error.data` (`{"uri": ...}`), per [SEP-2164](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164). Previously the server returned code `0` with no `data`. Clients can now reliably distinguish not-found from other errors; a resource handler (static or template) that raises `ResourceNotFoundError` (from `mcp.server.mcpserver.exceptions`) produces this same response.
 
 The underlying lookups now raise typed exceptions instead of `ValueError`. `ResourceManager.get_resource()` raises `ResourceNotFoundError` when no resource or template matches the URI, and `ResourceTemplate.create_resource()` raises `ResourceError` when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`; `ResourceNotFoundError` subclasses `ResourceError`).
+
+### `Resource` classes reject unknown keyword arguments
+
+The `Resource` base class now sets `extra="forbid"`, so every resource class — `TextResource`, `BinaryResource`, `FunctionResource`, `FileResource`, `HttpResource`, `DirectoryResource`, and your own subclasses — raises `ValidationError` on an unrecognised keyword argument instead of silently dropping it. Previously a typo'd or since-removed parameter (such as `FileResource(is_binary=...)`, below) was accepted and ignored. Remove any stray keyword arguments; if a subclass needs to accept arbitrary extras, set its own `model_config = ConfigDict(extra="allow")`.
+
+### `FileResource.is_binary` replaced by `encoding`
+
+`FileResource` used to take `is_binary: bool` and guess its default from `mime_type` (`text/*` → text, anything else → bytes). Two problems fell out of that: `is_binary=False` could not actually be set — `False` doubled as the "not given" sentinel, so `mime_type="application/json"` always came back as a base64 blob — and text reads used `Path.read_text()` with no encoding, i.e. the platform locale (cp1252 on Windows).
+
+The field is now `encoding: str | None`. A string means "decode with this encoding and serve as text"; `None` means "read bytes and serve as a blob". When omitted it defaults to the `charset` declared in `mime_type` if there is one, otherwise `"utf-8-sig"` for textual mime types (`text/*`, `application/json`, `application/xml`, and any `+json`/`+xml` suffix) and `None` for everything else, so JSON and XML files are now served as text without any configuration. `utf-8-sig` is plain UTF-8 that also drops a byte-order mark if the file has one; a declared `charset=` is used as-is.
+
+Passing the removed `is_binary=` argument now raises a `ValidationError` at construction (see the section above) rather than being silently ignored. A misspelled `encoding` also fails at construction rather than on the first read.
+
+Two edge cases to check. A non-UTF-8 file with a *newly* textual mime type (say a UTF-16 `application/xml`) previously shipped byte-exact as a blob and now fails to decode. And an existing `text/*` file that was only readable through your platform's locale encoding (v1 decoded these with the locale, not UTF-8) now fails too. In both cases set `encoding` to the file's real encoding, or `encoding=None` to serve the bytes as a blob.
+
+**Before (v1):**
+
+```python
+FileResource(uri="file:///logo.png", path=logo, mime_type="image/png", is_binary=True)
+FileResource(uri="file:///notes.txt", path=notes)  # text, decoded with the locale encoding
+```
+
+**After (v2):**
+
+```python
+FileResource(uri="file:///logo.png", path=logo, mime_type="image/png")  # bytes, from mime_type
+FileResource(uri="file:///notes.txt", path=notes)  # text, decoded as UTF-8 (BOM tolerated)
+FileResource(uri="file:///data.json", path=data, mime_type="application/json")  # now text, not a blob
+```
+
+Pass `encoding=None` to force a blob, or `encoding="latin-1"` (etc.) to decode a text file that isn't UTF-8.
 
 ### Resource templates: matching behavior changes
 
@@ -888,10 +1115,25 @@ not be omitted, and needs no default.)
 **Static URIs with Context-only handlers now error.** A non-template
 URI paired with a handler that takes only a `Context` parameter
 previously registered but was silently unreachable (the resource
-could never be read). This now raises `ValueError` at decoration time.
-Context injection for static resources is not supported — use a
-template with at least one variable or access context through other
-means.
+could never be read). This now raises `ValueError` at decoration time
+— resource `Context` injection is only wired up for templates. What to
+do instead depends on why the handler wanted the context. For lifespan
+or application state (what you would read from
+`ctx.request_context.lifespan_context`), a static handler is an
+ordinary function, so read that state from a module-level object (or
+closure) that your `lifespan` populates. For anything on the request
+itself (logging, progress, the session), keep the `Context` parameter
+and add a template variable so the handler registers as a template; an
+optional query variable is enough, and a plain `notes://recent` read
+still matches with the default filled in:
+
+```python
+@mcp.resource("notes://recent{?limit}")
+async def recent_notes(ctx: Context, limit: int = 10) -> str: ...
+```
+
+Such a resource is advertised by `resources/templates/list` rather than
+`resources/list`.
 
 See [URI templates](servers/uri-templates.md) for the full template syntax,
 security configuration, and filesystem safety utilities.
@@ -916,9 +1158,37 @@ await ctx.log(level="info", data="hello")
 
 Positional calls (`await ctx.info("hello")`) are unaffected.
 
+These helpers are themselves deprecated by [SEP-2577](#roots-sampling-and-logging-methods-deprecated-sep-2577) and emit `mcp.MCPDeprecationWarning` on every call, so treat the rename as a keep-it-working fix rather than a migration target: nothing in-protocol replaces pushing log messages to the client, so log with the standard `logging` module instead (see [Logging](handlers/logging.md)) and use `ctx.report_progress()` for progress the client should see.
+
+### `Context.client_id` removed
+
+`Context.client_id` has been removed. It never returned an authenticated client identity: it echoed a non-standard `client_id` key from the request's `_meta`, which nothing in the SDK or the MCP spec populates, so it was `None` unless a caller injected `meta={"client_id": ...}` by hand. The name also collided with the OAuth `client_id`, which is what callers usually mean by "the client".
+
+If you were reading a custom `_meta` key, read it from the meta dict directly. If you want the authenticated OAuth client, use the access token:
+
+```python
+# Before (v1)
+client_id = ctx.client_id
+
+# After (v2) — the raw _meta key, if you were setting it yourself
+meta = ctx.request_context.meta
+client_id = meta.get("client_id") if meta else None
+
+# After (v2) — the authenticated OAuth client (usually what you want)
+from mcp.server.auth.middleware.auth_context import get_access_token
+
+token = get_access_token()
+client_id = token.client_id if token else None
+```
+
 ### `ProgressContext` and `progress()` context manager removed
 
 The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.
+
+The replacement is `Context.report_progress(progress, total=None, message=None)` in an `MCPServer` handler, or `ctx.session.report_progress(progress, total, message)` from a lowlevel `Server` handler. Two differences from `ProgressContext.progress(amount, message)`:
+
+- **`report_progress` takes the absolute current value, not a delta.** `ProgressContext.progress(amount)` accumulated into a running total, so calling `p.progress(10)` twice reported `20`. Passing the same deltas to `report_progress` reports `10` twice — progress that jitters instead of increasing, with no error. Keep the running total yourself.
+- `progress()` raised `ValueError` when the request carried no progress token; `report_progress` is a no-op when the caller did not request progress. The optional `message=` argument is unchanged.
 
 **Before (v1):**
 
@@ -926,7 +1196,8 @@ The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progre
 from mcp.shared.progress import progress
 
 with progress(ctx, total=100) as p:
-    await p.progress(25)
+    await p.progress(25, message="step 1")  # running total: 25
+    await p.progress(25)                    # running total: 50
 ```
 
 **After — use `Context.report_progress()` (recommended):**
@@ -934,19 +1205,18 @@ with progress(ctx, total=100) as p:
 ```python
 @mcp.tool()
 async def my_tool(x: int, ctx: Context) -> str:
-    await ctx.report_progress(25, 100)
+    await ctx.report_progress(25, 100, message="step 1")
+    await ctx.report_progress(50, 100)  # absolute value, not a delta
     return "done"
 ```
 
-**After — use `session.send_progress_notification()` (low-level):**
+**After — lowlevel `Server`:**
 
 ```python
-await session.send_progress_notification(
-    progress_token=progress_token,
-    progress=25,
-    total=100,
-)
+await ctx.session.report_progress(50, 100, message="halfway")
 ```
+
+`ctx.session.report_progress()` also works on the in-process `Client(server)` path (see [Testing utilities](#testing-utilities)); `ctx.session.send_progress_notification(progress_token, progress, total, message)` remains for code that reads `ctx.meta["progress_token"]` itself, and takes the same absolute-value `progress`.
 
 ### `Context.elicit()` schema gate validates the rendered schema
 
@@ -966,7 +1236,7 @@ if isinstance(result, AcceptedElicitation):
     ...  # result.data is a Confirm
 ```
 
-Narrowing on `result.action` (`"accept"` / `"decline"` / `"cancel"`) is unaffected.
+Narrowing on `result.action` (`"accept"` / `"decline"` / `"cancel"`) is unaffected. The `TypeError` is specific to `TypeAliasType` aliases like `ElicitationResult`; the `mcp.types` message unions (`ClientRequest`, `ServerNotification`, `JSONRPCMessage`, ...) are ordinary unions and stay `isinstance`-compatible (see [Replace `RootModel` by union types with `TypeAdapter` validation](#replace-rootmodel-by-union-types-with-typeadapter-validation)).
 
 ### Registering lowlevel handlers from `MCPServer`
 
@@ -988,7 +1258,7 @@ In v2, the lowlevel `Server` supports arbitrary request handlers directly via `a
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp_types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
+from mcp.types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
 
 
 async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
@@ -1008,6 +1278,29 @@ mcp._lowlevel_server.add_request_handler("resources/subscribe", SubscribeRequest
 `_lowlevel_server` is private and may change. A public way to register these handlers on `MCPServer` is planned; until then, use this workaround or use the lowlevel `Server` directly.
 
 ## Lowlevel Server
+
+### Lowlevel `Server`: what did not change
+
+Handler registration, signatures, and return values changed (the sections below); the serving scaffolding around them keeps its v1 import paths and call shapes:
+
+- `server.run(read_stream, write_stream, initialization_options)`, including `raise_exceptions=` (narrowed, see [transport errors no longer re-raised](#lowlevel-serverrunraise_exceptionstrue-transport-errors-no-longer-re-raised)). Only the `stateless=` flag is gone (see [`Server.run()` no longer takes a `stateless` flag](#serverrun-no-longer-takes-a-stateless-flag)).
+- `server.create_initialization_options(notification_options=..., experimental_capabilities=...)`, `server.get_capabilities(...)` (its arguments are now optional), and `NotificationOptions(prompts_changed=, resources_changed=, tools_changed=)`. Both methods gained an optional `extensions=` argument. `create_initialization_options()` is still how you build the `InitializationOptions` passed to `run()`; the only value that differs is `server_version` (see [Unversioned servers report an empty version](#unversioned-servers-report-an-empty-version)).
+- `InitializationOptions` (`from mcp.server import InitializationOptions`, also `mcp.server.models`) gained optional `title`/`description` fields; `NotificationOptions` is importable from `mcp.server` and `mcp.server.lowlevel` as before.
+- `lifespan=` keeps its contract — an async-context-manager factory that receives the `Server` and whose yielded value handlers read as `ctx.lifespan_context` — but is now keyword-only (see [constructor parameters are now keyword-only](#lowlevel-server-constructor-parameters-are-now-keyword-only)) and, under streamable HTTP, entered once at manager startup (see [Streamable HTTP: lifespan now entered once at manager startup](#streamable-http-lifespan-now-entered-once-at-manager-startup)).
+- Server-side transports keep their v1 signatures: `mcp.server.stdio.stdio_server()`, `mcp.server.sse.SseServerTransport(endpoint)` (`connect_sse` / `handle_post_message`), and `mcp.server.streamable_http_manager.StreamableHTTPSessionManager`; the one stdio behavior change is [`stdio_server` keeps the protocol streams on private descriptors](#stdio_server-keeps-the-protocol-streams-on-private-descriptors).
+- Import paths: `from mcp.server import Server` (preferred), `from mcp.server.lowlevel import Server`, and `from mcp.server.lowlevel.server import Server` all resolve; only the `request_ctx` contextvar left `mcp.server.lowlevel.server` (see [`request_context` property removed](#lowlevel-server-request_context-property-removed)). `mcp.server.lowlevel.helper_types.ReadResourceContents` still exists (it is `MCPServer.read_resource()`'s return type), but lowlevel `on_read_resource` handlers return `ReadResourceResult` (see [automatic return value wrapping removed](#lowlevel-server-automatic-return-value-wrapping-removed)).
+
+So a v1 `main()` carries over untouched:
+
+```python
+async def main() -> None:
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(notification_options=NotificationOptions(tools_changed=True)),
+        )
+```
 
 ### Lowlevel `Server`: decorator-based handlers replaced with constructor `on_*` params
 
@@ -1034,7 +1327,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp_types import (
+from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -1083,13 +1376,13 @@ All handlers receive `ctx: ServerRequestContext` as the first argument. The seco
 | `@server.progress_notification()` | `on_progress` | `ProgressNotificationParams` | `None` |
 | — | `on_roots_list_changed` | `NotificationParams \| None` | `None` |
 
-All `params` and return types are importable from `mcp_types`.
+All `params` and return types are importable from `mcp.types`.
 
 **Notification handlers:**
 
 ```python
 from mcp.server import Server, ServerRequestContext
-from mcp_types import ProgressNotificationParams
+from mcp.types import ProgressNotificationParams
 
 
 async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
@@ -1212,7 +1505,7 @@ async def call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import Server
-from mcp_types import CallToolResult, TextContent
+from mcp.types import CallToolResult, TextContent
 
 
 async def handle_call_tool(ctx, params) -> CallToolResult:
@@ -1314,17 +1607,27 @@ server.middleware.append(logging_middleware)
 
 The method and the raw inbound params are `ctx.method` and `ctx.params` (`params` is `None` when the message carries none). Middleware runs before params validation and also wraps unknown methods. To rewrite the method or params before the handler runs, pass an adjusted context through: `await call_next(replace(ctx, params=...))`.
 
+**Note:** `Server.middleware` and the `ServerMiddleware` / `CallNext` / `HandlerResult` types in `mcp.server.context` are marked provisional in the source — their signature and semantics may change — so use middleware to observe (log, time, trace) rather than as a foundation. See [Middleware](advanced/middleware.md).
+
 ### Lowlevel `Server.run(raise_exceptions=True)`: transport errors no longer re-raised
 
 `raise_exceptions=True` now only governs handler exceptions: an exception raised by an `on_*` handler propagates out of `run()`. The JSON-RPC error response is still written to the client first, regardless of the flag.
 
 Previously it also re-raised exceptions yielded by the transport onto the read stream (e.g. JSON parse errors). Those are now debug-logged and dropped regardless of `raise_exceptions`. If you relied on `run()` exiting on a transport-level parse error, that no longer happens.
 
+### Cancelled requests are no longer answered
+
+In v1, when the peer sent `notifications/cancelled` for an in-flight request, the receiving side interrupted the handler and answered the request anyway with a JSON-RPC error, `{"code": 0, "message": "Request cancelled"}` - and `0` is not a defined JSON-RPC error code. The 2026-07-28 transport specifications (stdio, streamable HTTP) say a server **MUST NOT** send any further messages for a cancelled request; the older cancellation pattern already said it **SHOULD NOT**. The sender is expected to stop waiting once it cancels, so that error response has been removed: a cancelled request now produces no response at all - no result, and no error - even if the handler runs to completion or fails afterwards. This applies to both seats (the server for cancelled client requests, and the client for cancelled server-initiated requests such as sampling or elicitation).
+
+The one deliberate exception is the 2025-era streamable HTTP transport (`StreamableHTTPServerTransport`), whose wire can end a request's stream only with a response for that id (and stores that response so a resuming client's replay terminates too). Under the 2025 rule, a SHOULD NOT, that transport now terminates a cancelled request with a valid `-32800` error (`mcp.server.streamable_http.REQUEST_CANCELLED`, mirroring LSP's `RequestCancelled`) in place of the old `0`. Nothing else answers.
+
+Nothing changes for callers of the built-in client: abandoning a call (cancelling the awaiting task, or a per-request timeout) never waited for that response. If you send `notifications/cancelled` by hand while still awaiting the call, the call now receives nothing on most transports (over 2025-era streamable HTTP it fails with `REQUEST_CANCELLED`); stop awaiting it yourself, or use a per-request timeout.
+
 ### `Server.run()` no longer takes a `stateless` flag
 
 The `stateless: bool` parameter on the lowlevel `Server.run()` has been removed. Stateless serving is now a property of how the connection is constructed (the streamable-HTTP manager builds a born-ready `Connection` per request), not a flag the loop driver inspects.
 
-Server-initiated requests that have no channel to travel on now raise `NoBackChannelError` (an `MCPError` subclass) — the same exception regardless of why the channel is absent. In v1 there was no dedicated exception for this case: the transport silently dropped the outbound message and the awaiting call stalled.
+Server-initiated requests that have no channel to travel on — a legacy session against a `stateless_http=True` server, the request-scoped channel of a stateful legacy session against a `json_response=True` server, or any connection negotiated at 2026-07-28 — now raise `NoBackChannelError` instead of stalling as they did in v1 (the transport silently dropped the outbound message), so a stateless-HTTP or JSON-mode `ctx.elicit()` that used to hang now fails fast; see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror) for the exception and the migration paths.
 
 ### Lowlevel `Server`: `request_context` property removed
 
@@ -1346,7 +1649,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server import ServerRequestContext
-from mcp_types import CallToolRequestParams, CallToolResult, TextContent
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
@@ -1393,6 +1696,8 @@ server_ctx: ServerRequestContext[LifespanContextT, RequestT]
 
 One field is newly optional: `request_id` is now `RequestId | None` (in v1 it was always a `RequestId`). The same context class is passed to notification handlers, where `request_id` is `None`, so code that forwards `ctx.request_id` as a definite `RequestId` needs a `None` check to satisfy type checkers.
 
+`ClientRequestContext` (importable from `mcp.client` or `mcp.client.context`) is smaller: a keyword-only dataclass with just `session: ClientSession`, `request_id: RequestId`, and `meta: RequestParamsMeta | None` — no `lifespan_context` or `request` on the client side. Its `request_id` is always a concrete `RequestId`, since the context is only built for the server-initiated `sampling`, `elicitation`, and `roots` requests it is passed to.
+
 The high-level `Context` class (injected into `@mcp.tool()` etc.) similarly dropped its `ServerSessionT` parameter: `Context[ServerSessionT, LifespanContextT, RequestT]` → `Context[LifespanContextT, RequestT]`. Both remaining parameters have defaults, so bare `Context` is usually sufficient:
 
 **Before (v1):**
@@ -1409,11 +1714,21 @@ async def my_tool(ctx: Context) -> str: ...
 async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 ```
 
+The parametrized `Context[MyLifespanState]` annotation currently works only on `@mcp.tool()` handlers. On `@mcp.prompt()` and templated `@mcp.resource("scheme://{param}")` handlers, annotate the parameter as bare `Context` for now: these handlers are wrapped in `pydantic.validate_call`, which re-validates the injected `Context` into a fresh `Context[MyLifespanState]` detached from the request, so the first access to `ctx.request_id`, `ctx.session`, or `ctx.request_context` raises `ValueError: Context is not available outside of a request` (the client sees an internal server error, or `Error creating resource from template ...`). Bare `Context` still exposes `ctx.request_context.lifespan_context`; only its static type is lost.
+
 ### `ServerSession` is now a thin proxy (no longer a `BaseSession`)
 
-`ServerSession` no longer subclasses `BaseSession`. It is now a small per-request proxy that exposes `send_request`, `send_notification`, the typed convenience helpers (`create_message`, `elicit_form`, `send_log_message`, `send_tool_list_changed`, ...), `client_params`, `protocol_version`, and `check_client_capability`. The receive loop, `initialize` handling, and per-request task isolation that previously lived in `ServerSession` have moved to `JSONRPCDispatcher` and `ServerRunner`.
+`ServerSession` no longer subclasses `BaseSession`. It is now a small per-request proxy that exposes `send_request`, `send_notification`, the typed convenience helpers — `create_message`, `elicit` / `elicit_form` / `elicit_url`, `send_elicit_complete`, `list_roots`, `send_log_message`, `send_resource_updated`, `send_resource_list_changed` / `send_tool_list_changed` / `send_prompt_list_changed`, `send_ping`, `send_progress_notification`, and the new `report_progress` — plus `check_client_capability` and the read-only `client_params`, `client_capabilities`, `protocol_version`, and `can_send_request` properties. The receive loop, `initialize` handling, and per-request task isolation that previously lived in `ServerSession` have moved to `JSONRPCDispatcher` and `ServerRunner`.
 
-`ServerSession` is normally constructed for you by `Server.run()` and reached via `ctx.session` in handlers, so most servers are unaffected. If you were constructing or subclassing it directly:
+The helpers keep their v1 signatures, so calls through `ctx.session` are source-compatible: `send_notification(notification, related_request_id=None)`, `send_log_message(level, data, logger=None, related_request_id=None)` (now [SEP-2577-deprecated](#roots-sampling-and-logging-methods-deprecated-sep-2577)), `send_progress_notification(progress_token, progress, total=None, message=None, related_request_id=None)`, `related_request_id=` on `elicit_form` / `elicit_url` / `send_elicit_complete`, and `metadata=ServerMessageMetadata(related_request_id=...)` on `send_request` (used by `create_message`). As in v1, a present `related_request_id` routes the message onto that request's own stream (the POST response in streamable HTTP) and an absent one uses the connection's standalone stream — the one 2026-era exception being `send_log_message`, whose delivery is gated and request-scoped by the spec there (see [Log messages are delivered only to requests that opt in](#log-messages-are-delivered-only-to-requests-that-opt-in)). Two adjustments: `send_resource_updated(uri)` accepts `str | AnyUrl`, and `send_notification` takes the notification model itself — the `types.ServerNotification(...)` wrapper is gone with the other `RootModel` unions (`await session.send_notification(types.ResourceListChangedNotification())`; see [Replace `RootModel` by union types with `TypeAdapter` validation](#replace-rootmodel-by-union-types-with-typeadapter-validation)).
+
+Behavior changes:
+
+- **A new `ServerSession` proxy is built for every inbound message.** In v1 one `ServerSession` lived for the whole connection, and servers commonly keyed per-client state on `ctx.session` identity (a `WeakKeyDictionary[ServerSession, ...]`, `id(ctx.session)`, a set of captured sessions to notify later). In v2 each request and notification gets a fresh proxy over the same connection, so those idioms silently misbehave: a session-keyed dict never finds an earlier key, and a broadcast set grows by one entry per request, sending duplicates. Key on something connection-stable instead — on stateful streamable HTTP the `mcp-session-id` request header names the transport session (read it via `ctx.headers` on `MCPServer` or `ctx.request.headers` in a lowlevel handler); on stdio there is one connection per process. The per-connection object the proxies share is `mcp.server.connection.Connection` (`state`, `session_id`, `exit_stack`), which is not currently reachable from `ctx`.
+- **A captured `ctx.session` stays usable after the handler returns.** The proxy holds the connection, not the request, so a background task can keep calling `send_resource_updated()` / `send_tool_list_changed()` on it while the client stays connected; with `related_request_id` omitted these ride the standalone stream as in v1 — except on a 2026-era connection, where change notifications are dropped and belong on the subscription bus instead ([change notifications travel only on `subscriptions/listen` streams](#change-notifications-travel-only-on-subscriptionslisten-streams)). A request-scoped send is only meaningful while that request is in flight — once the handler returns, that stream is closed and the message is dropped with a debug log.
+- **Notifications after the connection has closed are dropped instead of raising.** In v1 the notification helpers raised `anyio.ClosedResourceError`/`anyio.BrokenResourceError` on a dead connection, and broadcast loops used that exception to prune sessions. In v2 the send returns normally (the drop is debug-logged), so probe with a request instead: `await session.send_ping()` raises `MCPError` once the connection has closed. On a 2026-07-28 connection, though, every server-initiated request raises `NoBackChannelError` (an `MCPError`) regardless, so a ping is a liveness probe only on connections negotiated at 2025-11-25 or earlier.
+
+`ServerSession` is normally constructed for you by `Server.run()` and reached via `ctx.session` in handlers, so beyond the behavior changes above, most servers are unaffected. If you were constructing or subclassing it directly:
 
 **Constructor change:**
 
@@ -1470,7 +1785,7 @@ result = await ctx.session.elicit_form(
 )
 ```
 
-Positional callers (`session.elicit_form(message, schema)`) are unaffected. `elicit_url()` already used snake_case parameters in v1; only `elicit()` and `elicit_form()` changed.
+Positional callers (`session.elicit_form(message, schema)`) are unaffected, and so are the return types: `elicit()`, `elicit_form()`, and `elicit_url()` still return `ElicitResult` (`action` of `"accept"`/`"decline"`/`"cancel"` plus `content`), and `create_message()` still returns `CreateMessageResult` (or `CreateMessageResultWithTools` when `tools`/`tool_choice` are passed). `elicit_url()` already used snake_case parameters in v1; only `elicit()` and `elicit_form()` changed.
 
 ## Clients
 
@@ -1478,11 +1793,11 @@ Positional callers (`session.elicit_form(message, schema)`) are unaffected. `eli
 
 In v1, connecting to a server always performed the `initialize` handshake. In v2, `Client` defaults to `mode='auto'`: on enter it probes `server/discover` and, if the server doesn't support it, falls back to the `initialize` handshake. Pass `mode='legacy'` to force the initialize handshake and reproduce v1's pre-2026 connection sequence (the per-request wire shape still differs from v1; see [Every outbound request now carries a `_meta` envelope](#every-outbound-request-now-carries-a-_meta-envelope-opentelemetry-is-on-by-default)), or pass a modern protocol-version string (e.g. `mode='2026-07-28'`) to pin a version without probing.
 
-The probe is transport-independent: v2 servers answer it over stdio (and any other stream-pair transport) as well as streamable HTTP, so `mode='auto'` lands on `2026-07-28` against a v2 server on every transport. If your stdio workflow relies on server-initiated requests (sampling, push elicitation), pass `mode='legacy'` — a 2026-07-28 connection refuses them on every transport.
+The probe is transport-independent: v2 servers answer it over stdio (and any other stream-pair transport) as well as streamable HTTP, so `mode='auto'` lands on `2026-07-28` against a v2 server on every transport. If your stdio workflow relies on server-initiated requests (sampling, push elicitation, roots), pass `mode='legacy'` — a 2026-07-28 connection refuses them on every transport with `NoBackChannelError` (see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror)).
 
-For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` instance), `mode='auto'` dispatches calls directly through `DirectDispatcher` with no JSON-RPC framing. Pass `mode='legacy'` if you need the in-memory JSON-RPC transport that v1 used.
+For an in-process `Client(server)` (where `server` is a `Server` or `MCPServer` instance), `mode='auto'` dispatches calls directly through `DirectDispatcher` with no JSON-RPC framing. Pass `mode='legacy'` if you need the in-memory JSON-RPC transport that v1 used — or if the server pushes sampling, elicitation, or roots requests, which the default 2026-07-28 in-process connection refuses with `NoBackChannelError` even when the matching callback is set (see the section linked above). `mode` is a `Client` argument only: a lowlevel `ClientSession` you `initialize()` yourself always performs the pre-2026 handshake, and `ClientSession.discover()` is the explicit 2026-07-28 entry point.
 
-`Client.send_ping()` is deprecated (ping is removed in 2026-07-28); pin `mode='legacy'` if you need it.
+`Client.send_ping()` is deprecated (ping is removed in 2026-07-28) and emits `mcp.MCPDeprecationWarning` when called; pin `mode='legacy'` if you need it. The lowlevel `ClientSession.send_ping()` carries no deprecation marker.
 
 ### `ClientSession.get_server_capabilities()` replaced by era-neutral accessors
 
@@ -1517,7 +1832,7 @@ The deprecated `cursor` parameter has been removed from the following `ClientSes
 - `list_prompts()`
 - `list_tools()`
 
-Use `params=PaginatedRequestParams(cursor=...)` instead.
+Each method now takes a single keyword-only argument, `params: PaginatedRequestParams | None = None`. Pass `params=PaginatedRequestParams(cursor=...)` to continue from a `next_cursor`; omit `params` for the first page.
 
 **Before (v1):**
 
@@ -1529,11 +1844,25 @@ result = await session.list_tools(cursor="next_page_token")
 **After (v2):**
 
 ```python
-from mcp_types import PaginatedRequestParams
+from mcp.types import PaginatedRequestParams
 
 result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
+
+To walk every page, feed each result's `next_cursor` back in until it comes back `None`:
+
+```python
+tools = []
+cursor = None
+while True:
+    page = await session.list_tools(params=PaginatedRequestParams(cursor=cursor))
+    tools.extend(page.tools)
+    if (cursor := page.next_cursor) is None:
+        break
+```
+
+The high-level `Client` (including the `Client(server)` replacement described under [Testing utilities](#testing-utilities)) does not accept `params=` — passing it raises `TypeError`. Its list methods keep pagination as a plain keyword, `await client.list_tools(cursor="next_page_token")`, alongside `meta=` and a per-call `cache_mode=` (`"use"` by default, or `"refresh"`/`"bypass"`) for the client's built-in [response cache](client/caching.md); `client.session.list_tools(params=...)` reaches the underlying `ClientSession` if you want the `params` form.
 
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
@@ -1603,7 +1932,7 @@ To migrate, replace `timedelta(...)` with plain seconds, or mechanically append 
 
 ### Client request timeouts now raise `-32001` (`REQUEST_TIMEOUT`) instead of `408`
 
-A client request that exceeds `read_timeout_seconds` still raises the SDK's protocol error (`MCPError`, previously `McpError`), but the error code changed from the HTTP status `408` (`httpx.codes.REQUEST_TIMEOUT`) to the JSON-RPC code `-32001` (`REQUEST_TIMEOUT`, importable from `mcp_types`), matching the TypeScript SDK. The message changed too: v1 said `"Timed out while waiting for response to ClientRequest. Waited 5.0 seconds."`, v2 says `"Request 'tools/call' timed out"`. `MCPError.error` still exists, so a migrated `e.error.code == 408` check runs without error and silently never matches; timeouts fall through to whatever generic-error handling follows. Code that matched on the old message text breaks too. Compare against `REQUEST_TIMEOUT` instead.
+A client request that exceeds `read_timeout_seconds` still raises the SDK's protocol error (`MCPError`, previously `McpError`), but the error code changed from the HTTP status `408` (`httpx.codes.REQUEST_TIMEOUT`) to the JSON-RPC code `-32001` (`REQUEST_TIMEOUT`, importable from `mcp.types`), matching the TypeScript SDK. The message changed too: v1 said `"Timed out while waiting for response to ClientRequest. Waited 5.0 seconds."`, v2 says `"Request 'tools/call' timed out"`. `MCPError.error` still exists, so a migrated `e.error.code == 408` check runs without error and silently never matches; timeouts fall through to whatever generic-error handling follows. Code that matched on the old message text breaks too. Compare against `REQUEST_TIMEOUT` instead.
 
 **Before (v1):**
 
@@ -1624,7 +1953,7 @@ except McpError as e:
 
 ```python
 from mcp.shared.exceptions import MCPError
-from mcp_types import REQUEST_TIMEOUT  # -32001
+from mcp.types import REQUEST_TIMEOUT  # -32001
 
 try:
     result = await client.call_tool("slow_tool", {})
@@ -1635,31 +1964,103 @@ except MCPError as e:
         raise
 ```
 
-`e.error.code` also still works; `e.code` is the v2 convenience property. `mcp.types` no longer exists, so the constant comes from `mcp_types`. The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
+`e.error.code` also still works; `e.code` is the v2 convenience property. The constant is importable from `mcp.types` (or from `mcp_types` in a project that uses that package without the SDK). The example uses the high-level `Client`; `ClientSession.call_tool()` raises the same `MCPError`.
 
 ### `ClientSession` now runs on `JSONRPCDispatcher`; `BaseSession` removed
 
-`ClientSession`'s public surface is unchanged — same constructor apart from timeout parameters (see [Timeouts take `float` seconds instead of `timedelta`](#timeouts-take-float-seconds-instead-of-timedelta)), typed methods, manual `initialize()`, and async context-manager lifecycle — but `BaseSession`, the v1 receive loop underneath it, is removed with no shim. The engine now lives in `JSONRPCDispatcher` (`mcp.shared.jsonrpc_dispatcher`). To customize client behavior, use the `ClientSession` constructor callbacks, or pass a pre-built dispatcher via the new keyword-only `dispatcher=` constructor argument (e.g. a `DirectDispatcher` for in-process embedding).
+`ClientSession`'s public surface is unchanged — same constructor apart from timeout parameters (see [Timeouts take `float` seconds instead of `timedelta`](#timeouts-take-float-seconds-instead-of-timedelta)), typed methods, manual `initialize()`, and async context-manager lifecycle — but `BaseSession`, the v1 receive loop underneath it, is removed with no shim. The engine now lives in `JSONRPCDispatcher` (`mcp.shared.jsonrpc_dispatcher`). To customize client behavior, use the `ClientSession` constructor callbacks, or pass a pre-built dispatcher via the new keyword-only `dispatcher=` constructor argument (e.g. a `DirectDispatcher` for in-process embedding). Passing one of the SDK's own dispatchers (`JSONRPCDispatcher`, or `DirectDispatcher` from `mcp.shared.direct_dispatcher`) is the supported use; the `Dispatcher` protocol's `run()` lifecycle (`mcp.shared.dispatcher`) is documented as provisional, so treat a hand-written implementation as experimental.
 
 Behavior changes:
 
-- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (the request is then answered with an error). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
-- **Timeouts**: a timed-out or abandoned request is now followed by `notifications/cancelled`, so the server stops the handler instead of leaving it running.
+- **Callbacks and notifications now run concurrently.** In v1 the receive loop processed one inbound message at a time, so callbacks ran inline and in order. Now each delivery starts in arrival order but runs as its own task. Server-initiated request callbacks (`sampling`, `elicitation`, `roots`) no longer block other traffic, may themselves send requests without deadlocking, and are interrupted if the server sends `notifications/cancelled` (no response is sent for the cancelled request). Notification callbacks (`logging_callback`, `progress_callback`, `message_handler`) may interleave, and a `progress_callback` may run after the request it reports on has returned; there is no built-in bound on concurrent deliveries. Transport-level errors reach `message_handler` the same way, and a `message_handler` that raises is logged rather than fatal to the session. Callbacks that need strict sequencing must coordinate themselves.
+- **Notification routing is unchanged.** Each server notification is still delivered to its typed callback first — `logging_callback` for log messages, the per-request `progress_callback` whose `progressToken` matches a request you issued (`progress_callback=` still stamps `params._meta.progressToken` with the outbound request id) — and then teed to `message_handler`. `notifications/cancelled` is applied by the dispatcher and never surfaced, also as in v1.
+- **Cancellation now reaches the server.** Cancelling the task or cancel scope awaiting a request (e.g. `anyio.move_on_after()` around `session.call_tool(...)`), or a request hitting its read timeout, now sends `notifications/cancelled` for that request, so the server interrupts the handler instead of leaving it running; v1 sent nothing ([#2507](https://github.com/modelcontextprotocol/python-sdk/issues/2507)). A test that pinned the v1 gap with a strict `xfail` now passes — drop the marker. The cancelled peer no longer answers at all (v1 sent `ErrorData(code=0, message="Request cancelled")`); the one exception, the 2025-era streamable HTTP transport's `-32800` terminator, is discarded like the v1 error since the caller's waiter is already gone — see [Cancelled requests are no longer answered](#cancelled-requests-are-no-longer-answered). There is no public request-id or cancel handle (v1's private `session._request_id` went with `BaseSession`): cancel the awaiting task or scope and the dispatcher sends the cancel for you.
 - **A raising request callback** is answered with `code=0` and the exception text; v1 flattened every callback exception to `INVALID_PARAMS`. For a specific error response, return `ErrorData` (unchanged) or raise `MCPError`. One carve-out: pydantic's `ValidationError` is still answered with `INVALID_PARAMS`, as in v1.
 - **`send_request` before entering the context manager** raises `RuntimeError` immediately; v1 wrote to the transport and hung until the timeout. After the connection has closed it raises `MCPError` (`CONNECTION_CLOSED`) instead. `send_notification` before entry still works.
 - **`send_notification` after the connection has closed is dropped with a debug log instead of raising.** In v1 the send raised `anyio.BrokenResourceError` (peer gone) or `anyio.ClosedResourceError` (session torn down), and this applied to the typed helpers (`send_roots_list_changed`, `send_progress_notification`) too. Code that used the exception as its disconnect signal should probe with a request instead (`send_request` still raises `MCPError` after close, see above) or scope the sending task to the session's lifetime.
-- **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected.
-- **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the `mcp.shared.context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession, Any]` become `ClientRequestContext` (details in [`RequestContext` type parameters simplified](#requestcontext-type-parameters-simplified)).
+- **`send_notification` no longer takes `related_request_id`, and `send_request` no longer accepts `ServerMessageMetadata`.** No client transport ever serialized these hints; progress and response correlation via `progressToken` and the request id is unaffected. This is client-side only: the server's `ServerSession` helpers keep `related_request_id` (see [`ServerSession` is now a thin proxy](#serversession-is-now-a-thin-proxy-no-longer-a-basesession)).
+- **Client callbacks now receive `mcp.client.ClientRequestContext`** (its `request_id` is always populated); the `mcp.shared.context.RequestContext` generic is deleted. Annotations spelled `RequestContext[ClientSession, Any]` become `ClientRequestContext` (details in [`RequestContext` type parameters simplified](#requestcontext-type-parameters-simplified)). Otherwise the callback surface is unchanged: the `sampling_callback=`, `elicitation_callback=`, `list_roots_callback=`, `logging_callback=`, and `message_handler=` keywords; the `SamplingFnT`, `ElicitationFnT`, `ListRootsFnT`, `LoggingFnT`, and `MessageHandlerFnT` protocols (still in `mcp.client.session`); and the params/result types (`CreateMessageRequestParams` → `CreateMessageResult | CreateMessageResultWithTools | ErrorData`, `ElicitRequestParams` → `ElicitResult | ErrorData`, `ListRootsResult | ErrorData` — returning `ErrorData` is not new). The `mcp.client.session`, `mcp.client.stdio`, `mcp.client.sse`, and `mcp.client.streamable_http` module paths are unchanged too, so `unittest.mock.patch` string targets still resolve.
+- **`message_handler` no longer receives requests.** Server-initiated requests are answered by the typed callbacks (`sampling_callback`, `elicitation_callback`, `list_roots_callback`), so the handler's parameter is now `IncomingMessage = ServerNotification | Exception`, exported from `mcp.client`. Replace the hand-written v1 union `RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception` with `IncomingMessage`; `RequestResponder` is gone (below), so the old annotation no longer imports. Delivered notifications are the concrete member instances rather than the v1 `RootModel` wrapper, so drop `.root` (`message.params`, not `message.root.params`); see [Replace `RootModel` by union types with `TypeAdapter` validation](#replace-rootmodel-by-union-types-with-typeadapter-validation).
 
-`mcp.shared.session` is now a compatibility module: `ProgressFnT` is re-exported (its home is `mcp.shared.dispatcher`), and `RequestResponder` remains as a typing-only stub so `MessageHandlerFnT` annotations keep importing. `RequestResponder.respond()` no longer exists, and neither do the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) or `BaseSession._in_flight`; inbound cancellation is handled by `JSONRPCDispatcher`.
+The `mcp.shared.session` module is gone. `RequestResponder` is removed — `respond()`, the cancellation-tracking members (`cancel()`, the `cancelled` and `in_flight` properties, the `on_complete` constructor argument) and `BaseSession._in_flight` have no replacement; inbound cancellation is handled by `JSONRPCDispatcher`. `ProgressFnT` now lives only in `mcp.shared.dispatcher`, and `RequestId` in `mcp.types`. The module's generic typing helpers (`SendRequestT`, `SendResultT`, `SendNotificationT`, `ReceiveRequestT`, `ReceiveResultT`, `ReceiveNotificationT`) went with it and have no re-export — the sessions are no longer generic; `ClientSession.send_request` takes a concrete request model plus a result model class (or `pydantic.TypeAdapter`), so an override that needs a type parameter can declare its own `TypeVar` bound to `pydantic.BaseModel`.
+
+Subclassing `ClientSession` remains a valid interception point: every typed helper routes through `send_request`, and the notification helpers through `send_notification`, so overriding those two still sees that traffic (the 2026-era `discover()`/`send_discover()` are the exception — they call the dispatcher directly). For wire-level interception, use the `dispatcher=` argument instead (with the caveat above on hand-written dispatchers).
+
+Migrating a request callback is a signature-only change (sampling and roots callbacks have the same shape):
+
+**Before (v1):**
+
+```python
+async def elicitation_callback(
+    context: RequestContext[ClientSession, Any], params: types.ElicitRequestParams
+) -> types.ElicitResult | types.ErrorData: ...
+```
+
+**After (v2):**
+
+```python
+from mcp.client import ClientRequestContext
+from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
+
+
+async def elicitation_callback(
+    context: ClientRequestContext, params: ElicitRequestParams
+) -> ElicitResult | ErrorData: ...
+```
 
 ### Experimental Tasks support removed
 
-Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp_types` as types-only definitions, except the `TaskExecutionMode` alias, whose literal is now inlined on `ToolExecution.task_support`.
+Tasks ([SEP-1686](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1686)) have been removed from the MCP specification and are no longer part of this SDK. The `mcp.client.experimental`, `mcp.server.experimental`, `mcp.shared.experimental`, and `mcp.server.lowlevel.experimental` modules have been removed, along with the `experimental` properties on `ClientSession`, `ServerSession`, `Server`, and `ServerRequestContext`. The corresponding `Task*` types remain in `mcp.types` as types-only definitions, except the `TaskExecutionMode` alias, whose literal is now inlined on `ToolExecution.task_support`.
 
 The 2026-07-28 revision reintroduces Tasks as an official extension: [SEP-2663](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663), `io.modelcontextprotocol/tasks`, redesigned around polling (`tasks/get`) instead of a blocking `tasks/result`. This SDK does not implement the extension yet.
 
+There is no drop-in replacement for the tasks runtime (`server.experimental.enable_tasks()`, `ctx.experimental.run_task()`, `ServerTaskContext`, and the client's `session.experimental.call_tool_as_task()` / `poll_task()` / `get_task_result()`); the port depends on what the code used tasks for.
+
+**Status updates on a long-running tool.** Run the work inline in the tool handler and replace `ServerTaskContext.update_status()` with progress reporting: `ctx.report_progress(progress, total, message)` on `MCPServer`, or `ctx.session.report_progress(...)` in a lowlevel handler (a no-op when the caller did not request progress). The client no longer creates a task and polls `tasks/get`; it passes `progress_callback=` to `call_tool()` and receives `notifications/progress` while the single call is in flight.
+
+**Before (v1):**
+
+```python
+# server: hand the work to the task runtime and report status from inside it
+async def work(task: ServerTaskContext) -> types.CallToolResult:
+    await task.update_status("Processing step 1...")
+    ...
+
+result = await ctx.experimental.run_task(work)
+
+# client: create the task, poll its status, then fetch the result
+result = await session.experimental.call_tool_as_task("long_running_task", arguments={}, ttl=60000)
+async for status in session.experimental.poll_task(result.task.taskId):
+    print(status.statusMessage)
+task_result = await session.experimental.get_task_result(result.task.taskId, CallToolResult)
+```
+
+**After (v2):**
+
+```python
+# server
+@mcp.tool()
+async def long_running_task(ctx: Context) -> str:
+    await ctx.report_progress(1, total=3, message="Processing step 1...")
+    ...
+    return "Task completed!"
+
+# client
+async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+    print(message)
+
+result = await client.call_tool("long_running_task", {}, progress_callback=on_progress)
+```
+
+**Gathering user input mid-work** (`task.elicit()`, `task.create_message()`). Don't port these to inline `ctx.elicit()` / `ctx.session.create_message()` calls: those are server-initiated requests, refused with `NoBackChannelError` on 2026-07-28 connections (the default for an in-process `Client(server)`). Use the resolver dependencies (`Elicit`, `Sample`) or return an `InputRequiredResult` — both work on every protocol version, and `Client.call_tool()` retries the `InputRequiredResult` rounds automatically; see [Multi-round-trip requests](handlers/multi-round-trip.md) and [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror). The client's existing `elicitation_callback` / `sampling_callback` serve both eras.
+
+**Detached work** (create the task now, fetch its result on a later connection or after a client restart) has no v2 equivalent until the SEP-2663 extension is implemented.
+
+Also drop `execution=ToolExecution(taskSupport=types.TASK_REQUIRED)` from tool definitions: the `TASK_REQUIRED` / `TASK_OPTIONAL` / `TASK_FORBIDDEN` constants are gone from `mcp.types` (`ToolExecution.task_support` takes the plain `"required"` / `"optional"` / `"forbidden"` literal), and no v2 client or server reads the field.
+
 ## Transports
+
+Server-side transport entry points (`stdio_server()`, `SseServerTransport`, `StreamableHTTPSessionManager`) keep their v1 import paths and signatures (see [Lowlevel `Server`: what did not change](#lowlevel-server-what-did-not-change)), so the sections below are client-side apart from [`stdio_server` keeps the protocol streams on private descriptors](#stdio_server-keeps-the-protocol-streams-on-private-descriptors); the other server-side transport changes ([lifespan entered once](#streamable-http-lifespan-now-entered-once-at-manager-startup), the [4 MiB request-body limit](#streamable-http-request-bodies-are-limited-to-4-mib)) sit under MCPServer.
 
 ### `streamablehttp_client` removed
 
@@ -1704,11 +2105,19 @@ async with http_client:
 
 v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx2.AsyncClient` to preserve that behavior.
 
+`streamable_http_client` itself keeps a small signature — `streamable_http_client(url, *, http_client=None, terminate_on_close=True)` — and now yields a 2-tuple (next section). The removed function's other parameters map onto the client you build:
+
+- `headers`, `timeout`, `sse_read_timeout`, `auth`: set them on the `httpx2.AsyncClient` as above. `streamablehttp_client` defaulted to `httpx.Timeout(30, read=300)`; a bare `httpx2.AsyncClient()` falls back to httpx2's flat 5-second timeout, too short for the long-lived GET stream, so set `timeout=httpx2.Timeout(30, read=300)` (as shown) to keep v1's values. Omitting `http_client` still gives you a default client with those timeouts and `follow_redirects=True`.
+- `httpx_client_factory`: gone with no replacement — call your factory yourself and pass the result as `http_client`.
+- `terminate_on_close`: unchanged (default `True`).
+
+Client-side stream resumption is also unchanged: the transport reconnects a dropped GET stream with `Last-Event-ID` on its own, and `session.send_request(..., metadata=ClientMessageMetadata(resumption_token=..., on_resumption_token_update=...))` (from `mcp.shared.message`) works as in v1.
+
 ### `get_session_id` callback removed from `streamable_http_client`
 
 The `get_session_id` callback (third element of the returned tuple) has been removed from `streamable_http_client`. The function now returns a 2-tuple `(read_stream, write_stream)` instead of a 3-tuple.
 
-The `GetSessionIdCallback` type alias is gone as well, so `from mcp.client.streamable_http import GetSessionIdCallback` now raises `ImportError`. Drop the annotation, or inline `Callable[[], str | None]` if your own wrapper code still needs the type.
+The `GetSessionIdCallback` type alias is gone as well, so `from mcp.client.streamable_http import GetSessionIdCallback` now raises `ImportError`. Drop the annotation, or inline `Callable[[], str | None]` if your own wrapper code still needs the type. The `StreamableHTTPTransport.get_session_id()` method that backed the callback is removed too.
 
 If you need to capture the session ID (e.g., for session resumption testing), you can use httpx2 event hooks to capture it from the response headers:
 
@@ -1754,11 +2163,15 @@ async with http_client:
             session_id = captured_session_ids[0] if captured_session_ids else None
 ```
 
+The hook fires on every response the client sees, so `captured_session_ids` gains one entry per response carrying an `mcp-session-id` header (all the same value on one connection; if you reuse an `httpx2.AsyncClient` across reconnects, take the last entry). A hook can also be appended to an existing client: `client.event_hooks["response"].append(capture_session_id)`.
+
+`terminate_on_close` still defaults to `True`, so `streamable_http_client` sends its own `DELETE` for the session on exit; if your test deletes the session itself, pass `terminate_on_close=False`, or the transport's follow-up `DELETE` hits an already-terminated session and logs a `Session termination failed: 404` warning.
+
 ### `StreamableHTTPTransport` parameters removed
 
 The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx2.AsyncClient` instead (see example above).
 
-Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
+`sse_client` is unchanged apart from the `httpx2` retyping: it still takes `url`, `headers`, `timeout`, `sse_read_timeout`, `httpx_client_factory` (which must now return an `httpx2.AsyncClient`), `auth` (now `httpx2.Auth | None`), and `on_session_created`. Only the streamable HTTP transport dropped its transport-level parameters; `StreamableHTTPTransport(url)` now takes just the URL.
 
 ### `StreamableHTTPTransport.protocol_version` attribute removed
 
@@ -1805,7 +2218,7 @@ while True:
 ```python
 from mcp import ClientSession, MCPError
 from mcp.client.streamable_http import streamable_http_client
-from mcp_types import INVALID_REQUEST  # -32600
+from mcp.types import INVALID_REQUEST  # -32600
 
 async with streamable_http_client(url) as (read, write):
     async with ClientSession(read, write) as session:
@@ -1863,11 +2276,119 @@ group (spawned with `start_new_session=True`); the `getpgid()` lookup and the
 per-process terminate/kill fallback are gone. The win32 utilities logger is now
 named `mcp.os.win32.utilities` (was `client.stdio.win32`).
 
+### `stdio_server` keeps the protocol streams on private descriptors
+
+While serving, the stdio transport moves the wire to private descriptors and points
+fd 0 at the null device and fd 1 at stderr, restoring both on exit. Subprocesses and
+handler code can no longer read protocol bytes or write into the stream (the
+[#671](https://github.com/modelcontextprotocol/python-sdk/issues/671) fix). Ordinary
+servers have nothing to do, and code that inspects or manipulates fd 0/1 directly
+during a session now sees the diversions, not the wire.
+
+One pattern needs migrating: watchdog threads that watch fd 0 to detect a vanished
+client (a POSIX-specific pattern; `select.poll` does not exist on Windows). The null
+device does not behave like the old pipe: it never reports `POLLHUP` or `POLLERR`,
+and it reports readable immediately and permanently (`POLLIN` from `poll()` on Linux,
+plus `POLLOUT` under the default event mask; ready from `select()`; and macOS can
+report `POLLNVAL` for devices). A watcher waiting for `POLLHUP` or `POLLERR` is
+silently disarmed; a watcher that treats any event as "client gone" now fires at
+startup instead of never. Watch the parent process instead: on POSIX, exit
+when `os.getppid()` changes, which happens when the client dies because orphaned
+processes are reparented. That works on both v1 and v2 and does not depend on
+descriptor layout.
+
+Also new: a second concurrent `stdio_server()` on the process's default streams now
+raises `RuntimeError` instead of silently contending for stdin, a configuration that
+never worked (there is one stdin).
+
+Also worth knowing: a child process that streams large output to its inherited
+stdout now streams it into the client's stderr channel. Capture output you do not
+want in the client's logs, and be aware that a client which never drains its stderr
+pipe applies back-pressure to the server (true of stderr logging on v1 as well).
+
 ### WebSocket transport removed
 
 The WebSocket transport has been removed: `mcp.client.websocket.websocket_client`, `mcp.server.websocket.websocket_server`, and the `ws` optional dependency extra (`mcp[ws]`) no longer exist. WebSocket was never part of the MCP specification. Use the streamable HTTP transport instead (`mcp.client.streamable_http.streamable_http_client` on the client, `streamable_http_app()` on the server), which supports bidirectional communication with server-to-client streaming over standard HTTP.
 
 ## OAuth and server auth
+
+### Unchanged auth surfaces
+
+Most of the auth API carries over from v1; if a survey of your `mcp.client.auth` /
+`mcp.server.auth` usage only turns up the changes documented in the sections below, that is
+expected. In particular:
+
+- **OAuth client core.** `OAuthClientProvider` keeps its v1 constructor apart from the
+  [removed `timeout`](#timeout-parameter-removed-from-oauthclientprovider) and the
+  [`AuthorizationCodeResult`-returning `callback_handler`](#oauth-callback_handler-returns-authorizationcoderesult),
+  and gains an optional `validate_resource_url` callback for overriding the RFC 8707 resource
+  check: `OAuthClientProvider(server_url, client_metadata, storage, redirect_handler=None,
+  callback_handler=None, client_metadata_url=None, validate_resource_url=None)`. `PKCEParameters`,
+  `TokenStorage`, and the exceptions exported by `mcp.client.auth` (`OAuthFlowError`,
+  `OAuthTokenError`, `OAuthRegistrationError`) are unchanged; import `OAuthTokenError` from
+  `mcp.client.auth`, since `mcp.client.auth.extensions.client_credentials` no longer happens to
+  re-export it. `provider.context` (`OAuthContext`: `current_tokens`, `token_expiry_time`,
+  `is_token_valid()`, `can_refresh_token()`, `clear_tokens()`) also carries over, but remains an
+  internal object with no stability guarantee.
+- **Client-credentials extension.** `ClientCredentialsOAuthProvider`,
+  `PrivateKeyJWTOAuthProvider`, `SignedJWTParameters`, and `static_assertion_provider` in
+  `mcp.client.auth.extensions.client_credentials` keep their v1 signatures apart from the
+  [`scopes=` → `scope=` rename](#scopes-renamed-to-scope-on-the-client-credentials-providers)
+  and the [`RFC7523OAuthClientProvider`/`JWTParameters` removal](#rfc7523oauthclientprovider-and-jwtparameters-removed).
+  Their base class is now `httpx2.Auth` (see
+  [`httpx` and `httpx-sse` replaced by `httpx2`](#httpx-and-httpx-sse-replaced-by-httpx2)),
+  and `token_endpoint_auth_method="client_secret_post"` changes the token request body (see
+  [`client_secret_post` token requests now include `client_id`](#client_secret_post-token-requests-now-include-client_id)).
+- **Discovery and registration helpers.** `mcp.client.auth.utils` keeps its v1 helpers
+  (`build_protected_resource_metadata_discovery_urls`,
+  `build_oauth_authorization_server_metadata_discovery_urls`, the `handle_*_response`
+  coroutines, `extract_field_from_www_auth`/`extract_scope_from_www_auth`,
+  `get_client_metadata_scopes`), retyped from `httpx` to `httpx2` request/response objects.
+  The additions — `union_scopes`, `validate_metadata_issuer`,
+  `validate_authorization_response_iss`, `credentials_match_issuer`, and an optional
+  `client_grant_types` on `get_client_metadata_scopes` — are new, not renames.
+- **Resource-server surface.** `TokenVerifier`, `AccessToken`, and
+  `OAuthAuthorizationServerProvider` (`mcp.server.auth.provider`), `AuthSettings`,
+  `create_auth_routes`/`create_protected_resource_routes`,
+  `BearerAuthBackend`/`RequireAuthMiddleware`, `AuthContextMiddleware`/`get_access_token`,
+  `mcp.shared.auth`, `mcp.shared.auth_utils`, and `MCPServer`'s
+  `auth=`/`auth_server_provider=`/`token_verifier=` keywords all carry over. `AccessToken` has
+  had optional `subject` and `claims` fields since v1.27.2, so a subclass that existed only to
+  add them can be dropped. The SDK-hosted authorization server changes only per
+  [Stricter client authentication at `/token` and `/revoke`](#stricter-client-authentication-at-token-and-revoke),
+  plus the additive [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)
+  identity-assertion pieces (`AuthSettings(identity_assertion_enabled=True)` /
+  `create_auth_routes(..., identity_assertion_enabled=True)` and the overridable
+  `OAuthAuthorizationServerProvider.exchange_identity_assertion`, which rejects the grant by
+  default). The `mcp.shared.auth` metadata models keep their fields, with the additions covered
+  in the sections below.
+
+### `RFC7523OAuthClientProvider` and `JWTParameters` removed
+
+`RFC7523OAuthClientProvider` (deprecated since 1.23.0) and its `JWTParameters` model have been
+removed from `mcp.client.auth.extensions.client_credentials`. The provider implemented the
+[RFC 7523](https://datatracker.ietf.org/doc/html/rfc7523) §2.1 `jwt-bearer` *authorization grant*
+with an SDK-minted or prebuilt JWT, which no MCP auth extension specifies. Replace it with the
+purpose-built provider for the flow you actually run:
+
+- Machine-to-machine with a client secret
+  ([`io.modelcontextprotocol/oauth-client-credentials`](https://modelcontextprotocol.io/extensions/auth/oauth-client-credentials)):
+  `ClientCredentialsOAuthProvider(server_url=..., storage=..., client_id=..., client_secret=...)`.
+- Machine-to-machine authenticating with a JWT instead of a secret (same extension, RFC 7523 §2.2
+  `private_key_jwt` client authentication on the `client_credentials` grant, which is the mode the
+  extension actually specifies for JWTs): `PrivateKeyJWTOAuthProvider(server_url=...,
+  storage=..., client_id=..., assertion_provider=...)`. Build the assertion with
+  `SignedJWTParameters(issuer=..., subject=..., signing_key=...).create_assertion_provider()`
+  (replaces `JWTParameters` signing fields), or wrap a prebuilt JWT with
+  `static_assertion_provider(token)` (replaces `JWTParameters(assertion=...)`).
+- Presenting an enterprise ID-JAG under the `jwt-bearer` grant
+  ([SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990)):
+  `IdentityAssertionOAuthProvider` in `mcp.client.auth.extensions.identity_assertion`.
+
+The provider's third mode — the interactive `authorization_code` flow with `private_key_jwt`
+client authentication on the token exchange — has no replacement and is intentionally dropped; it
+was never exercised by the test suite and no MCP auth extension specifies it. If you depended on
+it, open an issue describing the deployment.
 
 ### OAuth metadata URLs no longer gain a trailing slash
 
@@ -1923,6 +2444,53 @@ async def callback_handler() -> AuthorizationCodeResult:
 ```
 
 Forward the `iss` query parameter from the redirect so the validation can run: omitting it makes the flow fail with `OAuthFlowError` against servers that advertise `authorization_response_iss_parameter_supported`, and silently skips the check for servers that send `iss` without advertising it.
+
+### `scopes=` renamed to `scope=` on the client-credentials providers
+
+`ClientCredentialsOAuthProvider` and `PrivateKeyJWTOAuthProvider` took the requested scope as a keyword named `scopes`, even though the value is a single space-separated string, not a list. The parameter is now `scope`, matching the RFC 6749 wire parameter, `OAuthClientMetadata.scope`, and the newer `IdentityAssertionOAuthProvider`.
+
+**Before (v1):**
+
+```python
+ClientCredentialsOAuthProvider(..., scopes="read write")
+```
+
+**After (v2):**
+
+```python
+ClientCredentialsOAuthProvider(..., scope="read write")
+```
+
+### `client_secret_post` token requests now include `client_id`
+
+With `token_endpoint_auth_method="client_secret_post"`, the token request body now carries both `client_id` and `client_secret`, as [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749) §2.3.1 requires; v1 sent only `client_secret`. The authorization-code and refresh requests already carried `client_id`, so the observable difference is the `client_credentials` exchange sent by `ClientCredentialsOAuthProvider(..., token_endpoint_auth_method="client_secret_post")` (plus `resource`/`scope` when configured):
+
+```text
+# v1
+grant_type=client_credentials&client_secret=SECRET
+# v2
+grant_type=client_credentials&client_id=CLIENT_ID&client_secret=SECRET
+```
+
+Authorization servers that require both parameters answered the v1 request with `401 invalid_client`, so under v1 this provider effectively only worked with the default `client_secret_basic`. Drop any manual `client_id` injection or a test that pinned the 401 — the exchange now succeeds as configured.
+
+### `timeout` parameter removed from `OAuthClientProvider`
+
+`OAuthClientProvider` no longer accepts a `timeout` argument, and `OAuthContext.timeout` is gone. The value was stored but never read, so it never bounded anything — removing it changes nothing at runtime.
+
+**Before (v1):**
+
+```python
+provider = OAuthClientProvider(server_url, client_metadata, storage, timeout=120.0)
+```
+
+**After (v2):**
+
+```python
+provider = OAuthClientProvider(server_url, client_metadata, storage)
+```
+
+If you passed `timeout` to bound how long you wait for the user to complete authorization, apply that bound where you actually wait — inside your `redirect_handler`/`callback_handler`, e.g. `with anyio.fail_after(120): ...`. The full v2 constructor (v1's parameters minus `timeout`, plus a new optional `validate_resource_url` callback) is listed under [Unchanged auth surfaces](#unchanged-auth-surfaces).
 
 ### Client rejects authorization server metadata with a mismatched `issuer`
 
@@ -2018,6 +2586,27 @@ client_metadata = OAuthClientMetadata(
 
 Under OIDC, omitting `application_type` defaults to `"web"`, which an authorization server may reject for the `localhost` redirect URIs native clients use; sending `"native"` avoids that. Non-OIDC servers ignore the parameter.
 
+### `OAuthClientInformationFull` no longer subclasses `OAuthClientMetadata`, and parses server-substituted metadata
+
+`OAuthClientMetadata` is the registration request a client sends; `OAuthClientInformationFull` is the authorization server's record of a registered client, parsed from its Dynamic Client Registration response. In v1 the second inherited from the first, which typed the response as though it had to be a request this SDK would send. It does not: [RFC 7591 §3.2.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.1) lets the server "reject or replace any of the client's requested metadata values submitted during the registration and substitute them with suitable values", and real servers return an `application_type` outside OIDC Registration's `web`/`native`, an explicit `null`, a `token_endpoint_auth_method` the SDK does not implement, or an empty `redirect_uris`. The inherited strict types turned each of those into a `ValidationError` on a 2xx response - after the server had already provisioned the client, so the registration was discarded and orphaned.
+
+The two are now siblings over a shared `OAuthClientMetadataBase`. `OAuthClientMetadata` keeps its strict types (the SDK still refuses to *send* an unregistered `application_type`), while `OAuthClientInformationFull` accepts what a server may echo:
+
+```python
+# v1
+class OAuthClientInformationFull(OAuthClientMetadata): ...
+
+# v2
+class OAuthClientMetadata(OAuthClientMetadataBase): ...          # request: strict
+class OAuthClientInformationFull(OAuthClientMetadataBase): ...   # server record: tolerant
+```
+
+On `OAuthClientInformationFull`, `application_type` and `token_endpoint_auth_method` are now `str | None`, `grant_types` is `list[str]`, and `redirect_uris` is optional (`list[AnyUrl] | None`, no minimum length). `client_id` is now required (`str`): [RFC 7591 §3.2.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.2.1) makes it mandatory in the response, and a record of a registered client without one was never meaningful. Code that only reads these fields is unaffected. Code that relied on `isinstance(client_info, OAuthClientMetadata)`, or passed an `OAuthClientInformationFull` where an `OAuthClientMetadata` is expected, must reference the record type directly. `validate_scope()` and `validate_redirect_uri()` moved with the record: they are methods of `OAuthClientInformationFull` (the type authorization-server code holds) and are no longer available on `OAuthClientMetadata`.
+
+A registration response the server sends is no longer rejected on these fields: a member serialized as a placeholder - an explicit `null`, or `""` - reads as an omitted key, so its default applies. Whether a substituted value is usable is judged where it matters, not at parse. When Dynamic Client Registration completes with credentials the authorization-code flow cannot use - a `token_endpoint_auth_method` other than `none`, `client_secret_post`, or `client_secret_basic` (including `private_key_jwt`, whose assertion that flow has no key to sign), or a secret-based method for which the server issued no `client_secret` - the client raises `OAuthRegistrationError` naming the problem, before the record is stored or authorization begins. Separately, a stored or pre-registered record carrying a method the SDK does not know at all raises `OAuthTokenError` when it reaches the token exchange; `private_key_jwt` on such a record does not raise there, so `PrivateKeyJWTOAuthProvider`, which signs its assertion only in the client-credentials exchange, still recovers from a rejected refresh by exchanging afresh.
+
+The SDK's own registration endpoint now returns all registered metadata in its 201 response (RFC 7591 §3.2.1) - including the client's `application_type`, which v1 dropped from the echo (silently reporting the default in place of a client's `"web"`), and `client_secret_expires_at` (`0` when the secret never expires) whenever a `client_secret` is issued. It also now answers a `private_key_jwt` registration with `400 invalid_client_metadata` rather than confirming a method it authenticates no requests with.
+
 ### Stricter client authentication at `/token` and `/revoke`
 
 v2 hardens client authentication on SDK-hosted authorization servers (`create_auth_routes`) in two ways. Both apply automatically; server code only needs changing if you hand-provision client records.
@@ -2064,9 +2653,11 @@ LEGACY_CLIENT = OAuthClientInformationFull(
 
 Results returned from server handlers are now validated against the negotiated protocol version's schema before being sent. A result that does not conform raises on the server side and the client receives an `INTERNAL_ERROR` response. The case most existing code will hit is `Tool.inputSchema`: the spec requires it to contain `"type": "object"`, so an empty `{}` is now rejected.
 
+Validation runs when the result is serialized onto the wire, not when the model is constructed: `Tool(name="t", input_schema={})` still constructs, so a fixture that builds such a tool only fails once a `tools/list` handler returns it. Your handler returns normally; the server then logs the `pydantic.ValidationError` (`handler for 'tools/list' returned an invalid result`) and answers the request with `INTERNAL_ERROR`, so the failure shows up on the client, not at the line that built the model.
+
 ### Client validates inbound traffic against the protocol schema
 
-`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp_types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
+`ClientSession` now validates server requests, notifications, and results against the negotiated protocol version's schema before parsing them into `mcp.types` models. Spec-invalid server output that the previous monolith parse tolerated may now raise `pydantic.ValidationError` from `list_tools()`, `call_tool()`, and similar calls. `_meta` remains the sanctioned place for result extras (and `experimental` for capability extras).
 
 ### Unknown request methods now return `-32601` (Method not found)
 
@@ -2118,7 +2709,9 @@ async with Client(server) as client:
     result = await client.call_tool("my_tool", {"x": 1})
 ```
 
-`Client` accepts the same callback parameters the old helper did (`sampling_callback`, `list_roots_callback`, `logging_callback`, `message_handler`, `elicitation_callback`, `client_info`), keeps `raise_exceptions` for surfacing server-side errors and `read_timeout_seconds` (now a plain `float` of seconds rather than a `timedelta`; see [Timeouts take `float` seconds instead of `timedelta`](#timeouts-take-float-seconds-instead-of-timedelta)), and adds `mode` to control version negotiation (`'auto'` by default; `'legacy'` reproduces v1's initialize-only handshake).
+`Client` accepts the same callback parameters the old helper did (`sampling_callback`, `list_roots_callback`, `logging_callback`, `message_handler`, `elicitation_callback`, `client_info`), keeps `raise_exceptions` for surfacing server-side errors and `read_timeout_seconds` (now a plain `float` of seconds rather than a `timedelta`; see [Timeouts take `float` seconds instead of `timedelta`](#timeouts-take-float-seconds-instead-of-timedelta)), and adds `mode` to control version negotiation (`'auto'` by default; `'legacy'` reproduces v1's initialize-only handshake). Its method signatures are not identical to `ClientSession`'s: the `list_*()` methods paginate with a plain `cursor=` keyword rather than `params=PaginatedRequestParams(...)` (see [`cursor` parameter removed from `ClientSession` list methods](#cursor-parameter-removed-from-clientsession-list-methods)).
+
+One consequence to plan for: unlike the old helper, `Client(server)` negotiates 2026-07-28 by default, where server-initiated requests are refused. A v1 test that drove `ctx.elicit()`, `ctx.session.create_message()`, or `list_roots()` through the helper now fails with `NoBackChannelError` even with the callbacks set. Pin the era — `Client(server, mode="legacy", sampling_callback=..., elicitation_callback=..., list_roots_callback=...)` — or port the handler to a resolver dependency; see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror).
 
 If you need direct access to the underlying `ClientSession` and memory streams (e.g., for low-level transport testing), `create_client_server_memory_streams` is still available in `mcp.shared.memory`:
 
@@ -2144,6 +2737,20 @@ One behavioral caveat when moving progress-reporting handlers onto `Client(serve
 
 ## Deprecations
 
+Every deprecation below is a runtime warning as well as a type-checker one: deprecated methods and helpers emit `mcp.MCPDeprecationWarning` on each call, and the deprecated `Server(...)` constructor parameters (`on_set_logging_level`, `on_roots_list_changed`, `on_progress`) emit it at construction time. The category subclasses `UserWarning`, not `DeprecationWarning`, so it is visible by default; [Deprecated features](deprecated.md) has the full list and each replacement.
+
+Under pytest's `filterwarnings = ["error"]`, that warning becomes an exception at the first deprecated call. Inside an `@mcp.tool()` handler the exception is caught like any other and returned as `CallToolResult(is_error=True)` (`Error executing tool ...`, with the `MCPDeprecationWarning` traceback in the server log), which reads as a failing tool rather than a warning. Keep the warnings visible but non-fatal with:
+
+```toml
+[tool.pytest.ini_options]
+filterwarnings = [
+    "error",
+    "default::mcp.MCPDeprecationWarning",
+]
+```
+
+Use `"ignore::mcp.MCPDeprecationWarning"` (or the `warnings.filterwarnings` call [below](#roots-sampling-and-logging-methods-deprecated-sep-2577)) to silence them instead, and wrap a test that deliberately exercises a deprecated path in `pytest.warns(MCPDeprecationWarning)`.
+
 ### Client resource-subscription methods deprecated (SEP-2575)
 
 [SEP-2575](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2575) removes `resources/subscribe` and `resources/unsubscribe` from the 2026-07-28 wire; per-URI subscriptions travel in the `subscriptions/listen` filter instead. The client verbs now carry `typing_extensions.deprecated`:
@@ -2151,7 +2758,7 @@ One behavioral caveat when moving progress-reporting handlers onto `Client(serve
 - `Client.subscribe_resource()` / `Client.unsubscribe_resource()`
 - `ClientSession.subscribe_resource()` / `ClientSession.unsubscribe_resource()`
 
-They keep working against 2025-era servers; a 2026-07-28 server answers them with `-32601` (method not found). Migrate to the listen driver:
+Calling them emits `mcp.MCPDeprecationWarning`. They keep working against 2025-era servers — where they are still the only way to watch a resource, so code that talks to 2025-11-25 (or earlier) servers should keep calling them and filter the warning rather than migrate. A 2026-07-28 server answers them with `-32601` (method not found); on those connections migrate to the listen driver, `Client.listen()`:
 
 ```python
 async with client.listen(resource_subscriptions=["board://sprint"]) as sub:
@@ -2159,11 +2766,13 @@ async with client.listen(resource_subscriptions=["board://sprint"]) as sub:
         ...
 ```
 
-See the [Subscriptions](client/subscriptions.md#watching-the-stream) page under Clients for the full client-side contract (typed events, the honored filter, clean end vs `SubscriptionLost`).
+On a bare `ClientSession` (no high-level `Client`), the same stream is `listen(session, resource_subscriptions=[...])` from `mcp.client.subscriptions` — the function `Client.listen()` wraps — which requires a 2026-07-28 connection and raises `ListenNotSupportedError` on an older one. See the [Subscriptions](client/subscriptions.md#watching-the-stream) page under Clients for the full client-side contract (typed events, the honored filter, clean end vs `SubscriptionLost`).
 
 ### Roots, Sampling, and Logging methods deprecated (SEP-2577)
 
 [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) deprecates the Roots, Sampling, and Logging features as of the 2026-07-28 spec. The deprecation is advisory only: there are no wire-level changes, capability negotiation is unchanged, and every method keeps working for sessions negotiating 2025-11-25 and earlier.
+
+The deprecation and the back-channel are separate axes. Sampling, roots, and push elicitation are server-initiated *requests*, so on a connection negotiated at 2026-07-28 — including the default in-process `Client(server)` — `create_message()`, `list_roots()`, and `elicit()` / `elicit_form()` raise `NoBackChannelError` rather than working with a warning; the resolver markers `Sample`, `ListRoots`, and `Elicit` are the era-portable form (see [Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`](#server-initiated-sampling-elicitation-and-roots-raise-nobackchannelerror)).
 
 The user-facing methods for these features now carry `typing_extensions.deprecated`, so type checkers, IDEs, and the runtime surface a deprecation warning where they are called:
 
@@ -2173,7 +2782,7 @@ The user-facing methods for these features now carry `typing_extensions.deprecat
 
 Registering a handler for a deprecated capability is deprecated too. The `Server.__init__` parameters `on_set_logging_level` (Logging) and `on_roots_list_changed` (Roots) are now split out into a `typing_extensions.deprecated` overload, so passing either is flagged by type checkers and emits `mcp.MCPDeprecationWarning` at construction time. `on_progress` follows the same pattern (see below). The non-deprecated overload omits these parameters, so the common case stays warning-free.
 
-The runtime warning is emitted as `mcp.MCPDeprecationWarning`, which subclasses `UserWarning` (not `DeprecationWarning`) so it is visible by default. To silence it, filter that category:
+To silence the warnings in code, filter the category:
 
 ```python
 import warnings
@@ -2194,8 +2803,71 @@ On the server side, prefer the new dispatcher-agnostic `ServerSession.report_pro
 
 Everything below this heading describes behavior that only activates on connections
 negotiated at protocol 2026-07-28 or later. Migrated v1 code talking to 2025-11-25 (or
-earlier) peers is unaffected. It is collected here so the rest of this guide stays
-focused on the v1-to-v2 upgrade itself.
+earlier) peers is unaffected — the notable exception being an in-process `Client(server)`,
+which negotiates 2026-07-28 by default (first subsection below). It is collected here so the
+rest of this guide stays focused on the v1-to-v2 upgrade itself.
+
+### Server-initiated sampling, elicitation, and roots raise `NoBackChannelError`
+
+The 2026-07-28 protocol has no server-initiated requests, so a handler that reaches back to the client mid-request — `ctx.elicit()`, `ctx.elicit_url()`, `ctx.session.create_message()`, `ctx.session.list_roots()`, or any other `ServerSession` request helper — raises `NoBackChannelError` on such a connection instead of sending. An in-process `Client(server)` negotiates 2026-07-28 by default (see [`Client` defaults to `mode='auto'`](#client-defaults-to-modeauto)), so the first smoke test of an unchanged v1 sampling or elicitation tool fails, and setting `sampling_callback=` / `elicitation_callback=` on the client changes nothing because no request ever reaches the client.
+
+`NoBackChannelError` lives in `mcp.shared.exceptions` and subclasses `MCPError` (code `-32600`, message `Cannot send '<method>': this transport context has no back-channel for server-initiated requests.`). Raised inside an `@mcp.tool()` it reaches the client as a top-level JSON-RPC error, not `CallToolResult(is_error=True)` — see [`MCPError` raised from an `@mcp.tool()` handler now surfaces as a JSON-RPC error](#mcperror-raised-from-an-mcptool-handler-now-surfaces-as-a-json-rpc-error) — and the [Troubleshooting](troubleshooting.md) page walks through the client-side traceback. The same exception is raised on a legacy session against a `stateless_http=True` server, and on the request-scoped channel of a stateful legacy session against a `json_response=True` server (a JSON body carries exactly one response, so a mid-request `ctx.elicit()` cannot ride it; the session's standalone `GET` stream still carries unrelated messages) — both places v1 dropped the message and stalled ([`Server.run()` no longer takes a `stateless` flag](#serverrun-no-longer-takes-a-stateless-flag)). Notifications never raise it: `send_log_message()`, `send_tool_list_changed()`, and the other notification helpers are dropped with a debug log where no channel exists (and the change-notification helpers are dropped on every 2026-era connection, channel or not — see [change notifications travel only on `subscriptions/listen` streams](#change-notifications-travel-only-on-subscriptionslisten-streams)), and `UrlElicitationRequiredError` from a tool is unaffected (it is an error response, not a request).
+
+Two ways to migrate:
+
+- **Keep the push behavior for now** by connecting at a pre-2026 version: `Client(server, mode="legacy", sampling_callback=..., elicitation_callback=...)` reproduces v1's `initialize` handshake, in-process included; a lowlevel `ClientSession` you `initialize()` yourself already negotiates a 2025-era version, so hand-rolled test harnesses are unaffected. Sampling and roots stay deprecated on this path ([SEP-2577](#roots-sampling-and-logging-methods-deprecated-sep-2577)).
+- **Port to the era-portable form**: return the question instead of pushing it — a `Resolve(...)`-backed parameter whose resolver returns `Elicit`, `Sample`, or `ListRoots` (all in `mcp.server.mcpserver`). The SDK elicits directly on a legacy connection and drives the `InputRequiredResult` multi-round trip at 2026-07-28, with one tool body for both eras; see [Dependencies](handlers/dependencies.md), [Multi-round-trip requests](handlers/multi-round-trip.md), and [Serving legacy clients](run/legacy-clients.md).
+
+**Before (v1):**
+
+```python
+@mcp.tool()
+async def book_table(date: str, ctx: Context) -> str:
+    result = await ctx.elicit(f"Book a table for {date}?", schema=Confirmation)
+    if result.action == "accept" and result.data.confirm:
+        return f"Booked for {date}."
+    return "No booking made."
+```
+
+**After (v2), era-portable:**
+
+```python
+from typing import Annotated
+
+from mcp.server.mcpserver import Elicit, Resolve
+
+
+async def ask_to_confirm(date: str) -> Elicit[Confirmation]:
+    return Elicit(f"Book a table for {date}?", Confirmation)
+
+
+@mcp.tool()
+async def book_table(date: str, answer: Annotated[Confirmation, Resolve(ask_to_confirm)]) -> str:
+    if answer.confirm:
+        return f"Booked for {date}."
+    return "No booking made."
+```
+
+The client's same `elicitation_callback` answers both; the resolver lets the server *return* the question instead of pushing it.
+
+### Log messages are delivered only to requests that opt in
+
+At 2026-07-28 the deprecated logging capability changes shape: `logging/setLevel` is gone, and log delivery becomes a per-request opt-in. A server MUST NOT send `notifications/message` for a request whose `_meta` lacks `io.modelcontextprotocol/logLevel`, and when the key is present it sends only entries at or above that level, on that request's own stream. So on a 2026-era connection the request-scoped log calls — `ctx.info(...)` and friends on `MCPServer`'s `Context`, `ctx.session.send_log_message(...)`, `Context.log(...)` — are silently dropped (debug-logged) unless the request opted in, and dropped when they fall below the requested level; `Connection.log(...)`, which has no request to opt in, never sends there. Nothing changes on 2025-11-25 and earlier connections.
+
+The most visible consequence is the in-process `Client(server)`, which negotiates 2026-07-28 by default: a `logging_callback` that used to receive every message now receives nothing until the client opts in. `Client` grows a `log_level` argument for exactly this, stamped as the reserved `_meta` key on every modern request:
+
+```python
+async with Client(server, logging_callback=on_log, log_level="info") as client:
+    await client.call_tool("chatty", {})  # info and above reach `on_log`
+```
+
+`log_level=None` (the default) means no opt-in — a `logging_callback` alone is not one — and a single request can override the client-wide default by supplying the key in its own `meta=` (e.g. `meta={LOG_LEVEL_META_KEY: "debug"}` from `mcp_types`). The opt-in is what the spec calls for on 2026-era servers generally, not just this SDK's. Because 2026 log delivery is request-scoped by construction, `related_request_id` on `send_log_message` no longer selects the standalone stream there: whatever is delivered rides the requesting stream.
+
+### Change notifications travel only on `subscriptions/listen` streams
+
+On a 2026-07-28 connection, `notifications/tools/list_changed`, `notifications/prompts/list_changed`, `notifications/resources/list_changed`, and `notifications/resources/updated` reach a client only through a `subscriptions/listen` stream it opened — the spec forbids sending a notification type a subscription did not request. The v1-style session helpers (`ctx.session.send_tool_list_changed()`, `send_prompt_list_changed()`, `send_resource_list_changed()`, `send_resource_updated(uri)`) push a bare copy onto the connection's standalone channel instead, so on such a connection they are dropped with a debug log: silently on streamable HTTP (there is no standalone channel), and on stdio, where earlier v2 releases wrote the bare notification to the shared pipe, it is now dropped too. On pre-2026 connections the helpers behave as in v1.
+
+Migrate to publishing on the subscription bus, which stamps and filters per stream: `await ctx.notify_tools_changed()`, `notify_prompts_changed()`, `notify_resources_changed()`, and `notify_resource_updated(uri)` on `MCPServer`'s `Context`, or `await bus.publish(...)` on a low-level `Server`'s own `SubscriptionBus` — see [Subscriptions](handlers/subscriptions.md). A stream only ever receives the kinds and URIs the server acknowledged for it; to gate per caller which subscriptions may be opened, refuse `subscriptions/listen` in a middleware (`MCPServer(middleware=[...])`), covered on the same page.
 
 ### Servers validate `Mcp-Param-*` headers against the request body ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))
 

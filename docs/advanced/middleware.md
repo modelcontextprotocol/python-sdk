@@ -5,18 +5,20 @@ A **middleware** is one async function that wraps every message your server rece
 You write it as `async (ctx, call_next)` and append it to `server.middleware`. That is the whole API.
 
 !!! warning
-    `Server.middleware` is marked **provisional** in the source. The signature and semantics are
-    expected to change before v2 is final. Use it to *observe*: timing, logging, tracing.
-    Do not make it the foundation your server stands on.
+    The middleware list is marked **provisional** in the source: its signature and semantics may
+    change in a 2.x minor release. Use it to *observe* (timing, logging, tracing) and to
+    *refuse* messages; do not make it the foundation your server stands on.
 
-This is a **low-level `Server`** feature. `MCPServer` does not expose a middleware list.
-If `Server(name, on_call_tool=...)` is new to you, read **[The low-level Server](low-level-server.md)** first.
+`MCPServer` takes the list at construction (`MCPServer(name, middleware=[...])`) and exposes it as
+`mcp.middleware`; the low-level `Server` exposes the same list as `server.middleware`. The example
+below uses the low-level `Server`; if `Server(name, on_call_tool=...)` is new to you, read
+**[The low-level Server](low-level-server.md)** first.
 
 ## A timing middleware
 
 One server, one tool, one middleware that logs how long each message took:
 
-```python title="server.py" hl_lines="40-46 50"
+```python title="server.py" hl_lines="39-45 49"
 --8<-- "docs_src/middleware/tutorial001.py"
 ```
 
@@ -46,8 +48,11 @@ That is the point. Middleware wraps **every** inbound message:
 
 * The connection setup: `server/discover`, or `initialize` and `notifications/initialized`
   on a legacy session.
-* Every request and every notification. For a notification, `ctx.request_id is None`,
-  `call_next(ctx)` returns `None`, and whatever you return is discarded.
+* Every request and every notification that reaches the server. For a notification,
+  `ctx.request_id is None`, `call_next(ctx)` returns `None`, and whatever you return is discarded.
+  (On the `2026-07-28` streamable-HTTP path a client's notification POST is acknowledged `202` at
+  the transport and never dispatched, so it does not reach middleware either; that revision
+  defines no client-to-server notifications over HTTP.)
 * Even a method the server has no handler for: `call_next` raises the
   `MCPError(-32601, "Method not found")` *through* your middleware on its way to the client.
 
@@ -57,7 +62,10 @@ In increasing order of how much you should hesitate:
 
 * **Observe.** Time it, count it, log it. The example above.
 * **Refuse.** Raise an `MCPError` *instead of* calling `call_next(ctx)` and that one message is
-  answered with a JSON-RPC error. The connection stays up; the next message goes through.
+  answered with a JSON-RPC error. The connection stays up; the next message goes through. This is
+  how a server gates `subscriptions/listen` per caller:
+  **[Deciding who may watch](../handlers/subscriptions.md#deciding-who-may-watch)** on the
+  Subscriptions page walks through it.
 * **Rewrite.** `ctx` is a dataclass: `await call_next(dataclasses.replace(ctx, params=...))`
   hands the rest of the chain different params than the client sent. Never do this to
   `initialize`: the result the client gets back is built from your rewritten params, but the
@@ -98,10 +106,10 @@ don't think about it. It is a no-op until you install an exporter, and it has it
 
 ## Recap
 
-* A middleware is `async (ctx, call_next) -> result`, appended to `server.middleware` on the
-  low-level `Server`.
-* It wraps **every** inbound message (`server/discover`, `initialize`, requests, notifications,
-  unknown methods) and runs outermost-first.
+* A middleware is `async (ctx, call_next) -> result`, passed as `MCPServer(middleware=[...])` (or
+  appended to `mcp.middleware`), and appended to `server.middleware` on the low-level `Server`.
+* It wraps **every** inbound message that reaches the server (`server/discover`, `initialize`,
+  requests, notifications, unknown methods) and runs outermost-first.
 * `ctx.request_id is None` is how you tell a notification from a request.
 * Raise instead of calling `call_next` to refuse one message; the connection survives.
 * The SDK's own OpenTelemetry tracing is a middleware too, already on the list. See

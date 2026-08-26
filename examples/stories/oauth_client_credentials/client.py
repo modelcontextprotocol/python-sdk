@@ -26,7 +26,7 @@ def build_auth(_http: httpx2.AsyncClient) -> httpx2.Auth:
         storage=InMemoryTokenStorage(),
         client_id=DEMO_CLIENT_ID,
         client_secret=DEMO_CLIENT_SECRET,
-        scopes=DEMO_SCOPE,
+        scope=DEMO_SCOPE,
     )
 
 

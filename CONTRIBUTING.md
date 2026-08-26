@@ -4,53 +4,77 @@ Thank you for your interest in contributing to the MCP Python SDK! This document
 
 ## Before You Start
 
-We welcome contributions! These guidelines exist to save everyone time, yours included. Following them means your work is more likely to be accepted.
+> [!IMPORTANT]
+> **The most useful contribution is a good issue.** Pull requests from outside the maintainer team are only reviewed when a maintainer has assigned you the linked issue, and others are closed automatically. The rest of this section explains why, and what we'd love help with.
 
-**All pull requests require a corresponding issue.** Unless your change is trivial (typo, docs tweak, broken link), create an issue first. Every merged feature becomes ongoing maintenance, so we need to agree something is worth doing before reviewing code. PRs without a linked issue will be closed.
+### Why Issues Rather Than Pull Requests
 
-Having an issue doesn't guarantee acceptance. Wait for maintainer feedback or a `ready for work` label before starting. PRs for issues without buy-in may also be closed.
+This SDK is looked after by a very small team with limited time for review. Now that coding agents can turn any open issue into a plausible-looking pull request within hours, we receive far more PRs than we could ever read carefully — and reviewing a PR properly still takes as long as it always did. When an issue is well described, it's usually quicker for a maintainer, with tooling that already knows this codebase and its conventions, to write a fix that fits than to review and reshape someone else's.
 
-Use issues to validate your idea before investing time in code. PRs are for execution, not exploration.
+What we can't produce ourselves is your context: what you were trying to do, what you expected, a minimal reproduction, the environment it breaks in, the constraint we hadn't considered. That's the valuable part, and it's what a good issue carries — so that's what we ask for first.
+
+### How Pull Requests Get In
+
+A PR from someone outside the maintainer team stays open when both of these hold:
+
+1. Its description links an open issue in this repository with a closing keyword (`Fixes #123`, `Closes #123`, `Resolves #123`).
+2. A maintainer has assigned that issue to you, or the issue carries the [`help wanted`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) label (which means we'd welcome a PR for it from anyone).
+
+Otherwise a bot labels the PR `missing-issue-link`, leaves a comment explaining this, and closes it. If that happens to yours, there's no need to open a new one: it reopens automatically as soon as a maintainer assigns you the issue, or when you edit the description to link one that qualifies. While it's closed, push updates as new commits rather than force-pushing, since GitHub can't reopen a PR whose branch has been rewritten. This applies to small fixes like typos too — for those, an issue pointing at the problem is all we need.
+
+Whether to assign an issue, and to whom, is a [maintainer](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/MAINTAINERS.md#python-sdk) call, and it depends on our capacity at the time as much as on the change itself. Comments that only ask to be assigned don't factor into it, so please skip those (and don't have an agent post them). What does help is engaging with the issue itself: confirming the reproduction, asking about the intended behaviour, or briefly describing the approach you'd take. If you reported the issue and would like to fix it yourself, mention that in the issue — the reporter has first call if we do take an outside PR for it.
+
+### Who We'd Love to Hear From
+
+- **You've hit a real bug.** If you've run into a bug that affects your use case, that's extremely helpful for us to hear about. Talking through why it's a problem for you — rather than just that it is one — helps us both design the right fix and prioritise it, and a minimal reproduction makes it far more likely we can act quickly.
+- **You'd like to learn the codebase or contribute regularly.** You're welcome, with one honest caveat: how much mentoring and review we can offer depends entirely on maintainer capacity, which is very limited at the moment, so replies may be slow and we may not be able to take everything on. The best way to start is by filing and triaging issues well and engaging on existing ones. `good first issue` still needs assignment — we'd like a short conversation first. You can find us in [#python-sdk-dev on the MCP Contributors Discord](https://discord.gg/6CSzBmMkjX).
+- **You maintain another MCP SDK or work on the spec.** Say so on the issue or in #python-sdk-dev; a maintainer can reopen a specific PR past the gate.
 
 ### AI-Assisted Contributions
 
-> [!IMPORTANT]
-> If you used AI assistance for a contribution, disclose it in the PR or issue.
+We use AI tooling constantly and have no problem with you using it too. What matters is that a person is accountable for the result:
 
-We use AI tooling constantly and have no problem with you using it too. But somewhere in the loop there has to be a human who actually understands the change. We have a large backlog and limited reviewer time—we're not spending it on code nobody has read. Not disclosing is also just rude to the people on the other end.
+- **Disclose it.** One line in the PR or issue description.
+- **Own it.** You can explain the change and the reasoning in your own words, and when a maintainer asks a question the answer comes from you rather than being pasted from a chat window.
+- **Keep a human in the loop.** Issues, PRs, and comments generated by an agent without a person who has actually hit the problem and read the output may be closed without warning. If you have an agent filing PRs against open issues autonomously, please turn it off for this repository.
+- **Keep issues short and factual.** What happened, what you expected, and how to reproduce it.
 
-- **Disclose it.** One line in the PR or issue description. That's it.
-- **Own it.** You can explain the change in your own words. When a maintainer asks a question, the answer comes from you, not pasted from a chat window.
-- **No drive-by agents.** PRs, issues, or comments produced by an autonomous agent with no human review get closed on sight. If your agent is auto-filing PRs against our open issues, stop.
+Undisclosed AI contributions may be closed, and repeated cases can lead to a block from the `modelcontextprotocol` org. The org-wide [AI contribution policy](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/AI_POLICY.md) also applies.
 
-Undisclosed AI contributions get closed. Repeat offenders get banned from the `modelcontextprotocol` org.
+### The SDK Is Opinionated
 
-### The SDK is Opinionated
+Not every contribution will be accepted, even with a working implementation and an assigned issue. We prioritize maintainability and consistency over adding capabilities. This is at maintainers' discretion.
 
-Not every contribution will be accepted, even with a working implementation. We prioritize maintainability and consistency over adding capabilities. This is at maintainers' discretion.
-
-### What Needs Discussion
-
-These always require an issue first:
+These always need discussion on an issue before anyone writes code:
 
 - New public APIs or decorators
 - Architectural changes or refactoring
 - Changes that touch multiple modules
 - Features that might require spec changes (these need a [SEP](https://github.com/modelcontextprotocol/modelcontextprotocol) first)
 
-Bug fixes for clear, reproducible issues are welcome—but still create an issue to track the fix.
+### Issue Labels
 
-### Finding Issues to Work On
+| Label | Meaning |
+|-------|---------|
+| [`help wanted`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) | We'd welcome a PR for this from anyone — no assignment needed |
+| [`good first issue`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) | Approachable without deep codebase knowledge; still needs assignment (see above) |
+| [`ready for work`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22ready+for+work%22) | Triaged and queued for a maintainer to pick up (not a call for PRs) |
+| `needs confirmation`, `needs repro`, `needs decision`, `needs design` | Not actionable yet; more information or a maintainer decision is needed first |
 
-| Label | For | Description |
-|-------|-----|-------------|
-| [`good first issue`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) | Newcomers | Can tackle without deep codebase knowledge |
-| [`help wanted`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) | Experienced contributors | Maintainers probably won't get to this |
-| [`ready for work`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22ready+for+work%22) | Maintainers | Triaged and ready for a maintainer to pick up |
+## Issue Triage
 
-Issues labeled `needs confirmation` or `needs maintainer action` are **not** ready for work—wait for maintainer input first.
+Every new issue gets a first look from a maintainer within two business days. That first look is the *triage*: it means labeling the issue and deciding whether it is valid and actionable, not fixing it.
 
-Before starting, comment on the issue so we can assign it to you. This prevents duplicate effort.
+The core labels follow the shared [MCP SDK taxonomy](https://modelcontextprotocol.io/community/sdk-tiers#issue-triage-labels) (the repository also carries workflow labels of its own, such as `needs maintainer` and `needs decision`): one **type** (`bug`, `enhancement`, `question`), one **status** (`needs confirmation`, `needs repro`, `ready for work`, `good first issue`, `help wanted`), and — once actionable — one **priority**:
+
+| Label | Meaning | Commitment |
+|-------|---------|------------|
+| `P0` | Critical: core functionality failures (connections, message exchange, tools/resources/prompts) or a High/Critical-severity security issue | resolved within 7 days |
+| `P1` | Significant bug affecting many users | next release |
+| `P2` | Moderate issue or valuable feature request | as capacity allows |
+| `P3` | Nice-to-have or rare edge case | opportunistic |
+
+Security reports do not belong in the issue tracker; [SECURITY.md](SECURITY.md) has the private channel.
 
 ## Development Setup
 
@@ -76,11 +100,11 @@ uv tool install pre-commit --with pre-commit-uv --force-reinstall
 
    | Change Type | Target Branch | Example |
    |-------------|---------------|---------|
-   | New features, breaking changes | `main` | New APIs, refactors |
+   | New features and fixes for v2 | `main` | New APIs, refactors |
    | Security fixes for v1 | `v1.x` | Critical patches |
-   | Bug fixes for v1 | `v1.x` | Non-breaking fixes |
+   | Critical bug fixes for v1 | `v1.x` | Backports of severe bugs |
 
-   > **Note:** `main` is the v2 development branch. Breaking changes are welcome on `main`. The `v1.x` branch receives only security and critical bug fixes.
+   > **Note:** `main` is the current stable line (v2). The `v1.x` branch is the previous major's maintenance line and receives only security and critical bug fixes.
 
 2. Create a new branch from your chosen base branch
 
@@ -117,7 +141,7 @@ uv run scripts/update_readme_snippets.py
 pre-commit run --all-files
 ```
 
-9. Submit a pull request to the same branch you branched from
+9. Open a pull request against the branch you started from — see [Pull Requests](#pull-requests); you need to be assigned to the linked issue first
 
 ## Code Style
 
@@ -126,9 +150,16 @@ pre-commit run --all-files
 - Add type hints to all functions
 - Include docstrings for public APIs
 
+## Documentation and Translations
+
+Documentation contributions are English only: the pages under `docs/` are the source of truth, and the translated documentation sites are generated from them, guided by the per-language style guides and glossaries under `i18n/<lang>/`. Never edit the generated pages under `i18n/<lang>/pages/`—the tool can't tell a hand edit from its own output, so the edit persists unchecked, is carried forward into future runs, and hides the real fix. To fix a translation, change that language's `instructions.md` or `glossary.json` (or the English page, if that's where the problem is) and re-run `translate --lang <code> --pages <page> …` for the affected pages; the fix then carries into every future run. See [`i18n/README.md`](i18n/README.md) for the details.
+
 ## Pull Requests
 
-By the time you open a PR, the "what" and "why" should already be settled in an issue. This keeps reviews focused on implementation.
+By the time you open a PR, you should be assigned to the issue it fixes (see [How Pull Requests Get In](#how-pull-requests-get-in)) and the "what" and "why" should already be settled there. This keeps reviews focused on implementation.
+
+- Put `Fixes #<issue>` in the description — the intake gate looks for it.
+- If your PR was auto-closed, there's no need to open another: fix the description or wait to be assigned and it reopens itself. Avoid force-pushing the branch while it's closed.
 
 ### Scope
 
@@ -138,11 +169,11 @@ A few dozen lines can be reviewed in minutes. Hundreds of lines across many file
 
 ### What Gets Rejected
 
-- **No prior discussion**: Features or significant changes without an approved issue
-- **Scope creep**: Changes that go beyond what was discussed
-- **Misalignment**: Even well-implemented features may be rejected if they don't fit the SDK's direction
-- **Overengineering**: Unnecessary complexity for simple problems
-- **Undisclosed or unreviewed AI output**: See [AI-Assisted Contributions](#ai-assisted-contributions)
+- **No assigned issue**: closed automatically until one is linked, as above
+- **Scope creep**: changes that go beyond what was discussed on the issue
+- **Misalignment**: even well-implemented features may be rejected if they don't fit the SDK's direction
+- **Overengineering**: unnecessary complexity for simple problems
+- **Undisclosed or unreviewed AI output**: see [AI-Assisted Contributions](#ai-assisted-contributions)
 
 ### Checklist
 
@@ -150,6 +181,7 @@ A few dozen lines can be reviewed in minutes. Hundreds of lines across many file
 2. Add tests for new functionality
 3. Ensure CI passes
 4. Address review feedback
+5. Dependency bound changes and new runtime dependencies follow the [Dependency Policy](DEPENDENCY_POLICY.md)
 
 ## Code of Conduct
 

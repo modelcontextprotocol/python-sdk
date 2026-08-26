@@ -11,17 +11,14 @@ import anyio.to_thread
 from mcp_types import Annotations, Icon, InputRequiredResult
 from pydantic import BaseModel, Field, validate_call
 
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, UnexpectedResourceError
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
-from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 from mcp.shared.path_security import contains_path_traversal, is_absolute_path
 from mcp.shared.uri_template import UriTemplate
-
-logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -152,10 +149,9 @@ class ResourceTemplate(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
-        # Get schema from func_metadata, excluding context parameter
+        # Only the argument model is needed; a resource has no output schema to derive
         func_arg_metadata = func_metadata(
-            fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            fn, skip_names=[context_kwarg] if context_kwarg is not None else [], structured_output=False
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
@@ -218,7 +214,9 @@ class ResourceTemplate(BaseModel):
         carrying the echoed opaque state.
 
         Raises:
-            ResourceError: If creating the resource fails.
+            ResourceError: If the template function raises `ResourceError`.
+            UnexpectedResourceError: If the template function raises anything other
+                than `ResourceError` or `MCPError`. `__cause__` is the original exception.
         """
         try:
             # Add context to params if needed
@@ -247,5 +245,4 @@ class ResourceTemplate(BaseModel):
         except (ResourceError, MCPError):
             raise
         except Exception as exc:
-            logger.exception(f"Error creating resource from template {uri}")
-            raise ResourceError(f"Error creating resource from template {uri}") from exc
+            raise UnexpectedResourceError(f"Error creating resource from template {uri}") from exc

@@ -54,7 +54,6 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         # Get request info
         request_id = ctx.request_id
-        client_id = ctx.client_id
 
         return str(x)
     ```
@@ -170,8 +169,12 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             The resource content as either text or bytes
 
         Raises:
-            ResourceNotFoundError: If no resource or template matches the URI.
-            ResourceError: If template creation or resource reading fails.
+            ResourceNotFoundError: If no resource or template matches the URI, or the
+                handler raised it.
+            ResourceError: If the resource or template function raises `ResourceError`.
+            UnexpectedResourceError: If the resource or template function raises anything
+                else. `__cause__` is the original exception. Left uncaught in a tool, this
+                is logged as the tool's crash, while the two above are not.
             RuntimeError: If the resource returned an `InputRequiredResult`.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
@@ -274,16 +277,6 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             logger=logger_name,
             related_request_id=self.request_id,
         )
-
-    # TODO(maxisbey): see if this is needed otherwise remove
-    @property
-    def client_id(self) -> str | None:
-        """Get the client ID if available.
-
-        Note: this reads from the MCP request's `_meta` params, not the OAuth
-        bearer token. For that, use `get_access_token().client_id`.
-        """
-        return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
 
     @property
     def headers(self) -> Mapping[str, str] | None:
