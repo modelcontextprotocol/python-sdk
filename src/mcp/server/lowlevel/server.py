@@ -776,7 +776,10 @@ class Server(Generic[LifespanResultT]):
                 middleware = [
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(token_verifier),
+                        backend=BearerAuthBackend(
+                            token_verifier,
+                            resource_server_url=auth.resource_server_url if auth.validate_token_resource else None,
+                        ),
                     ),
                     Middleware(AuthContextMiddleware),
                 ]

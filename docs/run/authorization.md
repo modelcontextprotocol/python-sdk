@@ -23,7 +23,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 ```
 
 * `TokenVerifier` is a protocol with one async method. `verify_token` gets the raw token from the `Authorization` header and returns an **`AccessToken`** if it's valid, `None` if it isn't. There is nothing else to implement.
-* This one looks the token up in a table. A real one verifies a JWT signature or calls the authorization server's token-introspection endpoint. That code is yours; the SDK only calls it.
+* This one looks the token up in a table that belongs to this server. A real one verifies a JWT signature or calls the authorization server's token-introspection endpoint, and puts the token's audience (`aud`) in `AccessToken.resource` so the SDK can check the token was issued for this server (see `validate_token_resource` below); if `aud` is a list, use the entry that equals your `resource_server_url`. That code is yours; the SDK only calls it.
 * `token_verifier=` and `auth=` always travel together. Pass one without the other and `MCPServer(...)` raises a `ValueError` before it ever serves a request.
 
 `AuthSettings` is the public face of your resource server:
@@ -31,6 +31,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 * `issuer_url`: the authorization server that issues your tokens.
 * `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives.
 * `required_scopes`: every token must carry all of them.
+* `validate_token_resource`: refuse any token your verifier does not report as issued for `resource_server_url` (its `AccessToken.resource`, compared as a URL, a trailing slash aside). Turn it on when your authorization server binds tokens to the `resource` a client asks for, which is what MCP clients send. If it issues its own audience identifiers instead (an Auth0 API identifier, an Entra application ID), leave it off and check `aud` against that identifier in your verifier: a token you cannot tie to this server should come back as `None`.
 
 !!! tip
     `examples/servers/simple-auth/` in the SDK repository has an `IntrospectionTokenVerifier` that calls

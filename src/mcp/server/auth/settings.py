@@ -1,4 +1,5 @@
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, model_validator
+from typing_extensions import Self
 
 
 class ClientRegistrationOptions(BaseModel):
@@ -40,3 +41,15 @@ class AuthSettings(BaseModel):
         description="The URL of the MCP server to be used as the resource identifier "
         "and base route to look up OAuth Protected Resource Metadata.",
     )
+    validate_token_resource: bool = Field(
+        default=False,
+        description="Only accept tokens the token verifier reports as issued for `resource_server_url` "
+        "(`AccessToken.resource`, the RFC 8707 resource indicator). Enable it when your authorization "
+        "server binds tokens to the `resource` the client requested.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_token_resource_needs_a_resource(self) -> Self:
+        if self.validate_token_resource and self.resource_server_url is None:
+            raise ValueError("validate_token_resource requires resource_server_url")
+        return self

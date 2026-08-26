@@ -182,6 +182,7 @@ def auth_settings(
     required_scopes: Sequence[str] = ("mcp",),
     valid_scopes: Sequence[str] | None = None,
     identity_assertion_enabled: bool = False,
+    validate_token_resource: bool = False,
 ) -> AuthSettings:
     """Build `AuthSettings` for the co-hosted authorization + resource server.
 
@@ -194,7 +195,8 @@ def auth_settings(
 
     `identity_assertion_enabled` advertises and accepts the SEP-990 ID-JAG grant (RFC 7523
     jwt-bearer); the provider must implement `exchange_identity_assertion` for the endpoint to
-    issue tokens.
+    issue tokens. `validate_token_resource` makes the bearer gate refuse tokens whose verifier
+    does not report them as issued for the resource URL.
     """
     required = list(required_scopes)
     valid = list(valid_scopes) if valid_scopes is not None else required
@@ -202,6 +204,7 @@ def auth_settings(
         issuer_url=AnyHttpUrl(BASE_URL),
         resource_server_url=AnyHttpUrl(f"{BASE_URL}/mcp"),
         required_scopes=required,
+        validate_token_resource=validate_token_resource,
         client_registration_options=ClientRegistrationOptions(
             enabled=True, valid_scopes=valid, default_scopes=required
         ),

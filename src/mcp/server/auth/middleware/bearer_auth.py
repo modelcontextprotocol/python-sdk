@@ -1,13 +1,16 @@
 import json
+import logging
 import time
 from typing import Any, TypedDict
 
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, ValidationError
 from starlette.authentication import AuthCredentials, AuthenticationBackend, SimpleUser
 from starlette.requests import HTTPConnection
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier, principal_components
+
+logger = logging.getLogger(__name__)
 
 
 class AuthenticatedUser(SimpleUser):
@@ -39,10 +42,15 @@ def authorization_context(user: AuthenticatedUser) -> AuthorizationContext:
 
 
 class BearerAuthBackend(AuthenticationBackend):
-    """Authentication backend that validates Bearer tokens using a TokenVerifier."""
+    """Authentication backend that validates Bearer tokens using a TokenVerifier.
 
-    def __init__(self, token_verifier: TokenVerifier):
+    When `resource_server_url` is given, only a token whose `AccessToken.resource`
+    (its RFC 8707 resource indicator / audience) is that URL is accepted.
+    """
+
+    def __init__(self, token_verifier: TokenVerifier, *, resource_server_url: AnyHttpUrl | None = None):
         self.token_verifier = token_verifier
+        self.resource_server_url = resource_server_url
 
     async def authenticate(self, conn: HTTPConnection):
         auth_header = next(
@@ -63,7 +71,21 @@ class BearerAuthBackend(AuthenticationBackend):
         if auth_info.expires_at and auth_info.expires_at < int(time.time()):
             return None
 
+        if self.resource_server_url and not self._issued_for_this_resource(auth_info.resource):
+            logger.warning(
+                "Bearer token resource %s is not resource_server_url %s", auth_info.resource, self.resource_server_url
+            )
+            return None
+
         return AuthCredentials(auth_info.scopes), AuthenticatedUser(auth_info)
+
+    def _issued_for_this_resource(self, resource: str | None) -> bool:
+        """Compare as URLs (so case and default-port spelling do not matter), a trailing slash aside."""
+        try:
+            token_resource = str(AnyHttpUrl(resource or ""))
+        except ValidationError:
+            return False
+        return token_resource.removesuffix("/") == str(self.resource_server_url).removesuffix("/")
 
 
 class RequireAuthMiddleware:
