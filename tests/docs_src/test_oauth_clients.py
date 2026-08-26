@@ -9,6 +9,7 @@ from pydantic import AnyUrl, ValidationError
 from docs_src.oauth_clients import tutorial001, tutorial002
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthRegistrationError, OAuthTokenError, TokenStorage
 from mcp.client.auth.extensions.client_credentials import (
+    ClientCredentialsOAuthProvider,
     PrivateKeyJWTOAuthProvider,
     static_assertion_provider,
 )
@@ -78,6 +79,14 @@ async def test_client_credentials_provider_builds_its_own_metadata() -> None:
     assert metadata.token_endpoint_auth_method == "client_secret_basic"
     assert metadata.redirect_uris is None
     assert metadata.scope == "user"
+
+
+@pytest.mark.parametrize("provider_class", [ClientCredentialsOAuthProvider, PrivateKeyJWTOAuthProvider])
+async def test_issuer_is_an_optional_keyword_on_both_machine_to_machine_providers(provider_class: type) -> None:
+    """tutorial002 passes `issuer=`; the page says leaving it out is allowed, on either provider."""
+    issuer = inspect.signature(provider_class.__init__).parameters["issuer"]
+    assert issuer.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert issuer.default is None
 
 
 async def test_the_two_remaining_keyword_arguments_have_defaults() -> None:

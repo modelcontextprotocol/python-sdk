@@ -105,13 +105,14 @@ A nightly job, a CI step, another service. There is no browser and nobody to cli
 
 `ClientCredentialsOAuthProvider` is the same `httpx2.Auth`, minus the human:
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 What changed:
 
 * No `OAuthClientMetadata`, no handlers. You pass `client_id` and `client_secret`; the provider builds a minimal `client_credentials` registration around them and skips dynamic registration entirely.
+* `issuer` names the authorization server that issued those credentials; use the `issuer` value its `/.well-known/oauth-authorization-server` document returns. Discovery still runs as above, but token requests are only ever built from metadata for *that* issuer; if the MCP server points anywhere else, the flow stops with an `OAuthFlowError` instead. Leave it out and the provider uses whichever authorization server discovery finds.
 * `scope` is a space-separated string, the OAuth wire format.
 * Everything downstream is identical: the same `TokenStorage`, the same `httpx2.AsyncClient(auth=...)`, the same `streamable_http_client`.
 
@@ -124,7 +125,7 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
     One more provider lives in `mcp.client.auth.extensions.client_credentials`:
     **`PrivateKeyJWTOAuthProvider`**, for clients that authenticate with a JWT instead of a
     shared secret (`private_key_jwt`, the key-pair and workload-identity flavour). It follows
-    the same pattern: construct one, put it on `auth=`. The same module ships
+    the same pattern: construct one (it takes the same optional `issuer`), put it on `auth=`. The same module ships
     `SignedJWTParameters` and `static_assertion_provider`, two helpers that build its assertion.
 
 There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own page, **[Identity assertion](identity-assertion.md)**.
