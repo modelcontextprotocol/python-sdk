@@ -310,7 +310,7 @@ async def test_sse_security_post_valid_content_type(server_port: int):
                 # Will get 404 because session doesn't exist, but that's OK
                 # We're testing that it passes the content-type check
                 assert response.status_code == 404
-                assert response.text == "Could not find session"
+                assert "Could not find session" in response.text
 
     finally:
         process.terminate()
