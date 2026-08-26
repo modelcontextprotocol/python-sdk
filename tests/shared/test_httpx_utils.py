@@ -118,8 +118,36 @@ async def test_redirect_outside_origin_is_not_followed(location: str):
     assert closed == [True]
 
 
+@pytest.mark.parametrize("status", [301, 302, 303])
+async def test_method_changing_redirect_of_a_post_is_not_followed(status: int):
+    """httpx2 turns a POST into a body-less GET for 301/302/303, which would drop the message, so a
+    same-origin redirect with one of those codes is handed back unfollowed (SDK-defined)."""
+    url = "http://mcp.example/mcp"
+    client, received, _ = _recording_client({url: (status, "/mcp/")})
+
+    async with client, stream_within_origin(client, "POST", url, content=b"payload") as response:
+        pass
+
+    assert response.status_code == status
+    assert received == [f"POST {url}"]
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+async def test_same_origin_redirect_of_a_get_is_followed_for_every_redirect_status(status: int):
+    """A GET keeps its method under every redirect status, so the SSE GET follows all of them
+    within the origin (SDK-defined policy over httpx2's method rules)."""
+    url = "http://mcp.example/sse"
+    client, received, _ = _recording_client({url: (status, "/sse/")})
+
+    async with client, stream_within_origin(client, "GET", url) as response:
+        await response.aread()
+
+    assert response.status_code == 200
+    assert received == [f"GET {url}", "GET http://mcp.example/sse/"]
+
+
 async def test_https_to_http_on_same_host_is_outside_origin():
-    """Only the upgrade direction counts as staying on the origin; a downgrade is refused."""
+    """Only the upgrade direction counts as staying on the origin; a downgrade is not followed."""
     url = "https://mcp.example/mcp"
     client, received, _ = _recording_client({url: (302, "http://mcp.example/mcp")})
 

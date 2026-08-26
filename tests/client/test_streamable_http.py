@@ -831,7 +831,7 @@ async def test_redirect_to_another_origin_fails_that_call_and_keeps_the_session(
 
     assert exc_info.value.error.code == INVALID_REQUEST
     assert exc_info.value.error.message == snapshot(
-        "Redirect to http://other.example/mcp/ not followed: it is outside the endpoint's origin"
+        "Redirect to http://other.example/mcp/ not followed; use that URL as the endpoint if it is the intended server"
     )
     assert [url for url in urls if "other.example" in url] == []
 
@@ -861,3 +861,57 @@ async def test_redirected_notification_is_dropped_and_the_next_message_still_goe
     assert reply.message.id == 7
     assert reply.message.error.code == INVALID_REQUEST
     assert urls == ["http://test/mcp", "http://test/mcp"]
+
+
+@pytest.mark.anyio
+async def test_get_stream_gives_up_without_retrying_when_the_endpoint_redirects_elsewhere() -> None:
+    """SDK-defined: the standalone GET stream is not opened through a redirect to another origin,
+    and since the same GET would be redirected again the transport logs it and stops instead of
+    spending its reconnection attempts."""
+    gets: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        gets.append(str(request.url))
+        return httpx2.Response(307, headers={"location": "http://other.example/mcp"})
+
+    transport = StreamableHTTPTransport("http://test/mcp")
+    transport.session_id = "session-1"
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    with anyio.fail_after(5):
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
+            await transport.handle_get_stream(http, send)
+    assert gets == ["http://test/mcp"]
+    send.close()
+    receive.close()
+
+
+@pytest.mark.anyio
+async def test_resumption_redirected_elsewhere_resolves_that_request_with_an_error() -> None:
+    """SDK-defined: a resumption GET answered with a redirect to another origin is not followed;
+    the resumed request is resolved with an error naming the location rather than left waiting."""
+    seen: list[tuple[str, str | None]] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append((f"{request.method} {request.url}", request.headers.get("last-event-id")))
+        return httpx2.Response(307, headers={"location": "http://other.example/mcp"})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(
+                SessionMessage(
+                    JSONRPCRequest(jsonrpc="2.0", id="resume-1", method="tools/call", params={}),
+                    metadata=ClientMessageMetadata(resumption_token="evt-41"),
+                )
+            )
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "resume-1"
+    assert reply.message.error.code == INVALID_REQUEST
+    assert reply.message.error.message == snapshot(
+        "Redirect to http://other.example/mcp not followed; use that URL as the endpoint if it is the intended server"
+    )
+    assert seen == [("GET http://test/mcp", "evt-41")]

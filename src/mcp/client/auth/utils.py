@@ -230,9 +230,9 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
             return True, asm
         except ValidationError:  # pragma: no cover
             return True, None
-    elif response.status_code < 400 or response.status_code >= 500:
-        return False, None  # Non-4XX error, stop trying
-    return True, None
+    elif 300 <= response.status_code < 500:
+        return True, None  # Not served at this URL (redirects are not followed) - try the next candidate
+    return False, None  # Server error or unexpected status, stop trying
 
 
 def validate_authorization_response_iss(iss: str | None, oauth_metadata: OAuthMetadata | None) -> None:

@@ -9,7 +9,8 @@ async def fetch_website(
     url: str,
 ) -> list[types.ContentBlock]:
     headers = {"User-Agent": "MCP Test Server (github.com/modelcontextprotocol/python-sdk)"}
-    async with httpx2.AsyncClient(headers=headers, follow_redirects=True) as client:
+    timeout = httpx2.Timeout(30, read=300)
+    async with httpx2.AsyncClient(headers=headers, timeout=timeout, follow_redirects=True) as client:
         response = await client.get(url)
         response.raise_for_status()
         return [types.TextContent(type="text", text=response.text)]

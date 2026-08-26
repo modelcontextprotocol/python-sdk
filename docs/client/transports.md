@@ -29,7 +29,7 @@ Pass a URL string and you get **Streamable HTTP**, the transport you deploy behi
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx2.AsyncClient` configured the way MCP needs: a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open. Whichever client is underneath, the transport follows a redirect only when it stays on the endpoint's origin (same scheme, host and port, or `http` to `https` on the same host with the default ports), which covers a trailing-slash redirect. A redirect anywhere else is not followed, and the call it answered fails with an `MCPError` naming the location; if that address is the server you meant, use it as the URL.
+That is the whole production client. `Client` wraps the URL in `streamable_http_client(...)` for you, on top of an `httpx2.AsyncClient` configured the way MCP needs: a 30-second timeout for connect/write/pool, and a 300-second read timeout because the server may hold a response stream open. Whichever client is underneath, the transport follows a redirect only when it stays on the endpoint's origin (same scheme, host and port, or `http` to `https` on the same host with the default ports) and keeps the request method, which covers a 307/308 trailing-slash redirect. Any other redirect is not followed, and the call it answered fails with an `MCPError` naming the location; if that address is the server you meant, use it as the URL.
 
 !!! check
     A `Client` you have constructed is **not** connected. Construction only picks the transport;

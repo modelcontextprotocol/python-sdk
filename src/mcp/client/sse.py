@@ -53,11 +53,12 @@ async def sse_client(
         timeout: HTTP timeout for regular operations (in seconds).
         sse_read_timeout: Timeout for SSE read operations (in seconds).
         httpx_client_factory: Factory function for creating the httpx2 client. Whichever client it
-            returns, MCP requests follow a redirect only within the endpoint's origin (same scheme,
-            host and port, or http to https on the same host with default ports); a redirect
-            anywhere else is not followed, so connecting fails with `httpx2.HTTPStatusError` for the
-            redirect response. The client's `follow_redirects` setting is not consulted, and
-            requests `auth` makes during an MCP request do not follow redirects.
+            returns, MCP requests follow a redirect only when it stays on the endpoint's origin
+            (same scheme, host and port, or http to https on the same host with default ports) and
+            keeps the request method; any other redirect is not followed, so connecting fails with
+            `httpx2.HTTPStatusError` for the redirect response. The client's `follow_redirects`
+            setting is not consulted, and requests `auth` makes during an MCP request do not follow
+            redirects.
         auth: Optional httpx2 authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """

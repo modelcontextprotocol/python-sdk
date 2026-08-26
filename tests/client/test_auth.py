@@ -24,6 +24,7 @@ from mcp.client.auth.utils import (
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
     get_client_metadata_scopes,
+    handle_auth_metadata_response,
     handle_registration_response,
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
@@ -822,6 +823,17 @@ class TestProtectedResourceMetadata:
         request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("status", "keep_trying"), [(404, True), (307, True), (500, False)])
+async def test_auth_metadata_response_says_whether_to_try_the_next_discovery_url(
+    status: int, keep_trying: bool
+) -> None:
+    """SDK-defined: a 4xx or a 3xx (redirects are not followed on these requests) from a discovery
+    candidate means the metadata is not served there and the next well-known URL is tried; a 5xx
+    stops discovery."""
+    assert await handle_auth_metadata_response(httpx2.Response(status)) == (keep_trying, None)
 
 
 @pytest.mark.parametrize(

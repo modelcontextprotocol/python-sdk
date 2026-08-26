@@ -67,6 +67,14 @@ class ResumptionError(StreamableHTTPError):
     """Raised when resumption request is invalid."""
 
 
+def _unfollowed_redirect(response: httpx2.Response) -> str | None:
+    """Describe a redirect `stream_within_origin` left unfollowed, or None if `response` is not one."""
+    if response.next_request is None:
+        return None
+    location = response.next_request.url
+    return f"Redirect to {location} not followed; use that URL as the endpoint if it is the intended server"
+
+
 @dataclass
 class RequestContext:
     """Context for a request operation."""
@@ -216,6 +224,10 @@ class StreamableHTTPTransport:
                     headers[LAST_EVENT_ID] = last_event_id
 
                 async with sse_within_origin(client, self.url, headers=headers) as event_source:
+                    if (redirect := _unfollowed_redirect(event_source.response)) is not None:
+                        # The same GET would be redirected again, so retrying cannot help.
+                        logger.warning(f"GET stream not opened: {redirect}")
+                        return
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
@@ -259,6 +271,13 @@ class StreamableHTTPTransport:
             original_request_id = ctx.session_message.message.id
 
         async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
+            if (redirect := _unfollowed_redirect(event_source.response)) is not None:
+                logger.warning(redirect)
+                assert original_request_id is not None
+                await self._resolve_abandoned_request(
+                    ctx.read_stream_writer, original_request_id, redirect, code=INVALID_REQUEST
+                )
+                return
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
@@ -345,18 +364,11 @@ class StreamableHTTPTransport:
                     )
                 return
 
-            if response.next_request is not None:
-                # Left unfollowed by stream_within_origin: the location is outside the endpoint's origin.
-                location = response.next_request.url
-                logger.warning(
-                    f"Server redirected {self.url} to {location}, outside the endpoint's origin; not followed"
-                )
+            if (redirect := _unfollowed_redirect(response)) is not None:
+                logger.warning(redirect)
                 if isinstance(message, JSONRPCRequest):
                     await self._resolve_abandoned_request(
-                        ctx.read_stream_writer,
-                        message.id,
-                        f"Redirect to {location} not followed: it is outside the endpoint's origin",
-                        code=INVALID_REQUEST,
+                        ctx.read_stream_writer, message.id, redirect, code=INVALID_REQUEST
                     )
                 return
 
@@ -671,11 +683,12 @@ async def streamable_http_client(
         http_client: Optional pre-configured httpx2.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx2.AsyncClient and pass it here.
-            Whichever client is used, MCP requests follow a redirect only within the endpoint's
-            origin (same scheme, host and port, or http to https on the same host with default
-            ports); a redirect anywhere else is not followed and the message it answered fails with
-            an error naming the location. The client's `follow_redirects` setting is not consulted,
-            and requests its `auth` handler makes during an MCP request do not follow redirects.
+            Whichever client is used, MCP requests follow a redirect only when it stays on the
+            endpoint's origin (same scheme, host and port, or http to https on the same host with
+            default ports) and keeps the request method (307/308); any other redirect is not
+            followed and the message it answered fails with an error naming the location. The
+            client's `follow_redirects` setting is not consulted, and requests its `auth` handler
+            makes during an MCP request do not follow redirects.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:

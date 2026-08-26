@@ -87,13 +87,16 @@ async def stream_within_origin(
     An MCP transport talks to one configured endpoint, and everything on a request
     (headers, auth, body) was configured for that endpoint. A redirect that stays
     on the origin of the request just sent (same scheme, host and port, or http to
-    https on the same host with default ports), such as a trailing-slash
-    normalisation, is followed using httpx2's own next-request rules. A redirect
-    anywhere else is not followed: the redirect response itself is yielded, the
-    way httpx2 hands one back when `follow_redirects` is off, and the caller
-    treats it as the non-success it is. The client's own `follow_redirects`
-    setting is not consulted, and requests an `httpx2.Auth` flow makes during
-    the call are sent the same way, so they do not follow redirects either.
+    https on the same host with default ports) and keeps the request's method,
+    such as a 307/308 trailing-slash normalisation, is followed using httpx2's
+    own next-request rules. Any other redirect is not followed: the redirect
+    response itself is yielded, the way httpx2 hands one back when
+    `follow_redirects` is off, and the caller treats it as the non-success it
+    is. (httpx2 rewrites a POST into a body-less GET for 301/302/303, which
+    would drop the message, so those count as not followed for anything but a
+    GET.) The client's own `follow_redirects` setting is not consulted, and
+    requests an `httpx2.Auth` flow makes during the call are sent the same way,
+    so they do not follow redirects either.
 
     Raises:
         httpx2.TooManyRedirects: More than `client.max_redirects` redirects were followed.
@@ -103,7 +106,11 @@ async def stream_within_origin(
         response = await client.send(request, stream=True, follow_redirects=False)
         # Set by httpx2, with its own method/body/header rules, only when the response is a redirect.
         next_request = response.next_request
-        if next_request is None or not _within_origin(response.request.url, next_request.url):
+        if (
+            next_request is None
+            or next_request.method != response.request.method
+            or not _within_origin(response.request.url, next_request.url)
+        ):
             try:
                 yield response
             finally:
