@@ -317,6 +317,53 @@ async def test_send_raw_request_raises_connection_closed_when_read_stream_eofs_m
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"], indirect=True)
+async def test_send_raw_request_raises_transport_exception_yielded_mid_await():
+    """A blocked send_raw_request is woken with the transport's own exception, not parked
+    until its timeout elapses; the dispatcher keeps serving once the stream recovers (#1401)."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    release_first = anyio.Event()
+
+    async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        # Park the first request so the caller is mid-await when the fault lands.
+        await release_first.wait()
+        return {"echoed": method, "params": {}}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    fault_consumed = anyio.Event()
+
+    async def caller() -> None:
+        with pytest.raises(RuntimeError, match="transport fault"):
+            await client.send_raw_request("ping", None)
+        fault_consumed.set()
+
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, *echo_handlers(Recorder()))
+            await tg.start(server.run, server_on_request, on_notify)
+
+            tg.start_soon(caller)
+            await anyio.sleep(0)
+            # Fault the client's read side mid-await. The buffered send yields no
+            # checkpoint, so wait for the waiter to consume the fault first.
+            await s2c_send.send(RuntimeError("transport fault"))
+            await fault_consumed.wait()
+            release_first.set()  # the parked first response arrives late and is dropped
+            # The stream stays open, so a later round-trip must still work.
+            assert await client.send_raw_request("ping", None) == {"echoed": "ping", "params": {}}
+            s2c_send.close()  # EOF both read streams so run() loops exit and the tg joins
+            c2s_send.close()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
 async def test_run_returns_cleanly_when_read_stream_receive_end_is_closed():
     """Iterating a closed receive end is EOF, not a crash (stateless SHTTP closes it during teardown)."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
@@ -1826,7 +1873,7 @@ def test_resolve_pending_drops_outcome_when_waiter_stream_already_closed():
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
-    send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
+    send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData | Exception](1)
     d._pending[1] = _Pending(send=send, receive=recv)  # pyright: ignore[reportPrivateUsage]
     recv.close()  # waiter gone - send_nowait will raise BrokenResourceError
     d._resolve_pending(1, {"late": True})  # pyright: ignore[reportPrivateUsage]
@@ -1839,7 +1886,7 @@ def test_fan_out_closed_drops_signal_when_waiter_already_has_outcome():
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
-    send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
+    send, recv = anyio.create_memory_object_stream[dict[str, Any] | ErrorData | Exception](1)
     d._pending[1] = _Pending(send=send, receive=recv)  # pyright: ignore[reportPrivateUsage]
     send.send_nowait({"real": "result"})
     d._fan_out_closed()  # pyright: ignore[reportPrivateUsage]

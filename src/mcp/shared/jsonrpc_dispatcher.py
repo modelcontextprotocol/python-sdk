@@ -120,8 +120,8 @@ def cancelled_request_id_from_params(params: Mapping[str, Any] | None) -> Reques
 class _Pending:
     """An outbound request awaiting its response."""
 
-    send: MemoryObjectSendStream[dict[str, Any] | ErrorData]
-    receive: MemoryObjectReceiveStream[dict[str, Any] | ErrorData]
+    send: MemoryObjectSendStream[dict[str, Any] | ErrorData | Exception]
+    receive: MemoryObjectReceiveStream[dict[str, Any] | ErrorData | Exception]
     on_progress: ProgressFnT | None = None
 
 
@@ -329,6 +329,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             MCPError: Peer error response; `REQUEST_TIMEOUT` if
                 `opts["timeout"]` elapsed; `CONNECTION_CLOSED` if the
                 transport closed or the dispatcher shut down.
+            Exception: The read stream yielded an exception (transport
+                fault) while awaiting; re-raised as-is.
             RuntimeError: Called before `run()`.
         """
         # Post-close sends get the same CONNECTION_CLOSED contract as in-flight waiters.
@@ -363,7 +365,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
         # buffer=1: a close signal can arrive before the waiter parks in receive();
         # a WouldBlock later just means the waiter already has its one outcome.
-        send, receive = anyio.create_memory_object_stream[dict[str, Any] | ErrorData](1)
+        send, receive = anyio.create_memory_object_stream[dict[str, Any] | ErrorData | Exception](1)
         pending = _Pending(send=send, receive=receive, on_progress=on_progress)
         self._pending[pending_key] = pending
 
@@ -442,6 +444,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
         if isinstance(outcome, ErrorData):
             raise MCPError(code=outcome.code, message=outcome.message, data=outcome.data)
+        if isinstance(outcome, Exception):
+            # Read stream faulted mid-await: re-raise the transport's exception
+            # as-is so callers see the original type (e.g. httpx.ReadTimeout).
+            raise outcome
         return outcome
 
     async def notify(
@@ -536,6 +542,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         are awaited; any other `await` would head-of-line block the read loop.
         """
         if isinstance(item, Exception):
+            # No response can arrive over a faulted transport: fail the pending
+            # waiters now instead of parking them until their timeout elapses.
+            self._fail_pending(item)
             if self.on_stream_exception is None:
                 logger.debug("transport yielded exception: %r", item)
                 return
@@ -686,14 +695,19 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             self._tg.start_soon(fn, *args)
 
     def _fan_out_closed(self) -> None:
-        """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`.
+        """Wake every pending `send_raw_request` waiter with `CONNECTION_CLOSED`."""
+        self._fail_pending(ErrorData(code=CONNECTION_CLOSED, message="Connection closed"))
 
-        Synchronous: callers may be inside a cancelled scope. Idempotent.
+    def _fail_pending(self, outcome: ErrorData | Exception) -> None:
+        """Wake every pending `send_raw_request` waiter with `outcome`.
+
+        `CONNECTION_CLOSED` on EOF, the transport's exception on a faulted
+        read stream. Synchronous: callers may be inside a cancelled scope.
+        Idempotent.
         """
-        closed = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
         for pending in self._pending.values():
             try:
-                pending.send.send_nowait(closed)
+                pending.send.send_nowait(outcome)
             except (anyio.WouldBlock, anyio.BrokenResourceError, anyio.ClosedResourceError):
                 pass
         self._pending.clear()
