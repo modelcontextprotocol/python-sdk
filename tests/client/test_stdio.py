@@ -9,10 +9,12 @@ client<->server round trip is pinned by tests/interaction/transports/test_stdio.
 
 import errno
 import gc
+import io
 import logging
 import math
 import os
 import signal
+import subprocess
 import sys
 from collections.abc import Callable
 from contextlib import AsyncExitStack, suppress
@@ -220,6 +222,30 @@ def install_fake_process(
 
 
 FAKE_PARAMS = StdioServerParameters(command="fake-server")
+
+
+@pytest.mark.anyio
+async def test_stdio_client_pipes_stderr_for_non_file_errlog(monkeypatch: pytest.MonkeyPatch) -> None:
+    process = FakeProcess(on_stdin_close=lambda: process.exit(0))
+    seen_errlog: list[object] = []
+
+    async def fake_spawn(
+        command: str,
+        args: list[str],
+        env: dict[str, str] | None = None,
+        errlog: TextIO = sys.stderr,
+        cwd: Path | str | None = None,
+    ) -> FakeProcess:
+        seen_errlog.append(errlog)
+        return process
+
+    monkeypatch.setattr(stdio, "_create_platform_compatible_process", fake_spawn)
+    monkeypatch.setattr(stdio, "_terminate_process_tree", lambda proc: proc.exit(-15))
+
+    async with stdio_client(FAKE_PARAMS, errlog=io.StringIO()):
+        pass
+
+    assert seen_errlog == [subprocess.PIPE]
 
 
 def _line(message: JSONRPCMessage) -> bytes:

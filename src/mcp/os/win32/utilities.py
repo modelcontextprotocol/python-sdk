@@ -137,7 +137,7 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
     """Creates a subprocess with Job Object support for tree termination.
@@ -177,7 +177,7 @@ async def _create_windows_fallback_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
     """Spawns via subprocess.Popen and wraps it in FallbackProcess."""

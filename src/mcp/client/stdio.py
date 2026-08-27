@@ -8,8 +8,10 @@ with every wait bounded, so a cancelled caller can neither leak a live server
 process nor hang on one.
 """
 
+import io
 import logging
 import os
+import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
@@ -122,11 +124,19 @@ async def stdio_client(
     """
     command = _get_executable_command(server.command)
 
+    stderr = errlog
+    pipe_stderr = False
+    try:
+        errlog.fileno()
+    except (AttributeError, io.UnsupportedOperation, OSError):
+        stderr = subprocess.PIPE
+        pipe_stderr = True
+
     process = await _create_platform_compatible_process(
         command=command,
         args=server.args,
         env=get_default_environment() | (server.env or {}),
-        errlog=errlog,
+        errlog=stderr,
         cwd=server.cwd,
     )
 
@@ -181,6 +191,16 @@ async def stdio_client(
         finally:
             writer_done.set()
 
+    async def stderr_reader() -> None:
+        process_stderr = getattr(process, "stderr", None)
+        if process_stderr is None or not pipe_stderr:
+            return
+        with suppress(anyio.EndOfStream, anyio.ClosedResourceError, anyio.BrokenResourceError, OSError):
+            while True:
+                chunk = await process_stderr.receive()
+                errlog.write(chunk.decode(server.encoding, errors=server.encoding_error_handler))
+                errlog.flush()
+
     async def shutdown() -> None:
         """Winds the transport down: stop traffic, flush, stop the server, release the streams."""
         # Unblock the reader into its drain: a server stuck writing stdout cannot
@@ -200,6 +220,7 @@ async def stdio_client(
     async with anyio.create_task_group() as tg:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -264,6 +285,9 @@ async def _stop_server_process(process: ServerProcess) -> None:
     close_process_job(process)
     # A kill survivor can hold the stdout pipe open; poison the reader anyway.
     await _close_pipe(process.stdout)
+    process_stderr = getattr(process, "stderr", None)
+    if process_stderr is not None:
+        await _close_pipe(process_stderr)
     _close_subprocess_transport(process)
 
 
@@ -329,7 +353,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | int = sys.stderr,
     cwd: Path | str | None = None,
 ) -> ServerProcess:
     """Spawns the server in its own kill scope.
