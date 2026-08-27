@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, cast
 
 from mcp_types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
@@ -117,3 +118,7 @@ class UrlElicitationRequiredError(MCPError):
         raw_elicitations = cast(list[dict[str, Any]], data.get("elicitations", []))
         elicitations = [ElicitRequestURLParams.model_validate(e) for e in raw_elicitations]
         return cls(elicitations, error.message)
+
+    def __reduce__(self) -> tuple[Callable[[ErrorData], UrlElicitationRequiredError], tuple[ErrorData]]:
+        """Reconstruct the exception from its wire-compatible error payload."""
+        return (self.from_error, (self.error,))

@@ -1,5 +1,7 @@
 """Tests for MCP exception classes."""
 
+import pickle
+
 import pytest
 from mcp_types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
@@ -115,6 +117,27 @@ def test_url_elicitation_required_error_serialization_roundtrip() -> None:
     assert reconstructed.elicitations[0].elicitation_id == original.elicitations[0].elicitation_id
     assert reconstructed.elicitations[0].url == original.elicitations[0].url
     assert reconstructed.elicitations[0].message == original.elicitations[0].message
+
+
+def test_url_elicitation_required_error_pickle_roundtrip() -> None:
+    """Pickle reconstruction preserves the specialized exception payload."""
+    original = UrlElicitationRequiredError(
+        [
+            ElicitRequestURLParams(
+                mode="url",
+                message="Auth required",
+                url="https://example.com/auth",
+                elicitation_id="test-123",
+            )
+        ],
+        message="Please authenticate",
+    )
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(restored, UrlElicitationRequiredError)
+    assert restored.error == original.error
+    assert restored.elicitations == original.elicitations
 
 
 def test_url_elicitation_required_error_data_contains_elicitations() -> None:
