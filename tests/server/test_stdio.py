@@ -117,7 +117,7 @@ async def test_stdio_server_serves_bufferless_std_streams_in_place(monkeypatch: 
                 assert received.message == request
 
             response = JSONRPCResponse(jsonrpc="2.0", id=1, result={})
-            async with write_stream:
+            async with write_stream:  # pragma: no branch
                 await write_stream.send(SessionMessage(response))
 
     assert jsonrpc_message_adapter.validate_json(stdout.getvalue(), by_name=False) == response
