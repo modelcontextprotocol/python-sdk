@@ -21,7 +21,7 @@ from mcp.server.mcpserver.resolve import (
     returns_input_required,
 )
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, NoTitleJsonSchema, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import MCPError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -103,7 +103,7 @@ class Tool(BaseModel):
             skip_names=skip_names,
             structured_output=structured_output,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True, schema_generator=NoTitleJsonSchema)
 
         # Match `model_dump_one_level`'s kwarg keys (alias when present, else field name)
         # so a by-name resolver param resolves to a key that exists at call time.

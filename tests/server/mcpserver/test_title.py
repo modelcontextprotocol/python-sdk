@@ -1,7 +1,10 @@
 """Integration tests for title field functionality."""
 
+from typing import Annotated
+
 import pytest
 from mcp_types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
+from pydantic import Field
 
 from mcp import Client
 from mcp.server.mcpserver import MCPServer
@@ -85,6 +88,23 @@ async def test_tool_title_precedence():
         assert "tool_with_both" in tools
         both = tools["tool_with_both"]
         assert both.title == "Primary Title"
+
+
+@pytest.mark.anyio
+async def test_tool_input_schema_omits_derived_titles_but_preserves_explicit_titles():
+    """Tool schemas omit Pydantic's field-name titles while preserving explicit titles."""
+    mcp = MCPServer(name="SchemaTitleServer")
+
+    @mcp.tool()
+    def typed_tool(required: str, explicit: Annotated[int, Field(title="Explicit Count")]) -> str:  # pragma: no cover
+        return f"{required}: {explicit}"
+
+    async with Client(mcp) as client:
+        tools = await client.list_tools()
+
+    properties = tools.tools[0].input_schema["properties"]
+    assert properties["required"] == {"type": "string"}
+    assert properties["explicit"] == {"title": "Explicit Count", "type": "integer"}
 
 
 @pytest.mark.anyio

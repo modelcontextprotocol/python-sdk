@@ -74,6 +74,14 @@ class StrictJsonSchema(GenerateJsonSchema):
         raise ValueError(f"JSON schema warning: {kind} - {detail}")
 
 
+class NoTitleJsonSchema(StrictJsonSchema):
+    """A strict JSON schema generator that omits titles derived from field names."""
+
+    def field_title_should_be_set(self, schema: Any) -> bool:
+        """Return false so Pydantic does not add a title derived from the field name."""
+        return False
+
+
 _LOCAL_DEFS_PREFIX = "#/$defs/"
 
 
