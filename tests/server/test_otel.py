@@ -14,8 +14,10 @@ import pytest
 from mcp_types import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
     CallToolRequestParams,
     CallToolResult,
+    ErrorData,
     GetPromptRequestParams,
     GetPromptResult,
     ListToolsResult,
@@ -68,6 +70,25 @@ async def test_emits_server_span_with_method_and_target(server: SrvT, spans: Spa
     assert span.attributes["gen_ai.tool.name"] == "mytool"
     assert isinstance(span.attributes["jsonrpc.request.id"], str)
     assert span.status.status_code == StatusCode.UNSET
+
+
+@pytest.mark.anyio
+async def test_client_span_records_jsonrpc_error_response(server: SrvT, spans: SpanCapture):
+    async def missing_method(ctx: Ctx, params: PaginatedRequestParams | None) -> ErrorData:
+        return ErrorData(code=METHOD_NOT_FOUND, message="missing")
+
+    server.add_request_handler("missing", PaginatedRequestParams, missing_method)
+    async with connected_runner(server) as (client, _):
+        spans.clear()
+        with pytest.raises(MCPError) as exc:
+            await client.send_raw_request("missing", {})
+
+    assert exc.value.error.code == METHOD_NOT_FOUND
+    [span] = [s for s in spans.finished() if s.kind == SpanKind.CLIENT]
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == "mcp_error"
+    assert span.attributes["rpc.response.status_code"] == METHOD_NOT_FOUND
 
 
 @pytest.mark.anyio
