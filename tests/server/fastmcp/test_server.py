@@ -1544,3 +1544,20 @@ async def test_sse_app_applies_the_configured_request_body_limit() -> None:
             headers={"Content-Type": "application/json"},
         )
     assert response.status_code == 413
+
+
+def test_streamable_http_app_passes_the_configured_session_limits_to_its_manager() -> None:
+    """SDK-defined: FastMCP forwards `session_idle_timeout` and `max_sessions` to the Streamable HTTP manager;
+    by default sessions expire after 30 idle minutes and one process holds at most 10 000 of them."""
+    default = FastMCP()
+    default.streamable_http_app()
+    assert (default.session_manager.session_idle_timeout, default.session_manager.max_sessions) == (30 * 60, 10_000)
+
+    tuned = FastMCP(session_idle_timeout=5, max_sessions=7)
+    assert (tuned.settings.session_idle_timeout, tuned.settings.max_sessions) == (5, 7)
+    tuned.streamable_http_app()
+    assert (tuned.session_manager.session_idle_timeout, tuned.session_manager.max_sessions) == (5, 7)
+
+    unbounded = FastMCP(session_idle_timeout=None, max_sessions=None)
+    unbounded.streamable_http_app()
+    assert (unbounded.session_manager.session_idle_timeout, unbounded.session_manager.max_sessions) == (None, None)
