@@ -151,6 +151,23 @@ async def test_http_error_status_sends_jsonrpc_error() -> None:
                     await session.list_tools()
 
 
+async def test_http_401_surfaces_unauthorized_to_session() -> None:
+    """Bare HTTP 401 after initialize must surface as Unauthorized (issue #1295).
+
+    Agents need a distinguishable auth denial for operation-specific 401s, not the
+    generic transport fallback string used for other 4xx/5xx statuses.
+    """
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=_create_http_error_app(401))) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+
+                with pytest.raises(MCPError, match="Unauthorized") as exc:  # pragma: no branch
+                    await session.list_tools()
+                assert exc.value.error.code == types.INVALID_REQUEST
+                assert exc.value.error.data == {"http_status": 401}
+
+
 async def test_http_error_on_notification_does_not_hang() -> None:
     """Verify HTTP errors on notifications are silently ignored.
 

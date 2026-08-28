@@ -366,6 +366,15 @@ class StreamableHTTPTransport:
                             error_data = ErrorData(code=METHOD_NOT_FOUND, message="Not Found")
                         else:
                             error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                    elif response.status_code == 401:
+                        # Operation-specific auth denials must stay distinguishable so
+                        # agents can handle them (issue #1295) instead of collapsing into
+                        # an opaque "Server returned an error response".
+                        error_data = ErrorData(
+                            code=INVALID_REQUEST,
+                            message="Unauthorized",
+                            data={"http_status": 401},
+                        )
                     else:
                         error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))

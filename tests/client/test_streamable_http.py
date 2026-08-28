@@ -133,6 +133,33 @@ async def test_pre_session_bare_404_maps_to_method_not_found() -> None:
 
 
 @pytest.mark.anyio
+async def test_bare_401_maps_to_unauthorized_jsonrpc_error() -> None:
+    """Bare HTTP 401 must reach the caller as a correlated, distinguishable JSON-RPC error.
+
+    Authorization failures can be operation-specific (issue #1295). Collapsing them into the
+    generic "Server returned an error response" fallback prevents agents from handling the
+    denial without tearing down the whole session.
+    """
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(401)
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client("http://test/mcp", http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == 1
+    assert reply.message.error.code == INVALID_REQUEST
+    assert reply.message.error.message == "Unauthorized"
+    assert reply.message.error.data == {"http_status": 401}
+
+
+@pytest.mark.anyio
 async def test_initialize_post_clears_cached_pv_header_and_unstamped_posts_read_it() -> None:
     """``initialize`` discards the cached protocol-version header; every other POST reads it.
 
