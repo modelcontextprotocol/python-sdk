@@ -24,3 +24,13 @@ class ToolError(MCPServerError):
 
 class InvalidSignature(Exception):
     """Invalid signature for use with MCPServer."""
+
+
+class PromptArgumentError(ValueError):
+    """Raised when required prompt arguments are missing or invalid.
+
+    Inherits from `ValueError` for backward compatibility (existing code that
+    catches `ValueError` continues to work), but lets the server log these
+    known validation errors at warning level instead of exception level with
+    a full traceback — see #3342.
+    """

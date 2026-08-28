@@ -50,7 +50,7 @@ from typing_extensions import NotRequired, TypedDict
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
-from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
+from mcp.server.mcpserver.exceptions import PromptArgumentError, ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
@@ -1526,6 +1526,57 @@ class TestServerPrompts:
         async with Client(mcp, mode="legacy") as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+    async def test_get_prompt_missing_args_logs_warning_no_traceback(self, caplog: pytest.LogCaptureFixture):
+        """Issue #3342: missing required arguments should log at WARNING level,
+        not as an exception with a full traceback. The error must still
+        propagate to the client.
+        """
+        import logging
+
+        from mcp.server.mcpserver.utilities.logging import get_logger
+
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def prompt_fn(name: str) -> str: ...  # pragma: no branch
+
+        logger = get_logger("mcp.server.mcpserver.server")
+        with caplog.at_level(logging.DEBUG, logger=logger.name):
+            async with Client(mcp, mode="legacy") as client:
+                with pytest.raises(MCPError, match="Missing required arguments"):
+                    await client.get_prompt("prompt_fn")
+
+        # Should contain a WARNING entry about the rejected prompt.
+        warning_records = [r for r in caplog.records if r.name == logger.name and r.levelno == logging.WARNING]
+        assert any("prompt_fn" in r.getMessage() for r in warning_records), (
+            f"Expected WARNING log about prompt_fn rejection; got {[r.getMessage() for r in caplog.records]}"
+        )
+
+        # Should NOT contain an ERROR/EXCEPTION entry for this rejection —
+        # those would imply a full traceback.
+        error_records = [r for r in caplog.records if r.name == logger.name and r.levelno >= logging.ERROR]
+        assert not any("prompt_fn" in r.getMessage() for r in error_records), (
+            "Did not expect ERROR/EXCEPTION log for known validation error; "
+            f"got {[r.getMessage() for r in error_records]}"
+        )
+
+    async def test_prompt_argument_error_is_value_error_subclass(self):
+        """Backward compatibility: PromptArgumentError must remain catchable
+        as ValueError so existing user code keeps working.
+        """
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def prompt_fn(name: str) -> str: ...  # pragma: no branch
+
+        prompt_obj = mcp._prompt_manager.get_prompt("prompt_fn")
+        assert prompt_obj is not None
+        with pytest.raises(ValueError, match="Missing required arguments"):
+            await prompt_obj.render(None, context=None)  # type: ignore[arg-type]
+        # And also catchable as the specific subclass.
+        with pytest.raises(PromptArgumentError, match="Missing required arguments"):
+            await prompt_obj.render(None, context=None)  # type: ignore[arg-type]
 
 
 async def test_resource_decorator_rfc6570_reserved_expansion():

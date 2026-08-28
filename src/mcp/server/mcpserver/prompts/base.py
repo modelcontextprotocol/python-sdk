@@ -11,6 +11,7 @@ import pydantic_core
 from mcp_types import ContentBlock, Icon, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
+from mcp.server.mcpserver.exceptions import PromptArgumentError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.server.mcpserver.utilities.types import Audio, Image
@@ -174,7 +175,11 @@ class Prompt(BaseModel):
             provided = set(arguments or {})
             missing = required - provided
             if missing:
-                raise ValueError(f"Missing required arguments: {missing}")
+                # PromptArgumentError is a ValueError subclass for backward
+                # compatibility — it just lets the server log at warning level
+                # instead of exception-with-traceback for known validation
+                # failures (see issue #3342).
+                raise PromptArgumentError(f"Missing required arguments: {missing}")
 
         try:
             # Add context to arguments if needed

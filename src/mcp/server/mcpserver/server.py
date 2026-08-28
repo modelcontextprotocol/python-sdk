@@ -71,7 +71,11 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import (
+    PromptArgumentError,
+    ResourceError,
+    ResourceNotFoundError,
+)
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import (
     DEFAULT_RESOURCE_SECURITY,
@@ -1298,6 +1302,12 @@ class MCPServer(Generic[LifespanResultT]):
             )
         except MCPError:
             raise
+        except PromptArgumentError as e:
+            # Known validation error — log at warning without traceback so
+            # user-facing "missing required arguments" calls don't pollute
+            # server logs with full stack traces. See issue #3342.
+            logger.warning(f"Prompt {name!r} rejected: {e}")
+            raise ValueError(str(e)) from e
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e)) from e
