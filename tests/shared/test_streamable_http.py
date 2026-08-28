@@ -7,8 +7,10 @@ entirely in process.
 from __future__ import annotations as _annotations
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -599,6 +601,97 @@ def test_streamable_http_transport_init_validation() -> None:
         StreamableHTTPServerTransport(mcp_session_id="test\n")
 
 
+@pytest.mark.parametrize("idle_timeout", [0, -1, float("inf"), float("nan")])
+def test_streamable_http_transport_rejects_invalid_idle_timeout(idle_timeout: float) -> None:
+    """A transport's idle timeout must be a positive, finite number of seconds; without one it never expires."""
+    with pytest.raises(ValueError) as exc_info:
+        StreamableHTTPServerTransport(mcp_session_id="valid-id", idle_timeout=idle_timeout)
+    assert str(exc_info.value) == "idle_timeout must be a positive, finite number of seconds"
+    assert StreamableHTTPServerTransport(mcp_session_id="valid-id").idle_scope is None
+
+
+def test_streamable_http_transport_with_idle_timeout_can_be_created_outside_an_event_loop() -> None:
+    """The idle scope is only created once connect() is entered, so a transport with a timeout can be
+    constructed without a running event loop."""
+    # A bare thread has no async context; this one does, courtesy of the suite's shared runner.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        transport = pool.submit(StreamableHTTPServerTransport, mcp_session_id="valid-id", idle_timeout=5).result()
+    assert transport.idle_scope is None
+
+
+@pytest.mark.anyio
+async def test_streamable_http_transport_creates_its_idle_scope_on_connect() -> None:
+    """Entering connect() creates the idle scope the host enters around the session's message loop."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id", idle_timeout=5)
+    async with transport.connect():
+        assert isinstance(transport.idle_scope, anyio.CancelScope)
+        await transport.terminate()
+
+
+async def _post_to_transport(transport: StreamableHTTPServerTransport, body: dict[str, Any]) -> int:
+    """POST `body` straight to `transport` in process, as a client that then holds the connection open,
+    and return the status it answered with."""
+    assert transport.mcp_session_id is not None
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"accept", b"application/json, text/event-stream"),
+            (MCP_SESSION_ID_HEADER.encode(), transport.mcp_session_id.encode()),
+        ],
+    }
+    sent: list[Message] = []
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    request_body, incoming = anyio.create_memory_object_stream[Message](1)
+    async with request_body, incoming:
+        await request_body.send({"type": "http.request", "body": json.dumps(body).encode(), "more_body": False})
+        with anyio.fail_after(5):
+            await transport.handle_request(scope, incoming.receive, send)
+    return next(message["status"] for message in sent if message["type"] == "http.response.start")
+
+
+@pytest.mark.anyio
+async def test_transport_whose_idle_period_ran_out_answers_as_terminated() -> None:
+    """Once the idle scope has fired, a request that still reaches the transport is answered 404 and the
+    transport is terminated, instead of being dispatched into the message loop the host is leaving."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id", idle_timeout=5)
+    ping = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+    async with transport.connect():
+        assert transport.idle_scope is not None
+        # Exactly what the scope's deadline passing does.
+        transport.idle_scope.cancel()
+
+        assert await _post_to_transport(transport, ping) == 404
+        assert transport.is_terminated
+        assert await _post_to_transport(transport, ping) == 404
+
+
+@pytest.mark.anyio
+async def test_transport_reports_stream_closure_when_host_exits_without_terminating(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A host that leaves connect() without terminating the transport closes the streams under the
+    message router, which reports it rather than passing it off as a client disconnect."""
+    caplog.set_level(logging.ERROR, logger="mcp.server.streamable_http")
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
+
+    async with transport.connect():
+        pass
+
+    assert not transport.is_terminated
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "mcp.server.streamable_http" and record.levelno == logging.ERROR
+    ] == ["Unexpected closure of read stream in message router"]
+
+
 @pytest.mark.anyio
 async def test_session_termination(basic_app: Starlette) -> None:
     """DELETE terminates the session, after which requests for it return 404."""
@@ -639,7 +732,7 @@ async def test_session_termination(basic_app: Starlette) -> None:
             json={"jsonrpc": "2.0", "method": "ping", "id": 2},
         )
         assert response.status_code == 404
-        assert "Session has been terminated" in response.text
+        assert response.json()["error"]["message"] == "Session not found"
 
 
 @pytest.mark.anyio
@@ -1048,7 +1141,7 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
-                assert "terminated" in exc_info.value.error.message.lower()
+                assert exc_info.value.error.message == "Session not found"
 
 
 @pytest.mark.anyio
@@ -1111,7 +1204,7 @@ async def test_streamable_http_client_session_termination_204(
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await session.list_tools()
                 assert exc_info.value.error.code == INVALID_REQUEST
-                assert "terminated" in exc_info.value.error.message.lower()
+                assert exc_info.value.error.message == "Session not found"
 
 
 @pytest.mark.anyio

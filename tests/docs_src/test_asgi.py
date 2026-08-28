@@ -13,7 +13,7 @@ from starlette.routing import Mount, Route
 
 from docs_src.asgi import tutorial001, tutorial002, tutorial003, tutorial004, tutorial005, tutorial006
 from mcp import Client
-from mcp.server import MCPServer
+from mcp.server import MCPServer, Server
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
 pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDeprecationWarning")]
@@ -44,6 +44,8 @@ async def test_streamable_http_app_takes_runs_options_except_port() -> None:
         "event_store",
         "retry_interval",
         "max_request_body_size",
+        "session_idle_timeout",
+        "max_sessions",
         "transport_security",
         "host",
     }
@@ -66,6 +68,18 @@ async def test_streamable_http_app_applies_the_configured_request_body_limit() -
         async with httpx2.AsyncClient(transport=transport, base_url="http://localhost") as http:
             response = await http.post("/mcp", content=b"123456789")
     assert response.status_code == 413
+
+
+async def test_streamable_http_app_applies_the_configured_session_limits() -> None:
+    """The documented `session_idle_timeout` and `max_sessions` options reach the session manager, from
+    both the high-level and the low-level factory."""
+    server = MCPServer("Notes")
+    server.streamable_http_app(session_idle_timeout=5, max_sessions=7)
+    assert (server.session_manager.session_idle_timeout, server.session_manager.max_sessions) == (5, 7)
+
+    lowlevel = Server("Notes")
+    lowlevel.streamable_http_app(session_idle_timeout=None, max_sessions=None)
+    assert (lowlevel.session_manager.session_idle_timeout, lowlevel.session_manager.max_sessions) == (None, None)
 
 
 async def test_mounting_at_the_root_keeps_the_default_path() -> None:
