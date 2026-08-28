@@ -748,3 +748,55 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
             )
     send.close()
+
+
+class _PrimingThenEofSSEStream(httpx2.AsyncByteStream):
+    """Opens fine, emits one id-bearing event with empty data, then clean EOF.
+
+    This is the shape a no-timeout request (a listen stream) sees from a server
+    that accepts the reconnect, primes the resumption position, and drops the
+    connection without producing the JSON-RPC response.
+    """
+
+    def __init__(self, event_id: str) -> None:
+        self._event = f"id: {event_id}\ndata: \n\n".encode()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._event
+
+
+@pytest.mark.anyio
+async def test_clean_eof_reconnects_count_toward_the_request_budget() -> None:
+    """A per-request reconnect that opens fine, emits an id-bearing priming event, then hits
+    clean EOF must consume the reconnection budget instead of resetting it, so the waiter is
+    resolved with CONNECTION_CLOSED after MAX_RECONNECTION_ATTEMPTS reconnects."""
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    seen_last_event_ids: list[str | None] = []
+    # evt-0 is the starting position; each reconnect primes the next one then EOFs.
+    streams: list[httpx2.AsyncByteStream] = [
+        _PrimingThenEofSSEStream(f"evt-{index}") for index in range(MAX_RECONNECTION_ATTEMPTS + 2)
+    ]
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen_last_event_ids.append(request.headers.get("last-event-id"))
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, stream=streams.pop(0))
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
+        with anyio.fail_after(5):
+            await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
+                _abandoned_request_context(http, send), "evt-0", 0
+            )
+            reply = await receive.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.id == "listen-1"
+    assert reply.message.error.code == CONNECTION_CLOSED
+    # Only the budgeted reconnects happened: starting from evt-0, the first
+    # reconnect is primed to evt-1 and the second to evt-2, then the budget is
+    # exhausted without a third request.
+    assert seen_last_event_ids == ["evt-0", "evt-0"]
+    # and every priming event id observed - positions advanced only as far as
+    # the server primed them before the budget ran out.
+    send.close()
+    receive.close()
