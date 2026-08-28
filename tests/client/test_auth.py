@@ -3,6 +3,7 @@
 import base64
 import json
 import time
+from collections.abc import AsyncGenerator
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -13,6 +14,7 @@ from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.oauth2 import stored_registration_expired
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -3253,3 +3255,896 @@ async def test_issuer_is_stamped_when_same_origin_fallback_register_is_on_the_di
         await auth_flow.asend(httpx2.Response(200, request=final_req))
     except StopAsyncIteration:
         pass
+
+
+def test_stored_registration_expired_only_for_lapsed_secret_backed_registrations():
+    """RFC 7591: only a non-zero, past `client_secret_expires_at` on a secret-authenticating
+    registration marks the stored record as expired; `0` means the secret never expires, and
+    methods that send no secret (`none`) are unaffected by the lapse.
+    """
+    base: dict[str, object] = {
+        "client_id": "c",
+        "client_secret": "s",
+        "redirect_uris": [AnyUrl("http://localhost:3030/callback")],
+    }
+    lapsed = int(time.time()) - 3600
+    live = int(time.time()) + 3600
+
+    expired = OAuthClientInformationFull.model_validate(
+        {**base, "token_endpoint_auth_method": "client_secret_post", "client_secret_expires_at": lapsed}
+    )
+    assert stored_registration_expired(expired)
+    assert stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "client_secret_basic", "client_secret_expires_at": lapsed}
+        )
+    )
+
+    # 0 means "never expires" (RFC 7591); absent means no expiry was declared.
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "client_secret_post", "client_secret_expires_at": 0}
+        )
+    )
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate({**base, "token_endpoint_auth_method": "client_secret_post"})
+    )
+
+    # Still-live secret, and methods that never present the secret.
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "client_secret_post", "client_secret_expires_at": live}
+        )
+    )
+    assert not stored_registration_expired(
+        OAuthClientInformationFull.model_validate(
+            {**base, "token_endpoint_auth_method": "none", "client_secret_expires_at": lapsed}
+        )
+    )
+
+
+def test_registration_secret_expired_is_false_until_a_lapsed_registration_is_loaded(
+    oauth_provider: OAuthClientProvider,
+):
+    """`OAuthContext.registration_secret_expired` owns the null check for the flow's call
+    sites (refresh gate, 401 discard, 403 step-up): no registration loaded means "not
+    expired", and a loaded record defers to `stored_registration_expired`.
+    """
+    assert not oauth_provider.context.registration_secret_expired()
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    assert oauth_provider.context.registration_secret_expired()
+
+
+@pytest.mark.anyio
+async def test_expired_stored_registration_is_discarded_and_the_flow_re_registers(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
+):
+    """Regression for #3256: a stored DCR registration whose secret has lapsed is not reused.
+
+    Reusing it makes every token-endpoint interaction fail with ``invalid_client`` — even a
+    fresh interactive authorization ends in the same failure, so the client is permanently
+    stuck (\"I re-authenticated and nothing changed\"). The 401 flow must discard the lapsed
+    record and re-register instead of presenting the dead secret; the access token is kept
+    (it still works without client authentication) while the refresh token — issued to the
+    discarded `client_id` — goes with the record.
+    """
+    await mock_storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="dead-client",
+            client_secret="expired-secret",
+            client_secret_expires_at=int(time.time()) - 3600,
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_post",
+        )
+    )
+    await mock_storage.set_tokens(valid_tokens)
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+
+    # The record is loaded as-is (the flow discards it later, after the SEP-2352 issuer
+    # checks); the stored access token is kept and used.
+    request = await auth_flow.__anext__()
+    assert oauth_provider.context.client_info is not None
+    assert oauth_provider.context.current_tokens is not None
+    assert request.headers["Authorization"] == f"Bearer {valid_tokens.access_token}"
+
+    # `MockTokenStorage` stores by reference and `_initialize` loaded that same object into
+    # `context.current_tokens`, so the discard's in-place trim would reach the stored object
+    # even if it never persisted. Re-seed storage with a distinct copy so the storage-side
+    # assertions below pass only if the discard actually calls `set_tokens`.
+    await mock_storage.set_tokens(valid_tokens.model_copy())
+
+    # Server rejects the stale token: the 401 flow re-registers instead of reusing the record.
+    response_401 = httpx2.Response(401, request=request)
+    prm_req = await auth_flow.asend(response_401)
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    assert str(asm_req.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    register_req = await auth_flow.asend(asm_response)
+    assert oauth_provider.context.client_info is None  # discarded in-flow, just before Step 4
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    # The discard also dropped the dead client's refresh token, in memory and in storage.
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.refresh_token is None
+    stored_tokens = await mock_storage.get_tokens()
+    assert stored_tokens is not None
+    assert stored_tokens.refresh_token is None
+    assert stored_tokens.access_token == valid_tokens.access_token
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_registration_that_expires_mid_session_is_discarded_by_the_401_flow(
+    oauth_provider: OAuthClientProvider,
+):
+    """A secret that lapses after load (long-lived process) is also discarded, in-flow.
+
+    ``_initialize`` runs once per provider instance, so a registration that expires while
+    the process is running would otherwise be reused by the 401 flow: Step 4 would skip
+    re-registration and the interactive authorization would burn a user consent only to
+    fail ``invalid_client`` at the token exchange. The 401 flow re-checks the expiry
+    (after the SEP-2352 issuer checks) and discards the dead record so Step 4
+    re-registers instead.
+    """
+    oauth_provider._initialized = True  # already initialized while the secret was live
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,  # lapsed after load
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 → discovery; the lapsed registration is discarded, so the flow re-registers.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    register_req = await auth_flow.asend(asm_response)
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_expired_and_issuer_mismatched_registration_still_gets_cross_issuer_cleanup(
+    oauth_provider: OAuthClientProvider,
+):
+    """SEP-2352: the expiry discard must not shadow the issuer-binding cleanup.
+
+    A record that is both expired and bound to a different issuer (the server migrated
+    authorization servers while the secret lapsed) still needs the cross-issuer cleanup:
+    the old issuer's tokens are dropped so they can never be presented to the new AS, and
+    the old AS's cached metadata is dropped so a failed rediscovery cannot leak its
+    registration/token endpoints into Step 4. The expiry discard therefore runs only
+    after the issuer checks, which read the issuer stamp off the record.
+    """
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+        issuer="https://old-as.example.com",
+    )
+    oauth_provider.context.current_tokens = OAuthToken(access_token="old-as-access", refresh_token="old-as-refresh")
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://old-as.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://old-as.example.com/authorize"),
+        token_endpoint=AnyHttpUrl("https://old-as.example.com/token"),
+        registration_endpoint=AnyHttpUrl("https://old-as.example.com/register"),
+    )
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 → PRM discovery now advertises a different authorization server.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+        ),
+        request=prm_req,
+    )
+
+    # ASM rediscovery for the new AS fails at both well-known URLs.
+    asm_req = await auth_flow.asend(prm_response)
+    assert str(asm_req.url) == "https://auth.example.com/.well-known/oauth-authorization-server"
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=asm_req))
+    assert str(asm_req.url) == "https://auth.example.com/.well-known/openid-configuration"
+    register_req = await auth_flow.asend(httpx2.Response(404, request=asm_req))
+
+    # The issuer-binding cleanup fired despite the lapsed secret: the old issuer's tokens
+    # and cached metadata are gone, so registration goes to the resource-origin fallback,
+    # not the old AS's registration endpoint.
+    assert oauth_provider.context.current_tokens is None
+    assert oauth_provider.context.oauth_metadata is None
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_refresh_is_skipped_when_registration_secret_expired_mid_session(
+    oauth_provider: OAuthClientProvider,
+):
+    """The refresh path never presents a lapsed secret.
+
+    ``can_refresh_token()`` ignores expiry, so without the extra check the refresh would
+    authenticate with the dead secret and fail ``invalid_client`` before recovering via
+    the subsequent 401. Instead the doomed refresh is skipped outright: the request goes
+    out unauthenticated and the 401 flow re-registers.
+    """
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,  # lapsed after load
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    oauth_provider.context.current_tokens = OAuthToken(access_token="stale", refresh_token="still-there")
+    oauth_provider.context.token_expiry_time = time.time() - 60  # access token expired → refresh territory
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # No refresh request was yielded: the first request out is the original one, unauthenticated.
+    assert request.method == "GET"
+    assert str(request.url) == "https://api.example.com/v1/mcp"
+    assert "Authorization" not in request.headers
+
+    # The 401 flow then recovers by re-registering.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+    register_req = await auth_flow.asend(asm_response)
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://api.example.com/register"
+    await auth_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_interrupted_flow_cannot_pair_the_old_refresh_token_with_the_fresh_registration(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """RFC 6749 §6 binds a refresh token to the client it was issued to, so the expiry
+    discard drops the token alongside the dead record — otherwise a flow failing between
+    re-registration and token exchange leaves fresh `client_info` paired with the old
+    client's refresh token, and the next request presents that token as the new client
+    (a guaranteed `invalid_grant` round trip).
+
+    Steps:
+    1. A registration whose secret lapsed mid-session sits next to an expired access
+       token and a refresh token issued to it.
+    2. The 401 flow discards the record — dropping the refresh token in memory and in
+       storage — and re-registers; the interactive authorization then fails (the user
+       abandons the consent) after the fresh registration was already persisted.
+    3. The next request attempts no refresh: with the orphan gone, `can_refresh_token()`
+       is false and the request goes out unauthenticated.
+    """
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,  # lapsed after load
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    oauth_provider.context.current_tokens = OAuthToken(access_token="stale", refresh_token="issued-to-dead-client")
+    oauth_provider.context.token_expiry_time = time.time() - 60  # access token expired
+
+    async def abandoned_consent(url: str) -> None:
+        raise RuntimeError("user closed the browser")
+
+    oauth_provider.context.redirect_handler = abandoned_consent
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 → discovery; the lapsed record is discarded and the flow re-registers.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    prm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_req = await auth_flow.asend(httpx2.Response(404, request=prm_req))
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://api.example.com", '
+            b'"authorization_endpoint": "https://api.example.com/authorize", '
+            b'"token_endpoint": "https://api.example.com/token", '
+            b'"registration_endpoint": "https://api.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+    register_req = await auth_flow.asend(asm_response)
+    register_response = httpx2.Response(
+        201,
+        json={
+            "client_id": "fresh-client",
+            "client_secret": "fresh-secret",
+            "redirect_uris": ["http://localhost:3030/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+        },
+        request=register_req,
+    )
+
+    # The fresh registration is persisted, then the interactive authorization fails.
+    with pytest.raises(RuntimeError, match="user closed the browser"):
+        await auth_flow.asend(register_response)
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "fresh-client"
+
+    # The orphaned refresh token is gone from memory and storage; the access token survives.
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.refresh_token is None
+    stored_tokens = await mock_storage.get_tokens()
+    assert stored_tokens is not None
+    assert stored_tokens.refresh_token is None
+    assert stored_tokens.access_token == "stale"
+
+    # The next request attempts no refresh: it goes out unauthenticated straight away.
+    retry_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    retry_request = await retry_flow.__anext__()
+    assert str(retry_request.url) == "https://api.example.com/v1/mcp"
+    assert "Authorization" not in retry_request.headers
+    await retry_flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_403_step_up_re_registers_when_registration_secret_expired(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """A 403 scope step-up with a lapsed secret re-registers instead of burning a consent.
+
+    On this path the access token is still live, so the 401 flow's discard can never run;
+    without its own re-check every step-up would complete a full interactive authorization
+    only to fail ``invalid_client`` at the token exchange, until the access token itself
+    expires. The step-up mints a fresh registration first — against the AS metadata already
+    discovered — and completes the exchange with the new credentials; the dead client's
+    refresh token is dropped with its record.
+    """
+    oauth_provider._initialized = True
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,  # lapsed after load
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    oauth_provider.context.current_tokens = OAuthToken(
+        access_token="live-token", refresh_token="issued-to-dead-client", scope="read"
+    )
+    oauth_provider.context.token_expiry_time = time.time() + 1800  # access token still live
+    oauth_provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+        registration_endpoint=AnyHttpUrl("https://auth.example.com/register"),
+    )
+
+    captured_state: str | None = None
+    authorize_client_id: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state, authorize_client_id
+        params = parse_qs(urlparse(url).query)
+        authorize_client_id = params["client_id"][0]
+        captured_state = params.get("state", [None])[0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = mock_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+
+    # The step-up re-registers before authorizing, using the cached registration endpoint.
+    register_req = await auth_flow.asend(response_403)
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://auth.example.com/register"
+    # The discard dropped the dead client's refresh token (in memory and in storage) while
+    # keeping the live access token.
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.refresh_token is None
+    stored_tokens = await mock_storage.get_tokens()
+    assert stored_tokens is not None
+    assert stored_tokens.refresh_token is None
+    assert stored_tokens.access_token == "live-token"
+    register_response = httpx2.Response(
+        201,
+        json={
+            "client_id": "fresh-client",
+            "client_secret": "fresh-secret",
+            "redirect_uris": ["http://localhost:3030/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+        },
+        request=register_req,
+    )
+
+    # The interactive authorization and token exchange use the fresh credentials only.
+    token_exchange_request = await auth_flow.asend(register_response)
+    assert authorize_client_id == "fresh-client"
+    content = token_exchange_request.content.decode()
+    assert "client_id=fresh-client" in content
+    assert "client_secret=fresh-secret" in content
+    assert "expired-secret" not in content
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "fresh-client"  # dead record overwritten in storage
+
+    token_response = httpx2.Response(
+        200,
+        json={"access_token": "stepped-up", "token_type": "Bearer", "expires_in": 3600, "scope": "read write"},
+        request=token_exchange_request,
+    )
+    final_request = await auth_flow.asend(token_response)
+    assert final_request.headers["Authorization"] == "Bearer stepped-up"
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_403_step_up_discovers_the_as_before_re_registering_after_a_restart(
+    oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+):
+    """A 403 step-up that must re-register with no AS metadata cached discovers it first.
+
+    After a restart `_initialize` restores tokens and client info but no AS metadata, and
+    the still-live access token keeps the 401 flow's discovery from ever running. Without
+    its own discovery the step-up would POST the registration document to the resource
+    origin's `/register` fallback — the wrong server in the separate-AS topology — so it
+    runs the 401 flow's discovery sequence first, honoring the 403's `resource_metadata`
+    pointer, and registers at the discovered endpoint.
+    """
+    await mock_storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="dead-client",
+            client_secret="expired-secret",
+            client_secret_expires_at=int(time.time()) - 3600,  # lapsed while stored
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_post",
+            issuer="https://auth.example.com",
+        )
+    )
+    await mock_storage.set_tokens(
+        OAuthToken(access_token="live-token", refresh_token="issued-to-dead-client", scope="read")
+    )
+
+    captured_state: str | None = None
+    authorize_client_id: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state, authorize_client_id
+        params = parse_qs(urlparse(url).query)
+        authorize_client_id = params["client_id"][0]
+        captured_state = params.get("state", [None])[0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = mock_callback
+
+    # The restarted provider initializes from storage: the loaded token records no expiry,
+    # so it is presented as-is and the 401 flow never runs.
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    assert request.headers["Authorization"] == "Bearer live-token"
+
+    response_403 = httpx2.Response(
+        403,
+        headers={
+            "WWW-Authenticate": (
+                'Bearer error="insufficient_scope", scope="write", '
+                'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"'
+            )
+        },
+        request=request,
+    )
+
+    # The step-up discovers the PRM first, seeded from the 403's resource_metadata pointer.
+    prm_req = await auth_flow.asend(response_403)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+    prm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+        ),
+        request=prm_req,
+    )
+
+    # Then the AS metadata.
+    asm_req = await auth_flow.asend(prm_response)
+    assert str(asm_req.url) == "https://auth.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://auth.example.com", '
+            b'"authorization_endpoint": "https://auth.example.com/authorize", '
+            b'"token_endpoint": "https://auth.example.com/token", '
+            b'"registration_endpoint": "https://auth.example.com/register"}'
+        ),
+        request=asm_req,
+    )
+
+    # The registration goes to the discovered endpoint, not the resource origin's /register.
+    register_req = await auth_flow.asend(asm_response)
+    assert register_req.method == "POST"
+    assert str(register_req.url) == "https://auth.example.com/register"
+    register_response = httpx2.Response(
+        201,
+        json={
+            "client_id": "fresh-client",
+            "client_secret": "fresh-secret",
+            "redirect_uris": ["http://localhost:3030/callback"],
+            "token_endpoint_auth_method": "client_secret_post",
+        },
+        request=register_req,
+    )
+
+    # The step-up completes with the fresh credentials; the dead client's refresh token
+    # was dropped with its record.
+    token_exchange_request = await auth_flow.asend(register_response)
+    assert authorize_client_id == "fresh-client"
+    content = token_exchange_request.content.decode()
+    assert "client_id=fresh-client" in content
+    assert "expired-secret" not in content
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.refresh_token is None
+
+    token_response = httpx2.Response(
+        200,
+        json={"access_token": "stepped-up", "token_type": "Bearer", "expires_in": 3600, "scope": "read write"},
+        request=token_exchange_request,
+    )
+    final_request = await auth_flow.asend(token_response)
+    assert final_request.headers["Authorization"] == "Bearer stepped-up"
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_403_step_up_after_a_restart_resolves_cimd_once_metadata_is_discovered(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+):
+    """A 403 step-up with a configured CIMD URL and no cached AS metadata still uses CIMD.
+
+    Registering blind would silently bypass the CIMD capability the (undiscovered) AS
+    metadata advertises; the step-up's discovery restores it, so the dead record is
+    replaced locally by the URL-based client ID — no `/register` round trip at all.
+    """
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state
+        captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        redirect_handler=capture_redirect,
+        callback_handler=mock_callback,
+        client_metadata_url="https://example.com/client",
+    )
+    await mock_storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="dead-client",
+            client_secret="expired-secret",
+            client_secret_expires_at=int(time.time()) - 3600,  # lapsed while stored
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_post",
+            issuer="https://auth.example.com",
+        )
+    )
+    await mock_storage.set_tokens(OAuthToken(access_token="live-token", scope="read"))
+
+    auth_flow = provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    assert request.headers["Authorization"] == "Bearer live-token"
+
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+
+    # No resource_metadata pointer this time: discovery falls back to the well-known PRM URL.
+    prm_req = await auth_flow.asend(response_403)
+    assert str(prm_req.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+    prm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+        ),
+        request=prm_req,
+    )
+    asm_req = await auth_flow.asend(prm_response)
+    assert str(asm_req.url) == "https://auth.example.com/.well-known/oauth-authorization-server"
+    asm_response = httpx2.Response(
+        200,
+        content=(
+            b'{"issuer": "https://auth.example.com", '
+            b'"authorization_endpoint": "https://auth.example.com/authorize", '
+            b'"token_endpoint": "https://auth.example.com/token", '
+            b'"client_id_metadata_document_supported": true}'
+        ),
+        request=asm_req,
+    )
+
+    # No /register round trip: the next request is already the token exchange, and the
+    # dead record was replaced by the URL-based client ID.
+    token_exchange_request = await auth_flow.asend(asm_response)
+    assert str(token_exchange_request.url) == "https://auth.example.com/token"
+    content = token_exchange_request.content.decode()
+    assert "client_id=https%3A%2F%2Fexample.com%2Fclient" in content
+    assert "expired-secret" not in content
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "https://example.com/client"  # dead record overwritten in storage
+
+    token_response = httpx2.Response(
+        200,
+        json={"access_token": "stepped-up", "token_type": "Bearer", "expires_in": 3600, "scope": "read write"},
+        request=token_exchange_request,
+    )
+    final_request = await auth_flow.asend(token_response)
+    assert final_request.headers["Authorization"] == "Bearer stepped-up"
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_403_step_up_resolves_cimd_when_registration_secret_expired(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+):
+    """A 403 step-up with a lapsed secret resolves the CIMD URL when the AS supports it.
+
+    Mirrors Step 4 of the 401 flow: with `client_id_metadata_document_supported` in the
+    cached AS metadata and a configured `client_metadata_url`, the dead registration is
+    replaced locally — no ``/register`` round trip — and the step-up proceeds straight to
+    authorization with the URL-based client ID (which has no secret to expire).
+    """
+    captured_state: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state
+        captured_state = parse_qs(urlparse(url).query).get("state", [None])[0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        redirect_handler=capture_redirect,
+        callback_handler=mock_callback,
+        client_metadata_url="https://example.com/client",
+    )
+    provider._initialized = True
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="dead-client",
+        client_secret="expired-secret",
+        client_secret_expires_at=int(time.time()) - 3600,  # lapsed after load
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    provider.context.current_tokens = OAuthToken(access_token="live-token", scope="read")
+    provider.context.token_expiry_time = time.time() + 1800  # access token still live
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.example.com"),
+        authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+        client_id_metadata_document_supported=True,
+    )
+
+    auth_flow = provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+
+    # No /register round trip: the next request is already the token exchange, and the
+    # dead record was replaced by the URL-based client ID.
+    token_exchange_request = await auth_flow.asend(response_403)
+    assert str(token_exchange_request.url) == "https://auth.example.com/token"
+    content = token_exchange_request.content.decode()
+    assert "client_id=https%3A%2F%2Fexample.com%2Fclient" in content
+    assert "expired-secret" not in content
+    assert provider.context.client_info is not None
+    assert provider.context.client_info.token_endpoint_auth_method == "none"
+    stored = await mock_storage.get_client_info()
+    assert stored is not None
+    assert stored.client_id == "https://example.com/client"  # dead record overwritten in storage
+
+    token_response = httpx2.Response(
+        200,
+        json={"access_token": "stepped-up", "token_type": "Bearer", "expires_in": 3600, "scope": "read write"},
+        request=token_exchange_request,
+    )
+    final_request = await auth_flow.asend(token_response)
+    assert final_request.headers["Authorization"] == "Bearer stepped-up"
+    try:
+        await auth_flow.asend(httpx2.Response(200, request=final_request))
+    except StopAsyncIteration:
+        pass
+
+
+@pytest.mark.anyio
+async def test_closing_the_flow_mid_discovery_finalizes_the_401_discovery_sub_generator(
+    oauth_provider: OAuthClientProvider,
+):
+    """httpx2's `_send_handling_auth` acloses the auth flow when a discovery request
+    fails at the transport level (or the request is cancelled), throwing `GeneratorExit`
+    at the 401 relay's `yield`; the relay must finalize the discovery sub-generator with
+    the flow rather than abandon it suspended to GC (a `ResourceWarning` under trio).
+    The sub-generator is captured via a wrapper because its finalization is not
+    observable through the auth-flow protocol itself.
+    """
+    captured: list[AsyncGenerator[httpx2.Request, httpx2.Response]] = []
+    original = oauth_provider._discover_authorization_server_metadata
+
+    def capturing(response: httpx2.Response) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        discovery = original(response)
+        captured.append(discovery)
+        return discovery
+
+    oauth_provider._discover_authorization_server_metadata = capturing
+    oauth_provider._initialized = True
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    # 401 → the flow yields the first discovery request, suspending both generators mid-relay.
+    prm_req = await auth_flow.asend(httpx2.Response(401, request=request))
+    assert "oauth-protected-resource" in str(prm_req.url)
+    assert len(captured) == 1
+
+    # Closing the flow here mirrors httpx2 aborting it on a transport error.
+    await auth_flow.aclose()
+
+    # The sub-generator was closed with the flow: probing it reports exhaustion instead
+    # of resuming a suspended frame.
+    with pytest.raises(StopAsyncIteration):
+        await captured[0].__anext__()
+
+
+@pytest.mark.anyio
+async def test_closing_the_flow_mid_discovery_finalizes_the_403_step_up_discovery_sub_generator(
+    oauth_provider: OAuthClientProvider,
+):
+    """The 403 step-up's discovery relay must finalize its sub-generator when httpx2
+    acloses the flow mid-discovery, exactly like the 401 relay (same abandonment
+    hazard, same fix); the sub-generator is captured via a wrapper because its
+    finalization is not observable through the auth-flow protocol itself.
+    """
+    captured: list[AsyncGenerator[httpx2.Request, httpx2.Response]] = []
+    original = oauth_provider._discover_authorization_server_metadata
+
+    def capturing(response: httpx2.Response) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        discovery = original(response)
+        captured.append(discovery)
+        return discovery
+
+    oauth_provider._discover_authorization_server_metadata = capturing
+    # Restart shape: a live token and no stored registration, so the 403 step-up must
+    # discover before registering (`oauth_metadata` is never restored by `_initialize`).
+    oauth_provider.context.current_tokens = OAuthToken(access_token="live-token")
+    oauth_provider._initialized = True
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+
+    # 403 → the step-up yields the first discovery request, suspending both generators mid-relay.
+    prm_req = await auth_flow.asend(response_403)
+    assert "oauth-protected-resource" in str(prm_req.url)
+    assert len(captured) == 1
+
+    await auth_flow.aclose()
+
+    with pytest.raises(StopAsyncIteration):
+        await captured[0].__anext__()
+
+
+@pytest.mark.anyio
+async def test_403_step_up_surfaces_oauth_flow_errors_to_the_caller(
+    oauth_provider: OAuthClientProvider,
+):
+    """An `OAuthFlowError` raised inside the 403 step-up — here the SEP-985/RFC 8707
+    resource-identity check failing during the step-up's discovery — propagates to the
+    caller instead of being swallowed, matching the 401 branch's error contract.
+    """
+    # Restart shape: a live token and no stored registration, so the step-up discovers.
+    oauth_provider.context.current_tokens = OAuthToken(access_token="live-token")
+    oauth_provider._initialized = True
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/v1/mcp"))
+    request = await auth_flow.__anext__()
+
+    response_403 = httpx2.Response(
+        403,
+        headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="write"'},
+        request=request,
+    )
+    prm_req = await auth_flow.asend(response_403)
+
+    # The PRM advertises a different resource, so the RFC 8707 identity check must fail.
+    mismatched_prm = httpx2.Response(
+        200,
+        content=(
+            b'{"resource": "https://other.example.com/mcp", "authorization_servers": ["https://auth.example.com"]}'
+        ),
+        request=prm_req,
+    )
+    with pytest.raises(OAuthFlowError):
+        await auth_flow.asend(mismatched_prm)

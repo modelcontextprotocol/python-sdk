@@ -51,10 +51,13 @@ def extract_scope_from_www_auth(response: Response) -> str | None:
 def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
     """Extract protected resource metadata URL from WWW-Authenticate header as per RFC 9728.
 
+    RFC 9728 attaches the `resource_metadata` parameter to any WWW-Authenticate
+    challenge, so both 401 and 403 (scope step-up) responses are honored.
+
     Returns:
         Resource metadata URL if found in WWW-Authenticate header, None otherwise
     """
-    if not response or response.status_code != 401:
+    if not response or response.status_code not in (401, 403):
         return None  # pragma: no cover
 
     return extract_field_from_www_auth(response, "resource_metadata")
