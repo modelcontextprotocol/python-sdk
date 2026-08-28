@@ -1,9 +1,22 @@
 """Tests for MCP exception classes."""
 
+import pickle
+
 import pytest
 
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData
+
+
+def test_mcp_error_pickle_roundtrip() -> None:
+    """Test that McpError preserves its wire payload through pickle."""
+    original = McpError(ErrorData(code=-32600, message="Authentication Required", data={"retry": True}))
+
+    reconstructed = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(reconstructed, McpError)
+    assert reconstructed.error == original.error
+    assert str(reconstructed) == str(original)
 
 
 class TestUrlElicitationRequiredError:
@@ -157,3 +170,24 @@ class TestUrlElicitationRequiredError:
 
         # The exception's string representation should match the message
         assert str(error) == "URL elicitation required"
+
+    def test_pickle_roundtrip(self) -> None:
+        """Test that URL elicitation errors preserve their payload through pickle."""
+        original = UrlElicitationRequiredError(
+            [
+                ElicitRequestURLParams(
+                    mode="url",
+                    message="Auth required",
+                    url="https://example.com/auth",
+                    elicitationId="test-123",
+                )
+            ],
+            message="Custom message",
+        )
+
+        reconstructed = pickle.loads(pickle.dumps(original))
+
+        assert isinstance(reconstructed, UrlElicitationRequiredError)
+        assert reconstructed.error == original.error
+        assert reconstructed.elicitations == original.elicitations
+        assert str(reconstructed) == "Custom message"

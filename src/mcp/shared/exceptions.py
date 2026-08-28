@@ -17,6 +17,10 @@ class McpError(Exception):
         super().__init__(error.message)
         self.error = error
 
+    def __reduce__(self) -> tuple[type[McpError], tuple[ErrorData]]:
+        """Reconstruct the exception from its complete wire error payload."""
+        return type(self), (self.error,)
+
 
 class UrlElicitationRequiredError(McpError):
     """
@@ -69,3 +73,7 @@ class UrlElicitationRequiredError(McpError):
         raw_elicitations = cast(list[dict[str, Any]], data.get("elicitations", []))
         elicitations = [ElicitRequestURLParams.model_validate(e) for e in raw_elicitations]
         return cls(elicitations, error.message)
+
+    def __reduce__(self) -> tuple[Any, tuple[ErrorData]]:
+        """Reconstruct the specialized exception from its wire error payload."""
+        return self.from_error, (self.error,)
