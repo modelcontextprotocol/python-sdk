@@ -79,8 +79,8 @@ async def test_a_legacy_session_is_minted_in_process_and_a_stray_session_id_is_a
 
 
 def test_legacy_sessions_expire_and_are_capped_by_default() -> None:
-    """The cost section: a session record is dropped after 30 idle minutes and each worker process holds at most
-    10 000 of them, unless `run()` / `streamable_http_app()` say otherwise."""
+    """The session lifetime section: a session is closed after 30 idle minutes and each worker process
+    holds at most 10 000 of them, unless `run()` / `streamable_http_app()` say otherwise."""
     server = MCPServer("Bookshop")
     server.streamable_http_app()
     assert server.session_manager.session_idle_timeout == 30 * 60

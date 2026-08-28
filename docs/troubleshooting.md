@@ -246,7 +246,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found`
 
-The server does not recognise the `Mcp-Session-Id` your client sent, because the server **restarted** (or you were routed to a different instance), or because the session **expired**: a legacy session with no request in flight for `session_idle_timeout` (30 minutes by default; an open `GET` stream or a request being answered counts as in flight) is closed, as is one the client ended with `DELETE`. Sessions live in that one process's memory.
+The server does not recognise the `Mcp-Session-Id` your client sent. Either the server **restarted** (or you were routed to a different instance), or the session **expired** because nothing was in flight for `session_idle_timeout`, which is 30 minutes by default. See [Session lifetime and limits](run/legacy-clients.md#session-lifetime-and-limits). Sessions live in that one process's memory.
 
 There is no server bug to find. The HTTP response is a `404` whose body *is* JSON-RPC, so, unlike the `421` above, the python `Client` shows you this one verbatim:
 
