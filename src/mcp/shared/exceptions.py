@@ -70,6 +70,10 @@ class NoBackChannelError(MCPError):
         )
         self.method = method
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Return a pickling recipe that preserves the original method argument."""
+        return (self.__class__, (self.method,))
+
 
 class UrlElicitationRequiredError(MCPError):
     """Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
@@ -117,3 +121,13 @@ class UrlElicitationRequiredError(MCPError):
         raw_elicitations = cast(list[dict[str, Any]], data.get("elicitations", []))
         elicitations = [ElicitRequestURLParams.model_validate(e) for e in raw_elicitations]
         return cls(elicitations, error.message)
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Return a pickling recipe that uses the existing wire-roundtrip constructor.
+
+        Without this, unpickling tries ``UrlElicitationRequiredError(*self.args)``,
+        where ``args`` contains ``(code, message, data)`` from ``MCPError``. That
+        does not match this class's ``(elicitations, message)`` signature and
+        raises ``TypeError``.
+        """
+        return (self.from_error, (self.error,))

@@ -1,9 +1,11 @@
 """Tests for MCP exception classes."""
 
+import pickle
+
 import pytest
 from mcp_types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
-from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, NoBackChannelError, UrlElicitationRequiredError
 
 
 def test_url_elicitation_required_error_create_with_single_elicitation() -> None:
@@ -173,3 +175,77 @@ def test_from_jsonrpc_error_preserves_code_message_and_data() -> None:
     )
     error = MCPError.from_jsonrpc_error(wire)
     assert error.error == ErrorData(code=URL_ELICITATION_REQUIRED, message="go elsewhere", data={"hint": "y"})
+
+
+def test_mcp_error_pickle_roundtrip() -> None:
+    """MCPError survives a pickle.dumps/loads round-trip with its ErrorData intact."""
+    original = MCPError.from_error_data(
+        ErrorData(code=-32600, message="Authentication Required", data={"hint": "x"})
+    )
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(restored, MCPError)
+    assert restored.error == original.error
+    assert str(restored) == str(original)
+
+
+@pytest.mark.parametrize(
+    "elicitations,message",
+    [
+        (
+            [
+                ElicitRequestURLParams(
+                    mode="url",
+                    message="Auth required",
+                    url="https://example.com/auth",
+                    elicitation_id="test-123",
+                )
+            ],
+            None,
+        ),
+        (
+            [
+                ElicitRequestURLParams(
+                    mode="url",
+                    message="Auth 1",
+                    url="https://example.com/auth1",
+                    elicitation_id="test-1",
+                ),
+                ElicitRequestURLParams(
+                    mode="url",
+                    message="Auth 2",
+                    url="https://example.com/auth2",
+                    elicitation_id="test-2",
+                ),
+            ],
+            "Custom message",
+        ),
+    ],
+)
+def test_url_elicitation_required_error_pickle_roundtrip(
+    elicitations: list[ElicitRequestURLParams], message: str | None
+) -> None:
+    """UrlElicitationRequiredError round-trips through pickle without constructor mismatch."""
+    original = UrlElicitationRequiredError(elicitations, message=message)
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(restored, UrlElicitationRequiredError)
+    assert restored.error == original.error
+    assert str(restored) == str(original)
+    assert [e.elicitation_id for e in restored.elicitations] == [
+        e.elicitation_id for e in original.elicitations
+    ]
+
+
+def test_no_back_channel_error_pickle_roundtrip() -> None:
+    """NoBackChannelError round-trips through pickle with the method intact."""
+    original = NoBackChannelError("test/method")
+
+    restored = pickle.loads(pickle.dumps(original))
+
+    assert isinstance(restored, NoBackChannelError)
+    assert restored.method == original.method
+    assert restored.error == original.error
+    assert str(restored) == str(original)
