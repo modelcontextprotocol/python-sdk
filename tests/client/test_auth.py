@@ -6,6 +6,7 @@ import time
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+import anyio
 import httpx2
 import pytest
 from inline_snapshot import Is, snapshot
@@ -31,8 +32,10 @@ from mcp.client.auth.utils import (
     validate_authorization_response_iss,
     validate_metadata_issuer,
 )
+from mcp.server import Server
+from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.routes import build_metadata
-from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,
@@ -1591,6 +1594,101 @@ async def test_403_step_up_preserves_scope_from_stored_token(
         await auth_flow.asend(httpx2.Response(200, request=final_request))
     except StopAsyncIteration:
         pass
+
+
+@pytest.mark.anyio
+async def test_403_step_up_consumes_scope_emitted_by_require_auth_middleware(oauth_provider: OAuthClientProvider):
+    """End-to-end #3103 regression: the `scope` attribute the SDK server emits in its
+    insufficient_scope challenge (RFC 6750 section 3.1) is what the client's step-up union
+    consumes, without falling back to protected-resource metadata.
+
+    Steps:
+    1. An SDK server app requiring "read admin" rejects a token granting only "read" with 403.
+    2. The server's real WWW-Authenticate challenge is replayed into the client's auth flow.
+    3. The client re-authorizes with the union of the granted and challenged scopes.
+    """
+
+    class ReadScopedVerifier:
+        """Accepts any token, granting only the "read" scope."""
+
+        async def verify_token(self, token: str) -> AccessToken:
+            return AccessToken(token=token, client_id="test_client_id", scopes=["read"])
+
+    server_app = Server("step-up-repro").streamable_http_app(
+        auth=AuthSettings(
+            issuer_url=AnyHttpUrl("https://auth.example.com"),
+            resource_server_url=AnyHttpUrl("http://127.0.0.1:8000/mcp"),
+            required_scopes=["read", "admin"],
+        ),
+        token_verifier=ReadScopedVerifier(),
+    )
+    transport = httpx2.ASGITransport(app=server_app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http_client:
+        with anyio.fail_after(5):
+            server_response = await http_client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                headers={
+                    "accept": "application/json, text/event-stream",
+                    "authorization": "Bearer read-only-token",
+                },
+            )
+    assert server_response.status_code == 403
+    assert 'scope="read admin"' in server_response.headers["WWW-Authenticate"]
+
+    # Client state: a stored token granted "read"; client_metadata carries no scope, as after a
+    # restart, so the challenge is the only source for the missing "admin" scope.
+    client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider.context.current_tokens = OAuthToken(access_token="read-only-token", scope="read")
+    oauth_provider.context.token_expiry_time = time.time() + 1800
+    oauth_provider.context.client_info = client_info
+    oauth_provider.context.client_metadata.scope = None
+    oauth_provider._initialized = True
+
+    captured_state: str | None = None
+    reauthorize_scope: str | None = None
+
+    async def capture_redirect(url: str) -> None:
+        nonlocal captured_state, reauthorize_scope
+        params = parse_qs(urlparse(url).query)
+        reauthorize_scope = params["scope"][0]
+        captured_state = params.get("state", [None])[0]
+
+    async def mock_callback() -> AuthorizationCodeResult:
+        return AuthorizationCodeResult(code="auth_code", state=captured_state)
+
+    oauth_provider.context.redirect_handler = capture_redirect
+    oauth_provider.context.callback_handler = mock_callback
+
+    auth_flow = oauth_provider.async_auth_flow(httpx2.Request("GET", "https://api.example.com/mcp"))
+    with anyio.fail_after(5):
+        request = await auth_flow.__anext__()
+        response_403 = httpx2.Response(
+            403,
+            headers={"WWW-Authenticate": server_response.headers["WWW-Authenticate"]},
+            request=request,
+        )
+        token_exchange_request = await auth_flow.asend(response_403)
+
+    # SEP-2350: the union of the stored token's grant and the server-advertised requirement
+    assert reauthorize_scope == "read admin"
+
+    # Drive the flow to completion so the context lock is released cleanly
+    token_response = httpx2.Response(
+        200,
+        json={"access_token": "new", "token_type": "Bearer", "expires_in": 3600, "scope": "read admin"},
+        request=token_exchange_request,
+    )
+    with anyio.fail_after(5):
+        final_request = await auth_flow.asend(token_response)
+        try:
+            await auth_flow.asend(httpx2.Response(200, request=final_request))
+        except StopAsyncIteration:
+            pass
 
 
 @pytest.mark.parametrize(
