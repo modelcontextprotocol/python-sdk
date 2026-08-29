@@ -657,6 +657,46 @@ async def _post_to_transport(transport: StreamableHTTPServerTransport, body: dic
 
 
 @pytest.mark.anyio
+async def test_streamable_http_post_client_disconnect_is_not_reported_as_500(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.ERROR, logger="mcp.server.streamable_http")
+    transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
+    assert transport.mcp_session_id is not None
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "query_string": b"",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"accept", b"application/json, text/event-stream"),
+            (MCP_SESSION_ID_HEADER.encode(), transport.mcp_session_id.encode()),
+        ],
+    }
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    async with transport.connect():
+        with anyio.move_on_after(1) as cancel_scope:
+            await transport.handle_request(scope, receive, send)
+
+        assert not cancel_scope.cancel_called
+        assert not sent
+        assert [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "mcp.server.streamable_http" and record.levelno >= logging.ERROR
+        ] == []
+        await transport.terminate()
+
+
+@pytest.mark.anyio
 async def test_transport_whose_idle_period_ran_out_answers_as_terminated() -> None:
     """Once the idle scope has fired, a request that still reaches the transport is answered 404 and the
     transport is terminated, instead of being dispatched into the message loop the host is leaving."""
