@@ -3,9 +3,11 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, TypedDict
+from uuid import UUID, uuid4
 
 import annotated_types
 import pytest
@@ -224,6 +226,26 @@ def test_str_vs_list_str():
     # Test list input for union type
     result = meta.pre_parse_json({"str_or_list": '["hello", "world"]'})
     assert result["str_or_list"] == ["hello", "world"]
+
+
+@pytest.mark.anyio
+async def test_json_string_is_parsed_for_uuid():
+    """Test that JSON strings are parsed for non-string annotations like UUID."""
+
+    def func_with_uuid(value: UUID):  # pragma: no cover
+        return value
+
+    meta = func_metadata(func_with_uuid)
+    value = uuid4()
+
+    result = await meta.call_fn(
+        func_with_uuid,
+        fn_is_async=False,
+        arguments=meta.validate_arguments({"value": json.dumps(str(value))}),
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == value
 
 
 def test_pre_parse_json_leaves_strings_the_json_parser_refuses_untouched():

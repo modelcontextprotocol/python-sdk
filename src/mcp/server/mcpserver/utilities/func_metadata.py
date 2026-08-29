@@ -49,6 +49,18 @@ _CONTENT_TYPES = (*get_args(ContentBlock), Image, Audio)
 _CONTENT_SEQUENCE_ORIGINS = (list, tuple, Sequence)
 
 
+def _annotation_accepts_str(annotation: Any) -> bool:
+    """Whether an annotation can accept a plain string value."""
+    if annotation is Any or annotation is str:
+        return True
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _annotation_accepts_str(get_args(annotation)[0])
+    if is_union_origin(origin):
+        return any(_annotation_accepts_str(arg) for arg in get_args(annotation))
+    return False
+
+
 def _returns_content(annotation: Any) -> bool:
     """Whether a return annotation declares content blocks or the `Image`/`Audio` helpers, bare or as
     the items of a list/tuple or the arms of a union: the values `_convert_to_content` renders as blocks
@@ -258,10 +270,17 @@ class FuncMetadata(BaseModel):
                     # Not JSON, or JSON the parser refuses (over-long integers, deep
                     # nesting): leave the string for validation to accept or reject.
                     continue
-                if isinstance(pre_parsed, str | int | float):
+                if isinstance(pre_parsed, str):
+                    if not _annotation_accepts_str(field_info.annotation):
+                        new_data[data_key] = pre_parsed
                     # This is likely that the raw value is e.g. `"hello"` which we
                     # Should really be parsed as '"hello"' in Python - but if we parse
-                    # it as JSON it'll turn into just 'hello'. So we skip it.
+                    # it as JSON it'll turn into just 'hello'. So we skip it for
+                    # annotations that can already accept a string.
+                    continue
+                if isinstance(pre_parsed, int | float):
+                    # Pydantic can coerce numeric strings for numeric annotations; leaving
+                    # the original string also avoids changing string-like union behavior.
                     continue
                 new_data[data_key] = pre_parsed
         assert new_data.keys() == data.keys()
