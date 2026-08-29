@@ -285,7 +285,7 @@ class CompleteResult(WireModel):
     completion: Completion
 
 
-class Cursor(RootModel[str]):
+class Cursor(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: str
     """
     An opaque token used to represent a cursor for pagination.
@@ -556,20 +556,7 @@ class LegacyTitledEnumSchema(WireModel):
     type: Literal["string"]
 
 
-class LoggingLevel(
-    RootModel[
-        Literal[
-            "alert",
-            "critical",
-            "debug",
-            "emergency",
-            "error",
-            "info",
-            "notice",
-            "warning",
-        ]
-    ]
-):
+class LoggingLevel(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Literal["alert", "critical", "debug", "emergency", "error", "info", "notice", "warning"]
     """
     The severity of a log message.
@@ -723,7 +710,7 @@ class PaginatedResult(WireModel):
     """
 
 
-class ProgressToken(RootModel[str | int]):
+class ProgressToken(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: str | int
     """
     A progress token, used to associate progress notifications with the original request.
@@ -853,7 +840,7 @@ class Request(WireModel):
     params: dict[str, Any] | None = None
 
 
-class RequestId(RootModel[str | int]):
+class RequestId(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: str | int
     """
     A uniquely identifying ID for a request in JSON-RPC.
@@ -970,7 +957,7 @@ class Result(WireModel):
     """
 
 
-class Role(RootModel[Literal["assistant", "user"]]):
+class Role(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Literal["assistant", "user"]
     """
     The sender or recipient of messages and data in a conversation.
@@ -1216,7 +1203,7 @@ class TaskMetadata(WireModel):
     """
 
 
-class TaskStatus(RootModel[Literal["cancelled", "completed", "failed", "input_required", "working"]]):
+class TaskStatus(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Literal["cancelled", "completed", "failed", "input_required", "working"]
     """
     The status of a task.
@@ -1867,19 +1854,11 @@ class EmbeddedResource(WireModel):
     type: Literal["resource"]
 
 
-class EmptyResult(RootModel[Result]):
+class EmptyResult(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Result
 
 
-class EnumSchema(
-    RootModel[
-        UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
+class EnumSchema(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         UntitledSingleSelectEnumSchema
         | TitledSingleSelectEnumSchema
@@ -2115,7 +2094,7 @@ class LoggingMessageNotification(WireModel):
     params: LoggingMessageNotificationParams
 
 
-class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
+class MultiSelectEnumSchema(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
 
 
@@ -2152,18 +2131,7 @@ class PingRequest(WireModel):
     params: RequestParams | None = None
 
 
-class PrimitiveSchemaDefinition(
-    RootModel[
-        StringSchema
-        | NumberSchema
-        | BooleanSchema
-        | UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
+class PrimitiveSchemaDefinition(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         StringSchema
         | NumberSchema
@@ -2499,7 +2467,7 @@ class SetLevelRequest(WireModel):
     params: SetLevelRequestParams
 
 
-class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
+class SingleSelectEnumSchema(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
 
@@ -2793,7 +2761,7 @@ class CompleteRequest(WireModel):
     params: CompleteRequestParams
 
 
-class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
+class ContentBlock(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 
 
@@ -2812,7 +2780,7 @@ class CreateTaskResult(WireModel):
     task: Task
 
 
-class ElicitRequestParams(RootModel[ElicitRequestURLParams | ElicitRequestFormParams]):
+class ElicitRequestParams(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: ElicitRequestURLParams | ElicitRequestFormParams
     """
     The parameters for a request to elicit additional information from the user via the client.
@@ -2857,14 +2825,14 @@ class InitializeRequest(WireModel):
     params: InitializeRequestParams
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCMessage(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
     """
     Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
     """
 
 
-class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCResponse(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: JSONRPCResultResponse | JSONRPCErrorResponse
     """
     A response to a request, containing either the result or error.
@@ -3173,15 +3141,7 @@ class CallToolResult(WireModel):
     """
 
 
-class ClientNotification(
-    RootModel[
-        CancelledNotification
-        | InitializedNotification
-        | ProgressNotification
-        | TaskStatusNotification
-        | RootsListChangedNotification
-    ]
-):
+class ClientNotification(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         CancelledNotification
         | InitializedNotification
@@ -3191,27 +3151,7 @@ class ClientNotification(
     )
 
 
-class ClientRequest(
-    RootModel[
-        InitializeRequest
-        | PingRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscribeRequest
-        | UnsubscribeRequest
-        | ListPromptsRequest
-        | GetPromptRequest
-        | ListToolsRequest
-        | CallToolRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | CancelTaskRequest
-        | ListTasksRequest
-        | SetLevelRequest
-        | CompleteRequest
-    ]
-):
+class ClientRequest(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         InitializeRequest
         | PingRequest
@@ -3266,25 +3206,11 @@ class GetPromptResult(WireModel):
     messages: list[PromptMessage]
 
 
-class SamplingMessageContentBlock(
-    RootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
-):
+class SamplingMessageContentBlock(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 
 
-class ServerNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | TaskStatusNotification
-        | LoggingMessageNotification
-        | ElicitationCompleteNotification
-    ]
-):
+class ServerNotification(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         CancelledNotification
         | ProgressNotification
@@ -3298,24 +3224,7 @@ class ServerNotification(
     )
 
 
-class ServerResult(
-    RootModel[
-        Result
-        | InitializeResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | ListPromptsResult
-        | GetPromptResult
-        | ListToolsResult
-        | CallToolResult
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | CancelTaskResult
-        | ListTasksResult
-        | CompleteResult
-    ]
-):
+class ServerResult(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         Result
         | InitializeResult
@@ -3398,18 +3307,7 @@ class SamplingMessage(WireModel):
     role: Role
 
 
-class ClientResult(
-    RootModel[
-        Result
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | CancelTaskResult
-        | ListTasksResult
-        | CreateMessageResult
-        | ListRootsResult
-        | ElicitResult
-    ]
-):
+class ClientResult(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         Result
         | GetTaskResult
@@ -3502,18 +3400,7 @@ class CreateMessageRequest(WireModel):
     params: CreateMessageRequestParams
 
 
-class ServerRequest(
-    RootModel[
-        PingRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | CancelTaskRequest
-        | ListTasksRequest
-        | CreateMessageRequest
-        | ListRootsRequest
-        | ElicitRequest
-    ]
-):
+class ServerRequest(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         PingRequest
         | GetTaskRequest
