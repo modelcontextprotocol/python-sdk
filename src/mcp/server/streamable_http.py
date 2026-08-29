@@ -37,7 +37,7 @@ from mcp_types import (
 from mcp_types.version import is_version_at_least
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
@@ -714,6 +714,9 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
+        except ClientDisconnect:
+            logger.debug("Client disconnected while reading POST request body")
+            return
         except Exception as err:
             logger.exception("Error handling POST request")
             response = self._create_error_response(
