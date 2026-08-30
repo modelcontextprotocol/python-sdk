@@ -748,3 +748,53 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
             )
     send.close()
+
+
+class _PrimingOnlySSEStream(httpx2.AsyncByteStream):
+    """Emits one id-bearing priming event then EOF — a resumable stream that
+    never delivers a JSON-RPC response."""
+
+    _counter = 0
+
+    def __init__(self) -> None:
+        _PrimingOnlySSEStream._counter += 1
+        self._id = f"evt-{_PrimingOnlySSEStream._counter}"
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield f"id: {self._id}\ndata: \n\n".encode()
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.anyio
+async def test_clean_eof_without_response_counts_toward_reconnection_budget() -> None:
+    """A resumable stream that reaches EOF without delivering a JSON-RPC response
+    must consume the reconnection budget — MAX_RECONNECTION_ATTEMPTS total HTTP
+    requests, not an unbounded sequence of resets."""
+    _PrimingOnlySSEStream._counter = 0
+    request_count = 0
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_PrimingOnlySSEStream(),
+        )
+
+    transport = StreamableHTTPTransport("http://test/mcp")
+    send, receive = create_context_streams[SessionMessage | Exception](1)
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http:
+        with anyio.fail_after(5):
+            await transport._handle_reconnection(  # pyright: ignore[reportPrivateUsage]
+                _abandoned_request_context(http, send), "evt-0", 0
+            )
+            reply = await receive.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    assert reply.message.error.code == CONNECTION_CLOSED
+    assert request_count == MAX_RECONNECTION_ATTEMPTS
+    send.close()
+    receive.close()
