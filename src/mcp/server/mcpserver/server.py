@@ -437,8 +437,27 @@ class MCPServer(Generic[LifespanResultT]):
             if isinstance(exc, ToolError) and not isinstance(exc, UnexpectedToolError):
                 if isinstance(exc.__cause__, ValidationError):
                     # Field names only: the rejected values are the caller's data.
-                    fields = sorted({".".join(str(part) for part in err["loc"]) for err in exc.__cause__.errors()})
+                    errors = exc.__cause__.errors()
+                    fields = sorted({".".join(str(part) for part in err["loc"]) for err in errors})
                     logger.info("Tool %r rejected arguments: %r", params.name, fields)
+                    # Clients can only revalidate structured content of successful
+                    # results, so error results are free to carry machine-readable
+                    # details here without tripping any output schema check.
+                    return CallToolResult(
+                        content=[TextContent(type="text", text=str(exc))],
+                        structured_content={
+                            "type": "input_validation",
+                            "errors": [
+                                {
+                                    "path": ".".join(str(part) for part in err.get("loc", ())),
+                                    "type": err.get("type"),
+                                    "message": err.get("msg"),
+                                }
+                                for err in errors
+                            ],
+                        },
+                        is_error=True,
+                    )
                 else:
                     # %r keeps peer-supplied text on one line.
                     logger.info("Tool %r failed: %r", params.name, str(exc))

@@ -325,6 +325,46 @@ class TestServerTools:
             assert content.text == "Error executing tool error_tool_fn"
             assert result.is_error is True
 
+    async def test_input_validation_error_carries_structured_details(self):
+        """An input-schema failure carries machine-readable details in structured content (issue #3351)."""
+
+        def takes_int(x: int) -> str:
+            return str(x)
+
+        mcp = MCPServer()
+        mcp.add_tool(takes_int)
+        async with Client(mcp) as client:
+            result = await client.call_tool("takes_int", {"x": "not-a-number"})
+
+            assert result.is_error is True
+            # The text content the model reads is unchanged.
+            assert isinstance(result.content[0], TextContent)
+            assert "Error executing tool takes_int" in result.content[0].text
+
+            structured = result.structured_content
+            assert structured is not None
+            assert structured["type"] == "input_validation"
+            assert len(structured["errors"]) == 1
+            assert structured["errors"][0]["path"] == "x"
+            assert structured["errors"][0]["type"] == "int_parsing"
+            assert isinstance(structured["errors"][0]["message"], str)
+            # The rejected value is the caller's data and is never echoed back.
+            assert "not-a-number" not in str(structured)
+
+    async def test_deliberate_tool_error_has_no_structured_details(self):
+        """Only SDK-generated input-validation failures carry structured details."""
+
+        def failing_tool() -> None:
+            raise ToolError("deliberate failure")
+
+        mcp = MCPServer()
+        mcp.add_tool(failing_tool)
+        async with Client(mcp) as client:
+            result = await client.call_tool("failing_tool", {})
+
+            assert result.is_error is True
+            assert result.structured_content is None
+
     async def test_tool_return_value_conversion(self):
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
