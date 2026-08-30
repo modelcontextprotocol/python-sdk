@@ -402,3 +402,53 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_client_session_group_connect_empty_server_with_session():
+    mock_session = mock.AsyncMock()
+    mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+    mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[])
+
+    group = ClientSessionGroup()
+    server_info = types.Implementation(name="empty-server", version="1.0")
+
+    # Connecting an empty server via connect_with_session should succeed without KeyError
+    await group.connect_with_session(server_info, mock_session)
+    assert mock_session in group._sessions
+    assert group.tools == {}
+    assert group.resources == {}
+    assert group.prompts == {}
+
+    # Disconnecting should also work cleanly
+    await group.disconnect_from_server(mock_session)
+    assert mock_session not in group._sessions
+
+
+@pytest.mark.anyio
+async def test_client_session_group_connect_empty_server_via_connect_to_server():
+    mock_server_params = mock.Mock(spec=StdioServerParameters)
+    mock_session = mock.AsyncMock()
+    mock_session.list_prompts.return_value = types.ListPromptsResult(prompts=[])
+    mock_session.list_resources.return_value = types.ListResourcesResult(resources=[])
+    mock_session.list_tools.return_value = types.ListToolsResult(tools=[])
+
+    mock_stack = mock.AsyncMock(spec=contextlib.AsyncExitStack)
+    server_info = types.Implementation(name="empty-server", version="1.0")
+
+    group = ClientSessionGroup()
+    with mock.patch.object(group, "_establish_session", return_value=(server_info, mock_session)):
+        # Simulate exit stack registered during establish_session
+        group._session_exit_stacks[mock_session] = mock_stack
+        session = await group.connect_to_server(mock_server_params)
+
+        assert session is mock_session
+        assert mock_session in group._sessions
+        assert mock_session in group._session_exit_stacks
+
+        # When disconnecting, the exit stack must be cleanly closed
+        await group.disconnect_from_server(mock_session)
+        assert mock_session not in group._sessions
+        assert mock_session not in group._session_exit_stacks
+        mock_stack.aclose.assert_awaited_once()
