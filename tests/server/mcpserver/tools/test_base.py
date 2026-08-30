@@ -1,5 +1,8 @@
+from typing import Annotated
+
 import mcp_types as types
 import pytest
+from pydantic import Field
 
 from mcp import Client
 from mcp.server.mcpserver import Context, MCPServer
@@ -55,3 +58,31 @@ async def test_non_mcperror_exception_raised_from_a_tool_is_wrapped_as_an_is_err
 
     assert isinstance(result, types.CallToolResult)
     assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_field_alias_maps_wire_name_back_to_python_parameter():
+    """Regression: a Field(alias=...) publishes the alias in the JSON schema
+    but the validated wire input must be forwarded under the Python parameter
+    name so the function receives it as a keyword argument it declares."""
+
+    AliasInt = Annotated[int, Field(alias="externalX", ge=1)]
+
+    mcp = MCPServer(name="srv")
+
+    @mcp.tool()
+    async def echo(x: AliasInt) -> int:
+        return x
+
+    tool_list = list(mcp._tool_manager._tools.values())
+    assert len(tool_list) == 1
+    schema = tool_list[0].parameters
+    assert "externalX" in schema.get("properties", {}), "schema must use alias"
+    assert "x" not in schema.get("properties", {}), "schema must not expose Python name"
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("echo", {"externalX": 42})
+
+    assert isinstance(result, types.CallToolResult)
+    assert result.is_error is not True
+    assert any(block.text == "42" for block in result.content if hasattr(block, "text"))

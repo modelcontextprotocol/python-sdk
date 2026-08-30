@@ -5,7 +5,7 @@ import sys
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, Union, cast, get_args, get_origin
+from typing import Annotated, Any, ClassVar, Union, cast, get_args, get_origin
 
 import anyio
 import anyio.to_thread
@@ -96,17 +96,18 @@ def _inline_root_ref(schema: dict[str, Any]) -> dict[str, Any]:
 class ArgModelBase(BaseModel):
     """A model representing the arguments to a function."""
 
+    param_names: ClassVar[dict[str, str]] = {}
+
     def model_dump_one_level(self) -> dict[str, Any]:
         """Return a dict of the model's fields, one level deep.
 
         That is, sub-models etc are not dumped - they are kept as Pydantic models.
         """
+        param_names = self.__class__.param_names
         kwargs: dict[str, Any] = {}
-        for field_name, field_info in self.__class__.model_fields.items():
+        for field_name in self.__class__.model_fields:
             value = getattr(self, field_name)
-            # Use the alias if it exists, otherwise use the field name
-            output_name = field_info.alias if field_info.alias else field_name
-            kwargs[output_name] = value
+            kwargs[param_names.get(field_name, field_name)] = value
         return kwargs
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -326,6 +327,7 @@ def func_metadata(
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
+    param_name_map: dict[str, str] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
             raise InvalidSignature(f"Parameter {param.name} of {func.__name__} cannot start with '_'")
@@ -347,6 +349,8 @@ def func_metadata(
             # Use a prefixed field name
             field_name = f"field_{field_name}"
 
+        param_name_map[field_name] = param.name
+
         if param.default is not inspect.Parameter.empty:
             dynamic_pydantic_model_params[field_name] = (
                 Annotated[(annotation, *field_metadata, Field(**field_kwargs))],
@@ -360,6 +364,7 @@ def func_metadata(
         __base__=ArgModelBase,
         **dynamic_pydantic_model_params,
     )
+    arguments_model.param_names = param_name_map
 
     if structured_output is False:
         return FuncMetadata(arg_model=arguments_model)
