@@ -227,6 +227,17 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
+            except httpx2.HTTPStatusError as exc:
+                if exc.response.status_code == 405:
+                    # Per the Streamable HTTP spec, a 405 response to GET means
+                    # the server does not offer a server-initiated SSE stream.
+                    # Retrying can never succeed, so disable the GET stream for
+                    # this session instead of pointlessly retrying (and logging
+                    # a reconnect every time a session is created).
+                    logger.info("GET stream disabled: server does not support server-initiated SSE (405)")
+                    return
+                logger.debug("GET stream error", exc_info=True)
+                attempt += 1
             except Exception:
                 logger.debug("GET stream error", exc_info=True)
                 attempt += 1
