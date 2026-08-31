@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 
 import anyio
 import httpx2
@@ -33,7 +34,7 @@ from pydantic import ValidationError
 from mcp.client._transport import TransportStreams
 from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import RedirectPolicy, create_mcp_http_client
 from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.jsonrpc_dispatcher import cancelled_request_id_from_params
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
@@ -642,6 +643,7 @@ async def streamable_http_client(
     *,
     http_client: httpx2.AsyncClient | None = None,
     terminate_on_close: bool = True,
+    redirect_policy: RedirectPolicy | None = None,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
@@ -651,6 +653,10 @@ async def streamable_http_client(
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx2.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
+        redirect_policy: How to handle server 3xx redirects when the built-in
+            client is used (see ``RedirectPolicy``). Ignored when ``http_client``
+            is provided — a caller-supplied client manages its own redirects and
+            is not protected from being bounced onto internal/loopback hosts.
 
     Yields:
         Tuple containing:
@@ -666,7 +672,12 @@ async def streamable_http_client(
 
     if client is None:
         # Create default client with recommended MCP timeouts
-        client = create_mcp_http_client()
+        kwargs: dict[str, Any] = {}
+        if redirect_policy is not None:
+            kwargs["redirect_policy"] = redirect_policy
+        client = create_mcp_http_client(**kwargs)
+    else:
+        logger.debug("Using user-provided HTTP client; MCP redirect/SSRF protection is not applied")
 
     transport = StreamableHTTPTransport(url)
 
