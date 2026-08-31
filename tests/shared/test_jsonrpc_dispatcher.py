@@ -370,6 +370,40 @@ async def test_run_cancels_in_flight_handlers_when_read_stream_eofs():
 
 
 @pytest.mark.anyio
+async def test_run_can_drain_in_flight_handlers_before_eof_shutdown():
+    """A stdio-style EOF may follow a piped request; accepted responses get a bounded drain window."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
+    handler_started = anyio.Event()
+
+    async def slow(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
+        handler_started.set()
+        await anyio.sleep(0.01)
+        return {"ok": True}
+
+    async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
+        raise NotImplementedError
+
+    async def drive() -> None:
+        await server.run(slow, on_notify, graceful_shutdown_timeout=0.5)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(drive)
+        await c2s_send.send(SessionMessage(message=JSONRPCRequest(jsonrpc="2.0", id=1, method="slow")))
+        await handler_started.wait()
+        c2s_send.close()
+        with anyio.fail_after(5):
+            response = await s2c_recv.receive()
+
+    assert isinstance(response, SessionMessage)
+    assert isinstance(response.message, JSONRPCResponse)
+    assert response.message.id == 1
+    assert response.message.result == {"ok": True}
+    s2c_recv.close()
+
+
+@pytest.mark.anyio
 async def test_run_closes_write_stream_on_exit():
     """run() owns both streams; the write end is released once the EOF teardown completes."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)

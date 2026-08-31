@@ -1069,6 +1069,10 @@ class MCPServer(Generic[LifespanResultT]):
                 read_stream,
                 write_stream,
                 self._lowlevel_server.create_initialization_options(),
+                # File-redirected stdin can reach EOF while accepted tool
+                # handlers are still producing responses. Give those writes
+                # a bounded drain window before cancelling the connection.
+                graceful_shutdown_timeout=0.5,
             )
 
     async def run_sse_async(  # pragma: no cover

@@ -699,6 +699,7 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
+        graceful_shutdown_timeout: float = 0,
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
@@ -716,6 +717,7 @@ class Server(Generic[LifespanResultT]):
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
                 raise_exceptions=raise_exceptions,
+                graceful_shutdown_timeout=graceful_shutdown_timeout,
             )
 
     def streamable_http_app(

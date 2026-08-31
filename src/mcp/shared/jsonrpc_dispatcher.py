@@ -307,6 +307,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._next_id = 0
         self._pending: dict[RequestId, _Pending] = {}
         self._in_flight: dict[RequestId, _InFlight[TransportT]] = {}
+        self._active_requests: set[anyio.Event] = set()
         self._on_notify_intercept: OnNotifyIntercept | None = None
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
@@ -480,12 +481,15 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         on_notify_intercept: OnNotifyIntercept | None = None,
         *,
         task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+        graceful_shutdown_timeout: float = 0,
     ) -> None:
         """Drive the receive loop until the read stream closes.
 
         `task_status.started()` fires once `send_raw_request` is usable.
         Single-shot: once the loop ends the dispatcher stays closed and cannot be restarted.
         """
+        if graceful_shutdown_timeout < 0:
+            raise ValueError("graceful_shutdown_timeout must be non-negative")
         self._on_notify_intercept = on_notify_intercept
         try:
             # LIFO exits: the write stream closes only after the task-group join, so teardown writes still land.
@@ -511,6 +515,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                         self._running = False
                         self._closed = True
                         self._fan_out_closed()
+                        if graceful_shutdown_timeout and self._active_requests:
+                            with anyio.move_on_after(graceful_shutdown_timeout):
+                                await self._wait_for_active_requests()
                     finally:
                         # Cancel in-flight handlers; otherwise the task-group join
                         # waits on handlers whose callers are already gone.
@@ -522,6 +529,15 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             self._tg = None
             self._fan_out_closed()
             await resync_tracer()
+
+    async def _wait_for_active_requests(self) -> None:
+        """Wait for requests already accepted from a transport before cancellation."""
+        events = tuple(self._active_requests)
+        if not events:
+            return
+        async with anyio.create_task_group() as tg:
+            for event in events:
+                tg.start_soon(event.wait)
 
     async def _dispatch(
         self,
@@ -585,6 +601,8 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             _progress_token=progress_token,
         )
         scope = anyio.CancelScope()
+        completion = anyio.Event()
+        self._active_requests.add(completion)
         # TODO(maxisbey): duplicate ids blind-overwrite (v1/TS parity); revisit
         # rejecting with INVALID_REQUEST. Key coerced so a stringified
         # `notifications/cancelled` id still correlates.
@@ -596,14 +614,28 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
             async def _run_inline() -> None:
                 try:
-                    await self._handle_request(req, dctx, scope, on_request)
+                    await self._run_request(req, dctx, scope, on_request, completion)
                 finally:
                     done.set()
 
             self._spawn(_run_inline, sender_ctx=sender_ctx)
             await done.wait()
         else:
-            self._spawn(self._handle_request, req, dctx, scope, on_request, sender_ctx=sender_ctx)
+            self._spawn(self._run_request, req, dctx, scope, on_request, completion, sender_ctx=sender_ctx)
+
+    async def _run_request(
+        self,
+        req: JSONRPCRequest,
+        dctx: _JSONRPCDispatchContext[TransportT],
+        scope: anyio.CancelScope,
+        on_request: OnRequest,
+        completion: anyio.Event,
+    ) -> None:
+        try:
+            await self._handle_request(req, dctx, scope, on_request)
+        finally:
+            self._active_requests.discard(completion)
+            completion.set()
 
     def _dispatch_notification(
         self,
