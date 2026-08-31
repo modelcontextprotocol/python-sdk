@@ -53,12 +53,21 @@ async def negotiate_auto(session: ClientSession, protocol_version: str | None = 
     ``session.discover_result`` / ``session.initialize_result`` is set on
     return.
 
+    ``protocol_version`` pins the legacy handshake to a specific version. A
+    caller supplying it wants that exact version, so this skips the
+    ``server/discover`` probe entirely and goes straight to the handshake —
+    otherwise a server with modern support would win discovery and the pin
+    would be silently ignored.
+
     Raises:
         MCPError: The server is modern-only and shares no version with this
             client (-32022 with a disjoint ``supported`` list), or the
             fallback handshake failed and one corrective re-probe did too.
         Exception: Any transport/network error from the probe propagates as-is.
     """
+    if protocol_version is not None:
+        await session.initialize(protocol_version=protocol_version)
+        return
     version = LATEST_MODERN_VERSION
     for attempt in range(2):
         try:
@@ -73,10 +82,7 @@ async def negotiate_auto(session: ClientSession, protocol_version: str | None = 
                 if supported is not None and not any(v in HANDSHAKE_PROTOCOL_VERSIONS for v in supported):
                     raise  # server is modern-only and disjoint — real incompatibility
             try:
-                if protocol_version is not None:
-                    await session.initialize(protocol_version=protocol_version)
-                else:
-                    await session.initialize()  # every other rpc-error → legacy (the denylist)
+                await session.initialize()  # every other rpc-error → legacy (the denylist)
             except MCPError as handshake_exc:
                 if handshake_exc.code != UNSUPPORTED_PROTOCOL_VERSION or attempt != 0:
                     raise
@@ -97,10 +103,7 @@ async def negotiate_auto(session: ClientSession, protocol_version: str | None = 
         try:
             result = types.DiscoverResult.model_validate(raw)
         except ValidationError:
-            if protocol_version is not None:
-                await session.initialize(protocol_version=protocol_version)
-            else:
-                await session.initialize()  # unparseable result → not modern evidence
+            await session.initialize()  # unparseable result → not modern evidence
             return
         session.adopt(result)
         return

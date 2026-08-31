@@ -323,17 +323,18 @@ def test_parse_supported_returns_none_for_anything_not_shaped_like_the_spec_erro
     assert _parse_supported(data) == expected
 
 
-async def test_negotiate_auto_mcp_error_with_custom_protocol_version() -> None:
-    """Test that negotiate_auto initializes with a custom protocol version when discover returns an MCPError."""
-    session = _StubSession(MCPError(code=METHOD_NOT_FOUND, message="nope"))
-    await _negotiate(session, protocol_version="2024-11-05")
-    assert session.initialized
-    assert session.initialize_version == "2024-11-05"
+# --- protocol_version override forces the legacy handshake, unconditionally ---
 
 
-async def test_negotiate_auto_validation_error_with_custom_protocol_version() -> None:
-    """Test that negotiate_auto initializes with a custom protocol version when discover returns unparseable result."""
-    session = _StubSession({"not": "a discover result"})
+async def test_a_protocol_version_override_skips_discovery_and_forces_the_legacy_handshake() -> None:
+    """`protocol_version` pins an explicit legacy version, so the caller wants exactly that
+    version - the probe is skipped entirely and the handshake runs unconditionally, even
+    though the stub's discover script would otherwise return a valid modern result (regression:
+    the override used to only reach `initialize()` via the fallback paths, so a successful
+    discover silently dropped it)."""
+    session = _StubSession(_discover_dict())
     await _negotiate(session, protocol_version="2024-11-05")
+    assert session.probed_at == []
     assert session.initialized
     assert session.initialize_version == "2024-11-05"
+    assert session.adopted is None
