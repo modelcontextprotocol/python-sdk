@@ -142,7 +142,10 @@ def test_safe_join_rejects_symlink_escape(tmp_path: Path):
     outside.mkdir()
     sandbox = tmp_path / "sandbox"
     sandbox.mkdir()
-    (sandbox / "escape").symlink_to(outside)
+    try:
+        (sandbox / "escape").symlink_to(outside)
+    except OSError as exc:  # pragma: lax no cover - depends on filesystem privileges
+        pytest.skip(f"symlink creation is not permitted here: {exc}")
 
     with pytest.raises(PathEscapeError, match="escapes base"):
         safe_join(sandbox, "escape", "secret.txt")
