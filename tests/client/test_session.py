@@ -2061,3 +2061,36 @@ def test_intercept_consumes_acks_for_live_routes_and_leaves_malformed_ones():
     # Events deliver but are never consumed - they still tee to message_handler.
     assert intercept("notifications/tools/list_changed", meta) is False
     assert list(route._pending) == [ToolsListChanged()]  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.anyio
+async def test_default_message_handler_raises_on_transport_exception():
+    """Default handler re-raises transport Exception items instead of swallowing them (#1401)."""
+    from mcp.client.session import _default_message_handler
+
+    boom = RuntimeError("transport went away")
+    with pytest.raises(RuntimeError, match="transport went away"):
+        await _default_message_handler(boom)
+
+    await _default_message_handler(types.ToolListChangedNotification())
+
+
+@pytest.mark.anyio
+async def test_transport_exception_in_stream_logs_at_error_level(caplog):
+    """A transport Exception on the read stream is logged at ERROR via message_handler (#1401)."""
+    import logging
+
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage](1)
+
+    try:
+        with caplog.at_level(logging.ERROR, logger="client"):
+            async with ClientSession(s2c_recv, c2s_send):
+                await s2c_send.send(RuntimeError("sse_read_timeout fired"))
+                await anyio.sleep(0.05)
+                await anyio.sleep(0)
+        assert any("message_handler raised on transport exception" in rec.message for rec in caplog.records)
+        assert "sse_read_timeout fired" in caplog.text
+    finally:
+        s2c_send.close()
+        c2s_recv.close()
