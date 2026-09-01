@@ -11,6 +11,7 @@ import pytest
 from inline_snapshot import snapshot
 from mcp_types import (
     LATEST_PROTOCOL_VERSION,
+    CallToolRequestParams,
     CallToolResult,
     ClientCapabilities,
     CompleteResult,
@@ -413,6 +414,16 @@ def test_concrete_wire_results_always_dump_result_type_complete():
         assert _wire_dump(result)["resultType"] == "complete", type(result).__name__
 
 
+def test_a_result_body_without_result_type_parses_as_complete():
+    """Spec MUST: a result from an earlier-protocol server with no resultType is the terminal result."""
+    assert CallToolResult.model_validate({"content": []}).result_type == "complete"
+
+
+def test_a_wire_null_structured_content_parses_as_absent() -> None:
+    """A structuredContent of null on the wire is indistinguishable from an absent one once parsed."""
+    assert CallToolResult.model_validate({"content": [], "structuredContent": None}).structured_content is None
+
+
 def test_cacheable_results_default_to_immediately_stale_private():
     """`ttl_ms`/`cache_scope` default to 0/"private" so list-results validate at
     2026-07-28 without the handler setting them, and never accidentally enable
@@ -458,6 +469,12 @@ def test_input_required_result_requires_at_least_one_of_input_requests_or_reques
     with pytest.raises(ValidationError):
         InputRequiredResult(input_requests={})
     assert InputRequiredResult(request_state="s").input_requests is None
+
+
+def test_call_tool_params_reject_an_input_response_that_is_no_result_shape():
+    """A retry whose inputResponses value is no client result fails params validation before any handler runs."""
+    with pytest.raises(ValidationError):
+        CallToolRequestParams.model_validate({"name": "t", "inputResponses": {"k": {"not": "a result"}}})
 
 
 def _assert_mirrors(mirror: ModuleType, source: ModuleType) -> None:

@@ -30,7 +30,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
-from mcp.client.client import Client
+from mcp.client.client import Client, ConnectMode
 from mcp.client.extension import ClientExtension
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
@@ -237,6 +237,9 @@ async def mounted_app(
 async def client_via_http(
     http_client: httpx2.AsyncClient,
     *,
+    mode: ConnectMode = "legacy",
+    sampling_callback: SamplingFnT | None = None,
+    list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
     log_level: LoggingLevel | None = None,
     message_handler: MessageHandlerFnT | None = None,
@@ -247,13 +250,17 @@ async def client_via_http(
     Use with `mounted_app(...)` so several `Client`s share the one session manager, or so a
     client-driven assertion can sit alongside raw-httpx2 assertions in the same test. The
     underlying `httpx2.AsyncClient` is left open when the `Client` exits.
+
+    `mode` defaults to "legacy" because most callers assert the handshake-era HTTP shape
+    (session id, standalone GET, closing DELETE); pass a modern version to pin the 2026-07-28
+    per-request flow instead (no probe, no `prior_discover` needed: the client synthesizes one).
     """
     transport = streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client)
     async with Client(
         transport,
-        # Callers assert the legacy HTTP wire shape (session-id header, standalone GET stream,
-        # closing DELETE); the modern flow is sessionless and would silently change the subject.
-        mode="legacy",
+        mode=mode,
+        sampling_callback=sampling_callback,
+        list_roots_callback=list_roots_callback,
         logging_callback=logging_callback,
         log_level=log_level,
         message_handler=message_handler,
@@ -397,7 +404,9 @@ async def connect_over_sse(
     transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
     async with Client(
         transport,
-        # SSE is a legacy-only transport; the modern path has no SSE story.
+        # A policy lock, not a capability one: the dual-era server loop behind build_sse_app
+        # would negotiate 2026 if probed, but SSE is the deprecated legacy transport and its
+        # clients run the handshake era by design.
         mode="legacy",
         read_timeout_seconds=read_timeout_seconds,
         sampling_callback=sampling_callback,
