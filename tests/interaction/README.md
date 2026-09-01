@@ -205,7 +205,7 @@ The shortest complete example of the conventions:
 
 ```python
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content() -> None:
+async def test_call_tool_returns_text_content(connect: Connect, unstamped: Unstamp) -> None:
     """Arguments reach the tool handler; its content comes back as the call result."""
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
@@ -213,13 +213,18 @@ async def test_call_tool_returns_text_content() -> None:
         assert params.arguments is not None
         return CallToolResult(content=[TextContent(text=str(params.arguments["a"] + params.arguments["b"]))])
 
-    server = Server("adder", on_call_tool=call_tool)
+    server = Server("adder", on_list_tools=tool_listing("add"), on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
-    assert result == snapshot(CallToolResult(content=[TextContent(text="5")]))
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="5")]))
 ```
+
+The server needs a tools/list handler even though the test never lists: `Client.call_tool`
+refreshes tools/list once per connection to validate output schemas, so a `Server` without one
+fails the call (`tool_listing` from `_helpers.py` is the one-line handler). `unstamped` strips the
+2026-era serverInfo `_meta` stamp so one expected payload holds on every cell.
 
 - **The server is defined inside the test** (or in a small fixture at the top of the file when
   several tests genuinely share it). The whole observable behaviour fits on one screen.

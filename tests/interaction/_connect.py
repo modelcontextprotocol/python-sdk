@@ -238,8 +238,6 @@ async def client_via_http(
     http_client: httpx2.AsyncClient,
     *,
     mode: ConnectMode = "legacy",
-    sampling_callback: SamplingFnT | None = None,
-    list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
     log_level: LoggingLevel | None = None,
     message_handler: MessageHandlerFnT | None = None,
@@ -259,8 +257,6 @@ async def client_via_http(
     async with Client(
         transport,
         mode=mode,
-        sampling_callback=sampling_callback,
-        list_roots_callback=list_roots_callback,
         logging_callback=logging_callback,
         log_level=log_level,
         message_handler=message_handler,

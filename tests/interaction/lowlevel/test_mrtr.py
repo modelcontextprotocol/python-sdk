@@ -277,8 +277,10 @@ async def test_input_required_result_with_neither_field_cannot_reach_the_client(
     ValidationError to the same SDK-defined invalid-params error, so one snapshot serves both cells.
     """
 
+    calls: list[str] = []
+
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> InputRequiredResult:
-        assert params.name == "bare"
+        calls.append(params.name)
         # Statically legal (both fields default None); raises pydantic's ValidationError here.
         return InputRequiredResult()
 
@@ -291,6 +293,8 @@ async def test_input_required_result_with_neither_field_cannot_reach_the_client(
     assert exc_info.value.error == snapshot(
         ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
     )
+    # The handler ran: the error is its ValidationError, not a pre-dispatch params rejection.
+    assert calls == ["bare"]
 
 
 @requirement("mrtr:input-responses:key-correspondence")
@@ -446,23 +450,30 @@ async def test_retry_with_an_unrequested_extra_key_is_tolerated_and_the_call_com
 
 
 @requirement("mrtr:push-api:loud-fail-2026")
+@pytest.mark.parametrize("request_scoped", [False, True], ids=["no-related-request-id", "related-request-id"])
 async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_completes(
-    connect: Connect, unstamped: Unstamp
+    connect: Connect, unstamped: Unstamp, request_scoped: bool
 ) -> None:
     """A push API call on a 2026 connection raises a typed local error and the call still completes.
 
     Spec-mandated outcome, era-routed enforcement: every modern dispatch path installs a
     channel-less context by construction, so the gate is "no back-channel", never a send-time
     era check. One push API stands for all four: they share ServerSession.send_request's
-    channel selection.
+    channel selection. The request-scoped variant passes the originating request id, which
+    routes the send onto the per-request dispatch channel (the one leg otherwise live in
+    memory), so both channel selections prove local provenance: the typed NoBackChannelError
+    and a callback that never fires.
     """
     caught: list[NoBackChannelError] = []
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "ask"
+        assert ctx.request_id is not None
+        related_request_id = ctx.request_id if request_scoped else None
         try:
-            await ctx.session.elicit_form("Need a name", _NAME_SCHEMA)
+            await ctx.session.elicit_form("Need a name", _NAME_SCHEMA, related_request_id=related_request_id)
         except NoBackChannelError as exc:
+            # Narrow on purpose: a peer-answered MCPError would propagate and fail the test.
             caught.append(exc)
         return CallToolResult(content=[TextContent(text="fallback")])
 
@@ -477,53 +488,6 @@ async def test_push_elicit_on_2026_raises_typed_local_error_and_call_still_compl
 
     # The failed push did not poison the request: the call completes with the handler's fallback.
     assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
-    assert len(caught) == 1
-    assert caught[0].method == "elicitation/create"
-    assert caught[0].error == snapshot(
-        ErrorData(
-            code=INVALID_REQUEST,
-            message=(
-                "Cannot send 'elicitation/create': this transport context has no back-channel "
-                "for server-initiated requests."
-            ),
-        )
-    )
-
-
-@requirement("mrtr:push-api:loud-fail-2026")
-async def test_request_scoped_push_elicit_on_in_memory_2026_loud_fails_locally_and_the_call_still_completes() -> None:
-    """A request-scoped push elicit on in-memory 2026 loud-fails locally and the call still completes.
-
-    The related id routes the send onto the per-request dispatch channel -- the one leg whose
-    channel is otherwise live in-memory -- so this pin proves local provenance: the typed
-    NoBackChannelError (never a peer answer) and a callback that never fires. A delivered frame
-    would raise NotImplementedError in the callback, surface as a non-NoBackChannelError error,
-    escape the narrowed except, and fail the test loudly.
-    """
-    caught: list[NoBackChannelError] = []
-
-    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask"
-        assert ctx.request_id is not None
-        try:
-            # The related id routes the send onto the per-request dispatch channel.
-            await ctx.session.elicit_form("Need a name", _NAME_SCHEMA, related_request_id=ctx.request_id)
-        except NoBackChannelError as exc:
-            # Narrow on purpose: a peer-answered MCPError would propagate and fail the test.
-            caught.append(exc)
-        return CallToolResult(content=[TextContent(text="fallback")])
-
-    server = Server("scoped-push", on_list_tools=tool_listing("ask"), on_call_tool=call_tool)
-
-    # Registering the callback declares the elicitation capability; it must never fire.
-    async def never_deliverable(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
-        raise NotImplementedError
-
-    async with Client(server, mode=LATEST_MODERN_VERSION, elicitation_callback=never_deliverable) as client:
-        result = await client.call_tool("ask", {})
-
-    # The failed push did not poison the request: the call completes with the handler's fallback.
-    assert strip_stamp(result) == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
     assert len(caught) == 1
     assert caught[0].method == "elicitation/create"
     assert caught[0].error == snapshot(

@@ -950,9 +950,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
         behavior="A maximum total timeout is enforced even when progress notifications keep arriving.",
         deferred=(
-            "Not yet covered here: the per-request read timeout is the enforced maximum, since it does not reset "
-            "when progress notifications arrive (reset-on-progress is not offered); the test drives a continuously "
-            "progressing tool against a short read timeout."
+            "Not yet covered here: the per-request read timeout is the enforced maximum and does not reset when "
+            "progress notifications arrive, so a call whose handler keeps reporting progress still fails with "
+            "-32001 once the read timeout elapses; reset-on-progress is not offered. No test drives this yet."
         ),
     ),
     "protocol:timeout:reset-on-progress": Requirement(
@@ -1630,12 +1630,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "parameter is rejected with a JSON-RPC error and the resource function is never "
             "invoked."
         ),
-        added_in="2026-07-28",
         note=(
             "New security MUST in 2026-07-28. MCPServer's default resource-security policy rejects traversal, "
             "absolute-path and null-byte parameter values when matching the template and reports the same -32602 "
             "'Unknown resource' error as a non-match, so the wire offers no probing oracle; the SDK applies the "
-            "policy on 2025-11-25 connections too."
+            "policy on 2025-11-25 connections too, so the entry carries no version window."
         ),
     ),
     "resources:read:template-vars": Requirement(

@@ -28,8 +28,6 @@ from mcp_types import (
     CallToolRequestParams,
     CallToolResult,
     DiscoverResult,
-    ElicitRequestParams,
-    ElicitResult,
     EmptyResult,
     ErrorData,
     GetPromptRequestParams,
@@ -61,11 +59,9 @@ from starlette.datastructures import Headers
 from starlette.requests import Request as StarletteRequest
 
 from mcp import MCPError
-from mcp.client import ClientRequestContext
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.exceptions import NoBackChannelError
 from tests._stamp import unstamped as strip_stamp
 from tests.interaction._connect import (
     BASE_URL,
@@ -1107,55 +1103,4 @@ async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_enco
     assert seen == ["=?base64?aMOpbGxv?="]
     assert strip_stamp(result) == snapshot(
         GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="bonjour"))])
-    )
-
-
-@requirement("mrtr:push-api:loud-fail-2026")
-async def test_modern_request_scoped_push_elicit_loud_fails_locally_and_the_call_still_completes() -> None:
-    """A request-scoped push elicit over the modern HTTP entry loud-fails locally and the call still completes.
-
-    Spec-mandated outcome: the modern HTTP entry builds its per-request channel with no
-    back-channel, so the refusal is local by construction. The in-memory twin of this leg is
-    pinned in lowlevel/test_mrtr.py; this pin keeps the HTTP entry's own gate regression-covered.
-    """
-    caught: list[NoBackChannelError] = []
-
-    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-        assert params.name == "ask"
-        assert ctx.request_id is not None
-        try:
-            # The related id selects the per-request dispatch channel.
-            await ctx.session.elicit_form(
-                "Need a name",
-                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
-                related_request_id=ctx.request_id,
-            )
-        except NoBackChannelError as exc:
-            caught.append(exc)
-        return CallToolResult(content=[TextContent(text="fallback")])
-
-    server = Server("scoped-push", on_list_tools=tool_listing("ask"), on_call_tool=call_tool)
-
-    # Declares the elicitation capability, isolating the failure to the missing back-channel.
-    async def never_deliverable(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
-        raise NotImplementedError
-
-    with anyio.fail_after(5):
-        async with (
-            mounted_app(server) as (http, _),
-            client_via_http(http, mode=LATEST_MODERN_VERSION, elicitation_callback=never_deliverable) as client,
-        ):
-            result = await client.call_tool("ask", {})
-
-    assert strip_stamp(result) == snapshot(CallToolResult(content=[TextContent(text="fallback")]))
-    assert len(caught) == 1
-    assert caught[0].method == "elicitation/create"
-    assert caught[0].error == snapshot(
-        ErrorData(
-            code=INVALID_REQUEST,
-            message=(
-                "Cannot send 'elicitation/create': this transport context has no back-channel "
-                "for server-initiated requests."
-            ),
-        )
     )

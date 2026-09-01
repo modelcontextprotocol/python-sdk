@@ -18,6 +18,16 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
+def _stamps(teed: list[IncomingMessage]) -> list[tuple[str, object]]:
+    """(method, subscriptionId stamp) per teed frame, checked here because the session swallows a raising handler."""
+    stamps: list[tuple[str, object]] = []
+    for message in teed:
+        assert isinstance(message, types.ServerNotification)
+        assert message.params is not None
+        stamps.append((message.method, (message.params.meta or {}).get(SUBSCRIPTION_ID_META_KEY)))
+    return stamps
+
+
 @requirement("subscriptions:listen:graceful-close")
 async def test_a_graceful_server_close_ends_iteration_after_buffered_events(connect: Connect) -> None:
     """`ListenHandler.close()` sends the result last; iteration drains published events, then ends cleanly."""
@@ -157,12 +167,10 @@ async def test_every_event_frame_on_a_listen_stream_is_stamped_with_the_listen_r
     bus = InMemorySubscriptionBus()
     handler = ListenHandler(bus)
     server = Server("subs", on_subscriptions_listen=handler)
-    stamped: list[tuple[str, object]] = []
+    teed: list[IncomingMessage] = []
 
     async def record(message: IncomingMessage) -> None:
-        assert isinstance(message, types.ServerNotification)
-        assert message.params is not None
-        stamped.append((message.method, (message.params.meta or {})[SUBSCRIPTION_ID_META_KEY]))
+        teed.append(message)
 
     async with connect(server, message_handler=record) as client:
         with anyio.fail_after(5):
@@ -173,7 +181,7 @@ async def test_every_event_frame_on_a_listen_stream_is_stamped_with_the_listen_r
                 events = [event async for event in sub]
             assert events == [ToolsListChanged(), PromptsListChanged()]
 
-    assert stamped == [
+    assert _stamps(teed) == [
         ("notifications/tools/list_changed", sub.subscription_id),
         ("notifications/prompts/list_changed", sub.subscription_id),
     ]
@@ -192,12 +200,10 @@ async def test_concurrent_streams_each_yield_only_the_kinds_their_own_filter_req
     bus = InMemorySubscriptionBus()
     handler = ListenHandler(bus)
     server = Server("subs", on_subscriptions_listen=handler)
-    stamped: list[tuple[str, object]] = []
+    teed: list[IncomingMessage] = []
 
     async def record(message: IncomingMessage) -> None:
-        assert isinstance(message, types.ServerNotification)
-        assert message.params is not None
-        stamped.append((message.method, (message.params.meta or {})[SUBSCRIPTION_ID_META_KEY]))
+        teed.append(message)
 
     async with connect(server, message_handler=record) as client:
         with anyio.fail_after(5):
@@ -213,6 +219,7 @@ async def test_concurrent_streams_each_yield_only_the_kinds_their_own_filter_req
             assert tools_events == [ToolsListChanged()]
             assert prompts_events == [PromptsListChanged()]
 
+    stamped = _stamps(teed)
     assert len(stamped) == 2
     assert set(stamped) == {
         ("notifications/prompts/list_changed", prompts_sub.subscription_id),
