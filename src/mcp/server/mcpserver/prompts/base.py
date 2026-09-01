@@ -203,7 +203,9 @@ class Prompt(BaseModel):
                 elif isinstance(msg, str | ContentBlock | Image | Audio):  # bare content is one user message
                     messages.append(UserMessage(msg))
                 else:  # pragma: no cover
-                    content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
+                    content = pydantic_core.to_json(
+                        msg, fallback=str, indent=2, inf_nan_mode="null"
+                    ).decode()
                     messages.append(Message(role="user", content=content))
 
             return messages

@@ -666,6 +666,8 @@ def _convert_to_content(result: Any) -> list[ContentBlock]:
         )
 
     if not isinstance(result, str):
-        result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        result = pydantic_core.to_json(
+            result, fallback=str, indent=2, inf_nan_mode="null"
+        ).decode()
 
     return [TextContent(type="text", text=result)]

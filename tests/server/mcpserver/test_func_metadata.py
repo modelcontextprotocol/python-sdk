@@ -1520,3 +1520,19 @@ def test_union_of_only_input_required_subclasses_yields_no_output_schema():
 
     meta = func_metadata(fn)
     assert meta.output_schema is None
+
+
+def test_convert_to_content_non_finite_floats():
+    import json
+    import math
+    from mcp.server.mcpserver.utilities.func_metadata import _convert_to_content
+
+    result = {"mean": 1.5, "stddev": math.nan, "max": math.inf, "min": -math.inf}
+    content = _convert_to_content(result)
+    assert len(content) == 1
+    assert content[0].type == "text"
+    text = content[0].text
+    # Must be valid RFC 8259 JSON parseable by standard JSON parsers
+    parsed = json.loads(text)
+    assert parsed == {"mean": 1.5, "stddev": None, "max": None, "min": None}
+
