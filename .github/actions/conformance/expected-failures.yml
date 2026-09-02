@@ -1,4 +1,11 @@
 # Known conformance test failures for v1.x
 # These are tracked and should be removed as they're fixed.
 server: []
-client: []
+client:
+  # The pinned harness (0.1.13) serves authorization server metadata whose `issuer`
+  # omits the tenant path its resource metadata advertises (`/tenant1`), so a client
+  # that checks RFC 8414 section 3.3 refuses it. The mock includes the path from
+  # conformance 0.1.15 (modelcontextprotocol/conformance#152); drop these two entries
+  # when the pin moves past it.
+  - auth/metadata-var2
+  - auth/metadata-var3
