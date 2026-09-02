@@ -1254,6 +1254,7 @@ The FastMCP server instance accessible via `ctx.fastmcp` provides access to serv
   - `mount_path`, `sse_path`, `streamable_http_path` - Transport paths
   - `stateless_http` - Whether the server operates in stateless mode
   - `max_request_body_size` - Maximum HTTP request body size in bytes (Streamable HTTP and SSE)
+  - `session_idle_timeout` and `max_sessions` - Streamable HTTP session expiry and session cap
   - And other configuration options
 
 ```python
@@ -1426,6 +1427,9 @@ messages, configure the smallest suitable byte limit:
 mcp = FastMCP("Large messages", max_request_body_size=8 * 1024 * 1024)
 ```
 
+Stateful sessions expire and are capped per process. See
+[Session lifetime and limits](#session-lifetime-and-limits) below.
+
 <!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
 """
@@ -1535,6 +1539,39 @@ The streamable HTTP transport supports:
 - Resumability with event stores
 - JSON or SSE response formats
 - Better scalability for multi-node deployments
+
+#### Session lifetime and limits
+
+A stateful session does not live forever, and one process does not hold an unlimited number of
+them. Two settings control this. Both are keyword arguments on `FastMCP(...)`. `stateless_http=True`
+keeps no sessions, so neither applies there.
+
+| Setting | Default | What it does | What the client sees | Turn it off |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800` (30 min) | Closes a session that has had nothing in flight for that long. | `404 Session not found`. It has to `initialize` again. | `None` |
+| `max_sessions` | `10_000` | Refuses to open a session beyond that many. Existing sessions are untouched and nothing is evicted. | `503 Too many open sessions` with JSON-RPC code `-32603`. | `None` |
+
+What counts as "in flight":
+
+- An open `GET` stream. The SDK clients keep one open, so a connected client's session never
+  expires.
+- A request that is still being answered. A tool call that runs longer than the timeout is not
+  interrupted, and the countdown only starts once it finishes.
+- Nothing else. Between requests the clock runs. Any request on the session restarts it,
+  `ping` included. Once a session has expired, nothing revives it.
+
+A client that ends its session with `DELETE` frees it immediately. So does a client whose
+opening request was refused.
+
+```python
+mcp = FastMCP("My server", session_idle_timeout=None, max_sessions=50_000)
+```
+
+Both events show up in the server log. An expiry is `Session <id> idle timeout` at `INFO`. A
+refused open is `Refusing to open a new session: <n> sessions are already open` at `WARNING`.
+
+The limits are per process. With four workers the ceiling is four times `max_sessions`, and each
+worker expires its own sessions.
 
 #### CORS Configuration for Browser-Based Clients
 

@@ -62,7 +62,11 @@ from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_SESSION_IDLE_TIMEOUT,
+    StreamableHTTPSessionManager,
+)
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
@@ -108,6 +112,10 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     """Define if the server should create a new transport per request."""
     max_request_body_size: int
     """Maximum request body size in bytes for the Streamable HTTP endpoint and the SSE message endpoint."""
+    session_idle_timeout: float | None
+    """Seconds a stateful session may have no request in flight before it is closed. None disables expiry."""
+    max_sessions: int | None
+    """Maximum number of concurrent stateful sessions. None removes the limit."""
 
     # resource settings
     warn_on_duplicate_resources: bool
@@ -169,6 +177,8 @@ class FastMCP(Generic[LifespanResultT]):
         json_response: bool = False,
         stateless_http: bool = False,
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
@@ -197,6 +207,8 @@ class FastMCP(Generic[LifespanResultT]):
             json_response=json_response,
             stateless_http=stateless_http,
             max_request_body_size=max_request_body_size,
+            session_idle_timeout=session_idle_timeout,
+            max_sessions=max_sessions,
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
@@ -966,6 +978,8 @@ class FastMCP(Generic[LifespanResultT]):
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
                 max_request_body_size=self.settings.max_request_body_size,
+                session_idle_timeout=self.settings.session_idle_timeout,
+                max_sessions=self.settings.max_sessions,
             )
 
         # Create the ASGI handler

@@ -4,7 +4,6 @@ import logging
 import multiprocessing
 import re
 import socket
-from collections.abc import Iterator
 from typing import Any
 
 import anyio
@@ -27,23 +26,6 @@ from tests.test_helpers import wait_for_server
 
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_sse_security_server"
-
-
-@pytest.fixture(autouse=True)
-def reset_sse_starlette_exit_event() -> Iterator[None]:
-    """sse-starlette<2 caches a module-level anyio.Event on AppStatus; clear it
-    around each test so it is never bound to a closed event loop. Clearing it
-    afterwards matters too: later test modules fork uvicorn subprocesses on
-    Linux and would otherwise inherit a stale event."""
-    from sse_starlette.sse import AppStatus
-
-    def clear() -> None:
-        if hasattr(AppStatus, "should_exit_event"):  # pragma: no cover
-            setattr(AppStatus, "should_exit_event", None)
-
-    clear()
-    yield
-    clear()
 
 
 @pytest.fixture

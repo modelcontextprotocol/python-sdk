@@ -9,6 +9,7 @@ responses, with streaming support for long-running operations.
 
 import json
 import logging
+import math
 import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -150,6 +151,7 @@ class StreamableHTTPServerTransport:
         event_store: EventStore | None = None,
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
+        idle_timeout: float | None = None,
     ) -> None:
         """
         Initialize a new StreamableHTTP server transport.
@@ -167,12 +169,22 @@ class StreamableHTTPServerTransport:
                            retry field. When set, the server will send a retry field in
                            SSE priming events to control client reconnection timing for
                            polling behavior. Only used when event_store is provided.
+            idle_timeout: Seconds the session may go without any request in flight before
+                         `idle_scope` is cancelled. A request being served or an open GET
+                         stream holds the session open; the countdown starts each time the
+                         last in-flight request completes. The host waits on `idle_scope`
+                         (available once `connect()` has been entered) and ends the session
+                         when it fires. Default is None: no `idle_scope`, the session never
+                         expires.
 
         Raises:
-            ValueError: If the session ID contains invalid characters.
+            ValueError: If the session ID contains invalid characters, or if `idle_timeout`
+                        is not a positive, finite number.
         """
         if mcp_session_id is not None and not SESSION_ID_PATTERN.fullmatch(mcp_session_id):
             raise ValueError("Session ID must only contain visible ASCII characters (0x21-0x7E)")
+        if idle_timeout is not None and not (math.isfinite(idle_timeout) and idle_timeout > 0):
+            raise ValueError("idle_timeout must be a positive, finite number of seconds")
 
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
@@ -188,8 +200,11 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[SSEEvent]] = {}
         self._terminated = False
-        # Idle timeout cancel scope; managed by the session manager.
+        self._idle_timeout = idle_timeout
+        self._requests_in_flight = 0
         self.idle_scope: anyio.CancelScope | None = None
+        """Created when `connect()` is entered if `idle_timeout` is set; cancelled once no request has been in
+        flight for `idle_timeout` seconds."""
 
     @property
     def is_terminated(self) -> bool:
@@ -402,6 +417,32 @@ class StreamableHTTPServerTransport:
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Application entry point that handles all HTTP requests"""
+        if self.idle_scope is None or self._idle_timeout is None:
+            await self._handle_request(scope, receive, send)
+            return
+
+        if self.idle_scope.cancel_called:
+            # The idle period already ran out and the host is ending this
+            # session: answer as terminated rather than dispatch into a
+            # message loop that is going away.
+            if not self._terminated:
+                await self.terminate()
+            await self._handle_request(scope, receive, send)
+            return
+
+        # A request in flight (an open GET stream included) holds the session:
+        # the idle countdown is suspended while any is being served and
+        # restarts when the last one completes.
+        self._requests_in_flight += 1
+        self.idle_scope.deadline = math.inf
+        try:
+            await self._handle_request(scope, receive, send)
+        finally:
+            self._requests_in_flight -= 1
+            if not self._requests_in_flight:
+                self.idle_scope.deadline = anyio.current_time() + self._idle_timeout
+
+    async def _handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         request = Request(scope, receive)
 
         # Validate request headers for DNS rebinding protection
@@ -643,8 +684,9 @@ class StreamableHTTPServerTransport:
                 except Exception:
                     logger.exception("SSE response error")
                     await sse_stream_writer.aclose()
-                    await sse_stream_reader.aclose()
                     await self._clean_up_memory_streams(request_id)
+                finally:
+                    await sse_stream_reader.aclose()
 
         except Exception as err:
             logger.exception("Error handling POST request")
@@ -747,9 +789,10 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
         except Exception:
             logger.exception("Error in standalone SSE response")
+            await self._clean_up_memory_streams(GET_STREAM_KEY)
+        finally:
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
-            await self._clean_up_memory_streams(GET_STREAM_KEY)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:  # pragma: no cover
         """Handle DELETE requests for explicit session termination."""
@@ -992,6 +1035,8 @@ class StreamableHTTPServerTransport:
         Yields:
             Tuple of (read_stream, write_stream) for bidirectional communication
         """
+        if self._idle_timeout is not None:
+            self.idle_scope = anyio.CancelScope()
 
         # Create the memory streams for this connection
 

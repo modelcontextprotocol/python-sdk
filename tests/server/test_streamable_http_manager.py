@@ -1,13 +1,17 @@
 """Tests for StreamableHTTPSessionManager."""
 
 import json
-from collections.abc import Iterator
-from typing import Any
+import logging
+import math
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import anyio
+import anyio.lowlevel
 import pytest
-from starlette.types import Message, Scope
+from starlette.types import Message, Receive, Scope, Send
 
 from mcp.server import streamable_http_manager
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
@@ -16,9 +20,27 @@ from mcp.server.lowlevel import Server
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import (
     DEFAULT_MAX_REQUEST_BODY_SIZE,
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_SESSION_IDLE_TIMEOUT,
     StreamableHTTPSessionManager,
 )
-from mcp.types import INVALID_REQUEST
+from mcp.types import INTERNAL_ERROR, INVALID_REQUEST, LATEST_PROTOCOL_VERSION, TextContent
+
+_JSON_HEADERS = {"accept": "application/json, text/event-stream", "content-type": "application/json"}
+
+_INITIALIZE_BODY = json.dumps(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": LATEST_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "0"},
+        },
+    }
+).encode()
+"""A wire-level initialize request: the only request that may open a session."""
 
 
 @pytest.mark.anyio
@@ -285,19 +307,7 @@ async def test_stateless_requests_memory_cleanup():
     app = Server("test-stateless-real-cleanup")
     manager = StreamableHTTPSessionManager(app=app, stateless=True)
 
-    # Track created transport instances
-    created_transports: list[StreamableHTTPServerTransport] = []
-
-    # Patch StreamableHTTPServerTransport constructor to track instances
-
-    original_constructor = streamable_http_manager.StreamableHTTPServerTransport
-
-    def track_transport(*args: Any, **kwargs: Any) -> StreamableHTTPServerTransport:
-        transport = original_constructor(*args, **kwargs)
-        created_transports.append(transport)
-        return transport
-
-    with patch.object(streamable_http_manager, "StreamableHTTPServerTransport", side_effect=track_transport):
+    with _created_transports() as created_transports:
         async with manager.run():
             # Mock app.run to complete immediately
             app.run = AsyncMock(return_value=None)
@@ -390,81 +400,497 @@ async def test_unknown_session_id_returns_404():
         assert error_data["error"]["message"] == "Session not found"
 
 
+class _IdleTimeoutObserver(logging.Handler):
+    """Resolves `reaped` when the manager logs that a session's idle timeout fired."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reaped = anyio.Event()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "idle timeout" in record.getMessage():
+            self.reaped.set()
+
+
+def _observe_idle_timeout(caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest) -> _IdleTimeoutObserver:
+    """Install an observer for the manager's "idle timeout" log record for the rest of the test.
+
+    The manager pops the session synchronously after emitting that record, before its next await,
+    so a waiter woken by it always finds the session gone. caplog.set_level enables INFO so the
+    record is created.
+    """
+    observer = _IdleTimeoutObserver()
+    manager_logger = logging.getLogger(streamable_http_manager.__name__)
+    manager_logger.addHandler(observer)
+    request.addfinalizer(lambda: manager_logger.removeHandler(observer))
+    caplog.set_level(logging.INFO, logger=streamable_http_manager.__name__)
+    return observer
+
+
+@contextmanager
+def _created_transports() -> Iterator[list[StreamableHTTPServerTransport]]:
+    """Collect every transport a session manager creates while the context is open."""
+    created: list[StreamableHTTPServerTransport] = []
+
+    def create(*args: Any, **kwargs: Any) -> StreamableHTTPServerTransport:
+        transport = StreamableHTTPServerTransport(*args, **kwargs)
+        created.append(transport)
+        return transport
+
+    with patch.object(streamable_http_manager, "StreamableHTTPServerTransport", side_effect=create):
+        yield created
+
+
+@asynccontextmanager
+async def _open_event_stream(
+    manager: StreamableHTTPSessionManager, session_id: str
+) -> AsyncIterator[StreamableHTTPServerTransport]:
+    """Hold the session's standalone GET stream open while the context is open, the way a listening client
+    does, and close it (the client goes away) on exit. Yields the session's transport once the stream has
+    been answered."""
+    stream_opened = anyio.Event()
+    client_gone = anyio.Event()
+    sent_messages: list[Message] = []
+    request_delivered = False
+
+    async def send(message: Message) -> None:
+        sent_messages.append(message)
+        stream_opened.set()
+
+    async def receive() -> Message:
+        # A GET carries an empty body; after that the client just holds the
+        # stream open until it goes away.
+        nonlocal request_delivered
+        if not request_delivered:
+            request_delivered = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await client_gone.wait()
+        return {"type": "http.disconnect"}
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(manager.handle_request, _request_scope(session_id=session_id, method="GET"), receive, send)
+        with anyio.fail_after(5):
+            await stream_opened.wait()
+        assert (sent_messages[0]["type"], sent_messages[0]["status"]) == ("http.response.start", 200)
+        yield manager._server_instances[session_id]
+        client_gone.set()
+
+
 @pytest.mark.anyio
-async def test_idle_session_is_reaped():
+async def test_idle_session_is_reaped(caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest):
     """After idle timeout fires, the session returns 404."""
     app = Server("test-idle-reap")
     manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=0.05)
+    observer = _observe_idle_timeout(caplog, request)
 
     async with manager.run():
-        sent_messages: list[Message] = []
+        session_id = await _open_session(manager, None)
 
-        async def mock_send(message: Message):
-            sent_messages.append(message)
-
-        scope = {
-            "type": "http",
-            "method": "POST",
-            "path": "/mcp",
-            "headers": [(b"content-type", b"application/json")],
-        }
-
-        async def mock_receive():
-            return {"type": "http.request", "body": b"", "more_body": False}
-
-        await manager.handle_request(scope, mock_receive, mock_send)
-
-        session_id = None
-        for msg in sent_messages:  # pragma: no branch
-            if msg["type"] == "http.response.start":  # pragma: no branch
-                for header_name, header_value in msg.get("headers", []):  # pragma: no branch
-                    if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
-                        session_id = header_value.decode()
-                        break
-                if session_id:  # pragma: no branch
-                    break
-
-        assert session_id is not None, "Session ID not found in response headers"
-
-        # Wait for the 50ms idle timeout to fire and cleanup to complete
-        await anyio.sleep(0.1)
+        # Wait for the 50ms idle timeout to fire and the session to be unregistered. Re-requesting
+        # the session to poll for the 404 would push its idle deadline forward and keep it alive.
+        with anyio.fail_after(5):
+            await observer.reaped.wait()
 
         # Verify via public API: old session ID now returns 404
-        response_messages: list[Message] = []
+        assert await _request_session(manager, session_id, None) == 404
 
-        async def capture_send(message: Message):
-            response_messages.append(message)
 
-        scope_with_session = {
-            "type": "http",
-            "method": "POST",
-            "path": "/mcp",
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"mcp-session-id", session_id.encode()),
-            ],
+@pytest.mark.anyio
+async def test_expired_session_runs_the_server_lifespan_to_completion(
+    caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest
+) -> None:
+    """When a session expires, the server's lifespan for it is torn down the way it is after a DELETE:
+    cleanup that awaits runs to completion instead of being cancelled part way."""
+    torn_down = anyio.Event()
+    teardown: list[str] = []
+
+    @asynccontextmanager
+    async def lifespan(server: Server[Any, Any]) -> AsyncIterator[dict[str, Any]]:
+        try:
+            yield {}
+        finally:
+            try:
+                await anyio.lowlevel.checkpoint()  # stands in for cleanup that has to await
+                teardown.append("completed")
+            finally:
+                torn_down.set()
+
+    manager = StreamableHTTPSessionManager(app=Server("test-lifespan", lifespan=lifespan), session_idle_timeout=0.05)
+    observer = _observe_idle_timeout(caplog, request)
+
+    async with manager.run():
+        await _open_session(manager, None)
+        with anyio.fail_after(5):
+            await observer.reaped.wait()
+            await torn_down.wait()
+        assert teardown == ["completed"]
+
+
+@pytest.mark.anyio
+async def test_request_in_flight_holds_the_session_open(
+    caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest
+) -> None:
+    """A session does not expire while one of its requests is still being served, however long that takes;
+    the idle period is counted from the moment its last request completes."""
+    tool_started = anyio.Event()
+    release_tool = anyio.Event()
+    app = Server("test-in-flight")
+
+    @app.call_tool()
+    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+        tool_started.set()
+        await release_tool.wait()
+        return [TextContent(type="text", text="done")]
+
+    manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=30)
+    observer = _observe_idle_timeout(caplog, request)
+
+    async with manager.run():
+        session_id = await _open_session(manager, None)
+        transport = manager._server_instances[session_id]
+        call_tool_body = json.dumps(
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "slow", "arguments": {}}}
+        ).encode()
+        responses: list[tuple[Message, bytes]] = []
+
+        async def call_tool() -> None:
+            responses.append(await _call(manager, _request_scope(session_id=session_id), call_tool_body))
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(call_tool)
+            with anyio.fail_after(5):
+                await tool_started.wait()
+            # While the call is being served the idle countdown is suspended.
+            assert transport.idle_scope is not None and transport.idle_scope.deadline == math.inf
+            # From here on a short idle period, counted from the moment the call completes.
+            transport._idle_timeout = 0.05
+            release_tool.set()
+
+        response_start, response_body = responses[0]
+        assert response_start["status"] == 200
+        assert b'"done"' in response_body
+
+        # Nothing is in flight any more, so the idle period now runs out.
+        with anyio.fail_after(5):
+            await observer.reaped.wait()
+        assert session_id not in manager._server_instances
+        assert transport.is_terminated
+        assert await _request_session(manager, session_id, None) == 404
+
+
+@pytest.mark.anyio
+async def test_open_event_stream_holds_the_session_open(
+    caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest
+) -> None:
+    """A client listening on the session's GET stream keeps the session, even if it sends nothing;
+    once the stream closes the idle period runs out and the session is gone."""
+    manager = StreamableHTTPSessionManager(app=Server("test-get-stream"), session_idle_timeout=30)
+    observer = _observe_idle_timeout(caplog, request)
+
+    async with manager.run():
+        session_id = await _open_session(manager, None)
+
+        async with _open_event_stream(manager, session_id) as transport:
+            # The stream has been answered, so it is in flight: the idle countdown is suspended.
+            assert transport.idle_scope is not None and transport.idle_scope.deadline == math.inf
+            # From here on a short idle period, counted from the moment the stream closes.
+            transport._idle_timeout = 0.05
+
+        with anyio.fail_after(5):
+            await observer.reaped.wait()
+        assert session_id not in manager._server_instances
+        assert transport.is_terminated
+        assert await _request_session(manager, session_id, None) == 404
+
+
+@pytest.mark.anyio
+async def test_request_completing_under_an_open_event_stream_does_not_start_the_countdown(
+    caplog: pytest.LogCaptureFixture, request: pytest.FixtureRequest
+) -> None:
+    """A request that completes while the session's GET stream is still open does not start the idle
+    period: the stream is still in flight, so the countdown only begins once it closes too."""
+    manager = StreamableHTTPSessionManager(app=Server("test-get-stream-and-post"), session_idle_timeout=30)
+    observer = _observe_idle_timeout(caplog, request)
+
+    async with manager.run():
+        session_id = await _open_session(manager, None)
+
+        async with _open_event_stream(manager, session_id) as transport:
+            assert transport.idle_scope is not None and transport.idle_scope.deadline == math.inf
+            ping = b'{"jsonrpc": "2.0", "id": 2, "method": "ping"}'
+            response_start, _ = await _call(manager, _request_scope(session_id=session_id), ping)
+            assert response_start["status"] == 200
+            # The ping has completed (in-flight bookkeeping included, since `_call` only returns once the
+            # manager has), but the open stream still suspends the idle countdown.
+            assert transport.idle_scope.deadline == math.inf
+            # From here on a short idle period, counted from the moment the stream closes.
+            transport._idle_timeout = 0.05
+
+        with anyio.fail_after(5):
+            await observer.reaped.wait()
+        assert session_id not in manager._server_instances
+        assert transport.is_terminated
+        assert await _request_session(manager, session_id, None) == 404
+
+
+def test_session_idle_timeout_defaults_to_thirty_minutes() -> None:
+    """Stateful sessions expire after 30 minutes without a request in flight unless configured otherwise."""
+    manager = StreamableHTTPSessionManager(app=Server("test"))
+    assert manager.session_idle_timeout == DEFAULT_SESSION_IDLE_TIMEOUT == 30 * 60
+
+
+@pytest.mark.parametrize("session_idle_timeout", [0, -1, float("inf"), float("nan")])
+def test_session_idle_timeout_rejects_invalid_values(session_idle_timeout: float) -> None:
+    """The idle timeout is a positive, finite number of seconds, or None for sessions that never expire."""
+    with pytest.raises(ValueError) as exc_info:
+        StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=session_idle_timeout)
+    assert str(exc_info.value) == "session_idle_timeout must be a positive, finite number of seconds"
+
+
+@pytest.mark.anyio
+async def test_session_idle_timeout_is_unused_in_stateless_mode() -> None:
+    """Stateless mode keeps no sessions, so the idle timeout is accepted and simply has nothing to expire."""
+    manager = StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+    async with manager.run():
+        response_start, _ = await _call(manager, _request_scope(), _INITIALIZE_BODY)
+        assert response_start["status"] == 200
+        assert manager._server_instances == {}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("session_idle_timeout", [DEFAULT_SESSION_IDLE_TIMEOUT, None])
+async def test_deleted_session_is_forgotten(session_idle_timeout: float | None) -> None:
+    """A client DELETE ends the session and the manager stops tracking it; the ID is unknown afterwards."""
+    manager = StreamableHTTPSessionManager(app=Server("test-delete"), session_idle_timeout=session_idle_timeout)
+    async with manager.run():
+        session_id = await _open_session(manager, None)
+        assert session_id in manager._server_instances
+
+        assert await _request_session(manager, session_id, None, method="DELETE") == 200
+        assert session_id not in manager._server_instances
+        response_start, response_body = await _call(manager, _request_scope(session_id=session_id))
+        assert response_start["status"] == 404
+        assert json.loads(response_body) == {
+            "jsonrpc": "2.0",
+            "id": "server-error",
+            "error": {"code": INVALID_REQUEST, "message": "Session not found"},
         }
 
-        await manager.handle_request(scope_with_session, mock_receive, capture_send)
 
-        response_start = next(
-            (msg for msg in response_messages if msg["type"] == "http.response.start"),
-            None,
-        )
-        assert response_start is not None
-        assert response_start["status"] == 404
+@pytest.mark.anyio
+async def test_opening_request_that_fails_leaves_no_session() -> None:
+    """If serving the request that would open a session raises, the provisional session is discarded
+    there and then rather than left registered with its server task running."""
+    manager = StreamableHTTPSessionManager(app=Server("test-failed-open"))
+    with _created_transports() as transports:
+        async with manager.run():
+            with (
+                patch.object(
+                    StreamableHTTPServerTransport, "handle_request", AsyncMock(side_effect=RuntimeError("boom"))
+                ),
+                pytest.raises(RuntimeError, match="boom"),
+                anyio.fail_after(5),
+            ):
+                await _call(manager, _request_scope(), _INITIALIZE_BODY)
+            assert manager._server_instances == {}
+            assert manager._session_owners == {}
+            (transport,) = transports
+            assert transport.is_terminated
 
 
-def test_session_idle_timeout_rejects_non_positive():
-    with pytest.raises(ValueError, match="positive number"):
-        StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=-1)
-    with pytest.raises(ValueError, match="positive number"):
-        StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=0)
+@pytest.mark.anyio
+async def test_opening_request_that_is_cancelled_leaves_no_session() -> None:
+    """If the request that would open a session is cancelled while it is being served (the client went
+    away), the provisional session is discarded rather than left registered."""
+    manager = StreamableHTTPSessionManager(app=Server("test-cancelled-open"))
+    entered = anyio.Event()
+
+    async def hang(self: StreamableHTTPServerTransport, scope: Scope, receive: Receive, send: Send) -> None:
+        entered.set()
+        await anyio.sleep_forever()
+
+    opening_request = anyio.CancelScope()
+
+    async def open_session() -> None:
+        with opening_request:
+            await _call(manager, _request_scope(), _INITIALIZE_BODY)
+
+    with _created_transports() as transports, patch.object(StreamableHTTPServerTransport, "handle_request", hang):
+        async with manager.run():
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(open_session)
+                with anyio.fail_after(5):
+                    await entered.wait()
+                assert len(manager._server_instances) == 1
+                opening_request.cancel()
+            assert manager._server_instances == {}
+            assert manager._session_owners == {}
+            (transport,) = transports
+            assert transport.is_terminated
 
 
-def test_session_idle_timeout_rejects_stateless():
-    with pytest.raises(RuntimeError, match="not supported in stateless"):
-        StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+@pytest.mark.anyio
+async def test_opening_request_whose_session_task_cannot_start_leaves_no_session() -> None:
+    """If the server task for a would-be session cannot be started, the provisional session is discarded
+    (forgotten, its transport terminated) rather than left registered without anything serving it."""
+    manager = StreamableHTTPSessionManager(app=Server("test-unstartable-open"))
+
+    @asynccontextmanager
+    async def connect_that_fails(self: StreamableHTTPServerTransport) -> AsyncIterator[None]:
+        raise RuntimeError("boom")
+        yield
+
+    with _created_transports() as transports:
+        async with manager.run():
+            with (
+                patch.object(StreamableHTTPServerTransport, "connect", connect_that_fails),
+                pytest.raises(RuntimeError, match="boom"),
+                anyio.fail_after(5),
+            ):
+                await _call(manager, _request_scope(), _INITIALIZE_BODY)
+            assert manager._server_instances == {}
+            assert manager._session_owners == {}
+            (transport,) = transports
+            assert transport.is_terminated
+
+
+@pytest.mark.anyio
+async def test_stateless_request_that_is_cancelled_still_terminates_its_transport() -> None:
+    """If a stateless request is cancelled while it is being served (the client went away), its transport
+    is terminated all the same, which is what ends the per-request server task."""
+    manager = StreamableHTTPSessionManager(app=Server("test-stateless-cancelled"), stateless=True)
+    entered = anyio.Event()
+
+    async def hang(self: StreamableHTTPServerTransport, scope: Scope, receive: Receive, send: Send) -> None:
+        entered.set()
+        await anyio.sleep_forever()
+
+    stateless_request = anyio.CancelScope()
+
+    async def make_request() -> None:
+        with stateless_request:
+            await _call(manager, _request_scope(), _INITIALIZE_BODY)
+
+    with _created_transports() as transports, patch.object(StreamableHTTPServerTransport, "handle_request", hang):
+        async with manager.run():
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(make_request)
+                with anyio.fail_after(5):
+                    await entered.wait()
+                stateless_request.cancel()
+            (transport,) = transports
+            assert transport.is_terminated
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "headers", "body", "expected_status"),
+    [
+        ("POST", _JSON_HEADERS, b'{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}', 400),
+        ("POST", _JSON_HEADERS, b'{"jsonrpc": "2.0", "method": "notifications/initialized"}', 400),
+        ("POST", _JSON_HEADERS, b"{not json", 400),
+        ("POST", _JSON_HEADERS | {"accept": "text/plain"}, _INITIALIZE_BODY, 406),
+        ("GET", {"accept": "text/event-stream"}, b"", 400),
+        ("DELETE", _JSON_HEADERS, b"", 400),
+        ("PATCH", _JSON_HEADERS, b"", 405),
+    ],
+    ids=[
+        "non-initialize-request",
+        "notification",
+        "malformed-json",
+        "unacceptable-accept-header",
+        "get-without-session",
+        "delete-without-session",
+        "unsupported-method",
+    ],
+)
+async def test_refused_opening_request_leaves_no_session(
+    method: str, headers: dict[str, str], body: bytes, expected_status: int
+) -> None:
+    """Only an accepted initialize opens a session: a request without a session ID that is answered with an
+    error leaves nothing registered once the manager has answered it."""
+    manager = StreamableHTTPSessionManager(app=Server("test-refused"))
+    scope: Scope = {
+        "type": "http",
+        "method": method,
+        "path": "/mcp",
+        "headers": [(name.encode(), value.encode()) for name, value in headers.items()],
+    }
+    with _created_transports() as transports:
+        async with manager.run():
+            response_start, _ = await _call(manager, scope, body)
+            assert response_start["status"] == expected_status
+            assert manager._server_instances == {}
+            assert manager._session_owners == {}
+            (transport,) = transports
+            assert transport.is_terminated
+
+
+@pytest.mark.anyio
+async def test_new_session_is_refused_at_max_sessions() -> None:
+    """At the session limit a further initialize is answered 503 and opens nothing; room frees up as
+    sessions end."""
+    manager = StreamableHTTPSessionManager(app=Server("test-cap"), max_sessions=1)
+    async with manager.run():
+        first = await _open_session(manager, None)
+
+        response_start, response_body = await _call(manager, _request_scope(), _INITIALIZE_BODY)
+        assert response_start["status"] == 503
+        assert json.loads(response_body) == {
+            "jsonrpc": "2.0",
+            "id": "server-error",
+            "error": {"code": INTERNAL_ERROR, "message": "Too many open sessions"},
+        }
+        assert list(manager._server_instances) == [first]
+
+        assert await _request_session(manager, first, None, method="DELETE") == 200
+        second = await _open_session(manager, None)
+        assert list(manager._server_instances) == [second]
+
+
+@pytest.mark.anyio
+async def test_client_that_is_slow_to_send_its_opening_request_does_not_hold_up_others() -> None:
+    """While one client has yet to finish sending the request that would open its session, another
+    client can still open one."""
+    manager = StreamableHTTPSessionManager(app=Server("test-slow-open"))
+    body_awaited = anyio.Event()
+
+    async def stall() -> None:
+        # This client has sent its headers but never finishes sending the body.
+        body_awaited.set()
+        await anyio.sleep_forever()
+
+    slow_client = anyio.CancelScope()
+
+    async def open_slowly() -> None:
+        with slow_client:
+            # Nothing is ever sent back to this client, so any `send` will do.
+            await manager.handle_request(_request_scope(), cast(Receive, stall), AsyncMock())
+
+    session_id: str | None = None
+    async with manager.run():
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(open_slowly)
+            with anyio.fail_after(5):
+                await body_awaited.wait()
+                session_id = await _open_session(manager, None)
+            slow_client.cancel()
+        assert session_id is not None
+        assert list(manager._server_instances) == [session_id]
+
+
+def test_max_sessions_defaults_to_ten_thousand() -> None:
+    """A manager holds at most 10 000 concurrent stateful sessions unless configured otherwise."""
+    manager = StreamableHTTPSessionManager(app=Server("test"))
+    assert manager.max_sessions == DEFAULT_MAX_SESSIONS == 10_000
+    assert StreamableHTTPSessionManager(app=Server("test"), max_sessions=None).max_sessions is None
+
+
+@pytest.mark.parametrize("max_sessions", [0, -1])
+def test_max_sessions_rejects_non_positive_values(max_sessions: int) -> None:
+    with pytest.raises(ValueError) as exc_info:
+        StreamableHTTPSessionManager(app=Server("test"), max_sessions=max_sessions)
+    assert str(exc_info.value) == "max_sessions must be a positive number of sessions or None"
 
 
 def _user(client_id: str, subject: str | None = None, issuer: str | None = None) -> AuthenticatedUser:
@@ -494,19 +920,33 @@ def _request_scope(
     return scope
 
 
-async def _open_session(manager: StreamableHTTPSessionManager, user: AuthenticatedUser | None) -> str:
-    """Create a new session as `user` and return its session ID."""
+async def _call(manager: StreamableHTTPSessionManager, scope: Scope, body: bytes = b"") -> tuple[Message, bytes]:
+    """Drive one request through the manager in process; return its `http.response.start` message and body."""
     sent_messages: list[Message] = []
+    body_delivered = False
 
-    async def mock_send(message: Message) -> None:
+    async def send(message: Message) -> None:
         sent_messages.append(message)
 
-    async def mock_receive() -> Message:
-        return {"type": "http.request", "body": b"", "more_body": False}
+    async def receive() -> Message:
+        # Deliver the body once, then block like a client holding the connection
+        # open; a streaming response ends when the server closes it.
+        nonlocal body_delivered
+        if body_delivered:
+            await anyio.sleep_forever()
+        body_delivered = True
+        return {"type": "http.request", "body": body, "more_body": False}
 
-    await manager.handle_request(_request_scope(user=user), mock_receive, mock_send)
-
+    await manager.handle_request(scope, receive, send)
     response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+    response_body = b"".join(msg.get("body", b"") for msg in sent_messages if msg["type"] == "http.response.body")
+    return response_start, response_body
+
+
+async def _open_session(manager: StreamableHTTPSessionManager, user: AuthenticatedUser | None) -> str:
+    """Create a new session as `user` with an initialize request and return its session ID."""
+    response_start, _ = await _call(manager, _request_scope(user=user), _INITIALIZE_BODY)
+    assert response_start["status"] == 200
     headers = dict(response_start.get("headers", []))
     return headers[MCP_SESSION_ID_HEADER.encode()].decode()
 
@@ -515,26 +955,14 @@ async def _request_session(
     manager: StreamableHTTPSessionManager, session_id: str, user: AuthenticatedUser | None, method: str = "POST"
 ) -> int:
     """Send a request for an existing session as `user` and return the response status."""
-    sent_messages: list[Message] = []
-
-    async def mock_send(message: Message) -> None:
-        sent_messages.append(message)
-
-    async def mock_receive() -> Message:
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    await manager.handle_request(
-        _request_scope(session_id=session_id, user=user, method=method), mock_receive, mock_send
-    )
-
-    response_start = next(msg for msg in sent_messages if msg["type"] == "http.response.start")
+    response_start, _ = await _call(manager, _request_scope(session_id=session_id, user=user, method=method))
     return response_start["status"]
 
 
 @pytest.fixture
 async def manager_with_live_session():
-    """A running manager around a real `Server`. Sessions remain registered until
-    `manager.run()` exits because `Server.run` blocks waiting for an initialize message."""
+    """A running manager around a real `Server`. Sessions are opened with a real initialize and stay
+    registered until `manager.run()` exits because nothing in these tests ends them."""
     manager = StreamableHTTPSessionManager(app=Server("test-session-credentials"))
     async with manager.run():
         yield manager
