@@ -76,7 +76,7 @@ Look at `main()`. The provider goes on the **httpx2 client**, the httpx2 client 
 
 The first time `Client` sends a request, the server answers `401`. The provider takes over:
 
-1. **Discovery.** It reads the `WWW-Authenticate` header, fetches the server's Protected Resource Metadata from `/.well-known/oauth-protected-resource`, learns which authorization server protects this resource, and fetches *that* server's metadata.
+1. **Discovery.** It reads the `WWW-Authenticate` header, fetches the server's Protected Resource Metadata from `/.well-known/oauth-protected-resource`, learns which authorization server protects this resource, and fetches *that* server's metadata. (An older server that publishes no resource metadata is asked for authorization server metadata at its own origin instead.) Either way the metadata must name, as its `issuer`, the server it was fetched for; anything else is refused.
 2. **Registration.** Nothing in storage? It registers you dynamically with your `OAuthClientMetadata` and stores the result.
 3. **Authorization.** It generates the PKCE pair and a `state`, builds the authorization URL, awaits your `redirect_handler`, then awaits your `callback_handler` for the code.
 4. **Exchange.** It trades the code for an `OAuthToken`, stores it, and replays your original request with `Authorization: Bearer ...`.
@@ -105,13 +105,14 @@ A nightly job, a CI step, another service. There is no browser and nobody to cli
 
 `ClientCredentialsOAuthProvider` is the same `httpx2.Auth`, minus the human:
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 What changed:
 
 * No `OAuthClientMetadata`, no handlers. You pass `client_id` and `client_secret`; the provider builds a minimal `client_credentials` registration around them and skips dynamic registration entirely.
+* `issuer` names the authorization server that issued those credentials; use the `issuer` value its `/.well-known/oauth-authorization-server` document returns. Discovery still runs as above, but token requests are only ever built from metadata for *that* issuer; if the MCP server points anywhere else, the flow stops with an `OAuthFlowError` instead. Leave it out and the provider uses whichever authorization server discovery finds.
 * `scope` is a space-separated string, the OAuth wire format.
 * Everything downstream is identical: the same `TokenStorage`, the same `httpx2.AsyncClient(auth=...)`, the same `streamable_http_client`.
 
@@ -124,7 +125,7 @@ By default the secret travels as HTTP Basic auth on the token request (`client_s
     One more provider lives in `mcp.client.auth.extensions.client_credentials`:
     **`PrivateKeyJWTOAuthProvider`**, for clients that authenticate with a JWT instead of a
     shared secret (`private_key_jwt`, the key-pair and workload-identity flavour). It follows
-    the same pattern: construct one, put it on `auth=`. The same module ships
+    the same pattern: construct one (it takes the same optional `issuer`), put it on `auth=`. The same module ships
     `SignedJWTParameters` and `static_assertion_provider`, two helpers that build its assertion.
 
 There is one more no-human situation: the client belongs to an enterprise whose identity provider, not the user, decides which MCP servers it may reach. That is a different grant with its own trust model and its own page, **[Identity assertion](identity-assertion.md)**.
