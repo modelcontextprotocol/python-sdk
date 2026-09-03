@@ -4,6 +4,7 @@ from __future__ import annotations as _annotations
 
 import contextlib
 import logging
+from datetime import timedelta
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -640,6 +641,9 @@ class StreamableHTTPTransport:
 async def streamable_http_client(
     url: str,
     *,
+    headers: dict[str, str] | None = None,
+    timeout: httpx2.Timeout | timedelta | None = None,
+    auth: httpx2.Auth | None = None,
     http_client: httpx2.AsyncClient | None = None,
     terminate_on_close: bool = True,
 ) -> AsyncGenerator[TransportStreams, None]:
@@ -647,9 +651,16 @@ async def streamable_http_client(
 
     Args:
         url: The MCP server endpoint URL.
+        headers: Optional HTTP headers to include with every request, including
+            during auth discovery. A ``User-Agent`` header set here will be
+            forwarded to OAuth metadata discovery requests. Ignored when
+            ``http_client`` is provided.
+        timeout: Request timeout. Ignored when ``http_client`` is provided.
+        auth: Optional httpx2 authentication handler (e.g. OAuth). Ignored
+            when ``http_client`` is provided.
         http_client: Optional pre-configured httpx2.AsyncClient. If None, a default
-            client with recommended MCP timeouts will be created. To configure headers,
-            authentication, or other HTTP settings, create an httpx2.AsyncClient and pass it here.
+            client is created using ``headers``, ``timeout``, and ``auth`` if provided.
+            To configure other HTTP settings, create an httpx2.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:
@@ -665,8 +676,10 @@ async def streamable_http_client(
     client = http_client
 
     if client is None:
-        # Create default client with recommended MCP timeouts
-        client = create_mcp_http_client()
+        # Normalize timedelta → httpx2.Timeout for caller convenience
+        if isinstance(timeout, timedelta):
+            timeout = httpx2.Timeout(timeout.total_seconds())
+        client = create_mcp_http_client(headers=headers, timeout=timeout, auth=auth)
 
     transport = StreamableHTTPTransport(url)
 

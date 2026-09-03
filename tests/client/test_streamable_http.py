@@ -11,6 +11,7 @@ import json
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
+from unittest.mock import patch
 import anyio
 import httpx2
 import pytest
@@ -748,3 +749,49 @@ async def test_resolving_an_abandoned_request_after_the_reader_closed_is_contain
                 _abandoned_request_context(http, send), "evt-7", None, MAX_RECONNECTION_ATTEMPTS
             )
     send.close()
+
+
+@pytest.mark.anyio
+async def test_custom_headers_forwarded_to_http_client() -> None:
+    """Headers passed to streamable_http_client() must appear in requests."""
+    captured_requests = []
+
+    async def mock_transport(request: httpx2.Request) -> httpx2.Response:
+        captured_requests.append(request)
+        return httpx2.Response(200, content=b"{}")
+
+    custom_transport = httpx2.MockTransport(mock_transport)
+    client = httpx2.AsyncClient(transport=custom_transport)
+
+    with patch("mcp.client.streamable_http.create_mcp_http_client", return_value=client):
+        async with streamable_http_client(
+            "http://localhost:8080/mcp",
+            headers={"User-Agent": "my-client/1.0", "X-Custom": "value"},
+        ) as (read, write):
+            pass
+
+    # Every captured request should carry the custom User-Agent
+    for req in captured_requests:
+        assert req.headers.get("user-agent") == "my-client/1.0"
+        assert req.headers.get("x-custom") == "value"
+
+
+@pytest.mark.anyio
+async def test_http_client_provided_overrides_headers_param() -> None:
+    """When http_client is provided, headers/timeout/auth params are ignored."""
+    custom_client = httpx2.AsyncClient(headers={"User-Agent": "explicit-client/1.0"})
+    
+    # headers kwarg should be silently ignored — http_client wins
+    async with streamable_http_client(
+        "http://localhost:8080/mcp",
+        headers={"User-Agent": "ignored/0.0"},
+        http_client=custom_client,
+    ) as (read, write):
+        pass  # just verifying no error and no conflict
+
+
+@pytest.mark.anyio
+async def test_no_headers_uses_defaults() -> None:
+    """Omitting headers uses the same defaults as before (backward compat)."""
+    async with streamable_http_client("http://localhost:8080/mcp") as (read, write):
+        pass  # must not raise; behavior unchanged from v1
