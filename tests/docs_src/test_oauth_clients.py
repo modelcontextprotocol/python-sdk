@@ -105,6 +105,7 @@ async def test_the_one_more_provider_is_private_key_jwt() -> None:
         storage=tutorial002.InMemoryTokenStorage(),
         client_id="reporting-agent",
         assertion_provider=static_assertion_provider("a.prebuilt.jwt"),
+        issuer="http://localhost:9000",
     )
     assert isinstance(provider, OAuthClientProvider)
     assert isinstance(provider, httpx2.Auth)

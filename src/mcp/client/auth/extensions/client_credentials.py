@@ -7,6 +7,7 @@ Provides OAuth providers for machine-to-machine authentication flows:
 """
 
 import time
+import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -22,8 +23,16 @@ from mcp.client.auth.utils import issuers_match
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
 
-def _checked_issuer(issuer: str | None) -> str | None:
-    if issuer is not None and urlparse(issuer).scheme not in ("http", "https"):
+def _checked_issuer(issuer: str | None, provider: str, server_url: str) -> str | None:
+    if issuer is None:
+        warnings.warn(
+            f"{provider} created without `issuer`: the client credentials will be sent to whichever "
+            f"authorization server {server_url} advertises. Pass issuer=<the issuer URL your authorization "
+            "server's metadata reports> so that token requests are only ever built for that server.",
+            stacklevel=3,
+        )
+        return None
+    if urlparse(issuer).scheme not in ("http", "https"):
         raise ValueError(f"issuer must be the authorization server's http(s) issuer URL, got {issuer!r}")
     return issuer
 
@@ -98,7 +107,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
                 `client_id` and `client_secret`. When set, token requests are only built from
                 discovered authorization server metadata whose `issuer` is exactly this string;
                 otherwise the flow stops with `OAuthFlowError`. When omitted, whichever
-                authorization server discovery yields is used.
+                authorization server discovery yields is used, and a `UserWarning` says so.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
@@ -108,7 +117,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             scope=scope,
         )
         super().__init__(server_url, client_metadata, storage, None, None)
-        self._issuer = _checked_issuer(issuer)
+        self._issuer = _checked_issuer(issuer, type(self).__name__, server_url)
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
@@ -327,7 +336,8 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
                 registered with. When set, an assertion is only minted, and token requests
                 are only built, once authorization server metadata whose `issuer` is exactly this
                 string has been discovered; otherwise the flow stops with `OAuthFlowError`.
-                When omitted, whichever authorization server discovery yields is used.
+                When omitted, whichever authorization server discovery yields is used, and a
+                `UserWarning` says so.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
@@ -338,7 +348,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         )
         super().__init__(server_url, client_metadata, storage, None, None)
         self._assertion_provider = assertion_provider
-        self._issuer = _checked_issuer(issuer)
+        self._issuer = _checked_issuer(issuer, type(self).__name__, server_url)
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,

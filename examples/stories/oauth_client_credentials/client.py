@@ -8,13 +8,13 @@ from stories._harness import Target, run_client
 
 # MCP_URL pins the resource to :8000, and the server side builds its PRM/AS metadata from
 # the same constant — run the server on 8000 or the discovery chain points at the wrong origin.
-from stories._shared.auth import MCP_URL, InMemoryTokenStorage
+from stories._shared.auth import BASE_URL, MCP_URL, InMemoryTokenStorage
 
 from .server import DEMO_CLIENT_ID, DEMO_CLIENT_SECRET, DEMO_SCOPE
 
 
 def build_auth(_http: httpx2.AsyncClient) -> httpx2.Auth:
-    """The ``httpx2.Auth`` for the ``client_credentials`` grant — five lines of provider config.
+    """The ``httpx2.Auth`` for the ``client_credentials`` grant — six lines of provider config.
 
     The SDK then handles 401 → RFC 9728 PRM → RFC 8414 AS-metadata discovery → token POST →
     Bearer attachment automatically. ``Client(url)`` has no ``auth=`` passthrough yet, so the
@@ -27,6 +27,7 @@ def build_auth(_http: httpx2.AsyncClient) -> httpx2.Auth:
         client_id=DEMO_CLIENT_ID,
         client_secret=DEMO_CLIENT_SECRET,
         scope=DEMO_SCOPE,
+        issuer=BASE_URL,
     )
 
 
