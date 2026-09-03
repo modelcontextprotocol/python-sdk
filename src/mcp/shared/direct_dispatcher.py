@@ -90,7 +90,10 @@ class _DirectDispatchContext:
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         if self._on_progress is not None:
-            await self._on_progress(progress, total, message)
+            try:
+                await self._on_progress(progress, total, message)
+            except Exception:
+                logger.exception("progress callback raised")
 
 
 class DirectDispatcher:
@@ -301,7 +304,10 @@ class DirectDispatcher:
             return
         assert self._on_notify is not None
         dctx = self._make_context()
-        await self._on_notify(dctx, method, params)
+        try:
+            await self._on_notify(dctx, method, params)
+        except Exception:
+            logger.exception("notification handler for %r raised", method)
 
 
 def create_direct_dispatcher_pair(

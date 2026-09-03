@@ -217,6 +217,43 @@ async def test_ctx_progress_invokes_caller_on_progress_callback(pair_factory: Pa
 
 
 @pytest.mark.anyio
+async def test_progress_callback_exception_does_not_fail_request(
+    pair_factory: PairFactory, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+        raise RuntimeError("progress callback failed")
+
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        await ctx.progress(0.5)
+        return {"ok": True}
+
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            result = await client.send_raw_request("tools/call", None, {"on_progress": on_progress})
+    assert result == {"ok": True}
+    assert "progress callback raised" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_notification_handler_exception_does_not_reach_sender(
+    pair_factory: PairFactory, caplog: pytest.LogCaptureFixture
+) -> None:
+    called = anyio.Event()
+
+    async def on_notify(ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None) -> None:
+        called.set()
+        raise RuntimeError("notification handler failed")
+
+    async with running_pair(pair_factory, server_on_notify=on_notify) as (client, *_):
+        with anyio.fail_after(5):
+            await client.notify("notifications/message", None)
+            await called.wait()
+    assert "notification handler for 'notifications/message' raised" in caplog.text
+
+
+@pytest.mark.anyio
 async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factory: PairFactory):
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
