@@ -25,7 +25,15 @@ from mcp_types import (
 
 from mcp.shared._compat import resync_tracer
 from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
-from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnNotifyIntercept, OnRequest, Outbound
+from mcp.shared.dispatcher import (
+    DispatchContext,
+    Dispatcher,
+    OnNotify,
+    OnNotifyIntercept,
+    OnRequest,
+    Outbound,
+    coerce_request_id,
+)
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
 
@@ -451,7 +459,9 @@ async def test_send_raw_request_with_in_flight_request_id_raises_and_frees_id_on
 @pytest.mark.anyio
 async def test_minted_ids_skip_a_caller_supplied_id_still_in_flight(pair_factory: PairFactory):
     """The dispatcher mints PAST a key a supplied id occupies — the collision error
-    is reserved for the caller who chose the id, never an innocent minted request."""
+    is reserved for the caller who chose the id, never an innocent minted request.
+    Since the counter is advanced past the supplied key on acceptance (#3126),
+    minted ids continue from beyond it rather than skipping it only on collision."""
     entered = anyio.Event()
     release = anyio.Event()
     seen_ids: list[RequestId | None] = []
@@ -478,7 +488,10 @@ async def test_minted_ids_skip_a_caller_supplied_id_still_in_flight(pair_factory
                 for _ in range(3):
                     await client.send_raw_request("plain", None)
                 release.set()
-            assert [request_id for request_id in seen_ids if request_id != "3"] == [1, 2, 4]
+            # The counter was advanced past 3 when the supplied id was accepted
+            # (#3126), so minting continues from 4 instead of skipping only on
+            # collision — the "never collide with a supplied id" contract holds.
+            assert [request_id for request_id in seen_ids if request_id != "3"] == [4, 5, 6]
 
 
 @pytest.mark.anyio
@@ -576,3 +589,59 @@ async def test_a_raising_notify_intercept_is_contained_and_passes_the_frame_thro
 if TYPE_CHECKING:
     _d: Dispatcher[TransportContext] = DirectDispatcher(TransportContext(kind="direct", can_send_request=True))
     _o: Outbound = _d
+
+
+@pytest.mark.anyio
+async def test_minted_ids_never_reuse_a_completed_caller_supplied_id(pair_factory: PairFactory):
+    """The mint counter must skip past a COMPLETED caller-supplied numeric id, not
+    just in-flight ones. Reusing a completed id on the wire violates the spec's
+    "request id MUST NOT have been previously used by the requestor within the
+    same session" and can cross-wire responses on stateful peers (#3126)."""
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            # A caller-supplied numeric id that will COMPLETE before any minting.
+            await client.send_raw_request("supplied", None, {"request_id": 2})
+            # Three dispatcher-minted requests after the supplied one is done.
+            await client.send_raw_request("minted-1", None)
+            await client.send_raw_request("minted-2", None)
+            await client.send_raw_request("minted-3", None)
+    wire_ids = [ctx.request_id for ctx in srec.contexts]
+    assert wire_ids[0] == 2
+    minted = wire_ids[1:]
+    assert len(minted) == 3
+    # None of the minted ids may revisit the completed supplied id 2 (nor
+    # collide with each other).
+    assert len(set(map(coerce_request_id, minted))) == 3
+    assert all(coerce_request_id(i) != 2 for i in minted), (
+        f"minted ids {minted} revisited completed supplied id 2 (issue #3126)"
+    )
+
+
+@pytest.mark.anyio
+async def test_minted_ids_never_reuse_a_completed_numeric_string_supplied_id(pair_factory: PairFactory):
+    """`"2"` and `2` are one id in the correlation domain, so a completed
+    numeric-STRING supplied id must be skipped by the mint counter too (#3126)."""
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("supplied", None, {"request_id": "2"})
+            await client.send_raw_request("minted-1", None)
+            await client.send_raw_request("minted-2", None)
+    wire_ids = [ctx.request_id for ctx in srec.contexts]
+    assert wire_ids[0] == "2"
+    minted = wire_ids[1:]
+    assert all(coerce_request_id(i) != 2 for i in minted), (
+        f"minted ids {minted} revisited completed supplied id '2' (issue #3126)"
+    )
+
+
+@pytest.mark.anyio
+async def test_supplying_a_used_id_yourself_is_still_allowed(pair_factory: PairFactory):
+    """Re-supplying an id the CALLER already used is an explicit API contract
+    (see `test_send_raw_request_with_in_flight_request_id_raises_and_frees_id_on_completion`)
+    and must keep working when the mint counter is taught to skip used ids (#3126)."""
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
+        with anyio.fail_after(5):
+            await client.send_raw_request("first", None, {"request_id": 5})
+            # Same caller re-supplies its own completed id: allowed on purpose.
+            await client.send_raw_request("second", None, {"request_id": 5})
+    assert [ctx.request_id for ctx in srec.contexts] == [5, 5]

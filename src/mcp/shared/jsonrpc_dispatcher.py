@@ -346,6 +346,12 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             pending_key = coerce_request_id(request_id)
             if pending_key in self._pending:
                 raise ValueError(f"request id {request_id!r} is already in flight")
+            # The mint counter must also clear this id once it completes, not
+            # only while it is pending: the spec forbids reusing a request id
+            # within a session (#3126). Minted ids are ints, so only numeric
+            # keys ("7" and 7 share the coerced key) can collide.
+            if isinstance(pending_key, int):
+                self._next_id = max(self._next_id, pending_key)
         else:
             # Mint past any key a supplied id occupies: the collision error is
             # reserved for the caller who actually chose the id.

@@ -250,6 +250,11 @@ class DirectDispatcher:
                     in_flight_key = coerce_request_id(request_id)
                     if in_flight_key in self._in_flight_ids:
                         raise ValueError(f"request id {request_id!r} is already in flight")
+                    # Same mint-past rule as JSONRPCDispatcher: the counter must
+                    # clear a completed supplied id so minted ids never revisit
+                    # it (#3126). Minted ids are ints, so only numeric keys collide.
+                    if isinstance(in_flight_key, int):
+                        self._next_id = max(self._next_id, in_flight_key)
                 else:
                     # Synthesize an id (the DispatchContext contract reserves None
                     # for notifications), minting past any key a supplied id
