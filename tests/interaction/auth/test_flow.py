@@ -237,4 +237,4 @@ async def test_shimmed_app_serves_overrides_404s_and_otherwise_forwards_to_the_w
 
             forwarded = await http.get("/.well-known/oauth-authorization-server")
             assert forwarded.status_code == 200
-            assert forwarded.json()["issuer"] == "http://127.0.0.1:8000/"
+            assert forwarded.json()["issuer"] == "http://127.0.0.1:8000"
