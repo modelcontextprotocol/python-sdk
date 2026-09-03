@@ -23,12 +23,11 @@ from mcp.client.auth.utils import issuers_match
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
 
-def _checked_issuer(issuer: str | None, provider: str, server_url: str) -> str | None:
+def _checked_issuer(issuer: str | None) -> str | None:
     if issuer is None:
         warnings.warn(
-            f"{provider} created without `issuer`: the client credentials will be sent to whichever "
-            f"authorization server {server_url} advertises. Pass issuer=<the issuer URL your authorization "
-            "server's metadata reports> so that token requests are only ever built for that server.",
+            "No `issuer` given: client credentials will be sent to whichever authorization server the MCP "
+            "server advertises. Pass issuer=<your authorization server's issuer URL> to send them only there.",
             stacklevel=3,
         )
         return None
@@ -117,7 +116,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             scope=scope,
         )
         super().__init__(server_url, client_metadata, storage, None, None)
-        self._issuer = _checked_issuer(issuer, type(self).__name__, server_url)
+        self._issuer = _checked_issuer(issuer)
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,
@@ -348,7 +347,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
         )
         super().__init__(server_url, client_metadata, storage, None, None)
         self._assertion_provider = assertion_provider
-        self._issuer = _checked_issuer(issuer, type(self).__name__, server_url)
+        self._issuer = _checked_issuer(issuer)
         # Store client_info to be set during _initialize - no dynamic registration needed
         self._fixed_client_info = OAuthClientInformationFull(
             redirect_uris=None,

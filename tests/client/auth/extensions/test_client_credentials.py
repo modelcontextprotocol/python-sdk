@@ -467,11 +467,9 @@ def test_constructing_without_issuer_warns_where_the_credentials_will_go(
 
     [warning] = recorded
     assert warning.filename == __file__
-    provider = "ClientCredentialsOAuthProvider" if kind == "secret" else "PrivateKeyJWTOAuthProvider"
     assert str(warning.message) == (
-        f"{provider} created without `issuer`: the client credentials will be sent to whichever "
-        "authorization server https://api.example.com/v1/mcp advertises. Pass issuer=<the issuer URL your "
-        "authorization server's metadata reports> so that token requests are only ever built for that server."
+        "No `issuer` given: client credentials will be sent to whichever authorization server the MCP "
+        "server advertises. Pass issuer=<your authorization server's issuer URL> to send them only there."
     )
 
 
@@ -486,7 +484,7 @@ async def test_without_issuer_the_exchange_follows_whichever_server_was_discover
     async def assertion_provider(audience: str) -> str:
         return "jwt"
 
-    with pytest.warns(UserWarning, match="created without `issuer`"):
+    with pytest.warns(UserWarning, match="No `issuer` given"):
         if kind == "secret":
             provider: OAuthClientProvider = ClientCredentialsOAuthProvider(
                 server_url=_SERVER_URL, storage=mock_storage, client_id="c", client_secret="s"
