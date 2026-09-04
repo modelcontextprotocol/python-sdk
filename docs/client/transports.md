@@ -82,7 +82,7 @@ environment variables or pass an explicit `verify=ssl_context` to your `httpx2.A
 
 The transport connects to the URL you gave it, and only that origin.
 
-* A redirect that stays on the same scheme, host and port is followed. That covers the usual `/mcp` → `/mcp/` trailing-slash redirect, and `http://` → `https://` on the same host.
+* A `307`/`308` redirect that stays on the same scheme, host and port is followed, and so is `http://` → `https://` on the same host. That covers the usual `/mcp` → `/mcp/` trailing-slash redirect.
 * A redirect anywhere else is **not** followed. The call fails with:
 
     ```text
@@ -136,7 +136,7 @@ A **transport** is any async context manager that yields a `(read, write)` pair 
 * `Client(mcp)` (the server object) connects in memory. Use it for tests and for embedding.
 * `Client("http://.../mcp")` (a URL) connects over Streamable HTTP, the production transport.
 * Headers, auth, proxies and timeouts belong on an `httpx2.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
-* Redirects are followed only within the URL's own origin (trailing slash, `http`→`https`). Anything else fails with `Redirect to … not followed`; configure the final URL.
+* Redirects are followed only within the URL's own origin (a trailing-slash `307`/`308`), plus `http`→`https` on the same host. Anything else fails with `Redirect to … not followed`; configure the final URL.
 * stdio is `Client(StdioServerParameters(...))`. Wrap it in `stdio_client(...)` yourself only to redirect the child's stderr.
 * The subprocess gets an allow-listed environment, not yours; `env=` adds to it.
 * A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object, a URL or `StdioServerParameters` straight to that protocol.
