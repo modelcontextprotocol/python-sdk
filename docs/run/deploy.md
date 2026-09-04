@@ -42,6 +42,22 @@ Deployed behind a real hostname, that same default rejects **every request** unt
     deployed server that refuses every connection is a Host allowlist until proven otherwise.
     **[Troubleshooting](../troubleshooting.md)** starts here too.
 
+## Behind a TLS-terminating proxy
+
+If TLS ends at a proxy (an ingress, a load balancer, Caddy, nginx) and uvicorn serves plain HTTP behind it, tell uvicorn to trust the proxy's `X-Forwarded-*` headers:
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+Without that, the app believes it is being served over `http://`, and any redirect it issues (the usual one is `/mcp` → `/mcp/`) points at `http://…`. The Python client refuses to follow an HTTPS endpoint to plain HTTP and says so:
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+The client-side stopgap is to configure the exact URL the server serves (`https://mcp.example.com/mcp/`, slash included) so no redirect happens. The fix is the flag above. `FORWARDED_ALLOW_IPS` is the environment-variable spelling; `*` trusts every hop, which is only right when nothing but the proxy can reach uvicorn.
+
 ## Workers, and who has to be sticky
 
 Once the hostname answers, put more than one worker behind it. There is no SDK knob for that; you scale a Starlette app the way you scale any ASGI app, by handing the object to something that knows how to fork:
@@ -165,6 +181,7 @@ An `MCPServer` is a protocol implementation, not an application server. The depl
 ## Recap
 
 * Out of the box the app answers only requests addressed to localhost. `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` is the go-live gate: until you pass it, every request behind a real hostname is a `421` and the reason is only in the server's log.
+* Behind a TLS-terminating proxy, run uvicorn with `--proxy-headers --forwarded-allow-ips=...`, or its redirects point at `http://` and the client refuses them.
 * On 2026-07-28 there is no session and nothing for a load balancer to be sticky on. `stateless_http=True` is a legacy-only knob because a modern request is routed and answered before that flag is ever read.
 * The default `requestState` key is `os.urandom(32)`, minted per process. A multi-round-trip retry that reaches a different worker fails with `-32602` *"Invalid or expired requestState"*.
 * The fix is `RequestStateSecurity(keys=[...])` **and** the same server name on every instance. The name is the token's default audience claim. Same keys, same name.
