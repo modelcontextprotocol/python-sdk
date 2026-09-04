@@ -130,6 +130,29 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/streamable_basic.py)_
 <!-- /snippet-source -->
 
+To configure headers, authentication or timeouts, create an `httpx.AsyncClient` and pass it as `http_client=`.
+
+## HTTP redirects
+
+The transport connects to the URL you gave it, and only that origin.
+
+* A `307`/`308` redirect that stays on the same scheme, host and port is followed, and so is `http://` → `https://` on the same host. That covers the usual `/mcp` → `/mcp/` trailing-slash redirect.
+* A redirect anywhere else is **not** followed. Connecting fails with:
+
+    ```text
+    httpx.HTTPStatusError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    If that URL is the server you meant, put it in your config. If it isn't, the server or a proxy in front of it is misconfigured.
+
+This holds for any `httpx.AsyncClient` you pass in: its `follow_redirects` setting is not consulted for MCP requests, in either direction. The SDK's OAuth providers apply the same rule to their own requests, and so does `sse_client()`.
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP` means the
+    server sits behind a TLS-terminating proxy it doesn't know about and is issuing `http://` redirects.
+    That is fixed on the server (for uvicorn: `--proxy-headers` and `--forwarded-allow-ips`), or by
+    using the exact `https://…/` URL the message suggests.
+
 ## Client Display Utilities
 
 When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:

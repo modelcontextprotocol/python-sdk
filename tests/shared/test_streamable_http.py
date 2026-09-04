@@ -20,6 +20,7 @@ import pytest
 import requests
 import uvicorn
 from httpx_sse import ServerSentEvent
+from inline_snapshot import snapshot
 from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -1255,41 +1256,36 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_session_termination_204(
-    basic_server: None, basic_server_url: str, monkeypatch: pytest.MonkeyPatch
-):
+async def test_streamable_http_client_session_termination_204(basic_server: None, basic_server_url: str):
     """Test client session termination functionality with a 204 response.
 
-    This test patches the httpx client to return a 204 response for DELETEs.
+    The server answers the DELETE with 200; a wrapping HTTP transport rewrites that to 204 on the
+    way back, which is what some servers send.
     """
 
-    # Save the original delete method to restore later
-    original_delete = httpx.AsyncClient.delete
+    class AnswerDeleteWith204(httpx.AsyncBaseTransport):
+        def __init__(self) -> None:
+            self.inner = httpx.AsyncHTTPTransport()
 
-    # Mock the client's delete method to return a 204
-    async def mock_delete(self: httpx.AsyncClient, *args: Any, **kwargs: Any) -> httpx.Response:
-        # Call the original method to get the real response
-        response = await original_delete(self, *args, **kwargs)
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            response = await self.inner.handle_async_request(request)
+            if request.method != "DELETE" or response.status_code != 200:
+                return response
+            await response.aread()
+            return httpx.Response(204, headers=response.headers, request=request)
 
-        # Create a new response with 204 status code but same headers
-        mocked_response = httpx.Response(
-            204,
-            headers=response.headers,
-            content=response.content,
-            request=response.request,
-        )
-        return mocked_response
-
-    # Apply the patch to the httpx client
-    monkeypatch.setattr(httpx.AsyncClient, "delete", mock_delete)
+        async def aclose(self) -> None:
+            await self.inner.aclose()
 
     captured_session_id = None
 
-    # Create the streamable_http_client with a custom httpx client to capture headers
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        get_session_id,
+    async with (
+        httpx.AsyncClient(transport=AnswerDeleteWith204()) as terminating_client,
+        streamable_http_client(f"{basic_server_url}/mcp", http_client=terminating_client) as (
+            read_stream,
+            write_stream,
+            get_session_id,
+        ),
     ):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
@@ -2297,7 +2293,7 @@ async def test_streamable_http_client_does_not_mutate_provided_client(
         "Authorization": "Bearer test-token",
     }
 
-    async with httpx.AsyncClient(headers=original_headers, follow_redirects=True) as custom_client:
+    async with httpx.AsyncClient(headers=original_headers) as custom_client:
         # Use the client with streamable_http_client
         async with streamable_http_client(f"{basic_server_url}/mcp", http_client=custom_client) as (
             read_stream,
@@ -2328,7 +2324,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults(
     # httpx.AsyncClient has default "accept: */*" header
     # We need to verify that our MCP accept header overrides it in actual requests
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient() as client:
         # Verify client has default accept header
         assert client.headers.get("accept") == "*/*"
 
@@ -2366,7 +2362,7 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
         "Authorization": "Bearer test-token",
     }
 
-    async with httpx.AsyncClient(headers=custom_headers, follow_redirects=True) as client:
+    async with httpx.AsyncClient(headers=custom_headers) as client:
         async with streamable_http_client(f"{basic_server_url}/mcp", http_client=client) as (
             read_stream,
             write_stream,
@@ -2426,3 +2422,164 @@ async def test_streamablehttp_client_deprecation_warning(basic_server: None, bas
                 await session.initialize()
                 tools = await session.list_tools()
                 assert len(tools.tools) > 0
+
+
+@pytest.mark.anyio
+async def test_trailing_slash_redirect_within_origin_is_followed_by_the_transport(
+    basic_server: None, basic_server_url: str
+) -> None:
+    """SDK-defined: a redirect that stays on the endpoint's origin (here Starlette's Mount sending
+    /mcp to /mcp/) is followed by the transport itself, so a caller-supplied client left at
+    httpx's no-follow default still connects."""
+    urls: list[str] = []
+
+    async def record(request: httpx.Request) -> None:
+        urls.append(str(request.url))
+
+    with anyio.fail_after(10):
+        async with (
+            httpx.AsyncClient(event_hooks={"request": [record]}) as http,
+            streamable_http_client(f"{basic_server_url}/mcp", http_client=http) as (read_stream, write_stream, _),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            result = await session.initialize()
+
+    assert result.serverInfo.name == SERVER_NAME
+    assert urls[:2] == [f"{basic_server_url}/mcp", f"{basic_server_url}/mcp/"]
+
+
+def _leaf_exception(exc: BaseException) -> BaseException:
+    """The one exception inside the (possibly nested) exception group an anyio task group raises."""
+    while (inner := getattr(exc, "exceptions", None)) is not None:
+        (exc,) = inner
+    return exc
+
+
+async def _redirected_post_error(url: str, location: str) -> httpx.HTTPStatusError:
+    """Send one request through streamable_http_client, with a client configured to follow redirects,
+    to a server answering `url` with a 307 to `location`; return the error that ends the connection,
+    having checked that nothing but `url` was requested."""
+    urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        return httpx.Response(307, headers={"location": location})
+
+    with anyio.fail_after(5):
+        # The request's POST fails inside the transport's task group, which ends the connection.
+        with pytest.raises(Exception) as exc_info:
+            async with (  # pragma: no branch
+                httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True) as http,
+                streamable_http_client(url, http_client=http) as (read_stream, write_stream, _),
+                read_stream,
+                write_stream,
+            ):
+                request = JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})
+                await write_stream.send(SessionMessage(JSONRPCMessage(request)))
+                await read_stream.receive()
+    error = _leaf_exception(exc_info.value)
+    assert isinstance(error, httpx.HTTPStatusError)
+    assert error.response.status_code == 307
+    assert urls == [url]
+    return error
+
+
+@pytest.mark.anyio
+async def test_redirect_to_another_origin_is_not_followed_and_fails_the_request() -> None:
+    """SDK-defined: a redirect pointing outside the endpoint's origin is not followed, whatever the
+    caller's client is configured to do: nothing is sent to the other origin, and the request fails
+    the way any non-2xx response does, with HTTPStatusError naming the location."""
+    error = await _redirected_post_error("http://mcp.example/mcp", "http://other.example/mcp/")
+
+    assert str(error) == snapshot(
+        "Redirect to http://other.example/mcp/ not followed; use that URL as the endpoint if it is the intended server"
+    )
+
+
+@pytest.mark.anyio
+async def test_https_endpoint_redirected_to_plain_http_is_explained_and_the_https_form_suggested() -> None:
+    """SDK-authored text: a redirect of an HTTPS endpoint to plain HTTP on the same host (the usual
+    sign of a TLS-terminating proxy the server does not trust) never suggests the http:// URL."""
+    error = await _redirected_post_error("https://mcp.example/mcp", "http://mcp.example/mcp/")
+
+    assert str(error) == snapshot("""\
+Redirect to http://mcp.example/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
+often combined with a trailing-slash difference. Try https://mcp.example/mcp/ instead, or fix the proxy settings.\
+""")
+
+
+@pytest.mark.anyio
+async def test_unfollowed_redirect_location_is_named_without_its_query_string() -> None:
+    """SDK-authored text: the location is reported without query or userinfo, which may carry state
+    that does not belong in an error message or a log line."""
+    error = await _redirected_post_error("http://mcp.example/mcp", "https://sso.example/login?state=s3cr3t&nonce=n")
+
+    assert str(error) == snapshot(
+        "Redirect to https://sso.example/login not followed; use that URL as the endpoint if it is the intended server"
+    )
+
+
+@pytest.mark.anyio
+async def test_https_endpoint_redirected_to_plain_http_elsewhere_never_suggests_the_http_url() -> None:
+    """SDK-authored text: the downgrade explanation applies whatever host the http:// location names,
+    so the message never offers a plain-HTTP URL as the endpoint to configure."""
+    error = await _redirected_post_error("https://mcp.example/mcp", "http://backend.lan:8000/mcp/")
+
+    assert str(error) == snapshot("""\
+Redirect to http://backend.lan:8000/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
+often combined with a trailing-slash difference. Try https://backend.lan:8000/mcp/ instead, or fix the proxy settings.\
+""")
+
+
+@pytest.mark.anyio
+async def test_get_stream_gives_up_without_retrying_when_the_endpoint_redirects_elsewhere() -> None:
+    """SDK-defined: the standalone GET stream is not opened through a redirect to another origin,
+    and since the same GET would be redirected again the transport logs it and stops instead of
+    spending its reconnection attempts."""
+    gets: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        gets.append(str(request.url))
+        return httpx.Response(307, headers={"location": "http://other.example/mcp"})
+
+    transport = StreamableHTTPTransport("http://test/mcp")
+    transport.session_id = "session-1"
+    writer, reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    with anyio.fail_after(5):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True) as http:
+            await transport.handle_get_stream(http, writer)
+    writer.close()
+    reader.close()
+    assert gets == ["http://test/mcp"]
+
+
+@pytest.mark.anyio
+async def test_resumption_redirected_elsewhere_fails_the_resumed_request() -> None:
+    """SDK-defined: a resumption GET answered with a redirect to another origin is not followed;
+    the resumed request fails with HTTPStatusError naming the location, like a redirected POST."""
+    seen: list[tuple[str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((f"{request.method} {request.url}", request.headers.get("last-event-id")))
+        return httpx.Response(307, headers={"location": "http://other.example/mcp"})
+
+    with anyio.fail_after(5):
+        with pytest.raises(Exception) as exc_info:
+            async with (  # pragma: no branch
+                httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True) as http,
+                streamable_http_client("http://test/mcp", http_client=http) as (read_stream, write_stream, _),
+                read_stream,
+                write_stream,
+            ):
+                request = JSONRPCRequest(jsonrpc="2.0", id="resume-1", method="tools/call", params={})
+                metadata = ClientMessageMetadata(resumption_token="evt-41")
+                await write_stream.send(SessionMessage(JSONRPCMessage(request), metadata=metadata))
+                await read_stream.receive()
+    error = _leaf_exception(exc_info.value)
+    assert isinstance(error, httpx.HTTPStatusError)
+    assert str(error) == snapshot(
+        "Redirect to http://other.example/mcp not followed; use that URL as the endpoint if it is the intended server"
+    )
+    assert seen == [("GET http://test/mcp", "evt-41")]
