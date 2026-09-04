@@ -28,8 +28,10 @@ from mcp.shared._httpx_utils import (
 )
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    CONNECTION_CLOSED,
     ErrorData,
     InitializeResult,
+    INVALID_REQUEST,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -345,6 +347,15 @@ class StreamableHTTPTransport:
         ) as response:
             if response.status_code == 202:
                 logger.debug("Received 202 Accepted")
+                if isinstance(message.root, JSONRPCRequest):
+                    # A request's response arrives on this POST's body; 202 says
+                    # none will follow. Resolve rather than park the caller forever.
+                    await self._resolve_abandoned_request(
+                        ctx.read_stream_writer,
+                        message.root.id,
+                        "server answered a request with 202 Accepted",
+                        code=INVALID_REQUEST,
+                    )
                 return
 
             if response.status_code == 404:  # pragma: no branch
@@ -404,6 +415,10 @@ class StreamableHTTPTransport:
         last_event_id: str | None = None
         retry_interval_ms: int | None = None
 
+        original_request_id = None
+        if isinstance(ctx.session_message.message.root, JSONRPCRequest):
+            original_request_id = ctx.session_message.message.root.id
+
         try:
             event_source = EventSource(response)
             async for sse in event_source.aiter_sse():  # pragma: no branch
@@ -430,9 +445,34 @@ class StreamableHTTPTransport:
             logger.debug(f"SSE stream ended: {e}")
 
         # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:
+            # Not resumable: resolve the waiter, else the request would hang
+            # forever instead of learning the connection is lost.
+            await self._resolve_abandoned_request(
+                ctx.read_stream_writer, original_request_id, "SSE stream ended without a response"
+            )
+
+    async def _resolve_abandoned_request(
+        self,
+        read_stream_writer: StreamWriter,
+        request_id: RequestId,
+        message: str,
+        *,
+        code: int = CONNECTION_CLOSED,
+    ) -> None:
+        """Resolve a request whose response can never arrive with a synthesized error.
+
+        Best-effort: a closed read stream means the session is tearing down.
+        """
+        error_data = ErrorData(code=code, message=message)
+        session_message = SessionMessage(JSONRPCMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data)))
+        try:
+            await read_stream_writer.send(session_message)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("read stream closed before request %r could be resolved", request_id)
 
     async def _handle_reconnection(
         self,
@@ -442,9 +482,22 @@ class StreamableHTTPTransport:
         attempt: int = 0,
     ) -> None:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
+        # Extract original request ID to map responses
+        original_request_id = None
+        if isinstance(ctx.session_message.message.root, JSONRPCRequest):
+            original_request_id = ctx.session_message.message.root.id
+
         # Bail if max retries exceeded
-        if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+        if attempt >= MAX_RECONNECTION_ATTEMPTS:
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+            # Resolve on give-up: a request with no read timeout would otherwise
+            # hang its caller forever.
+            if original_request_id is not None:
+                await self._resolve_abandoned_request(
+                    ctx.read_stream_writer,
+                    original_request_id,
+                    "SSE stream ended and reconnection attempts were exhausted",
+                )
             return
 
         # Always wait - use server value or default
@@ -453,11 +506,6 @@ class StreamableHTTPTransport:
 
         headers = self._prepare_headers()
         headers[LAST_EVENT_ID] = last_event_id
-
-        # Extract original request ID to map responses
-        original_request_id = None
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
-            original_request_id = ctx.session_message.message.root.id
 
         try:
             async with aconnect_sse(
