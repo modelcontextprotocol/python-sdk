@@ -8,7 +8,8 @@ name: Docs Preview
 # auto-preview, admin/maintainer commenter for /preview-docs) and isolated
 # from Cloudflare secrets — `build` runs PR code with no secrets and hands
 # the static site to `deploy` via an artifact, so PR code never shares a
-# runner with the Cloudflare token.
+# runner with the Cloudflare token. `authorize` and `comment` run
+# .github/scripts/docs_preview.js, checked out from the default branch only.
 #
 # Required configuration:
 #   - secrets.CLOUDFLARE_API_TOKEN   (scope: Account → Cloudflare Pages → Edit)
@@ -58,57 +59,19 @@ jobs:
       head_sha: ${{ steps.check.outputs.head_sha }}
       slash_attempt: ${{ steps.check.outputs.slash_attempt }}
     steps:
+      - name: Check out the scripts (default branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
       - name: Determine authorization
         id: check
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const { owner, repo } = context.repo;
-
-            async function permissionFor(username) {
-              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username });
-              return { level: data.permission, role: data.role_name };
-            }
-
-            let authorized = false;
-            let prNumber = '';
-            let headSha = '';
-            let slashAttempt = false;
-
-            if (context.eventName === 'pull_request_target') {
-              // Gate on the *sender* (whoever caused this run — on synchronize that
-              // is the pusher), not the PR author, so a non-admin pushing to an
-              // admin-opened branch does not get an automatic build.
-              const actor = context.payload.sender.login;
-              prNumber = String(context.payload.pull_request.number);
-              headSha = context.payload.pull_request.head.sha;
-              const perm = await permissionFor(actor);
-              authorized = perm.level === 'admin';
-              core.info(`pull_request_target by ${actor} (level=${perm.level}, role=${perm.role}) → authorized=${authorized}`);
-            } else {
-              // issue_comment: the job-level `if:` already guarantees this is a PR
-              // comment starting with /preview-docs.
-              slashAttempt = true;
-              const actor = context.payload.comment.user.login;
-              prNumber = String(context.payload.issue.number);
-              const perm = await permissionFor(actor);
-              authorized = perm.level === 'admin' || perm.role === 'maintain';
-              if (authorized) {
-                const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: Number(prNumber) });
-                if (pr.state !== 'open') {
-                  authorized = false;
-                  core.info(`PR #${prNumber} is ${pr.state}; refusing to preview.`);
-                } else {
-                  headSha = pr.head.sha;
-                }
-              }
-              core.info(`/preview-docs by ${actor} (level=${perm.level}, role=${perm.role}) → authorized=${authorized}`);
-            }
-
-            core.setOutput('authorized', String(authorized));
-            core.setOutput('pr_number', prNumber);
-            core.setOutput('head_sha', headSha);
-            core.setOutput('slash_attempt', String(slashAttempt));
+            const { authorize } = require('./.github/scripts/docs_preview.js');
+            await authorize({ github, context, core });
 
   build:
     needs: authorize
@@ -192,8 +155,15 @@ jobs:
       (needs.authorize.outputs.authorized == 'true' || needs.authorize.outputs.slash_attempt == 'true')
     runs-on: ubuntu-latest
     permissions:
+      contents: read # check out the script from the default branch
       pull-requests: write
     steps:
+      - name: Check out the scripts (default branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
       - name: Post or update preview comment
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -206,45 +176,5 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
-            const { owner, repo } = context.repo;
-            const env = process.env;
-            const issue_number = Number(env.PR_NUMBER);
-            const marker = '<!-- docs-preview -->';
-
-            async function upsert(body) {
-              const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
-              const existing = comments.find(c => c.user?.login === 'github-actions[bot]' && c.body?.includes(marker));
-              if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-              } else {
-                await github.rest.issues.createComment({ owner, repo, issue_number, body });
-              }
-            }
-
-            if (env.AUTHORIZED !== 'true') {
-              await github.rest.issues.createComment({
-                owner, repo, issue_number,
-                body: `@${context.actor} — only repository admins or maintainers can run \`/preview-docs\` (and the PR must be open).`,
-              });
-              return;
-            }
-
-            if (env.DEPLOY_RESULT !== 'success') {
-              await upsert(
-                `${marker}\n### 📚 Documentation preview\n\n` +
-                `❌ Preview build **failed** for \`${env.HEAD_SHA.slice(0, 7)}\` — [workflow logs](${env.RUN_URL}).`
-              );
-              return;
-            }
-
-            const previewUrl = env.ALIAS_URL || env.DEPLOYMENT_URL;
-            const ts = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
-            await upsert(
-              `${marker}\n### 📚 Documentation preview\n\n` +
-              `| | |\n|---|---|\n` +
-              `| **Preview** | ${previewUrl} |\n` +
-              `| **Deployment** | ${env.DEPLOYMENT_URL} |\n` +
-              `| **Commit** | \`${env.HEAD_SHA.slice(0, 7)}\` |\n` +
-              `| **Triggered by** | @${context.actor} |\n` +
-              `| **Updated** | ${ts} |\n`
-            );
+            const { comment } = require('./.github/scripts/docs_preview.js');
+            await comment({ github, context, core });
