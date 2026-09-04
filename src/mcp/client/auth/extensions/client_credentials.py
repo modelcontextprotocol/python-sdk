@@ -180,6 +180,7 @@ def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=static_assertion_provider(my_prebuilt_jwt),
+            issuer="https://auth.example.com",
         )
         ```
 
@@ -214,6 +215,7 @@ class SignedJWTParameters(BaseModel):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=jwt_params.create_assertion_provider(),
+            issuer="https://auth.example.com",
         )
         ```
     """
@@ -279,6 +281,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=get_workload_identity_token,
+            issuer="https://auth.example.com",
         )
         ```
 
@@ -292,6 +295,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=static_assertion_provider(my_prebuilt_jwt),
+            issuer="https://auth.example.com",
         )
         ```
 
@@ -310,6 +314,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             storage=my_token_storage,
             client_id="my-client-id",
             assertion_provider=jwt_params.create_assertion_provider(),
+            issuer="https://auth.example.com",
         )
         ```
     """

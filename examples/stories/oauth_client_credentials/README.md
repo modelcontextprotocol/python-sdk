@@ -33,8 +33,8 @@ the client and server side.
 - `client.py` `main` — opens with `async with Client(target, mode=mode) as
   client:` and that's the whole program. `target` is a transport that already
   carries the OAuth `httpx2.Auth`; the body never touches a token.
-- `client.py` `build_auth` — five lines of `ClientCredentialsOAuthProvider`
-  config is all the caller writes; the SDK does RFC 9728 PRM →
+- `client.py` `build_auth` — a few lines of `ClientCredentialsOAuthProvider`
+  config (credentials plus `issuer=`) is all the caller writes; the SDK does RFC 9728 PRM →
   RFC 8414 AS-metadata discovery and token exchange on the first 401.
 - `server.py` `token_endpoint` — the *entire* AS for this grant: validate
   HTTP-Basic `client_id:client_secret`, mint a token, return RFC 6749 JSON.

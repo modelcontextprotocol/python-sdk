@@ -14,7 +14,7 @@ from .server import DEMO_CLIENT_ID, DEMO_CLIENT_SECRET, DEMO_SCOPE
 
 
 def build_auth(_http: httpx2.AsyncClient) -> httpx2.Auth:
-    """The ``httpx2.Auth`` for the ``client_credentials`` grant — six lines of provider config.
+    """The ``httpx2.Auth`` for the ``client_credentials`` grant — a few lines of provider config.
 
     The SDK then handles 401 → RFC 9728 PRM → RFC 8414 AS-metadata discovery → token POST →
     Bearer attachment automatically. ``Client(url)`` has no ``auth=`` passthrough yet, so the
