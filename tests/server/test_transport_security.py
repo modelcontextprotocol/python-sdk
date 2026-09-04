@@ -45,6 +45,9 @@ SETTINGS = TransportSecuritySettings(
         pytest.param("good.example", "http://evil.example:9000", 403, id="origin-wildcard-base-mismatch"),
         pytest.param("good.example", "http://good.example", None, id="origin-exact"),
         pytest.param("good.example", "http://wild.example:9000", None, id="origin-wildcard-match"),
+        pytest.param("GOOD.EXAMPLE", None, None, id="host-exact-uppercase"),
+        pytest.param("Good.Example", "HTTP://GOOD.EXAMPLE", None, id="host-origin-mixedcase"),
+        pytest.param("WILD.EXAMPLE:9000", "http://WILD.EXAMPLE:9000", None, id="wildcard-uppercase"),
     ],
 )
 async def test_validate_request_checks_host_then_origin(
@@ -54,6 +57,33 @@ async def test_validate_request_checks_host_then_origin(
     middleware = TransportSecurityMiddleware(SETTINGS)
     response = await middleware.validate_request(_request(host, origin))
     assert (None if response is None else response.status_code) == expected
+
+
+@pytest.mark.anyio
+async def test_validate_request_case_insensitive_with_uppercase_allowed_settings() -> None:
+    """Uppercase entries in allowed_hosts and allowed_origins match lowercase and mixed-case requests."""
+    settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["MYHOST", "MYWILD:*"],
+        allowed_origins=["HTTP://MYORIGIN", "HTTP://MYWILDORIGIN:*"],
+    )
+    middleware = TransportSecurityMiddleware(settings)
+
+    # Exact host lowercase & mixed-case
+    assert await middleware.validate_request(_request("myhost", None)) is None
+    assert await middleware.validate_request(_request("MyHost", None)) is None
+
+    # Wildcard host lowercase & mixed-case
+    assert await middleware.validate_request(_request("mywild:8000", None)) is None
+    assert await middleware.validate_request(_request("MyWild:8000", None)) is None
+
+    # Exact origin lowercase & mixed-case
+    assert await middleware.validate_request(_request("myhost", "http://myorigin")) is None
+    assert await middleware.validate_request(_request("myhost", "http://MyOrigin")) is None
+
+    # Wildcard origin lowercase & mixed-case
+    assert await middleware.validate_request(_request("myhost", "http://mywildorigin:8000")) is None
+    assert await middleware.validate_request(_request("myhost", "http://MyWildOrigin:8000")) is None
 
 
 @pytest.mark.anyio
