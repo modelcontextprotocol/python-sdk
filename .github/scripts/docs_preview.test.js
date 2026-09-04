@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const { authorize, comment } = require('./docs_preview.js');
 
 const REPO = { owner: 'modelcontextprotocol', repo: 'python-sdk' };
+const BASE_REPO = { id: 1, full_name: 'modelcontextprotocol/python-sdk' };
 const HEAD = 'e4dfda7baa127ab00ebcd1d5324560cbe3cdfe42';
 const MARKER = '<!-- docs-preview -->';
 
@@ -36,6 +37,26 @@ const authorizeScenarios = [
     name: 'someone with write but not admin pushes → no automatic preview',
     event: pushed(7, 'writer'),
     expect: { authorized: 'false', pr_number: '7', head_sha: HEAD, slash_attempt: 'false' },
+  },
+  {
+    // actions/checkout refuses a fork's head under pull_request_target, so
+    // the run stops here instead of failing in `build`; /preview-docs still works.
+    name: 'admin pushes to or reopens a fork PR → no automatic preview',
+    event: pushed(7, 'admin', { fork: 'someone/python-sdk' }),
+    expect: { authorized: 'false', pr_number: '7', head_sha: HEAD, slash_attempt: 'false' },
+    permissionLookups: 0,
+  },
+  {
+    name: 'fork PR whose fork has since been deleted → no automatic preview',
+    event: pushed(7, 'admin', { fork: null }),
+    expect: { authorized: 'false', pr_number: '7', head_sha: HEAD, slash_attempt: 'false' },
+    permissionLookups: 0,
+  },
+  {
+    name: 'maintainer comments /preview-docs on a fork PR → previewed like any other',
+    pr: { fork: 'someone/python-sdk' },
+    event: slash(7, 'maintainer'),
+    expect: { authorized: 'true', pr_number: '7', head_sha: HEAD, slash_attempt: 'true' },
   },
   {
     name: 'maintainer comments /preview-docs on an open PR → preview of its current head',
@@ -70,6 +91,7 @@ for (const s of authorizeScenarios) {
     const world = makeWorld({ pr: { number: 7, ...s.pr } });
     assert.deepEqual(await runAuthorize(world, s.event), s.expect);
     assert.equal(world.writes.length, 0);
+    if (s.permissionLookups !== undefined) assert.equal(world.permissionLookups, s.permissionLookups);
   });
 }
 
@@ -146,8 +168,10 @@ test('comment: a build or deploy that did not succeed is reported with the short
 
 // ── Harness ────────────────────────────────────────────────────────────────
 
-function pushed(number, sender) {
-  return { eventName: 'pull_request_target', actor: sender, payload: { action: 'synchronize', pull_request: { number, head: { sha: HEAD } }, sender: { login: sender } } };
+// `fork`: full name of the fork the head lives on; null for a deleted fork; omitted for a same-repo branch.
+function pushed(number, sender, { fork } = {}) {
+  const repo = fork === undefined ? BASE_REPO : fork === null ? null : { id: 2, full_name: fork };
+  return { eventName: 'pull_request_target', actor: sender, payload: { action: 'synchronize', repository: BASE_REPO, pull_request: { number, head: { sha: HEAD, repo } }, sender: { login: sender } } };
 }
 function slash(number, commenter) {
   return { eventName: 'issue_comment', actor: commenter, payload: { action: 'created', issue: { number, pull_request: {} }, comment: { body: '/preview-docs', user: { login: commenter } } } };
@@ -173,7 +197,7 @@ async function runComment(world, env, actor) {
 // ── A tiny in-memory GitHub ────────────────────────────────────────────────
 
 function makeWorld({ pr, comments = [] }) {
-  const world = { pr: { state: 'open', ...pr }, comments: [], writes: [], failPermissionLookup: false, nextCommentId: 100 };
+  const world = { pr: { state: 'open', ...pr }, comments: [], writes: [], failPermissionLookup: false, permissionLookups: 0, nextCommentId: 100 };
   for (const c of comments) world.comments.push({ id: world.nextCommentId++, ...c });
 
   const err = (status, message = 'fake error') => Object.assign(new Error(message), { status });
@@ -183,6 +207,7 @@ function makeWorld({ pr, comments = [] }) {
   const rest = {
     repos: {
       getCollaboratorPermissionLevel: async ({ username }) => {
+        world.permissionLookups++;
         if (world.failPermissionLookup) throw err(500, 'boom');
         const person = PEOPLE[username];
         if (!person) throw err(404, 'not a user');
@@ -190,7 +215,11 @@ function makeWorld({ pr, comments = [] }) {
       },
     },
     pulls: {
-      get: async ({ pull_number }) => { checkPr(pull_number); return { data: { number: pull_number, state: world.pr.state, head: { sha: HEAD } } }; },
+      get: async ({ pull_number }) => {
+        checkPr(pull_number);
+        const repo = world.pr.fork ? { id: 2, full_name: world.pr.fork } : BASE_REPO;
+        return { data: { number: pull_number, state: world.pr.state, head: { sha: HEAD, repo } } };
+      },
     },
     issues: {
       listComments: async ({ issue_number }) => { checkPr(issue_number); return { data: world.comments.map((c) => ({ id: c.id, body: c.body, user: { login: c.user } })) }; },
