@@ -119,7 +119,7 @@ them:
 ```python
 import httpx
 
-http_client = httpx.AsyncClient(follow_redirects=True)
+http_client = httpx.AsyncClient(timeout=httpx.Timeout(30, read=300))
 ```
 
 **After (v2):**
@@ -127,7 +127,7 @@ http_client = httpx.AsyncClient(follow_redirects=True)
 ```python
 import httpx2
 
-http_client = httpx2.AsyncClient(follow_redirects=True)
+http_client = httpx2.AsyncClient(timeout=httpx2.Timeout(30, read=300))
 ```
 
 `httpx2` is API-compatible with `httpx`, so usually only the import name
@@ -2092,7 +2092,6 @@ http_client = httpx2.AsyncClient(
     headers={"Authorization": "Bearer token"},
     timeout=httpx2.Timeout(30, read=300),
     auth=my_auth,
-    follow_redirects=True,
 )
 
 async with http_client:
@@ -2103,11 +2102,11 @@ async with http_client:
         ...
 ```
 
-v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx2.AsyncClient` to preserve that behavior.
+v1's internal client set `follow_redirects=True`. You don't need it on your own client: the transport follows a method-preserving redirect within the endpoint's origin (a trailing-slash 307/308, say) itself, and does not follow one anywhere else, whatever the client is configured to do.
 
 `streamable_http_client` itself keeps a small signature — `streamable_http_client(url, *, http_client=None, terminate_on_close=True)` — and now yields a 2-tuple (next section). The removed function's other parameters map onto the client you build:
 
-- `headers`, `timeout`, `sse_read_timeout`, `auth`: set them on the `httpx2.AsyncClient` as above. `streamablehttp_client` defaulted to `httpx.Timeout(30, read=300)`; a bare `httpx2.AsyncClient()` falls back to httpx2's flat 5-second timeout, too short for the long-lived GET stream, so set `timeout=httpx2.Timeout(30, read=300)` (as shown) to keep v1's values. Omitting `http_client` still gives you a default client with those timeouts and `follow_redirects=True`.
+- `headers`, `timeout`, `sse_read_timeout`, `auth`: set them on the `httpx2.AsyncClient` as above. `streamablehttp_client` defaulted to `httpx.Timeout(30, read=300)`; a bare `httpx2.AsyncClient()` falls back to httpx2's flat 5-second timeout, too short for the long-lived GET stream, so set `timeout=httpx2.Timeout(30, read=300)` (as shown) to keep v1's values. Omitting `http_client` still gives you a default client with those timeouts.
 - `httpx_client_factory`: gone with no replacement — call your factory yourself and pass the result as `http_client`.
 - `terminate_on_close`: unchanged (default `True`).
 
@@ -2151,10 +2150,7 @@ async def capture_session_id(response: httpx2.Response) -> None:
     if session_id:
         captured_session_ids.append(session_id)
 
-http_client = httpx2.AsyncClient(
-    event_hooks={"response": [capture_session_id]},
-    follow_redirects=True,
-)
+http_client = httpx2.AsyncClient(event_hooks={"response": [capture_session_id]})
 
 async with http_client:
     async with streamable_http_client(url, http_client=http_client) as (read_stream, write_stream):

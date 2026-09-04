@@ -358,10 +358,11 @@ async def running_app(
 
 
 def make_client(app: Starlette, headers: dict[str, str] | None = None) -> httpx2.AsyncClient:
-    """An httpx2 client served in process by `app`, with create_mcp_http_client's redirect default.
+    """An httpx2 client served in process by `app`.
 
-    (Starlette's Mount 307-redirects the bare /mcp path to /mcp/, which the SDK's own client
-    factory follows.)
+    Starlette's Mount 307-redirects the bare /mcp path to /mcp/. The MCP transport follows that
+    same-origin redirect itself; `follow_redirects=True` is here for the tests in this file that
+    POST to /mcp with this client directly.
     """
     return httpx2.AsyncClient(
         transport=StreamingASGITransport(app), base_url=BASE_URL, headers=headers, follow_redirects=True
@@ -1089,7 +1090,9 @@ async def test_streamable_http_client_get_stream(basic_app: Starlette) -> None:
         assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
 
 
-def create_session_id_capturing_client(app: Starlette) -> tuple[httpx2.AsyncClient, list[str]]:
+def create_session_id_capturing_client(
+    app: Starlette, transport: httpx2.AsyncBaseTransport | None = None
+) -> tuple[httpx2.AsyncClient, list[str]]:
     """Create an in-process httpx2 client that captures the session ID from responses."""
     captured_ids: list[str] = []
 
@@ -1099,9 +1102,8 @@ def create_session_id_capturing_client(app: Starlette) -> tuple[httpx2.AsyncClie
             captured_ids.append(session_id)
 
     client = httpx2.AsyncClient(
-        transport=StreamingASGITransport(app),
+        transport=transport or StreamingASGITransport(app),
         base_url=BASE_URL,
-        follow_redirects=True,
         event_hooks={"response": [capture_session_id]},
     )
     return client, captured_ids
@@ -1145,36 +1147,34 @@ async def test_streamable_http_client_session_termination(basic_app: Starlette) 
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_session_termination_204(
-    basic_app: Starlette, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_streamable_http_client_session_termination_204(basic_app: Starlette) -> None:
     """Session termination also succeeds when the server answers the DELETE with 204.
 
-    This test patches the httpx2 client to return a 204 response for DELETEs.
+    The in-process server answers the DELETE with 200; a wrapping HTTP transport rewrites that to
+    204 on the way back, which is what some servers send.
     """
 
-    # Save the original delete method to restore later
-    original_delete = httpx2.AsyncClient.delete
+    class AnswerDeleteWith204(httpx2.AsyncBaseTransport):
+        def __init__(self, inner: StreamingASGITransport) -> None:
+            self.inner = inner
 
-    # Mock the client's delete method to return a 204
-    async def mock_delete(self: httpx2.AsyncClient, *args: Any, **kwargs: Any) -> httpx2.Response:
-        # Call the original method to get the real response
-        response = await original_delete(self, *args, **kwargs)
+        async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+            response = await self.inner.handle_async_request(request)
+            if request.method != "DELETE" or response.status_code != 200:
+                return response
+            await response.aread()
+            return httpx2.Response(204, headers=response.headers, request=request)
 
-        # Create a new response with 204 status code but same headers
-        mocked_response = httpx2.Response(
-            204,
-            headers=response.headers,
-            content=response.content,
-            request=response.request,
-        )
-        return mocked_response
+        async def __aenter__(self) -> AnswerDeleteWith204:
+            await self.inner.__aenter__()
+            return self
 
-    # Apply the patch to the httpx2 client
-    monkeypatch.setattr(httpx2.AsyncClient, "delete", mock_delete)
+        async def __aexit__(self, *args: Any) -> None:
+            await self.inner.__aexit__(*args)
 
-    # Use httpx2 client with event hooks to capture session ID
-    httpx_client, captured_ids = create_session_id_capturing_client(basic_app)
+    httpx_client, captured_ids = create_session_id_capturing_client(
+        basic_app, transport=AnswerDeleteWith204(StreamingASGITransport(basic_app))
+    )
 
     async with httpx_client:
         async with streamable_http_client(f"{BASE_URL}/mcp", http_client=httpx_client) as (

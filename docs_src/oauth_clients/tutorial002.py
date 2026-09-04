@@ -35,7 +35,7 @@ oauth = ClientCredentialsOAuthProvider(
 
 
 async def main() -> None:
-    async with httpx2.AsyncClient(auth=oauth, follow_redirects=True) as http_client:
+    async with httpx2.AsyncClient(auth=oauth) as http_client:
         transport = streamable_http_client("http://localhost:8001/mcp", http_client=http_client)
         async with Client(transport) as client:
             result = await client.list_tools()

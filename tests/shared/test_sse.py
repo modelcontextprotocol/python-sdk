@@ -3,14 +3,13 @@
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import Mock
 from urllib.parse import urlparse
 
 import anyio
 import httpx2
 import mcp_types as types
 import pytest
-from httpx2 import ServerSentEvent
 from inline_snapshot import snapshot
 from mcp_types import (
     CallToolRequestParams,
@@ -41,6 +40,7 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._httpx_utils import McpHttpClientFactory
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from tests.interaction.transports import StreamingASGITransport
 
 SERVER_NAME = "test_server_for_SSE"
@@ -58,15 +58,13 @@ def in_process_client_factory(app: Starlette) -> McpHttpClientFactory:
         auth: httpx2.Auth | None = None,
     ) -> httpx2.AsyncClient:
         # The SSE GET runs until it observes a disconnect, so the bridge must let the
-        # application drain on close rather than cancelling it. follow_redirects matches
-        # create_mcp_http_client, the factory this one stands in for.
+        # application drain on close rather than cancelling it.
         return httpx2.AsyncClient(
             transport=StreamingASGITransport(app, cancel_on_close=False),
             base_url=BASE_URL,
             headers=headers,
             timeout=timeout,
             auth=auth,
-            follow_redirects=True,
         )
 
     return factory
@@ -400,10 +398,10 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     send an SSE event consisting of an event ID and an empty data field in order
     to prime the client to reconnect."
 
-    This test mocks the SSE event stream to include empty "message" events and
-    verifies the client skips them without crashing.
+    The event stream served here carries an endpoint event, an empty "message"
+    event (the case under test), then a real response; the client must skip the
+    empty one and deliver the response.
     """
-    # Build a proper JSON-RPC response using types (not hardcoded strings)
     init_result = InitializeResult(
         protocol_version="2024-11-05",
         capabilities=ServerCapabilities(),
@@ -415,41 +413,86 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
         result=init_result.model_dump(by_alias=True, exclude_none=True),
     )
     response_json = response.model_dump_json(by_alias=True, exclude_none=True)
+    event_stream = (
+        "event: endpoint\ndata: /messages/?session_id=abc123\n\n"
+        "event: message\ndata: \n\n"
+        f"event: message\ndata: {response_json}\n\n"
+    )
 
-    # Mock SSE events using httpx2's ServerSentEvent: an endpoint event, an
-    # empty keep-alive ping (the case under test), then a real response.
-    mock_event_source = MagicMock()
-    mock_event_source.__aiter__.return_value = [
-        ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123"),
-        ServerSentEvent(event="message", data=""),
-        ServerSentEvent(event="message", data=response_json),
-    ]
-    mock_event_source.response.raise_for_status = MagicMock()
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/sse"
+        return httpx2.Response(200, headers={"content-type": "text/event-stream"}, text=event_stream)
 
-    mock_sse = MagicMock()
-    mock_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
-    mock_sse.__aexit__ = AsyncMock(return_value=None)
-
-    mock_client = MagicMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-    mock_client.sse = MagicMock(return_value=mock_sse)
-    mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
-
-    def mock_factory(
+    def factory(
         headers: dict[str, str] | None = None,
         timeout: httpx2.Timeout | None = None,
         auth: httpx2.Auth | None = None,
     ) -> httpx2.AsyncClient:
-        return mock_client
+        return httpx2.AsyncClient(transport=httpx2.MockTransport(serve))
 
-    async with sse_client("http://test/sse", httpx_client_factory=mock_factory) as (read_stream, _):
-        # Read the message - should skip the empty one and get the real response
-        msg = await read_stream.receive()
-        # If we get here without error, the empty message was skipped successfully
-        assert not isinstance(msg, Exception)
-        assert isinstance(msg.message, types.JSONRPCResponse)
-        assert msg.message.id == 1
+    with anyio.fail_after(5):
+        async with sse_client("http://test/sse", httpx_client_factory=factory) as (read_stream, _):
+            msg = await read_stream.receive()
+
+    assert isinstance(msg, SessionMessage)
+    assert isinstance(msg.message, types.JSONRPCResponse)
+    assert msg.message.id == 1
+
+
+@pytest.mark.anyio
+async def test_sse_client_follows_redirect_within_origin_on_connect() -> None:
+    """SDK-defined: a redirect of the SSE GET that stays on the endpoint's origin is followed by
+    the transport itself, with a client left at httpx2's no-follow default."""
+    received: list[str] = []
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        received.append(str(request.url))
+        if request.url.path == "/sse":
+            return httpx2.Response(307, headers={"location": "/sse/"})
+        assert request.url.path == "/sse/"
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, text="event: endpoint\ndata: /messages/\n\n"
+        )
+
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(transport=httpx2.MockTransport(serve))
+
+    with anyio.fail_after(5):
+        async with sse_client("http://test/sse", httpx_client_factory=factory):
+            pass
+
+    assert received == ["http://test/sse", "http://test/sse/"]
+
+
+@pytest.mark.anyio
+async def test_sse_client_does_not_follow_redirect_to_another_origin_on_connect() -> None:
+    """SDK-defined: a redirect of the SSE GET to another origin is not followed, even with a client
+    configured to follow redirects: connecting fails with HTTPStatusError for the redirect response
+    and that origin is never contacted."""
+    received: list[str] = []
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        received.append(str(request.url))
+        return httpx2.Response(307, headers={"location": "http://other.example/sse"})
+
+    def factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx2.Timeout | None = None,
+        auth: httpx2.Auth | None = None,
+    ) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(transport=httpx2.MockTransport(serve), follow_redirects=True)
+
+    with anyio.fail_after(5):
+        with pytest.raises(httpx2.HTTPStatusError) as exc_info:
+            async with sse_client("http://test/sse", httpx_client_factory=factory):
+                pytest.fail("should not connect")  # pragma: no cover
+
+    assert exc_info.value.response.status_code == 307
+    assert received == ["http://test/sse"]
 
 
 @pytest.mark.anyio

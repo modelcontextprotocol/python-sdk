@@ -94,7 +94,7 @@ That trailing `/mcp` is `streamable_http_path`. Set it to `"/"` and the mount pr
 --8<-- "docs_src/asgi/tutorial004.py"
 ```
 
-Now clients connect to `/notes`, not `/notes/mcp`.
+Now clients connect to `/notes/`, not `/notes/mcp`.
 
 ## CORS for browser clients
 
