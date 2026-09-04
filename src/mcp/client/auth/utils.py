@@ -70,7 +70,7 @@ def _extract_bearer_auth_params(www_auth_header: str) -> str | None:
 
 
 _AUTH_PARAM_PATTERN = re.compile(
-    r"(?:^|,\s*)(?P<name>[A-Za-z][A-Za-z0-9_-]*)\s*=\s*"
+    r"(?:^|,\s*)(?P<name>[!#$%&'*+\-.^_`|~0-9A-Za-z]+)\s*=\s*"
     r'(?:"(?P<quoted>(?:\\.|[^"\\])*)"|(?P<unquoted>[^,\s]+))'
 )
 

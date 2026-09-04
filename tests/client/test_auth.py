@@ -227,6 +227,18 @@ def test_generic_field_lookup_preserves_non_bearer_challenges():
     assert extract_scope_from_www_auth(response) is None
 
 
+def test_generic_field_lookup_accepts_http_token_parameter_names():
+    """HTTP auth-param names accept the full token grammar defined by RFC 9110."""
+    response = httpx2.Response(
+        401,
+        headers={"WWW-Authenticate": 'Newauth x.trace="trace-id", client+id=client-id'},
+        request=httpx2.Request("GET", "https://example.com"),
+    )
+
+    assert extract_field_from_www_auth(response, "x.trace") == "trace-id"
+    assert extract_field_from_www_auth(response, "client+id") == "client-id"
+
+
 def test_quoted_auth_params_handle_escaped_quotes_and_commas():
     """RFC quoted-pairs do not terminate a quoted value or split its embedded comma."""
     response = httpx2.Response(
