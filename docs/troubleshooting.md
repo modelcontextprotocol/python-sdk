@@ -286,7 +286,7 @@ An elicitation resolver refuses up front when the connected client did not decla
 }
 ```
 
-Pass `elicitation_callback=` to `Client(...)`. Registering the callback *is* the capability declaration; there is no second switch:
+The server here is the Bistro with the `book_table` resolver, the [`server.py` further down](#mcperror-cannot-send-elicitationcreate-this-transport-context-has-no-back-channel-for-server-initiated-requests), served the same way. Pass `elicitation_callback=` to `Client(...)`. Registering the callback *is* the capability declaration; there is no second switch:
 
 ```python
 async def main() -> None:
