@@ -112,7 +112,7 @@ A nightly job, a CI step, another service. There is no browser and nobody to cli
 What changed:
 
 * No `OAuthClientMetadata`, no handlers. You pass `client_id` and `client_secret`; the provider builds a minimal `client_credentials` registration around them and skips dynamic registration entirely.
-* `issuer` names the authorization server that issued those credentials; use the `issuer` value its `/.well-known/oauth-authorization-server` document returns. Discovery still runs as above, but token requests are only ever built from metadata for *that* issuer; if the MCP server points anywhere else, the flow stops with an `OAuthFlowError` instead. Leave it out and the provider uses whichever authorization server discovery finds.
+* `issuer` names the authorization server that issued those credentials; use the `issuer` value its `/.well-known/oauth-authorization-server` document returns. Discovery still runs as above, but token requests are only ever built from metadata for *that* issuer; if the MCP server points anywhere else, the flow stops with an `OAuthFlowError` instead. Leaving it out is deprecated and it becomes required in 3.0 (see **[Deprecated features](../deprecated.md#deprecated-sdk-helpers)**); until then the provider warns and uses whichever authorization server discovery finds.
 * `scope` is a space-separated string, the OAuth wire format.
 * Everything downstream is identical: the same `TokenStorage`, the same `httpx2.AsyncClient(auth=...)`, the same `streamable_http_client`.
 

@@ -373,6 +373,7 @@ async def test_client_credentials_provider_obtains_a_token_without_an_authorize_
         client_id="m2m-client",
         client_secret="m2m-secret",
         scope="mcp",
+        issuer=BASE_URL,
     )
 
     with anyio.fail_after(5):
@@ -424,6 +425,7 @@ async def test_private_key_jwt_provider_authenticates_the_token_request_with_an_
         client_id="m2m-jwt-client",
         assertion_provider=assertion_provider,
         scope="mcp",
+        issuer=BASE_URL,
     )
 
     with anyio.fail_after(5):

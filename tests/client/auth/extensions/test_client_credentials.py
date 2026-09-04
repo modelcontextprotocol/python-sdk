@@ -7,6 +7,7 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
+from mcp import MCPDeprecationWarning
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError
 from mcp.client.auth.extensions.client_credentials import (
     ClientCredentialsOAuthProvider,
@@ -57,6 +58,7 @@ class TestClientCredentialsOAuthProvider:
             storage=mock_storage,
             client_id="test-client-id",
             client_secret="test-client-secret",
+            issuer="https://api.example.com",
         )
 
         # client_info is set during _initialize
@@ -77,6 +79,7 @@ class TestClientCredentialsOAuthProvider:
             client_id="test-client-id",
             client_secret="test-client-secret",
             scope="read write",
+            issuer="https://api.example.com",
         )
 
         await provider._initialize()
@@ -92,6 +95,7 @@ class TestClientCredentialsOAuthProvider:
             client_id="test-client-id",
             client_secret="test-client-secret",
             token_endpoint_auth_method="client_secret_post",
+            issuer="https://api.example.com",
         )
 
         await provider._initialize()
@@ -107,6 +111,7 @@ class TestClientCredentialsOAuthProvider:
             client_id="test-client-id",
             client_secret="test-client-secret",
             scope="read write",
+            issuer="https://api.example.com",
         )
         provider.context.oauth_metadata = OAuthMetadata(
             issuer=AnyHttpUrl("https://api.example.com"),
@@ -135,6 +140,7 @@ class TestClientCredentialsOAuthProvider:
             client_secret="test-client-secret",
             token_endpoint_auth_method="client_secret_post",
             scope="read write",
+            issuer="https://api.example.com",
         )
         await provider._initialize()
         provider.context.oauth_metadata = OAuthMetadata(
@@ -161,6 +167,7 @@ class TestClientCredentialsOAuthProvider:
             storage=mock_storage,
             client_id="test-client-id",
             client_secret="test-client-secret",
+            issuer="https://api.example.com",
         )
         provider.context.oauth_metadata = OAuthMetadata(
             issuer=AnyHttpUrl("https://api.example.com"),
@@ -192,6 +199,7 @@ class TestPrivateKeyJWTOAuthProvider:
             storage=mock_storage,
             client_id="test-client-id",
             assertion_provider=mock_assertion_provider,
+            issuer="https://api.example.com",
         )
 
         # client_info is set during _initialize
@@ -215,6 +223,7 @@ class TestPrivateKeyJWTOAuthProvider:
             client_id="test-client-id",
             assertion_provider=mock_assertion_provider,
             scope="read write",
+            issuer="https://auth.example.com",
         )
         provider.context.oauth_metadata = OAuthMetadata(
             issuer=AnyHttpUrl("https://auth.example.com"),
@@ -246,6 +255,7 @@ class TestPrivateKeyJWTOAuthProvider:
             storage=mock_storage,
             client_id="test-client-id",
             assertion_provider=mock_assertion_provider,
+            issuer="https://auth.example.com",
         )
         provider.context.oauth_metadata = OAuthMetadata(
             issuer=AnyHttpUrl("https://auth.example.com"),
@@ -433,6 +443,65 @@ async def test_provider_picks_its_configured_issuer_among_several_advertised_ser
 
     assert provider.context.auth_server_url == _CONFIGURED_ISSUER
     assert str(token_request.url) == "https://auth.example.com/token"
+    await flow.aclose()
+
+
+@pytest.mark.parametrize("kind", ["secret", "jwt"])
+def test_constructing_without_issuer_is_deprecated(mock_storage: MockTokenStorage, kind: str) -> None:
+    """SDK-defined: leaving `issuer` out is allowed, and the provider says at construction that
+    token requests will follow whichever authorization server the MCP server advertises."""
+
+    async def assertion_provider(audience: str) -> str:
+        raise NotImplementedError
+
+    with pytest.warns(MCPDeprecationWarning) as recorded:
+        if kind == "secret":
+            ClientCredentialsOAuthProvider(
+                server_url=_SERVER_URL, storage=mock_storage, client_id="c", client_secret="s"
+            )
+        else:
+            PrivateKeyJWTOAuthProvider(
+                server_url=_SERVER_URL, storage=mock_storage, client_id="c", assertion_provider=assertion_provider
+            )
+
+    [warning] = recorded
+    assert warning.filename == __file__
+    assert str(warning.message) == (
+        "Omitting `issuer` is deprecated and it will be required in 3.0. Without it, the MCP server "
+        "decides which authorization server receives this client's credentials; pass "
+        "issuer=<your authorization server's issuer URL> so they are only ever sent there."
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["secret", "jwt"])
+async def test_without_issuer_the_exchange_follows_whichever_server_was_discovered(
+    mock_storage: MockTokenStorage, kind: str
+) -> None:
+    """SDK-defined: with no `issuer` configured the token request is built from whatever metadata
+    discovery produced, as before."""
+
+    async def assertion_provider(audience: str) -> str:
+        return "jwt"
+
+    with pytest.warns(MCPDeprecationWarning, match="Omitting `issuer` is deprecated"):
+        if kind == "secret":
+            provider: OAuthClientProvider = ClientCredentialsOAuthProvider(
+                server_url=_SERVER_URL, storage=mock_storage, client_id="c", client_secret="s"
+            )
+        else:
+            provider = PrivateKeyJWTOAuthProvider(
+                server_url=_SERVER_URL, storage=mock_storage, client_id="c", assertion_provider=assertion_provider
+            )
+    flow = provider.async_auth_flow(httpx2.Request("POST", _SERVER_URL))
+
+    token_request = await _answer_discovery(
+        flow,
+        authorization_server="https://elsewhere.example.com",
+        metadata=_metadata_for("https://elsewhere.example.com"),
+    )
+
+    assert (token_request.method, str(token_request.url)) == ("POST", "https://elsewhere.example.com/token")
     await flow.aclose()
 
 
