@@ -1,11 +1,13 @@
 import logging
 import re
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
 from httpx import Request, Response
 from pydantic import AnyUrl, ValidationError
+from pydantic_core import from_json
 
-from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
@@ -58,7 +60,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
     Returns:
         Resource metadata URL if found in WWW-Authenticate header, None otherwise
     """
-    if not response or response.status_code != 401:
+    if not response or response.status_code not in (401, 403):
         return None  # pragma: no cover
 
     return extract_field_from_www_auth(response, "resource_metadata")
@@ -208,6 +210,35 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
     return True, None
 
 
+def validate_metadata_issuer(oauth_metadata: OAuthMetadata, expected_issuer: str) -> None:
+    """Validate that authorization server metadata `issuer` matches the discovery issuer.
+
+    Per RFC 8414 section 3.3 / SEP-2468, the `issuer` in the metadata must match the issuer
+    used to construct the well-known URL, compared as a simple string (RFC 3986 section 6.2.1).
+    The one tolerance is an origin with an empty path versus the same origin with a lone `/`
+    (RFC 3986 section 6.2.3): the SDK's URL type always renders a root issuer with the `/`, and
+    servers commonly render it either way.
+
+    Raises:
+        OAuthFlowError: If the metadata issuer does not match `expected_issuer`.
+    """
+    if not issuers_match(str(oauth_metadata.issuer), expected_issuer):
+        raise OAuthFlowError(
+            f"Authorization server metadata issuer mismatch: {oauth_metadata.issuer} != {expected_issuer}"
+        )
+
+
+def issuers_match(a: str, b: str) -> bool:
+    """Simple string comparison of two issuer identifiers (RFC 8414 section 3.3), except that a root
+    issuer with and without its trailing slash (`scheme://authority` and `scheme://authority/`) name
+    the same server."""
+    if a == b:
+        return True
+    shorter, longer = sorted((a, b), key=len)
+    parsed = urlparse(shorter)
+    return longer == f"{shorter}/" and shorter == f"{parsed.scheme}://{parsed.netloc}"
+
+
 def create_oauth_metadata_request(url: str) -> Request:
     return Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
@@ -235,12 +266,17 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
 
     try:
         content = await response.aread()
-        client_info = OAuthClientInformationFull.model_validate_json(content)
-        return client_info
-        # self.context.client_info = client_info
-        # await self.context.storage.set_client_info(client_info)
-    except ValidationError as e:  # pragma: no cover
-        raise OAuthRegistrationError(f"Invalid registration response: {e}")
+        body = from_json(content)
+        # `issuer` is the SDK's own binding of these credentials to the server they were
+        # registered with (SEP-2352), stamped by the auth flow - never sourced from the
+        # wire, so it is dropped before the body is parsed rather than trusted or cleared.
+        if isinstance(body, dict):
+            cast(dict[str, Any], body).pop("issuer", None)
+        return OAuthClientInformationFull.model_validate(body)
+    except ValueError as e:
+        # `from_json` reports malformed bytes/JSON as ValueError, and pydantic's
+        # ValidationError is itself a ValueError, so both parse layers surface here.
+        raise OAuthRegistrationError(f"Invalid registration response: {e}") from e
 
 
 def is_valid_client_metadata_url(url: str | None) -> bool:
@@ -261,6 +297,26 @@ def is_valid_client_metadata_url(url: str | None) -> bool:
         return parsed.scheme == "https" and parsed.path not in ("", "/")
     except Exception:
         return False
+
+
+def credentials_match_issuer(
+    client_info: OAuthClientInformationFull, issuer: str, client_metadata_url: str | None
+) -> bool:
+    """Whether stored client credentials may be reused against `issuer` (SEP-2352).
+
+    A URL-based client ID (CIMD) is portable across authorization servers - the same self-hosted
+    document is resolved by whichever server is in use - so it always matches; CIMD is identified
+    by the client ID being the configured `client_metadata_url`, not by URL shape (a registration
+    server may also issue URL-shaped IDs that are bound to it). Credentials with a recorded issuer
+    match only when it names the same server as `issuer` (`issuers_match`). Credentials with no
+    recorded issuer (pre-registered, or stored before issuer binding existed) carry no binding to
+    enforce and are left as-is.
+    """
+    if client_metadata_url is not None and client_info.client_id == client_metadata_url:
+        return True
+    if client_info.issuer is None:
+        return True
+    return issuers_match(client_info.issuer, issuer)
 
 
 def should_use_client_metadata_url(
