@@ -579,12 +579,11 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
         return httpx.AsyncClient(transport=httpx.MockTransport(serve))
 
     with anyio.fail_after(5):
-        async with sse_client("http://test/sse", httpx_client_factory=factory) as (read_stream, write_stream):
+        async with sse_client("http://test/sse", httpx_client_factory=factory) as (read_stream, _):
             msg = await read_stream.receive()
-
-    assert isinstance(msg, SessionMessage)
-    assert isinstance(msg.message.root, types.JSONRPCResponse)
-    assert msg.message.root.id == 1
+            assert isinstance(msg, SessionMessage)
+            assert isinstance(msg.message.root, types.JSONRPCResponse)
+            assert msg.message.root.id == 1
 
 
 @pytest.mark.anyio

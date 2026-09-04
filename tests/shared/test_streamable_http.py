@@ -2455,10 +2455,10 @@ def _leaf_exception(exc: BaseException) -> BaseException:
     return exc
 
 
-async def _redirected_post_error(url: str, location: str) -> httpx.HTTPStatusError:
+async def _assert_redirected_post_fails(url: str, location: str, expected_message: str) -> None:
     """Send one request through streamable_http_client, with a client configured to follow redirects,
-    to a server answering `url` with a 307 to `location`; return the error that ends the connection,
-    having checked that nothing but `url` was requested."""
+    to a server answering `url` with a 307 to `location`, and check that the connection ends with
+    HTTPStatusError carrying `expected_message` and that nothing but `url` was requested."""
     urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -2480,8 +2480,8 @@ async def _redirected_post_error(url: str, location: str) -> httpx.HTTPStatusErr
     error = _leaf_exception(exc_info.value)
     assert isinstance(error, httpx.HTTPStatusError)
     assert error.response.status_code == 307
+    assert str(error) == expected_message
     assert urls == [url]
-    return error
 
 
 @pytest.mark.anyio
@@ -2489,10 +2489,12 @@ async def test_redirect_to_another_origin_is_not_followed_and_fails_the_request(
     """SDK-defined: a redirect pointing outside the endpoint's origin is not followed, whatever the
     caller's client is configured to do: nothing is sent to the other origin, and the request fails
     the way any non-2xx response does, with HTTPStatusError naming the location."""
-    error = await _redirected_post_error("http://mcp.example/mcp", "http://other.example/mcp/")
-
-    assert str(error) == snapshot(
-        "Redirect to http://other.example/mcp/ not followed; use that URL as the endpoint if it is the intended server"
+    await _assert_redirected_post_fails(
+        "http://mcp.example/mcp",
+        "http://other.example/x",
+        snapshot(
+            "Redirect to http://other.example/x not followed; use that URL as the endpoint if it is the intended server"
+        ),
     )
 
 
@@ -2500,23 +2502,27 @@ async def test_redirect_to_another_origin_is_not_followed_and_fails_the_request(
 async def test_https_endpoint_redirected_to_plain_http_is_explained_and_the_https_form_suggested() -> None:
     """SDK-authored text: a redirect of an HTTPS endpoint to plain HTTP on the same host (the usual
     sign of a TLS-terminating proxy the server does not trust) never suggests the http:// URL."""
-    error = await _redirected_post_error("https://mcp.example/mcp", "http://mcp.example/mcp/")
-
-    assert str(error) == snapshot("""\
+    await _assert_redirected_post_fails(
+        "https://mcp.example/mcp",
+        "http://mcp.example/mcp/",
+        snapshot("""\
 Redirect to http://mcp.example/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
 The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
 often combined with a trailing-slash difference. Try https://mcp.example/mcp/ instead, or fix the proxy settings.\
-""")
+"""),
+    )
 
 
 @pytest.mark.anyio
 async def test_unfollowed_redirect_location_is_named_without_its_query_string() -> None:
     """SDK-authored text: the location is reported without query or userinfo, which may carry state
     that does not belong in an error message or a log line."""
-    error = await _redirected_post_error("http://mcp.example/mcp", "https://sso.example/login?state=s3cr3t&nonce=n")
-
-    assert str(error) == snapshot(
-        "Redirect to https://sso.example/login not followed; use that URL as the endpoint if it is the intended server"
+    await _assert_redirected_post_fails(
+        "http://mcp.example/mcp",
+        "https://idp.example/l?state=s3cr3t&nonce=n",
+        snapshot(
+            "Redirect to https://idp.example/l not followed; use that URL as the endpoint if it is the intended server"
+        ),
     )
 
 
@@ -2524,13 +2530,15 @@ async def test_unfollowed_redirect_location_is_named_without_its_query_string() 
 async def test_https_endpoint_redirected_to_plain_http_elsewhere_never_suggests_the_http_url() -> None:
     """SDK-authored text: the downgrade explanation applies whatever host the http:// location names,
     so the message never offers a plain-HTTP URL as the endpoint to configure."""
-    error = await _redirected_post_error("https://mcp.example/mcp", "http://backend.lan:8000/mcp/")
-
-    assert str(error) == snapshot("""\
+    await _assert_redirected_post_fails(
+        "https://mcp.example/mcp",
+        "http://backend.lan:8000/mcp/",
+        snapshot("""\
 Redirect to http://backend.lan:8000/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
 The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
 often combined with a trailing-slash difference. Try https://backend.lan:8000/mcp/ instead, or fix the proxy settings.\
-""")
+"""),
+    )
 
 
 @pytest.mark.anyio
