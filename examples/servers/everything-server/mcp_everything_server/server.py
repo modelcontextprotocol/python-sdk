@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import click
 from mcp.server import ServerRequestContext
-from mcp.server.mcpserver import Context, MCPServer, RequestStateSecurity
+from mcp.server.mcpserver import Context, Elicit, ElicitationResult, MCPServer, RequestStateSecurity, Resolve
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
@@ -350,6 +350,9 @@ def test_x_mcp_header(
     return f"region={region}"
 
 
+# SEP-2575 server-stateless diagnostics (the conformance scenario probes these tools by name)
+
+
 @mcp.tool()
 async def test_missing_capability(ctx: Context) -> str:
     """Tests that a handler-raised MISSING_REQUIRED_CLIENT_CAPABILITY surfaces as a top-level JSON-RPC error.
@@ -368,6 +371,33 @@ async def test_missing_capability(ctx: Context) -> str:
             data={"requiredCapabilities": {"sampling": {}}},
         )
     return "Client declared sampling capability; proceeding."
+
+
+def _ask_stream_probe() -> Elicit[UserResponse]:
+    return Elicit("The stateless streaming probe asks for a word", UserResponse)
+
+
+@mcp.tool()
+async def test_streaming_elicitation(
+    answer: Annotated[ElicitationResult[UserResponse], Resolve(_ask_stream_probe)],
+) -> str:
+    """A tool that needs elicitation, asked through a resolver (SEP-2575 / SEP-2322).
+
+    On 2026-07-28 the question is returned as an InputRequiredResult rather than sent
+    on the response stream; on earlier versions it is a mid-call elicitation request.
+    """
+    return f"elicitation {answer.action}"
+
+
+@mcp.tool()
+async def test_logging_tool(ctx: Context) -> str:
+    """Logs once on the request-scoped channel (SEP-2575).
+
+    On 2026-07-28 the message is delivered only when the request's `_meta` sets
+    `io.modelcontextprotocol/logLevel`.
+    """
+    await ctx.info("test_logging_tool ran")  # pyright: ignore[reportDeprecated]
+    return "logged through the request-scoped, logLevel-gated channel"
 
 
 # SEP-2322 InputRequiredResult fixtures (multi-round-trip / ephemeral workflow)
