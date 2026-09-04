@@ -3482,6 +3482,25 @@ REQUIREMENTS: dict[str, Requirement] = {
         transports=("streamable-http",),
         note="Only observable over HTTP: per-request SSE streams are HTTP-specific.",
     ),
+    "client-transport:http:post-stream-large-event": Requirement(
+        source="sdk",
+        behavior=(
+            "A JSON-RPC message larger than httpx2's default 1 MiB SSE event cap is delivered intact over the "
+            "per-request POST stream; the transport lifts the cap because MCP sets no message size limit."
+        ),
+        transports=("streamable-http",),
+        note="Only observable over HTTP: SSE event framing is HTTP-specific.",
+    ),
+    "client-transport:http:get-stream-large-event": Requirement(
+        source="sdk",
+        behavior=(
+            "A server-initiated message larger than httpx2's default 1 MiB SSE event cap is delivered intact "
+            "over the standalone GET stream; the transport lifts the cap because MCP sets no message size limit."
+        ),
+        transports=("streamable-http",),
+        removed_in="2026-07-28",
+        note="removed in 2026-07-28 (SEP-2575); the standalone GET stream is replaced by subscriptions/listen.",
+    ),
     "client-transport:http:custom-client": Requirement(
         source="sdk",
         behavior=(

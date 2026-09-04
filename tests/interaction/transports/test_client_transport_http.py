@@ -14,13 +14,23 @@ import httpx2
 import mcp_types as types
 import pytest
 from inline_snapshot import snapshot
-from mcp_types import INVALID_REQUEST, CallToolResult, ErrorData, ListToolsResult, TextContent, Tool
+from mcp_types import (
+    INVALID_REQUEST,
+    CallToolResult,
+    ErrorData,
+    ListToolsResult,
+    LoggingMessageNotification,
+    LoggingMessageNotificationParams,
+    TextContent,
+    Tool,
+)
 from starlette.types import Receive, Scope, Send
 
 from mcp import MCPError
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
+from mcp.server.mcpserver import Context, MCPServer
 from tests.interaction._connect import BASE_URL, NO_DNS_REBINDING_PROTECTION, client_via_http, mounted_app
 from tests.interaction._requirements import requirement
 from tests.interaction.transports._bridge import StreamingASGITransport
@@ -156,6 +166,67 @@ async def test_concurrent_tool_calls_each_open_a_post_stream_and_receive_their_o
     )
     tools_call_posts = [r for r in requests if r.method == "POST" and b'"tools/call"' in r.content]
     assert len(tools_call_posts) == 3
+
+
+# One byte past the 1 MiB that httpx2 >= 2.10 allows a single SSE event by default.
+_OVERSIZED_TEXT = "x" * (1024 * 1024 + 1)
+
+
+@requirement("client-transport:http:post-stream-large-event")
+async def test_a_post_stream_delivers_a_tool_result_larger_than_one_mebibyte() -> None:
+    """A tool result bigger than httpx2's default per-event SSE cap arrives intact over the request's
+    POST stream. SDK-defined: MCP sets no message size limit, so the transport lifts the cap (#3332)."""
+    mcp = MCPServer("bulky")
+
+    @mcp.tool()
+    def bulk() -> str:
+        """Return more than one SSE event may carry by default."""
+        return _OVERSIZED_TEXT
+
+    async with mounted_app(mcp) as (http, _), client_via_http(http) as client:
+        with anyio.fail_after(5):
+            result = await client.call_tool("bulk", {})
+
+    assert result.content == [TextContent(text=_OVERSIZED_TEXT)]
+
+
+@requirement("client-transport:http:get-stream-large-event")
+async def test_the_standalone_get_stream_delivers_a_notification_larger_than_one_mebibyte() -> None:
+    """A server-initiated notification bigger than httpx2's default per-event SSE cap arrives intact
+    over the standalone GET stream, which the transport opens with the same lifted cap (#3332)."""
+    mcp = MCPServer("bulky")
+
+    @mcp.tool()
+    async def shout(ctx: Context) -> str:
+        """Emit one unrelated notification, which the server routes to the standalone stream."""
+        params = LoggingMessageNotificationParams(level="info", data=_OVERSIZED_TEXT)
+        await ctx.session.send_notification(LoggingMessageNotification(params=params))
+        return "sent"
+
+    get_stream_open = anyio.Event()
+
+    async def on_response(response: httpx2.Response) -> None:
+        if response.request.method == "GET":
+            get_stream_open.set()
+
+    received: list[object] = []
+    delivered = anyio.Event()
+
+    async def collect(params: LoggingMessageNotificationParams) -> None:
+        received.append(params.data)
+        delivered.set()
+
+    async with (
+        mounted_app(mcp, on_response=on_response) as (http, _),
+        client_via_http(http, logging_callback=collect) as client,
+    ):
+        with anyio.fail_after(5):
+            # The server drops standalone messages emitted before the GET stream is established.
+            await get_stream_open.wait()
+            await client.call_tool("shout", {})
+            await delivered.wait()
+
+    assert received == [_OVERSIZED_TEXT]
 
 
 @requirement("client-transport:http:sse-405-tolerated")
