@@ -1,6 +1,6 @@
 # Deprecated features
 
-The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**. Two SDK-level deprecations stand on their own account and are listed [at the end](#deprecated-sdk-helpers).
+The 2026-07-28 spec retires five things. The SDK still implements every one of them, and every one of them now carries a **deprecation warning**. A few SDK-level deprecations stand on their own account and are listed [at the end](#deprecated-sdk-helpers).
 
 The table below names each deprecated feature, why it is going away, and the replacement to build on.
 
@@ -145,7 +145,7 @@ These are not spec changes, only SDK usage with a better replacement. They warn 
 * Deprecated is advisory: no wire changes, everything keeps working against pre-2026 sessions, and you get a visible `MCPDeprecationWarning` (a `UserWarning`, so it is on by default).
 * Sampling and roots additionally need a back-channel that a 2026-07-28 session does not have. On a modern connection they warn and then they raise.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` silences the whole category; `"error::mcp.MCPDeprecationWarning"` in pytest turns it into a test failure.
-* Two SDK-level deprecations ride along: `FuncMetadata.call_fn_with_arg_validation()` is removed in 3.0, and constructing `ClientCredentialsOAuthProvider` / `PrivateKeyJWTOAuthProvider` without `issuer=` stops being allowed in 3.0.
+* The [SDK-level deprecations](#deprecated-sdk-helpers) follow the same rule: they warn now, and 3.0 drops the old form.
 * New code should not be built on any of these.
 
 Every other page in these docs teaches the current API.
