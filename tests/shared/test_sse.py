@@ -20,11 +20,14 @@ from starlette.routing import Mount, Route
 
 import mcp.client.sse
 import mcp.types as types
+from mcp.client.auth import OAuthClientProvider
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
+from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
@@ -602,3 +605,268 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             assert not isinstance(msg, Exception)
             assert isinstance(msg.message.root, types.JSONRPCResponse)
             assert msg.message.root.id == 1
+
+
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
+@pytest.mark.anyio
+async def test_sse_client_preflights_oauth_refresh_before_streaming() -> None:
+    """Regression test for OAuth refresh deadlocks while opening SSE streams."""
+
+    class MemoryTokenStorage:
+        def __init__(self) -> None:
+            self.tokens: OAuthToken | None = None
+            self.client_info: OAuthClientInformationFull | None = None
+
+        async def get_tokens(self) -> OAuthToken | None:
+            return self.tokens
+
+        async def set_tokens(self, tokens: OAuthToken) -> None:
+            self.tokens = tokens
+
+        async def get_client_info(self) -> OAuthClientInformationFull | None:
+            return self.client_info
+
+        async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+            self.client_info = client_info
+
+    class NoStreamAuthProvider(OAuthClientProvider):
+        async def async_auth_flow(self, request: httpx.Request):  # pragma: no cover
+            if request.url.path.endswith("/sse"):
+                raise AssertionError("SSE stream should use the preflight bearer header")
+            async for auth_request in super().async_auth_flow(request):
+                yield auth_request
+
+    storage = MemoryTokenStorage()
+    oauth_provider = NoStreamAuthProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=OAuthClientMetadata(
+            client_name="Test Client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        ),
+        storage=storage,
+    )
+    await storage.set_tokens(
+        OAuthToken(
+            access_token="expired_access_token",
+            refresh_token="refresh_token",
+            expires_in=1,
+        )
+    )
+    await storage.set_client_info(
+        OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_post",
+        )
+    )
+    oauth_provider.context.token_expiry_time = time.time() - 1
+
+    events: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/token":
+            events.append("refresh")
+            assert request.method == "POST"
+            assert "resource=" in request.content.decode()
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "refreshed_access_token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                    "refresh_token": "refreshed_refresh_token",
+                },
+                request=request,
+            )
+
+        events.append("sse")
+        assert request.url.path == "/v1/mcp/sse"
+        assert request.headers["Authorization"] == "Bearer refreshed_access_token"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=b"event: endpoint\ndata: /messages/?session_id=abc123\n\n",
+            request=request,
+        )
+
+    def client_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        assert auth is oauth_provider
+        return httpx.AsyncClient(
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            transport=httpx.MockTransport(handler),
+        )
+
+    with anyio.fail_after(5):
+        async with sse_client(
+            "https://api.example.com/v1/mcp/sse",
+            headers={MCP_PROTOCOL_VERSION: "2025-06-18"},
+            auth=oauth_provider,
+            httpx_client_factory=client_factory,
+        ):
+            pass
+
+    assert events == ["refresh", "sse"]
+    assert storage.tokens is not None
+    assert storage.tokens.access_token == "refreshed_access_token"
+
+
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
+@pytest.mark.anyio
+async def test_sse_client_keeps_oauth_on_stream_when_no_bearer_header() -> None:
+    class MemoryTokenStorage:
+        async def get_tokens(self) -> OAuthToken | None:
+            return None
+
+        async def set_tokens(self, tokens: OAuthToken) -> None:  # pragma: no cover
+            raise AssertionError("no tokens should be stored")
+
+        async def get_client_info(self) -> OAuthClientInformationFull | None:
+            return None
+
+        async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:  # pragma: no cover
+            raise AssertionError("no client info should be stored")
+
+    oauth_provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=OAuthClientMetadata(
+            client_name="Test Client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        ),
+        storage=MemoryTokenStorage(),
+    )
+
+    mock_event_source = MagicMock()
+    mock_event_source.response = MagicMock()
+    mock_event_source.response.raise_for_status = MagicMock()
+
+    async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
+        yield ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123")
+
+    mock_event_source.aiter_sse.return_value = mock_aiter_sse()
+
+    mock_aconnect_sse = MagicMock()
+    mock_aconnect_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_aconnect_sse.__aexit__ = AsyncMock(return_value=None)
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    def connect_sse(client: httpx.AsyncClient, method: str, url: str, **kwargs: Any) -> MagicMock:
+        assert kwargs == {}
+        return mock_aconnect_sse
+
+    with (
+        patch("mcp.client.sse.create_mcp_http_client", return_value=mock_client),
+        patch("mcp.client.sse.aconnect_sse", side_effect=connect_sse),
+    ):
+        async with sse_client("https://api.example.com/v1/mcp/sse", auth=oauth_provider):
+            pass
+
+
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
+@pytest.mark.anyio
+async def test_sse_client_preflights_initialized_oauth_refresh_before_streaming() -> None:
+    """Regression test for OAuth refresh deadlocks while opening SSE streams with pre-loaded tokens."""
+
+    class MemoryTokenStorage:
+        def __init__(self) -> None:
+            self.tokens: OAuthToken | None = None
+
+        async def get_tokens(self) -> OAuthToken | None:  # pragma: no cover
+            return None
+
+        async def set_tokens(self, tokens: OAuthToken) -> None:
+            self.tokens = tokens
+
+        async def get_client_info(self) -> OAuthClientInformationFull | None:  # pragma: no cover
+            return None
+
+        async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:  # pragma: no cover
+            raise AssertionError("client info should already be initialized")
+
+    storage = MemoryTokenStorage()
+    oauth_provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=OAuthClientMetadata(
+            client_name="Test Client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        ),
+        storage=storage,
+    )
+    oauth_provider.context.current_tokens = OAuthToken(
+        access_token="expired_access_token",
+        refresh_token="refresh_token",
+        expires_in=1,
+    )
+    oauth_provider.context.token_expiry_time = time.time() - 1
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client",
+        client_secret="test_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        token_endpoint_auth_method="client_secret_post",
+    )
+    oauth_provider._initialized = True
+
+    events: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/token":
+            events.append("refresh")
+            assert request.method == "POST"
+            assert "resource=" in request.content.decode()
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "refreshed_access_token",
+                    "token_type": "Bearer",
+                    "expires_in": 3600,
+                    "refresh_token": "refreshed_refresh_token",
+                },
+                request=request,
+            )
+
+        events.append("sse")
+        assert request.url.path == "/v1/mcp/sse"
+        assert request.headers["Authorization"] == "Bearer refreshed_access_token"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=b"event: endpoint\ndata: /messages/?session_id=abc123\n\n",
+            request=request,
+        )
+
+    def client_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        assert auth is oauth_provider
+        return httpx.AsyncClient(
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+            transport=httpx.MockTransport(handler),
+        )
+
+    with anyio.fail_after(5):
+        async with sse_client(
+            "https://api.example.com/v1/mcp/sse",
+            headers={MCP_PROTOCOL_VERSION: "2025-06-18"},
+            auth=oauth_provider,
+            httpx_client_factory=client_factory,
+        ):
+            pass
+
+    assert events == ["refresh", "sse"]
+    assert oauth_provider.context.current_tokens is not None
+    assert oauth_provider.context.current_tokens.access_token == "refreshed_access_token"
+    assert storage.tokens is not None
+    assert storage.tokens.access_token == "refreshed_access_token"
