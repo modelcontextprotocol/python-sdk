@@ -7,6 +7,7 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import AnyHttpUrl
 
+from mcp import MCPDeprecationWarning
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError
 from mcp.client.auth.extensions.client_credentials import (
     ClientCredentialsOAuthProvider,
@@ -446,16 +447,14 @@ async def test_provider_picks_its_configured_issuer_among_several_advertised_ser
 
 
 @pytest.mark.parametrize("kind", ["secret", "jwt"])
-def test_constructing_without_issuer_warns_where_the_credentials_will_go(
-    mock_storage: MockTokenStorage, kind: str
-) -> None:
+def test_constructing_without_issuer_is_deprecated(mock_storage: MockTokenStorage, kind: str) -> None:
     """SDK-defined: leaving `issuer` out is allowed, and the provider says at construction that
     token requests will follow whichever authorization server the MCP server advertises."""
 
     async def assertion_provider(audience: str) -> str:
         raise NotImplementedError
 
-    with pytest.warns(UserWarning) as recorded:
+    with pytest.warns(MCPDeprecationWarning) as recorded:
         if kind == "secret":
             ClientCredentialsOAuthProvider(
                 server_url=_SERVER_URL, storage=mock_storage, client_id="c", client_secret="s"
@@ -468,8 +467,9 @@ def test_constructing_without_issuer_warns_where_the_credentials_will_go(
     [warning] = recorded
     assert warning.filename == __file__
     assert str(warning.message) == (
-        "No `issuer` given: client credentials will be sent to whichever authorization server the MCP "
-        "server advertises. Pass issuer=<your authorization server's issuer URL> to send them only there."
+        "Omitting `issuer` is deprecated and it will be required in 3.0. Without it, the MCP server "
+        "decides which authorization server receives this client's credentials; pass "
+        "issuer=<your authorization server's issuer URL> so they are only ever sent there."
     )
 
 
@@ -484,7 +484,7 @@ async def test_without_issuer_the_exchange_follows_whichever_server_was_discover
     async def assertion_provider(audience: str) -> str:
         return "jwt"
 
-    with pytest.warns(UserWarning, match="No `issuer` given"):
+    with pytest.warns(MCPDeprecationWarning, match="Omitting `issuer` is deprecated"):
         if kind == "secret":
             provider: OAuthClientProvider = ClientCredentialsOAuthProvider(
                 server_url=_SERVER_URL, storage=mock_storage, client_id="c", client_secret="s"

@@ -21,13 +21,16 @@ from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
 from mcp.client.auth.oauth2 import OAuthContext
 from mcp.client.auth.utils import issuers_match
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 def _checked_issuer(issuer: str | None) -> str | None:
     if issuer is None:
         warnings.warn(
-            "No `issuer` given: client credentials will be sent to whichever authorization server the MCP "
-            "server advertises. Pass issuer=<your authorization server's issuer URL> to send them only there.",
+            "Omitting `issuer` is deprecated and it will be required in 3.0. Without it, the MCP server "
+            "decides which authorization server receives this client's credentials; pass "
+            "issuer=<your authorization server's issuer URL> so they are only ever sent there.",
+            MCPDeprecationWarning,
             stacklevel=3,
         )
         return None
@@ -105,8 +108,9 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             issuer: The issuer identifier of the authorization server that issued
                 `client_id` and `client_secret`. When set, token requests are only built from
                 discovered authorization server metadata whose `issuer` is exactly this string;
-                otherwise the flow stops with `OAuthFlowError`. When omitted, whichever
-                authorization server discovery yields is used, and a `UserWarning` says so.
+                otherwise the flow stops with `OAuthFlowError`. Omitting it is deprecated
+                (`MCPDeprecationWarning`) and it will be required in 3.0; until then, whichever
+                authorization server discovery yields is used.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
@@ -335,8 +339,8 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
                 registered with. When set, an assertion is only minted, and token requests
                 are only built, once authorization server metadata whose `issuer` is exactly this
                 string has been discovered; otherwise the flow stops with `OAuthFlowError`.
-                When omitted, whichever authorization server discovery yields is used, and a
-                `UserWarning` says so.
+                Omitting it is deprecated (`MCPDeprecationWarning`) and it will be required in
+                3.0; until then, whichever authorization server discovery yields is used.
         """
         # Build minimal client_metadata for the base class
         client_metadata = OAuthClientMetadata(
