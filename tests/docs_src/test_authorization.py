@@ -6,7 +6,7 @@ from inline_snapshot import snapshot
 from mcp_types import TextContent
 from starlette.routing import Route
 
-from docs_src.authorization import tutorial001, tutorial002
+from docs_src.authorization import tutorial001, tutorial002, tutorial003
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer
@@ -23,10 +23,11 @@ async def test_the_in_memory_client_never_authenticates() -> None:
         assert result.structured_content == {"result": ["Buy milk", "Ship the release"]}
 
 
-async def test_token_verifier_and_auth_settings_must_travel_together() -> None:
-    """tutorial001: passing `token_verifier=` without `auth=` is refused at construction time."""
-    with pytest.raises(ValueError, match="Cannot specify auth_server_provider or token_verifier without auth settings"):
-        MCPServer("Notes", token_verifier=tutorial001.StaticTokenVerifier())
+async def test_auth_settings_without_a_verifier_are_refused_at_construction() -> None:
+    """tutorial001: `auth=` publishes metadata about a gate, so passing it with nothing to gate with is refused."""
+    with pytest.raises(ValueError) as exc_info:
+        MCPServer("Notes", auth=tutorial001.mcp.settings.auth)
+    assert str(exc_info.value) == "Must specify either auth_server_provider or token_verifier with auth settings"
 
 
 async def test_the_app_grows_a_protected_resource_metadata_route() -> None:
@@ -96,3 +97,36 @@ async def test_get_access_token_is_the_callers_access_token() -> None:
             result = await client.call_tool("whoami", {})
             assert result.content == [TextContent(type="text", text="alice (scopes: notes:read)")]
             assert result.structured_content == {"result": "alice (scopes: notes:read)"}
+
+
+async def test_a_verifier_alone_gates_the_endpoint_and_publishes_nothing() -> None:
+    """tutorial003: no `auth=` means one `/mcp` route, no well-known route, and a 401 without `resource_metadata`."""
+    app = tutorial003.mcp.streamable_http_app()
+    [mcp_route] = app.routes
+    assert isinstance(mcp_route, Route)
+    assert mcp_route.path == "/mcp"
+
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as http_client:
+        unauthenticated = await http_client.post("/mcp", json={})
+        metadata = await http_client.get("/.well-known/oauth-protected-resource/mcp")
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json() == {"error": "invalid_token", "error_description": "Authentication required"}
+    assert unauthenticated.headers["www-authenticate"] == (
+        'Bearer error="invalid_token", error_description="Authentication required"'
+    )
+    assert metadata.status_code == 404
+
+
+async def test_a_pre_shared_token_reaches_the_tool() -> None:
+    """tutorial003: the client that arrives holding the token gets through the gate, and `get_access_token()` is it."""
+    url = "http://127.0.0.1:8000/mcp"
+    transport = httpx2.ASGITransport(app=tutorial003.mcp.streamable_http_app())
+    headers = {"Authorization": f"Bearer {tutorial003.API_TOKEN}"}
+    async with tutorial003.mcp.session_manager.run():
+        async with (
+            httpx2.AsyncClient(transport=transport, base_url=url, headers=headers) as http_client,
+            Client(streamable_http_client(url, http_client=http_client)) as client,
+        ):
+            result = await client.call_tool("whoami", {})
+            assert result.structured_content == {"result": "notes-client"}

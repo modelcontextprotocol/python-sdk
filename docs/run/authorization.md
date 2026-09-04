@@ -1,6 +1,6 @@
 # Authorization
 
-Over Streamable HTTP your MCP server is an ordinary web service, and you protect it the way you protect any web service: with OAuth 2.1 bearer tokens.
+Over Streamable HTTP your MCP server is an ordinary web service, and you protect it the way you protect any web service: with bearer tokens. Most of this page is the OAuth 2.1 shape, where an authorization server issues them; **[Just a pre-shared token](#just-a-pre-shared-token)** at the end is the smaller case where you hand one out yourself.
 
 In OAuth terms, your server is a **resource server**. It never signs anyone in and it never issues a token. It does one thing: look at the `Authorization` header on each request and decide whether the token in it is good.
 
@@ -24,7 +24,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 
 * `TokenVerifier` is a protocol with one async method. `verify_token` gets the raw token from the `Authorization` header and returns an **`AccessToken`** if it's valid, `None` if it isn't. There is nothing else to implement.
 * This one looks the token up in a table. A real one verifies a JWT signature or calls the authorization server's token-introspection endpoint. That code is yours; the SDK only calls it.
-* `token_verifier=` and `auth=` always travel together. Pass one without the other and `MCPServer(...)` raises a `ValueError` before it ever serves a request.
+* `token_verifier=` is the gate. `auth=` is what the server *publishes* about that gate, plus the scopes it insists on, so it is meaningless alone: pass `auth=` without a verifier and `MCPServer(...)` raises a `ValueError` before it ever serves a request. The reverse, a verifier with no `auth=`, is legitimate and smaller: **[Just a pre-shared token](#just-a-pre-shared-token)**.
 
 `AuthSettings` is the public face of your resource server:
 
@@ -113,12 +113,37 @@ To watch all three parties move, run `examples/servers/simple-auth/` from the SD
 
 An authorization server can also accept an enterprise identity provider's signed assertion in place of a user clicking through a consent screen, and the SDK supports both sides of that exchange. The grant, and the client that presents it, is **[Identity assertion](../client/identity-assertion.md)**.
 
+## Just a pre-shared token
+
+Sometimes there is no authorization server anywhere: you minted a token yourself, handed it to the one client that needs it, and all the server has to do is check it. Keep the verifier and drop `auth=`:
+
+```python title="server.py" hl_lines="8 13-15 18"
+--8<-- "docs_src/authorization/tutorial003.py"
+```
+
+* No `AuthSettings` means nothing is advertised. The app has the one `/mcp` route and no `/.well-known/oauth-protected-resource/mcp`, and the 401 loses its `resource_metadata` pointer. The gate itself is the same, and so is `get_access_token()`.
+* With nothing to discover, the client must arrive already holding the token. For the python `Client` that is an `Authorization` header on the `httpx2.AsyncClient` you hand to `streamable_http_client` (**[Client transports](../client/transports.md#bring-your-own-httpx2asyncclient)** has it); for a host, it is wherever that host's server entry takes request headers, usually a `headers` block. An OAuth-capable client that turns up without the token gets the 401 and has nowhere to go from there.
+* A pre-shared token is a password. Compare it with `secrets.compare_digest`, keep it in the environment and out of the source (unset, this server mints a random one at startup, so a missing variable locks the door rather than opening it), and put TLS in front of anything that is not localhost.
+
+!!! check
+    Call `/mcp` with no token and the door is exactly as shut:
+
+    ```text
+    HTTP/1.1 401 Unauthorized
+    WWW-Authenticate: Bearer error="invalid_token", error_description="Authentication required"
+
+    {"error": "invalid_token", "error_description": "Authentication required"}
+    ```
+
+    The same refusal as before, minus the `resource_metadata` that would have sent a client looking
+    for an authorization server you don't have.
+
 ## Recap
 
 * Over Streamable HTTP your server is an OAuth 2.1 **resource server**: it verifies tokens, it never issues them.
 * `TokenVerifier` is the whole integration surface: one async method, token in, `AccessToken | None` out.
-* `token_verifier=` and `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` always travel together.
-* The SDK publishes [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata at `/.well-known/oauth-protected-resource/...` and answers unauthenticated requests with a 401 whose `WWW-Authenticate` header points at it. That is the entire discovery story.
+* `token_verifier=` alone is a complete gate, and the right one for a token you hand out yourself. Add `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` when a real authorization server issues the tokens.
+* With `AuthSettings`, the SDK publishes [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata at `/.well-known/oauth-protected-resource/...` and answers unauthenticated requests with a 401 whose `WWW-Authenticate` header points at it. That is the entire discovery story.
 * `get_access_token()` in any handler is who's calling.
 * Authorization is an HTTP concern. `stdio` and the in-memory client never see it.
 

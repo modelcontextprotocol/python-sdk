@@ -187,3 +187,29 @@ async def test_an_access_token_in_the_query_string_is_not_accepted(protected: ht
 
     assert response.status_code == 401
     assert parse_www_authenticate(response.headers["www-authenticate"])["error"] == "invalid_token"
+
+
+@requirement("hosting:auth:verifier-only")
+async def test_a_verifier_without_auth_settings_is_a_plain_bearer_gate() -> None:
+    """`token_verifier=` with no `auth=` still gates `/mcp`, but advertises nothing.
+
+    The challenge carries no `resource_metadata` (there is no metadata document to point at, and no
+    route answers where one would live), and a token the verifier accepts reaches the MCP endpoint.
+    This is the pre-shared-token shape: the same gate as `protected`, minus everything
+    `AuthSettings` would publish about it.
+    """
+    server = Server("rs")
+    async with mounted_app(server, token_verifier=StaticTokenVerifier(TOKENS)) as (http, _):
+        unauthenticated = await post_mcp(http)
+        metadata = await http.get("/.well-known/oauth-protected-resource/mcp")
+        authenticated = await post_mcp(http, bearer="tok-valid")
+
+    assert unauthenticated.status_code == 401
+    assert parse_www_authenticate(unauthenticated.headers["www-authenticate"]) == {
+        "error": "invalid_token",
+        "error_description": "Authentication required",
+    }
+    assert metadata.status_code == 404
+    assert authenticated.status_code == 200
+    [data] = [line.removeprefix("data: ") for line in authenticated.text.splitlines() if line.startswith("data: ")]
+    assert "protocolVersion" in JSONRPCResponse.model_validate_json(data).result
