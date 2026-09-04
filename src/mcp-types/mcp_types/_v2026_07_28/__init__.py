@@ -95,7 +95,7 @@ class Completion(WireModel):
     """
 
 
-class Cursor(RootModel[str]):
+class Cursor(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: str
     """
     An opaque token used to represent a cursor for pagination.
@@ -436,20 +436,7 @@ class LegacyTitledEnumSchema(WireModel):
     type: Literal["string"]
 
 
-class LoggingLevel(
-    RootModel[
-        Literal[
-            "alert",
-            "critical",
-            "debug",
-            "emergency",
-            "error",
-            "info",
-            "notice",
-            "warning",
-        ]
-    ]
-):
+class LoggingLevel(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Literal["alert", "critical", "debug", "emergency", "error", "info", "notice", "warning"]
     """
     The severity of a log message.
@@ -624,7 +611,7 @@ class ParseError(WireModel):
     """
 
 
-class ProgressToken(RootModel[str | int]):
+class ProgressToken(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: str | int
     """
     A progress token, used to associate progress notifications with the original request.
@@ -694,7 +681,7 @@ class Request(WireModel):
     params: dict[str, Any] | None = None
 
 
-class RequestId(RootModel[str | int]):
+class RequestId(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: str | int
     """
     A uniquely identifying ID for a request in JSON-RPC.
@@ -759,7 +746,7 @@ class ResultMetaObject(WireModel):
     """
 
 
-class ResultType(RootModel[str]):
+class ResultType(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: str
     """
     Indicates the type of a {@link Result} object, allowing the client to
@@ -770,7 +757,7 @@ class ResultType(RootModel[str]):
     """
 
 
-class Role(RootModel[Literal["assistant", "user"]]):
+class Role(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Literal["assistant", "user"]
     """
     The sender or recipient of messages and data in a conversation.
@@ -1468,7 +1455,7 @@ class CompleteResultResponse(WireModel):
     result: CompleteResult
 
 
-class ElicitRequestParams(RootModel[ElicitRequestFormParams | ElicitRequestURLParams]):
+class ElicitRequestParams(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: ElicitRequestFormParams | ElicitRequestURLParams
     """
     The parameters for a request to elicit additional information from the user via the client.
@@ -1495,15 +1482,7 @@ class EmbeddedResource(WireModel):
     type: Literal["resource"]
 
 
-class EnumSchema(
-    RootModel[
-        UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
+class EnumSchema(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         UntitledSingleSelectEnumSchema
         | TitledSingleSelectEnumSchema
@@ -1618,7 +1597,7 @@ class ListRootsResult(WireModel):
     roots: list[Root]
 
 
-class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
+class MultiSelectEnumSchema(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
 
 
@@ -1680,18 +1659,7 @@ class PaginatedResult(WireModel):
     """
 
 
-class PrimitiveSchemaDefinition(
-    RootModel[
-        StringSchema
-        | NumberSchema
-        | BooleanSchema
-        | UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
+class PrimitiveSchemaDefinition(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         StringSchema
         | NumberSchema
@@ -2064,7 +2032,7 @@ class Result(WireModel):
     """
 
 
-class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
+class SingleSelectEnumSchema(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
 
@@ -2256,14 +2224,14 @@ class ClientNotification(WireModel):
     params: CancelledNotificationParams
 
 
-class ClientResult(RootModel[Result]):
+class ClientResult(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Result
     """
     Common result fields.
     """
 
 
-class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
+class ContentBlock(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 
 
@@ -2279,7 +2247,7 @@ class ElicitRequest(WireModel):
     params: ElicitRequestParams
 
 
-class EmptyResult(RootModel[Result]):
+class EmptyResult(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Result
     """
     Common result fields.
@@ -2776,14 +2744,14 @@ class GetPromptResult(WireModel):
     """
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCMessage(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
     """
     Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
     """
 
 
-class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
+class JSONRPCResponse(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: JSONRPCResultResponse | JSONRPCErrorResponse
     """
     A response to a request, containing either the result or error.
@@ -2803,24 +2771,11 @@ class LoggingMessageNotification(WireModel):
     params: LoggingMessageNotificationParams
 
 
-class SamplingMessageContentBlock(
-    RootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
-):
+class SamplingMessageContentBlock(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 
 
-class ServerNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | SubscriptionsAcknowledgedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | LoggingMessageNotification
-    ]
-):
+class ServerNotification(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         CancelledNotification
         | ProgressNotification
@@ -2871,11 +2826,11 @@ class CreateMessageResult(WireModel):
     """
 
 
-class InputResponse(RootModel[CreateMessageResult | ListRootsResult | ElicitResult]):
+class InputResponse(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: CreateMessageResult | ListRootsResult | ElicitResult
 
 
-class InputResponses(RootModel[dict[str, InputResponse]]):
+class InputResponses(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     """
     A map of client responses to server-initiated requests.
     Keys correspond to the keys in the {@link InputRequests} map;
@@ -3625,26 +3580,11 @@ class SubscriptionsListenRequestParams(WireModel):
     """
 
 
-class InputRequest(RootModel[CreateMessageRequest | ListRootsRequest | ElicitRequest]):
+class InputRequest(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: CreateMessageRequest | ListRootsRequest | ElicitRequest
 
 
-class ServerResult(
-    RootModel[
-        Result
-        | InputRequiredResult
-        | DiscoverResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | SubscriptionsListenResult
-        | ListPromptsResult
-        | GetPromptResult
-        | ListToolsResult
-        | CallToolResult
-        | CompleteResult
-    ]
-):
+class ServerResult(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         Result
         | InputRequiredResult
@@ -3661,20 +3601,7 @@ class ServerResult(
     )
 
 
-class ClientRequest(
-    RootModel[
-        DiscoverRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscriptionsListenRequest
-        | ListPromptsRequest
-        | GetPromptRequest
-        | ListToolsRequest
-        | CallToolRequest
-        | CompleteRequest
-    ]
-):
+class ClientRequest(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: (
         DiscoverRequest
         | ListResourcesRequest
@@ -3689,7 +3616,7 @@ class ClientRequest(
     )
 
 
-class InputRequests(RootModel[dict[str, InputRequest]]):
+class InputRequests(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     """
     A map of server-initiated requests that the client must fulfill.
     Keys are server-assigned identifiers; values are the request objects.
@@ -3698,15 +3625,15 @@ class InputRequests(RootModel[dict[str, InputRequest]]):
     root: dict[str, InputRequest]
 
 
-class JSONArray(RootModel[list["JSONValue"]]):
+class JSONArray(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: list["JSONValue"]
 
 
-class JSONObject(RootModel[dict[str, "JSONValue"]]):
+class JSONObject(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: dict[str, "JSONValue"]
 
 
-class JSONValue(RootModel[Union[JSONObject, list["JSONValue"], str | int | float | bool | None]]):
+class JSONValue(RootModel):  # pyright: ignore[reportMissingTypeArgument]
     root: Union[JSONObject, list["JSONValue"], str | int | float | bool | None]
 
 
