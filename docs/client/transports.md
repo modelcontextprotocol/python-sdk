@@ -76,9 +76,8 @@ environment variables or pass an explicit `verify=ssl_context` to your `httpx2.A
     `httpx2` keeps the familiar `httpx` API, so if you know `httpx` you already know how to do auth,
     proxies, event hooks, retries and connection limits here. The SDK adds nothing on top and takes
     nothing away, with one exception: redirects. MCP requests follow the same-origin rule above rather
-    than the client's `follow_redirects`, and requests an `auth=` handler makes while one is in flight
-    (OAuth discovery, registration, token) do not follow redirects, so those URLs must answer directly.
-    It is also where OAuth plugs in:
+    than the client's `follow_redirects`, and the requests the SDK's OAuth providers make while one is
+    in flight (discovery, registration, token) follow that rule too. It is also where OAuth plugs in:
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. That whole flow is **[OAuth clients](oauth-clients.md)**.
 
 ## stdio

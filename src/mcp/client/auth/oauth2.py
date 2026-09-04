@@ -41,6 +41,7 @@ from mcp.client.auth.utils import (
     validate_authorization_response_iss,
     validate_metadata_issuer,
 )
+from mcp.shared._httpx_utils import RedirectAwareAuth, redirect_note
 from mcp.shared.auth import (
     AuthorizationCodeResult,
     OAuthClientInformationFull,
@@ -276,7 +277,7 @@ class OAuthContext:
         return data, headers
 
 
-class OAuthClientProvider(httpx2.Auth):
+class OAuthClientProvider(RedirectAwareAuth):
     """OAuth2 authentication for httpx2.
 
     Handles OAuth flow with automatic client registration and token storage.
@@ -469,7 +470,9 @@ class OAuthClientProvider(httpx2.Auth):
         if response.status_code not in {200, 201}:
             body = await response.aread()
             body_text = body.decode("utf-8")
-            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")
+            raise OAuthTokenError(
+                f"Token exchange failed ({response.status_code}){redirect_note(response)}: {body_text}"
+            )
 
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
@@ -519,7 +522,7 @@ class OAuthClientProvider(httpx2.Auth):
     async def _handle_refresh_response(self, response: httpx2.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
-            logger.warning(f"Token refresh failed: {response.status_code}")
+            logger.warning(f"Token refresh failed: {response.status_code}{redirect_note(response)}")
             self.context.clear_tokens()
             return False
 
@@ -577,8 +580,8 @@ class OAuthClientProvider(httpx2.Auth):
         if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
-    async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
-        """httpx2 auth flow integration."""
+    async def _auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        """The OAuth flow proper; `async_auth_flow` drives it (see `RedirectAwareAuth`)."""
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()

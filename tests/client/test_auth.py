@@ -3,6 +3,7 @@
 import base64
 import json
 import time
+from collections.abc import AsyncGenerator
 from unittest import mock
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -825,6 +826,86 @@ class TestProtectedResourceMetadata:
         assert "resource=" in content
 
 
+async def _start_discovery(
+    provider: OAuthClientProvider,
+) -> tuple[AsyncGenerator[httpx2.Request, httpx2.Response], httpx2.Request]:
+    """Drive `provider`'s auth flow to the point where it has sent the MCP request, seen a 401 and
+    issued its first protected-resource-metadata request; returns (flow, that request)."""
+    provider.context.current_tokens = None
+    provider.context.token_expiry_time = None
+    provider._initialized = True
+    mcp_request = httpx2.Request("POST", "https://api.example.com/v1/mcp")
+    flow = provider.async_auth_flow(mcp_request)
+    sent = await flow.__anext__()
+    assert sent is mcp_request
+    # No resource_metadata hint, so discovery tries the path-based well-known URL, then the root one.
+    unauthorized = httpx2.Response(401, request=mcp_request)
+    prm_request = await flow.asend(unauthorized)
+    assert (prm_request.method, str(prm_request.url)) == (
+        "GET",
+        "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp",
+    )
+    return flow, prm_request
+
+
+async def _redirect(request: httpx2.Request, status: int, location: str) -> httpx2.Response:
+    """A redirect answer to `request`, as httpx2 hands it back when it does not follow it."""
+    transport = httpx2.MockTransport(lambda r: httpx2.Response(status, headers={"location": location}))
+    async with httpx2.AsyncClient(transport=transport) as client:
+        return await client.send(request)
+
+
+@pytest.mark.anyio
+async def test_auth_flow_follows_a_same_origin_redirect_of_its_own_request(oauth_provider: OAuthClientProvider):
+    """SDK-defined: a request the OAuth flow makes (here protected-resource metadata discovery)
+    follows a redirect that stays within its origin and keeps its method, like an MCP request."""
+    flow, prm_request = await _start_discovery(oauth_provider)
+
+    follow_up = await flow.asend(await _redirect(prm_request, 307, "/.well-known/oauth-protected-resource/v1/mcp/"))
+
+    assert (follow_up.method, str(follow_up.url)) == (
+        "GET",
+        "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp/",
+    )
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_auth_flow_does_not_follow_a_redirect_of_its_own_request_to_another_origin(
+    oauth_provider: OAuthClientProvider,
+):
+    """SDK-defined: a redirect of a flow request to another origin is handed to the flow unfollowed,
+    which treats it as "not served here" and moves to its next discovery URL."""
+    flow, prm_request = await _start_discovery(oauth_provider)
+
+    next_request = await flow.asend(await _redirect(prm_request, 307, "https://elsewhere.example/prm"))
+
+    assert (next_request.method, str(next_request.url)) == (
+        "GET",
+        "https://api.example.com/.well-known/oauth-protected-resource",
+    )
+    await flow.aclose()
+
+
+@pytest.mark.anyio
+async def test_auth_flow_stops_following_a_redirecting_request_after_a_few_hops(
+    oauth_provider: OAuthClientProvider,
+):
+    """SDK-defined: a flow request that keeps redirecting within its origin is followed a bounded
+    number of times; the redirect after that is handed to the flow unfollowed."""
+    flow, request = await _start_discovery(oauth_provider)
+
+    hops = 0
+    while str(request.url) != "https://api.example.com/.well-known/oauth-protected-resource":
+        request = await flow.asend(
+            await _redirect(request, 307, f"/.well-known/oauth-protected-resource/v1/mcp/{hops}")
+        )
+        hops += 1
+
+    assert hops == 6  # five followed, the sixth handed back and taken as "try the next URL"
+    await flow.aclose()
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(("status", "keep_trying"), [(404, True), (307, True), (500, False)])
 async def test_auth_metadata_response_says_whether_to_try_the_next_discovery_url(
@@ -989,35 +1070,33 @@ class TestRegistrationResponse:
 
     @pytest.mark.anyio
     async def test_handle_registration_response_reads_before_accessing_text(self):
-        """Test that response.aread() is called before accessing response.text."""
+        """The registration error carries the response text, which for a streamed response means
+        reading it first (a streamed httpx2 response raises ResponseNotRead otherwise)."""
+        response = httpx2.Response(400, stream=httpx2.ByteStream(b"Registration failed with error"))
 
-        # Track if aread() was called
-        class MockResponse(httpx2.Response):
-            def __init__(self):
-                self.status_code = 400
-                self._aread_called = False
-                self._text = "Registration failed with error"
+        with pytest.raises(OAuthRegistrationError) as exc_info:
+            await handle_registration_response(response)
 
-            async def aread(self):
-                self._aread_called = True
-                return b"test content"
+        assert str(exc_info.value) == snapshot("Registration failed: 400 Registration failed with error")
 
-            @property
-            def text(self):
-                if not self._aread_called:
-                    raise RuntimeError("Response.text accessed before response.aread()")  # pragma: no cover
-                return self._text
+    @pytest.mark.anyio
+    async def test_registration_error_names_an_unfollowed_redirect(self):
+        """SDK-defined: when the registration endpoint answered with a redirect that was not followed,
+        the error says where it pointed instead of only the bare status."""
+        request = httpx2.Request("POST", "https://as.example/register")
+        async with httpx2.AsyncClient(
+            transport=httpx2.MockTransport(
+                lambda r: httpx2.Response(307, headers={"location": "https://elsewhere.example/register"})
+            )
+        ) as client:
+            response = await client.send(request)
 
-        mock_response = MockResponse()
+        with pytest.raises(OAuthRegistrationError) as exc_info:
+            await handle_registration_response(response)
 
-        # This should call aread() before accessing text
-        with pytest.raises(Exception) as exc_info:
-            await handle_registration_response(mock_response)
-
-        # Verify aread() was called
-        assert mock_response._aread_called
-        # Verify the error message includes the response text
-        assert "Registration failed: 400" in str(exc_info.value)
+        assert str(exc_info.value) == snapshot(
+            "Registration failed: 307 (redirected to https://elsewhere.example/register; not followed) "
+        )
 
 
 @pytest.mark.anyio

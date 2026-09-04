@@ -915,3 +915,44 @@ async def test_resumption_redirected_elsewhere_resolves_that_request_with_an_err
         "Redirect to http://other.example/mcp not followed; use that URL as the endpoint if it is the intended server"
     )
     assert seen == [("GET http://test/mcp", "evt-41")]
+
+
+async def _redirected_call_error(url: str, location: str) -> str:
+    """Send one request through streamable_http_client to a server answering `url` with a 307 to
+    `location`, and return the message of the error that resolves it."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(307, headers={"location": location})
+
+    with anyio.fail_after(5):
+        async with (
+            httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as http,
+            streamable_http_client(url, http_client=http) as (read, write),
+        ):
+            await write.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list", params={})))
+            reply = await read.receive()
+    assert isinstance(reply, SessionMessage)
+    assert isinstance(reply.message, JSONRPCError)
+    return reply.message.error.message
+
+
+@pytest.mark.anyio
+async def test_https_endpoint_redirected_to_plain_http_is_explained_and_the_https_form_suggested() -> None:
+    """SDK-authored text: a redirect of an HTTPS endpoint to plain HTTP on the same host (the usual
+    sign of a TLS-terminating proxy the server does not trust) never suggests the http:// URL."""
+    message = await _redirected_call_error("https://mcp.example/mcp", "http://mcp.example/mcp/")
+    assert message == snapshot("""\
+Redirect to http://mcp.example/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
+often combined with a trailing-slash difference. Try https://mcp.example/mcp/ instead, or fix the proxy settings.\
+""")
+
+
+@pytest.mark.anyio
+async def test_unfollowed_redirect_location_is_named_without_its_query_string() -> None:
+    """SDK-authored text: the location is reported without query or userinfo, which may carry state
+    that does not belong in an error message or a log line."""
+    message = await _redirected_call_error("http://mcp.example/mcp", "https://sso.example/login?state=s3cr3t&nonce=n")
+    assert message == snapshot(
+        "Redirect to https://sso.example/login not followed; use that URL as the endpoint if it is the intended server"
+    )

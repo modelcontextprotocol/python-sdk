@@ -71,7 +71,16 @@ def _unfollowed_redirect(response: httpx2.Response) -> str | None:
     """Describe a redirect `stream_within_origin` left unfollowed, or None if `response` is not one."""
     if response.next_request is None:
         return None
-    location = response.next_request.url
+    sent = response.request.url
+    # Query and userinfo are left out: they can carry state that does not belong in logs.
+    location = response.next_request.url.copy_with(userinfo=b"", query=None, fragment=None)
+    if sent.scheme == "https" and location.scheme == "http" and location.host == sent.host:
+        return (
+            f"Redirect to {location} not followed: it would downgrade this HTTPS endpoint to plain HTTP.\n"
+            "The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,\n"
+            f"often combined with a trailing-slash difference. Try {location.copy_with(scheme='https')} instead, "
+            "or fix the proxy settings."
+        )
     return f"Redirect to {location} not followed; use that URL as the endpoint if it is the intended server"
 
 
@@ -687,8 +696,8 @@ async def streamable_http_client(
             endpoint's origin (same scheme, host and port, or http to https on the same host with
             default ports) and keeps the request method (307/308); any other redirect is not
             followed and the message it answered fails with an error naming the location. The
-            client's `follow_redirects` setting is not consulted, and requests its `auth` handler
-            makes during an MCP request do not follow redirects.
+            client's `follow_redirects` setting is not consulted; the SDK's OAuth providers apply the
+            same rule to the requests they make.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:

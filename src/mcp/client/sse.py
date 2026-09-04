@@ -57,8 +57,8 @@ async def sse_client(
             (same scheme, host and port, or http to https on the same host with default ports) and
             keeps the request method; any other redirect is not followed, so connecting fails with
             `httpx2.HTTPStatusError` for the redirect response. The client's `follow_redirects`
-            setting is not consulted, and requests `auth` makes during an MCP request do not follow
-            redirects.
+            setting is not consulted; the SDK's OAuth providers apply the same rule to the requests
+            they make.
         auth: Optional httpx2 authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """

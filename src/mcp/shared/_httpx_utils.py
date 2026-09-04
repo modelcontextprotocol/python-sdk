@@ -1,6 +1,7 @@
 """Utilities for creating and using httpx2 AsyncClient instances in the MCP transports."""
 
-from collections.abc import AsyncIterator
+from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Protocol
 
@@ -14,6 +15,9 @@ MCP_DEFAULT_SSE_READ_TIMEOUT = 300.0  # SSE streams - 5 minutes (seconds)
 
 # The headers httpx2.AsyncClient.sse() adds to an event-stream request.
 _SSE_HEADERS = {"Accept": "text/event-stream", "Cache-Control": "no-store"}
+
+# How many redirects one auth-flow request may follow within its origin (see RedirectAwareAuth).
+_AUTH_REDIRECT_LIMIT = 5
 
 
 class McpHttpClientFactory(Protocol):  # pragma: no branch
@@ -78,51 +82,65 @@ def _within_origin(url: httpx2.URL, location: httpx2.URL) -> bool:
     )
 
 
+def next_request_within_origin(response: httpx2.Response) -> httpx2.Request | None:
+    """The request that follows `response`'s redirect, if it is one the MCP transports follow.
+
+    That is when httpx2 built a next request for it (a redirect status with a
+    Location), the next request keeps the method (307/308, or any redirect of a
+    GET: httpx2 turns a POST into a body-less GET for 301/302/303, which would
+    drop the message), its URL stays within the origin of the request just sent
+    (same scheme, host and port, or http to https on the same host with default
+    ports), and the Location carries no userinfo (which httpx2 would otherwise
+    send as Basic auth). None for anything else, including a non-redirect.
+    """
+    next_request = response.next_request
+    if next_request is None:
+        return None
+    sent = response.request
+    if (
+        next_request.method != sent.method
+        or next_request.url.userinfo
+        or not _within_origin(sent.url, next_request.url)
+    ):
+        return None
+    return next_request
+
+
 @asynccontextmanager
 async def stream_within_origin(
     client: httpx2.AsyncClient, method: str, url: httpx2.URL | str, **kwargs: Any
-) -> AsyncIterator[httpx2.Response]:
+) -> AsyncGenerator[httpx2.Response]:
     """`client.stream(...)`, following redirects only while they stay within the request's origin.
 
     An MCP transport talks to one configured endpoint, and everything on a request
-    (headers, auth, body) was configured for that endpoint. A redirect that stays
-    on the origin of the request just sent (same scheme, host and port, or http to
-    https on the same host with default ports) and keeps the request's method,
-    such as a 307/308 trailing-slash normalisation, is followed using httpx2's
-    own next-request rules. Any other redirect is not followed: the redirect
-    response itself is yielded, the way httpx2 hands one back when
-    `follow_redirects` is off, and the caller treats it as the non-success it
-    is. (httpx2 rewrites a POST into a body-less GET for 301/302/303, which
-    would drop the message, so those count as not followed for anything but a
-    GET.) The client's own `follow_redirects` setting is not consulted, and
-    requests an `httpx2.Auth` flow makes during the call are sent the same way,
-    so they do not follow redirects either.
-
-    Raises:
-        httpx2.TooManyRedirects: More than `client.max_redirects` redirects were followed.
+    (headers, auth, body) was configured for that endpoint. A redirect that
+    `next_request_within_origin` accepts, such as a 307/308 trailing-slash
+    normalisation, is followed, at most `client.max_redirects` times. Any other
+    redirect (or one past that budget) is not followed: the redirect response
+    itself is yielded, the way httpx2 hands one back when `follow_redirects` is
+    off, and the caller treats it as the non-success it is. The client's own
+    `follow_redirects` setting is not consulted. Requests an `httpx2.Auth` flow
+    makes during the call are sent without following either; the SDK's OAuth
+    providers apply the same rule to their own requests.
     """
     request = client.build_request(method, url, **kwargs)
-    for _ in range(client.max_redirects + 1):
+    followed = 0
+    while True:
         response = await client.send(request, stream=True, follow_redirects=False)
-        # Set by httpx2, with its own method/body/header rules, only when the response is a redirect.
-        next_request = response.next_request
-        if (
-            next_request is None
-            or next_request.method != response.request.method
-            or not _within_origin(response.request.url, next_request.url)
-        ):
-            try:
-                yield response
-            finally:
-                await response.aclose()
-            return
+        next_request = next_request_within_origin(response)
+        if next_request is None or followed == client.max_redirects:
+            break
         try:
             # Drain the redirect body so the connection returns to the pool, as httpx2 does when it follows.
             await response.aread()
         finally:
             await response.aclose()
         request = next_request
-    raise httpx2.TooManyRedirects("Exceeded maximum allowed redirects.", request=request)
+        followed += 1
+    try:
+        yield response
+    finally:
+        await response.aclose()
 
 
 async def request_within_origin(
@@ -137,9 +155,53 @@ async def request_within_origin(
 @asynccontextmanager
 async def sse_within_origin(
     client: httpx2.AsyncClient, url: httpx2.URL | str, *, headers: dict[str, str] | None = None
-) -> AsyncIterator[httpx2.EventSource]:
+) -> AsyncGenerator[httpx2.EventSource]:
     """`client.sse(url)` with the redirect handling of `stream_within_origin`."""
     merged = httpx2.Headers(_SSE_HEADERS)
     merged.update(headers or {})
     async with stream_within_origin(client, "GET", url, headers=merged) as response:
         yield httpx2.EventSource(response)
+
+
+def redirect_note(response: httpx2.Response) -> str:
+    """A suffix naming the location of a redirect response that was not followed, else empty."""
+    if response.next_request is None:
+        return ""
+    return f" (redirected to {response.next_request.url}; not followed)"
+
+
+class RedirectAwareAuth(ABC, httpx2.Auth):
+    """An `httpx2.Auth` whose own requests follow redirects the way MCP transport requests do.
+
+    The transports send every request with redirect following off and follow a
+    redirect themselves only within the endpoint's origin (`stream_within_origin`).
+    httpx2 applies that per-request setting to the requests an auth flow makes
+    too (metadata discovery, registration, token), so on their own those would
+    follow nothing. Subclasses write their flow as `_auth_flow`; this class
+    drives it and, for each request the flow makes other than the one being
+    authenticated, follows a redirect that `next_request_within_origin` accepts,
+    up to `_AUTH_REDIRECT_LIMIT` times. Any other redirect response is handed
+    to the flow as it is.
+    """
+
+    @abstractmethod
+    def _auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        """The subclass's flow, written as `httpx2.Auth.async_auth_flow` otherwise would be."""
+
+    async def async_auth_flow(self, request: httpx2.Request) -> AsyncGenerator[httpx2.Request, httpx2.Response]:
+        flow = self._auth_flow(request)
+        try:
+            outgoing = await flow.__anext__()
+            while True:
+                response = yield outgoing
+                if outgoing is not request:
+                    for _ in range(_AUTH_REDIRECT_LIMIT):
+                        follow = next_request_within_origin(response)
+                        if follow is None:
+                            break
+                        response = yield follow
+                outgoing = await flow.asend(response)
+        except StopAsyncIteration:
+            return
+        finally:
+            await flow.aclose()

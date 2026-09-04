@@ -171,8 +171,10 @@ async def test_client_configured_to_follow_redirects_is_still_scoped_to_origin()
     assert received == [f"POST {url}"]
 
 
-async def test_redirect_chain_longer_than_client_max_redirects_raises_too_many_redirects():
-    """Same-origin hops are bounded by the client's max_redirects, as httpx2 bounds its own."""
+async def test_redirect_past_the_client_max_redirects_budget_is_handed_back_unfollowed():
+    """Same-origin hops are bounded by the client's max_redirects; the redirect after that is not
+    followed but handed back like any other, so a loop fails the one call rather than raising
+    (SDK-defined; max_redirects=0 therefore means "follow none")."""
     url = "http://mcp.example/a"
     client, received, closed = _recording_client(
         {
@@ -184,11 +186,26 @@ async def test_redirect_chain_longer_than_client_max_redirects_raises_too_many_r
     )
 
     async with client:
-        with pytest.raises(httpx2.TooManyRedirects):
-            await request_within_origin(client, "GET", url)
+        response = await request_within_origin(client, "GET", url)
 
+    assert response.status_code == 307
+    assert response.next_request is not None
+    assert response.next_request.url == "http://mcp.example/d"
     assert received == ["GET http://mcp.example/a", "GET http://mcp.example/b", "GET http://mcp.example/c"]
     assert closed == [True, True, True]
+
+
+async def test_redirect_location_with_userinfo_is_not_followed():
+    """A Location carrying user:password is handed back unfollowed even within the origin, since
+    httpx2 would otherwise send that userinfo as Basic auth (SDK-defined)."""
+    url = "http://mcp.example/mcp"
+    client, received, _ = _recording_client({url: (307, "http://user:secret@mcp.example/mcp/")})
+
+    async with client, stream_within_origin(client, "POST", url) as response:
+        pass
+
+    assert response.status_code == 307
+    assert received == [f"POST {url}"]
 
 
 async def test_request_within_origin_returns_a_read_response():
