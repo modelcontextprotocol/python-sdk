@@ -5,9 +5,8 @@ from typing import Any
 import pytest
 from mcp_types import TextContent, TextResourceContents
 
-from docs_src.apps import tutorial001, tutorial002, tutorial003
+from docs_src.apps import tutorial001, tutorial001_client, tutorial002, tutorial003
 from mcp import Client
-from mcp.client import advertise
 from mcp.server.apps import APP_MIME_TYPE, EXTENSION_ID
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -33,23 +32,15 @@ async def test_the_ui_resource_is_served_as_the_app_mime_type() -> None:
 
 
 async def test_one_tool_two_answers() -> None:
-    """tutorial001: the canonical degradation pattern: raw data for a client that
-    negotiated Apps, a human sentence for one that did not."""
-    async with Client(
-        tutorial001.mcp, extensions=[advertise(EXTENSION_ID, {"mimeTypes": [APP_MIME_TYPE]})]
-    ) as ui_client:
+    """tutorial001_client's `APPS_SUPPORT` declaration, driven in-process against
+    tutorial001's server: the client that negotiated Apps (with the required
+    `mimeTypes`) gets raw data, one that did not gets the human sentence."""
+    async with Client(tutorial001.mcp, extensions=[tutorial001_client.APPS_SUPPORT]) as ui_client:
         rich = await ui_client.call_tool("get_time", {})
     async with Client(tutorial001.mcp) as text_client:
         plain = await text_client.call_tool("get_time", {})
     assert rich.content == [TextContent(type="text", text="2026-06-26T12:00:00Z")]
     assert plain.content == [TextContent(type="text", text="The time is 2026-06-26T12:00:00Z.")]
-
-
-async def test_the_clock_client_program_runs_as_shown(capsys: pytest.CaptureFixture[str]) -> None:
-    """tutorial001: `main()` declares Apps support with the required `mimeTypes` and
-    receives the rich answer the page promises."""
-    await tutorial001.main()
-    assert "2026-06-26T12:00:00Z" in capsys.readouterr().out
 
 
 async def test_capability_advertised_under_server_extensions() -> None:

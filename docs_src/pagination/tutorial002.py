@@ -1,33 +1,26 @@
-from typing import Any
+import anyio
 
 from mcp import Client
-from mcp.server import Server, ServerRequestContext
-from mcp.types import ListResourcesResult, PaginatedRequestParams, Resource
-
-BOOKS = [f"book-{n}" for n in range(1, 101)]
-
-PAGE_SIZE = 10
+from mcp.types import Resource
 
 
-async def list_books(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListResourcesResult:
-    start = 0 if params is None or params.cursor is None else int(params.cursor)
-    end = start + PAGE_SIZE
-    page = [Resource(uri=f"books://catalog/{name}", name=name) for name in BOOKS[start:end]]
-    next_cursor = str(end) if end < len(BOOKS) else None
-    return ListResourcesResult(resources=page, next_cursor=next_cursor)
-
-
-server = Server("Bookshop", on_list_resources=list_books)
+async def list_all_resources(client: Client) -> list[Resource]:
+    resources: list[Resource] = []
+    cursor: str | None = None
+    while True:
+        page = await client.list_resources(cursor=cursor)
+        resources.extend(page.resources)
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+    return resources
 
 
 async def main() -> None:
-    async with Client(server) as client:
-        resources: list[Resource] = []
-        cursor: str | None = None
-        while True:
-            page = await client.list_resources(cursor=cursor)
-            resources.extend(page.resources)
-            if page.next_cursor is None:
-                break
-            cursor = page.next_cursor
+    async with Client("http://localhost:8000/mcp") as client:
+        resources = await list_all_resources(client)
         print(f"{len(resources)} resources")
+
+
+if __name__ == "__main__":
+    anyio.run(main)

@@ -93,7 +93,7 @@ In a test there is nothing to deploy and nothing to launch. Pass the server obje
 --8<-- "docs_src/client_transports/tutorial001.py"
 ```
 
-No subprocess, no port, no bytes on a wire. The client and the server are two objects in the same process, and the call still goes through the real protocol layer: `search_books` is listed, validated and invoked exactly as it would be over HTTP. **[Testing](../get-started/testing.md)** builds the whole pattern around it, and most snippets in these docs connect this way so they run as-is.
+No subprocess, no port, no bytes on a wire. The client and the server are two objects in the same process, and the call still goes through the real protocol layer: `search_books` is listed, validated and invoked exactly as it would be over HTTP. **[Testing](../get-started/testing.md)** builds the whole pattern around it.
 
 The same form doubles as an embedding API: an application that constructs the server itself can call its tools without a network hop.
 

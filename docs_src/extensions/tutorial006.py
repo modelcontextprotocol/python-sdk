@@ -1,21 +1,11 @@
-from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any
 
 import mcp.types as types
-from mcp import Client
-from mcp.client import ClaimContext, ClientExtension, ResultClaim
 from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.extension import Extension
 from mcp.server.mcpserver import MCPServer, require_client_extension
 
 EXTENSION_ID = "com.example/receipts"
-
-
-class ReceiptResult(types.Result):
-    """The claimed result shape; `result_type` pins the wire tag."""
-
-    result_type: Literal["receipt"] = "receipt"
-    receipt_token: str
 
 
 class ReceiptIssuer(Extension):
@@ -35,18 +25,6 @@ class ReceiptIssuer(Extension):
         return {"resultType": "receipt", "receiptToken": "r-117"}
 
 
-class Receipts(ClientExtension):
-    """Client half: claims the `receipt` shape and supplies the code that finishes it."""
-
-    identifier = EXTENSION_ID
-
-    def claims(self) -> Sequence[ResultClaim[Any]]:
-        return [ResultClaim(result_type="receipt", model=ReceiptResult, resolve=self._redeem)]
-
-    async def _redeem(self, claimed: ReceiptResult, ctx: ClaimContext) -> types.CallToolResult:
-        return await ctx.session.call_tool("redeem", {"token": claimed.receipt_token})
-
-
 mcp = MCPServer("shop", extensions=[ReceiptIssuer()])
 
 
@@ -60,10 +38,3 @@ def buy(item: str) -> types.CallToolResult:
 def redeem(token: str) -> str:
     """Exchange a receipt token for the goods."""
     return f"goods for {token}"
-
-
-async def main() -> None:
-    async with Client(mcp, extensions=[Receipts()]) as client:
-        result = await client.call_tool("buy", {"item": "lamp"})
-        print(result.content)
-        # [TextContent(text='goods for r-117')]

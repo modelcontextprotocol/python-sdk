@@ -20,7 +20,7 @@ then come back.
 
 ## A clock with a face
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -51,19 +51,36 @@ The model reads `content`; the iframe is for humans. A UI-capable host still fee
 the text result to the model, and a text-only client gets *only* that. So the
 canonical pattern is one tool, two answers. Look at `get_time` again:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
 `client_supports_apps(ctx)` is `True` only when the client declared the
 `io.modelcontextprotocol/ui` extension **and** listed `text/html;profile=mcp-app`
 in its `mimeTypes` settings. The field is required, so a client that omits it
-does not count. That is exactly what `main()` in the same file declares: the
-client half of the negotiation, and the rich answer comes back. `main()` hands
-`Client` the `mcp` object so the file runs as-is, the way a test does
-([Testing](../get-started/testing.md)). In a real client that argument is a URL or
-`StdioServerParameters`, and the `extensions=[...]` declaration stays exactly the
-same.
+does not count. Here is the client half of the negotiation:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+Serve `server.py` over HTTP, then run the client from a second terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+The rich answer came back. Drop `extensions=[APPS_SUPPORT]` from the `Client` call
+and the same program prints `The time is 2026-06-26T12:00:00Z.` instead, which is
+all a text-only client ever sees.
 
 !!! warning
     Never return a placeholder like `"[Rendered UI]"` as the only content. If the

@@ -25,7 +25,7 @@ Out of the box every result says `ttlMs: 0, cacheScope: "private"`: immediately 
 
 On the low-level `Server`, handlers build their results by hand, and `ttl_ms` / `cache_scope` are just fields on the result models. A handler that sets them explicitly always wins over the constructor map, field by field:
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -37,11 +37,25 @@ One caveat on paginated lists: the protocol requires the **same `cacheScope` on 
 
 ## What the client sees
 
-On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache with no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did. The demo below hands `Client` the server object and an injected clock so it runs as-is, the way a test does ([Testing](../get-started/testing.md)). In your own program that first argument is a URL or `StdioServerParameters`, and the calls read the same.
+On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache with no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did.
 
-```python hl_lines="33 35 38"
+To watch that happen, serve the `server.py` from the previous section with uvicorn (its last line builds the ASGI app). The handler prints a line every time it actually runs:
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+Run `python client.py` from a second terminal. It prints the hints the first result carried, the handler's `ttlMs` next to the map's `cacheScope`:
+
+```text
+1000 public
+```
+
+The server's terminal tells the rest of the story: between uvicorn's request logs, `tools/list served` appears three times.
 
 Four calls, three fetches. The second call found a fresh entry and never reached the server; advancing the (injected) clock past the TTL made the third fetch again; the fourth said `cache_mode="refresh"`. That kwarg exists on the five caching verbs (`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`):
 

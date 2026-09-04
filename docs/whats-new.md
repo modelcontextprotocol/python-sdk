@@ -166,11 +166,15 @@ Every server-initiated request is gone at 2026-07-28: push elicitation, sampling
 
 The replacement turns the call around. A tool that needs something from the user *returns* the question (`InputRequiredResult`), the client answers it with the same callbacks it always had, and the call is retried with the answers attached. `Client` drives that loop for you. On the server you rarely build the result yourself, because a **[dependency](handlers/dependencies.md)** does it: annotate a parameter with `Resolve(ask_quantity)`, where `ask_quantity` is an ordinary function you write, and the SDK asks over whichever mechanism the connection supports, a live elicitation request on a legacy session or a multi-round-trip on 2026. One tool body, both eras:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-That file is the pitch in one place: one server, one `Resolve`-backed tool, and a legacy client plus a modern client both getting their answer, in memory. **[Multi-round-trip requests](handlers/multi-round-trip.md)** explains the mechanism (including `request_state`, which the SDK seals and verifies for you); **[Elicitation](handlers/elicitation.md)** covers the asking.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Those two files are the whole pitch: one server, one `Resolve`-backed tool, and a legacy client plus a modern client both getting their answer from the same running server (**[Serving legacy clients](run/legacy-clients.md)** walks through them). **[Multi-round-trip requests](handlers/multi-round-trip.md)** explains the mechanism (including `request_state`, which the SDK seals and verifies for you); **[Elicitation](handlers/elicitation.md)** covers the asking.
 
 !!! warning "This is the one place a ported v1 server changes behavior"
     Your own tests hit it first: `Client(mcp)` negotiates 2026-07-28 against your v2 server by

@@ -1,30 +1,25 @@
+import anyio
+
 from mcp import Client
-from mcp.server import MCPServer
 from mcp.types import Tool
 
-mcp = MCPServer("Bookshop")
 
-
-@mcp.tool()
-def search_books(query: str) -> str:
-    """Search the catalog by title or author."""
-    return f"Found 3 books matching {query!r}."
-
-
-@mcp.tool()
-def reserve_book(title: str) -> str:
-    """Put a book on hold."""
-    return f"Reserved {title!r}."
+async def list_all_tools(client: Client) -> list[Tool]:
+    tools: list[Tool] = []
+    cursor: str | None = None
+    while True:
+        page = await client.list_tools(cursor=cursor)
+        tools.extend(page.tools)
+        if page.next_cursor is None:
+            return tools
+        cursor = page.next_cursor
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
-        tools: list[Tool] = []
-        cursor: str | None = None
-        while True:
-            page = await client.list_tools(cursor=cursor)
-            tools.extend(page.tools)
-            if page.next_cursor is None:
-                break
-            cursor = page.next_cursor
+    async with Client("http://localhost:8000/mcp") as client:
+        tools = await list_all_tools(client)
         print([tool.name for tool in tools])
+
+
+if __name__ == "__main__":
+    anyio.run(main)
