@@ -1082,11 +1082,11 @@ class TestRegistrationResponse:
     @pytest.mark.anyio
     async def test_registration_error_names_an_unfollowed_redirect(self):
         """SDK-defined: when the registration endpoint answered with a redirect that was not followed,
-        the error says where it pointed instead of only the bare status."""
+        the error says where it pointed (without userinfo or query) instead of only the bare status."""
         request = httpx2.Request("POST", "https://as.example/register")
         async with httpx2.AsyncClient(
             transport=httpx2.MockTransport(
-                lambda r: httpx2.Response(307, headers={"location": "https://elsewhere.example/register"})
+                lambda r: httpx2.Response(307, headers={"location": "https://u:p@elsewhere.example/register?state=x"})
             )
         ) as client:
             response = await client.send(request)

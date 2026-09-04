@@ -35,6 +35,7 @@ from mcp.shared._compat import resync_tracer
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import (
     create_mcp_http_client,
+    redirect_location,
     request_within_origin,
     sse_within_origin,
     stream_within_origin,
@@ -69,12 +70,10 @@ class ResumptionError(StreamableHTTPError):
 
 def _unfollowed_redirect(response: httpx2.Response) -> str | None:
     """Describe a redirect `stream_within_origin` left unfollowed, or None if `response` is not one."""
-    if response.next_request is None:
+    location = redirect_location(response)
+    if location is None:
         return None
-    sent = response.request.url
-    # Query and userinfo are left out: they can carry state that does not belong in logs.
-    location = response.next_request.url.copy_with(userinfo=b"", query=None, fragment=None)
-    if sent.scheme == "https" and location.scheme == "http" and location.host == sent.host:
+    if response.request.url.scheme == "https" and location.scheme == "http":
         return (
             f"Redirect to {location} not followed: it would downgrade this HTTPS endpoint to plain HTTP.\n"
             "The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,\n"
@@ -694,8 +693,9 @@ async def streamable_http_client(
             authentication, or other HTTP settings, create an httpx2.AsyncClient and pass it here.
             Whichever client is used, MCP requests follow a redirect only when it stays on the
             endpoint's origin (same scheme, host and port, or http to https on the same host with
-            default ports) and keeps the request method (307/308); any other redirect is not
-            followed and the message it answered fails with an error naming the location. The
+            default ports) and keeps the request method (307/308 for a POST; any status for the GET
+            stream); any other redirect is not followed and the message it answered fails with an
+            error naming the location. The
             client's `follow_redirects` setting is not consulted; the SDK's OAuth providers apply the
             same rule to the requests they make.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.

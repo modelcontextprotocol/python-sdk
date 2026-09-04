@@ -163,11 +163,20 @@ async def sse_within_origin(
         yield httpx2.EventSource(response)
 
 
+def redirect_location(response: httpx2.Response) -> httpx2.URL | None:
+    """Where `response` redirects to, for use in a message: without userinfo, query or fragment,
+    which can carry state that does not belong in an error or a log line. None if not a redirect."""
+    if response.next_request is None:
+        return None
+    return response.next_request.url.copy_with(userinfo=b"", query=None, fragment=None)
+
+
 def redirect_note(response: httpx2.Response) -> str:
     """A suffix naming the location of a redirect response that was not followed, else empty."""
-    if response.next_request is None:
+    location = redirect_location(response)
+    if location is None:
         return ""
-    return f" (redirected to {response.next_request.url}; not followed)"
+    return f" (redirected to {location}; not followed)"
 
 
 class RedirectAwareAuth(ABC, httpx2.Auth):

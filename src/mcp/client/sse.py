@@ -55,7 +55,8 @@ async def sse_client(
         httpx_client_factory: Factory function for creating the httpx2 client. Whichever client it
             returns, MCP requests follow a redirect only when it stays on the endpoint's origin
             (same scheme, host and port, or http to https on the same host with default ports) and
-            keeps the request method; any other redirect is not followed, so connecting fails with
+            keeps the request method (any status for the SSE GET, 307/308 for a message POST); any
+            other redirect is not followed, so connecting fails with
             `httpx2.HTTPStatusError` for the redirect response. The client's `follow_redirects`
             setting is not consulted; the SDK's OAuth providers apply the same rule to the requests
             they make.

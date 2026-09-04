@@ -2102,7 +2102,7 @@ async with http_client:
         ...
 ```
 
-v1's internal client set `follow_redirects=True`. You don't need it on your own client: the transport follows a redirect within the endpoint's origin (a trailing-slash redirect, say) itself, and does not follow one anywhere else, whatever the client is configured to do.
+v1's internal client set `follow_redirects=True`. You don't need it on your own client: the transport follows a method-preserving redirect within the endpoint's origin (a trailing-slash 307/308, say) itself, and does not follow one anywhere else, whatever the client is configured to do.
 
 `streamable_http_client` itself keeps a small signature — `streamable_http_client(url, *, http_client=None, terminate_on_close=True)` — and now yields a 2-tuple (next section). The removed function's other parameters map onto the client you build:
 

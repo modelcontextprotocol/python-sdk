@@ -956,3 +956,15 @@ async def test_unfollowed_redirect_location_is_named_without_its_query_string() 
     assert message == snapshot(
         "Redirect to https://sso.example/login not followed; use that URL as the endpoint if it is the intended server"
     )
+
+
+@pytest.mark.anyio
+async def test_https_endpoint_redirected_to_plain_http_elsewhere_never_suggests_the_http_url() -> None:
+    """SDK-authored text: the downgrade explanation applies whatever host the http:// location names,
+    so the message never offers a plain-HTTP URL as the endpoint to configure."""
+    message = await _redirected_call_error("https://mcp.example/mcp", "http://backend.lan:8000/mcp/")
+    assert message == snapshot("""\
+Redirect to http://backend.lan:8000/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,
+often combined with a trailing-slash difference. Try https://backend.lan:8000/mcp/ instead, or fix the proxy settings.\
+""")
