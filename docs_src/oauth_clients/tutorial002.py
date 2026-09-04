@@ -30,6 +30,7 @@ oauth = ClientCredentialsOAuthProvider(
     client_id="reporting-agent",
     client_secret="...",
     scope="user",
+    issuer="http://localhost:9000",
 )
 
 

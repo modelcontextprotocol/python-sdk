@@ -246,7 +246,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found`
 
-The server does not recognise the `Mcp-Session-Id` your client sent, almost always because the server **restarted** (or you were routed to a different instance). Sessions live in that one process's memory.
+The server does not recognise the `Mcp-Session-Id` your client sent. Either the server **restarted** (or you were routed to a different instance), or the session **expired** because nothing was in flight for `session_idle_timeout`, which is 30 minutes by default. See [Session lifetime and limits](run/legacy-clients.md#session-lifetime-and-limits). Sessions live in that one process's memory.
 
 There is no server bug to find. The HTTP response is a `404` whose body *is* JSON-RPC, so, unlike the `421` above, the python `Client` shows you this one verbatim:
 
@@ -256,9 +256,9 @@ There is no server bug to find. The HTTP response is a `404` whose body *is* JSO
 
 The fix is to reconnect: leave the `async with Client(...)` block and enter a new one, which negotiates a fresh session. For a long-lived client, that means catching `MCPError` around your calls and reconnecting on this message rather than retrying inside a dead session.
 
-If it happens *without* a restart, you are running more than one worker without sticky sessions: each worker holds its own session table, so a request routed to the wrong one lands here. **[Deploy & scale](run/deploy.md)** and **[Serving legacy clients](run/legacy-clients.md)** own that story and its two fixes (sticky routing, or `stateless_http=True`).
+If it happens *without* a restart and without the client having gone quiet that long, you are running more than one worker without sticky sessions: each worker holds its own session table, so a request routed to the wrong one lands here. **[Deploy & scale](run/deploy.md)** and **[Serving legacy clients](run/legacy-clients.md)** own that story and its two fixes (sticky routing, or `stateless_http=True`).
 
-For the server operator, the matching log line is `Rejected request with unknown or expired session ID: <id>`. It is logged at `INFO`, so it is invisible at the usual `WARNING` threshold. Seeing it in bursts right after a deploy is normal; every connected client is reconnecting.
+For the server operator, the matching log line is `Rejected request with unknown or expired session ID: <id>`. It is logged at `INFO`, so it is invisible at the usual `WARNING` threshold. Seeing it in bursts right after a deploy is normal; every connected client is reconnecting. When the session expired instead, that line is preceded by `Session <id> idle timeout`, also at `INFO`.
 
 ## `MCPError: Method not found`
 
@@ -411,7 +411,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `Tool already exists:` in the server log is the only sign that two same-named tools collapsed into one.
 * One 421, three spellings: `Server returned an error response` (the python `Client`), `421 Misdirected Request` / `Invalid Host header` (everything else), `Invalid Host header: <host>` (the server log). Fix: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> a mounted app whose host lifespan never entered `mcp.session_manager.run()`.
-* `Session not found` -> the server restarted; reconnect.
+* `Session not found` -> the server restarted or the session expired (`session_idle_timeout`); reconnect.
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` needs a server-to-client channel: a `2026-07-28` connection never has one, `stateless_http=True` takes away the legacy one, and `json_response=True` takes away the request-scoped one. Use a resolver (a legacy client also needs a server that keeps the channel). Its neighbour `Method not found` is a request for a method the other side's protocol revision doesn't have.
 * `Client did not declare the form elicitation capability ...` and `Elicitation not supported` -> the client is missing `elicitation_callback=`.
 * `Invalid or expired requestState` never says why on the wire. The server log does; `unknown key` means share `RequestStateSecurity(keys=[...])` across workers.

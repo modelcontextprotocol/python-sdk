@@ -93,7 +93,11 @@ from mcp.server.request_state import RequestStateBoundary, RequestStateSecurity
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import (
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_SESSION_IDLE_TIMEOUT,
+    StreamableHTTPSessionManager,
+)
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, SubscriptionBus
 from mcp.server.transport_security import DEFAULT_MAX_REQUEST_BODY_SIZE, TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -388,6 +392,8 @@ class MCPServer(Generic[LifespanResultT]):
         event_store: EventStore | None = ...,
         retry_interval: int | None = ...,
         max_request_body_size: int = ...,
+        session_idle_timeout: float | None = ...,
+        max_sessions: int | None = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -1106,6 +1112,8 @@ class MCPServer(Generic[LifespanResultT]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using StreamableHTTP transport."""
@@ -1118,6 +1126,8 @@ class MCPServer(Generic[LifespanResultT]):
             event_store=event_store,
             retry_interval=retry_interval,
             max_request_body_size=max_request_body_size,
+            session_idle_timeout=session_idle_timeout,
+            max_sessions=max_sessions,
             transport_security=transport_security,
             host=host,
         )
@@ -1270,6 +1280,8 @@ class MCPServer(Generic[LifespanResultT]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
+        session_idle_timeout: float | None = DEFAULT_SESSION_IDLE_TIMEOUT,
+        max_sessions: int | None = DEFAULT_MAX_SESSIONS,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -1281,6 +1293,8 @@ class MCPServer(Generic[LifespanResultT]):
             event_store=event_store,
             retry_interval=retry_interval,
             max_request_body_size=max_request_body_size,
+            session_idle_timeout=session_idle_timeout,
+            max_sessions=max_sessions,
             transport_security=transport_security,
             host=host,
             auth=self.settings.auth,

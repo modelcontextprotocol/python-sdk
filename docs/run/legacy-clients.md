@@ -56,6 +56,40 @@ On one worker that is invisible. On two, it is the whole problem: a request that
     events to a client reconnecting to the *same* session), not a session store. It never makes a
     session reachable from another process.
 
+## Session lifetime and limits
+
+A legacy session does not live forever, and one process does not hold an unlimited number of
+them. Two settings control this. Both are keyword arguments on `run()`, `streamable_http_app()`
+and `Server.streamable_http_app()`. Modern (`2026-07-28`) connections and `stateless_http=True`
+have no sessions, so neither setting applies to them.
+
+| Setting | Default | What it does | What the client sees | Turn it off |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800` (30 min) | Closes a session that has had nothing in flight for that long. | `404 Session not found`. It has to `initialize` again. | `None` |
+| `max_sessions` | `10_000` | Refuses to open a session beyond that many. Existing sessions are untouched and nothing is evicted. | `503 Too many open sessions` with JSON-RPC code `-32603`. | `None` |
+
+What counts as "in flight":
+
+* An open `GET` stream. The SDK clients keep one open, so a connected client's session never
+  expires.
+* A request that is still being answered. A tool call that runs longer than the timeout is not
+  interrupted, and the countdown only starts once it finishes.
+* Nothing else. Between requests the clock runs. Any request on the session restarts it,
+  `ping` included. Once a session has expired, nothing revives it.
+
+A client that ends its session with `DELETE` frees it immediately. So does a client whose
+opening request was refused.
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+Both events show up in the server log. An expiry is `Session <id> idle timeout` at `INFO`. A
+refused open is `Refusing to open a new session: <n> sessions are already open` at `WARNING`.
+
+The limits are per process. With four workers the ceiling is four times `max_sessions`, and each
+worker expires its own sessions.
+
 ## The one knob: `stateless_http`
 
 If stickiness is a cost you refuse to pay, there is exactly one thing you can change.

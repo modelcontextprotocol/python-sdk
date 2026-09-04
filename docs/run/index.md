@@ -70,6 +70,11 @@ Each transport has its own keyword arguments, all on `run()`:
 * `max_request_body_size`: largest accepted request body in bytes. Defaults to 4 MiB; larger requests
   receive HTTP 413 before parsing or session creation. Raise it only when legitimate MCP messages
   exceed that size.
+* `session_idle_timeout`: seconds a legacy session may sit with nothing in flight before the
+  server closes it. Default 1800. `None` disables it. See
+  [Session lifetime and limits](legacy-clients.md#session-lifetime-and-limits).
+* `max_sessions`: how many legacy sessions one process holds at once. Default 10 000. `None`
+  removes the limit. Covered in the same section.
 * `event_store`, `retry_interval`, `transport_security`: resumability and DNS-rebinding protection. They can wait, until you deploy somewhere other than localhost; **[Deploy & scale](deploy.md)** covers `transport_security`.
 
 !!! warning
