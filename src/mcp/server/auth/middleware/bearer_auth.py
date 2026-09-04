@@ -73,7 +73,7 @@ class BearerAuthBackend(AuthenticationBackend):
 
         if self.resource_server_url and not self._issued_for_this_resource(auth_info.resource):
             logger.warning(
-                "Bearer token resource %s is not resource_server_url %s", auth_info.resource, self.resource_server_url
+                "Bearer token resource %r is not resource_server_url %s", auth_info.resource, self.resource_server_url
             )
             return None
 

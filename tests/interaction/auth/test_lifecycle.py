@@ -135,6 +135,31 @@ async def test_an_expired_access_token_is_transparently_refreshed_before_the_nex
     assert storage.tokens.expires_in == 3600
 
 
+@requirement("client-auth:refresh:transparent")
+async def test_a_refreshed_access_token_is_still_accepted_when_the_server_validates_token_resource() -> None:
+    """With `AuthSettings.validate_token_resource` on, the access token minted by the refresh grant
+    still passes the gate: the provider carries the original grant's resource on `RefreshToken` and
+    onto the refreshed `AccessToken` (SDK-defined propagation), so the request after the refresh is
+    served rather than answered 401."""
+    recorded, on_request = record_requests()
+    provider = InMemoryAuthorizationServerProvider(issue_expired_first=True)
+    server = Server("guarded", on_list_tools=list_tools)
+    settings = auth_settings(validate_token_resource=True)
+
+    with anyio.fail_after(5):
+        async with connect_with_oauth(server, provider=provider, settings=settings, on_request=on_request) as (
+            client,
+            _,
+        ):
+            result = await client.list_tools()
+
+    assert result.tools[0].name == "echo"
+    assert [form_body(r)["grant_type"] for r in find(recorded, "POST", "/token")] == snapshot(
+        ["authorization_code", "refresh_token"]
+    )
+    assert {t.resource for t in provider.access_tokens.values()} == {f"{BASE_URL}/mcp"}
+
+
 @requirement("client-auth:403-scope-upgrade")
 async def test_a_403_insufficient_scope_triggers_one_reauthorize_with_the_challenged_scope() -> None:
     """A 403 `insufficient_scope` challenge is answered by one re-authorize with the challenge's scope.

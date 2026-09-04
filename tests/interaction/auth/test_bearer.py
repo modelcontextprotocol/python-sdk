@@ -173,6 +173,18 @@ async def test_a_token_not_issued_for_this_resource_is_answered_401(protected: h
 
 
 @requirement("hosting:auth:aud-validation")
+async def test_a_token_for_another_resource_is_served_when_validate_token_resource_is_off() -> None:
+    """The recorded divergence: with `AuthSettings` at their defaults the gate does not compare
+    `AccessToken.resource` with `resource_server_url`, so a token the verifier reports as issued
+    for another resource still reaches the MCP endpoint (SDK default; the check is the verifier's)."""
+    settings = auth_settings(required_scopes=[REQUIRED_SCOPE])
+    async with mounted_app(Server("rs"), auth=settings, token_verifier=StaticTokenVerifier(TOKENS)) as (http, _):
+        response = await post_mcp(http, bearer="tok-wrong-aud")
+
+    assert response.status_code == 200
+
+
+@requirement("hosting:auth:aud-validation")
 async def test_a_token_issued_for_this_resource_is_served(protected: httpx2.AsyncClient) -> None:
     """The other half: a token the verifier reports as issued for `resource_server_url` passes the
     gate and the MCP endpoint answers the initialize request."""
