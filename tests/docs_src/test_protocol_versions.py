@@ -5,7 +5,7 @@ import re
 import pytest
 from mcp_types import SERVER_INFO_META_KEY, DiscoverResult, Implementation, ServerCapabilities
 
-from docs_src.protocol_versions import tutorial001, tutorial002, tutorial003, tutorial004
+from docs_src.protocol_versions import tutorial001, tutorial002, tutorial003
 from mcp import Client
 
 # See test_index.py for why this is a per-module mark and not a conftest hook.
@@ -56,13 +56,14 @@ def test_handshake_era_version_is_not_a_valid_pin() -> None:
 
 
 async def test_prior_discover_round_trips() -> None:
-    """tutorial004: save `discover_result`, reconnect with it, and the identity comes back."""
-    async with Client(tutorial004.mcp) as client:
+    """tutorial004's flow, driven in-process against tutorial001's server: save `discover_result`,
+    reconnect with it, and the identity comes back."""
+    async with Client(tutorial001.mcp) as client:
         saved = client.session.discover_result
     assert saved is not None
     assert saved.supported_versions == ["2026-07-28"]
 
-    async with Client(tutorial004.mcp, mode="2026-07-28", prior_discover=saved) as client:
+    async with Client(tutorial001.mcp, mode="2026-07-28", prior_discover=saved) as client:
         assert client.protocol_version == "2026-07-28"
         assert client.server_info is not None
         assert client.server_info.name == "Bookshop"
@@ -71,14 +72,14 @@ async def test_prior_discover_round_trips() -> None:
 
 async def test_discover_result_survives_json() -> None:
     """`DiscoverResult` is a Pydantic model: dump it to JSON, validate it back, reconnect with it."""
-    async with Client(tutorial004.mcp) as client:
+    async with Client(tutorial001.mcp) as client:
         saved = client.session.discover_result
     assert saved is not None
 
     restored = DiscoverResult.model_validate_json(saved.model_dump_json())
     assert restored == saved
 
-    async with Client(tutorial004.mcp, mode="2026-07-28", prior_discover=restored) as client:
+    async with Client(tutorial001.mcp, mode="2026-07-28", prior_discover=restored) as client:
         assert client.server_info is not None
         assert client.server_info.name == "Bookshop"
 
@@ -94,9 +95,9 @@ async def test_prior_discover_is_ignored_unless_mode_is_a_pin() -> None:
             )
         },
     )
-    async with Client(tutorial004.mcp, prior_discover=stale) as client:
+    async with Client(tutorial001.mcp, prior_discover=stale) as client:
         assert client.server_info is not None
         assert client.server_info.name == "Bookshop"
-    async with Client(tutorial004.mcp, mode="legacy", prior_discover=stale) as client:
+    async with Client(tutorial001.mcp, mode="legacy", prior_discover=stale) as client:
         assert client.session.discover_result is None
         assert client.protocol_version == "2025-11-25"

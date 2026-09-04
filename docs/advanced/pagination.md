@@ -26,7 +26,7 @@ Pagination is for the server whose resource list is really a database: thousands
 
 ### Try it
 
-`Client(server)` connects to a low-level `Server` in memory exactly as it connects to an `MCPServer`.
+In a test, `Client(server)` connects to a low-level `Server` in memory exactly as it connects to an `MCPServer` ([Testing](../get-started/testing.md)), and that is how the client loop below runs. In your own program you hand `Client` a URL or `StdioServerParameters` instead, and every call reads the same.
 
 Call `list_resources()` with no arguments. You get ten resources, `book-1` through `book-10`, and `next_cursor` is the string `"10"`.
 
@@ -38,7 +38,7 @@ The tenth page comes back with `next_cursor` set to `None`. Done.
 
 Every `list_*` method on `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) takes a `cursor=` keyword. Draining a paged list is one `while True`:
 
-```python title="client.py" hl_lines="26-32"
+```python hl_lines="26-32"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 

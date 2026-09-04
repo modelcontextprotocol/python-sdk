@@ -6,13 +6,23 @@ It is one object with one lifecycle: construct it, enter `async with`, call meth
 
 ## Your first client
 
-```python title="client.py" hl_lines="14-18"
+A client needs a server to talk to. This small one will do. Save it as `server.py` and leave it running over HTTP:
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-The server at the top is only there so you have something to connect to. The client is the five highlighted lines.
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)` is given the **server object itself**. That is the in-memory transport: no subprocess, no port, no HTTP. It is how every example on this page, and every test you write, connects.
+The client is its own program:
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")` is given a **URL**, so it connects over Streamable HTTP to the server you just started.
 * `async with` is the **lifecycle**. Entering it connects and negotiates; leaving it disconnects. There is no `connect()` / `close()` pair, and a `Client` cannot be reused after the block ends.
 * Inside the block the connection facts are already there as plain properties.
 
@@ -20,12 +30,14 @@ The server at the top is only there so you have something to connect to. The cli
 
 `Client` takes one positional argument and resolves the transport from its type:
 
-* An `MCPServer` (or low-level `Server`) instance: connected **in-process**.
-* A URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, the production path.
-* A `StdioServerParameters`: the command to launch as a **subprocess**, spoken to over its stdin and stdout.
+* A URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, the transport you deploy behind.
+* A `StdioServerParameters`: the command to launch as a local **subprocess**, spoken to over its stdin and stdout.
 * A **transport**: anything you can `async with ... as (read, write)`, such as `streamable_http_client(url, http_client=...)` around your own HTTP client.
+* An `MCPServer` (or low-level `Server`) instance: connected **in-process**, with no subprocess and no port. That one is for tests, and **[Testing](../get-started/testing.md)** builds on it.
 
 Everything else on this page is identical across all four. Headers, subprocesses, timeouts, and the `Transport` protocol get their own page: **[Client transports](transports.md)**.
+
+The snippets below use the last form so that each one runs as-is: it builds its Bookshop server inline and hands it to `Client`, the way a test would. In your own program that argument is the URL or `StdioServerParameters` above.
 
 ### What's on a connected client
 
@@ -197,13 +209,13 @@ This loop is correct against every server. `MCPServer` returns everything in one
 
 ## In tests
 
-`Client(mcp)` with no process and no port is already a test harness for your server.
+`Client(mcp)`, the form the snippets above use, is already a test harness for your server: no process, no port.
 
-There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-memory connections, and **[Testing](../get-started/testing.md)** is the page that explains it and builds the whole pattern around it.
+There is one constructor flag built for that: `Client(mcp, raise_exceptions=True)`. It only has an effect on in-process connections, and **[Testing](../get-started/testing.md)** is the page that explains it and builds the whole pattern around it.
 
 ## Recap
 
-* `Client(x)` connects in-memory to a server object, over Streamable HTTP to a URL string, and over anything else via a transport.
+* `Client(x)` connects over Streamable HTTP to a URL string, launches a subprocess for a `StdioServerParameters`, enters a transport directly, and in tests takes the server object itself.
 * `async with` is the whole lifecycle. Inside it, `server_capabilities` and `protocol_version` are already populated; `server_info` and `instructions` are too when the server provides them.
 * `list_tools()` gives you each tool's `name`, `title`, `description` and `input_schema`.
 * `call_tool()` returns `content` for the model, `structured_content` for your code, and `is_error`. A raising tool is a result, not an exception.

@@ -12,7 +12,7 @@ Three words you'll see on every page from here on:
 * A **client** lives inside the host and speaks MCP. The host runs one client per server it's connected to.
 * A **server** is what you build with this SDK. It exposes things to clients. It never talks to the model directly.
 
-You write the server. Hosts are someone else's product. The SDK also gives you a `Client`. You'll use it to test your servers, and it shows up later on this page.
+You write the server. Hosts are someone else's product. The SDK also gives you a `Client`, the same class a host would use to reach a server by URL or launch it as a subprocess. On this page you'll use it in memory to inspect the server you just wrote, which is also how you'll test it.
 
 ## The three primitives
 
@@ -78,7 +78,7 @@ You saw three tabs in the Inspector. How did it know there were three?
 
 When a client connects, the server declares its **capabilities**: which families of requests it will answer. The client uses that declaration to decide what to even ask for. You never wrote it; `MCPServer` declares it for you.
 
-Look at it yourself. The SDK's `Client` accepts the server object directly and connects to it **in memory** (no subprocess, no port):
+Look at it yourself. For a quick check like this, `Client` accepts the server object directly and connects to it **in memory** (no subprocess, no port):
 
 ```python
 import asyncio
@@ -113,8 +113,9 @@ That dictionary is your server's declared **capabilities**. It's the first thing
 Notice what isn't there. `completions` (argument autocomplete for resource templates and prompts) needs a handler you write, this server doesn't have one, so the capability is absent and a well-behaved client won't ask. That's the rule for everything optional: register the thing and the capability appears; **[Completions](../servers/completions.md)** proves it.
 
 !!! info
-    `Client(mcp)` is the same in-memory client every example in these docs is tested with, and
-    it's how you'll test yours. It gets a whole page: **[Testing](testing.md)**.
+    `Client(mcp)` is how you'll test your servers, and it gets a whole page: **[Testing](testing.md)**.
+    To connect to a server that is actually running, you hand `Client` a URL or a
+    `StdioServerParameters` instead: **[The Client](../client/index.md)**.
 
 ## What you did not write
 

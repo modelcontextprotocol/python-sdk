@@ -87,7 +87,7 @@ kill "$SERVER_PID"
   `exp` has passed and expires tokens out of its own store.
 - `transport_security=NO_DNS_REBIND` is harness-only; drop it for a real
   deployment.
-- Auth is HTTP-only; over stdio or the in-memory transport there is no gate.
+- Auth is HTTP-only; over stdio (or the in-memory test transport) there is no gate.
 
 ## Spec
 

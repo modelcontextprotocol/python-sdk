@@ -4,11 +4,11 @@ MCP has two eras.
 
 Servers released before 2026-07-28 open every connection with the **`initialize` handshake**: the client proposes a version, the server counters, the client acknowledges, all before the first useful request. Servers at **2026-07-28** drop the handshake. The client sends one **`server/discover`** probe and the server answers it with everything in a single result.
 
-You almost never have to care, because `Client` negotiates for you. This page is about the one constructor argument that controls it, `mode=`, and the three times you change it.
+You almost never have to care, because `Client` negotiates for you. This page is about the one constructor argument that controls it, `mode=`, and the three times you change it. Most snippets here build a small Bookshop server inline and hand it to `Client`, the way a test does (**[Testing](get-started/testing.md)**), so they run as-is. `mode=` behaves identically when that argument is a URL or `StdioServerParameters`, and the reconnect example at the end connects by URL.
 
 ## `mode="auto"`
 
-```python title="client.py" hl_lines="14-15"
+```python hl_lines="14-15"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -26,13 +26,14 @@ Either way you come out connected, and `client.protocol_version` tells you which
 That is the whole feature. One `Client`, any era of server, no branching in your code.
 
 !!! info
-    `MCPServer` answers `server/discover` on every transport — in-memory, stdio, streamable
-    HTTP — so against your own server `auto` always lands on `2026-07-28`. The fallback only
-    ever fires against a real pre-2026 server, which is exactly when you want it to.
+    `MCPServer` answers `server/discover` on every transport — Streamable HTTP, stdio, and the
+    in-process connection your tests use — so against your own server `auto` always lands on
+    `2026-07-28`. The fallback only ever fires against a real pre-2026 server, which is exactly
+    when you want it to.
 
 ## `mode="legacy"`
 
-```python title="client.py" hl_lines="14"
+```python hl_lines="14"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -56,7 +57,7 @@ At 2026-07-28 it is gone. The server *returns* its questions and you retry the c
 
 `mode` also accepts a modern protocol version string. Today that set is exactly `["2026-07-28"]`.
 
-```python title="client.py" hl_lines="14"
+```python hl_lines="14"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -87,9 +88,9 @@ ValueError: mode must be 'legacy', 'auto', or one of ['2026-07-28']; got '2025-0
 
 The probe is cheap, but it is still a round trip you pay on every reconnect, and the answer almost never changes.
 
-So keep it. After an `auto` connection, `client.session.discover_result` holds the exact `DiscoverResult` the server sent: its `supported_versions`, its `capabilities`, its `instructions`, and the identity the server stamped into the result's `_meta`. Hand it back as `prior_discover=` the next time:
+So keep it. After an `auto` connection, `client.session.discover_result` holds the exact `DiscoverResult` the server sent: its `supported_versions`, its `capabilities`, its `instructions`, and the identity the server stamped into the result's `_meta`. Hand it back as `prior_discover=` the next time. This snippet connects by URL rather than in-process, because a round trip is only worth saving when there is a network to cross. Run it against the `server.py` from **[The Client](client/index.md)** (`uv run mcp run server.py --transport streamable-http`):
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

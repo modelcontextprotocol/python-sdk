@@ -24,11 +24,9 @@ Three arguments, and you decide what they mean:
 
 The client opts in **per call**, by passing `progress_callback=` to `call_tool`:
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -36,7 +34,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -51,28 +49,31 @@ anyio.run(main)
 The callback is an `async` function taking exactly what the server reported: `progress`, `total`, `message`.
 
 !!! info
-    `Client(mcp)` connects straight to the server object, in memory, the same client the **[Testing](../get-started/testing.md)**
-    page is built on. `progress_callback` is the same parameter whatever transport the `Client`
-    uses; the *timing* you are about to see is the in-memory connection's. It runs your callback
-    inline, so every report lands before `call_tool` returns. Over a real transport the
-    notifications race the result, and a slow callback can still be running after `call_tool` has
-    returned.
+    `progress_callback` is the same parameter whatever you handed `Client`: a URL as here, a
+    `StdioServerParameters`, or the server object in a test. Mind the timing over a real
+    transport, though. Each notification is delivered on its own, beside the response, so a slow
+    callback can still be running after `call_tool` has returned. Only the in-process test
+    connection runs the callback inline and guarantees every report lands first.
 
 ### Try it
 
-Put `client.py` next to `server.py` and run it:
+Serve `server.py` over HTTP, then run the client from a second terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-Every `await ctx.report_progress(...)` on the server became one call to `show` on the client, in order, and both lines printed **before** `call_tool` returned. Progress is not bundled into the result; it streams while the tool is still working.
+Every `await ctx.report_progress(...)` on the server became one call to `show` on the client, in order. Progress is not bundled into the result. It streams while the tool is still working.
 
 !!! warning
     `progress_callback` belongs to the **call**, not the `Client`. There is no constructor argument

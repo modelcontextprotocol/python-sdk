@@ -37,9 +37,9 @@ One caveat on paginated lists: the protocol requires the **same `cacheScope` on 
 
 ## What the client sees
 
-On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache with no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did.
+On a 2026-07-28 session, `Client` honors the hints for you: it has a built-in response cache, on by default. A result that arrives carrying a `ttlMs` is stored, and an identical call within that TTL is served from the cache with no round trip. A result that carries *no* hint is not cached: hint-less results get `CacheConfig.default_ttl_ms`, which defaults to `0` (immediately stale), so a server that declares nothing sees exactly the call-for-call traffic it always did. The demo below hands `Client` the server object and an injected clock so it runs as-is, the way a test does ([Testing](../get-started/testing.md)). In your own program that first argument is a URL or `StdioServerParameters`, and the calls read the same.
 
-```python title="client.py" hl_lines="33 35 38"
+```python hl_lines="33 35 38"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
 
@@ -51,7 +51,7 @@ Four calls, three fetches. The second call found a fresh entry and never reached
 
 One rule sits above `"use"`: **calls carrying `meta` always reach the server.** A request with `meta` set (a progress token, tracing fields) expects a wire request, so under `cache_mode="use"` it is treated as `"refresh"`: the cache read is skipped, and the fetched result still replaces the cached entry. `"bypass"` and an explicit `"refresh"` behave as they always do.
 
-To turn caching off entirely, construct with `Client(server, cache=None)`: every call is a round trip again, and `cache_mode`, while still accepted, does nothing.
+To turn caching off entirely, pass `cache=None` when constructing the `Client`: every call is a round trip again, and `cache_mode`, while still accepted, does nothing.
 
 Scope is honored automatically too: `"private"` entries are keyed to the cache's *partition* (below), while `"public"` ones may opt into wider sharing. And **notifications beat TTL** for the exact entries they name: a `list_changed` notification evicts the matching cached listing, and `resources/updated` evicts the cached read stored under exactly its URI, however fresh they were. On a 2026-07-28 connection those notifications arrive on a `subscriptions/listen` stream you open with `client.listen(...)`, and eviction completes before your watcher sees the event; **[Subscriptions](subscriptions.md)** is that page.
 

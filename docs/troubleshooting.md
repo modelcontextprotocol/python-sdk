@@ -8,7 +8,7 @@ Several entries run against this one server. One tool and one templated resource
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
-The errors this page quotes are real: the SDK's own test suite reproduces every one of them.
+The errors this page quotes are real: the SDK's own test suite reproduces every one of them. Most client snippets below hand `Client` the server object itself, the way a test does ([Testing](get-started/testing.md)). In your own program that argument is a URL or `StdioServerParameters`, and every error reads the same.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)`
 

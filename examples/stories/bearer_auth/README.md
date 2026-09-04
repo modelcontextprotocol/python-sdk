@@ -78,7 +78,7 @@ kill "$SERVER_PID"
 - `RESOURCE_URL` is hard-coded to port 8000 (the harness's in-process origin).
   If you change `--port`, edit `RESOURCE_URL` to match or the PRM document's
   `resource` field will be wrong.
-- Auth is HTTP-only; over stdio or the in-memory transport `get_access_token()`
+- Auth is HTTP-only; over stdio (or the in-memory test transport) `get_access_token()`
   returns `None` and there is no gate.
 - The 401/403 status codes and `WWW-Authenticate` header are HTTP-level and
   `Client` cannot observe them; they are pinned by

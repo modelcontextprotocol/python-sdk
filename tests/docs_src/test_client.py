@@ -13,19 +13,19 @@ pytestmark = [pytest.mark.anyio, pytest.mark.filterwarnings("error::mcp.MCPDepre
 
 
 async def test_every_client_program_on_the_page_runs(capsys: pytest.CaptureFixture[str]) -> None:
-    """Each `main()` is the literal client program shown on the page; all seven run clean in-memory."""
-    await tutorial001.main()
+    """Each in-process `main()` is the literal client program shown on the page; all six run clean."""
     await tutorial002.main()
     await tutorial003.main()
     await tutorial004.main()
     await tutorial005.main()
     await tutorial006.main()
     await tutorial007.main()
-    assert "Bookshop" in capsys.readouterr().out
+    assert "search_books" in capsys.readouterr().out
 
 
 async def test_connected_properties_are_populated_inside_the_block() -> None:
-    """tutorial001: server_info, server_capabilities, protocol_version and instructions are just there."""
+    """tutorial001 is the page's `server.py`: connected to it, server_info, capabilities, protocol_version and
+    instructions are just there."""
     async with Client(tutorial001.mcp) as client:
         assert client.server_info is not None
         assert client.server_info.name == "Bookshop"

@@ -24,7 +24,7 @@ Here is a tool that has to ask the user something, and both eras of client calli
 
 `reserve` needs one thing the model didn't supply: how many copies. `Annotated[..., Resolve(ask_quantity)]` is how a tool declares that (**[Dependencies](../handlers/dependencies.md)** is that whole story). Nothing in `reserve` names a version, checks a capability, or branches.
 
-The two clients are open **at the same time**, on the same `mcp` object. `mode="legacy"` runs the `initialize` handshake: the exact connection a pre-2026 client opens. The other one takes the default and lands on `2026-07-28`.
+The two clients are open **at the same time**, on the same `mcp` object. They connect to it in-process here so the whole demonstration fits in one file, and clients arriving over HTTP or stdio get exactly the same treatment. `mode="legacy"` runs the `initialize` handshake: the exact connection a pre-2026 client opens. The other one takes the default and lands on `2026-07-28`.
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}

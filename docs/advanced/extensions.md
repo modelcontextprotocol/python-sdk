@@ -69,11 +69,16 @@ The smallest useful extension is one tool and a settings map:
 * The extension never receives the server. It declares contributions as data;
   `MCPServer` consumes them. There is no `self.server` to mutate.
 
-And `main()` is the proof, an in-memory client straight against `mcp`:
+And `main()` is the proof, an in-memory client straight against `mcp`, the way a test
+connects ([Testing](../get-started/testing.md)):
 
 ```python title="server.py" hl_lines="29-34"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
+
+Every `main()` on this page connects that way, so each file runs as-is. In your own
+program the first argument to `Client` is a URL or `StdioServerParameters` and nothing
+else changes.
 
 ### Serving your own methods
 
@@ -158,7 +163,7 @@ A **client extension** is the same contract from the consuming side: a bundle of
 client-side behaviour behind one identifier. Pass instances to
 `Client(extensions=[...])` and call tools normally:
 
-```python title="client.py" hl_lines="66-68"
+```python hl_lines="66-68"
 --8<-- "docs_src/extensions/tutorial006.py"
 ```
 
@@ -180,7 +185,7 @@ the capability, the client does nothing, as in the search client above), use
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("https://example.com/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## Writing a client extension
@@ -188,7 +193,7 @@ client = Client(mcp, extensions=[advertise("com.example/search")])
 Subclass `ClientExtension` and override only what you need. Three contribution
 kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
+```python hl_lines="17-18 43-44 46-47"
 --8<-- "docs_src/extensions/tutorial006.py"
 ```
 
@@ -231,7 +236,7 @@ as in [Serving your own methods](#serving-your-own-methods). One addition: when 
 params key must ride the `Mcp-Name` header (extension specs such as tasks require
 this for their verbs), the request type declares `name_param`:
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python hl_lines="22-25 46-47"
 --8<-- "docs_src/extensions/tutorial007.py"
 ```
 

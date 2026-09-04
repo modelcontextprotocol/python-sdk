@@ -59,7 +59,11 @@ canonical pattern is one tool, two answers. Look at `get_time` again:
 `io.modelcontextprotocol/ui` extension **and** listed `text/html;profile=mcp-app`
 in its `mimeTypes` settings. The field is required, so a client that omits it
 does not count. That is exactly what `main()` in the same file declares: the
-client half of the negotiation, and the rich answer comes back.
+client half of the negotiation, and the rich answer comes back. `main()` hands
+`Client` the `mcp` object so the file runs as-is, the way a test does
+([Testing](../get-started/testing.md)). In a real client that argument is a URL or
+`StdioServerParameters`, and the `extensions=[...]` declaration stays exactly the
+same.
 
 !!! warning
     Never return a placeholder like `"[Rendered UI]"` as the only content. If the
