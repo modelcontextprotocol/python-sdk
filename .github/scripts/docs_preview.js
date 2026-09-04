@@ -23,15 +23,24 @@ async function authorize({ github, context, core }) {
   let slashAttempt = false;
 
   if (context.eventName === 'pull_request_target') {
-    // Gate on the *sender* (whoever caused this run — on synchronize that
-    // is the pusher), not the PR author, so a non-admin pushing to an
-    // admin-opened branch does not get an automatic build.
-    const actor = context.payload.sender.login;
-    prNumber = String(context.payload.pull_request.number);
-    headSha = context.payload.pull_request.head.sha;
-    const perm = await permissionFor(actor);
-    authorized = perm.level === 'admin';
-    core.info(`pull_request_target by ${actor} (level=${perm.level}, role=${perm.role}) → authorized=${authorized}`);
+    const pr = context.payload.pull_request;
+    prNumber = String(pr.number);
+    headSha = pr.head.sha;
+    // No automatic preview for fork PRs: actions/checkout refuses to fetch a
+    // fork's head in a pull_request_target run. A maintainer can still request
+    // one with /preview-docs. (head.repo is null once the fork is deleted.)
+    const headRepo = pr.head.repo;
+    if (!headRepo || headRepo.id !== context.payload.repository.id) {
+      core.info(`PR #${prNumber} head is on ${headRepo ? headRepo.full_name : 'a deleted fork'}; fork PRs are previewed via /preview-docs only.`);
+    } else {
+      // Gate on the *sender* (whoever caused this run — on synchronize that
+      // is the pusher), not the PR author, so a non-admin pushing to an
+      // admin-opened branch does not get an automatic build.
+      const actor = context.payload.sender.login;
+      const perm = await permissionFor(actor);
+      authorized = perm.level === 'admin';
+      core.info(`pull_request_target by ${actor} (level=${perm.level}, role=${perm.role}) → authorized=${authorized}`);
+    }
   } else {
     // issue_comment: the job-level `if:` already guarantees this is a PR
     // comment starting with /preview-docs.

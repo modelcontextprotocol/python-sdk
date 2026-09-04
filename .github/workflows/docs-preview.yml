@@ -4,12 +4,16 @@ name: Docs Preview
 #
 # Security: the build executes Python from the PR (mkdocstrings imports
 # src/mcp, `!!python/name:` config directives run, and heads may ship their
-# own build scripts). The build is gated by `authorize` (admin sender for
-# auto-preview, admin/maintainer commenter for /preview-docs) and isolated
-# from Cloudflare secrets — `build` runs PR code with no secrets and hands
-# the static site to `deploy` via an artifact, so PR code never shares a
-# runner with the Cloudflare token. `authorize` and `comment` run
-# .github/scripts/docs_preview.js, checked out from the default branch only.
+# own build scripts). The build is gated by `authorize` (admin sender on a
+# same-repo branch for auto-preview, admin/maintainer commenter for
+# /preview-docs) and isolated from Cloudflare secrets — `build` runs PR code
+# with no secrets and hands the static site to `deploy` via an artifact, so
+# PR code never shares a runner with the Cloudflare token. Fork PRs get no
+# automatic preview: actions/checkout refuses to fetch a fork's head in a
+# pull_request_target run, so a maintainer requests one with /preview-docs,
+# which runs under issue_comment with the same gating and isolation.
+# `authorize` and `comment` run .github/scripts/docs_preview.js, checked out
+# from the default branch only; those two checkouts must never take a `ref:`.
 #
 # Required configuration:
 #   - secrets.CLOUDFLARE_API_TOKEN   (scope: Account → Cloudflare Pages → Edit)
@@ -62,6 +66,7 @@ jobs:
       - name: Check out the scripts (default branch)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # No `ref:` here, ever: this job trusts what it checks out (see header).
           persist-credentials: false
           sparse-checkout: .github/scripts
 
@@ -88,19 +93,20 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
-          # pull_request_target runs share the base-branch Actions cache; saving
-          # a cache populated while untrusted PR code ran would let it poison
-          # later trusted workflows. Mirrors publish-pypi.yml.
+          # Keep the untrusted build away from the shared Actions cache. GitHub
+          # already limits pull_request_target and issue_comment runs to
+          # read-only access in the default branch's cache scope, so this is
+          # defence in depth (and avoids a refused save in the post step).
+          # Mirrors publish-pypi.yml.
           enable-cache: false
           version: 0.9.5
 
-      # pull_request_target runs this workflow file from the base branch, so
-      # the whole recipe — dependency sync included — must come from the
-      # checkout itself: heads that ship scripts/docs/build.sh (the Zensical
-      # toolchain) build with it; older heads, and v1.x heads previewed via
-      # /preview-docs, still build with MkDocs. Both arms must write the site
-      # to site/. Keep the detection in sync with build_site() in
-      # scripts/build-docs.sh.
+      # Both triggers run this workflow file from the default branch (whatever
+      # the PR targets), so the whole recipe — dependency sync included — must
+      # come from the checkout itself: heads that ship scripts/docs/build.sh
+      # (the Zensical toolchain) build with it; older heads and v1.x heads still
+      # build with MkDocs. Both arms must write the site to site/. Keep the
+      # detection in sync with build_site() in scripts/build-docs.sh.
       - run: |
           if [ -f scripts/docs/build.sh ]; then
             bash scripts/docs/build.sh
@@ -161,6 +167,7 @@ jobs:
       - name: Check out the scripts (default branch)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # No `ref:` here, ever: this job trusts what it checks out (see header).
           persist-credentials: false
           sparse-checkout: .github/scripts
 
