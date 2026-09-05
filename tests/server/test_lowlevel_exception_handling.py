@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, Mock
 
+import anyio
 import pytest
 
 import mcp.types as types
@@ -72,3 +73,24 @@ async def test_normal_message_handling_not_affected():
 
     # Verify _handle_request was called
     server._handle_request.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_handle_request_drops_response_when_transport_is_closed():
+    """Closed write streams during respond should be treated as expected drops."""
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+
+    responder = Mock(spec=RequestResponder)
+    responder.request_id = 1
+    responder.respond = AsyncMock(side_effect=anyio.ClosedResourceError())
+
+    await server._handle_request(
+        responder,
+        types.PingRequest(method="ping"),
+        session,
+        {},
+        raise_exceptions=False,
+    )
+
+    responder.respond.assert_called_once()
