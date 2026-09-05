@@ -276,7 +276,13 @@ One thing does **not** produce this error, despite being a request the modern pr
 
 Your server wants to ask the user something, and this client never said it can be asked.
 
-An elicitation resolver refuses up front when the connected client did not declare form elicitation, and `e.error.data` names exactly what is missing:
+This Bistro asks before it books, through a resolver:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Serve it in place of the Weather server and call `book_table` from a client that passed no `elicitation_callback`. The resolver refuses up front, because the connected client never declared form elicitation, and `e.error.data` names exactly what is missing:
 
 ```json
 {
@@ -286,7 +292,7 @@ An elicitation resolver refuses up front when the connected client did not decla
 }
 ```
 
-The server here is the Bistro with the `book_table` resolver, the [`server.py` further down](#mcperror-cannot-send-elicitationcreate-this-transport-context-has-no-back-channel-for-server-initiated-requests), served the same way. Pass `elicitation_callback=` to `Client(...)`. Registering the callback *is* the capability declaration; there is no second switch:
+Pass `elicitation_callback=` to `Client(...)`. Registering the callback *is* the capability declaration; there is no second switch:
 
 ```python
 async def main() -> None:
