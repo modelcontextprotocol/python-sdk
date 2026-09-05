@@ -52,7 +52,9 @@ async def test_list_roots_callback():
     # Test without list_roots callback
     async with create_session(server._mcp_server) as client_session:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool("test_list_roots", {"message": "test message"})
-        assert result.isError is True
-        assert isinstance(result.content[0], TextContent)
-        assert result.content[0].text == "Error executing tool test_list_roots: List roots not supported"
+        # McpError propagates as a JSON-RPC error, not CallToolResult(isError=True)
+        from mcp.shared.exceptions import McpError
+
+        with pytest.raises(McpError) as exc_info:
+            await client_session.call_tool("test_list_roots", {"message": "test message"})
+        assert "List roots not supported" in exc_info.value.error.message
