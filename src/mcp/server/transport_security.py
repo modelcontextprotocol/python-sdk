@@ -53,17 +53,24 @@ class TransportSecurityMiddleware:
             logger.warning("Missing Host header in request")
             return False
 
+        # RFC 9110: the host is case-insensitive. Clients built on WHATWG URL parsing
+        # (fetch, undici, browsers) lowercase it before sending, so an `allowed_hosts`
+        # entry derived from something uppercase - %COMPUTERNAME% on Windows always is -
+        # never matches, and the server 421s while configured exactly as intended.
+        # The header is compared folded; `host` is kept as sent for the log line.
+        folded = host.lower()
+
         # Check exact match first
-        if host in self.settings.allowed_hosts:
+        if folded in [allowed.lower() for allowed in self.settings.allowed_hosts]:
             return True
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_hosts:
             if allowed.endswith(":*"):
                 # Extract base host from pattern
-                base_host = allowed[:-2]
+                base_host = allowed[:-2].lower()
                 # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
+                if folded.startswith(base_host + ":"):
                     return True
 
         logger.warning(f"Invalid Host header: {host}")
@@ -75,17 +82,21 @@ class TransportSecurityMiddleware:
         if not origin:
             return True
 
+        # Same rule, same reason: an origin is a scheme and a host, and RFC 9110 makes
+        # both case-insensitive. There is no path here to compare case-sensitively.
+        folded = origin.lower()
+
         # Check exact match first
-        if origin in self.settings.allowed_origins:
+        if folded in [allowed.lower() for allowed in self.settings.allowed_origins]:
             return True
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_origins:
             if allowed.endswith(":*"):
                 # Extract base origin from pattern
-                base_origin = allowed[:-2]
+                base_origin = allowed[:-2].lower()
                 # Check if the actual origin starts with base origin and has a port
-                if origin.startswith(base_origin + ":"):
+                if folded.startswith(base_origin + ":"):
                     return True
 
         logger.warning(f"Invalid Origin header: {origin}")

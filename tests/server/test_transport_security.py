@@ -45,6 +45,12 @@ SETTINGS = TransportSecuritySettings(
         pytest.param("good.example", "http://evil.example:9000", 403, id="origin-wildcard-base-mismatch"),
         pytest.param("good.example", "http://good.example", None, id="origin-exact"),
         pytest.param("good.example", "http://wild.example:9000", None, id="origin-wildcard-match"),
+        # RFC 9110: scheme and host are case-insensitive, and WHATWG-URL clients
+        # (fetch, undici, browsers) send them lowercased whatever was configured.
+        pytest.param("GOOD.EXAMPLE", None, None, id="host-exact-differing-case"),
+        pytest.param("WILD.EXAMPLE:9000", None, None, id="host-wildcard-differing-case"),
+        pytest.param("good.example", "http://GOOD.EXAMPLE", None, id="origin-exact-differing-case"),
+        pytest.param("good.example", "http://WILD.EXAMPLE:9000", None, id="origin-wildcard-differing-case"),
     ],
 )
 async def test_validate_request_checks_host_then_origin(
@@ -54,6 +60,41 @@ async def test_validate_request_checks_host_then_origin(
     middleware = TransportSecurityMiddleware(SETTINGS)
     response = await middleware.validate_request(_request(host, origin))
     assert (None if response is None else response.status_code) == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("host", "origin"),
+    [
+        pytest.param("myhost", None, id="host-exact"),
+        pytest.param("myhost:8000", None, id="host-wildcard"),
+        pytest.param("myhost", "http://myhost", id="origin-exact"),
+        pytest.param("myhost", "http://myhost:8000", id="origin-wildcard"),
+    ],
+)
+async def test_an_uppercase_allowlist_still_matches_what_clients_send(host: str, origin: str | None) -> None:
+    """The reported path: %COMPUTERNAME% is always uppercase on Windows.
+
+    Deriving the allowlist from the machine name is the obvious thing to do and
+    yields entries like `MYHOST:*`; every fetch-based client then sends
+    `host: myhost:8000`, and the server 421s while configured exactly as intended.
+    """
+    settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["MYHOST", "MYHOST:*"],
+        allowed_origins=["http://MYHOST", "http://MYHOST:*"],
+    )
+    middleware = TransportSecurityMiddleware(settings)
+    assert await middleware.validate_request(_request(host, origin)) is None
+
+
+@pytest.mark.anyio
+async def test_case_folding_does_not_widen_the_allowlist() -> None:
+    """Folding case must not make a host match that differs by more than case."""
+    middleware = TransportSecurityMiddleware(SETTINGS)
+    for host in ("EVIL.EXAMPLE", "good.example.evil.example", "GOOD.EXAMPLEX"):
+        response = await middleware.validate_request(_request(host, None))
+        assert response is not None and response.status_code == 421, host
 
 
 @pytest.mark.anyio
