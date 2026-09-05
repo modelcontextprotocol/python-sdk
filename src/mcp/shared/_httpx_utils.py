@@ -90,8 +90,10 @@ def next_request_within_origin(response: httpx2.Response) -> httpx2.Request | No
     GET: httpx2 turns a POST into a body-less GET for 301/302/303, which would
     drop the message), its URL stays within the origin of the request just sent
     (same scheme, host and port, or http to https on the same host with default
-    ports), and the Location carries no userinfo (which httpx2 would otherwise
-    send as Basic auth). None for anything else, including a non-redirect.
+    ports), and the Location does not bring userinfo of its own (which httpx2
+    would otherwise send as Basic auth; userinfo the configured URL already had
+    is kept by a relative Location and is fine). None for anything else,
+    including a non-redirect.
     """
     next_request = response.next_request
     if next_request is None:
@@ -99,7 +101,7 @@ def next_request_within_origin(response: httpx2.Response) -> httpx2.Request | No
     sent = response.request
     if (
         next_request.method != sent.method
-        or next_request.url.userinfo
+        or (next_request.url.userinfo and next_request.url.userinfo != sent.url.userinfo)
         or not _within_origin(sent.url, next_request.url)
     ):
         return None
