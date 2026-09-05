@@ -221,6 +221,103 @@ async def test_server_session_initialize_with_older_protocol_version():
 
 
 @pytest.mark.anyio
+async def test_duplicate_initialize_after_initialized_preserves_negotiated_params():
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    first_capabilities = types.ClientCapabilities(sampling=types.SamplingCapability())
+    final_client_params: types.InitializeRequestParams | None = None
+
+    def initialize_message(
+        request_id: int,
+        client_name: str,
+        capabilities: types.ClientCapabilities,
+        protocol_version: str = types.LATEST_PROTOCOL_VERSION,
+    ) -> SessionMessage:
+        return SessionMessage(
+            types.JSONRPCMessage(
+                types.JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=request_id,
+                    method="initialize",
+                    params=types.InitializeRequestParams(
+                        protocolVersion=protocol_version,
+                        capabilities=capabilities,
+                        clientInfo=types.Implementation(name=client_name, version="1.0.0"),
+                    ).model_dump(by_alias=True, mode="json", exclude_none=True),
+                )
+            )
+        )
+
+    async def run_server():
+        nonlocal final_client_params
+
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="mcp",
+                server_version="0.1.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            async for message in server_session.incoming_messages:
+                if isinstance(message, Exception):  # pragma: no cover
+                    raise message
+
+            final_client_params = server_session.client_params
+            assert server_session.check_client_capability(first_capabilities)
+
+    async def mock_client():
+        await client_to_server_send.send(initialize_message(1, "client-a", first_capabilities))
+
+        with anyio.fail_after(5):
+            first_response = await server_to_client_receive.receive()
+        assert isinstance(first_response.message.root, types.JSONRPCResponse)
+
+        await client_to_server_send.send(
+            SessionMessage(
+                types.JSONRPCMessage(
+                    types.JSONRPCNotification(
+                        jsonrpc="2.0",
+                        method="notifications/initialized",
+                    )
+                )
+            )
+        )
+
+        await client_to_server_send.send(initialize_message(2, "client-a", first_capabilities))
+
+        with anyio.fail_after(5):
+            second_response = await server_to_client_receive.receive()
+        assert isinstance(second_response.message.root, types.JSONRPCResponse)
+
+        await client_to_server_send.send(
+            initialize_message(3, "client-b", types.ClientCapabilities(), protocol_version="2024-11-05")
+        )
+
+        with anyio.fail_after(5):
+            third_response = await server_to_client_receive.receive()
+        assert isinstance(third_response.message.root, types.JSONRPCError)
+        assert third_response.message.root.error.code == types.INVALID_REQUEST
+
+        await client_to_server_send.aclose()
+
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        tg.start_soon(mock_client)
+
+    assert final_client_params is not None
+    assert final_client_params.clientInfo.name == "client-a"
+    assert final_client_params.protocolVersion == types.LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
 async def test_ping_request_before_initialization():
     """Test that ping requests are allowed before initialization is complete."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
