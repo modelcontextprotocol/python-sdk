@@ -49,7 +49,7 @@ def _parse_supported(data: Any) -> list[str] | None:
         return None
 
 
-async def negotiate_auto(session: ClientSession) -> None:
+async def negotiate_auto(session: ClientSession, protocol_version: str | None = None) -> None:
     """Drive the ``mode='auto'`` connect-time policy on ``session``.
 
     Probes ``server/discover`` once (twice if the server names a mutual
@@ -58,12 +58,21 @@ async def negotiate_auto(session: ClientSession) -> None:
     ``session.discover_result`` / ``session.initialize_result`` is set on
     return.
 
+    ``protocol_version`` pins the legacy handshake to a specific version. A
+    caller supplying it wants that exact version, so this skips the
+    ``server/discover`` probe entirely and goes straight to the handshake —
+    otherwise a server with modern support would win discovery and the pin
+    would be silently ignored.
+
     Raises:
         MCPError: The server is modern-only and shares no version with this
             client (-32022 with a disjoint ``supported`` list), or the
             fallback handshake failed and one corrective re-probe did too.
         Exception: Any transport/network error from the probe propagates as-is.
     """
+    if protocol_version is not None:
+        await session.initialize(protocol_version=protocol_version)
+        return
     version = LATEST_MODERN_VERSION
     for attempt in range(2):
         try:
