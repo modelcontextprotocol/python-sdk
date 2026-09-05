@@ -1405,7 +1405,9 @@ async def _handle_context_list_tools(
     )
 
 
-async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+async def _handle_context_call_tool(
+    ctx: ServerRequestContext[Any, Request], params: CallToolRequestParams
+) -> CallToolResult:
     assert params.name in ("echo_headers", "echo_context")
     assert isinstance(ctx.request, Request)
 
