@@ -208,6 +208,20 @@ async def test_redirect_location_with_userinfo_is_not_followed():
     assert received == [f"POST {url}"]
 
 
+async def test_userinfo_of_the_configured_url_kept_by_a_relative_location_is_followed():
+    """Userinfo the caller put in the endpoint URL is carried over by a relative Location (URL join
+    keeps the authority); that is the caller's own credential for the same origin, so the redirect
+    is followed as httpx2 itself would (SDK-defined)."""
+    url = "http://user:secret@mcp.example/mcp"
+    client, received, _ = _recording_client({url: (307, "/mcp/")})
+
+    async with client, stream_within_origin(client, "POST", url, content=b"payload") as response:
+        await response.aread()
+
+    assert response.status_code == 200
+    assert received == [f"POST {url}", "POST http://user:secret@mcp.example/mcp/"]
+
+
 async def test_request_within_origin_returns_a_read_response():
     """The non-streaming form hands back a response whose body is already read."""
     url = "http://mcp.example/mcp"
