@@ -40,8 +40,9 @@ mcp = FastMCP(
     # Auth settings for RFC 9728 Protected Resource Metadata
     auth=AuthSettings(
         issuer_url=AnyHttpUrl("https://auth.example.com"),  # Authorization Server URL
-        resource_server_url=AnyHttpUrl("http://localhost:3001"),  # This server's URL
+        resource_server_url=AnyHttpUrl("http://127.0.0.1:8000/mcp"),  # This server's URL (mcp.run() default)
         required_scopes=["user"],
+        validate_token_resource=True,
     ),
 )
 
@@ -73,6 +74,12 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
 See [TokenVerifier](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/src/mcp/server/auth/provider.py) for more details on implementing token validation.
+
+A verifier should report who the token was issued for (its `aud`) in `AccessToken.resource`. `AuthSettings(validate_token_resource=True)` then refuses any token whose `resource` is not `resource_server_url`. Leaving it unset while `resource_server_url` is set warns (`DeprecationWarning`) and behaves as `False`; 3.0 makes `True` the default for resource servers.
+
+- Turn it on when your authorization server binds tokens to the `resource` the client requested, which MCP clients always send. Keep `resource_server_url` the exact URL clients connect to.
+- Leave it off when your authorization server uses its own audience identifiers (an Auth0 API identifier, an Entra application ID) and check `aud` in your verifier instead, returning `None` for a token that isn't for this server.
+- If `aud` is a list, put the entry that equals `resource_server_url` in `resource`.
 
 ## Client-Side Authentication
 
