@@ -264,8 +264,11 @@ class OAuthContext:
             credentials = f"{encoded_id}:{encoded_secret}"
             encoded_credentials = base64.b64encode(credentials.encode()).decode()
             headers["Authorization"] = f"Basic {encoded_credentials}"
-            # Don't include client_secret in body for basic auth
-            data = {k: v for k, v in data.items() if k != "client_secret"}
+            # RFC 6749 section 2.3: with HTTP Basic auth the client credentials
+            # must not also appear in the body. Some strict token endpoints
+            # reject a request that carries both the Authorization header and
+            # client_id in the body as two auth methods at once.
+            data = {k: v for k, v in data.items() if k not in ("client_secret", "client_id")}
         elif auth_method == "client_secret_post" and self.client_info.client_secret:
             # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
             data["client_id"] = self.client_info.client_id

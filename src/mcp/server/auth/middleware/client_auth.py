@@ -52,36 +52,44 @@ class ClientAuthenticator:
             AuthenticationError: If authentication fails
         """
         form_data = await request.form()
-        client_id = form_data.get("client_id")
-        if not client_id:
-            raise AuthenticationError("Missing client_id")
-
-        client = await self.provider.get_client(str(client_id))
-        if not client:
-            raise AuthenticationError("Invalid client_id")  # pragma: no cover
-
-        request_client_secret: str | None = None
         auth_header = request.headers.get("Authorization", "")
 
-        if client.token_endpoint_auth_method == "client_secret_basic":
-            if not auth_header.startswith("Basic "):
-                raise AuthenticationError("Missing or invalid Basic authentication in Authorization header")
-
+        # A Basic header carries client_id itself, so a client using client_secret_basic
+        # is not required to also repeat it in the body (RFC 6749 section 2.3 treats the
+        # header and the body as alternatives, and strict token endpoints reject both at
+        # once). Decode it up front so the lookup below can fall back to it.
+        basic_client_id: str | None = None
+        basic_client_secret: str | None = None
+        if auth_header.startswith("Basic "):
             try:
                 encoded_credentials = auth_header[6:]  # Remove "Basic " prefix
                 decoded = base64.b64decode(encoded_credentials).decode("utf-8")
                 if ":" not in decoded:
                     raise ValueError("Invalid Basic auth format")
-                basic_client_id, request_client_secret = decoded.split(":", 1)
-
+                raw_client_id, raw_client_secret = decoded.split(":", 1)
                 # URL-decode both parts per RFC 6749 Section 2.3.1
-                basic_client_id = unquote(basic_client_id)
-                request_client_secret = unquote(request_client_secret)
-
-                if basic_client_id != client_id:
-                    raise AuthenticationError("Client ID mismatch in Basic auth")
+                basic_client_id = unquote(raw_client_id)
+                basic_client_secret = unquote(raw_client_secret)
             except (ValueError, UnicodeDecodeError, binascii.Error):
                 raise AuthenticationError("Invalid Basic authentication header")
+
+        form_client_id = form_data.get("client_id")
+        client_id = str(form_client_id) if form_client_id else basic_client_id
+        if not client_id:
+            raise AuthenticationError("Missing client_id")
+
+        client = await self.provider.get_client(client_id)
+        if not client:
+            raise AuthenticationError("Invalid client_id")  # pragma: no cover
+
+        request_client_secret: str | None = None
+
+        if client.token_endpoint_auth_method == "client_secret_basic":
+            if basic_client_id is None:
+                raise AuthenticationError("Missing or invalid Basic authentication in Authorization header")
+            if form_client_id and str(form_client_id) != basic_client_id:
+                raise AuthenticationError("Client ID mismatch in Basic auth")
+            request_client_secret = basic_client_secret
 
         elif client.token_endpoint_auth_method == "client_secret_post":
             raw_form_data = form_data.get("client_secret")
