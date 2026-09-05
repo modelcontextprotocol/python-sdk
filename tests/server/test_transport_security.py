@@ -45,6 +45,11 @@ SETTINGS = TransportSecuritySettings(
         pytest.param("good.example", "http://evil.example:9000", 403, id="origin-wildcard-base-mismatch"),
         pytest.param("good.example", "http://good.example", None, id="origin-exact"),
         pytest.param("good.example", "http://wild.example:9000", None, id="origin-wildcard-match"),
+        # Host / Origin are case-insensitive (RFC 9110 / RFC 6454); clients lowercase them.
+        pytest.param("GOOD.EXAMPLE", None, None, id="host-exact-uppercase-request"),
+        pytest.param("WILD.EXAMPLE:9000", None, None, id="host-wildcard-uppercase-request"),
+        pytest.param("good.example", "HTTP://GOOD.EXAMPLE", None, id="origin-exact-uppercase-request"),
+        pytest.param("good.example", "http://WILD.EXAMPLE:9000", None, id="origin-wildcard-uppercase-request"),
     ],
 )
 async def test_validate_request_checks_host_then_origin(
@@ -53,6 +58,25 @@ async def test_validate_request_checks_host_then_origin(
     """Host is checked first, then Origin; exact and wildcard-port allowlist entries are honoured."""
     middleware = TransportSecurityMiddleware(SETTINGS)
     response = await middleware.validate_request(_request(host, origin))
+    assert (None if response is None else response.status_code) == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("host_header", "expected"),
+    [
+        # The Windows default path into the bug: allowed_hosts derived from
+        # %COMPUTERNAME% (always uppercase), client sends the lowercased host.
+        pytest.param("myhost:8000", None, id="uppercase-config-lowercase-request"),
+        pytest.param("MYHOST:8000", None, id="uppercase-config-uppercase-request"),
+        pytest.param("other:8000", 421, id="uppercase-config-still-rejects-non-match"),
+    ],
+)
+async def test_validate_host_case_insensitive_with_uppercase_allowlist(host_header: str, expected: int | None) -> None:
+    """An uppercase allowed_hosts entry still matches a lowercased Host header (RFC 9110 Section 4.2.3)."""
+    settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["MYHOST:*"])
+    middleware = TransportSecurityMiddleware(settings)
+    response = await middleware.validate_request(_request(host_header, None))
     assert (None if response is None else response.status_code) == expected
 
 

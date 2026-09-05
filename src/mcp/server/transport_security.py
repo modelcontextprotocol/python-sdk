@@ -53,17 +53,24 @@ class TransportSecurityMiddleware:
             logger.warning("Missing Host header in request")
             return False
 
+        # Host names are case-insensitive (RFC 9110 Section 4.2.3), and WHATWG-URL
+        # clients (fetch, undici, browsers) lowercase the URL host before sending,
+        # so compare case-insensitively regardless of how allowed_hosts was written.
+        normalized_host = host.lower()
+
         # Check exact match first
-        if host in self.settings.allowed_hosts:
-            return True
+        for allowed in self.settings.allowed_hosts:
+            if allowed.lower() == normalized_host:
+                return True
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_hosts:
+            allowed = allowed.lower()
             if allowed.endswith(":*"):
                 # Extract base host from pattern
                 base_host = allowed[:-2]
                 # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
+                if normalized_host.startswith(base_host + ":"):
                     return True
 
         logger.warning(f"Invalid Host header: {host}")
@@ -75,17 +82,23 @@ class TransportSecurityMiddleware:
         if not origin:
             return True
 
+        # An origin is scheme://host[:port]; scheme and host are case-insensitive
+        # (RFC 6454 Section 4), and clients send them lowercased. Compare case-insensitively.
+        normalized_origin = origin.lower()
+
         # Check exact match first
-        if origin in self.settings.allowed_origins:
-            return True
+        for allowed in self.settings.allowed_origins:
+            if allowed.lower() == normalized_origin:
+                return True
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_origins:
+            allowed = allowed.lower()
             if allowed.endswith(":*"):
                 # Extract base origin from pattern
                 base_origin = allowed[:-2]
                 # Check if the actual origin starts with base origin and has a port
-                if origin.startswith(base_origin + ":"):
+                if normalized_origin.startswith(base_origin + ":"):
                     return True
 
         logger.warning(f"Invalid Origin header: {origin}")
