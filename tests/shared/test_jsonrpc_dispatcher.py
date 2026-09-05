@@ -2011,6 +2011,13 @@ def test_coerce_request_id_passes_through_non_numeric_string_and_int():
     assert coerce_request_id(42) == 42
 
 
+def test_coerce_request_id_does_not_fold_non_canonical_numeric_strings():
+    for non_canonical in ("007", "+7", "1_000", " 7 ", "٧"):
+        assert coerce_request_id(non_canonical) == non_canonical
+    assert coerce_request_id("-3") == -3
+    assert coerce_request_id("0") == 0
+
+
 @pytest.mark.anyio
 async def test_jsonrpc_error_response_with_null_id_is_dropped():
     """Parse-error responses (id=null) have no waiter; they're dropped and the read loop stays healthy."""

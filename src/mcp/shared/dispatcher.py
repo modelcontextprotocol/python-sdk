@@ -61,7 +61,9 @@ def coerce_request_id(request_id: RequestId) -> RequestId:
     """
     if isinstance(request_id, str):
         try:
-            return int(request_id)
+            parsed = int(request_id)
+            if str(parsed) == request_id:
+                return parsed
         except ValueError:
             pass
     return request_id
