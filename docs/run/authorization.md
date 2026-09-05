@@ -31,7 +31,7 @@ The SDK has no opinion about what a valid token looks like. You tell it, by impl
 * `issuer_url`: the authorization server that issues your tokens.
 * `resource_server_url`: the public URL of this MCP endpoint. It names *which* resource a token is for, and it's where the discovery document lives.
 * `required_scopes`: every token must carry all of them.
-* `validate_token_resource`: refuse any token whose `AccessToken.resource` is not `resource_server_url`. Leaving it unset warns (`MCPDeprecationWarning`) and behaves as `False`; 3.0 makes `True` the default.
+* `validate_token_resource`: refuse any token whose `AccessToken.resource` is not `resource_server_url`. Leaving it unset while `resource_server_url` is set warns (`MCPDeprecationWarning`) and behaves as `False`; 3.0 makes `True` the default for resource servers.
   * Turn it on when your authorization server binds tokens to the `resource` the client requested, which MCP clients always send. Keep `resource_server_url` the exact URL clients connect to.
   * Leave it off when your authorization server uses its own audience identifiers (an Auth0 API identifier, an Entra application ID) and check `aud` in your verifier instead, returning `None` for a token that isn't for this server.
   * If `aud` is a list, put the entry that equals `resource_server_url` in `resource`.
