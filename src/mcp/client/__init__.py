@@ -10,7 +10,7 @@ from mcp.client.caching import (
     InMemoryResponseCacheStore,
     ResponseCacheStore,
 )
-from mcp.client.client import Client
+from mcp.client.client import Client, CursorCycleError, PaginationExceededError
 from mcp.client.context import ClientRequestContext
 from mcp.client.extension import (
     ClaimContext,
@@ -32,10 +32,12 @@ __all__ = [
     "ClientExtension",
     "ClientRequestContext",
     "ClientSession",
+    "CursorCycleError",
     "IncomingMessage",
     "InMemoryResponseCacheStore",
     "InputRequiredRoundsExceededError",
     "NotificationBinding",
+    "PaginationExceededError",
     "ResponseCacheStore",
     "ResultClaim",
     "Transport",
