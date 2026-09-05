@@ -12,7 +12,7 @@ Three words you'll see on every page from here on:
 * A **client** lives inside the host and speaks MCP. The host runs one client per server it's connected to.
 * A **server** is what you build with this SDK. It exposes things to clients. It never talks to the model directly.
 
-You write the server. Hosts are someone else's product. The SDK also gives you a `Client`, the same class a host would use to reach a server by URL or launch it as a subprocess. On this page you'll use it in memory to inspect the server you just wrote, which is also how you'll test it.
+You write the server. Hosts are someone else's product. The SDK also gives you a `Client`, the same class a host would use to reach a server by URL or launch it as a subprocess. It shows up later on this page, and it is also how you'll test your servers.
 
 ## The three primitives
 
@@ -78,22 +78,20 @@ You saw three tabs in the Inspector. How did it know there were three?
 
 When a client connects, the server declares its **capabilities**: which families of requests it will answer. The client uses that declaration to decide what to even ask for. You never wrote it; `MCPServer` declares it for you.
 
-Look at it yourself. For a quick check like this, `Client` accepts the server object directly and connects to it **in memory** (no subprocess, no port):
+Look at it yourself. Leave `server.py` running over HTTP in one terminal:
 
-```python
-import asyncio
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-from mcp import Client
+and point a client at it from another:
 
-from server import mcp
+```python title="client.py" hl_lines="7-8"
+--8<-- "docs_src/first_steps/tutorial001_client.py"
+```
 
-
-async def main() -> None:
-    async with Client(mcp) as client:
-        print(client.server_capabilities.model_dump(exclude_none=True))
-
-
-asyncio.run(main())
+```console
+python client.py
 ```
 
 ```text
@@ -113,9 +111,9 @@ That dictionary is your server's declared **capabilities**. It's the first thing
 Notice what isn't there. `completions` (argument autocomplete for resource templates and prompts) needs a handler you write, this server doesn't have one, so the capability is absent and a well-behaved client won't ask. That's the rule for everything optional: register the thing and the capability appears; **[Completions](../servers/completions.md)** proves it.
 
 !!! info
-    `Client(mcp)` is how you'll test your servers, and it gets a whole page: **[Testing](testing.md)**.
-    To connect to a server that is actually running, you hand `Client` a URL or a
-    `StdioServerParameters` instead: **[The Client](../client/index.md)**.
+    That `client.py` is a complete MCP client, and **[The Client](../client/index.md)** is its page.
+    In a test you skip the terminal and the port and hand `Client` the server object itself,
+    `Client(mcp)`. That gets a whole page too: **[Testing](testing.md)**.
 
 ## What you did not write
 
@@ -124,7 +122,7 @@ Look back over this page. You wrote three small Python functions. You did **not*
 * A JSON Schema. `a: int, b: int` *is* the schema for `add`.
 * A request handler. `tools/list`, `resources/read`, `prompts/get`: all served for you.
 * A capability declaration. `MCPServer` made it for you.
-* A line of protocol. The version negotiation, the JSON-RPC framing, the capability exchange: all of it happened inside `mcp dev` and `Client(mcp)`, and you never saw it.
+* A line of protocol. The version negotiation, the JSON-RPC framing, the capability exchange: all of it happened inside `mcp dev` and `client.py`, and you never saw it.
 
 That ratio is the whole point of the SDK.
 
@@ -135,6 +133,6 @@ That ratio is the whole point of the SDK.
 * One decorator per primitive: `@mcp.tool()`, `@mcp.resource(uri)`, `@mcp.prompt()`. Name, description, and schema come from the function.
 * A URI with a `{param}` makes a resource **template**, listed separately from concrete resources.
 * The server's **capabilities** are declared for you, and a client only asks for what a server declares.
-* `Client(mcp)` connects to the server object in memory: your test harness from day one.
+* `Client("http://localhost:8000/mcp")` talks to your running server. Hand it the server object instead, `Client(mcp)`, and it is your test harness from day one.
 
 Next up is **[Connect to a real host](real-host.md)**: this server inside Claude Desktop or an IDE, for real. Then **[Testing](testing.md)**: one page, one in-memory client, and you're never guessing whether it works. After that, each primitive gets its own page, starting with the one the model drives: **[Tools](../servers/tools.md)**.
