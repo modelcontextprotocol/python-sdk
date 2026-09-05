@@ -8,10 +8,15 @@ import anyio
 import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import SSEError, aconnect_sse
+from httpx_sse import SSEError
 
 import mcp.types as types
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import (
+    McpHttpClientFactory,
+    create_mcp_http_client,
+    request_within_origin,
+    sse_within_origin,
+)
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -47,6 +52,13 @@ async def sse_client(
         headers: Optional headers to include in requests.
         timeout: HTTP timeout for regular operations.
         sse_read_timeout: Timeout for SSE read operations.
+        httpx_client_factory: Factory function for creating the httpx client. Whichever client it
+            returns, MCP requests follow a redirect only when it stays on the endpoint's origin
+            (same scheme, host and port, or http to https on the same host with default ports) and
+            keeps the request method (any status for the SSE GET, 307/308 for a message POST); any
+            other redirect is not followed, so connecting fails with `httpx.HTTPStatusError` for
+            the redirect response. The client's `follow_redirects` setting is not consulted; the
+            SDK's OAuth providers apply the same rule to the requests they make.
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
@@ -65,11 +77,7 @@ async def sse_client(
             async with httpx_client_factory(
                 headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
             ) as client:
-                async with aconnect_sse(
-                    client,
-                    "GET",
-                    url,
-                ) as event_source:
+                async with sse_within_origin(client, url) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
 
@@ -135,7 +143,9 @@ async def sse_client(
                             async with write_stream_reader:
                                 async for session_message in write_stream_reader:
                                     logger.debug(f"Sending client message: {session_message}")
-                                    response = await client.post(
+                                    response = await request_within_origin(
+                                        client,
+                                        "POST",
                                         endpoint_url,
                                         json=session_message.message.model_dump(
                                             by_alias=True,
@@ -161,3 +171,7 @@ async def sse_client(
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
+            # The receive sides too, so that failing to connect (which raises before the
+            # streams are handed to the caller) does not leave them to the garbage collector.
+            await read_stream.aclose()
+            await write_stream_reader.aclose()

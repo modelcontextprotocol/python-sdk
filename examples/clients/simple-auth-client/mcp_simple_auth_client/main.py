@@ -212,7 +212,7 @@ class SimpleAuthClient:
                     await self._run_session(read_stream, write_stream, None)
             else:
                 print("📡 Opening StreamableHTTP transport connection with auth...")
-                async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
+                async with httpx.AsyncClient(auth=oauth_auth) as custom_client:
                     async with streamable_http_client(
                         url=self.server_url,
                         http_client=custom_client,

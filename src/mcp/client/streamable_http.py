@@ -19,12 +19,16 @@ import anyio
 import httpx
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
+from httpx_sse import EventSource, ServerSentEvent
 from typing_extensions import deprecated
 
 from mcp.shared._httpx_utils import (
     McpHttpClientFactory,
     create_mcp_http_client,
+    redirect_location,
+    request_within_origin,
+    sse_within_origin,
+    stream_within_origin,
 )
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -70,6 +74,28 @@ class StreamableHTTPError(Exception):
 
 class ResumptionError(StreamableHTTPError):
     """Raised when resumption request is invalid."""
+
+
+def _unfollowed_redirect(response: httpx.Response) -> str | None:
+    """Describe a redirect `stream_within_origin` left unfollowed, or None if `response` is not one."""
+    location = redirect_location(response)
+    if location is None:
+        return None
+    if response.request.url.scheme == "https" and location.scheme == "http":
+        return (
+            f"Redirect to {location} not followed: it would downgrade this HTTPS endpoint to plain HTTP.\n"
+            "The server is likely behind a TLS-terminating proxy whose forwarded headers it does not trust,\n"
+            f"often combined with a trailing-slash difference. Try {location.copy_with(scheme='https')} instead, "
+            "or fix the proxy settings."
+        )
+    return f"Redirect to {location} not followed; use that URL as the endpoint if it is the intended server"
+
+
+def _raise_for_unfollowed_redirect(response: httpx.Response) -> None:
+    """Raise `httpx.HTTPStatusError`, as `raise_for_status()` does for a redirect response, saying why
+    this one was not followed."""
+    if (redirect := _unfollowed_redirect(response)) is not None:
+        raise httpx.HTTPStatusError(redirect, request=response.request, response=response)
 
 
 @dataclass
@@ -263,12 +289,11 @@ class StreamableHTTPTransport:
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id  # pragma: no cover
 
-                async with aconnect_sse(
-                    client,
-                    "GET",
-                    self.url,
-                    headers=headers,
-                ) as event_source:
+                async with sse_within_origin(client, self.url, headers=headers) as event_source:
+                    if (redirect := _unfollowed_redirect(event_source.response)) is not None:
+                        # The same GET would be redirected again, so retrying cannot help.
+                        logger.warning(f"GET stream not opened: {redirect}")
+                        return
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
@@ -311,12 +336,8 @@ class StreamableHTTPTransport:
         if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
             original_request_id = ctx.session_message.message.root.id
 
-        async with aconnect_sse(
-            ctx.client,
-            "GET",
-            self.url,
-            headers=headers,
-        ) as event_source:
+        async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
+            _raise_for_unfollowed_redirect(event_source.response)
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
@@ -337,7 +358,8 @@ class StreamableHTTPTransport:
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
-        async with ctx.client.stream(
+        async with stream_within_origin(
+            ctx.client,
             "POST",
             self.url,
             json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
@@ -355,6 +377,7 @@ class StreamableHTTPTransport:
                     )  # pragma: no cover
                 return  # pragma: no cover
 
+            _raise_for_unfollowed_redirect(response)
             response.raise_for_status()
             if is_initialization:
                 self._maybe_extract_session_id_from_response(response)
@@ -460,12 +483,7 @@ class StreamableHTTPTransport:
             original_request_id = ctx.session_message.message.root.id
 
         try:
-            async with aconnect_sse(
-                ctx.client,
-                "GET",
-                self.url,
-                headers=headers,
-            ) as event_source:
+            async with sse_within_origin(ctx.client, self.url, headers=headers) as event_source:
                 event_source.response.raise_for_status()
                 logger.info("Reconnected to SSE stream")
 
@@ -583,7 +601,7 @@ class StreamableHTTPTransport:
 
         try:
             headers = self._prepare_headers()
-            response = await client.delete(self.url, headers=headers)
+            response = await request_within_origin(client, "DELETE", self.url, headers=headers)
 
             if response.status_code == 405:
                 logger.debug("Server does not allow session termination")
@@ -619,6 +637,13 @@ async def streamable_http_client(
         http_client: Optional pre-configured httpx.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+            Whichever client is used, MCP requests follow a redirect only when it stays on the
+            endpoint's origin (same scheme, host and port, or http to https on the same host with
+            default ports) and keeps the request method (307/308 for a POST; any status for the GET
+            stream); any other redirect is not followed and, like any non-2xx response, raises
+            `httpx.HTTPStatusError`, here naming the location. The client's `follow_redirects`
+            setting is not consulted; the SDK's OAuth providers apply the same rule to the
+            requests they make.
         terminate_on_close: If True, send a DELETE request to terminate the session
             when the context exits.
 

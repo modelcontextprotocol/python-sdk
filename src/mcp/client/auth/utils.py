@@ -9,6 +9,7 @@ from pydantic_core import from_json
 
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
+from mcp.shared._httpx_utils import redirect_note
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -205,9 +206,9 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
             return True, asm
         except ValidationError:  # pragma: no cover
             return True, None
-    elif response.status_code < 400 or response.status_code >= 500:
-        return False, None  # Non-4XX error, stop trying
-    return True, None
+    elif 300 <= response.status_code < 500:
+        return True, None  # Not served at this URL (redirects are not followed) - try the next candidate
+    return False, None  # Server error or unexpected status, stop trying
 
 
 def validate_metadata_issuer(oauth_metadata: OAuthMetadata, expected_issuer: str) -> None:
@@ -262,7 +263,9 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
     """Handle registration response."""
     if response.status_code not in (200, 201):
         await response.aread()
-        raise OAuthRegistrationError(f"Registration failed: {response.status_code} {response.text}")
+        raise OAuthRegistrationError(
+            f"Registration failed: {response.status_code}{redirect_note(response)} {response.text}"
+        )
 
     try:
         content = await response.aread()

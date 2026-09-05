@@ -40,6 +40,7 @@ from mcp.client.auth.utils import (
     validate_metadata_issuer,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
+from mcp.shared._httpx_utils import RedirectAwareAuth, redirect_note
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -224,7 +225,7 @@ def _origin_issuer(server_url: str) -> str:
     return str(AnyHttpUrl(f"{parsed.scheme}://{parsed.netloc}"))
 
 
-class OAuthClientProvider(httpx.Auth):
+class OAuthClientProvider(RedirectAwareAuth):
     """
     OAuth2 authentication for httpx.
     Handles OAuth flow with automatic client registration and token storage.
@@ -421,7 +422,9 @@ class OAuthClientProvider(httpx.Auth):
         if response.status_code != 200:
             body = await response.aread()  # pragma: no cover
             body_text = body.decode("utf-8")  # pragma: no cover
-            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
+            raise OAuthTokenError(  # pragma: no cover
+                f"Token exchange failed ({response.status_code}){redirect_note(response)}: {body_text}"
+            )
 
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
@@ -464,7 +467,7 @@ class OAuthClientProvider(httpx.Auth):
     async def _handle_refresh_response(self, response: httpx.Response) -> bool:  # pragma: no cover
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
-            logger.warning(f"Token refresh failed: {response.status_code}")
+            logger.warning(f"Token refresh failed: {response.status_code}{redirect_note(response)}")
             self.context.clear_tokens()
             return False
 
@@ -508,8 +511,8 @@ class OAuthClientProvider(httpx.Auth):
         the 2025-03-26 well-known URL is built from (RFC 8414 §3.3)."""
         return self.context.auth_server_url or _origin_issuer(self.context.server_url)
 
-    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        """HTTPX auth flow integration."""
+    async def _auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        """The OAuth flow proper; `async_auth_flow` drives it (see `RedirectAwareAuth`)."""
         async with self.context.lock:
             if not self._initialized:
                 await self._initialize()  # pragma: no cover
