@@ -190,3 +190,37 @@ async def test_a_request_with_an_unrecognized_log_level_is_rejected(connect: Con
             await client.call_tool("siren", {}, meta={LOG_LEVEL_META_KEY: "verbose"})
 
     assert exc_info.value.error.code == INVALID_PARAMS
+
+
+@requirement("logging:message:null-data")
+async def test_log_message_with_null_data_reaches_the_logging_callback(connect: Connect) -> None:
+    """`data` is required but accepts any JSON value, so a null payload is a message, not an omission.
+
+    Spec-mandated: dropping the key produces a notification that fails its own schema, which the
+    receiving session rejects before dispatch, so the message disappears with no error to either side.
+    """
+    received: list[LoggingMessageNotificationParams] = []
+
+    async def collect(params: LoggingMessageNotificationParams) -> None:
+        received.append(params)
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="quiet", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "quiet"
+        await ctx.session.send_log_message(  # pyright: ignore[reportDeprecated]
+            level="info", data=None, related_request_id=ctx.request_id
+        )
+        return CallToolResult(content=[TextContent(text="done")])
+
+    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    # `log_level="debug"` opts the 2026-07-28 request into log delivery; the null `data`
+    # surviving the wire is the point here, and that is independent of the era's delivery gate.
+    async with connect(server, logging_callback=collect, log_level="debug") as client:
+        await client.call_tool("quiet", {})
+
+    assert received == snapshot([LoggingMessageNotificationParams(level="info", data=None)])
