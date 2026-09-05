@@ -45,6 +45,12 @@ SETTINGS = TransportSecuritySettings(
         pytest.param("good.example", "http://evil.example:9000", 403, id="origin-wildcard-base-mismatch"),
         pytest.param("good.example", "http://good.example", None, id="origin-exact"),
         pytest.param("good.example", "http://wild.example:9000", None, id="origin-wildcard-match"),
+        pytest.param("GOOD.EXAMPLE", None, None, id="host-exact-case-insensitive-uppercase-host"),
+        pytest.param("WILD.EXAMPLE:9000", None, None, id="host-wildcard-case-insensitive-uppercase-host"),
+        pytest.param("good.example", "HTTP://GOOD.EXAMPLE", None, id="origin-exact-case-insensitive-uppercase-origin"),
+        pytest.param(
+            "good.example", "http://WILD.EXAMPLE:9000", None, id="origin-wildcard-case-insensitive-uppercase-origin"
+        ),
     ],
 )
 async def test_validate_request_checks_host_then_origin(
@@ -54,6 +60,20 @@ async def test_validate_request_checks_host_then_origin(
     middleware = TransportSecurityMiddleware(SETTINGS)
     response = await middleware.validate_request(_request(host, origin))
     assert (None if response is None else response.status_code) == expected
+
+
+@pytest.mark.anyio
+async def test_validate_request_case_insensitive_uppercase_settings() -> None:
+    """When allowed_hosts is configured in uppercase (e.g. %COMPUTERNAME% on Windows), lowercase clients pass."""
+    settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["MYHOST:*", "EXACTHOST"],
+        allowed_origins=["HTTP://MYHOST:*", "HTTP://EXACTHOST"],
+    )
+    middleware = TransportSecurityMiddleware(settings)
+    # Lowercase host sent by WHATWG fetch / undici client
+    assert await middleware.validate_request(_request("myhost:8000", "http://myhost:8000")) is None
+    assert await middleware.validate_request(_request("exacthost", "http://exacthost")) is None
 
 
 @pytest.mark.anyio

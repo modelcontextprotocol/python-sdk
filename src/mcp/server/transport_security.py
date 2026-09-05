@@ -53,17 +53,20 @@ class TransportSecurityMiddleware:
             logger.warning("Missing Host header in request")
             return False
 
+        host_lower = host.lower()
+        allowed_hosts_lower = [h.lower() for h in self.settings.allowed_hosts]
+
         # Check exact match first
-        if host in self.settings.allowed_hosts:
+        if host_lower in allowed_hosts_lower:
             return True
 
         # Check wildcard port patterns
-        for allowed in self.settings.allowed_hosts:
+        for allowed in allowed_hosts_lower:
             if allowed.endswith(":*"):
                 # Extract base host from pattern
                 base_host = allowed[:-2]
                 # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
+                if host_lower.startswith(base_host + ":"):
                     return True
 
         logger.warning(f"Invalid Host header: {host}")
@@ -75,17 +78,20 @@ class TransportSecurityMiddleware:
         if not origin:
             return True
 
+        origin_lower = origin.lower()
+        allowed_origins_lower = [o.lower() for o in self.settings.allowed_origins]
+
         # Check exact match first
-        if origin in self.settings.allowed_origins:
+        if origin_lower in allowed_origins_lower:
             return True
 
         # Check wildcard port patterns
-        for allowed in self.settings.allowed_origins:
+        for allowed in allowed_origins_lower:
             if allowed.endswith(":*"):
                 # Extract base origin from pattern
                 base_origin = allowed[:-2]
                 # Check if the actual origin starts with base origin and has a port
-                if origin.startswith(base_origin + ":"):
+                if origin_lower.startswith(base_origin + ":"):
                     return True
 
         logger.warning(f"Invalid Origin header: {origin}")
