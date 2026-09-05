@@ -46,6 +46,7 @@ def build_app() -> Starlette:
             issuer_url=AnyHttpUrl(ISSUER),
             resource_server_url=AnyHttpUrl(RESOURCE_URL),
             required_scopes=[REQUIRED_SCOPE],
+            validate_token_resource=True,
         ),
         token_verifier=StaticTokenVerifier(),
         transport_security=NO_DNS_REBIND,

@@ -157,6 +157,7 @@ class InMemoryAuthorizationServerProvider(
             token=refresh,
             client_id=client.client_id,
             scopes=authorization_code.scopes,
+            resource=authorization_code.resource,
         )
         del self.codes[authorization_code.code]
         return OAuthToken(
@@ -183,9 +184,11 @@ class InMemoryAuthorizationServerProvider(
         if self._fail_next_refresh:
             self._fail_next_refresh = False
             raise TokenError(error="invalid_grant", error_description="refresh denied by harness")
-        access = self.mint_access_token(client_id=client.client_id, scopes=scopes)
+        access = self.mint_access_token(client_id=client.client_id, scopes=scopes, resource=refresh_token.resource)
         new_refresh = f"refresh_{secrets.token_hex(16)}"
-        self.refresh_tokens[new_refresh] = RefreshToken(token=new_refresh, client_id=client.client_id, scopes=scopes)
+        self.refresh_tokens[new_refresh] = RefreshToken(
+            token=new_refresh, client_id=client.client_id, scopes=scopes, resource=refresh_token.resource
+        )
         del self.refresh_tokens[refresh_token.token]
         return OAuthToken(
             access_token=access,

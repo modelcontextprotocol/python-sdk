@@ -46,6 +46,7 @@ class RefreshToken(BaseModel):
     client_id: str
     scopes: list[str]
     expires_at: int | None = None
+    resource: str | None = None  # RFC 8707 resource indicator; propagate to refreshed AccessTokens
     subject: str | None = None  # resource owner; propagate to refreshed AccessTokens
 
 
@@ -124,7 +125,15 @@ class TokenVerifier(Protocol):
     """Protocol for verifying bearer tokens."""
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        """Verify a bearer token and return access info if valid."""
+        """Verify a bearer token and return access info if valid.
+
+        Set `AccessToken.resource` to the resource the token was issued for (its RFC 8707
+        resource indicator / `aud`; for a list, the entry equal to the server's
+        `AuthSettings.resource_server_url`). With `AuthSettings.validate_token_resource` the
+        bearer middleware then refuses any token whose resource is not `resource_server_url`;
+        without it, confirming the token was issued for this server (for example by passing the
+        expected audience to your JWT library) is up to the verifier.
+        """
 
 
 # NOTE: MCPServer doesn't render any of these types in the user response, so it's

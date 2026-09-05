@@ -136,6 +136,7 @@ These are not spec changes, only SDK usage with a better replacement. They warn 
 | Deprecated | What you do instead |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` and then `FuncMetadata.call_fn()`. Only code that drives `FuncMetadata` directly (a custom `Tool` subclass, say) ever called it. |
+| `AuthSettings(resource_server_url=...)` without `validate_token_resource=` | Set it: `True` has the server refuse bearer tokens your verifier does not report as issued for `resource_server_url`, `False` says your verifier checks the token's audience itself (see **[Authorization](run/authorization.md#a-token-verifier)**). Unset behaves as `False`; 3.0 makes `True` the default whenever `resource_server_url` is set. |
 | `ClientCredentialsOAuthProvider(...)` or `PrivateKeyJWTOAuthProvider(...)` without `issuer=` | Pass `issuer=` naming the authorization server that issued the credentials (see **[Writing OAuth clients](client/oauth-clients.md#machine-to-machine)**). Without it the MCP server decides which authorization server receives them; 3.0 makes the keyword required. |
 
 ## Recap

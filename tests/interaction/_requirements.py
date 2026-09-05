@@ -2848,11 +2848,11 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#access-token-usage",
         behavior="The resource server validates that the token audience matches its resource identifier.",
         transports=("streamable-http",),
-        note="Auth is enforced at the HTTP layer.",
+        note="Auth is enforced at the HTTP layer; the conformant tests enable AuthSettings.validate_token_resource.",
         divergence=Divergence(
             note=(
-                "BearerAuthBackend never inspects AccessToken.resource; a token issued for a different "
-                "resource is accepted. Spec MUST."
+                "Off by default: without AuthSettings.validate_token_resource the bearer gate does not compare "
+                "AccessToken.resource with resource_server_url and the check is the token verifier's. Spec MUST."
             ),
         ),
     ),

@@ -151,6 +151,7 @@ async def test_the_whole_grant_is_one_token_request() -> None:
             issuer_url=AnyHttpUrl(tutorial002.ISSUER),
             resource_server_url=AnyHttpUrl(MCP_SERVER_URL),
             required_scopes=["notes:read"],
+            validate_token_resource=True,
         ),
     )
 
