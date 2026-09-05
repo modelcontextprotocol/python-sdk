@@ -31,18 +31,24 @@ _FUTURE = int(time.time()) + 3600
 _PAST = int(time.time()) - 3600
 
 
-def tok(name: str, *, scopes: list[str], expires_at: int, resource: str | None = RESOURCE) -> AccessToken:
-    return AccessToken(token=name, client_id="c", scopes=scopes, expires_at=expires_at, resource=resource)
-
-
 TOKENS = {
-    "tok-valid": tok("tok-valid", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE),
-    "tok-expired": tok("tok-expired", scopes=[REQUIRED_SCOPE], expires_at=_PAST),
-    "tok-noscope": tok("tok-noscope", scopes=["other:thing"], expires_at=_FUTURE),
-    "tok-wrong-aud": tok(
-        "tok-wrong-aud", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE, resource="https://other.example/mcp"
+    "tok-valid": AccessToken(
+        token="tok-valid", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE, resource=RESOURCE
     ),
-    "tok-no-aud": tok("tok-no-aud", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE, resource=None),
+    "tok-expired": AccessToken(
+        token="tok-expired", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_PAST, resource=RESOURCE
+    ),
+    "tok-noscope": AccessToken(
+        token="tok-noscope", client_id="c", scopes=["other:thing"], expires_at=_FUTURE, resource=RESOURCE
+    ),
+    "tok-wrong-aud": AccessToken(
+        token="tok-wrong-aud",
+        client_id="c",
+        scopes=[REQUIRED_SCOPE],
+        expires_at=_FUTURE,
+        resource="https://other.example/mcp",
+    ),
+    "tok-no-aud": AccessToken(token="tok-no-aud", client_id="c", scopes=[REQUIRED_SCOPE], expires_at=_FUTURE),
 }
 
 
