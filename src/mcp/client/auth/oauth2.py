@@ -195,6 +195,8 @@ class OAuthContext:
         if headers is None:
             headers = {}  # pragma: no cover
 
+        headers.setdefault("Accept", "application/json")
+
         if not self.client_info:
             return data, headers  # pragma: no cover
 
