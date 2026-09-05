@@ -6,6 +6,7 @@ import time
 from typing import Any, cast
 
 import pytest
+from pydantic import AnyHttpUrl
 from starlette.authentication import AuthCredentials
 from starlette.datastructures import Headers
 from starlette.requests import Request
@@ -263,6 +264,56 @@ class TestBearerAuthBackend:
         assert credentials.scopes == ["read", "write"]
         assert user.display_name == "test_client"
         assert user.access_token == valid_access_token
+
+
+class SingleTokenVerifier:
+    """A `TokenVerifier` that knows exactly one token."""
+
+    def __init__(self, access_token: AccessToken) -> None:
+        self.access_token = access_token
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        return self.access_token if token == self.access_token.token else None
+
+
+RS = "https://api.example.com/mcp"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("resource_server_url", "token_resource", "accepted"),
+    [
+        (None, "https://other.example.com/mcp", True),  # nothing configured to compare against
+        (None, None, True),
+        (RS, None, False),  # the verifier did not report what the token was issued for
+        (RS, RS, True),
+        (RS, RS + "/", True),
+        (RS, "https://API.EXAMPLE.COM:443/mcp", True),  # same URL, different spelling
+        (RS, "https://api.example.com", False),
+        (RS, RS + "/child", False),
+        (RS, "https://api.example.com/other", False),
+        (RS, "https://other.example.com/mcp", False),
+        (RS, "api.example.com", False),  # not a URL
+    ],
+)
+async def test_backend_accepts_only_tokens_issued_for_its_resource(
+    resource_server_url: str | None, token_resource: str | None, accepted: bool
+):
+    """With `resource_server_url` set, only a token whose `resource` (RFC 8707) is that URL is
+    accepted and anything else is treated like an unrecognized token (spec-mandated audience
+    check); without it the verifier's answer stands (SDK-defined, the default wiring)."""
+    token = AccessToken(token="t", client_id="c", scopes=["read"], resource=token_resource)
+    backend = BearerAuthBackend(
+        SingleTokenVerifier(token),
+        resource_server_url=AnyHttpUrl(resource_server_url) if resource_server_url else None,
+    )
+
+    result = await backend.authenticate(Request({"type": "http", "headers": [(b"authorization", b"Bearer t")]}))
+
+    if accepted:
+        assert result is not None and result[1].access_token == token
+    else:
+        assert result is None
 
 
 @pytest.mark.anyio

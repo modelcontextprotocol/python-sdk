@@ -881,7 +881,12 @@ class FastMCP(Generic[LifespanResultT]):
                     # extract auth info from request (but do not require it)
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(self._token_verifier),
+                        backend=BearerAuthBackend(
+                            self._token_verifier,
+                            resource_server_url=self.settings.auth.resource_server_url
+                            if self.settings.auth.validate_token_resource
+                            else None,
+                        ),
                     ),
                     # Add the auth context middleware to store
                     # authenticated user in a contextvar
@@ -999,7 +1004,12 @@ class FastMCP(Generic[LifespanResultT]):
                 middleware = [
                     Middleware(
                         AuthenticationMiddleware,
-                        backend=BearerAuthBackend(self._token_verifier),
+                        backend=BearerAuthBackend(
+                            self._token_verifier,
+                            resource_server_url=self.settings.auth.resource_server_url
+                            if self.settings.auth.validate_token_resource
+                            else None,
+                        ),
                     ),
                     Middleware(AuthContextMiddleware),
                 ]

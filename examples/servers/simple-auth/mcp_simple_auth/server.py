@@ -75,6 +75,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
             issuer_url=settings.auth_server_url,
             required_scopes=[settings.mcp_scope],
             resource_server_url=settings.server_url,
+            validate_token_resource=True,  # tokens must be reported as issued for server_url
         ),
     )
 
