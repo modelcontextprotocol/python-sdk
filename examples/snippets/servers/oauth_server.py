@@ -24,8 +24,9 @@ mcp = MCPServer(
     # Auth settings for RFC 9728 Protected Resource Metadata
     auth=AuthSettings(
         issuer_url=AnyHttpUrl("https://auth.example.com"),  # Authorization Server URL
-        resource_server_url=AnyHttpUrl("http://localhost:3001"),  # This server's URL
+        resource_server_url=AnyHttpUrl("http://localhost:3001/mcp"),  # This server's URL
         required_scopes=["user"],
+        validate_token_resource=True,
     ),
 )
 
