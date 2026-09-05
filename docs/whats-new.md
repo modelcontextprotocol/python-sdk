@@ -37,11 +37,11 @@ Not everything a tool needs should come from the model. New in v2, a tool parame
 
 v1 handed you three nested layers: a transport context manager yielding raw streams, a `ClientSession` wrapped around them, and a hand-called `await session.initialize()`. v2 has one object:
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` takes a server object (in memory, no transport: the testing story), a URL (Streamable HTTP), a `StdioServerParameters` (a stdio subprocess), or any other transport context manager such as `sse_client(...)`. Entering `async with` connects and negotiates the protocol version, whichever era the server speaks; `client.server_capabilities` and `client.protocol_version` are simply there afterwards, and `client.server_info` is too when the server identifies itself (it is `Implementation | None` now, since 2026-era identity is optional). The sampling and elicitation callbacks you registered in v1 still work (their bodies see the same snake_case attribute rename as everything else on this page), they now also answer the 2026-style requests-inside-results (below), and they run concurrently instead of one at a time. `ClientSession` is still underneath for anyone who wants the low-level surface, and `client.session` hands it to you; it moved too (it runs on the new dispatcher engine, and some of its own signatures changed), so read the **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** before you drop down.
+`Client` takes a URL (Streamable HTTP), a `StdioServerParameters` (a stdio subprocess), any other transport context manager such as `sse_client(...)`, or, in tests, the server object itself (in memory, no transport). Entering `async with` connects and negotiates the protocol version, whichever era the server speaks; `client.server_capabilities` and `client.protocol_version` are simply there afterwards, and `client.server_info` is too when the server identifies itself (it is `Implementation | None` now, since 2026-era identity is optional). The sampling and elicitation callbacks you registered in v1 still work (their bodies see the same snake_case attribute rename as everything else on this page), they now also answer the 2026-style requests-inside-results (below), and they run concurrently instead of one at a time. `ClientSession` is still underneath for anyone who wants the low-level surface, and `client.session` hands it to you; it moved too (it runs on the new dispatcher engine, and some of its own signatures changed), so read the **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** before you drop down.
 
 **[The Client](client/index.md)** introduces it, **[Client transports](client/transports.md)** covers the four connection forms, **[Client callbacks](client/callbacks.md)** covers the callbacks themselves, and **[Testing](get-started/testing.md)** shows the in-memory pattern that replaces v1's `create_connected_server_and_client_session()` helper.
 
@@ -166,11 +166,15 @@ Every server-initiated request is gone at 2026-07-28: push elicitation, sampling
 
 The replacement turns the call around. A tool that needs something from the user *returns* the question (`InputRequiredResult`), the client answers it with the same callbacks it always had, and the call is retried with the answers attached. `Client` drives that loop for you. On the server you rarely build the result yourself, because a **[dependency](handlers/dependencies.md)** does it: annotate a parameter with `Resolve(ask_quantity)`, where `ask_quantity` is an ordinary function you write, and the SDK asks over whichever mechanism the connection supports, a live elicitation request on a legacy session or a multi-round-trip on 2026. One tool body, both eras:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-That file is the pitch in one place: one server, one `Resolve`-backed tool, and a legacy client plus a modern client both getting their answer, in memory. **[Multi-round-trip requests](handlers/multi-round-trip.md)** explains the mechanism (including `request_state`, which the SDK seals and verifies for you); **[Elicitation](handlers/elicitation.md)** covers the asking.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Those two files are the whole pitch: one server, one `Resolve`-backed tool, and a legacy client plus a modern client both getting their answer from the same running server (**[Serving legacy clients](run/legacy-clients.md)** walks through them). **[Multi-round-trip requests](handlers/multi-round-trip.md)** explains the mechanism (including `request_state`, which the SDK seals and verifies for you); **[Elicitation](handlers/elicitation.md)** covers the asking.
 
 !!! warning "This is the one place a ported v1 server changes behavior"
     Your own tests hit it first: `Client(mcp)` negotiates 2026-07-28 against your v2 server by

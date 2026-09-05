@@ -43,7 +43,7 @@ async def test_each_report_becomes_one_callback_invocation_in_order() -> None:
 
 
 async def test_over_a_wire_dispatcher_callbacks_race_the_result() -> None:
-    """The `!!! info`: only the in-memory connection runs the callback inline.
+    """The `!!! info`: only the in-process connection runs the callback inline.
 
     On a wire dispatcher (`mode="legacy"` here) each progress notification starts its own task, so
     `call_tool` can return while a slow callback is still running. The callbacks below block on an

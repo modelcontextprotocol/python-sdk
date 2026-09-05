@@ -159,7 +159,7 @@ The low-level `Server` is the no-batteries tier: unlike `MCPServer`, nothing is 
 
 ## A 2026-07-28 result
 
-`InputRequiredResult` only exists at protocol version **2026-07-28**. The in-memory `Client(server)` negotiates it for you; over the wire, `mode="auto"` discovers it. After connecting, `client.protocol_version` tells you what you got.
+`InputRequiredResult` only exists at protocol version **2026-07-28**. `Client`'s default `mode="auto"` discovers it on any connection. After connecting, `client.protocol_version` tells you what you got.
 
 !!! warning
     A pre-2026 session has nowhere to put an `InputRequiredResult`. Return one from your handler on a

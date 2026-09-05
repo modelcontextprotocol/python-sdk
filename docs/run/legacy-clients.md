@@ -16,15 +16,25 @@ So a legacy client is not something you build *for*. It is something that connec
 
 ## One handler, both eras
 
-Here is a tool that has to ask the user something, and both eras of client calling it:
+Here is a tool that has to ask the user something:
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` needs one thing the model didn't supply: how many copies. `Annotated[..., Resolve(ask_quantity)]` is how a tool declares that (**[Dependencies](../handlers/dependencies.md)** is that whole story). Nothing in `reserve` names a version, checks a capability, or branches.
 
-The two clients are open **at the same time**, on the same `mcp` object. `mode="legacy"` runs the `initialize` handshake: the exact connection a pre-2026 client opens. The other one takes the default and lands on `2026-07-28`.
+Serve it over HTTP, and here are both eras of client calling it:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+The two clients are open **at the same time**, against the same running server. `mode="legacy"` runs the `initialize` handshake: the exact connection a pre-2026 client opens. The other one takes the default and lands on `2026-07-28`. Run `python client.py` from a second terminal:
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -115,7 +125,7 @@ Two things about it matter more than what it does.
 
 !!! check
     Do the wrong thing. `reserve` is the exact tool that just served both clients. Deploy it with
-    `stateless_http=True`, connect the same two clients over HTTP, and call it from each.
+    `stateless_http=True`, connect the same two clients, and call it from each.
 
     The modern client still gets `Reserved 2 of 'Dune'.` The modern leg didn't change.
 

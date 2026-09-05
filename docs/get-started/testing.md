@@ -1,8 +1,8 @@
 # Testing
 
-The Python SDK ships a `Client` class with an **in-memory transport**: pass it your server object and it connects to it directly.
+The SDK's `Client` class, the same one that connects to a URL or launches a subprocess, also connects **in memory**: pass it your server object and it talks to it directly.
 
-No subprocess. No port. No transport at all. It's the same idea as FastAPI's `TestClient`.
+No subprocess. No port. Nothing on a wire. It's the same idea as FastAPI's `TestClient`.
 
 ## Basic usage
 
@@ -91,7 +91,7 @@ instead of the sanitised one.
 
 Leave it on in tests. It has no meaning in production code.
 
-## In-process by default
+## Era-neutral by default
 
 !!! note
     `Client(mcp)` connects in-process and is **era-neutral** by default: it probes the server and

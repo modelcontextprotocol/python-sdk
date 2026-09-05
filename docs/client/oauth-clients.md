@@ -89,7 +89,7 @@ You wrote none of it. Two keyword arguments remain (`client_metadata_url` and `v
 
 ### Try it
 
-Most examples in these docs you can check with an in-memory `Client(server)`. Not this: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
+The in-memory `Client(server)` your tests use is no help here: the whole point of the flow is an HTTP `401`, and there is no HTTP between an in-memory client and its server.
 
 The repository ships the live version. `examples/servers/simple-auth/` runs a standalone authorization server and a protected MCP server; `examples/clients/simple-auth-client/` is this page's client grown into a small CLI. Its README has the two commands: start the servers, run the client against them, and you watch the four steps go by.
 

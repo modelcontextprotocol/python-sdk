@@ -1,24 +1,11 @@
+import anyio
+
 from mcp import Client
-from mcp.server import MCPServer
 from mcp.types import TextResourceContents
-
-mcp = MCPServer("Bookshop")
-
-
-@mcp.resource("catalog://genres")
-def genres() -> list[str]:
-    """The genres the catalog is organised by."""
-    return ["fiction", "non-fiction", "poetry"]
-
-
-@mcp.resource("catalog://genres/{genre}")
-def books_in_genre(genre: str) -> str:
-    """Every title we stock in one genre."""
-    return f"3 books filed under {genre}."
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         listed = await client.list_resources()
         print([resource.uri for resource in listed.resources])
 
@@ -29,3 +16,7 @@ async def main() -> None:
         for contents in result.contents:
             if isinstance(contents, TextResourceContents):
                 print(contents.text)
+
+
+if __name__ == "__main__":
+    anyio.run(main)

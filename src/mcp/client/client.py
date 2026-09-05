@@ -268,17 +268,12 @@ class Client:
 
     Example:
         ```python
-        from mcp.client import Client
-        from mcp.server.mcpserver import MCPServer
+        import asyncio
 
-        server = MCPServer("test")
-
-        @server.tool()
-        def add(a: int, b: int) -> int:
-            return a + b
+        from mcp import Client
 
         async def main():
-            async with Client(server) as client:
+            async with Client("http://localhost:8000/mcp") as client:
                 result = await client.call_tool("add", {"a": 1, "b": 2})
 
         asyncio.run(main())

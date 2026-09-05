@@ -8,6 +8,12 @@ Several entries run against this one server. One tool and one templated resource
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+Those entries reach it at `http://localhost:8000/mcp`, so leave it running over HTTP:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 The errors this page quotes are real: the SDK's own test suite reproduces every one of them.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)`
@@ -18,7 +24,7 @@ This is not an MCP error. It is anyio noise, and your real error is the **last l
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -44,7 +50,7 @@ Two things to do with that:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -62,7 +68,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -70,7 +76,7 @@ Enter it. `__aenter__` is the connection:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -270,7 +276,13 @@ One thing does **not** produce this error, despite being a request the modern pr
 
 Your server wants to ask the user something, and this client never said it can be asked.
 
-An elicitation resolver refuses up front when the connected client did not declare form elicitation, and `e.error.data` names exactly what is missing:
+This Bistro asks before it books, through a resolver:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Serve it in place of the Weather server and call `book_table` from a client that passed no `elicitation_callback`. The resolver refuses up front, because the connected client never declared form elicitation, and `e.error.data` names exactly what is missing:
 
 ```json
 {
@@ -284,7 +296,7 @@ Pass `elicitation_callback=` to `Client(...)`. Registering the callback *is* the
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -309,14 +321,14 @@ You see this one from `ctx.elicit()` on a legacy connection, and on any connecti
 
 Your handler tried to reach the client mid-request, on a connection whose call has no channel that can carry a request from the server. There are three server configurations that put a call there.
 
-**A `2026-07-28` connection: any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this (on the very first in-memory test, since `Client(server)` negotiates `2026-07-28` without being asked), and passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
+**A `2026-07-28` connection: any transport, always.** The modern protocol has no server-initiated requests at all, so the server refuses before anything is sent. `ctx.elicit()` inside a tool is the classic way to meet this, usually in that tool's very first in-memory **[test](get-started/testing.md)**, since `Client(mcp)` negotiates `2026-07-28` without being asked. Passing `elicitation_callback=` changes nothing, because no request ever reaches the client for it to answer:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -358,7 +370,7 @@ The server could not verify the `requestState` token your client echoed back, so
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 

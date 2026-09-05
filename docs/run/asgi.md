@@ -137,4 +137,4 @@ A browser-based client needs two permissions from you: to **send** its MCP reque
 * Browser clients need CORS: `allow_headers` for the `Mcp-*` request headers, `expose_headers=["Mcp-Session-Id"]` for the response.
 * `@mcp.custom_route()` adds plain, unauthenticated HTTP endpoints next to `/mcp`.
 
-Once the server is reachable at a real URL, **[The Client](../client/index.md)** connects to it with that URL instead of a server object.
+Once the server is reachable at a real URL, **[The Client](../client/index.md)** connects to it with that URL.

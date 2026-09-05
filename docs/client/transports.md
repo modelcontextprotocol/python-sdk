@@ -6,24 +6,9 @@ You never configure one separately. `Client` takes a single positional argument 
 
 The *server* side of each (what `mcp.run()` does and what you deploy) is **[Running your server](../run/index.md)**.
 
-## In memory
-
-Pass the server object itself:
-
-```python title="client.py" hl_lines="14"
---8<-- "docs_src/client_transports/tutorial001.py"
-```
-
-No subprocess, no port, no bytes on a wire. The client and the server are two objects in the same process, and the call still goes through the real protocol layer: `search_books` is listed, validated and invoked exactly as it would be over HTTP.
-
-That makes it two things at once:
-
-* **A test harness.** Every example in this documentation is exercised this way, and the **[Testing](../get-started/testing.md)** page builds the whole pattern around it.
-* **An embedding API.** An application that constructs the server doesn't need a network hop to call its tools.
-
 ## Streamable HTTP
 
-Pass a URL string and you get **Streamable HTTP**, the transport you deploy behind:
+Pass a URL string and you get **Streamable HTTP**, the transport you deploy behind and the one to reach for first:
 
 ```python title="client.py" hl_lines="5"
 --8<-- "docs_src/client_transports/tutorial002.py"
@@ -121,6 +106,18 @@ The child's stderr goes to yours. To send it somewhere else, build the transport
     A server that needs an API key won't find it there. Pass it explicitly with `env=`; those
     variables are merged on top of the allow-list. That is what `BOOKSHOP_API_KEY` is doing above.
 
+## In memory
+
+In a test there is nothing to deploy and nothing to launch. Pass the server object itself:
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+No subprocess, no port, no bytes on a wire. The client and the server are two objects in the same process, and the call still goes through the real protocol layer: `search_books` is listed, validated and invoked exactly as it would be over HTTP. **[Testing](../get-started/testing.md)** builds the whole pattern around it.
+
+The same form doubles as an embedding API: an application that constructs the server itself can call its tools without a network hop.
+
 ## SSE
 
 `sse_client(url)`, from `mcp.client.sse`, is the HTTP transport that Streamable HTTP superseded. Wrap it the same way, `Client(sse_client("http://localhost:8000/sse"))`, to talk to a server that still speaks it, and don't build anything new on it.
@@ -129,16 +126,16 @@ The child's stderr goes to yours. To send it somewhere else, build the transport
 
 To `Client`, all of the above are the same thing.
 
-A **transport** is any async context manager that yields a `(read, write)` pair of message streams: formally, the `Transport` protocol in `mcp.client`. `Client` resolves its argument by type: a server object connects in-process, a `str` becomes `streamable_http_client(url)`, a `StdioServerParameters` becomes `stdio_client(params)`, and anything else is entered as a transport directly. That last rule is why `stdio_client(...)`, `streamable_http_client(...)` and `sse_client(...)` all drop into the same slot, and why you can write your own.
+A **transport** is any async context manager that yields a `(read, write)` pair of message streams: formally, the `Transport` protocol in `mcp.client`. `Client` resolves its argument by type: a `str` becomes `streamable_http_client(url)`, a `StdioServerParameters` becomes `stdio_client(params)`, a server object connects in-process, and anything else is entered as a transport directly. That last rule is why `stdio_client(...)`, `streamable_http_client(...)` and `sse_client(...)` all drop into the same slot, and why you can write your own.
 
 ## Recap
 
-* `Client(mcp)` (the server object) connects in memory. Use it for tests and for embedding.
 * `Client("http://.../mcp")` (a URL) connects over Streamable HTTP, the production transport.
 * Headers, auth, proxies and timeouts belong on an `httpx2.AsyncClient` you pass to `streamable_http_client(url, http_client=...)`. There is no `headers=` keyword.
 * Redirects are followed only within the URL's own origin (a trailing-slash `307`/`308`), plus `http`→`https` on the same host. Anything else fails with `Redirect to … not followed`; configure the final URL.
 * stdio is `Client(StdioServerParameters(...))`. Wrap it in `stdio_client(...)` yourself only to redirect the child's stderr.
 * The subprocess gets an allow-listed environment, not yours; `env=` adds to it.
+* `Client(mcp)` (the server object) connects in memory. Use it in tests, or to embed a server in the application that built it.
 * A transport is anything you can `async with x as (read, write)`. `Client` hands anything that isn't a server object, a URL or `StdioServerParameters` straight to that protocol.
 * Constructing a `Client` picks the transport. `async with` opens it.
 

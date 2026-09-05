@@ -57,7 +57,7 @@ specified by the MCP project itself.
 
 The smallest useful extension is one tool and a settings map:
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -69,18 +69,25 @@ The smallest useful extension is one tool and a settings map:
 * The extension never receives the server. It declares contributions as data;
   `MCPServer` consumes them. There is no `self.server` to mutate.
 
-And `main()` is the proof, an in-memory client straight against `mcp`:
+Serve it over HTTP, and a client is the proof:
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+Every `server.py` on this page is served with that command, and every `client.py`
+runs beside it with `python client.py` from a second terminal.
 
 ### Serving your own methods
 
 An extension can register **new request methods**: its own verbs, served next to the
 spec's:
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -107,10 +114,10 @@ runtime:
 
 ### The client side
 
-The same file's `main()` is the whole client story, both halves of it:
+The client is its own program, and it carries both halves of the client story:
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` declares the extension. The
@@ -122,6 +129,9 @@ The same file's `main()` is the whole client story, both halves of it:
 * Vendor methods drop one layer to `client.session.send_request(...)`; `Client`
   only grows first-class methods for spec verbs. `send_request` accepts any
   `Request` subclass, so the vendor request passes as-is.
+* `SearchRequest` and the two models it carries are the extension's wire contract,
+  so the client declares them for itself. A published extension would ship them in
+  a package that both sides import.
 
 ### Intercepting `tools/call`
 
@@ -155,11 +165,18 @@ The hook wraps `tools/call` and nothing else. For every-message concerns, use
 ## Using a client extension
 
 A **client extension** is the same contract from the consuming side: a bundle of
-client-side behaviour behind one identifier. Pass instances to
-`Client(extensions=[...])` and call tools normally:
+client-side behaviour behind one identifier. The server here answers `buy` with a
+receipt to redeem instead of the goods, and only for a client that declared the
+extension:
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+On the client, pass instances to `Client(extensions=[...])` and call tools normally:
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)` returns a plain `CallToolResult`, like every other call. What
@@ -180,7 +197,7 @@ the capability, the client does nothing, as in the search client above), use
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## Writing a client extension
@@ -188,8 +205,8 @@ client = Client(mcp, extensions=[advertise("com.example/search")])
 Subclass `ClientExtension` and override only what you need. Three contribution
 kinds, each with a default: `settings()`, `claims()`, and `notifications()`.
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * The identifier follows the same grammar as the server's, validated when the class
@@ -227,12 +244,19 @@ claimed shape reaching a session-tier caller raises `UnexpectedClaimedResult`.
 
 An extension's own request methods need no client-side registration. A vendor request
 type subclasses `mcp.types.Request` and goes through `client.session.send_request`,
-as in [Serving your own methods](#serving-your-own-methods). One addition: when a
-params key must ride the `Mcp-Name` header (extension specs such as tasks require
-this for their verbs), the request type declares `name_param`:
+as in [Serving your own methods](#serving-your-own-methods). Take a server whose
+extension serves one verb about a named job:
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+One addition on the client: when a params key must ride the `Mcp-Name` header
+(extension specs such as tasks require this for their verbs), the request type
+declares `name_param`:
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 The session mirrors `params["jobId"]` into `Mcp-Name` on every send path, and a

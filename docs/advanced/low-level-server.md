@@ -31,18 +31,22 @@ Three things changed, and they are the whole low-level API:
 
 ### Try it
 
-There is no Inspector for this one: `mcp dev` and `mcp run` only accept an `MCPServer`. The in-memory `Client` doesn't care; it takes a low-level `Server` exactly like it takes an `MCPServer`:
+`mcp dev` and `mcp run` only accept an `MCPServer`, so you serve this one yourself. The last line of `server.py` builds an ordinary ASGI app from it, and uvicorn runs that:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Point the Inspector, or any client, at `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -58,6 +62,8 @@ The same text the `@mcp.tool()` version produced. Two honest differences:
 
 * `result.structured_content` is `None`. The high-level server wraps a `-> str` into `{"result": ...}` for you; here nobody builds what you didn't build.
 * `list_tools` returns the schema **you** typed, character for character. The high-level version had `"title": "Query"` on every property and a `"title": "search_booksArguments"` at the root: Pydantic artifacts. Down here, if it's on the wire, you put it there.
+
+In a test you skip uvicorn and the port: `Client(server)` takes a low-level `Server` in-process exactly like it takes an `MCPServer`, and **[Testing](../get-started/testing.md)** is that pattern.
 
 ## Nothing is checked for you
 
@@ -210,4 +216,4 @@ Each of these is one idea you now have the vocabulary for; each has its own page
 * `add_request_handler(method, params_type, handler)` serves any method. `initialize` is reserved.
 * The capabilities a `Server` advertises are derived from which handlers you registered.
 
-`Client(server)` treated both servers identically because they *are* the same protocol, which is the whole point. The next layer down isn't a class at all: it's **[Middleware](middleware.md)**.
+The client treated both servers identically because they *are* the same protocol, which is the whole point. The next layer down isn't a class at all: it's **[Middleware](middleware.md)**.

@@ -1,29 +1,11 @@
-from pydantic import BaseModel
+import anyio
 
 from mcp import Client
-from mcp.server import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import TextContent
-
-mcp = MCPServer("Bookshop")
-
-
-class Book(BaseModel):
-    title: str
-    author: str
-    year: int
-
-
-@mcp.tool()
-def lookup_book(title: str) -> Book:
-    """Look up a book by its exact title."""
-    if title != "Dune":
-        raise ToolError(f"No book titled {title!r} in the catalog.")
-    return Book(title="Dune", author="Frank Herbert", year=1965)
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("lookup_book", {"title": "Dune"})
 
         for block in result.content:
@@ -32,3 +14,7 @@ async def main() -> None:
 
         print(result.structured_content)
         print(result.is_error)
+
+
+if __name__ == "__main__":
+    anyio.run(main)

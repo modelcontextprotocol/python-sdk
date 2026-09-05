@@ -6,7 +6,7 @@ import httpx2
 import pytest
 from mcp_types import INVALID_REQUEST, ResourceUpdatedNotification, TextContent
 
-from docs_src.legacy_clients import tutorial001, tutorial002, tutorial003
+from docs_src.legacy_clients import tutorial001, tutorial001_client, tutorial002, tutorial003
 from mcp import Client, MCPError
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer
@@ -25,14 +25,21 @@ MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": 
 URL = "http://localhost:8000/mcp"
 
 
-async def test_one_resolve_tool_serves_a_legacy_and_a_modern_client_at_once(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """tutorial001's `main()`, exactly as the page renders it: two eras of client, one server, one answer."""
-    await tutorial001.main()
-    assert capsys.readouterr().out == (
-        """2025-11-25 {'result': "Reserved 2 of 'Dune'."}\n2026-07-28 {'result': "Reserved 2 of 'Dune'."}\n"""
-    )
+async def test_one_resolve_tool_serves_a_legacy_and_a_modern_client_at_once() -> None:
+    """tutorial001_client's flow, driven in-process against tutorial001's server: two eras of client open at
+    once with the page's `answer` callback, one `Resolve` tool, and the two lines the page prints."""
+    lines: list[tuple[str, object]] = []
+    async with (
+        Client(tutorial001.mcp, mode="legacy", elicitation_callback=tutorial001_client.answer) as legacy,
+        Client(tutorial001.mcp, elicitation_callback=tutorial001_client.answer) as modern,
+    ):
+        for client in (legacy, modern):
+            result = await client.call_tool("reserve", {"title": "Dune"})
+            lines.append((client.protocol_version, result.structured_content))
+    assert lines == [
+        ("2025-11-25", {"result": "Reserved 2 of 'Dune'."}),
+        ("2026-07-28", {"result": "Reserved 2 of 'Dune'."}),
+    ]
 
 
 async def test_neither_era_of_client_sees_the_resolved_parameter() -> None:
@@ -114,13 +121,13 @@ async def test_stateless_http_kills_the_legacy_back_channel_and_only_the_legacy_
         httpx2.AsyncClient(transport=transport) as http,
     ):
         modern_target = streamable_http_client(URL, http_client=http)
-        async with Client(modern_target, elicitation_callback=tutorial001.answer) as modern:
+        async with Client(modern_target, elicitation_callback=tutorial001_client.answer) as modern:
             assert modern.protocol_version == "2026-07-28"
             result = await modern.call_tool("reserve", {"title": "Dune"})
             assert result.content == [TextContent(type="text", text="Reserved 2 of 'Dune'.")]
 
         legacy_target = streamable_http_client(URL, http_client=http)
-        async with Client(legacy_target, mode="legacy", elicitation_callback=tutorial001.answer) as legacy:
+        async with Client(legacy_target, mode="legacy", elicitation_callback=tutorial001_client.answer) as legacy:
             assert legacy.protocol_version == "2025-11-25"
             with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                 await legacy.call_tool("reserve", {"title": "Dune"})

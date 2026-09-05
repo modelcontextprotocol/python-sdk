@@ -73,7 +73,7 @@ If you already hold a connected `ClientSession` (`Client.session` is one), hand 
 ## Recap
 
 * `ClientSessionGroup` holds many server connections and merges their tools, resources, and prompts into one `dict` each.
-* `connect_to_server(params)` per server. It takes transport parameters, never the server object or URL a `Client` takes.
+* `connect_to_server(params)` per server. It takes transport parameters, never the URL or `Transport` a `Client` takes.
 * `group.call_tool(name, arguments)` routes to the owning server for you.
 * Names must be unique across the whole group; two servers with a `search` tool cannot coexist on their own.
 * `component_name_hook=` rewrites every registered name. The dict key changes, the wire name does not.

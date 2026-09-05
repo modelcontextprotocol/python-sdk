@@ -21,8 +21,9 @@ uv run python -m stories.resources.client --http --server server_lowlevel
 
 - `client.py` `async with Client(target, mode=mode) as client:` — the one line
   every client example exists to teach. `target` is anything `Client()`
-  accepts (an in-process server, a transport, or an HTTP URL) and `mode=` is
-  always explicit; the rest of the story is the body of that `async with`.
+  accepts (an HTTP URL, `StdioServerParameters`, a transport, or, in tests, an
+  in-process server) and `mode=` is always explicit; the rest of the story is
+  the body of that `async with`.
 - `server.py` `app_config` vs `greeting` — a URI with no `{}` registers a
   static resource (appears in `resources/list`); a URI with `{name}` registers
   a template (appears only in `resources/templates/list`) and the placeholder

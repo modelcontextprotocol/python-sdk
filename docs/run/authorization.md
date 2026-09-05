@@ -124,6 +124,6 @@ An authorization server can also accept an enterprise identity provider's signed
 * `token_verifier=` and `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` always travel together.
 * The SDK publishes [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata at `/.well-known/oauth-protected-resource/...` and answers unauthenticated requests with a 401 whose `WWW-Authenticate` header points at it. That is the entire discovery story.
 * `get_access_token()` in any handler is who's calling.
-* Authorization is an HTTP concern. `stdio` and the in-memory client never see it.
+* Authorization is an HTTP concern. `stdio` and the in-memory test client never see it.
 
 The client half (discovering your authorization server and fetching the token for you) is **[OAuth clients](../client/oauth-clients.md)**. And a client that *asserts* an identity instead of asking a user for one is **[Identity assertion](../client/identity-assertion.md)**.
