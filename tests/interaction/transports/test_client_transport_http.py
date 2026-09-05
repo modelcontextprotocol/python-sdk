@@ -96,7 +96,6 @@ async def test_every_request_after_initialize_carries_the_issued_session_id(reco
     assert session_id
 
 
-@requirement("client-transport:http:protocol-version-stored")
 @requirement("client-transport:http:protocol-version-header")
 async def test_every_request_after_initialize_carries_the_negotiated_protocol_version(
     recorded: list[httpx2.Request],
@@ -269,6 +268,7 @@ def _blocking_server(started: anyio.Event, cancelled: anyio.Event) -> Server:
     return Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
 
 
+@requirement("hosting:http:modern:disconnect-cancels-handler")
 @requirement("client-transport:http:cancel-closes-stream")
 async def test_at_2026_abandoning_a_call_closes_its_stream_and_posts_nothing() -> None:
     """At 2026-07-28, abandoning an in-flight call aborts that call's own POST - the server sees

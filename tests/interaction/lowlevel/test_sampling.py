@@ -3,6 +3,8 @@
 Each test nests a sampling/createMessage request inside a tool call: the tool handler calls
 ctx.session.create_message(), the client's sampling callback answers it, and the handler
 round-trips what it received back to the test through its tool result.
+
+The 2026 MRTR tests embed the request in an input_required result instead; the client fulfils it and retries.
 """
 
 import mcp_types as types
@@ -12,11 +14,14 @@ from inline_snapshot import snapshot
 from mcp_types import (
     AudioContent,
     CallToolResult,
+    CreateMessageRequest,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
     ErrorData,
     ImageContent,
+    InputRequiredResult,
+    InputResponses,
     ModelHint,
     ModelPreferences,
     SamplingCapability,
@@ -29,7 +34,9 @@ from mcp_types import (
 from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
+from tests._stamp import Unstamp
 from tests.interaction._connect import Connect
+from tests.interaction._helpers import tool_listing
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -92,9 +99,9 @@ async def test_create_message_round_trip(connect: Connect) -> None:
 async def test_create_message_params_reach_callback(connect: Connect) -> None:
     """Every sampling parameter the handler supplies arrives at the client callback unchanged.
 
-    The client has not declared the sampling.context capability (Client cannot declare it), yet
-    include_context="thisServer" reaches the callback regardless: the spec's SHOULD NOT is not
-    enforced. See the divergence note on `sampling:context:server-gated-by-capability`.
+    The client has not declared the sampling.context capability, yet include_context="thisServer" reaches
+    the callback regardless: the spec's SHOULD NOT is not enforced. See the divergence note on
+    `sampling:context:server-gated-by-capability`.
     """
     received: list[CreateMessageRequestParams] = []
 
@@ -155,7 +162,7 @@ async def test_create_message_params_reach_callback(connect: Connect) -> None:
     )
 
 
-@requirement("sampling:create-message:image-content")
+@requirement("sampling:create:image-content")
 async def test_create_message_request_with_image_content_reaches_callback(connect: Connect) -> None:
     """A sampling request message carrying image content arrives at the client callback intact.
 
@@ -207,7 +214,7 @@ async def test_create_message_request_with_image_content_reaches_callback(connec
     )
 
 
-@requirement("sampling:create-message:image-content")
+@requirement("sampling:create:image-content")
 async def test_create_message_result_with_image_content_returns_to_handler(connect: Connect) -> None:
     """A sampling result whose content is an image is returned to the requesting handler intact.
 
@@ -281,7 +288,7 @@ async def test_create_message_callback_error(connect: Connect) -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="-1: User rejected sampling request")]))
 
 
-@requirement("sampling:create-message:not-supported")
+@requirement("sampling:create:not-supported")
 async def test_create_message_without_callback_is_error(connect: Connect) -> None:
     """A sampling request to a client with no sampling callback fails with the SDK's default error."""
 
@@ -313,8 +320,8 @@ async def test_create_message_without_callback_is_error(connect: Connect) -> Non
 async def test_create_message_with_tools_is_rejected_for_unsupporting_client(connect: Connect) -> None:
     """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
 
-    The client supports plain sampling but cannot declare the tools sub-capability (Client does not
-    expose it), so the server-side validator rejects the request before anything reaches the wire.
+    The client supports plain sampling but does not declare the tools sub-capability, so the server-side
+    validator rejects the request before anything reaches the wire.
     """
 
     async def list_tools(
@@ -407,8 +414,7 @@ async def test_create_message_with_mixed_tool_result_content_is_rejected(connect
 async def test_a_client_with_a_sampling_callback_declares_the_sampling_capability(connect: Connect) -> None:
     """A client connecting with a sampling callback advertises the sampling capability to the server.
 
-    Client cannot declare any sub-capabilities (it does not expose ClientSession's
-    sampling_capabilities parameter), so the snapshot pins an empty SamplingCapability.
+    The client declares no sub-capabilities here, so the snapshot pins an empty SamplingCapability.
     """
     captured: list[SamplingCapability | None] = []
 
@@ -437,7 +443,7 @@ async def test_a_client_with_a_sampling_callback_declares_the_sampling_capabilit
     assert captured == snapshot([SamplingCapability()])
 
 
-@requirement("sampling:create-message:audio-content")
+@requirement("sampling:create:audio-content")
 async def test_create_message_request_with_audio_content_reaches_callback(connect: Connect) -> None:
     """A sampling request message carrying audio content arrives at the client callback intact.
 
@@ -489,7 +495,7 @@ async def test_create_message_request_with_audio_content_reaches_callback(connec
     )
 
 
-@requirement("sampling:create-message:audio-content")
+@requirement("sampling:create:audio-content")
 async def test_create_message_result_with_audio_content_returns_to_handler(connect: Connect) -> None:
     """A sampling result whose content is audio is returned to the requesting handler intact.
 
@@ -686,3 +692,106 @@ async def test_array_content_result_for_a_tool_free_request_surfaces_as_a_valida
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="ValidationError")]))
+
+
+@requirement("sampling:mrtr:create:basic")
+async def test_embedded_sampling_request_is_fulfilled_and_its_result_reaches_the_retried_handler(
+    connect: Connect, unstamped: Unstamp
+) -> None:
+    """An embedded sampling request is fulfilled by the client callback and its result reaches the retried handler.
+
+    Spec-mandated.
+    """
+    SENT = CreateMessageRequestParams(
+        messages=[SamplingMessage(role="user", content=TextContent(text="Say hello."))],
+        max_tokens=100,
+    )
+    RESULT = CreateMessageResult(
+        role="assistant",
+        content=TextContent(text="Hello to you too."),
+        model="mock-llm-1",
+        stop_reason="endTurn",
+    )
+    callback_received: list[CreateMessageRequestParams] = []
+    handler_received: list[InputResponses] = []
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "ask_model"
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"ask": CreateMessageRequest(params=SENT)})
+        handler_received.append(params.input_responses)
+        answer = params.input_responses["ask"]
+        assert isinstance(answer, CreateMessageResult)
+        assert isinstance(answer.content, TextContent)
+        return CallToolResult(content=[TextContent(text=f"{answer.model}/{answer.stop_reason}: {answer.content.text}")])
+
+    server = Server("sampler", on_list_tools=tool_listing("ask_model"), on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        callback_received.append(params)
+        return RESULT
+
+    async with connect(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("ask_model", {})
+
+    assert unstamped(result) == snapshot(
+        CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: Hello to you too.")])
+    )
+    assert callback_received == [SENT]
+    assert handler_received == [{"ask": RESULT}]
+
+
+@requirement("sampling:mrtr:create:include-context")
+@requirement("sampling:mrtr:create:max-tokens")
+@requirement("sampling:mrtr:create:model-preferences")
+@requirement("sampling:mrtr:create:system-prompt")
+async def test_embedded_sampling_params_reach_the_callback_intact(connect: Connect, unstamped: Unstamp) -> None:
+    """Every parameter supplied in an embedded sampling request reaches the client callback unchanged.
+
+    Spec-mandated.
+    """
+    SENT = CreateMessageRequestParams(
+        messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
+        model_preferences=ModelPreferences(
+            hints=[ModelHint(name="claude"), ModelHint(name="gpt")],
+            cost_priority=0.2,
+            speed_priority=0.3,
+            intelligence_priority=0.9,
+        ),
+        system_prompt="You are terse.",
+        # The other include_context values are deprecated at 2026-07-28 (SEP-2596) and capability-gated.
+        include_context="none",
+        temperature=0.7,
+        max_tokens=50,
+        stop_sequences=["\n\n", "END"],
+    )
+    callback_received: list[CreateMessageRequestParams] = []
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | InputRequiredResult:
+        assert params.name == "ask_model"
+        if params.input_responses is None:
+            return InputRequiredResult(input_requests={"ask": CreateMessageRequest(params=SENT)})
+        answer = params.input_responses["ask"]
+        assert isinstance(answer, CreateMessageResult)
+        assert isinstance(answer.content, TextContent)
+        return CallToolResult(content=[TextContent(text=answer.content.text)])
+
+    server = Server("sampler", on_list_tools=tool_listing("ask_model"), on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        callback_received.append(params)
+        return CreateMessageResult(role="assistant", content=TextContent(text="ok"), model="mock-llm-1")
+
+    async with connect(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("ask_model", {})
+
+    assert callback_received == [SENT]
+    assert unstamped(result) == snapshot(CallToolResult(content=[TextContent(text="ok")]))
