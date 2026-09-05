@@ -435,7 +435,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/versioning#protocol-version-negotiation",
         behavior=(
             "When server/discover returns -32022 UnsupportedProtocolVersion, the client retries once with "
-            "the intersection of error.data.supported and its own modern versions; an empty intersection raises."
+            "the intersection of error.data.supported and its own modern versions; an empty intersection raises "
+            "when error.data.supported names no handshake-era version; a list that names one falls back to the "
+            "initialize handshake."
         ),
         added_in="2026-07-28",
         supersedes=("lifecycle:version:downgrade", "lifecycle:version:reject-unsupported"),
@@ -529,8 +531,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:discover:fallback-method-not-found": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/stdio#backward-compatibility",
         behavior=(
-            "When server/discover is rejected with a JSON-RPC error other than -32022 (see "
-            "lifecycle:discover:retry-on-32022), or with a bare HTTP 4xx, an auto-negotiating client falls back to "
+            "When server/discover is rejected with a JSON-RPC error other than -32022 (which retries, raises, or "
+            "falls back to the handshake according to the supported list; see lifecycle:discover:retry-on-32022), "
+            "or with a bare HTTP 4xx, an auto-negotiating client falls back to "
             "the legacy initialize handshake and connects at a handshake-era version; the fallback is not keyed to "
             "specific codes because legacy servers reject the probe with various codes."
         ),
@@ -622,11 +625,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:directionality:no-client-responses": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/patterns",
         behavior=(
-            "A 2026-07-28 wire trace contains no server-initiated JSON-RPC requests and no "
-            "client-sent JSON-RPC responses: every client-to-server frame is a request and every "
-            "server-to-client frame is a response or a request-scoped notification, never a request, even "
-            "across a multi-round-trip exchange that at 2025-11-25 was a server-initiated request answered "
-            "by the client."
+            "A 2026-07-28 wire trace contains no server-initiated JSON-RPC requests and no client-sent "
+            "JSON-RPC responses; notifications flow in both directions. This holds even across a "
+            "multi-round-trip exchange that at 2025-11-25 was a server-initiated request answered by the client."
         ),
         added_in="2026-07-28",
         note=(
@@ -1337,8 +1338,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client:x-mcp-header:invalid-definition-rejected:non-primitive": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#schema-extension",
         behavior=(
-            "An x-mcp-header annotation on a non-primitive property (e.g. type number, which "
-            "the spec explicitly forbids) makes the tool definition invalid and the modern "
+            "An x-mcp-header annotation is permitted only on integer, string or boolean properties; a tool "
+            "that annotates any other type (for example number) has an invalid definition and the modern "
             "client excludes it from tools/list."
         ),
         added_in="2026-07-28",
@@ -1646,11 +1647,26 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="resources/read returns text contents carrying uri, mimeType, and the text.",
     ),
     "resources:read:unknown-uri": Requirement(
+        source=f"{SPEC_BASE_URL}/server/resources#error-handling",
+        behavior="resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).",
+        divergence=Divergence(
+            note=(
+                "The server answers -32602 (invalid params, URI in error.data) on handshake-era connections too; "
+                "when a 2025-era -32002 arm lands, re-pin the 2025 cells to -32002 and delete this divergence."
+            ),
+        ),
+        note="replaced at 2026-07-28 (SEP-2164): unknown URIs are Invalid params (-32602).",
+        removed_in="2026-07-28",
+        superseded_by="resources:read:unknown-uri-invalid-params",
+    ),
+    "resources:read:unknown-uri-invalid-params": Requirement(
         source=f"{SPEC_2026_BASE_URL}/server/resources#error-handling",
         behavior=(
             "resources/read for a URI matching no registered resource returns JSON-RPC error -32602 "
             "(invalid params) with the requested URI in error.data, per SEP-2164."
         ),
+        added_in="2026-07-28",
+        supersedes=("resources:read:unknown-uri",),
     ),
     "resources:subscribe": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
@@ -1719,14 +1735,14 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_2026_BASE_URL}/basic/patterns/subscriptions#graceful-closure",
         behavior=(
             "A server ending a subscription on its own initiative answers the original "
-            "subscriptions/listen request with an empty result (stamped with the subscriptionId) before "
-            "closing the stream, so the client can distinguish a graceful close from a transport drop."
+            "subscriptions/listen request with an empty result before closing the stream, so the "
+            "client can distinguish a graceful close from a transport drop."
         ),
         added_in="2026-07-28",
         note=(
             "The deliberate close is a lowlevel-Server surface: ListenHandler.close() ends every open "
-            "stream with the stamped empty result; MCPServer registers its ListenHandler by default "
-            "and exposes no teardown handle."
+            "stream with the empty result, which carries the subscriptionId stamp the bound test does not "
+            "observe. MCPServer registers its ListenHandler by default and exposes no teardown handle."
         ),
     ),
     "subscriptions:listen:notification-stamped": Requirement(
@@ -4658,8 +4674,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         added_in="2026-07-28",
         transports=("streamable-http",),
         note=(
-            "Only observable over streamable HTTP. Scoped to the 2026-07-28 entry, where the SHOULD is new; the "
-            "legacy SSE and streamable-HTTP transports send no such header and are not bound by this entry."
+            "Only observable over streamable HTTP. Scoped to the 2026-07-28 entry, where the SHOULD is stated; "
+            "the handshake-era transports also emit the header through their SSE response class but are not "
+            "bound by this entry."
         ),
     ),
     "hosting:http:modern:header-name-case-insensitive": Requirement(
@@ -4954,12 +4971,16 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client-transport:http:body-derived-headers": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#standard-request-headers",
         behavior=(
-            "An envelope-bearing request body yields MCP-Protocol-Version, Mcp-Method, and (for tools/call) "
-            "Mcp-Name headers on the outgoing HTTP request; a body without the envelope yields none."
+            "An envelope-bearing request body yields MCP-Protocol-Version, Mcp-Method and (for tools/call) "
+            "Mcp-Name headers on the outgoing HTTP request, derived from the body at the transport seam."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
-        note="Only observable over streamable HTTP: headers are derived from the body envelope at the transport seam.",
+        note=(
+            "Only observable over streamable HTTP. Handshake-era requests carry no envelope; their "
+            "MCP-Protocol-Version header is stamped from the negotiated session instead "
+            "(client-transport:http:protocol-version-header)."
+        ),
     ),
     "client-transport:http:mcp-name-base64-sentinel": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/transports/streamable-http#standard-request-headers",
@@ -5450,16 +5471,15 @@ REQUIREMENTS: dict[str, Requirement] = {
     "client-auth:iss:no-normalize": Requirement(
         source=f"{SPEC_2026_BASE_URL}/basic/authorization#authorization-response-validation",
         behavior=(
-            "The iss comparison is simple string comparison (RFC 3986 section 6.2.1): a value "
-            "differing from the recorded issuer only by a trailing slash is rejected as a "
-            "mismatch -- no scheme or host case folding, default-port elision, trailing-slash, "
-            "or percent-encoding normalization is applied before comparison."
+            "The iss comparison is a plain string comparison against the recorded issuer (RFC 3986 "
+            "section 6.2.1): a callback iss differing only by a trailing slash is rejected as a mismatch."
         ),
         added_in="2026-07-28",
         transports=("streamable-http",),
         note=(
-            "OAuth is HTTP-only. The comparison is a single string inequality; the test pins the "
-            "trailing-slash arm as the representative normalization class."
+            "OAuth is HTTP-only. The recorded issuer is the parsed metadata URL, so scheme and host case "
+            "and default ports are already normalized when the metadata is read; trailing-slash and "
+            "percent-encoding differences are not, and the test pins the trailing-slash arm."
         ),
     ),
     "client-auth:iss:supported-missing-reject": Requirement(

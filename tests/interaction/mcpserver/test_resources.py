@@ -113,17 +113,37 @@ async def test_read_templated_resource(connect: Connect, unstamped: Unstamp) -> 
     )
 
 
-@requirement("resources:read:unknown-uri")
-async def test_read_unknown_uri_is_error(connect: Connect) -> None:
-    """Reading a URI that matches no registered resource fails with -32602 and the URI in data (SEP-2164)."""
+def _library_with_one_resource() -> MCPServer:
+    """A server with one registered resource at config://app; the unknown-URI tests read a different URI."""
     mcp = MCPServer("library")
 
     @mcp.resource("config://app")
     def app_config() -> str:
-        """A registered resource; the test reads a different URI."""
         raise NotImplementedError
 
-    async with connect(mcp) as client:
+    return mcp
+
+
+@requirement("resources:read:unknown-uri-invalid-params")
+async def test_read_unknown_uri_is_invalid_params(connect: Connect) -> None:
+    """Reading a URI that matches no registered resource fails with -32602 and the URI in data (SEP-2164)."""
+    async with connect(_library_with_one_resource()) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("config://missing")
+
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=-32602, message="Unknown resource: config://missing", data={"uri": "config://missing"})
+    )
+
+
+@requirement("resources:read:unknown-uri")
+async def test_read_unknown_uri_on_handshake_era_is_invalid_params_too(connect: Connect) -> None:
+    """Reading a URI that matches no registered resource fails with -32602 on handshake-era connections as well.
+
+    On 2025-11-25 cells this pins the divergence recorded on resources:read:unknown-uri: the spec's
+    code there is -32002. When a 2025-era -32002 arm lands, re-pin this assertion to -32002.
+    """
+    async with connect(_library_with_one_resource()) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("config://missing")
 

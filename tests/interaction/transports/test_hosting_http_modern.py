@@ -134,7 +134,8 @@ async def test_modern_tools_call_returns_result_type_complete_without_initialize
     result), and the server identifies itself via the result `_meta` serverInfo stamp. Asserted at
     the wire because the SDK client never surfaces `resultType` and because the absence of any
     prior request on the connection is the assertion. The `application/json` Content-Type also
-    pins the lazy-upgrade JSON arm: a silent handler never commits SSE.
+    pins the lazy-upgrade JSON arm: a silent handler that completes within the deferral window
+    never commits SSE.
     """
     body = {
         "jsonrpc": "2.0",
@@ -503,7 +504,9 @@ def _custom_header_server(*, on_call: Callable[[tuple[Headers, dict[str, Any] | 
     async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(tools=[_CUSTOM_HEADER_TOOL], ttl_ms=0, cache_scope="public")
 
-    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    async def call_tool(
+        ctx: ServerRequestContext[Any, StarletteRequest], params: CallToolRequestParams
+    ) -> CallToolResult:
         if on_call is not None:
             assert isinstance(ctx.request, StarletteRequest)
             on_call((ctx.request.headers, params.arguments))
@@ -533,9 +536,12 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
             client_via_http(http, mode=LATEST_MODERN_VERSION) as client,
         ):
             await client.list_tools()
-            await client.call_tool("run", {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"})
+            await client.call_tool(
+                "run", {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo", "query": "status"}
+            )
 
     call = next(r for r in requests if json.loads(r.content)["method"] == "tools/call")
+    # Exact set: the unannotated `query` is passed but yields no header.
     assert {k: v for k, v in call.headers.items() if k.startswith("mcp-param-")} == snapshot(
         {
             "mcp-param-region": "us-west1",
@@ -546,7 +552,7 @@ async def test_modern_client_mirrors_x_mcp_header_args_into_mcp_param_headers() 
     )
     # Mirroring is additive: the arguments are unchanged in the body.
     assert json.loads(call.content)["params"]["arguments"] == snapshot(
-        {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo"}
+        {"region": "us-west1", "priority": 42, "verbose": False, "note": "héllo", "query": "status"}
     )
 
 
@@ -681,7 +687,9 @@ async def test_non_header_safe_tool_name_is_carried_as_base64_sentinel_mcp_name(
     """
     seen: list[str] = []
 
-    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    async def call_tool(
+        ctx: ServerRequestContext[Any, StarletteRequest], params: CallToolRequestParams
+    ) -> CallToolResult:
         assert params.name == "hëllo"
         assert isinstance(ctx.request, StarletteRequest)
         seen.append(ctx.request.headers["mcp-name"])
@@ -1088,7 +1096,9 @@ async def test_modern_client_non_ascii_prompt_name_round_trips_via_sentinel_enco
     """
     seen: list[str] = []
 
-    async def get_prompt(ctx: ServerRequestContext, params: GetPromptRequestParams) -> GetPromptResult:
+    async def get_prompt(
+        ctx: ServerRequestContext[Any, StarletteRequest], params: GetPromptRequestParams
+    ) -> GetPromptResult:
         assert params.name == "héllo"
         assert isinstance(ctx.request, StarletteRequest)
         seen.append(ctx.request.headers["mcp-name"])

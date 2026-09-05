@@ -268,7 +268,7 @@ async def test_tokens_from_the_previous_authorization_server_are_never_replayed_
     storage.tokens = OAuthToken(
         access_token="stale-access-token",
         token_type="Bearer",
-        expires_in=3600,
+        expires_in=-3600,
         scope="mcp",
         refresh_token="stale-refresh-token",
     )

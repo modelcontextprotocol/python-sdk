@@ -227,8 +227,9 @@ async def test_auto_loop_raises_rounds_exceeded_when_the_server_never_completes(
     async with Client(
         server, mode=LATEST_MODERN_VERSION, elicitation_callback=answer_again, input_required_max_rounds=2
     ) as client:
-        # Raised inside the block: Client.__aexit__ would wrap the error in an ExceptionGroup.
-        with pytest.raises(InputRequiredRoundsExceededError) as exc_info:
+        # Raised inside the block: Client.__aexit__ would wrap the error in an ExceptionGroup. The
+        # fail_after is the only guard against an unbounded retry loop if the cap stops being enforced.
+        with anyio.fail_after(5), pytest.raises(InputRequiredRoundsExceededError) as exc_info:
             await client.call_tool("never-done", {})
 
     assert exc_info.value.max_rounds == 2
