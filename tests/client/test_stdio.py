@@ -1468,7 +1468,7 @@ async def test_preexec_fn_executes_in_child_process(tmp_path: Path) -> None:
     log_file = tmp_path / "preexec.log"
 
     def hook() -> None:
-        with open(log_file, "w") as f:
+        with open(log_file, "w", encoding="utf-8") as f:
             f.write(f"{os.getpid()}")
 
     server_params = StdioServerParameters(
@@ -1481,7 +1481,7 @@ async def test_preexec_fn_executes_in_child_process(tmp_path: Path) -> None:
         async with stdio_client(server_params):
             while not log_file.exists():
                 await anyio.sleep(0.01)
-            child_pid = int(log_file.read_text().strip())
+            child_pid = int(log_file.read_text(encoding="utf-8").strip())
             assert child_pid != os.getpid()
 
 
@@ -1492,7 +1492,7 @@ async def test_process_group_sets_child_process_group(tmp_path: Path) -> None:
     pgid_file = tmp_path / "pgid.log"
     script = (
         f"import os, pathlib, sys\n"
-        f"pathlib.Path({str(pgid_file)!r}).write_text(f'{{os.getpid()}}:{{os.getpgrp()}}')\n"
+        f"pathlib.Path({str(pgid_file)!r}).write_text(f'{{os.getpid()}}:{{os.getpgrp()}}', encoding='utf-8')\n"
         f"sys.stdin.read()\n"
     )
     server_params = StdioServerParameters(
@@ -1505,6 +1505,6 @@ async def test_process_group_sets_child_process_group(tmp_path: Path) -> None:
         async with stdio_client(server_params):
             while not pgid_file.exists():
                 await anyio.sleep(0.01)
-            pid_str, pgid_str = pgid_file.read_text().strip().split(":")
+            pid_str, pgid_str = pgid_file.read_text(encoding="utf-8").strip().split(":")
             assert pid_str == pgid_str
             assert int(pid_str) != os.getpid()
