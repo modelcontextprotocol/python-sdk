@@ -41,7 +41,6 @@ from itertools import chain, zip_longest
 from pathlib import Path
 from typing import Any, Literal, Protocol, cast, get_args
 
-import httpx
 import markdown
 import yaml
 import zensical.config
@@ -611,14 +610,16 @@ def anthropic_translator() -> Translator:
     starts before that first reply has begun streaming writes it again instead;
     `command_translate` orders the work so that is rare, and nothing waits on it.
 
-    `anthropic` lives in the non-default `translate` dependency group, so it is
-    imported here, by name: offline commands and type checking never need it.
+    `anthropic` (and `httpx`, its transport, whose errors can escape it) lives in
+    the non-default `translate` dependency group, so both are imported here, by
+    name: offline commands and type checking never need them.
 
     Raises:
         ConfigError: The `translate` dependency group is not installed, or no credentials are configured.
     """
     try:
         sdk = importlib.import_module("anthropic")
+        httpx = importlib.import_module("httpx")
     except ImportError as exc:
         raise ConfigError(
             "the anthropic package is not installed; run with `uv run --frozen --group translate`"
