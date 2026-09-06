@@ -17,7 +17,8 @@ import sys
 from collections.abc import Callable
 from contextlib import AsyncExitStack, suppress
 from pathlib import Path
-from typing import TextIO, cast
+from typing import Any, TextIO, cast
+from unittest.mock import MagicMock
 
 import anyio
 import anyio.abc
@@ -1203,8 +1204,12 @@ def _record_spawned_processes(monkeypatch: pytest.MonkeyPatch) -> list[anyio.abc
         env: dict[str, str] | None = None,
         errlog: TextIO = sys.stderr,
         cwd: Path | str | None = None,
+        *spawn_args: Any,
+        **spawn_kwargs: Any,
     ) -> anyio.abc.Process | FallbackProcess:
-        process = await _create_platform_compatible_process(command, args, env, errlog, cwd)
+        process = await _create_platform_compatible_process(
+            command, args, env, errlog, cwd, *spawn_args, **spawn_kwargs
+        )
         spawned.append(process)
         return process
 
@@ -1406,3 +1411,100 @@ async def test_a_graceful_exit_with_a_surviving_child_leaks_no_pipe_fds(  # prag
         # Subset, not equality: other machinery may close fds, but never open new
         # ones; a leaked pipe fd would show up as an extra entry.
         assert set(os.listdir("/proc/self/fd")) <= baseline
+
+
+def test_stdio_server_parameters_preexec_and_process_group() -> None:
+    """StdioServerParameters accepts preexec_fn and process_group with appropriate defaults."""
+    # Defaults
+    params = StdioServerParameters(command="echo")
+    assert params.preexec_fn is None
+    assert params.process_group is None
+
+    # Custom callable and process group
+    def hook() -> None:
+        pass
+
+    params_custom = StdioServerParameters(
+        command="echo",
+        preexec_fn=hook,
+        process_group=123,
+    )
+    assert params_custom.preexec_fn is hook
+    assert params_custom.process_group == 123
+
+
+@pytest.mark.anyio
+async def test_create_platform_compatible_process_forwards_preexec_and_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_create_platform_compatible_process forwards preexec_fn and process_group to anyio.open_process."""
+    captured_kwargs: dict[str, Any] = {}
+
+    async def mock_open_process(*args: Any, **kwargs: Any) -> anyio.abc.Process:
+        captured_kwargs.update(kwargs)
+        return cast(anyio.abc.Process, MagicMock())
+
+    monkeypatch.setattr(anyio, "open_process", mock_open_process)
+
+    def dummy_preexec() -> None:
+        pass
+
+    await _create_platform_compatible_process(
+        "test-command",
+        ["--flag"],
+        preexec_fn=dummy_preexec,
+        process_group=12345,
+    )
+
+    assert captured_kwargs.get("preexec_fn") is dummy_preexec
+    assert captured_kwargs.get("process_group") == 12345
+    assert captured_kwargs.get("start_new_session") is False
+
+
+@pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="preexec_fn is POSIX only")
+async def test_preexec_fn_executes_in_child_process(tmp_path: Path) -> None:
+    """preexec_fn is called and executes in the child process before exec."""
+    log_file = tmp_path / "preexec.log"
+
+    def hook() -> None:
+        with open(log_file, "w") as f:
+            f.write(f"{os.getpid()}")
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", "import sys; sys.stdin.read()"],
+        preexec_fn=hook,
+    )
+
+    with anyio.fail_after(5.0):
+        async with stdio_client(server_params):
+            while not log_file.exists():
+                await anyio.sleep(0.01)
+            child_pid = int(log_file.read_text().strip())
+            assert child_pid != os.getpid()
+
+
+@pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="process_group is POSIX only")
+async def test_process_group_sets_child_process_group(tmp_path: Path) -> None:
+    """process_group is passed and configured in the child process."""
+    pgid_file = tmp_path / "pgid.log"
+    script = (
+        f"import os, pathlib, sys\n"
+        f"pathlib.Path({str(pgid_file)!r}).write_text(f'{{os.getpid()}}:{{os.getpgrp()}}')\n"
+        f"sys.stdin.read()\n"
+    )
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script],
+        process_group=0,
+    )
+
+    with anyio.fail_after(5.0):
+        async with stdio_client(server_params):
+            while not pgid_file.exists():
+                await anyio.sleep(0.01)
+            pid_str, pgid_str = pgid_file.read_text().strip().split(":")
+            assert pid_str == pgid_str
+            assert int(pid_str) != os.getpid()

@@ -10,18 +10,19 @@ process nor hang on one.
 
 import logging
 import os
+import subprocess
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import Any, Literal, TextIO
 
 import anyio
 import anyio.lowlevel
 import mcp_types as types
 from anyio.abc import AsyncResource, Process
 from anyio.streams.text import TextReceiveStream
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.client._transport import TransportStreams
 from mcp.os.posix.utilities import terminate_posix_process_tree
@@ -91,6 +92,8 @@ def get_default_environment() -> dict[str, str]:
 
 
 class StdioServerParameters(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     command: str
     """The executable to run to start the server."""
 
@@ -109,6 +112,12 @@ class StdioServerParameters(BaseModel):
     encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
     """Encoding error handler; see https://docs.python.org/3/library/codecs.html#error-handlers."""
 
+    preexec_fn: Callable[[], Any] | None = None
+    """Function called in the child process just before the child is executed (POSIX only)."""
+
+    process_group: int | None = None
+    """Process group to set in the child process (POSIX only)."""
+
 
 @asynccontextmanager
 async def stdio_client(
@@ -122,12 +131,19 @@ async def stdio_client(
     """
     command = _get_executable_command(server.command)
 
+    extra_spawn_kwargs: dict[str, Any] = {}
+    if server.preexec_fn is not None:
+        extra_spawn_kwargs["preexec_fn"] = server.preexec_fn
+    if server.process_group is not None:
+        extra_spawn_kwargs["process_group"] = server.process_group
+
     process = await _create_platform_compatible_process(
         command=command,
         args=server.args,
         env=get_default_environment() | (server.env or {}),
         errlog=errlog,
         cwd=server.cwd,
+        **extra_spawn_kwargs,
     )
 
     # The spawn succeeded; no awaits until the task group is entered, or a
@@ -331,6 +347,8 @@ async def _create_platform_compatible_process(
     env: dict[str, str] | None = None,
     errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
+    preexec_fn: Callable[[], Any] | None = None,
+    process_group: int | None = None,
 ) -> ServerProcess:
     """Spawns the server in its own kill scope.
 
@@ -339,13 +357,44 @@ async def _create_platform_compatible_process(
     if sys.platform == "win32":  # pragma: no cover
         return await create_windows_process(command, args, env, errlog, cwd)
     else:  # pragma: lax no cover
-        return await anyio.open_process(
-            [command, *args],
-            env=env,
-            stderr=errlog,
-            cwd=cwd,
-            start_new_session=True,
-        )
+        extra_kwargs: dict[str, Any] = {}
+        if preexec_fn is not None:
+            extra_kwargs["preexec_fn"] = preexec_fn
+        if process_group is not None:
+            extra_kwargs["process_group"] = process_group
+
+        start_new_session = True if process_group is None else False
+
+        if not extra_kwargs:
+            return await anyio.open_process(
+                [command, *args],
+                env=env,
+                stderr=errlog,
+                cwd=cwd,
+                start_new_session=start_new_session,
+            )
+
+        try:
+            return await anyio.open_process(
+                [command, *args],
+                env=env,
+                stderr=errlog,
+                cwd=cwd,
+                start_new_session=start_new_session,
+                **extra_kwargs,
+            )
+        except TypeError:
+            backend: Any = getattr(anyio.lowlevel, "get_async_backend")()
+            return await backend.open_process(
+                [command, *args],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=errlog,
+                cwd=cwd,
+                env=env,
+                start_new_session=start_new_session,
+                **extra_kwargs,
+            )
 
 
 async def _aclose_all(*streams: AsyncResource) -> None:
