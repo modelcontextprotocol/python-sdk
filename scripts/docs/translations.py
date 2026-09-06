@@ -974,12 +974,12 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
     if translator is None and any(job.open for _, job in work):
         translator = anthropic_translator()
 
-    def produce(inputs: Inputs, job: Job) -> tuple[str | PageError, Usage]:
-        """One page's body (or why it failed) and the tokens it cost; runs on a pool thread."""
+    def produce(inputs: Inputs, job: Job) -> tuple[str | PageError | ConfigError, Usage]:
+        """The page body, or why it failed or must stop the run, with the tokens it cost; runs on a pool thread."""
         spent = Usage()
         try:
             body = translate_page(repo, inputs, job, translator, model, spent) if translator else reassemble(repo, job)
-        except PageError as exc:
+        except (PageError, ConfigError) as exc:
             return exc, spent
         return body, spent
 
@@ -987,7 +987,7 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
     print(f"translating {len(work)} pages ({', '.join(active)}), {args.jobs} at a time, with {model}", flush=True)
     usage, failed = Usage(), False
     queue = deque(work)
-    running: dict[Future[tuple[str | PageError, Usage]], tuple[Language, Job]] = {}
+    running: dict[Future[tuple[str | PageError | ConfigError, Usage]], tuple[Language, Job]] = {}
     stopped: ConfigError | None = None  # rejected credentials: start nothing more, keep what still lands
     pool = ThreadPoolExecutor(max_workers=args.jobs)
     try:
@@ -1000,12 +1000,11 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
                 running[pool.submit(produce, inputs, job)] = (inputs.language, job)
             for future in wait(running, return_when=FIRST_COMPLETED).done:
                 language, job = running.pop(future)
-                try:
-                    result, spent = future.result()
-                except ConfigError as exc:
-                    stopped = stopped or exc
-                    continue
+                result, spent = future.result()
                 usage.add(spent)
+                if isinstance(result, ConfigError):
+                    stopped = stopped or result
+                    continue
                 page = job.state.page
                 if isinstance(result, PageError):
                     failed = True

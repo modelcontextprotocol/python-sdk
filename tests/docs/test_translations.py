@@ -960,37 +960,57 @@ def test_jobs_keeps_that_many_pages_in_flight_and_publishes_each_before_starting
     assert run(capsys, root, "status") == (0, "ja (日本語): 0 missing, 0 outdated, 4 current, 0 removable\n", "")
 
 
-def test_rejected_credentials_with_pages_in_flight_start_no_further_page_but_a_finished_one_is_kept(
+class RejectedTogether:
+    """Lets two requests in together, then rejects the credentials of those whose page title is in `rejected`."""
+
+    def __init__(self, rejected: Sequence[str]) -> None:
+        self.rejected, self.calls = rejected, 0
+        self.both, self.lock = threading.Barrier(2, timeout=5), threading.Lock()
+
+    def complete(self, *, model: str, system: str, messages: Sequence[t.Message], max_tokens: int) -> t.Completion:
+        with self.lock:
+            self.calls += 1
+        self.both.wait()
+        if any(title in messages[0].content for title in self.rejected):
+            raise t.ConfigError("the API rejected the credentials: invalid bearer token")
+        return t.Completion(TOOLS_JA, t.Usage(10, 4, 0, 9))
+
+
+def test_rejected_credentials_keep_a_page_that_lands_from_the_same_flight(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Tool-defined: with `--jobs 2`, when the API rejects the credentials for one page while another is in
-    flight (here both are waiting before either is answered), the other page still lands and is written,
-    the two remaining pages are never requested, usage is reported, and the run stops with exit 2."""
+    """Tool-defined: with two pages in flight together, the credentials being rejected for one does not throw
+    away the other: whichever lands first, the good page is written and usage reported before exit 2."""
     root = make_repo(tmp_path)
+    fake = RejectedTogether(["# Home"])
 
-    class RejectsHome:
-        def __init__(self) -> None:
-            self.both, self.lock, self.calls = threading.Barrier(2, timeout=5), threading.Lock(), 0
+    code, out, err = translate(capsys, root, "--lang", "ja", "--pages", "index.md", "tools.md", jobs=2, translator=fake)
 
-        def complete(self, *, model: str, system: str, messages: Sequence[t.Message], max_tokens: int) -> t.Completion:
-            with self.lock:
-                self.calls += 1
-            self.both.wait()
-            if "# Home" in messages[0].content:
-                raise t.ConfigError("the API rejected the credentials: invalid bearer token")
-            return t.Completion(TOOLS_JA, t.Usage(10, 4, 0, 9))
+    assert (code, fake.calls, err) == (2, 2, "translations: the API rejected the credentials: invalid bearer token\n")
+    assert out == snapshot("""\
+translating 2 pages (ja), 2 at a time, with test-model
+ja: translated tools.md (3 of 3 sections)
+usage: 10 input / 4 output / 0 cache-write / 9 cache-read tokens
+""")
+    assert sorted(path.name for path in (root / "i18n" / "ja" / "pages").glob("*.md")) == ["tools.md"]
 
-    fake = RejectsHome()
+
+def test_rejected_credentials_with_pages_in_flight_start_no_further_page(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tool-defined: with `--jobs 2` over four pages, once the credentials are rejected (here for both pages in
+    flight) the two remaining pages are never requested and nothing is written."""
+    root = make_repo(tmp_path)
+    fake = RejectedTogether(["# Home", "# Tools"])
 
     code, out, err = translate(capsys, root, "--lang", "ja", jobs=2, translator=fake)
 
     assert (code, fake.calls, err) == (2, 2, "translations: the API rejected the credentials: invalid bearer token\n")
     assert out == snapshot("""\
 translating 4 pages (ja), 2 at a time, with test-model
-ja: translated tools.md (3 of 3 sections)
-usage: 10 input / 4 output / 0 cache-write / 9 cache-read tokens
+usage: 0 input / 0 output / 0 cache-write / 0 cache-read tokens
 """)
-    assert sorted(path.name for path in (root / "i18n" / "ja" / "pages").glob("*.md")) == ["tools.md"]
+    assert not (root / "i18n" / "ja" / "pages").exists()
 
 
 def test_translate_without_lang_works_through_every_language_with_that_languages_own_prompt(
