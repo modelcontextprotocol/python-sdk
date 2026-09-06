@@ -1,6 +1,23 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
+from pydantic import (
+    AnyHttpUrl,
+    AnyUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidatorFunctionWrapHandler,
+    field_validator,
+    model_validator,
+)
+
+# `url_preserve_empty_path` (pydantic >= 2.12) keeps a path-less URL from gaining a trailing slash when
+# parsed from the wire, so issuer/resource identifiers round-trip as transmitted (RFC 3986 §6.2.1 simple
+# string comparison). Older pydantic ignores unknown config keys at runtime; the cast keeps the 2.11 type
+# stubs (which do not know the key) quiet. See `ProtectedResourceMetadata.resource_str` for the
+# version-independent path used for the RFC 8707 `resource` parameter.
+_PRESERVE_EMPTY_PATH = cast(ConfigDict, {"url_preserve_empty_path": True})
 
 
 class OAuthToken(BaseModel):
@@ -40,6 +57,8 @@ class OAuthClientMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc7591#section-2
     for the full specification.
     """
+
+    model_config = _PRESERVE_EMPTY_PATH
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
     # supported auth methods for the token endpoint
@@ -132,6 +151,8 @@ class OAuthMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
     """
 
+    model_config = _PRESERVE_EMPTY_PATH
+
     issuer: AnyHttpUrl
     authorization_endpoint: AnyHttpUrl
     token_endpoint: AnyHttpUrl
@@ -162,8 +183,31 @@ class ProtectedResourceMetadata(BaseModel):
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
     """
 
+    model_config = _PRESERVE_EMPTY_PATH
+
     resource: AnyHttpUrl
     authorization_servers: list[AnyHttpUrl] = Field(..., min_length=1)
+    # The `resource` value exactly as received. `url_preserve_empty_path` only takes effect on
+    # pydantic >= 2.12; on older pydantic a path-less URL still renders with a trailing slash, which
+    # breaks the byte-exact RFC 8707 `resource` parameter. Kept alongside the parsed URL so callers
+    # can echo the server's identifier verbatim regardless of pydantic version.
+    _resource_raw: str | None = PrivateAttr(default=None)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _capture_raw_resource(cls, data: Any, handler: ValidatorFunctionWrapHandler) -> "ProtectedResourceMetadata":
+        raw: Any = cast(dict[str, Any], data).get("resource") if isinstance(data, dict) else None
+        model = cast("ProtectedResourceMetadata", handler(data))
+        if isinstance(raw, str):
+            model._resource_raw = raw
+        return model
+
+    @property
+    def resource_str(self) -> str:
+        """The resource identifier as a string, exactly as the server published it when parsed from
+        JSON/dict input (RFC 8707 requires clients to send it byte-for-byte); otherwise the rendered URL."""
+        return self._resource_raw if self._resource_raw is not None else str(self.resource)
+
     jwks_uri: AnyHttpUrl | None = None
     scopes_supported: list[str] | None = None
     bearer_methods_supported: list[str] | None = Field(default=["header"])  # MCP only supports header method

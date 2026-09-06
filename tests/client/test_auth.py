@@ -522,10 +522,11 @@ class TestOAuthFallback:
         }"""
         response = httpx.Response(200, content=content)
 
-        # Should set metadata
+        # Should set metadata. On pydantic >= 2.12 the empty path is preserved (no trailing slash);
+        # older pydantic ignores `url_preserve_empty_path` and still normalises to ".../".
         await oauth_provider._handle_oauth_metadata_response(response)
         assert oauth_provider.context.oauth_metadata is not None
-        assert str(oauth_provider.context.oauth_metadata.issuer) == "https://auth.example.com/"
+        assert str(oauth_provider.context.oauth_metadata.issuer).rstrip("/") == "https://auth.example.com"
 
     @pytest.mark.anyio
     async def test_prioritize_www_auth_scope_over_prm(
@@ -2210,6 +2211,28 @@ async def test_get_resource_url_falls_back_when_prm_mismatches(
 
     # get_resource_url should return the canonical server URL, not the PRM resource
     assert provider.context.get_resource_url() == "https://api.example.com/v1/mcp"
+
+
+@pytest.mark.anyio
+async def test_get_resource_url_echoes_pathless_prm_resource_verbatim(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """RFC 8707: the `resource` parameter is the PRM `resource` byte-for-byte. A path-less identifier
+    parsed from the wire must not gain a trailing slash, on any supported pydantic version."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata.model_validate_json(
+        '{"resource": "https://api.example.com", "authorization_servers": ["https://auth.example.com"]}'
+    )
+    assert prm.resource_str == "https://api.example.com"
+    provider.context.protected_resource_metadata = prm
+
+    assert provider.context.get_resource_url() == "https://api.example.com"
 
 
 def _prepare_full_flow(provider: OAuthClientProvider, client_info: OAuthClientInformationFull | None) -> list[str]:
