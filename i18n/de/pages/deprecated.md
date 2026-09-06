@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # Veraltete Features {#deprecated-features}
 
-Die Spec 2026-07-28 mustert fünf Dinge aus. Das SDK implementiert jedes davon weiterhin, und jedes davon trägt jetzt eine **Deprecation-Warnung**. Ein SDK-Helfer ist unabhängig davon veraltet und steht [am Ende](#deprecated-sdk-helpers).
+Die Spec 2026-07-28 mustert fünf Dinge aus. Das SDK implementiert jedes davon weiterhin, und jedes davon trägt jetzt eine **Deprecation-Warnung**. Ein paar Dinge sind unabhängig davon nur auf SDK-Ebene veraltet; sie stehen [am Ende](#deprecated-sdk-helpers).
 
 Die Tabelle unten nennt jedes veraltete Feature, den Grund, warum es verschwindet, und den Ersatz, auf dem du aufbauen solltest.
 
@@ -138,11 +138,13 @@ Das ist die ganze API. Es gibt keinen Schalter pro Methode, und du willst auch k
 
 ## Veraltete SDK-Helfer {#deprecated-sdk-helpers}
 
-Das sind keine Spec-Änderungen, sondern nur SDK-Interna mit einem besseren Ersatz. Sie warnen mit derselben `MCPDeprecationWarning` und werden in 3.0 entfernt.
+Das sind keine Spec-Änderungen, sondern nur Verwendungsweisen des SDK mit einem besseren Ersatz. Sie warnen mit derselben `MCPDeprecationWarning`, und 3.0 entfernt die alte Form.
 
 | Veraltet | Was du stattdessen tust |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` und danach `FuncMetadata.call_fn()`. Aufgerufen hat es ohnehin nur Code, der `FuncMetadata` direkt ansteuert (etwa eine eigene `Tool`-Unterklasse). |
+| `AuthSettings(resource_server_url=...)` ohne `validate_token_resource=` | Setze es: Mit `True` lehnt der Server Bearer-Tokens ab, die dein Verifier nicht als für `resource_server_url` ausgestellt meldet; `False` besagt, dass dein Verifier die Audience des Tokens selbst prüft (siehe **[Autorisierung](run/authorization.md#a-token-verifier)**). Nicht gesetzt verhält es sich wie `False`; 3.0 macht `True` zum Standardwert, sobald `resource_server_url` gesetzt ist. |
+| `ClientCredentialsOAuthProvider(...)` oder `PrivateKeyJWTOAuthProvider(...)` ohne `issuer=` | Übergib `issuer=` und benenne damit den Autorisierungsserver, der die Credentials ausgestellt hat (siehe **[OAuth-Clients schreiben](client/oauth-clients.md#machine-to-machine)**). Ohne ihn entscheidet der MCP-Server, welcher Autorisierungsserver sie erhält; 3.0 macht das Keyword-Argument verpflichtend. |
 
 ## Zusammenfassung {#recap}
 
@@ -151,7 +153,7 @@ Das sind keine Spec-Änderungen, sondern nur SDK-Interna mit einem besseren Ersa
 * Veraltet ist ein Hinweis: keine Änderungen auf der Leitung, alles funktioniert weiterhin gegen Sessions von vor 2026, und du bekommst eine sichtbare `MCPDeprecationWarning` (eine `UserWarning`, also standardmäßig aktiv).
 * Sampling und Roots brauchen zusätzlich einen Rückkanal, den eine 2026-07-28-Session nicht hat. Auf einer modernen Verbindung warnen sie und werfen dann eine Exception.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` bringt die ganze Kategorie zum Schweigen; `"error::mcp.MCPDeprecationWarning"` in pytest macht daraus einen fehlschlagenden Test.
-* Ein SDK-Helfer, `FuncMetadata.call_fn_with_arg_validation()`, ist separat veraltet und wird in 3.0 entfernt.
+* Für die [veralteten SDK-Helfer](#deprecated-sdk-helpers) gilt dieselbe Regel: Sie warnen jetzt, und 3.0 entfernt die alte Form.
 * Neuer Code sollte auf nichts davon aufbauen.
 
 Jede andere Seite dieser Dokumentation vermittelt die aktuelle API.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,13 +18,13 @@ SDK постачає це як вбудоване розширення `Apps` (`
 
 ## Годинник із циферблатом {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
 Чотири кроки:
 
-* `Apps()`: один екземпляр тримає ваші інструменти з прив'язаним UI та їхні ресурси.
+* `Apps()`: один екземпляр тримає інструменти з прив'язаним UI та їхні ресурси.
 * `@apps.tool(resource_uri="ui://clock/app.html")`: звичайний інструмент плюс позначка `_meta.ui.resourceUri`. Усе, що приймає `@mcp.tool()` (name, title, description, ...), передається далі.
 * `apps.add_html_resource("ui://clock/app.html", CLOCK_HTML)`: відповідний ресурс, який віддається як `text/html;profile=mcp-app`. Саме цей MIME-тип каже хосту: «це застосунок, відобрази його».
 * `MCPServer("clock", extensions=[apps])`: увімкнення. Тепер сервер оголошує `io.modelcontextprotocol/ui` у `capabilities.extensions`.
@@ -39,11 +39,31 @@ SDK постачає це як вбудоване розширення `Apps` (`
 
 Модель читає `content`; iframe — для людей. Хост із підтримкою UI все одно передає текстовий результат моделі, а суто текстовий клієнт отримує *лише* його. Тож канонічний шаблон — один інструмент, дві відповіді. Погляньте на `get_time` ще раз:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-`client_supports_apps(ctx)` дорівнює `True` лише тоді, коли клієнт оголосив розширення `io.modelcontextprotocol/ui` **і** вказав `text/html;profile=mcp-app` у своїх налаштуваннях `mimeTypes`. Поле обов'язкове, тож клієнт, який його пропустив, не зараховується. Саме це й оголошує `main()` у тому самому файлі: клієнтську половину узгодження — і у відповідь приходить розширений варіант.
+`client_supports_apps(ctx)` дорівнює `True` лише тоді, коли клієнт оголосив розширення `io.modelcontextprotocol/ui` **і** вказав `text/html;profile=mcp-app` у своїх налаштуваннях `mimeTypes`. Поле обов'язкове, тож клієнт, який його пропустив, не зараховується. Ось клієнтська половина узгодження:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+Віддайте `server.py` через HTTP, а потім із другого термінала запустіть клієнт:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+Повернулася розширена відповідь. Приберіть `extensions=[APPS_SUPPORT]` з виклику `Client` — і та сама програма натомість надрукує `The time is 2026-06-26T12:00:00Z.`, а це все, що коли-небудь бачить суто текстовий клієнт.
 
 !!! warning
     Ніколи не повертайте заглушку на кшталт `"[Rendered UI]"` як єдиний вміст. Якщо резервний текст марний, інструмент марний для кожного суто текстового клієнта й для самої моделі. Напишіть нормальне речення.

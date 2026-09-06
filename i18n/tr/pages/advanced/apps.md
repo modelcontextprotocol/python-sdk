@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK bunu yerleşik `Apps` uzantısı (`io.modelcontextprotocol/ui`) olarak sunar
 
 ## Yüzü olan bir saat {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,11 +39,31 @@ Her istemci uygulamaları çizmez. Şartname bunun sizin için ne anlama geldiğ
 
 Model `content`'i okur; iframe insanlar içindir. UI destekli bir host yine de metin sonucunu modele iletir, yalnızca metin destekleyen bir istemci ise *sadece* onu alır. Yani kanonik desen tek araç, iki yanıttır. `get_time`'a bir daha bakın:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-`client_supports_apps(ctx)` yalnızca istemci `io.modelcontextprotocol/ui` uzantısını beyan ettiğinde **ve** `mimeTypes` ayarlarında `text/html;profile=mcp-app`'i listelediğinde `True` olur. Alan zorunludur, bu yüzden onu atlayan bir istemci sayılmaz. Aynı dosyadaki `main()` tam olarak bunu beyan eder: anlaşmanın istemci tarafı, ve zengin yanıt geri gelir.
+`client_supports_apps(ctx)` yalnızca istemci `io.modelcontextprotocol/ui` uzantısını beyan ettiğinde **ve** `mimeTypes` ayarlarında `text/html;profile=mcp-app`'i listelediğinde `True` olur. Alan zorunludur, bu yüzden onu atlayan bir istemci sayılmaz. Anlaşmanın istemci tarafı şöyle:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+`server.py` dosyasını HTTP üzerinden sunun, ardından istemciyi ikinci bir terminalden çalıştırın:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+Zengin yanıt geri geldi. `Client` çağrısından `extensions=[APPS_SUPPORT]` argümanını çıkarın; aynı program bunun yerine `The time is 2026-06-26T12:00:00Z.` yazdırır. Yalnızca metin destekleyen bir istemcinin görüp göreceği de budur.
 
 !!! warning
     Tek içerik olarak asla `"[Rendered UI]"` gibi bir yer tutucu döndürmeyin. Yedek metin işe yaramazsa araç, yalnızca metin destekleyen her istemci için ve modelin kendisi için işe yaramaz. O cümleyi yazın.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # Clients OAuth {#oauth-clients}
@@ -81,18 +81,20 @@ Regardez `main()`. Le fournisseur va sur le **client httpx2**, le client httpx2 
 
 La première fois que `Client` envoie une requête, le serveur répond `401`. Le fournisseur prend le relais :
 
-1. **Découverte.** Il lit l’en-tête `WWW-Authenticate`, récupère les Protected Resource Metadata du serveur depuis `/.well-known/oauth-protected-resource`, apprend quel serveur d’autorisation protège cette ressource, et récupère les métadonnées de *ce* serveur-là.
+1. **Découverte.** Il lit l’en-tête `WWW-Authenticate`, récupère les Protected Resource Metadata du serveur depuis `/.well-known/oauth-protected-resource`, apprend quel serveur d’autorisation protège cette ressource, et récupère les métadonnées de *ce* serveur-là. (Un serveur plus ancien qui ne publie aucune métadonnée de ressource se voit demander, à la place, les métadonnées de serveur d’autorisation à sa propre origine.) Dans les deux cas, les métadonnées doivent désigner, comme `issuer`, le serveur pour lequel elles ont été récupérées ; tout autre cas est refusé.
 2. **Enregistrement.** Rien dans le stockage ? Il vous enregistre dynamiquement avec votre `OAuthClientMetadata` et stocke le résultat.
 3. **Autorisation.** Il génère la paire PKCE et un `state`, construit l’URL d’autorisation, attend votre `redirect_handler`, puis attend votre `callback_handler` pour obtenir le code.
 4. **Échange.** Il échange le code contre un `OAuthToken`, le stocke, et rejoue votre requête d’origine avec `Authorization: Bearer ...`.
 
 Après cela, il se fait discret. Les jetons sortent du stockage, un jeton d’accès expiré est actualisé avec le jeton d’actualisation, et ce n’est que lorsque rien de tout cela ne fonctionne qu’il relance le flux.
 
+Une règle de transport s’applique à toutes ces requêtes : comme la requête MCP à l’intérieur de laquelle elles s’exécutent, elles ne suivent une redirection que si celle-ci reste sur la même origine et conserve la méthode (un 307/308 pour une barre oblique finale, par exemple), et traitent toute autre redirection comme si cette URL ne répondait pas.
+
 Vous n’avez rien écrit de tout cela. Il reste deux arguments nommés (`client_metadata_url` et `validate_resource_url`), et ce fichier n’a besoin d’aucun des deux. `client_metadata_url` est celui qui mérite d’être connu ; il a sa propre section plus bas.
 
 ### Essayer {#try-it}
 
-La plupart des exemples de cette documentation se vérifient avec un `Client(server)` en mémoire. Pas celui-ci : tout l’intérêt du flux est un `401` HTTP, et il n’y a pas de HTTP entre un client en mémoire et son serveur.
+Le `Client(server)` en mémoire qu’utilisent vos tests n’est d’aucune aide ici : tout l’intérêt du flux est un `401` HTTP, et il n’y a pas de HTTP entre un client en mémoire et son serveur.
 
 Le dépôt fournit la version réelle. `examples/servers/simple-auth/` exécute un serveur d’autorisation autonome et un serveur MCP protégé ; `examples/clients/simple-auth-client/` est le client de cette page devenu une petite CLI. Son README donne les deux commandes : démarrez les serveurs, lancez le client contre eux, et vous voyez défiler les quatre étapes.
 
@@ -110,13 +112,14 @@ Une tâche nocturne, une étape de CI, un autre service. Il n’y a pas de navig
 
 `ClientCredentialsOAuthProvider` est le même `httpx2.Auth`, l’humain en moins :
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 Ce qui a changé :
 
 * Aucun `OAuthClientMetadata`, aucun gestionnaire. Vous passez `client_id` et `client_secret` ; le fournisseur construit autour d’eux un enregistrement `client_credentials` minimal et saute entièrement l’enregistrement dynamique.
+* `issuer` désigne le serveur d’autorisation qui a émis ces identifiants ; utilisez la valeur `issuer` que renvoie son document `/.well-known/oauth-authorization-server`. La découverte se déroule toujours comme ci-dessus, mais les requêtes de jeton ne sont jamais construites qu’à partir des métadonnées de *cet* émetteur-là ; si le serveur MCP pointe ailleurs, le flux s’arrête alors avec une `OAuthFlowError`. L’omettre est obsolète et il devient obligatoire en 3.0 (voir **[Fonctionnalités obsolètes](../deprecated.md#deprecated-sdk-helpers)**) ; d’ici là, le fournisseur émet un avertissement et utilise le serveur d’autorisation que la découverte trouve, quel qu’il soit.
 * `scope` est une chaîne séparée par des espaces, le format qu’OAuth utilise sur la liaison.
 * Tout ce qui se trouve en aval est identique : le même `TokenStorage`, le même `httpx2.AsyncClient(auth=...)`, le même `streamable_http_client`.
 
@@ -129,7 +132,7 @@ Par défaut, le secret voyage en authentification HTTP Basic sur la requête de 
     Un fournisseur de plus se trouve dans `mcp.client.auth.extensions.client_credentials` :
     **`PrivateKeyJWTOAuthProvider`**, pour les clients qui s’authentifient avec un JWT plutôt qu’avec un
     secret partagé (`private_key_jwt`, la variante à paire de clés et identité de charge de travail). Il suit
-    le même schéma : construisez-en un, placez-le sur `auth=`. Le même module fournit
+    le même schéma : construisez-en un (il accepte le même `issuer` optionnel), placez-le sur `auth=`. Le même module fournit
     `SignedJWTParameters` et `static_assertion_provider`, deux utilitaires qui construisent son assertion.
 
 Il existe une autre situation sans humain : le client appartient à une entreprise dont le fournisseur d’identité, et non l’utilisateur, décide quels serveurs MCP il peut atteindre. C’est un type d’octroi différent, avec son propre modèle de confiance et sa propre page, **[Assertion d’identité](identity-assertion.md)**.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
   tool: 1
 ---
 # 진행 상황 {#progress}
@@ -29,11 +29,9 @@ translation:
 
 클라이언트는 **호출 단위로** 수신을 선택합니다. `call_tool`에 `progress_callback=` 인자를 전달하면 됩니다.
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -41,7 +39,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -56,27 +54,31 @@ anyio.run(main)
 콜백은 서버가 보고한 값 그대로, 즉 `progress`, `total`, `message`를 받는 `async` 함수입니다.
 
 !!! info
-    `Client(mcp)`는 서버 객체에 메모리 안에서 직접 연결하며, **[테스트](../get-started/testing.md)**
-    페이지의 기반이 되는 것과 같은 클라이언트입니다. `progress_callback`은 `Client`가 어떤 트랜스포트를
-    쓰든 같은 매개변수입니다. 다만 곧 보게 될 **타이밍**은 인메모리 연결의 타이밍입니다. 인메모리 연결은
-    콜백을 인라인으로 실행하므로 모든 보고가 `call_tool`이 반환되기 전에 도착합니다. 실제 트랜스포트에서는
-    알림과 결과가 경쟁하므로, 느린 콜백은 `call_tool`이 반환된 뒤에도 여전히 실행 중일 수 있습니다.
+    `progress_callback`은 `Client`에 무엇을 넘겼든 같은 매개변수입니다. 여기서처럼 URL이든,
+    `StdioServerParameters`든, 테스트에서 쓰는 서버 객체든 마찬가지입니다. 다만 실제 트랜스포트에서는
+    타이밍에 주의하세요. 각 알림은 응답과 별도로 따로 전달되므로, 느린 콜백은 `call_tool`이 반환된
+    뒤에도 여전히 실행 중일 수 있습니다. 프로세스 내 테스트 연결만이 콜백을 인라인으로 실행하여 모든
+    보고가 먼저 도착하도록 보장합니다.
 
 ### 직접 해 보기 {#try-it}
 
-`client.py`를 `server.py` 옆에 두고 실행하세요.
+`server.py`를 HTTP로 서비스한 다음, 두 번째 터미널에서 클라이언트를 실행하세요.
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-서버의 `await ctx.report_progress(...)` 하나하나가 클라이언트에서 `show` 호출 하나가 되었고, 순서도 그대로이며, 두 줄 모두 `call_tool`이 반환되기 **전에** 출력되었습니다. 진행 상황은 결과에 묶여 오지 않고, 도구가 아직 작업하는 동안 스트리밍됩니다.
+서버의 `await ctx.report_progress(...)` 하나하나가 클라이언트에서 `show` 호출 하나가 되었고, 순서도 그대로입니다. 진행 상황은 결과에 묶여 오지 않습니다. 도구가 아직 작업하는 동안 스트리밍됩니다.
 
 !!! warning
     `progress_callback`은 `Client`가 아니라 **호출**에 속합니다. 이를 위한 생성자 인자는 없습니다.

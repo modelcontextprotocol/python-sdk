@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # プロトコルバージョン {#protocol-versions}
@@ -11,9 +11,17 @@ MCP には 2 つの世代があります。
 
 `Client` が代わりにネゴシエーションしてくれるので、気にする必要はほとんどありません。このページで扱うのは、それを制御するたった 1 つのコンストラクター引数 `mode=` と、それを変更する 3 つの場面です。
 
+このページのスニペットはどれも、**[クライアント](client/index.md)** に出てくる Bookshop の `server.py` と通信する `client.py` です。まず 1 つ目のターミナルでそのサーバーを起動してください。
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+次に、2 つ目のターミナルで各スニペットを `python client.py` で実行します。
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,11 +39,11 @@ MCP には 2 つの世代があります。
 機能としてはこれだけです。`Client` は 1 つ、サーバーはどの世代でもよく、コードに分岐は要りません。
 
 !!! info
-    `MCPServer` はインメモリ、stdio、Streamable HTTP のどのトランスポートでも `server/discover` に応答します。そのため、自分のサーバーが相手なら `auto` は必ず `2026-07-28` になります。フォールバックが発動するのは 2026 年より前の本物のサーバーが相手のときだけで、それはまさにフォールバックしてほしい場面です。
+    `MCPServer` は Streamable HTTP、stdio、そしてテストで使うインプロセス接続のどのトランスポートでも `server/discover` に応答します。そのため、自分のサーバーが相手なら `auto` は必ず `2026-07-28` になります。フォールバックが発動するのは 2026 年より前の本物のサーバーが相手のときだけで、それはまさにフォールバックしてほしい場面です。
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -59,7 +67,7 @@ MCP には 2 つの世代があります。
 
 `mode` には新世代のプロトコルバージョン文字列も指定できます。現時点でその集合はちょうど `["2026-07-28"]` です。
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -90,7 +98,7 @@ ValueError: mode must be 'legacy', 'auto', or one of ['2026-07-28']; got '2025-0
 
 なので取っておきましょう。`auto` で接続した後、`client.session.discover_result` にはサーバーが送った `DiscoverResult` がそのまま入っています。`supported_versions`、`capabilities`、`instructions`、そしてサーバーが結果の `_meta` に刻んだ識別情報です。次回はそれを `prior_discover=` として渡します。
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

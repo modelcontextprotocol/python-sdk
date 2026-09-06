@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 低階 Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### 試試看 {#try-it}
 
-這個沒有 Inspector 可用：`mcp dev` 和 `mcp run` 只接受 `MCPServer`。記憶體內的 `Client` 則不在乎；它接收低階 `Server` 的方式和接收 `MCPServer` 完全一樣：
+`mcp dev` 和 `mcp run` 只接受 `MCPServer`，所以這個得自己提供服務。`server.py` 的最後一行用它建立一個普通的 ASGI 應用程式，再交給 uvicorn 執行：
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+把 Inspector 或任何用戶端指向 `http://localhost:8000/mcp`：
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` 是 `None`。高階伺服器會幫你把 `-> str` 包成 `{"result": ...}`；在這裡，你沒建的東西，沒有人會替你建。
 * `list_tools` 回傳的是**你**打出來的 schema，一字不差。高階版本每個屬性上都有 `"title": "Query"`，根部還有一個 `"title": "search_booksArguments"`：那是 Pydantic 的產物。在這一層，線路上有的東西，都是你放上去的。
+
+在測試中可以跳過 uvicorn 和連接埠：`Client(server)` 在處理程序內接收低階 `Server` 的方式和接收 `MCPServer` 完全一樣，**[測試](../get-started/testing.md)** 講的就是這個模式。
 
 ## 沒有人替你檢查 {#nothing-is-checked-for-you}
 
@@ -214,4 +220,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)` 可以服務任何方法。`initialize` 被保留。
 * `Server` 公告的能力，由你註冊了哪些處理函式推導而來。
 
-`Client(server)` 對兩種伺服器一視同仁，因為它們**就是**同一個協定，這正是重點所在。再往下一層根本不是類別：是 **[中介軟體](middleware.md)**。
+用戶端對兩種伺服器一視同仁，因為它們**就是**同一個協定，這正是重點所在。再往下一層根本不是類別：是 **[中介軟體](middleware.md)**。

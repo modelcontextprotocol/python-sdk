@@ -1,16 +1,22 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # Fehlerbehebung {#troubleshooting}
 
 Jede Überschrift auf dieser Seite ist der exakte Text eines Fehlers, den das SDK erzeugt, gefolgt davon, was er bedeutet, und der Lösung in einem Schritt. Suche die letzte Zeile deines Tracebacks (oder deines Server-Logs) hier mit der Seitensuche des Browsers und lies nur diesen Eintrag.
 
-Mehrere Einträge laufen gegen diesen einen Server: ein Tool und eine Ressource mit Template, die beide bei einer Stadt, die sie nicht kennen, eine Exception auslösen:
+Mehrere Einträge laufen gegen diesen einen Server. Ein Tool und eine Ressource mit Template, die beide bei einer Stadt, die sie nicht kennen, eine Exception auslösen:
 
 ```python title="server.py"
 --8<-- "docs_src/troubleshooting/tutorial001.py"
+```
+
+Diese Einträge erreichen ihn unter `http://localhost:8000/mcp`, lass ihn also über HTTP laufen:
+
+```console
+uv run mcp run server.py --transport streamable-http
 ```
 
 Die Fehler, die diese Seite zitiert, sind echt: Die Testsuite des SDK selbst reproduziert jeden einzelnen.
@@ -23,7 +29,7 @@ Das ist kein MCP-Fehler. Es ist Rauschen von anyio, und dein eigentlicher Fehler
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ Damit machst du zwei Dinge:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -67,7 +73,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -75,7 +81,7 @@ Betritt den Kontextmanager. `__aenter__` ist die Verbindung:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -251,7 +257,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-Der Server erkennt die `Mcp-Session-Id`, die dein Client gesendet hat, nicht – fast immer, weil der Server **neu gestartet** wurde (oder du zu einer anderen Instanz geroutet wurdest). Sessions leben im Speicher dieses einen Prozesses.
+Der Server erkennt die `Mcp-Session-Id`, die dein Client gesendet hat, nicht. Entweder wurde der Server **neu gestartet** (oder du wurdest zu einer anderen Instanz geroutet), oder die Session ist **abgelaufen**, weil für die Dauer von `session_idle_timeout` – standardmäßig 30 Minuten – nichts unterwegs war. Siehe [Lebensdauer und Limits von Sessions](run/legacy-clients.md#session-lifetime-and-limits). Sessions leben im Speicher dieses einen Prozesses.
 
 Es gibt keinen Server-Bug zu finden. Die HTTP-Response ist ein `404`, dessen Body JSON-RPC *ist*, deshalb zeigt dir der Python-`Client` – anders als beim `421` oben – diese hier wörtlich:
 
@@ -261,9 +267,9 @@ Es gibt keinen Server-Bug zu finden. Die HTTP-Response ist ein `404`, dessen Bod
 
 Die Lösung ist, dich neu zu verbinden: Verlasse den `async with Client(...)`-Block und betritt einen neuen, der eine frische Session aushandelt. Für einen langlebigen Client heißt das, `MCPError` um deine Aufrufe herum abzufangen und bei dieser Meldung neu zu verbinden, statt es in einer toten Session erneut zu versuchen.
 
-Passiert es *ohne* Neustart, betreibst du mehr als einen Worker ohne Sticky Sessions: Jeder Worker hält seine eigene Session-Tabelle, sodass ein Request, der zum falschen geroutet wird, hier landet. **[Bereitstellen und skalieren](run/deploy.md)** und **[Legacy-Clients unterstützen](run/legacy-clients.md)** behandeln dieses Thema und seine beiden Lösungen (Sticky Routing oder `stateless_http=True`).
+Passiert es *ohne* Neustart und ohne dass der Client so lange still war, betreibst du mehr als einen Worker ohne Sticky Sessions: Jeder Worker hält seine eigene Session-Tabelle, sodass ein Request, der zum falschen geroutet wird, hier landet. **[Bereitstellen und skalieren](run/deploy.md)** und **[Legacy-Clients unterstützen](run/legacy-clients.md)** behandeln dieses Thema und seine beiden Lösungen (Sticky Routing oder `stateless_http=True`).
 
-Für alle, die den Server betreiben, lautet die passende Log-Zeile `Rejected request with unknown or expired session ID: <id>`. Sie wird auf `INFO` geloggt, ist also bei der üblichen `WARNING`-Schwelle unsichtbar. Sie direkt nach einem Deployment stoßweise zu sehen ist normal; jeder verbundene Client verbindet sich neu.
+Für alle, die den Server betreiben, lautet die passende Log-Zeile `Rejected request with unknown or expired session ID: <id>`. Sie wird auf `INFO` geloggt, ist also bei der üblichen `WARNING`-Schwelle unsichtbar. Sie direkt nach einem Deployment stoßweise zu sehen ist normal; jeder verbundene Client verbindet sich neu. Ist die Session stattdessen abgelaufen, steht vor dieser Zeile `Session <id> idle timeout`, ebenfalls auf `INFO`.
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -275,7 +281,13 @@ Eines erzeugt diesen Fehler **nicht**, obwohl es ein Request ist, den das modern
 
 Dein Server möchte die Person am Host etwas fragen, und dieser Client hat nie gesagt, dass man ihn fragen kann.
 
-Ein Resolver für Elicitation (Rückfrage bei der Person am Host) lehnt von vornherein ab, wenn der verbundene Client keine Form-Elicitation deklariert hat, und `e.error.data` nennt genau, was fehlt:
+Dieses Bistro fragt über einen Resolver zurück, bevor es bucht:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Betreibe es anstelle des Weather-Servers und rufe `book_table` von einem Client aus auf, der keinen `elicitation_callback` übergeben hat. Der Resolver lehnt von vornherein ab, weil der verbundene Client nie Form-Elicitation (Rückfrage bei der Person am Host) deklariert hat, und `e.error.data` nennt genau, was fehlt:
 
 ```json
 {
@@ -289,7 +301,7 @@ Ein Resolver für Elicitation (Rückfrage bei der Person am Host) lehnt von vorn
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -315,14 +327,14 @@ Du siehst diese bei `ctx.elicit()` auf einer Legacy-Verbindung, und auf jeder be
 
 Dein Handler hat versucht, den Client mitten im Request zu erreichen, auf einer Verbindung, deren Aufruf keinen Rückkanal (back-channel) hat, der einen Request vom Server tragen kann. Drei Server-Konfigurationen bringen einen Aufruf in diese Lage.
 
-**Eine `2026-07-28`-Verbindung: jeder Transport, immer.** Das moderne Protokoll kennt überhaupt keine vom Server initiierten Requests, deshalb weigert sich der Server, bevor irgendetwas gesendet wird. `ctx.elicit()` innerhalb eines Tools ist der klassische Weg, dem zu begegnen (schon beim allerersten In-Memory-Test, denn `Client(server)` handelt ungefragt `2026-07-28` aus), und `elicitation_callback=` zu übergeben ändert nichts, weil nie ein Request beim Client ankommt, den er beantworten könnte:
+**Eine `2026-07-28`-Verbindung: jeder Transport, immer.** Das moderne Protokoll kennt überhaupt keine vom Server initiierten Requests, deshalb weigert sich der Server, bevor irgendetwas gesendet wird. `ctx.elicit()` innerhalb eines Tools ist der klassische Weg, dem zu begegnen, meist im allerersten In-Memory-**[Test](get-started/testing.md)** dieses Tools, denn `Client(mcp)` handelt ungefragt `2026-07-28` aus. `elicitation_callback=` zu übergeben ändert nichts, weil nie ein Request beim Client ankommt, den er beantworten könnte:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -364,7 +376,7 @@ Der Server konnte das `requestState`-Token, das dein Client zurückgespielt hat,
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -418,7 +430,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `Tool already exists:` im Server-Log ist das einzige Zeichen, dass zwei gleichnamige Tools zu einem zusammengefallen sind.
 * Ein 421, drei Schreibweisen: `Server returned an error response` (der Python-`Client`), `421 Misdirected Request` / `Invalid Host header` (alles andere), `Invalid Host header: <host>` (das Server-Log). Lösung: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> eine eingehängte App, deren Host-Lifespan nie `mcp.session_manager.run()` betreten hat.
-* `Session not found` -> der Server wurde neu gestartet; verbinde dich neu.
+* `Session not found` -> der Server wurde neu gestartet oder die Session ist abgelaufen (`session_idle_timeout`); verbinde dich neu.
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` braucht einen Kanal vom Server zum Client: Eine `2026-07-28`-Verbindung hat nie einen, `stateless_http=True` nimmt den Legacy-Kanal weg, und `json_response=True` nimmt den Request-gebundenen weg. Verwende einen Resolver (ein Legacy-Client braucht außerdem einen Server, der den Kanal behält). Sein Nachbar `Method not found` ist ein Request für eine Methode, die die Protokollrevision der anderen Seite nicht hat.
 * `Client did not declare the form elicitation capability ...` und `Elicitation not supported` -> dem Client fehlt `elicitation_callback=`.
 * `Invalid or expired requestState` sagt auf der Leitung nie, warum. Das Server-Log schon; `unknown key` heißt: Teile `RequestStateSecurity(keys=[...])` über alle Worker hinweg.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 7e16449f66e7dfd6, eeb0682f7d2a1079, 5713f0196a34e6e7, 0e844597859e4248, 3a97d9195ddcc92e, 1da08c483e59c141, 84702cc6e0a1fd42, 8dee7a31c86ffc5c, 83a5bce168ef23d7]
   tool: 1
 ---
 # Der Client {#the-client}
@@ -11,13 +11,23 @@ Er ist ein einziges Objekt mit einem einzigen Lebenszyklus: erzeugen, `async wit
 
 ## Der erste Client {#your-first-client}
 
-```python title="client.py" hl_lines="14-18"
+Ein Client braucht einen Server, mit dem er sprechen kann. Mit diesem Bookshop verbindet sich jedes Beispiel auf dieser Seite. Speichere ihn als `server.py` und lass ihn über HTTP laufen:
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-Der Server oben ist nur da, damit du etwas hast, womit du dich verbinden kannst. Der Client sind die fünf hervorgehobenen Zeilen.
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)` bekommt das **Server-Objekt selbst**. Das ist der In-Memory-Transport: kein Subprozess, kein Port, kein HTTP. So verbindet sich jedes Beispiel auf dieser Seite und jeder Test, den du schreibst.
+Damit läuft er unter `http://localhost:8000/mcp`. Der Client ist ein eigenes Programm. Speichere ihn als `client.py` und führe in einem zweiten Terminal `python client.py` aus:
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")` bekommt eine **URL** und verbindet sich deshalb über Streamable HTTP mit dem Server, den du gerade gestartet hast.
 * `async with` ist der **Lebenszyklus**. Beim Betreten wird verbunden und ausgehandelt, beim Verlassen getrennt. Es gibt kein `connect()`/`close()`-Paar, und ein `Client` lässt sich nach dem Ende des Blocks nicht wiederverwenden.
 * Innerhalb des Blocks liegen die Fakten zur Verbindung bereits als einfache Properties vor.
 
@@ -25,10 +35,10 @@ Der Server oben ist nur da, damit du etwas hast, womit du dich verbinden kannst.
 
 `Client` nimmt ein positionelles Argument und leitet den Transport aus dessen Typ ab:
 
-* Eine Instanz von `MCPServer` (oder des Low-Level-`Server`): Verbindung **im selben Prozess**.
-* Ein URL-String (`Client("http://localhost:8000/mcp")`): Streamable HTTP, der Weg für die Produktion.
-* Ein `StdioServerParameters`: der Befehl, der als **Subprozess** gestartet wird und mit dem über dessen stdin und stdout gesprochen wird.
+* Ein URL-String (`Client("http://localhost:8000/mcp")`): Streamable HTTP, der Transport, hinter dem du deinen Server bereitstellst.
+* Ein `StdioServerParameters`: der Befehl, der als lokaler **Subprozess** gestartet wird und mit dem über dessen stdin und stdout gesprochen wird.
 * Ein **Transport**: alles, was sich mit `async with ... as (read, write)` verwenden lässt, etwa `streamable_http_client(url, http_client=...)` um deinen eigenen HTTP-Client herum.
+* Eine Instanz von `MCPServer` (oder des Low-Level-`Server`): Verbindung **im selben Prozess**, ohne Subprozess und ohne Port. Das ist die Variante für Tests, und **[Testen](../get-started/testing.md)** baut darauf auf.
 
 Alles Übrige auf dieser Seite ist in allen vier Fällen identisch. Header, Subprozesse, Timeouts und das `Transport`-Protokoll haben ihre eigene Seite: **[Client-Transporte](transports.md)**.
 
@@ -49,11 +59,11 @@ Eine Protokollversion hast du nie ausgewählt. Standardmäßig sondiert der `Cli
 
 ## Tools auflisten {#listing-tools}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial002.py"
 ```
 
-`list_tools()` gibt ein `ListToolsResult` zurück; die Tools stehen in `.tools`. Jedes davon ist die vollständige Definition, die ein Host einem Modell übergeben würde:
+`list_tools()` gibt ein `ListToolsResult` zurück; die Tools stehen in `.tools`. Jedes davon ist die vollständige Definition, die ein Host einem Modell übergeben würde. Hier ist das erste:
 
 ```python
 tool.name          # 'search_books'
@@ -77,6 +87,8 @@ und `tool.input_schema` ist das JSON-Schema, das der Server aus den Type Hints d
 
 Dieses Schema ist alles, was eine UI braucht, um ein Argumentformular zu rendern, und alles, was ein Modell braucht, um gültige Argumente zu erzeugen.
 
+Das zweite Tool, `lookup_book`, wurde ohne `title=` registriert, sein `tool.title` ist also `None`.
+
 !!! tip
     `title` ist optional, also muss sich eine UI, die einem Menschen Tools anzeigt, entscheiden: den `title`, wenn es einen gibt,
     sonst den `name`. `from mcp.shared.metadata_utils import get_display_name` macht genau das –
@@ -86,7 +98,7 @@ Dieses Schema ist alles, was eine UI braucht, um ein Argumentformular zu rendern
 
 `call_tool(name, arguments)` führt das Tool aus und gibt dir ein `CallToolResult` zurück.
 
-```python title="client.py" hl_lines="27-34"
+```python title="client.py" hl_lines="9-16"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -142,7 +154,7 @@ Ein Tool, das eine Exception auslöst, löst in deinem Client **keine** aus. Es 
 
 Die Ressourcen-Verben kommen paarweise: zwei Wege zum Auflisten, einer zum Lesen.
 
-```python title="client.py" hl_lines="22-31"
+```python title="client.py" hl_lines="9-18"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -156,7 +168,7 @@ Ein Client kann sich auch mitteilen lassen, wann sich eine Ressource ändert. Au
 
 ## Prompts {#prompts}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial005.py"
 ```
 
@@ -181,7 +193,7 @@ Ein Host reicht diese Nachrichten direkt an das Modell weiter. Das ist das ganze
 
 Ein Server mit einem Handler für Vervollständigungen kann Argumente von Prompts und Ressourcen-Templates automatisch vervollständigen, während die Person tippt.
 
-```python title="client.py" hl_lines="27-31"
+```python title="client.py" hl_lines="9-13"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -194,21 +206,21 @@ Die Antwort steht in `result.completion.values`. Tippe `"p"`, und der Server lie
 
 Jede `list_*`-Methode nimmt ein Keyword-Argument `cursor=`, und jedes Ergebnis trägt einen `next_cursor`. Wenn `next_cursor` `None` ist, hast du alles.
 
-```python title="client.py" hl_lines="22-30"
+```python title="client.py" hl_lines="7-15"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
-Diese Schleife ist gegenüber jedem Server korrekt. `MCPServer` gibt alles auf einer Seite zurück, also ist `next_cursor` `None` und die Schleife läuft einmal – deshalb schreibt der meiste Code sie nie. Server, die wirklich paginieren, und die Regeln, denen Cursor gehorchen, stehen in **[Paginierung](../advanced/pagination.md)**.
+`list_all_tools` ist gegenüber jedem Server korrekt. `MCPServer` gibt alles auf einer Seite zurück, also ist `next_cursor` `None` und die Schleife läuft einmal – deshalb schreibt der meiste Code sie nie. Server, die wirklich paginieren, und die Regeln, denen Cursor gehorchen, stehen in **[Paginierung](../advanced/pagination.md)**.
 
 ## In Tests {#in-tests}
 
-`Client(mcp)` ohne Prozess und ohne Port ist bereits ein Test-Harness für deinen Server.
+Jede `client.py` auf dieser Seite hat `server.py` über HTTP erreicht. In einem Test überspringst du das Netzwerk und übergibst `Client` das Server-Objekt selbst: `from server import mcp`, dann `Client(mcp)`. Kein Prozess, kein Port, und jede Methode von oben funktioniert genauso.
 
-Dafür gibt es ein eigenes Konstruktor-Flag: `Client(mcp, raise_exceptions=True)`. Es wirkt nur auf In-Memory-Verbindungen, und **[Testen](../get-started/testing.md)** ist die Seite, die es erklärt und das ganze Muster darum herum aufbaut.
+Dafür gibt es ein eigenes Konstruktor-Flag: `Client(mcp, raise_exceptions=True)`. Es wirkt nur auf Verbindungen im selben Prozess, und **[Testen](../get-started/testing.md)** ist die Seite, die es erklärt und das ganze Muster darum herum aufbaut.
 
 ## Zusammenfassung {#recap}
 
-* `Client(x)` verbindet sich in-memory mit einem Server-Objekt, über Streamable HTTP mit einem URL-String und über alles andere per Transport.
+* `Client(x)` verbindet sich über Streamable HTTP mit einem URL-String, startet für ein `StdioServerParameters` einen Subprozess, betritt einen Transport direkt und nimmt in Tests das Server-Objekt selbst.
 * `async with` ist der ganze Lebenszyklus. Darin sind `server_capabilities` und `protocol_version` bereits gefüllt; `server_info` und `instructions` ebenfalls, wenn der Server sie liefert.
 * `list_tools()` gibt dir für jedes Tool `name`, `title`, `description` und `input_schema`.
 * `call_tool()` gibt `content` für das Modell, `structured_content` für deinen Code und `is_error` zurück. Ein Tool, das eine Exception auslöst, ist ein Ergebnis, keine Exception.

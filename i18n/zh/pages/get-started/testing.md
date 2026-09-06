@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # 测试 {#testing}
 
-Python SDK 提供了一个带**内存传输**的 `Client` 类：把服务器对象传给它，它就会直接连接上去。
+SDK 的 `Client` 类，也就是连接 URL 或启动子进程的那个类，还能在**内存中**连接：把服务器对象传给它，它就直接和服务器对话。
 
-不用子进程，不占端口，根本不走任何传输。思路和 FastAPI 的 `TestClient` 一样。
+不用子进程，不占端口，线路上什么都没有。思路和 FastAPI 的 `TestClient` 一样。
 
 ## 基本用法 {#basic-usage}
 
@@ -86,7 +86,7 @@ async def test_call_add_tool(client: Client):
 
 测试里就让它开着。它在生产代码中没有意义。
 
-## 默认在进程内 {#in-process-by-default}
+## 默认不区分协议时代 {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` 在进程内连接，默认**不区分协议时代**：它会先探测服务器，再选择合适的协议路径。如果测试要验证旧版（legacy）特有的语义（采样（sampling）或征询（elicitation）的推送、`message_handler`），就固定使用 `mode="legacy"`，并在这种情况下去掉 `raise_exceptions=True`：旧版连接本来就不做脱敏，而这个标志会让失败在服务器任务内部重新抛出，而不是抛到你的测试里。

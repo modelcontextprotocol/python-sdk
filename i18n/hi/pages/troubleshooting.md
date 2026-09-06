@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # समस्याएँ सुलझाना {#troubleshooting}
@@ -13,6 +13,12 @@ translation:
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+वे entries इस तक `http://localhost:8000/mcp` पर पहुँचती हैं, इसलिए इसे HTTP पर चलता छोड़ दें:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 इस page पर quote किए गए errors असली हैं: SDK का अपना test suite इनमें से हर एक को reproduce करता है।
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ translation:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -67,7 +73,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -75,7 +81,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -251,7 +257,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-client ने जो `Mcp-Session-Id` भेजा उसे server नहीं पहचानता, लगभग हमेशा इसलिए कि server **restart** हुआ (या आपको किसी दूसरे instance पर route कर दिया गया)। sessions उसी एक process की memory में रहते हैं।
+client ने जो `Mcp-Session-Id` भेजा उसे server नहीं पहचानता। या तो server **restart** हुआ (या आपको किसी दूसरे instance पर route कर दिया गया), या session **expire** हो गया क्योंकि `session_idle_timeout` तक, जो default रूप से 30 मिनट है, कुछ भी in flight नहीं था। [Session lifetime और limits](run/legacy-clients.md#session-lifetime-and-limits) देखें। sessions उसी एक process की memory में रहते हैं।
 
 खोजने को कोई server bug नहीं है। HTTP response एक `404` है जिसकी body JSON-RPC **है**, इसलिए ऊपर वाले `421` के उलट, python `Client` इसे आपको ज्यों का त्यों दिखाता है:
 
@@ -261,9 +267,9 @@ client ने जो `Mcp-Session-Id` भेजा उसे server नहीं
 
 सुधार है reconnect करना: `async with Client(...)` block से बाहर निकलें और नए में enter करें, जो नया session negotiate करता है। लंबे समय तक चलने वाले client के लिए इसका मतलब है अपने calls के चारों ओर `MCPError` catch करना और इस message पर reconnect करना, न कि मरे हुए session के अंदर retry करते रहना।
 
-अगर यह restart के **बिना** होता है, तो आप sticky sessions के बिना एक से ज़्यादा worker चला रहे हैं: हर worker की अपनी session table होती है, इसलिए गलत worker पर route हुई request यहीं आ गिरती है। वह पूरी कहानी और उसके दो सुधार (sticky routing, या `stateless_http=True`) **[Deploy और scale](run/deploy.md)** और **[legacy clients को serve करना](run/legacy-clients.md)** में हैं।
+अगर यह restart के **बिना** होता है और client इतनी देर चुप भी नहीं रहा था, तो आप sticky sessions के बिना एक से ज़्यादा worker चला रहे हैं: हर worker की अपनी session table होती है, इसलिए गलत worker पर route हुई request यहीं आ गिरती है। वह पूरी कहानी और उसके दो सुधार (sticky routing, या `stateless_http=True`) **[Deploy और scale](run/deploy.md)** और **[legacy clients को serve करना](run/legacy-clients.md)** में हैं।
 
-server operator के लिए इससे मेल खाती log line है `Rejected request with unknown or expired session ID: <id>`। यह `INFO` पर log होती है, इसलिए आम `WARNING` threshold पर नहीं दिखती। deploy के ठीक बाद इसे झुंड में देखना सामान्य है; हर जुड़ा हुआ client reconnect कर रहा है।
+server operator के लिए इससे मेल खाती log line है `Rejected request with unknown or expired session ID: <id>`। यह `INFO` पर log होती है, इसलिए आम `WARNING` threshold पर नहीं दिखती। deploy के ठीक बाद इसे झुंड में देखना सामान्य है; हर जुड़ा हुआ client reconnect कर रहा है। जब session expire हुआ हो, तो उस line से पहले `Session <id> idle timeout` आती है, वह भी `INFO` पर।
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -275,7 +281,13 @@ server operator के लिए इससे मेल खाती log line �
 
 आपका server user से कुछ पूछना चाहता है, और इस client ने कभी कहा ही नहीं कि उससे पूछा जा सकता है।
 
-जब जुड़े हुए client ने form elicitation declare नहीं किया हो, तो elicitation resolver शुरू में ही मना कर देता है, और `e.error.data` ठीक-ठीक बताता है कि क्या गायब है:
+यह Bistro book करने से पहले पूछता है, एक resolver के ज़रिए:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Weather server की जगह इसे serve करें और ऐसे client से `book_table` call करें जिसने कोई `elicitation_callback` नहीं दिया। resolver शुरू में ही मना कर देता है, क्योंकि जुड़े हुए client ने form elicitation कभी declare नहीं किया, और `e.error.data` ठीक-ठीक बताता है कि क्या गायब है:
 
 ```json
 {
@@ -289,7 +301,7 @@ server operator के लिए इससे मेल खाती log line �
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -314,14 +326,14 @@ async def main() -> None:
 
 आपके handler ने request के बीच में client तक पहुँचने की कोशिश की, ऐसे connection पर जिसके call में server की ओर से request ले जाने वाला कोई channel नहीं है। तीन server configurations हैं जो किसी call को इस हालत में डालते हैं।
 
-**`2026-07-28` connection: कोई भी transport, हमेशा।** आधुनिक protocol में server-initiated requests हैं ही नहीं, इसलिए server कुछ भेजे जाने से पहले ही मना कर देता है। tool के अंदर `ctx.elicit()` इससे टकराने का classic तरीका है (पहले ही in-memory test पर, क्योंकि `Client(server)` बिना कहे `2026-07-28` negotiate करता है), और `elicitation_callback=` देने से कुछ नहीं बदलता, क्योंकि client तक कभी कोई request पहुँचती ही नहीं जिसका वह जवाब दे:
+**`2026-07-28` connection: कोई भी transport, हमेशा।** आधुनिक protocol में server-initiated requests हैं ही नहीं, इसलिए server कुछ भेजे जाने से पहले ही मना कर देता है। tool के अंदर `ctx.elicit()` इससे टकराने का classic तरीका है, आम तौर पर उस tool के पहले ही in-memory **[test](get-started/testing.md)** में, क्योंकि `Client(mcp)` बिना कहे `2026-07-28` negotiate करता है। `elicitation_callback=` देने से कुछ नहीं बदलता, क्योंकि client तक कभी कोई request पहुँचती ही नहीं जिसका वह जवाब दे:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -363,7 +375,7 @@ client ने जो `requestState` token वापस echo किया, server
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -416,7 +428,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * server log में `Tool already exists:` ही इकलौता संकेत है कि एक ही नाम के दो tools सिमटकर एक रह गए।
 * एक 421, तीन रूप: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (बाकी सब), `Invalid Host header: <host>` (server log)। सुधार: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`।
 * `Task group is not initialized` -> mounted app जिसके host lifespan ने कभी `mcp.session_manager.run()` में enter नहीं किया।
-* `Session not found` -> server restart हुआ; reconnect करें।
+* `Session not found` -> server restart हुआ या session expire हो गया (`session_idle_timeout`); reconnect करें।
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` को server-to-client channel चाहिए: `2026-07-28` connection में वह कभी नहीं होता, `stateless_http=True` legacy वाला छीन लेता है, और `json_response=True` request-scoped वाला। resolver इस्तेमाल करें (legacy client को ऐसा server भी चाहिए जो channel रखता हो)। इसका पड़ोसी `Method not found` ऐसे method की request है जो दूसरी side के protocol revision में है ही नहीं।
 * `Client did not declare the form elicitation capability ...` और `Elicitation not supported` -> client में `elicitation_callback=` गायब है।
 * `Invalid or expired requestState` wire पर कभी नहीं बताता कि क्यों। server log बताता है; `unknown key` का मतलब है workers के बीच `RequestStateSecurity(keys=[...])` साझा करें।

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
   tool: 1
 ---
 # v2'deki yenilikler {#whats-new-in-v2}
@@ -42,11 +42,11 @@ Bir aracın ihtiyaç duyduğu her şey modelden gelmek zorunda değil. v2 ile ge
 
 v1 size iç içe üç katman veriyordu: ham akışlar üreten bir aktarım bağlam yöneticisi, bunların etrafına sarılmış bir `ClientSession` ve elle çağrılan bir `await session.initialize()`. v2'de tek bir nesne var:
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` bir sunucu nesnesi (bellek içi, aktarım yok: test senaryosu), bir URL (Streamable HTTP), bir `StdioServerParameters` (bir stdio alt süreci) ya da `sse_client(...)` gibi başka herhangi bir aktarım bağlam yöneticisi alır. `async with` bloğuna girmek bağlantıyı kurar ve sunucu hangi nesli konuşuyorsa ona göre protokol sürümünde anlaşır; ardından `client.server_capabilities` ve `client.protocol_version` hazırdır, sunucu kendini tanıttığında `client.server_info` da öyle (artık `Implementation | None` türünde, çünkü 2026 neslinde kimlik isteğe bağlı). v1'de kaydettiğiniz örnekleme ve elicitation callback'leri hâlâ çalışır (gövdeleri, bu sayfadaki her şey gibi aynı snake_case öznitelik yeniden adlandırmasını görür); artık 2026 tarzı sonuç-içinde-isteklere de (aşağıda) yanıt verirler ve teker teker değil eşzamanlı çalışırlar. Düşük düzey yüzeyi isteyenler için `ClientSession` hâlâ altta duruyor ve `client.session` onu size verir; o da taşındı (yeni dispatcher motoru üzerinde çalışır ve kendi imzalarından bazıları değişti), bu yüzden aşağı inmeden önce **[Geçiş kılavuzu](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** sayfasını okuyun.
+`Client` bir URL (Streamable HTTP), bir `StdioServerParameters` (bir stdio alt süreci), `sse_client(...)` gibi başka herhangi bir aktarım bağlam yöneticisi ya da testlerde sunucu nesnesinin kendisini (bellek içi, aktarım yok) alır. `async with` bloğuna girmek bağlantıyı kurar ve sunucu hangi nesli konuşuyorsa ona göre protokol sürümünde anlaşır; ardından `client.server_capabilities` ve `client.protocol_version` hazırdır, sunucu kendini tanıttığında `client.server_info` da öyle (artık `Implementation | None` türünde, çünkü 2026 neslinde kimlik isteğe bağlı). v1'de kaydettiğiniz örnekleme ve elicitation callback'leri hâlâ çalışır (gövdeleri, bu sayfadaki her şey gibi aynı snake_case öznitelik yeniden adlandırmasını görür); artık 2026 tarzı sonuç-içinde-isteklere de (aşağıda) yanıt verirler ve teker teker değil eşzamanlı çalışırlar. Düşük düzey yüzeyi isteyenler için `ClientSession` hâlâ altta duruyor ve `client.session` onu size verir; o da taşındı (yeni dispatcher motoru üzerinde çalışır ve kendi imzalarından bazıları değişti), bu yüzden aşağı inmeden önce **[Geçiş kılavuzu](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** sayfasını okuyun.
 
 **[Client](client/index.md)** sayfası onu tanıtır, **[İstemci aktarımları](client/transports.md)** dört bağlantı biçimini anlatır, **[İstemci callback'leri](client/callbacks.md)** callback'lerin kendisini ele alır ve **[Test etme](get-started/testing.md)** v1'in `create_connected_server_and_client_session()` yardımcısının yerini alan bellek içi kalıbı gösterir.
 
@@ -171,11 +171,15 @@ Bunun istemci tarafı **[Protokol sürümleri](protocol-versions.md)** sayfasın
 
 Yerine gelen çözüm çağrıyı tersine çevirir. Kullanıcıdan bir şeye ihtiyaç duyan araç soruyu *döndürür* (`InputRequiredResult`), istemci onu her zamanki callback'leriyle yanıtlar ve çağrı yanıtlar eklenmiş hâlde yeniden denenir. Bu döngüyü sizin için `Client` yürütür. Sunucuda sonucu nadiren kendiniz kurarsınız, çünkü bunu bir **[bağımlılık](handlers/dependencies.md)** yapar: bir parametreyi `Resolve(ask_quantity)` ile işaretleyin (`ask_quantity` sizin yazdığınız sıradan bir fonksiyondur), SDK de bağlantının desteklediği mekanizma hangisiyse onun üzerinden sorar: eski nesil bir oturumda canlı bir elicitation isteği, 2026'da çok turlu bir istek. Tek araç gövdesi, iki nesil birden:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-Bu dosya tüm vaadin tek yerde özeti: bir sunucu, `Resolve` destekli bir araç ve ikisi de yanıtını bellek içinde alan bir eski nesil istemci ile bir modern istemci. **[Çok turlu istekler](handlers/multi-round-trip.md)** mekanizmayı açıklar (SDK'nın sizin için mühürleyip doğruladığı `request_state` dâhil); sorma kısmı **[Elicitation](handlers/elicitation.md)** sayfasında.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Bu iki dosya tüm vaadin özeti: bir sunucu, `Resolve` destekli bir araç ve ikisi de yanıtını çalışan aynı sunucudan alan bir eski nesil istemci ile bir modern istemci (**[Eski nesil istemcilere hizmet verme](run/legacy-clients.md)** bunları adım adım anlatır). **[Çok turlu istekler](handlers/multi-round-trip.md)** mekanizmayı açıklar (SDK'nın sizin için mühürleyip doğruladığı `request_state` dâhil); sorma kısmı **[Elicitation](handlers/elicitation.md)** sayfasında.
 
 !!! warning "Taşınmış bir v1 sunucusunun davranış değiştirdiği tek yer burası"
     Buna ilk sizin testleriniz çarpar: `Client(mcp)` v2 sunucunuzla varsayılan olarak 2026-07-28

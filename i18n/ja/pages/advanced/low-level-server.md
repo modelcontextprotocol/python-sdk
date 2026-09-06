@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 低レベルの Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### 試してみる {#try-it}
 
-これには Inspector がありません。`mcp dev` と `mcp run` は `MCPServer` しか受け付けないからです。インメモリの `Client` は気にしません。`MCPServer` を受け取るのとまったく同じように、低レベルの `Server` を受け取ります。
+`mcp dev` と `mcp run` は `MCPServer` しか受け付けないので、このサーバーは自分で起動します。`server.py` の最後の行がここから普通の ASGI アプリを組み立て、uvicorn がそれを実行します。
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Inspector でも、どのクライアントでも、`http://localhost:8000/mcp` に向けてください。
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` は `None` です。高レベルのサーバーは `-> str` を `{"result": ...}` にラップしてくれますが、ここでは自分で組み立てなかったものを誰も組み立ててくれません。
 * `list_tools` は**自分で**打ち込んだスキーマを一字一句そのまま返します。高レベル版にはすべてのプロパティに `"title": "Query"` があり、ルートに `"title": "search_booksArguments"` がありました。Pydantic の産物です。この層では、通信上に現れるものはすべて自分が載せたものです。
+
+テストでは uvicorn もポートも省けます。`Client(server)` は `MCPServer` を受け取るのとまったく同じように、低レベルの `Server` をインプロセスで受け取ります。**[テスト](../get-started/testing.md)** がまさにそのパターンです。
 
 ## 何もチェックされない {#nothing-is-checked-for-you}
 
@@ -214,4 +220,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)` は任意のメソッドを提供します。`initialize` は予約されています。
 * `Server` が公開するケイパビリティは、どのハンドラーを登録したかから導出されます。
 
-`Client(server)` が両方のサーバーを同じように扱ったのは、両者がまさに同じプロトコルだからであり、それこそが要点です。さらに下の層はクラスですらありません。**[ミドルウェア](middleware.md)** です。
+クライアントが両方のサーバーを同じように扱ったのは、両者がまさに同じプロトコルだからであり、それこそが要点です。さらに下の層はクラスですらありません。**[ミドルウェア](middleware.md)** です。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ translation:
 
 ## Часы с циферблатом {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,11 +39,31 @@ translation:
 
 Модель читает `content`; iframe — для людей. Хост с поддержкой UI всё равно передаёт текстовый результат модели, а чисто текстовый клиент получает *только* его. Поэтому канонический паттерн — один инструмент, два ответа. Взгляните на `get_time` ещё раз:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-`client_supports_apps(ctx)` возвращает `True`, только когда клиент объявил расширение `io.modelcontextprotocol/ui` **и** указал `text/html;profile=mcp-app` в настройке `mimeTypes`. Поле обязательное, так что клиент, который его опустил, не считается. Именно это объявляет `main()` в том же файле: клиентскую половину согласования — и в ответ приходит развёрнутый результат.
+`client_supports_apps(ctx)` возвращает `True`, только когда клиент объявил расширение `io.modelcontextprotocol/ui` **и** указал `text/html;profile=mcp-app` в настройке `mimeTypes`. Поле обязательное, так что клиент, который его опустил, не считается. Вот клиентская половина согласования:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+Запустите `server.py` по HTTP, затем во втором терминале запустите клиент:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+Пришёл развёрнутый ответ. Уберите `extensions=[APPS_SUPPORT]` из вызова `Client` — и та же программа напечатает `The time is 2026-06-26T12:00:00Z.`: это всё, что когда-либо увидит чисто текстовый клиент.
 
 !!! warning
     Никогда не возвращайте заглушку вроде `"[Rendered UI]"` в качестве единственного содержимого. Если запасной текст бесполезен, инструмент бесполезен для любого текстового клиента и для самой модели. Напишите нормальное предложение.

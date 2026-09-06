@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK はこれを組み込みの `Apps` 拡張（`io.modelcontextprotocol/ui`）�
 
 ## 見た目のある時計 {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,11 +39,31 @@ HTML 自体はホストの `postMessage` を待ち受けて結果を表示しま
 
 モデルが読むのは `content` で、iframe は人間のためのものです。UI に対応したホストでもテキストの結果はモデルに渡されますし、テキスト専用のクライアントはそれ「だけ」を受け取ります。ですから定番のパターンは「1 つのツール、2 つの答え」です。もう一度 `get_time` を見てください。
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-`client_supports_apps(ctx)` が `True` になるのは、クライアントが `io.modelcontextprotocol/ui` 拡張を宣言し、**かつ** `mimeTypes` 設定に `text/html;profile=mcp-app` を含めている場合だけです。このフィールドは必須なので、省略したクライアントは該当しません。同じファイルの `main()` が宣言しているのはまさにこれです。ネゴシエーションのクライアント側であり、その結果リッチな答えが返ってきます。
+`client_supports_apps(ctx)` が `True` になるのは、クライアントが `io.modelcontextprotocol/ui` 拡張を宣言し、**かつ** `mimeTypes` 設定に `text/html;profile=mcp-app` を含めている場合だけです。このフィールドは必須なので、省略したクライアントは該当しません。ネゴシエーションのクライアント側は次のとおりです。
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+`server.py` を HTTP で提供し、別のターミナルからクライアントを実行してください。
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+リッチな答えが返ってきました。`Client` の呼び出しから `extensions=[APPS_SUPPORT]` を外すと、同じプログラムは代わりに `The time is 2026-06-26T12:00:00Z.` と表示します。テキスト専用のクライアントが目にするのは、これがすべてです。
 
 !!! warning
     `"[Rendered UI]"` のようなプレースホルダーを唯一のコンテンツとして返さないでください。フォールバックのテキストが役に立たなければ、そのツールはテキスト専用のすべてのクライアントにとっても、モデル自身にとっても役に立ちません。きちんと文を書いてください。

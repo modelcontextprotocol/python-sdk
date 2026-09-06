@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 底层 Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### 试一试 {#try-it}
 
-这个没有 Inspector 可用：`mcp dev` 和 `mcp run` 只接受 `MCPServer`。内存中的 `Client` 不在乎；它接收底层 `Server` 的方式和接收 `MCPServer` 完全一样：
+`mcp dev` 和 `mcp run` 只接受 `MCPServer`，所以这个服务器要自己来跑。`server.py` 的最后一行用它构建了一个普通的 ASGI 应用，交给 uvicorn 运行：
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+把 Inspector 或任何客户端指向 `http://localhost:8000/mcp`：
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` 是 `None`。高层服务器会替你把 `-> str` 包装成 `{"result": ...}`；在这里，你没构建的东西没人替你构建。
 * `list_tools` 返回的是**你**敲进去的模式，一字不差。高层版本在每个属性上都有 `"title": "Query"`，根上还有一个 `"title": "search_booksArguments"`：Pydantic 的产物。在这一层，线路上有什么，都是你放上去的。
+
+在测试里可以跳过 uvicorn 和端口：`Client(server)` 在进程内接收底层 `Server` 的方式和接收 `MCPServer` 完全一样，**[测试](../get-started/testing.md)** 讲的就是这个模式。
 
 ## 没有替你做任何检查 {#nothing-is-checked-for-you}
 
@@ -214,4 +220,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)` 提供任意方法。`initialize` 是保留的。
 * `Server` 公布的能力由你注册了哪些处理函数推导而来。
 
-`Client(server)` 对两种服务器一视同仁，因为它们**就是**同一个协议，这正是关键所在。再往下一层根本不是一个类：它是 **[中间件](middleware.md)**。
+客户端对两种服务器一视同仁，因为它们**就是**同一个协议，这正是关键所在。再往下一层根本不是一个类：它是 **[中间件](middleware.md)**。

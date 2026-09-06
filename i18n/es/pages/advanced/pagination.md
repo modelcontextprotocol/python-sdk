@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # Paginación {#pagination}
@@ -31,9 +31,13 @@ La paginación es para el servidor cuya lista de recursos es en realidad una bas
 
 ### Pruébalo {#try-it}
 
-`Client(server)` se conecta a un `Server` de bajo nivel en memoria exactamente igual que se conecta a un `MCPServer`.
+`mcp run` solo acepta un `MCPServer`, así que este lo sirves tú mismo. La última línea de `server.py` construye una app ASGI normal a partir del `Server`, y uvicorn la ejecuta:
 
-Llama a `list_resources()` sin argumentos. Obtienes diez recursos, de `book-1` a `book-10`, y `next_cursor` es la cadena `"10"`.
+```console
+uvicorn server:app --port 8000
+```
+
+Apunta cualquier cliente (**[El cliente](../client/index.md)**, o el Inspector) a `http://localhost:8000/mcp` y llama a `list_resources()` sin argumentos. Obtienes diez recursos, de `book-1` a `book-10`, y `next_cursor` es la cadena `"10"`.
 
 Devuélvelo con `list_resources(cursor="10")` y el primer recurso es `book-11`; el nuevo `next_cursor` es `"20"`.
 
@@ -43,7 +47,7 @@ La décima página vuelve con `next_cursor` en `None`. Listo.
 
 Cada método `list_*` de `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) acepta el argumento nombrado `cursor=`. Vaciar una lista paginada es un solo `while True`:
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -51,7 +55,7 @@ Cada método `list_*` de `Client` (`list_tools`, `list_resources`, `list_resourc
 * Extiende **antes** de mirar `next_cursor`: la última página también tiene recursos.
 * `next_cursor is None` es la salida. Cualquier otra cosa vuelve directamente a `cursor=`, sin tocarla.
 
-Ejecuta su `main()` e imprime `100 resources`: diez páginas de diez, unidas por un bucle que nunca supo que había diez páginas.
+Con uvicorn todavía sirviendo `server.py`, ejecuta `python client.py` en una segunda terminal. Imprime `100 resources`: diez páginas de diez, unidas por un bucle que nunca supo que había diez páginas.
 
 Es el mismo bucle que **[El cliente](../client/index.md)** muestra para cada verbo `list_*`, y no cuesta nada frente a un servidor que no pagina: `next_cursor` es `None` en la primera respuesta y el bucle se ejecuta una vez.
 

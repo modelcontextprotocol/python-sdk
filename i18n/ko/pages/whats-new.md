@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
   tool: 1
 ---
 # v2에서 달라진 점 {#whats-new-in-v2}
@@ -42,11 +42,11 @@ mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 
 v1은 세 겹으로 중첩된 계층을 건네주었습니다. 원시 스트림을 내놓는 트랜스포트 컨텍스트 매니저, 이를 감싸는 `ClientSession`, 그리고 직접 호출해야 하는 `await session.initialize()`입니다. v2에는 객체가 하나뿐입니다.
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client`는 서버 객체(트랜스포트 없이 인메모리로 동작하며, 테스트에 쓰는 방식입니다), URL(Streamable HTTP), `StdioServerParameters`(stdio 하위 프로세스), 또는 `sse_client(...)` 같은 그 밖의 임의의 트랜스포트 컨텍스트 매니저를 받습니다. `async with`에 진입하면 서버가 어느 시대의 프로토콜을 말하든 연결을 맺고 프로토콜 버전을 협상합니다. 그 뒤에는 `client.server_capabilities`와 `client.protocol_version`이 그냥 준비되어 있고, 서버가 자신을 식별하는 경우에는 `client.server_info`도 마찬가지입니다(2026 시대에는 식별 정보가 선택 사항이므로 이제 타입은 `Implementation | None`입니다). v1에서 등록한 샘플링 및 엘리시테이션 콜백은 여전히 동작하며(콜백 본문에는 이 페이지의 다른 모든 것과 마찬가지로 snake_case 속성 이름 변경이 적용됩니다), 이제 2026 방식의 결과 속 요청(아래 참고)에도 응답하고, 한 번에 하나씩이 아니라 동시에 실행됩니다. 저수준 인터페이스를 원하는 경우를 위해 `ClientSession`은 여전히 그 아래에 있으며 `client.session`으로 얻을 수 있습니다. 다만 이 클래스 역시 바뀌었으므로(새 디스패처 엔진 위에서 실행되고, 자체 시그니처 일부도 변경되었습니다) 아래 계층으로 내려가기 전에 **[마이그레이션 가이드](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**를 읽어 보세요.
+`Client`는 URL(Streamable HTTP), `StdioServerParameters`(stdio 하위 프로세스), `sse_client(...)` 같은 그 밖의 임의의 트랜스포트 컨텍스트 매니저, 또는 테스트에서는 서버 객체 자체(트랜스포트 없이 인메모리로 동작합니다)를 받습니다. `async with`에 진입하면 서버가 어느 시대의 프로토콜을 말하든 연결을 맺고 프로토콜 버전을 협상합니다. 그 뒤에는 `client.server_capabilities`와 `client.protocol_version`이 그냥 준비되어 있고, 서버가 자신을 식별하는 경우에는 `client.server_info`도 마찬가지입니다(2026 시대에는 식별 정보가 선택 사항이므로 이제 타입은 `Implementation | None`입니다). v1에서 등록한 샘플링 및 엘리시테이션 콜백은 여전히 동작하며(콜백 본문에는 이 페이지의 다른 모든 것과 마찬가지로 snake_case 속성 이름 변경이 적용됩니다), 이제 2026 방식의 결과 속 요청(아래 참고)에도 응답하고, 한 번에 하나씩이 아니라 동시에 실행됩니다. 저수준 인터페이스를 원하는 경우를 위해 `ClientSession`은 여전히 그 아래에 있으며 `client.session`으로 얻을 수 있습니다. 다만 이 클래스 역시 바뀌었으므로(새 디스패처 엔진 위에서 실행되고, 자체 시그니처 일부도 변경되었습니다) 아래 계층으로 내려가기 전에 **[마이그레이션 가이드](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**를 읽어 보세요.
 
 **[클라이언트](client/index.md)**에서 소개하고, **[클라이언트 트랜스포트](client/transports.md)**에서 네 가지 연결 형태를, **[클라이언트 콜백](client/callbacks.md)**에서 콜백 자체를 다루며, **[테스트](get-started/testing.md)**에서는 v1의 `create_connected_server_and_client_session()` 헬퍼를 대체하는 인메모리 패턴을 보여 줍니다.
 
@@ -171,11 +171,15 @@ Streamable HTTP에서는 2026 경로에 `Mcp-Session-Id`가 없으며, 운영 �
 
 대체 방식은 호출의 방향을 뒤집습니다. 사용자로부터 무언가가 필요한 도구는 질문을 **반환**하고(`InputRequiredResult`), 클라이언트는 늘 갖고 있던 것과 같은 콜백으로 질문에 답하며, 답이 첨부된 채로 호출이 재시도됩니다. 이 루프는 `Client`가 대신 돌려 줍니다. 서버에서 결과를 직접 만드는 일은 드뭅니다. **[의존성](handlers/dependencies.md)**이 대신 해 주기 때문입니다. 매개변수에 `Resolve(ask_quantity)` 어노테이션을 달면(`ask_quantity`는 직접 작성하는 평범한 함수입니다), SDK가 연결이 지원하는 메커니즘, 즉 레거시 세션에서는 실시간 엘리시테이션 요청, 2026에서는 다중 왕복을 통해 질문합니다. 도구 본문 하나로 두 시대를 지원합니다.
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-이 파일 하나에 핵심이 모두 담겨 있습니다. 서버 하나, `Resolve` 기반 도구 하나, 그리고 레거시 클라이언트와 최신 클라이언트가 모두 인메모리로 답을 받습니다. 메커니즘(SDK가 대신 봉인하고 검증하는 `request_state` 포함)은 **[다중 왕복 요청](handlers/multi-round-trip.md)**에서 설명하고, 질문하는 쪽은 **[엘리시테이션](handlers/elicitation.md)**에서 다룹니다.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+이 두 파일에 핵심이 모두 담겨 있습니다. 서버 하나, `Resolve` 기반 도구 하나, 그리고 레거시 클라이언트와 최신 클라이언트가 모두 실행 중인 같은 서버에서 답을 받습니다(**[레거시 클라이언트 지원](run/legacy-clients.md)**에서 이 두 파일을 하나씩 짚어 봅니다). 메커니즘(SDK가 대신 봉인하고 검증하는 `request_state` 포함)은 **[다중 왕복 요청](handlers/multi-round-trip.md)**에서 설명하고, 질문하는 쪽은 **[엘리시테이션](handlers/elicitation.md)**에서 다룹니다.
 
 !!! warning "포팅한 v1 서버의 동작이 바뀌는 유일한 지점입니다"
     가장 먼저 부딪히는 것은 직접 작성한 테스트입니다. `Client(mcp)`는 기본적으로 v2 서버와 2026-07-28을

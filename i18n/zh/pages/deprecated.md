@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # 已弃用的功能 {#deprecated-features}
 
-2026-07-28 规范让五项内容退役。SDK 仍然实现了其中每一项，而且每一项现在都带有**弃用警告**。另有一个 SDK 辅助函数因自身原因被弃用，列在[本页末尾](#deprecated-sdk-helpers)。
+2026-07-28 规范让五项内容退役。SDK 仍然实现了其中每一项，而且每一项现在都带有**弃用警告**。另有几项 SDK 层面的弃用出于自身原因，列在[本页末尾](#deprecated-sdk-helpers)。
 
 下表列出了每一项已弃用的功能、它为什么要退场，以及应该改用的替代方案。
 
@@ -125,11 +125,13 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 
 ## 已弃用的 SDK 辅助函数 {#deprecated-sdk-helpers}
 
-这些不是规范变更，只是有了更好替代的 SDK 内部实现。它们用同一个 `MCPDeprecationWarning` 发出警告，并将在 3.0 中移除。
+这些不是规范变更，只是有了更好替代的 SDK 用法。它们用同一个 `MCPDeprecationWarning` 发出警告，3.0 会移除旧形式。
 
 | 已弃用 | 替代做法 |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | 先调用 `FuncMetadata.validate_arguments()`，再调用 `FuncMetadata.call_fn()`。只有直接驱动 `FuncMetadata` 的代码（比如自定义的 `Tool` 子类）才调用过它。 |
+| 不带 `validate_token_resource=` 的 `AuthSettings(resource_server_url=...)` | 设置它：`True` 让服务器拒绝你的验证器未报告为针对 `resource_server_url` 签发的 bearer 令牌，`False` 表示你的验证器自己检查令牌的受众（见 **[授权](run/authorization.md#a-token-verifier)**）。不设置时行为等同于 `False`；3.0 起，只要设置了 `resource_server_url`，默认值就是 `True`。 |
+| 不带 `issuer=` 的 `ClientCredentialsOAuthProvider(...)` 或 `PrivateKeyJWTOAuthProvider(...)` | 传入 `issuer=`，指明签发这些凭据的授权服务器（见 **[编写 OAuth 客户端](client/oauth-clients.md#machine-to-machine)**）。不传的话，由 MCP 服务器决定哪个授权服务器收到这些凭据；3.0 起这个关键字参数必填。 |
 
 ## 回顾 {#recap}
 
@@ -138,7 +140,7 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 * 弃用只是建议性的：线路上没有变化，在 2026 之前的会话上一切照常工作，你会看到一条醒目的 `MCPDeprecationWarning`（它是 `UserWarning`，所以默认开启）。
 * 采样和根目录还需要一条反向通道，而 2026-07-28 会话没有。在现代连接上，它们先警告，然后抛出异常。
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` 让整个类别静音；pytest 中的 `"error::mcp.MCPDeprecationWarning"` 把它变成测试失败。
-* 一个 SDK 辅助函数 `FuncMetadata.call_fn_with_arg_validation()` 单独被弃用，将在 3.0 中移除。
+* [SDK 层面的弃用](#deprecated-sdk-helpers)遵循同样的规则：现在发出警告，3.0 移除旧形式。
 * 新代码不应建立在其中任何一项之上。
 
 本文档的其他每一页讲的都是当前的 API。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # Пагинация {#pagination}
@@ -31,9 +31,13 @@ translation:
 
 ### Попробуйте сами {#try-it}
 
-`Client(server)` подключается к низкоуровневому `Server` в памяти точно так же, как к `MCPServer`.
+`mcp run` принимает только `MCPServer`, поэтому этот сервер придётся запускать самостоятельно. Последняя строка `server.py` собирает из `Server` обычное ASGI-приложение, и его запускает uvicorn:
 
-Вызовите `list_resources()` без аргументов. Придут десять ресурсов, от `book-1` до `book-10`, а `next_cursor` будет строкой `"10"`.
+```console
+uvicorn server:app --port 8000
+```
+
+Направьте любой клиент (**[Клиент](../client/index.md)** или Inspector) на `http://localhost:8000/mcp` и вызовите `list_resources()` без аргументов. Придут десять ресурсов, от `book-1` до `book-10`, а `next_cursor` будет строкой `"10"`.
 
 Передайте его обратно через `list_resources(cursor="10")` — первым ресурсом окажется `book-11`, а новый `next_cursor` будет `"20"`.
 
@@ -43,7 +47,7 @@ translation:
 
 Каждый метод `list_*` у `Client` (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) принимает именованный аргумент `cursor=`. Вычитать список постранично целиком — это один `while True`:
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -51,7 +55,7 @@ translation:
 * Добавляйте элементы **до** того, как смотреть на `next_cursor`: на последней странице тоже есть ресурсы.
 * `next_cursor is None` — условие выхода. Всё остальное без изменений отправляется обратно в `cursor=`.
 
-Запустите его `main()`, и он напечатает `100 resources`: десять страниц по десять, сшитых циклом, который и не знал, что страниц было десять.
+Пока uvicorn продолжает обслуживать `server.py`, запустите `python client.py` во втором терминале. Он напечатает `100 resources`: десять страниц по десять, сшитых циклом, который и не знал, что страниц было десять.
 
 Это тот же цикл, который **[Клиент](../client/index.md)** показывает для каждого метода `list_*`, и против сервера без пагинации он ничего не стоит: `next_cursor` равен `None` уже в первом ответе, и цикл выполняется один раз.
 

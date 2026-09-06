@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # Testing {#testing}
 
-Python SDK में `Client` class आती है जिसके साथ **in-memory transport** मिलता है: इसे अपना server object दें और यह उससे सीधे जुड़ जाता है।
+SDK की `Client` class, वही जो किसी URL से जुड़ती है या subprocess शुरू करती है, **in memory** भी जुड़ती है: इसे अपना server object दें और यह उससे सीधे बात करती है।
 
-कोई subprocess नहीं। कोई port नहीं। कोई transport ही नहीं। यह वही विचार है जो FastAPI के `TestClient` का है।
+कोई subprocess नहीं। कोई port नहीं। wire पर कुछ नहीं। यह वही विचार है जो FastAPI के `TestClient` का है।
 
 ## Basic usage {#basic-usage}
 
@@ -91,7 +91,7 @@ tool body के **बाहर** का failure अलग है। `Client(mcp
 
 tests में इसे चालू रहने दें। production code में इसका कोई मतलब नहीं है।
 
-## Default रूप से in-process {#in-process-by-default}
+## Default रूप से पीढ़ी-निरपेक्ष {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` in-process जुड़ता है और default रूप से **पीढ़ी-निरपेक्ष** है: यह server को probe करता है और

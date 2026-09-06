@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
   tool: 1
 ---
 # Nouveautés de la v2 {#whats-new-in-v2}
@@ -43,11 +43,11 @@ Tout ce dont un outil a besoin ne devrait pas venir du modèle. Nouveauté de la
 
 La v1 vous donnait trois couches imbriquées : un gestionnaire de contexte de transport produisant des flux bruts, une `ClientSession` qui les enveloppait et un `await session.initialize()` appelé à la main. La v2 a un seul objet :
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` accepte un objet serveur (en mémoire, sans transport : c’est la solution pour les tests), une URL (Streamable HTTP), un `StdioServerParameters` (un sous-processus stdio) ou n’importe quel autre gestionnaire de contexte de transport comme `sse_client(...)`. Entrer dans `async with` établit la connexion et négocie la version du protocole, quelle que soit la génération que parle le serveur ; `client.server_capabilities` et `client.protocol_version` sont simplement disponibles ensuite, et `client.server_info` aussi lorsque le serveur s’identifie (c’est désormais `Implementation | None`, puisque l’identité est optionnelle dans la génération 2026). Les fonctions de rappel (callbacks) d’échantillonnage et d’élicitation que vous aviez enregistrées en v1 fonctionnent toujours (leur corps voit le même renommage d’attributs en snake_case que tout le reste de cette page), elles répondent désormais aussi aux requêtes-dans-les-résultats de style 2026 (ci-dessous), et elles s’exécutent de façon concurrente plutôt qu’une à la fois. `ClientSession` reste en dessous pour qui veut la surface bas niveau, et `client.session` vous la donne ; elle a bougé elle aussi (elle tourne sur le nouveau moteur de répartition, et certaines de ses propres signatures ont changé), alors lisez le **[Guide de migration](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** avant de descendre à ce niveau.
+`Client` accepte une URL (Streamable HTTP), un `StdioServerParameters` (un sous-processus stdio), n’importe quel autre gestionnaire de contexte de transport comme `sse_client(...)` ou, dans les tests, l’objet serveur lui-même (en mémoire, sans transport). Entrer dans `async with` établit la connexion et négocie la version du protocole, quelle que soit la génération que parle le serveur ; `client.server_capabilities` et `client.protocol_version` sont simplement disponibles ensuite, et `client.server_info` aussi lorsque le serveur s’identifie (c’est désormais `Implementation | None`, puisque l’identité est optionnelle dans la génération 2026). Les fonctions de rappel (callbacks) d’échantillonnage et d’élicitation que vous aviez enregistrées en v1 fonctionnent toujours (leur corps voit le même renommage d’attributs en snake_case que tout le reste de cette page), elles répondent désormais aussi aux requêtes-dans-les-résultats de style 2026 (ci-dessous), et elles s’exécutent de façon concurrente plutôt qu’une à la fois. `ClientSession` reste en dessous pour qui veut la surface bas niveau, et `client.session` vous la donne ; elle a bougé elle aussi (elle tourne sur le nouveau moteur de répartition, et certaines de ses propres signatures ont changé), alors lisez le **[Guide de migration](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** avant de descendre à ce niveau.
 
 **[Le Client](client/index.md)** le présente, **[Transports du client](client/transports.md)** couvre les quatre formes de connexion, **[Fonctions de rappel du client](client/callbacks.md)** couvre les fonctions de rappel elles-mêmes, et **[Tests](get-started/testing.md)** montre le modèle en mémoire qui remplace l’utilitaire `create_connected_server_and_client_session()` de la v1.
 
@@ -172,11 +172,15 @@ Toutes les requêtes initiées par le serveur disparaissent en version 2026-07-2
 
 Le remplacement inverse l’appel. Un outil qui a besoin de quelque chose de la part de l’utilisateur *renvoie* la question (`InputRequiredResult`), le client y répond avec les mêmes fonctions de rappel qu’il a toujours eues, et l’appel est relancé avec les réponses jointes. `Client` pilote cette boucle pour vous. Côté serveur, vous construisez rarement le résultat vous-même, car une **[dépendance](handlers/dependencies.md)** le fait : annotez un paramètre avec `Resolve(ask_quantity)`, où `ask_quantity` est une fonction ordinaire que vous écrivez, et le SDK pose la question par le mécanisme que la connexion prend en charge, une requête d’élicitation en direct sur une session historique ou une requête à plusieurs allers-retours en 2026. Un seul corps d’outil, les deux générations :
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-Ce fichier résume tout l’argument en un seul endroit : un serveur, un outil adossé à `Resolve`, et un client historique plus un client moderne qui obtiennent tous deux leur réponse, en mémoire. **[Requêtes à plusieurs allers-retours](handlers/multi-round-trip.md)** explique le mécanisme (y compris `request_state`, que le SDK scelle et vérifie pour vous) ; **[Élicitation](handlers/elicitation.md)** couvre la façon de poser la question.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Ces deux fichiers résument tout l’argument : un serveur, un outil adossé à `Resolve`, et un client historique plus un client moderne qui obtiennent tous deux leur réponse du même serveur en cours d’exécution (**[Prendre en charge les clients historiques](run/legacy-clients.md)** les passe en revue). **[Requêtes à plusieurs allers-retours](handlers/multi-round-trip.md)** explique le mécanisme (y compris `request_state`, que le SDK scelle et vérifie pour vous) ; **[Élicitation](handlers/elicitation.md)** couvre la façon de poser la question.
 
 !!! warning "C’est le seul endroit où un serveur v1 porté change de comportement"
     Vos propres tests y butent en premier : `Client(mcp)` négocie par défaut 2026-07-28 avec votre

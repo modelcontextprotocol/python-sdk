@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
   tool: 1
 ---
 # v2 的新功能 {#whats-new-in-v2}
@@ -37,11 +37,11 @@ mcp = MCPServer("Demo")  # v1: FastMCP("Demo")
 
 v1 交給你的是三層巢狀結構：一個產出原始串流的傳輸 context manager、包在外面的 `ClientSession`，再加上手動呼叫的 `await session.initialize()`。v2 只有一個物件：
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` 接受一個伺服器物件（記憶體內、沒有傳輸，也就是測試的做法）、一個 URL（Streamable HTTP）、一個 `StdioServerParameters`（stdio 子處理程序），或任何其他傳輸 context manager，例如 `sse_client(...)`。進入 `async with` 就會連線並協商協定版本，不管伺服器講的是哪個世代；之後 `client.server_capabilities` 和 `client.protocol_version` 就直接在那裡，伺服器有表明身分時 `client.server_info` 也在（它現在是 `Implementation | None`，因為 2026 世代的身分是選用的）。在 v1 註冊的取樣和徵詢回呼仍然有效（回呼本體會遇到跟本頁其他地方一樣的 snake_case 屬性改名），現在也會回應 2026 風格的「結果中夾帶請求」（見下文），而且是並行執行，不再一次一個。想要低階介面的人，`ClientSession` 仍在底下，`client.session` 會把它交給你；它也有變動（跑在新的分派器引擎上，自己的部分簽章也改了），所以往下鑽之前先讀 **[遷移指南](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**。
+`Client` 接受一個 URL（Streamable HTTP）、一個 `StdioServerParameters`（stdio 子處理程序）、任何其他傳輸 context manager（例如 `sse_client(...)`），或者在測試裡直接接受伺服器物件本身（記憶體內、沒有傳輸）。進入 `async with` 就會連線並協商協定版本，不管伺服器講的是哪個世代；之後 `client.server_capabilities` 和 `client.protocol_version` 就直接在那裡，伺服器有表明身分時 `client.server_info` 也在（它現在是 `Implementation | None`，因為 2026 世代的身分是選用的）。在 v1 註冊的取樣和徵詢回呼仍然有效（回呼本體會遇到跟本頁其他地方一樣的 snake_case 屬性改名），現在也會回應 2026 風格的「結果中夾帶請求」（見下文），而且是並行執行，不再一次一個。想要低階介面的人，`ClientSession` 仍在底下，`client.session` 會把它交給你；它也有變動（跑在新的分派器引擎上，自己的部分簽章也改了），所以往下鑽之前先讀 **[遷移指南](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**。
 
 **[用戶端](client/index.md)** 介紹它，**[用戶端傳輸方式](client/transports.md)** 說明四種連線形式，**[用戶端回呼](client/callbacks.md)** 說明回呼本身，**[測試](get-started/testing.md)** 示範取代 v1 `create_connected_server_and_client_session()` 輔助函式的記憶體內模式。
 
@@ -166,11 +166,15 @@ v2 實作 2026-07-28 修訂版，而且**兩個**修訂版同時服務：同一�
 
 替代方案把呼叫反過來。需要向使用者要東西的工具**回傳**那個問題（`InputRequiredResult`），用戶端用一直都有的那些回呼回答它，然後帶著答案重試這次呼叫。那個迴圈 `Client` 會替你驅動。在伺服器上很少需要自己建那個結果，因為 **[相依性](handlers/dependencies.md)** 會做：用 `Resolve(ask_quantity)` 標註一個參數，其中 `ask_quantity` 是你寫的普通函式，SDK 就會用連線支援的機制去問，在舊版工作階段上是即時的徵詢請求，在 2026 上是多輪往返。一個工具本體，兩個世代：
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-這個檔案把整個賣點集中在一處：一個伺服器、一個以 `Resolve` 為後盾的工具，以及一個舊版用戶端加一個現代用戶端都拿到答案，全在記憶體內。**[多輪往返請求](handlers/multi-round-trip.md)** 解釋機制（包括 SDK 替你密封和驗證的 `request_state`）；**[徵詢](handlers/elicitation.md)** 說明怎麼問。
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+這兩個檔案就是整個賣點：一個伺服器、一個以 `Resolve` 為後盾的工具，以及一個舊版用戶端加一個現代用戶端，都從同一個執行中的伺服器拿到答案（**[服務舊版用戶端](run/legacy-clients.md)** 會帶你走過這兩個檔案）。**[多輪往返請求](handlers/multi-round-trip.md)** 解釋機制（包括 SDK 替你密封和驗證的 `request_state`）；**[徵詢](handlers/elicitation.md)** 說明怎麼問。
 
 !!! warning "這是移植後的 v1 伺服器唯一會改變行為的地方"
     你自己的測試最先碰到：`Client(mcp)` 對 v2 伺服器預設協商 2026-07-28，所以呼叫 `ctx.elicit()` 的工具在 v1 通過的測試裡會失敗。把問題搬進 `Resolve(...)` 參數（跨世代可攜），或者如果真的想要推送行為，就把測試用戶端釘在 `mode="legacy"`。
@@ -197,7 +201,7 @@ v2 實作 2026-07-28 修訂版，而且**兩個**修訂版同時服務：同一�
 * **擴充功能是一等公民。** 伺服器和用戶端在反向 DNS 識別碼底下宣告選用的能力組合（[SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)）；內建的 `Apps` 擴充功能（MCP Apps）是參考範例。**[擴充功能](advanced/extensions.md)** 和 **[MCP Apps](advanced/apps.md)**。
 * **錯誤碼標準化了。** 找不到的資源是 `-32602`，URI 放在 `error.data`，新的規格保留碼則是 `-32020`（標頭不符）、`-32021`（缺少必要能力）和 `-32022`（不支援的協定版本）。**[疑難排解](troubleshooting.md)** 以確切的訊息為索引。
 * **授權更不容易用錯了。** 用戶端會驗證隨授權碼回傳的 `iss`（[RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207)；`callback_handler` 現在回傳 `AuthorizationCodeResult`），註冊時送出 `application_type`，而且絕不會對不同的授權伺服器重送憑證。企業那一角的新東西：[SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) 身分斷言流程。**[遷移指南](migration.md)** 列出每一項 OAuth 變更；完整說明請見 **[用戶端的 OAuth](client/oauth-clients.md)** 和 **[身分斷言](client/identity-assertion.md)**。
-* **每個伺服器都可追蹤。** OpenTelemetry 以中介軟體的形式預設啟用：每個請求都有一個伺服器 span，在處理程序設定 exporter 之前完全沒有成本。兩端都跑 SDK 時，用戶端還會在 `_meta` 裡傳播 W3C trace context，所以追蹤會接起來。**[OpenTelemetry](run/opentelemetry.md)**。
+* **每個伺服器都可追蹤。** OpenTelemetry 以中介軟體的形式預設啟用：每個請求都有一個伺服器 span，在處理程序設定 exporter 之前完全沒有成本。兩端都使用 SDK 時，用戶端還會在 `_meta` 裡傳播 W3C trace context，所以追蹤會接起來。**[OpenTelemetry](run/opentelemetry.md)**。
 
 ## 從 v1 升級？ {#upgrading-from-v1}
 

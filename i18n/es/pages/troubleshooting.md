@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # Solución de problemas {#troubleshooting}
@@ -13,6 +13,12 @@ Varias entradas se ejecutan contra este mismo servidor. Una herramienta y un rec
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+Esas entradas se conectan a él en `http://localhost:8000/mcp`, así que déjalo ejecutándose por HTTP:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 Los errores que cita esta página son reales: la propia suite de pruebas del SDK reproduce cada uno de ellos.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ Esto no es un error de MCP. Es ruido de anyio, y tu error real es la **última l
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ Dos cosas que hacer con eso:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -67,7 +73,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -75,7 +81,7 @@ Entra en él. `__aenter__` es la conexión:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -251,7 +257,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-El servidor no reconoce el `Mcp-Session-Id` que envió tu cliente, casi siempre porque el servidor **se reinició** (o te enrutaron a otra instancia). Las sesiones viven en la memoria de ese único proceso.
+El servidor no reconoce el `Mcp-Session-Id` que envió tu cliente. O bien el servidor **se reinició** (o te enrutaron a otra instancia), o bien la sesión **expiró** porque no hubo nada en curso durante `session_idle_timeout`, que es de 30 minutos por defecto. Consulta [Duración y límites de la sesión](run/legacy-clients.md#session-lifetime-and-limits). Las sesiones viven en la memoria de ese único proceso.
 
 No hay ningún bug del servidor que encontrar. La respuesta HTTP es un `404` cuyo cuerpo *sí* es JSON-RPC, así que, a diferencia del `421` de arriba, el `Client` de python te muestra este tal cual:
 
@@ -261,9 +267,9 @@ No hay ningún bug del servidor que encontrar. La respuesta HTTP es un `404` cuy
 
 La solución es reconectar: sal del bloque `async with Client(...)` y entra en uno nuevo, que negocia una sesión nueva. Para un cliente de larga duración, eso significa capturar `MCPError` alrededor de tus llamadas y reconectar ante este mensaje en lugar de reintentar dentro de una sesión muerta.
 
-Si ocurre *sin* un reinicio, estás ejecutando más de un worker sin sticky sessions: cada worker mantiene su propia tabla de sesiones, así que una solicitud enrutada al equivocado acaba aquí. **[Desplegar y escalar](run/deploy.md)** y **[Atender clientes heredados](run/legacy-clients.md)** tienen todos los detalles y las dos soluciones (enrutamiento sticky o `stateless_http=True`).
+Si ocurre *sin* un reinicio y sin que el cliente haya estado en silencio tanto tiempo, estás ejecutando más de un worker sin sticky sessions: cada worker mantiene su propia tabla de sesiones, así que una solicitud enrutada al equivocado acaba aquí. **[Desplegar y escalar](run/deploy.md)** y **[Atender clientes heredados](run/legacy-clients.md)** tienen todos los detalles y las dos soluciones (enrutamiento sticky o `stateless_http=True`).
 
-Para quien opera el servidor, la línea de log correspondiente es `Rejected request with unknown or expired session ID: <id>`. Se registra con nivel `INFO`, así que es invisible con el umbral habitual de `WARNING`. Verla en ráfagas justo después de un despliegue es normal; todos los clientes conectados están reconectando.
+Para quien opera el servidor, la línea de log correspondiente es `Rejected request with unknown or expired session ID: <id>`. Se registra con nivel `INFO`, así que es invisible con el umbral habitual de `WARNING`. Verla en ráfagas justo después de un despliegue es normal; todos los clientes conectados están reconectando. Cuando lo que ocurrió es que la sesión expiró, a esa línea la precede `Session <id> idle timeout`, también con nivel `INFO`.
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -275,7 +281,13 @@ Hay una cosa que **no** produce este error, aunque es una solicitud que el proto
 
 Tu servidor quiere preguntarle algo al usuario, y este cliente nunca dijo que se le pudiera preguntar.
 
-Un resolutor de elicitación (elicitation) se niega de entrada cuando el cliente conectado no declaró la elicitación por formulario, y `e.error.data` nombra exactamente lo que falta:
+Este Bistro pregunta antes de reservar, mediante un resolutor:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Sírvelo en lugar del servidor Weather y llama a `book_table` desde un cliente que no pasó ningún `elicitation_callback`. El resolutor se niega de entrada, porque el cliente conectado nunca declaró la elicitación (elicitation) por formulario, y `e.error.data` nombra exactamente lo que falta:
 
 ```json
 {
@@ -289,7 +301,7 @@ Pasa `elicitation_callback=` a `Client(...)`. Registrar el callback *es* la decl
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -314,14 +326,14 @@ Este lo ves desde `ctx.elicit()` en una conexión heredada, y en cualquier conex
 
 Tu handler intentó contactar con el cliente a mitad de solicitud, en una conexión cuya llamada no tiene ningún canal capaz de llevar una solicitud desde el servidor. Hay tres configuraciones de servidor que ponen una llamada en esa situación.
 
-**Una conexión `2026-07-28`: cualquier transporte, siempre.** El protocolo moderno no tiene solicitudes iniciadas por el servidor en absoluto, así que el servidor se niega antes de enviar nada. `ctx.elicit()` dentro de una herramienta es la forma clásica de toparse con esto (en la primera prueba en memoria, ya que `Client(server)` negocia `2026-07-28` sin que se lo pidas), y pasar `elicitation_callback=` no cambia nada, porque ninguna solicitud llega nunca al cliente para que la responda:
+**Una conexión `2026-07-28`: cualquier transporte, siempre.** El protocolo moderno no tiene solicitudes iniciadas por el servidor en absoluto, así que el servidor se niega antes de enviar nada. `ctx.elicit()` dentro de una herramienta es la forma clásica de toparse con esto, normalmente en la primerísima **[prueba](get-started/testing.md)** en memoria de esa herramienta, ya que `Client(mcp)` negocia `2026-07-28` sin que se lo pidas. Pasar `elicitation_callback=` no cambia nada, porque ninguna solicitud llega nunca al cliente para que la responda:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -363,7 +375,7 @@ El servidor no pudo verificar el token `requestState` que tu cliente devolvió c
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -416,7 +428,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `Tool already exists:` en el log del servidor es la única señal de que dos herramientas con el mismo nombre se fundieron en una.
 * Un 421, tres formas de escribirlo: `Server returned an error response` (el `Client` de python), `421 Misdirected Request` / `Invalid Host header` (todo lo demás), `Invalid Host header: <host>` (el log del servidor). Solución: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> una app montada cuyo lifespan de la app host nunca entró en `mcp.session_manager.run()`.
-* `Session not found` -> el servidor se reinició; reconecta.
+* `Session not found` -> el servidor se reinició o la sesión expiró (`session_idle_timeout`); reconecta.
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` necesita un canal de servidor a cliente: una conexión `2026-07-28` nunca lo tiene, `stateless_http=True` quita el heredado y `json_response=True` quita el ligado a la solicitud. Usa un resolutor (un cliente heredado necesita además un servidor que conserve el canal). Su vecino `Method not found` es una solicitud de un método que la revisión del protocolo del otro lado no tiene.
 * `Client did not declare the form elicitation capability ...` y `Elicitation not supported` -> al cliente le falta `elicitation_callback=`.
 * `Invalid or expired requestState` nunca dice por qué en lo que se transmite. El log del servidor sí; `unknown key` significa compartir `RequestStateSecurity(keys=[...])` entre los workers.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ Das SDK liefert das als eingebaute Extension `Apps` (`io.modelcontextprotocol/ui
 
 ## Eine Uhr mit Gesicht {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,11 +39,31 @@ Nicht jeder Client rendert Apps. Die Spezifikation sagt unverblümt, was das fü
 
 Das Modell liest `content`; der iframe ist für Menschen. Ein UI-fähiger Host füttert das Modell trotzdem mit dem Textergebnis, und ein reiner Text-Client bekommt *nur* das. Das kanonische Muster ist also: ein Tool, zwei Antworten. Sieh dir `get_time` noch einmal an:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-`client_supports_apps(ctx)` ist nur dann `True`, wenn der Client die Extension `io.modelcontextprotocol/ui` deklariert **und** `text/html;profile=mcp-app` in seinen `mimeTypes`-Einstellungen aufgeführt hat. Das Feld ist Pflicht, ein Client, der es weglässt, zählt also nicht. Genau das deklariert `main()` in derselben Datei: die Client-Hälfte der Aushandlung – und die reichhaltige Antwort kommt zurück.
+`client_supports_apps(ctx)` ist nur dann `True`, wenn der Client die Extension `io.modelcontextprotocol/ui` deklariert **und** `text/html;profile=mcp-app` in seinen `mimeTypes`-Einstellungen aufgeführt hat. Das Feld ist Pflicht, ein Client, der es weglässt, zählt also nicht. Hier ist die Client-Hälfte der Aushandlung:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+Stelle `server.py` über HTTP bereit und starte dann den Client in einem zweiten Terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+Die reichhaltige Antwort kam zurück. Lass `extensions=[APPS_SUPPORT]` im `Client`-Aufruf weg, und dasselbe Programm gibt stattdessen `The time is 2026-06-26T12:00:00Z.` aus – das ist alles, was ein reiner Text-Client je zu sehen bekommt.
 
 !!! warning
     Gib niemals einen Platzhalter wie `"[Rendered UI]"` als einzigen Inhalt zurück. Wenn der Fallback-Text nutzlos ist, ist das Tool für jeden reinen Text-Client und für das Modell selbst nutzlos. Schreib den Satz.

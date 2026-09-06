@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Низькорівневий Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### Спробуйте самі {#try-it}
 
-Inspector тут не допоможе: `mcp dev` і `mcp run` приймають лише `MCPServer`. `Client`, що працює в пам'яті, до цього байдужий: низькорівневий `Server` він приймає так само, як і `MCPServer`:
+`mcp dev` і `mcp run` приймають лише `MCPServer`, тож цей сервер доведеться запускати самостійно. Останній рядок `server.py` будує з нього звичайний ASGI-застосунок, а uvicorn його запускає:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Спрямуйте Inspector або будь-який клієнт на `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` дорівнює `None`. Високорівневий сервер загортає `-> str` у `{"result": ...}` за вас; тут ніхто не будує того, чого не побудували ви.
 * `list_tools` повертає схему, яку набрали **ви**, символ у символ. У високорівневій версії на кожній властивості було `"title": "Query"`, а в корені — `"title": "search_booksArguments"`: артефакти Pydantic. Тут, якщо щось є в переданих даних, — це ви його туди поклали.
+
+У тесті uvicorn і порт не потрібні: `Client(server)` приймає низькорівневий `Server` у тому ж процесі так само, як і `MCPServer`, — саме цей підхід описано на сторінці **[Тестування](../get-started/testing.md)**.
 
 ## Ніхто нічого не перевіряє за вас {#nothing-is-checked-for-you}
 
@@ -215,4 +221,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)` обслуговує будь-який метод. `initialize` зарезервовано.
 * Можливості, які оголошує `Server`, виводяться з того, які обробники ви зареєстрували.
 
-`Client(server)` поводився з обома серверами однаково, бо вони *і є* тим самим протоколом — у цьому й увесь сенс. Наступний шар нижче — взагалі не клас: це **[Middleware](middleware.md)**.
+Клієнт поводився з обома серверами однаково, бо вони *і є* тим самим протоколом — у цьому й увесь сенс. Наступний шар нижче — взагалі не клас: це **[Middleware](middleware.md)**.

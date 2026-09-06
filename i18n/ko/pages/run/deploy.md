@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # 배포와 확장 {#deploy-scale}
@@ -45,6 +45,22 @@ translation:
     MCP 클라이언트는 일반적인 트랜스포트 오류를 발생시키고, 거부된 호스트명은 **서버** 로그에
     경고 한 줄로만 나타납니다. 새로 배포한 서버가 모든 연결을 거부한다면, 달리 밝혀지기 전까지는
     Host 허용 목록 문제입니다. **[문제 해결](../troubleshooting.md)**도 여기서 시작합니다.
+
+## TLS 종료 프록시 뒤에서 {#behind-a-tls-terminating-proxy}
+
+TLS가 프록시(인그레스, 로드 밸런서, Caddy, nginx)에서 끝나고 그 뒤에서 uvicorn이 평문 HTTP를 서비스한다면, uvicorn이 프록시의 `X-Forwarded-*` 헤더를 신뢰하도록 설정하세요.
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+이 설정이 없으면 앱은 자신이 `http://`로 서비스되고 있다고 믿고, 앱이 내보내는 모든 리디렉션(흔한 것은 `/mcp` → `/mcp/`)이 `http://…`를 가리킵니다. Python 클라이언트는 HTTPS 엔드포인트에서 평문 HTTP로 따라가기를 거부하며 그 이유를 알려 줍니다.
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+클라이언트 쪽 임시방편은 서버가 서비스하는 정확한 URL(`https://mcp.example.com/mcp/`, 슬래시 포함)을 설정해 리디렉션이 일어나지 않게 하는 것입니다. 제대로 된 해결책은 위의 플래그입니다. `FORWARDED_ALLOW_IPS`는 같은 설정의 환경 변수 이름이며, `*` 값은 모든 홉을 신뢰하므로 프록시 말고는 아무것도 uvicorn에 닿을 수 없을 때만 맞는 설정입니다.
 
 ## 워커, 그리고 스티키가 필요한 쪽 {#workers-and-who-has-to-be-sticky}
 
@@ -170,6 +186,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ## 요약 {#recap}
 
 * 기본적으로 이 앱은 localhost로 오는 요청만 받습니다. `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])`가 서비스 개시의 관문입니다. 이를 전달하기 전까지 실제 호스트명 뒤의 모든 요청은 `421`이 되며, 그 이유는 서버 로그에만 남습니다.
+* TLS 종료 프록시 뒤에서는 uvicorn을 `--proxy-headers --forwarded-allow-ips=...` 옵션으로 실행하세요. 그러지 않으면 리디렉션이 `http://`를 가리키고 클라이언트가 이를 거부합니다.
 * 2026-07-28에는 세션이 없고, 로드 밸런서가 스티키로 붙들 대상도 없습니다. `stateless_http=True`는 레거시 전용 설정입니다. 최신 요청은 이 플래그를 읽기도 전에 라우팅되고 응답되기 때문입니다.
 * 기본 `requestState` 키는 프로세스마다 만들어지는 `os.urandom(32)`입니다. 다른 워커에 도달한 다중 왕복 재시도는 `-32602` *"Invalid or expired requestState"*로 실패합니다.
 * 해결책은 `RequestStateSecurity(keys=[...])`를 쓰는 것, **그리고** 모든 인스턴스에 같은 서버 이름을 쓰는 것입니다. 이름은 토큰의 기본 audience 클레임입니다. 같은 키, 같은 이름.

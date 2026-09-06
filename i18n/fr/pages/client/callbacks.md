@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # Fonctions de rappel du client {#client-callbacks}
@@ -63,7 +63,7 @@ Un `tools/call` de votre part, un `elicitation/create` en retour du serveur, auq
     `mode="legacy"` dans l’appel `Client(...)` fait un vrai travail. Par défaut, `Client(...)` négocie le chemin
     moderne du protocole, et ce chemin n’a pas de canal de retour (back-channel) pour les requêtes du serveur vers le client : `ctx.elicit`
     échoue avant même que votre fonction de rappel ne s’exécute. Ce n’est pas le transport qui en décide ; c’est le
-    protocole négocié, en mémoire comme via une URL. Fixez `mode="legacy"` dès que votre client doit
+    protocole négocié. Fixez `mode="legacy"` dès que votre client doit
     répondre à l’une d’elles ; tous les tests derrière cette page le font. Tous les détails sont dans **[Versions du protocole](../protocol-versions.md)**.
 
     Sur une session 2026-07-28, la fonction de rappel n’est pas morte, elle est alimentée autrement : quand un outil renvoie un
@@ -151,4 +151,4 @@ Deux de plus. Aucune ne déclare quoi que ce soit.
 * `sampling_callback` et `list_roots_callback` fonctionnent de la même manière mais servent des fonctionnalités obsolètes ; les serveurs modernes utilisent à la place les requêtes à plusieurs allers-retours.
 * `logging_callback` et `message_handler` reçoivent des notifications. Ils ne déclarent rien.
 
-Le premier argument de `Client(...)` est un objet transport. **[Transports client](transports.md)** couvre tous les types.
+Le premier argument de `Client(...)` choisit le transport. **[Transports client](transports.md)** couvre tous les types.

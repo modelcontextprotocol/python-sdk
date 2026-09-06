@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
   tool: 1
 ---
 # v2 में नया क्या है {#whats-new-in-v2}
@@ -42,11 +42,11 @@ tool को जो कुछ चाहिए, वह सब model से नह�
 
 v1 आपको तीन nested परतें थमाता था: raw streams देने वाला transport context manager, उनके चारों ओर लिपटा `ClientSession`, और हाथ से call किया जाने वाला `await session.initialize()`। v2 में एक ही object है:
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` server object लेता है (in memory, कोई transport नहीं: testing वाली कहानी), URL (Streamable HTTP), `StdioServerParameters` (stdio subprocess), या `sse_client(...)` जैसा कोई भी दूसरा transport context manager। `async with` में प्रवेश करते ही connect होता है और protocol version negotiate होता है, server चाहे जिस पीढ़ी का हो; उसके बाद `client.server_capabilities` और `client.protocol_version` बस उपलब्ध रहते हैं, और जब server अपनी पहचान बताता है तो `client.server_info` भी (यह अब `Implementation | None` है, क्योंकि 2026 पीढ़ी में identity optional है)। v1 में register किए गए sampling और elicitation callbacks अब भी काम करते हैं (उनकी bodies में वही snake_case attribute rename दिखता है जो इस page की हर चीज़ में), वे अब 2026-style requests-inside-results (नीचे) का जवाब भी देते हैं, और वे एक-एक करके नहीं, बल्कि concurrently चलते हैं। जिसे low-level surface चाहिए, उसके लिए `ClientSession` अब भी नीचे मौजूद है, और `client.session` उसे आपको देता है; वह भी बदला है (वह नए dispatcher engine पर चलता है, और उसके कुछ अपने signatures बदले हैं), इसलिए नीचे उतरने से पहले **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** पढ़ें।
+`Client` URL लेता है (Streamable HTTP), `StdioServerParameters` (stdio subprocess), `sse_client(...)` जैसा कोई भी दूसरा transport context manager, या, tests में, खुद server object (in memory, कोई transport नहीं)। `async with` में प्रवेश करते ही connect होता है और protocol version negotiate होता है, server चाहे जिस पीढ़ी का हो; उसके बाद `client.server_capabilities` और `client.protocol_version` बस उपलब्ध रहते हैं, और जब server अपनी पहचान बताता है तो `client.server_info` भी (यह अब `Implementation | None` है, क्योंकि 2026 पीढ़ी में identity optional है)। v1 में register किए गए sampling और elicitation callbacks अब भी काम करते हैं (उनकी bodies में वही snake_case attribute rename दिखता है जो इस page की हर चीज़ में), वे अब 2026-style requests-inside-results (नीचे) का जवाब भी देते हैं, और वे एक-एक करके नहीं, बल्कि concurrently चलते हैं। जिसे low-level surface चाहिए, उसके लिए `ClientSession` अब भी नीचे मौजूद है, और `client.session` उसे आपको देता है; वह भी बदला है (वह नए dispatcher engine पर चलता है, और उसके कुछ अपने signatures बदले हैं), इसलिए नीचे उतरने से पहले **[Migration Guide](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** पढ़ें।
 
 **[The Client](client/index.md)** इसका परिचय देता है, **[Client transports](client/transports.md)** connection के चारों रूप समझाता है, **[Client callbacks](client/callbacks.md)** खुद callbacks को, और **[Testing](get-started/testing.md)** वह in-memory pattern दिखाता है जो v1 के `create_connected_server_and_client_session()` helper की जगह लेता है।
 
@@ -153,7 +153,7 @@ renames खुद अपनी घोषणा करते हैं। ये 
 * `McpError`, जिसका नाम बदलकर **`MCPError`** हुआ, सीधे `(code, message, data)` constructor के साथ।
 * `MCPServer.get_context()`, `mount_path=`, और lowlevel `Server` के decorator methods, ContextVar और handler dicts।
 
-## Protocol: 2025-11-25 से 2026-07-28 {#the-protocol-2025-11-25-to-2026-07-28}
+## protocol: 2025-11-25 से 2026-07-28 {#the-protocol-2025-11-25-to-2026-07-28}
 
 v2 2026-07-28 revision implement करता है, और यह **दोनों** revisions एक साथ serve करता है: वही `streamable_http_app()` (और वही stdio server) 2025 पीढ़ी के client के `initialize` और 2026 पीढ़ी के client की requests, दोनों का जवाब देता है, बिना कुछ configure किए, बिना कोई flag पलटे, और बिना अलग deployment के। नया revision serve करने से पुराने revision वाला client बीच में नहीं छूटता। आगे वह है जो नया revision खुद बदलता है।
 
@@ -163,19 +163,23 @@ v2 2026-07-28 revision implement करता है, और यह **दोन�
 
 Streamable HTTP पर 2026 path में कोई `Mcp-Session-Id` नहीं है, और operational headline यही है: **कोई चीज़ modern request को किसी worker से नहीं बाँधती**, इसलिए सादे round-robin load balancer के पीछे कोई भी replica उसका जवाब दे सकता है। दो ईमानदार शर्तें। आपके 2025 पीढ़ी के clients (आज ज़्यादातर clients यही हैं) अब भी sessions खोलते हैं और उन्हें अब भी वही stickiness चाहिए जो v1 पर चाहिए थी; उनके लिए कुछ नहीं बदलता। और एक चीज़ जो **multi-round-trip** retry को workers के पार ले जानी होती है, वह उसका sealed `request_state` है, जिसकी default key हर process में अलग बनती है, इसलिए scaled-out deployment `RequestStateSecurity(keys=[...])` pass करता है। (`stateless_http=True` का इससे लेना-देना नहीं: वह सिर्फ़ यह तय करता है कि 2025 पीढ़ी के clients कैसे serve हों, और 2026 traffic उसे कभी नहीं पढ़ता; अगर आपने v1 में उसे पहले से set किया है, तो कुछ नहीं बदलता।)
 
-इसका client वाला पहलू **[Protocol versions](protocol-versions.md)** है, operator की checklist **[Deploy & scale](run/deploy.md)** है (Host allowlist, `request_state` key, replicas के पार notifications), और दोनों पीढ़ियाँ एक साथ serve करने की कहानी **[Legacy clients को serve करना](run/legacy-clients.md)** है।
+इसका client वाला पहलू **[Protocol versions](protocol-versions.md)** है, operator की checklist **[Deploy & scale](run/deploy.md)** है (Host allowlist, `request_state` key, replicas के पार notifications), और दोनों पीढ़ियाँ एक साथ serve करने की कहानी **[legacy clients को serve करना](run/legacy-clients.md)** है।
 
-### Server client को call नहीं कर सकता: multi-round-trip requests {#the-server-cannot-call-the-client-multi-round-trip-requests}
+### server client को call नहीं कर सकता: multi-round-trip requests {#the-server-cannot-call-the-client-multi-round-trip-requests}
 
 2026-07-28 पर हर server-initiated request हट गई है: push elicitation, sampling, `roots/list`। 2026 connection पर उनके लिए कोई channel नहीं है, इसलिए `ctx.elicit()` और `ctx.session.create_message()` वहाँ `NoBackChannelError` के साथ fail होते हैं (legacy clients के लिए वे अब भी काम करते हैं)।
 
-इसका विकल्प call को पलट देता है। जिस tool को user से कुछ चाहिए, वह सवाल **लौटाता** है (`InputRequiredResult`), client उन्हीं callbacks से उसका जवाब देता है जो उसके पास हमेशा से थे, और call को जवाबों के साथ retry किया जाता है। `Client` यह loop आपके लिए चलाता है। Server पर आप result शायद ही कभी खुद बनाते हैं, क्योंकि एक **[dependency](handlers/dependencies.md)** यह कर देती है: parameter को `Resolve(ask_quantity)` से annotate करें, जहाँ `ask_quantity` आपका लिखा साधारण function है, और SDK उसी mechanism से पूछता है जिसे connection support करता है, legacy session पर live elicitation request या 2026 पर multi-round-trip। एक tool body, दोनों पीढ़ियाँ:
+इसका विकल्प call को पलट देता है। जिस tool को user से कुछ चाहिए, वह सवाल **लौटाता** है (`InputRequiredResult`), client उन्हीं callbacks से उसका जवाब देता है जो उसके पास हमेशा से थे, और call को जवाबों के साथ retry किया जाता है। `Client` यह loop आपके लिए चलाता है। server पर आप result शायद ही कभी खुद बनाते हैं, क्योंकि एक **[dependency](handlers/dependencies.md)** यह कर देती है: parameter को `Resolve(ask_quantity)` से annotate करें, जहाँ `ask_quantity` आपका लिखा साधारण function है, और SDK उसी mechanism से पूछता है जिसे connection support करता है, legacy session पर live elicitation request या 2026 पर multi-round-trip। एक tool body, दोनों पीढ़ियाँ:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-वह file पूरी बात एक जगह कह देती है: एक server, एक `Resolve`-backed tool, और एक legacy client तथा एक modern client, दोनों को अपना जवाब मिलता है, in memory। **[Multi-round-trip requests](handlers/multi-round-trip.md)** mechanism समझाता है (`request_state` समेत, जिसे SDK आपके लिए seal और verify करता है); पूछने का हिस्सा **[Elicitation](handlers/elicitation.md)** में है।
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+ये दो files पूरी बात कह देती हैं: एक server, एक `Resolve`-backed tool, और एक legacy client तथा एक modern client, दोनों को उसी चलते हुए server से अपना जवाब मिलता है (**[legacy clients को serve करना](run/legacy-clients.md)** इन्हें कदम दर कदम समझाता है)। **[Multi-round-trip requests](handlers/multi-round-trip.md)** mechanism समझाता है (`request_state` समेत, जिसे SDK आपके लिए seal और verify करता है); पूछने का हिस्सा **[Elicitation](handlers/elicitation.md)** में है।
 
 !!! warning "यही वह एक जगह है जहाँ port किए गए v1 server का व्यवहार बदलता है"
     आपके अपने tests इससे सबसे पहले टकराते हैं: `Client(mcp)` default रूप से आपके v2 server के सामने 2026-07-28 negotiate करता है,
@@ -183,28 +187,28 @@ Streamable HTTP पर 2026 path में कोई `Mcp-Session-Id` नही�
     `Resolve(...)` parameter में ले जाएँ (हर पीढ़ी में चलने वाला), या अगर आपको वाकई push व्यवहार चाहिए तो
     test client को `mode="legacy"` पर pin करें।
 
-### Roots, sampling और protocol logging deprecated हैं; `ping` हटा दिया गया {#roots-sampling-and-protocol-logging-are-deprecated-ping-is-removed}
+### roots, sampling और protocol logging deprecated हैं; `ping` हटा दिया गया {#roots-sampling-and-protocol-logging-are-deprecated-ping-is-removed}
 
 [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) तीन पूरी **capabilities** को हर protocol version पर deprecated करता है: roots, sampling और MCP-level logging (`ctx.info()` वगैरह)। यह ऊपर के गायब back-channel से अलग धुरी है; deprecated सिर्फ़ सलाह है, 2025 पीढ़ी के sessions के सामने सब कुछ काम करता रहता है, और wire पर कुछ नहीं बदलता। जो आपको दिखता है वह `MCPDeprecationWarning` है, जो `UserWarning` है, इसलिए default रूप से print होता है; मानकर चलें कि upgrade के बाद आपका पहला `ctx.info(...)` यही कहेगा।
 
-`ping` ज़्यादा सख्त है: deprecated नहीं, protocol से हटा दिया गया। Deprecated features के दो standalone methods भी 2026-07-28 पर इसी तरह हटाए गए हैं, `logging/setLevel` और client का `notifications/roots/list_changed`, और progress notifications अब सिर्फ़ server-to-client हैं।
+`ping` ज़्यादा सख्त है: deprecated नहीं, protocol से हटा दिया गया। deprecated features के दो standalone methods भी 2026-07-28 पर इसी तरह हटाए गए हैं, `logging/setLevel` और client का `notifications/roots/list_changed`, और progress notifications अब सिर्फ़ server-to-client हैं।
 
 **[Deprecated features](deprecated.md)** में पूरी table, हर एक का विकल्प, और legacy clients को serve करते समय शांत log चाहिए तो one-line filter है।
 
-### Change notifications एक stream बन जाते हैं {#change-notifications-become-one-stream}
+### change notifications एक stream बन जाते हैं {#change-notifications-become-one-stream}
 
-2026-07-28 पर standalone HTTP GET stream और `resources/subscribe` की जगह `subscriptions/listen` लेता है: client एक long-lived stream खोलता है और बताता है कि उसे किस तरह के notifications चाहिए। `MCPServer` इसे बिना कुछ configure किए serve करता है; आप `await ctx.notify_resource_updated(uri)` (और `notify_tools_changed()`, वगैरह) से publish करते हैं, एक middleware हर caller के लिए listen request ठुकरा सकता है, और multi-replica deployments एक साझा `SubscriptionBus` लगाते हैं। Client पर `async with client.listen(...)` stream खोलता है: filter keyword arguments के रूप में जाता है, typed change events वापस आते हैं, और `sub.honored` वह subset है जिसे server deliver करने पर राज़ी हुआ।
+2026-07-28 पर standalone HTTP GET stream और `resources/subscribe` की जगह `subscriptions/listen` लेता है: client एक long-lived stream खोलता है और बताता है कि उसे किस तरह के notifications चाहिए। `MCPServer` इसे बिना कुछ configure किए serve करता है; आप `await ctx.notify_resource_updated(uri)` (और `notify_tools_changed()`, वगैरह) से publish करते हैं, एक middleware हर caller के लिए listen request ठुकरा सकता है, और multi-replica deployments एक साझा `SubscriptionBus` लगाते हैं। client पर `async with client.listen(...)` stream खोलता है: filter keyword arguments के रूप में जाता है, typed change events वापस आते हैं, और `sub.honored` वह subset है जिसे server deliver करने पर राज़ी हुआ।
 
-Publishing और serving **[Subscriptions](handlers/subscriptions.md)** में है, देखने वाला छोर **[इसके Clients वाले जुड़वाँ page](client/subscriptions.md)** में, और bus **[Deploy & scale](run/deploy.md)** में।
+publishing और serving **[Subscriptions](handlers/subscriptions.md)** में है, देखने वाला छोर **[इसके Clients वाले जुड़वाँ page](client/subscriptions.md)** में, और bus **[Deploy & scale](run/deploy.md)** में।
 
 ### बाकी, फटाफट {#the-rest-quickly}
 
-* **Identity optional, per-message metadata है।** Request-side `clientInfo` `_meta` key optional है (ज़रूरी जोड़ी `protocolVersion` + `clientCapabilities` है), और `serverInfo` `server/discover` result body से बाहर चला गया: servers इसके बजाय उसे हर 2026 पीढ़ी के result के `_meta` में stamp करते हैं ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002))। SDK हमेशा stamp करता है; जब server अपनी पहचान नहीं बताता (उदाहरण के लिए, किसी middleware ने key हटा दी) तो `client.server_info` `None` होता है। **[The low-level Server](advanced/low-level-server.md)** wire पर stamp दिखाता है।
-* **Requests bodies parse किए बिना route हो सकती हैं।** Modern HTTP requests `Mcp-Method` ले जाती हैं (और तीन tool जैसी calls के लिए `Mcp-Name`); `x-mcp-header` से annotate की गई tool input-schema property को `Mcp-Param-*` header में mirror किया जाता है और server उसे cross-check करता है ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))। Gateways और rate limiters सिर्फ़ headers पर route कर सकते हैं; नियम **[Migration Guide](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** में हैं।
-* **Results cache hints ले जाते हैं।** List और read results `ttlMs` और `cacheScope` declare करते हैं ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); आप उन्हें `cache_hints=` से हर method के लिए set करते हैं, और `Client` built-in response cache के साथ उनका मान रखता है। जो server कोई hints नहीं भेजता (हर pre-2026 server), उसे जस का तस, uncached traffic दिखता है। **[Caching hints](client/caching.md)**।
-* **Extensions first class हैं।** Servers और clients reverse-DNS identifiers के नीचे optional capability bundles declare करते हैं ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); built-in `Apps` extension (MCP Apps) reference है। **[Extensions](advanced/extensions.md)** और **[MCP Apps](advanced/apps.md)**।
-* **Error codes standardized हो गए।** गायब resource `-32602` है, `error.data` में URI के साथ, और नए spec-reserved codes `-32020` (header mismatch), `-32021` (ज़रूरी capability गायब) और `-32022` (unsupported protocol version) के रूप में दिखते हैं। **[Troubleshooting](troubleshooting.md)** ठीक उन्हीं messages के हिसाब से व्यवस्थित है।
-* **Authorization को गलत पकड़ना अब मुश्किल है।** Client authorization code के साथ लौटे `iss` को validate करता है ([RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207); आपका `callback_handler` अब `AuthorizationCodeResult` लौटाता है), register करते समय `application_type` भेजता है, और credentials को कभी किसी दूसरे authorization server के सामने replay नहीं करता। Enterprise कोने में नया: [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) identity-assertion flow। **[Migration Guide](migration.md)** हर OAuth बदलाव की सूची देता है; pages **[OAuth for clients](client/oauth-clients.md)** और **[Identity assertion](client/identity-assertion.md)** हैं।
+* **identity optional, per-message metadata है।** request-side `clientInfo` `_meta` key optional है (ज़रूरी जोड़ी `protocolVersion` + `clientCapabilities` है), और `serverInfo` `server/discover` result body से बाहर चला गया: servers इसके बजाय उसे हर 2026 पीढ़ी के result के `_meta` में stamp करते हैं ([spec #3002](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3002))। SDK हमेशा stamp करता है; जब server अपनी पहचान नहीं बताता (उदाहरण के लिए, किसी middleware ने key हटा दी) तो `client.server_info` `None` होता है। **[The low-level Server](advanced/low-level-server.md)** wire पर stamp दिखाता है।
+* **requests bodies parse किए बिना route हो सकती हैं।** modern HTTP requests `Mcp-Method` ले जाती हैं (और तीन tool जैसी calls के लिए `Mcp-Name`); `x-mcp-header` से annotate की गई tool input-schema property को `Mcp-Param-*` header में mirror किया जाता है और server उसे cross-check करता है ([SEP-2243](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243))। gateways और rate limiters सिर्फ़ headers पर route कर सकते हैं; नियम **[Migration Guide](migration.md#servers-validate-mcp-param-headers-against-the-request-body-sep-2243)** में हैं।
+* **results cache hints ले जाते हैं।** list और read results `ttlMs` और `cacheScope` declare करते हैं ([SEP-2549](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549)); आप उन्हें `cache_hints=` से हर method के लिए set करते हैं, और `Client` built-in response cache के साथ उनका मान रखता है। जो server कोई hints नहीं भेजता (हर pre-2026 server), उसे जस का तस, uncached traffic दिखता है। **[Caching hints](client/caching.md)**।
+* **extensions first class हैं।** servers और clients reverse-DNS identifiers के नीचे optional capability bundles declare करते हैं ([SEP-2133](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133)); built-in `Apps` extension (MCP Apps) reference है। **[Extensions](advanced/extensions.md)** और **[MCP Apps](advanced/apps.md)**।
+* **error codes standardized हो गए।** गायब resource `-32602` है, `error.data` में URI के साथ, और नए spec-reserved codes `-32020` (header mismatch), `-32021` (ज़रूरी capability गायब) और `-32022` (unsupported protocol version) के रूप में दिखते हैं। **[Troubleshooting](troubleshooting.md)** ठीक उन्हीं messages के हिसाब से व्यवस्थित है।
+* **authorization को गलत पकड़ना अब मुश्किल है।** client authorization code के साथ लौटे `iss` को validate करता है ([RFC 9207](https://datatracker.ietf.org/doc/html/rfc9207); आपका `callback_handler` अब `AuthorizationCodeResult` लौटाता है), register करते समय `application_type` भेजता है, और credentials को कभी किसी दूसरे authorization server के सामने replay नहीं करता। enterprise कोने में नया: [SEP-990](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/990) identity-assertion flow। **[Migration Guide](migration.md)** हर OAuth बदलाव की सूची देता है; pages **[OAuth for clients](client/oauth-clients.md)** और **[Identity assertion](client/identity-assertion.md)** हैं।
 * **हर server traceable है।** OpenTelemetry middleware के रूप में default रूप से चालू आता है: हर request को एक server span मिलता है, और जब तक process कोई exporter configure न करे, इसकी कोई लागत नहीं। जब दोनों छोर SDK चलाते हैं, तो client `_meta` में W3C trace context भी propagate करता है, इसलिए traces जुड़ जाते हैं। **[OpenTelemetry](run/opentelemetry.md)**।
 
 ## v1 से upgrade कर रहे हैं? {#upgrading-from-v1}

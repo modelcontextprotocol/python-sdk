@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # Sugerencias de caché {#caching-hints}
@@ -31,7 +31,7 @@ Por defecto, cada resultado dice `ttlMs: 0, cacheScope: "private"`: caducado de 
 
 En el `Server` de bajo nivel, los handlers construyen sus resultados a mano, y `ttl_ms` / `cache_scope` son simplemente campos de los modelos de resultado. Un handler que los define explícitamente siempre gana al mapa del constructor, campo por campo:
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -45,9 +45,23 @@ Una salvedad sobre las listas paginadas: el protocolo exige el **mismo `cacheSco
 
 En una sesión 2026-07-28, `Client` respeta las sugerencias por ti: tiene una caché de respuestas integrada, activada por defecto. Un resultado que llega con un `ttlMs` se almacena, y una llamada idéntica dentro de ese TTL se sirve desde la caché sin ida y vuelta. Un resultado que llega *sin* sugerencia no se guarda en caché: los resultados sin sugerencia reciben `CacheConfig.default_ttl_ms`, que es `0` por defecto (caducado de inmediato), así que un servidor que no declara nada ve exactamente el mismo tráfico llamada por llamada de siempre.
 
-```python title="client.py" hl_lines="33 35 38"
+Para verlo en acción, sirve el `server.py` de la sección anterior con uvicorn (su última línea construye la app ASGI). El handler imprime una línea cada vez que se ejecuta de verdad:
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+Ejecuta `python client.py` desde una segunda terminal. Imprime las sugerencias que llevaba el primer resultado: el `ttlMs` del handler junto al `cacheScope` del mapa:
+
+```text
+1000 public
+```
+
+La terminal del servidor cuenta el resto: entre los logs de solicitudes de uvicorn, `tools/list served` aparece tres veces.
 
 Cuatro llamadas, tres consultas al servidor. La segunda llamada encontró una entrada vigente y nunca llegó al servidor; adelantar el reloj (inyectado) más allá del TTL hizo que la tercera volviera a consultar; la cuarta dijo `cache_mode="refresh"`. Ese argumento nombrado existe en los cinco verbos con caché (`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`):
 
@@ -57,7 +71,7 @@ Cuatro llamadas, tres consultas al servidor. La segunda llamada encontró una en
 
 Hay una regla por encima de `"use"`: **las llamadas que llevan `meta` siempre llegan al servidor.** Una solicitud con `meta` definido (un token de progreso, campos de trazado) espera una solicitud real por el canal, así que con `cache_mode="use"` se trata como `"refresh"`: se omite la lectura de la caché, y el resultado obtenido sigue reemplazando la entrada en caché. `"bypass"` y un `"refresh"` explícito se comportan como siempre.
 
-Para desactivar la caché por completo, construye con `Client(server, cache=None)`: cada llamada vuelve a ser una ida y vuelta, y `cache_mode`, aunque se sigue aceptando, no hace nada.
+Para desactivar la caché por completo, pasa `cache=None` al construir el `Client`: cada llamada vuelve a ser una ida y vuelta, y `cache_mode`, aunque se sigue aceptando, no hace nada.
 
 El alcance también se respeta automáticamente: las entradas `"private"` se asocian a la *partición* de la caché (más abajo), mientras que las `"public"` pueden optar por compartirse más ampliamente. Y **las notificaciones ganan al TTL** para las entradas exactas que nombran: una notificación `list_changed` desaloja el listado en caché correspondiente, y `resources/updated` desaloja la lectura en caché almacenada exactamente bajo su URI, por muy vigentes que estuvieran. En una conexión 2026-07-28 esas notificaciones llegan por un stream `subscriptions/listen` que abres con `client.listen(...)`, y el desalojo se completa antes de que tu observador vea el evento; **[Suscripciones](subscriptions.md)** es esa página.
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Dağıtım ve ölçekleme {#deploy-scale}
@@ -46,6 +46,22 @@ Gerçek bir ana bilgisayar adının arkasına dağıtıldığında, aynı varsay
     bilgisayar adı yalnızca **sunucunun** log'unda, tek bir uyarı olarak görünür. Yeni dağıtılmış ve
     her bağlantıyı reddeden bir sunucu, aksi kanıtlanana kadar bir Host izin listesi sorunudur.
     **[Sorun giderme](../troubleshooting.md)** de buradan başlar.
+
+## TLS sonlandıran bir vekil sunucunun arkasında {#behind-a-tls-terminating-proxy}
+
+TLS bir vekil sunucuda (bir ingress, bir yük dengeleyici, Caddy, nginx) sona eriyor ve uvicorn onun arkasında düz HTTP sunuyorsa, uvicorn'a vekil sunucunun `X-Forwarded-*` başlıklarına güvenmesini söyleyin:
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+Bu olmadan uygulama `http://` üzerinden sunulduğunu sanır ve verdiği her yönlendirme (en yaygını `/mcp` → `/mcp/`) `http://…` adresini gösterir. Python istemcisi bir HTTPS endpoint'inden düz HTTP'ye giden bir yönlendirmeyi izlemeyi reddeder ve bunu açıkça söyler:
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+İstemci tarafındaki geçici çözüm, sunucunun sunduğu tam URL'yi (`https://mcp.example.com/mcp/`, sondaki eğik çizgi dahil) yapılandırmaktır; böylece hiç yönlendirme olmaz. Asıl çözüm yukarıdaki bayraktır. `FORWARDED_ALLOW_IPS` aynı ayarın ortam değişkeni yazımıdır; `*` her atlama noktasına güvenir, bu da yalnızca uvicorn'a vekil sunucudan başka hiçbir şey ulaşamıyorsa doğrudur.
 
 ## Worker'lar ve kimin yapışkan olması gerektiği {#workers-and-who-has-to-be-sticky}
 
@@ -171,6 +187,7 @@ Bir `MCPServer` bir uygulama sunucusu değil, bir protokol gerçeklemesidir. Bun
 ## Özet {#recap}
 
 * Varsayılan olarak uygulama yalnızca localhost'a gönderilen istekleri yanıtlar. `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` yayına çıkış kapısıdır: onu geçirene kadar gerçek bir ana bilgisayar adının arkasındaki her istek bir `421`'dir ve nedeni yalnızca sunucunun log'undadır.
+* TLS sonlandıran bir vekil sunucunun arkasında uvicorn'u `--proxy-headers --forwarded-allow-ips=...` ile çalıştırın; yoksa yönlendirmeleri `http://` adresini gösterir ve istemci onları reddeder.
 * 2026-07-28'de oturum yoktur ve bir yük dengeleyicinin yapışacağı hiçbir şey yoktur. `stateless_http=True` yalnızca eski nesle ait bir ayardır, çünkü modern bir istek o bayrak hiç okunmadan yönlendirilir ve yanıtlanır.
 * Varsayılan `requestState` anahtarı, süreç başına basılan `os.urandom(32)`'dir. Farklı bir worker'a ulaşan çok turlu bir yeniden deneme `-32602` *"Invalid or expired requestState"* ile başarısız olur.
 * Çözüm `RequestStateSecurity(keys=[...])` **ve** her örnekte aynı sunucu adıdır. Ad, token'ın varsayılan audience claim'idir. Aynı anahtarlar, aynı ad.

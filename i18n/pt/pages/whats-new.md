@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
   tool: 1
 ---
 # O que há de novo na v2 {#whats-new-in-v2}
@@ -43,11 +43,11 @@ Nem tudo de que uma ferramenta (tool) precisa deve vir do modelo. Novidade na v2
 
 A v1 entregava três camadas aninhadas: um gerenciador de contexto de transporte que produzia streams brutos, uma `ClientSession` em volta deles e um `await session.initialize()` chamado à mão. A v2 tem um objeto só:
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` recebe um objeto de servidor (em memória, sem transporte: é o cenário dos testes), uma URL (Streamable HTTP), um `StdioServerParameters` (um subprocesso stdio) ou qualquer outro gerenciador de contexto de transporte, como `sse_client(...)`. Entrar no `async with` conecta e negocia a versão do protocolo, seja qual for a era que o servidor fale; `client.server_capabilities` e `client.protocol_version` simplesmente estão lá depois disso, e `client.server_info` também, quando o servidor se identifica (agora ele é `Implementation | None`, já que na era 2026 a identidade é opcional). Os callbacks de amostragem e de elicitação que você registrou na v1 continuam funcionando (o corpo deles passa pela mesma renomeação de atributos para snake_case que todo o resto desta página), agora também respondem às requisições-dentro-de-resultados no estilo 2026 (abaixo), e rodam de forma concorrente em vez de um por vez. `ClientSession` continua por baixo para quem quer a superfície de baixo nível, e `client.session` a entrega para você; ela também mudou (roda sobre o novo motor de dispatcher, e algumas das próprias assinaturas dela mudaram), então leia o **[Guia de migração](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** antes de descer de nível.
+`Client` recebe uma URL (Streamable HTTP), um `StdioServerParameters` (um subprocesso stdio), qualquer outro gerenciador de contexto de transporte, como `sse_client(...)`, ou, nos testes, o próprio objeto do servidor (em memória, sem transporte). Entrar no `async with` conecta e negocia a versão do protocolo, seja qual for a era que o servidor fale; `client.server_capabilities` e `client.protocol_version` simplesmente estão lá depois disso, e `client.server_info` também, quando o servidor se identifica (agora ele é `Implementation | None`, já que na era 2026 a identidade é opcional). Os callbacks de amostragem e de elicitação que você registrou na v1 continuam funcionando (o corpo deles passa pela mesma renomeação de atributos para snake_case que todo o resto desta página), agora também respondem às requisições-dentro-de-resultados no estilo 2026 (abaixo), e rodam de forma concorrente em vez de um por vez. `ClientSession` continua por baixo para quem quer a superfície de baixo nível, e `client.session` a entrega para você; ela também mudou (roda sobre o novo motor de dispatcher, e algumas das próprias assinaturas dela mudaram), então leia o **[Guia de migração](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)** antes de descer de nível.
 
 **[O Client](client/index.md)** o apresenta, **[Transportes do cliente](client/transports.md)** cobre as quatro formas de conexão, **[Callbacks do cliente](client/callbacks.md)** cobre os callbacks em si, e **[Testes](get-started/testing.md)** mostra o padrão em memória que substitui o helper `create_connected_server_and_client_session()` da v1.
 
@@ -172,11 +172,15 @@ Toda requisição iniciada pelo servidor sumiu na 2026-07-28: elicitação por p
 
 A substituição inverte a chamada. Uma ferramenta que precisa de algo do usuário *retorna* a pergunta (`InputRequiredResult`), o cliente a responde com os mesmos callbacks que sempre teve, e a chamada é repetida com as respostas anexadas. `Client` conduz esse loop para você. No servidor você raramente monta o resultado por conta própria, porque uma **[dependência](handlers/dependencies.md)** faz isso: anote um parâmetro com `Resolve(ask_quantity)`, onde `ask_quantity` é uma função comum que você escreve, e o SDK pergunta pelo mecanismo que a conexão suportar, uma requisição de elicitação ao vivo em uma sessão legada ou um multi-round-trip na 2026. Um corpo de ferramenta, as duas eras:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-Esse arquivo é a proposta inteira em um lugar só: um servidor, uma ferramenta apoiada em `Resolve`, e um cliente legado mais um cliente moderno, os dois recebendo a sua resposta, em memória. **[Requisições multi-round-trip](handlers/multi-round-trip.md)** explica o mecanismo (incluindo o `request_state`, que o SDK sela e verifica para você); **[Elicitação](handlers/elicitation.md)** cobre a parte de perguntar.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Esses dois arquivos são a proposta inteira: um servidor, uma ferramenta apoiada em `Resolve`, e um cliente legado mais um cliente moderno, os dois recebendo a sua resposta do mesmo servidor em execução (**[Servindo clientes legados](run/legacy-clients.md)** percorre os dois). **[Requisições multi-round-trip](handlers/multi-round-trip.md)** explica o mecanismo (incluindo o `request_state`, que o SDK sela e verifica para você); **[Elicitação](handlers/elicitation.md)** cobre a parte de perguntar.
 
 !!! warning "Este é o único lugar em que um servidor v1 portado muda de comportamento"
     Os seus próprios testes esbarram nisso primeiro: `Client(mcp)` negocia 2026-07-28 com o seu

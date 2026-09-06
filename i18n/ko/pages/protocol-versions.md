@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # 프로토콜 버전 {#protocol-versions}
@@ -11,9 +11,17 @@ MCP에는 두 시대가 있습니다.
 
 `Client`가 대신 협상하므로 신경 쓸 일은 거의 없습니다. 이 페이지는 이를 제어하는 단 하나의 생성자 인자인 `mode=`와 이 값을 바꾸게 되는 세 가지 경우를 다룹니다.
 
+이 페이지의 모든 코드 조각은 **[클라이언트](client/index.md)**에 나온 Bookshop `server.py`와 통신하는 `client.py`입니다. 한 터미널에서 그 서버를 시작하세요.
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+그런 다음 두 번째 터미널에서 `python client.py`로 각 코드 조각을 실행하세요.
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,13 +39,14 @@ MCP에는 두 시대가 있습니다.
 이것이 기능의 전부입니다. `Client` 하나로 어느 시대의 서버든 상대하며, 코드에 분기가 필요 없습니다.
 
 !!! info
-    `MCPServer`는 인메모리, stdio, Streamable HTTP 등 모든 트랜스포트에서 `server/discover`에
-    응답하므로, 직접 작성한 서버를 상대로는 `auto`가 항상 `2026-07-28`에 도달합니다. 폴백은
-    실제 2026년 이전 서버를 상대할 때만 발동하며, 바로 그때가 폴백이 필요한 순간입니다.
+    `MCPServer`는 Streamable HTTP, stdio, 그리고 테스트에서 쓰는 프로세스 내 연결까지 모든
+    트랜스포트에서 `server/discover`에 응답하므로, 직접 작성한 서버를 상대로는 `auto`가 항상
+    `2026-07-28`에 도달합니다. 폴백은 실제 2026년 이전 서버를 상대할 때만 발동하며, 바로 그때가
+    폴백이 필요한 순간입니다.
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -61,7 +70,7 @@ MCP에는 두 시대가 있습니다.
 
 `mode`에는 최신 프로토콜 버전 문자열도 넣을 수 있습니다. 현재 그 집합은 정확히 `["2026-07-28"]`입니다.
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -94,7 +103,7 @@ ValueError: mode must be 'legacy', 'auto', or one of ['2026-07-28']; got '2025-0
 
 그러니 보관해 두세요. `auto` 연결 후 `client.session.discover_result`에는 서버가 보낸 `DiscoverResult`가 그대로 담겨 있습니다. `supported_versions`, `capabilities`, `instructions`, 그리고 서버가 결과의 `_meta`에 새겨 넣은 신원 정보까지 포함됩니다. 다음번에는 이를 `prior_discover=`로 다시 넘기세요.
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

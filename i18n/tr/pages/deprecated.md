@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # Kullanım dışı özellikler {#deprecated-features}
 
-2026-07-28 spesifikasyonu beş şeyi emekliye ayırıyor. SDK hâlâ hepsini uygular ve artık her biri bir **kullanım dışı bırakma uyarısı** taşır. Bir SDK yardımcısı ise kendi gerekçesiyle kullanım dışı bırakıldı ve [sayfanın sonunda](#deprecated-sdk-helpers) listeleniyor.
+2026-07-28 spesifikasyonu beş şeyi emekliye ayırıyor. SDK hâlâ hepsini uygular ve artık her biri bir **kullanım dışı bırakma uyarısı** taşır. SDK düzeyindeki birkaç kullanım dışı bırakma ise kendi gerekçesine dayanır ve [sayfanın sonunda](#deprecated-sdk-helpers) listeleniyor.
 
 Aşağıdaki tablo kullanım dışı bırakılan her özelliği, neden gittiğini ve yerine neyin üzerine inşa etmeniz gerektiğini gösterir.
 
@@ -136,11 +136,13 @@ API'nin tamamı bu. Yöntem başına bir anahtar yok, zaten istemezsiniz de: tek
 
 ## Kullanım dışı SDK yardımcıları {#deprecated-sdk-helpers}
 
-Bunlar spesifikasyon değişikliği değil, yalnızca daha iyi bir alternatifi olan SDK iç ayrıntılarıdır. Aynı `MCPDeprecationWarning` ile uyarırlar ve 3.0'da kaldırılacaklar.
+Bunlar spesifikasyon değişikliği değil, yalnızca daha iyi bir alternatifi olan SDK kullanım biçimleridir. Aynı `MCPDeprecationWarning` ile uyarırlar ve 3.0 eski biçimi kaldırır.
 
 | Kullanım dışı | Bunun yerine ne yaparsınız |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()`, ardından `FuncMetadata.call_fn()`. Bunu yalnızca `FuncMetadata`'yı doğrudan kullanan kod (örneğin özel bir `Tool` alt sınıfı) çağırırdı. |
+| `validate_token_resource=` olmadan `AuthSettings(resource_server_url=...)` | Onu ayarlayın: `True`, doğrulayıcınızın `resource_server_url` için düzenlendiğini bildirmediği bearer token'ları sunucunun reddetmesini sağlar; `False`, token'ın audience değerini doğrulayıcınızın kendisinin denetlediğini söyler (bkz. **[Yetkilendirme](run/authorization.md#a-token-verifier)**). Ayarlanmadığında `False` gibi davranır; 3.0, `resource_server_url` ayarlı olduğunda `True`'yu varsayılan yapar. |
+| `issuer=` olmadan `ClientCredentialsOAuthProvider(...)` veya `PrivateKeyJWTOAuthProvider(...)` | Kimlik bilgilerini düzenleyen yetkilendirme sunucusunu belirten `issuer=` geçirin (bkz. **[OAuth istemcileri yazma](client/oauth-clients.md#machine-to-machine)**). Onsuz, kimlik bilgilerini hangi yetkilendirme sunucusunun alacağına MCP sunucusu karar verir; 3.0 bu anahtar kelimeyi zorunlu yapar. |
 
 ## Özet {#recap}
 
@@ -149,7 +151,7 @@ Bunlar spesifikasyon değişikliği değil, yalnızca daha iyi bir alternatifi o
 * Kullanım dışı bırakma tavsiye niteliğindedir: iletilen veride değişiklik yok, her şey 2026 öncesi oturumlarda çalışmaya devam eder ve görünür bir `MCPDeprecationWarning` alırsınız (bir `UserWarning`, dolayısıyla varsayılan olarak açık).
 * Örnekleme ve kök dizinler ayrıca, 2026-07-28 oturumunda bulunmayan bir geri kanala ihtiyaç duyar. Modern bir bağlantıda önce uyarır, sonra istisna fırlatırlar.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` tüm kategoriyi susturur; pytest'te `"error::mcp.MCPDeprecationWarning"` bunu bir test hatasına dönüştürür.
-* Bir SDK yardımcısı, `FuncMetadata.call_fn_with_arg_validation()`, 3.0'da kaldırılmak üzere ayrıca kullanım dışı bırakıldı.
+* [SDK düzeyindeki kullanım dışı bırakmalar](#deprecated-sdk-helpers) da aynı kurala uyar: şimdi uyarırlar, 3.0 ise eski biçimi kaldırır.
 * Yeni kod bunların hiçbiri üzerine kurulmamalıdır.
 
 Bu belgelerdeki diğer tüm sayfalar güncel API'yi anlatır.

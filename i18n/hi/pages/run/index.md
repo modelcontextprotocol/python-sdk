@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # अपना server चलाना {#running-your-server}
@@ -64,21 +64,26 @@ Inspector ठीक वही करता है जो असली host क�
 --8<-- "docs_src/run/tutorial002.py"
 ```
 
-वह एक line Starlette app बनाती है और उसे uvicorn से serve करती है। Clients `http://127.0.0.1:3001/mcp` से जुड़ते हैं।
+वह एक line Starlette app बनाती है और उसे uvicorn से serve करती है। clients `http://127.0.0.1:3001/mcp` से जुड़ते हैं।
 
 हर transport के अपने keyword arguments हैं, सब `run()` पर:
 
-* `host` / `port`: कहाँ सुनना है। Default `127.0.0.1` और `8000`।
-* `streamable_http_path`: MCP endpoint कहाँ रहता है। Default `/mcp`।
+* `host` / `port`: कहाँ सुनना है। default `127.0.0.1` और `8000`।
+* `streamable_http_path`: MCP endpoint कहाँ रहता है। default `/mcp`।
 * `json_response=True`: हर POST का जवाब SSE stream के बजाय एक अकेली JSON body से देना। उस body में सिर्फ़ response की जगह है, और कुछ नहीं, इसलिए जो tool request के बीच में client को वापस call करता है (`ctx.elicit()`, sampling), वह इस leg पर `NoBackChannelError` raise करता है, और चल रही call से जुड़े notifications (`ctx.report_progress()` का progress, per-call log messages) छोड़ दिए जाते हैं; standalone `GET` stream असंबंधित notifications अब भी ले जाती है।
 * `stateless_http=True`: हर request के लिए नया transport, कोई session tracking नहीं।
-* `max_request_body_size`: स्वीकार की जाने वाली सबसे बड़ी request body, bytes में। Default 4 MiB है; इससे बड़ी requests
+* `max_request_body_size`: स्वीकार की जाने वाली सबसे बड़ी request body, bytes में। default 4 MiB है; इससे बड़ी requests
   को parsing या session बनने से पहले ही HTTP 413 मिलता है। इसे तभी बढ़ाएँ जब जायज़ MCP messages
   उस आकार से बड़े हों।
+* `session_idle_timeout`: कोई legacy session कितने seconds तक बिना किसी चल रही request के खाली रह सकता है,
+  इससे पहले कि server उसे बंद कर दे। default 1800। `None` इसे बंद कर देता है। देखें
+  [session का जीवनकाल और सीमाएँ](legacy-clients.md#session-lifetime-and-limits)।
+* `max_sessions`: एक process एक साथ कितने legacy sessions रखता है। default 10 000। `None`
+  सीमा हटा देता है। इसकी जानकारी भी उसी section में है।
 * `event_store`, `retry_interval`, `transport_security`: resumability और DNS-rebinding से सुरक्षा। ये इंतज़ार कर सकते हैं, जब तक आप localhost के अलावा कहीं deploy न करें; `transport_security` की जानकारी **[Deploy & scale](deploy.md)** में है।
 
 !!! warning
-    Transport options `run()` को जाते हैं, `MCPServer(...)` को **नहीं**। Constructor बताता है कि
+    transport options `run()` को जाते हैं, `MCPServer(...)` को **नहीं**। constructor बताता है कि
     आपका server **क्या है**: name, version, instructions। `run()` बताता है कि वह कैसे serve होता है। इसे
     उल्टा करेंगे तो MCP के शामिल होने से पहले ही Python जवाब दे देता है:
 

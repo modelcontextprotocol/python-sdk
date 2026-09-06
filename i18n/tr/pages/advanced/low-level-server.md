@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Düşük seviyeli Server {#the-low-level-server}
@@ -36,18 +36,22 @@ Bu, **[Araçlar](../servers/tools.md)** sayfasında dokuz satır `@mcp.tool()` i
 
 ### Deneyin {#try-it}
 
-Bunun için Inspector yok: `mcp dev` ve `mcp run` yalnızca `MCPServer` kabul eder. Bellek içi `Client` bunu umursamaz; düşük seviyeli bir `Server`'ı tıpkı bir `MCPServer`'ı aldığı gibi alır:
+`mcp dev` ve `mcp run` yalnızca `MCPServer` kabul eder, bu yüzden bunu kendiniz sunarsınız. `server.py` dosyasının son satırı ondan sıradan bir ASGI uygulaması oluşturur, uvicorn da onu çalıştırır:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Inspector'ı ya da herhangi bir istemciyi `http://localhost:8000/mcp` adresine yönlendirin:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content` değeri `None`. Yüksek seviyeli sunucu `-> str` dönüş türünü sizin yerinize `{"result": ...}` içine sarmalar; burada sizin oluşturmadığınızı kimse oluşturmaz.
 * `list_tools`, **sizin** yazdığınız şemayı karakteri karakterine döndürür. Yüksek seviyeli sürümde her özellikte `"title": "Query"`, kökte de `"title": "search_booksArguments"` vardı: Pydantic'in bıraktığı izler. Burada ise ağa giden bir şey varsa onu oraya siz koymuşsunuzdur.
+
+Testte uvicorn'u ve portu atlarsınız: `Client(server)`, düşük seviyeli bir `Server`'ı süreç içinde tıpkı bir `MCPServer`'ı aldığı gibi alır; **[Test etme](../get-started/testing.md)** sayfasının anlattığı kalıp da budur.
 
 ## Sizin yerinize hiçbir şey denetlenmez {#nothing-is-checked-for-you}
 
@@ -215,4 +221,4 @@ Bunların her biri, artık kavramlarını bildiğiniz birer fikir; her birinin k
 * `add_request_handler(method, params_type, handler)` her metodu sunar. `initialize` ayrılmıştır.
 * Bir `Server`'ın duyurduğu yetenekler, hangi işleyicileri kaydettiğinizden türetilir.
 
-`Client(server)` iki sunucuya da aynı davrandı, çünkü ikisi aynı protokolün *ta kendisi*; bütün mesele de bu. Bir alt katman ise bir sınıf bile değil: **[Middleware](middleware.md)**.
+İstemci iki sunucuya da aynı davrandı, çünkü ikisi aynı protokolün *ta kendisi*; bütün mesele de bu. Bir alt katman ise bir sınıf bile değil: **[Middleware](middleware.md)**.

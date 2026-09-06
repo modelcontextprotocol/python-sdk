@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # Autorisierung {#authorization}
@@ -23,12 +23,12 @@ Das ist das ganze Dreieck. Alles auf dieser Seite betrifft den mittleren Punkt.
 
 Das SDK hat keine Meinung dazu, wie ein gültiges Token aussieht. Das sagst du ihm, indem du **`TokenVerifier`** implementierst:
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` ist ein Protokoll mit einer einzigen asynchronen Methode. `verify_token` bekommt das rohe Token aus dem `Authorization`-Header und gibt ein **`AccessToken`** zurück, wenn es gültig ist, und `None`, wenn nicht. Mehr gibt es nicht zu implementieren.
-* Dieser hier schlägt das Token in einer Tabelle nach. Ein echter prüft eine JWT-Signatur oder ruft den Token-Introspection-Endpunkt des Authorization Servers auf. Dieser Code gehört dir; das SDK ruft ihn nur auf.
+* Dieser hier schlägt das Token in einer Tabelle nach; jeder Eintrag hält fest, für welche Ressource es ausgestellt wurde. Ein echter prüft eine JWT-Signatur oder ruft den Token-Introspection-Endpunkt des Authorization Servers auf und meldet in `AccessToken.resource`, für wen das Token ausgestellt wurde (sein `aud`). Dieser Code gehört dir; das SDK ruft ihn nur auf.
 * `token_verifier=` und `auth=` treten immer gemeinsam auf. Übergibst du das eine ohne das andere, löst `MCPServer(...)` einen `ValueError` aus, bevor auch nur ein Request bedient wird.
 
 `AuthSettings` ist das öffentliche Gesicht deines Resource Servers:
@@ -36,6 +36,10 @@ Das SDK hat keine Meinung dazu, wie ein gültiges Token aussieht. Das sagst du i
 * `issuer_url`: der Authorization Server, der deine Tokens ausstellt.
 * `resource_server_url`: die öffentliche URL dieses MCP-Endpunkts. Sie benennt, für *welche* Ressource ein Token gilt, und unter ihr liegt das Discovery-Dokument.
 * `required_scopes`: jedes Token muss alle davon tragen.
+* `validate_token_resource`: lehnt jedes Token ab, dessen `AccessToken.resource` nicht `resource_server_url` ist. Lässt du es ungesetzt, während `resource_server_url` gesetzt ist, gibt es eine Warnung (`MCPDeprecationWarning`) und es verhält sich wie `False`; ab 3.0 ist `True` der Standardwert für Resource Server.
+  * Schalte es ein, wenn dein Authorization Server Tokens an die `resource` bindet, die der Client angefordert hat – MCP-Clients senden sie immer. Halte `resource_server_url` exakt auf der URL, mit der sich Clients verbinden.
+  * Lass es aus, wenn dein Authorization Server eigene Audience-Bezeichner verwendet (einen Auth0-API-Identifier, eine Entra-Application-ID), und prüfe `aud` stattdessen in deinem Verifier: Gib für ein Token, das nicht für diesen Server bestimmt ist, `None` zurück.
+  * Ist `aud` eine Liste, trage in `resource` den Eintrag ein, der `resource_server_url` entspricht.
 
 !!! tip
     `examples/servers/simple-auth/` im SDK-Repository enthält einen `IntrospectionTokenVerifier`, der den
@@ -91,11 +95,11 @@ Schick ein `GET` an diesen Well-Known-Pfad, und du bekommst **Protected Resource
 
 In jedem Handler ist **`get_access_token()`** das `AccessToken`, das dein Verifier für den aktuellen Request zurückgegeben hat:
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
-* Es funktioniert in Tools, Ressourcen und Prompts, und du musst nichts herumreichen: Die Auth-Middleware speichert es pro Request in einer Context-Variablen.
+* Es funktioniert in Tools, Ressourcen und Prompts, und du musst nichts herumreichen: Die Auth-Middleware speichert es pro Request in einer Kontextvariablen.
 * Du bekommst **dasselbe Objekt zurück, das dein Verifier gebaut hat**: `client_id`, `scopes`, `subject`, `expires_at` und alle zusätzlichen `claims`, die du angehängt hast. Das ist der Ansatzpunkt für Regeln pro Tool: Lies die Scopes und lehne ab.
 * Außerhalb eines authentifizierten HTTP-Requests gibt es `None` zurück. In-Memory und über `stdio` ist es immer `None`.
 
@@ -125,6 +129,6 @@ Ein Authorization Server kann statt einer Person, die sich durch einen Consent-S
 * `token_verifier=` und `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` treten immer gemeinsam auf.
 * Das SDK veröffentlicht Protected Resource Metadata nach [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) unter `/.well-known/oauth-protected-resource/...` und beantwortet nicht authentifizierte Requests mit einer 401, deren `WWW-Authenticate`-Header darauf zeigt. Das ist die ganze Discovery-Geschichte.
 * `get_access_token()` in jedem Handler sagt dir, wer aufruft.
-* Autorisierung ist eine HTTP-Angelegenheit. `stdio` und der In-Memory-Client bekommen sie nie zu sehen.
+* Autorisierung ist eine HTTP-Angelegenheit. `stdio` und der In-Memory-Test-Client bekommen sie nie zu sehen.
 
 Die Client-Hälfte (deinen Authorization Server finden und das Token für dich holen) steht unter **[OAuth-Clients](../client/oauth-clients.md)**. Und ein Client, der eine Identität *behauptet*, statt eine Person danach zu fragen, steht unter **[Identity Assertion](../client/identity-assertion.md)**.

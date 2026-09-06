@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # 授权 {#authorization}
@@ -23,12 +23,12 @@ translation:
 
 有效的 token 长什么样，SDK 没有任何预设。这由你来决定，方式是实现 **`TokenVerifier`**：
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` 是一个只有一个异步方法的协议。`verify_token` 接收 `Authorization` 头里的原始 token，有效时返回一个 **`AccessToken`**，无效时返回 `None`。除此之外没有别的要实现。
-* 这个例子是在一张表里查找 token。真实的实现会验证 JWT 签名，或者调用授权服务器的 token 自省端点。那部分代码是你的，SDK 只负责调用它。
+* 这个例子是在一张表里查找 token，表中每一项都记录了它是为哪个资源签发的。真实的实现会验证 JWT 签名，或者调用授权服务器的 token 自省端点，并在 `AccessToken.resource` 里报告 token 是签发给谁的（它的 `aud`）。那部分代码是你的，SDK 只负责调用它。
 * `token_verifier=` 和 `auth=` 永远成对出现。只传其中一个，`MCPServer(...)` 会在处理任何请求之前就抛出 `ValueError`。
 
 `AuthSettings` 是你的资源服务器对外的门面：
@@ -36,6 +36,10 @@ translation:
 * `issuer_url`：签发你的 token 的授权服务器。
 * `resource_server_url`：这个 MCP 端点的公开 URL。它指明 token 是针对**哪一个**资源的，发现文档也位于这里。
 * `required_scopes`：每个 token 都必须携带其中全部 scope。
+* `validate_token_resource`：拒绝任何 `AccessToken.resource` 不等于 `resource_server_url` 的 token。设置了 `resource_server_url` 却不设置它，会发出警告（`MCPDeprecationWarning`），行为等同于 `False`；3.0 起资源服务器的默认值会变成 `True`。
+  * 如果你的授权服务器把 token 绑定到客户端请求的 `resource`（MCP 客户端总是会发送它），就打开它。让 `resource_server_url` 与客户端连接的 URL 完全一致。
+  * 如果你的授权服务器使用自己的受众标识符（Auth0 的 API 标识符、Entra 的应用 ID），就保持关闭，改为在验证器里检查 `aud`，对不属于本服务器的 token 返回 `None`。
+  * 如果 `aud` 是列表，把其中等于 `resource_server_url` 的那一项放进 `resource`。
 
 !!! tip "提示"
     SDK 仓库中的 `examples/servers/simple-auth/` 有一个 `IntrospectionTokenVerifier`，它会调用真实授权服务器的 [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) 端点。大多数生产环境的验证器都是这个样子。
@@ -85,7 +89,7 @@ translation:
 
 在任何处理函数内部，**`get_access_token()`** 就是你的验证器为当前请求返回的那个 `AccessToken`：
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -117,6 +121,6 @@ SDK 给你的是资源服务器这一半：验证、公布、拒绝。它不提�
 * `token_verifier=` 和 `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` 永远成对出现。
 * SDK 在 `/.well-known/oauth-protected-resource/...` 发布 [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata，并对未认证的请求回应 401，其 `WWW-Authenticate` 头指向该文档。整个发现过程就是这样。
 * 在任何处理函数里，`get_access_token()` 就是调用者是谁。
-* 授权是 HTTP 层面的事。`stdio` 和内存内客户端永远看不到它。
+* 授权是 HTTP 层面的事。`stdio` 和内存内测试客户端永远看不到它。
 
 客户端那一半（发现你的授权服务器并替你获取 token）见 **[OAuth 客户端](../client/oauth-clients.md)**。而一个**断言**身份、而不是向用户索要身份的客户端，见 **[身份断言](../client/identity-assertion.md)**。

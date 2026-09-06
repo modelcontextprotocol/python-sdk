@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # Exécuter votre serveur {#running-your-server}
@@ -75,6 +75,11 @@ Chaque transport a ses propres arguments nommés, tous sur `run()` :
 * `max_request_body_size` : taille maximale acceptée pour le corps d’une requête, en octets. Vaut 4 Mio par défaut ; les requêtes plus grandes
   reçoivent un HTTP 413 avant toute analyse ou création de session. Ne l’augmentez que lorsque des messages MCP légitimes
   dépassent cette taille.
+* `session_idle_timeout` : nombre de secondes pendant lesquelles une session historique peut rester sans rien en cours avant que le
+  serveur ne la ferme. Valeur par défaut 1800. `None` le désactive. Voir
+  [Durée de vie des sessions et limites](legacy-clients.md#session-lifetime-and-limits).
+* `max_sessions` : nombre de sessions historiques qu’un même processus conserve simultanément. Valeur par défaut 10 000. `None`
+  supprime la limite. Traité dans la même section.
 * `event_store`, `retry_interval`, `transport_security` : reprise après coupure et protection contre le DNS rebinding. Ils peuvent attendre, jusqu’à ce que vous déployiez ailleurs que sur localhost ; **[Déployer et passer à l’échelle](deploy.md)** couvre `transport_security`.
 
 !!! warning

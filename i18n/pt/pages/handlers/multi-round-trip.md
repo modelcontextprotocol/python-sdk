@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # Requisições com múltiplas idas e voltas {#multi-round-trip-requests}
@@ -164,7 +164,7 @@ O `Server` de baixo nível é o nível sem pilhas inclusas: diferente do `MCPSer
 
 ## Um resultado de 2026-07-28 {#a-2026-07-28-result}
 
-`InputRequiredResult` só existe na versão de protocolo **2026-07-28**. O `Client(server)` em memória a negocia por você; pela rede, `mode="auto"` a descobre. Depois de conectar, `client.protocol_version` diz o que você obteve.
+`InputRequiredResult` só existe na versão de protocolo **2026-07-28**. O `mode="auto"` padrão do `Client` a descobre em qualquer conexão. Depois de conectar, `client.protocol_version` diz o que você obteve.
 
 !!! warning
     Uma sessão pré-2026 não tem onde colocar um `InputRequiredResult`. Retorne um do seu handler em uma

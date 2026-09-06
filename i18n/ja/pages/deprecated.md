@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # 非推奨の機能 {#deprecated-features}
 
-2026-07-28 の仕様では、5 つのものが役目を終えます。SDK は今もその 5 つすべてを実装しており、そのすべてに**非推奨の警告**が付くようになりました。SDK のヘルパーが 1 つ、仕様とは別の理由で非推奨になっており、[ページの最後](#deprecated-sdk-helpers)に挙げています。
+2026-07-28 の仕様では、5 つのものが役目を終えます。SDK は今もその 5 つすべてを実装しており、そのすべてに**非推奨の警告**が付くようになりました。これとは別に、SDK 独自の理由で非推奨になったものもいくつかあり、[ページの最後](#deprecated-sdk-helpers)に挙げています。
 
 下の表は、非推奨になった機能それぞれについて、なくなる理由と、代わりに土台にすべきものを挙げています。
 
@@ -125,11 +125,13 @@ API はこれだけです。メソッドごとのスイッチはありません�
 
 ## 非推奨の SDK ヘルパー {#deprecated-sdk-helpers}
 
-これらは仕様の変更ではなく、よりよい代替がある SDK の内部実装にすぎません。同じ `MCPDeprecationWarning` で警告し、3.0 で削除されます。
+これらは仕様の変更ではなく、よりよい代替がある SDK の使い方にすぎません。同じ `MCPDeprecationWarning` で警告し、3.0 で古い形式が削除されます。
 
 | 非推奨 | 代わりにすること |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` を呼んでから `FuncMetadata.call_fn()` を呼びます。これを呼んでいたのは、`FuncMetadata` を直接扱うコード（たとえば独自の `Tool` サブクラス）だけです。 |
+| `validate_token_resource=` を指定しない `AuthSettings(resource_server_url=...)` | 指定してください。`True` にすると、ベリファイアーが `resource_server_url` 向けに発行されたと報告しないベアラートークンをサーバーが拒否します。`False` は、ベリファイアーがトークンのオーディエンスを自分で検証することを表します（**[認可](run/authorization.md#a-token-verifier)** を参照）。未指定の場合は `False` として振る舞います。3.0 では、`resource_server_url` が設定されているときは常に `True` がデフォルトになります。 |
+| `issuer=` を指定しない `ClientCredentialsOAuthProvider(...)` または `PrivateKeyJWTOAuthProvider(...)` | 資格情報を発行した認可サーバーを指す `issuer=` を渡してください（**[OAuth クライアントの作成](client/oauth-clients.md#machine-to-machine)** を参照）。指定しないと、どの認可サーバーが資格情報を受け取るかを MCP サーバーが決めることになります。3.0 ではこのキーワードが必須になります。 |
 
 ## まとめ {#recap}
 
@@ -138,7 +140,7 @@ API はこれだけです。メソッドごとのスイッチはありません�
 * 非推奨は勧告にすぎません。通信上の変更はなく、2026 年より前のセッションに対してはすべてが引き続き動作します。そして目に見える `MCPDeprecationWarning` が出ます（`UserWarning` なので、デフォルトで有効です）。
 * サンプリングとルートにはさらに、2026-07-28 のセッションにはないバックチャネルが必要です。現行仕様の接続では警告を出し、そのあと例外を送出します。
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` でカテゴリ全体を黙らせます。pytest で `"error::mcp.MCPDeprecationWarning"` を指定すれば、テストの失敗に変わります。
-* SDK のヘルパー `FuncMetadata.call_fn_with_arg_validation()` は、これとは別に非推奨になっており、3.0 で削除されます。
+* [SDK 独自の非推奨](#deprecated-sdk-helpers)も同じルールに従います。今は警告を出し、3.0 で古い形式がなくなります。
 * 新しいコードは、これらのどれの上にも築くべきではありません。
 
 このドキュメントのほかのページはすべて、現行の API を扱っています。

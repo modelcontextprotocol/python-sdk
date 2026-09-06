@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 70b9ece244ca1b0c, cba78e052898c3f6, f06bdb541cb0b469, fb82d526320b7cc3]
+  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 10394c6f16601638, cba78e052898c3f6, f06bdb541cb0b469, 6dc898ccc5a903f9]
   tool: 1
 ---
 # 기존 앱에 추가하기 {#add-to-an-existing-app}
@@ -98,7 +98,7 @@ Starlette의 `Host` 라우트도 같은 방식으로 동작합니다. 경로 대
 --8<-- "docs_src/asgi/tutorial004.py"
 ```
 
-이제 클라이언트는 `/notes/mcp`가 아니라 `/notes`에 연결합니다.
+이제 클라이언트는 `/notes/mcp`가 아니라 `/notes/`에 연결합니다.
 
 ## 브라우저 클라이언트를 위한 CORS {#cors-for-browser-clients}
 
@@ -141,4 +141,4 @@ Starlette의 `Host` 라우트도 같은 방식으로 동작합니다. 경로 대
 * 브라우저 클라이언트에는 CORS가 필요합니다. `Mcp-*` 요청 헤더를 위한 `allow_headers`, 응답을 위한 `expose_headers=["Mcp-Session-Id"]`입니다.
 * `@mcp.custom_route()`는 `/mcp` 옆에 인증되지 않는 평범한 HTTP 엔드포인트를 추가합니다.
 
-서버가 실제 URL로 도달 가능해지면, **[클라이언트](../client/index.md)**는 서버 객체 대신 그 URL로 연결합니다.
+서버가 실제 URL로 도달 가능해지면, **[클라이언트](../client/index.md)**는 그 URL로 서버에 연결합니다.

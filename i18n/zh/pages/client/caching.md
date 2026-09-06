@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # 缓存提示 {#caching-hints}
@@ -27,13 +27,13 @@ translation:
 
 在底层 `Server` 上，处理函数手动构建结果，`ttl_ms` / `cache_scope` 只是结果模型上的字段。显式设置了它们的处理函数总是逐字段地优先于构造函数映射：
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
 处理函数指定了 `ttl_ms=1_000`，对作用域只字未提。线路上是：`ttlMs: 1000`（处理函数的值，而不是映射里的 `60_000`）和 `cacheScope: "public"`（映射的值，因为处理函数没有设置）。显式优先于配置，配置优先于默认。这条规则按字段生效，所以处理函数可以固定一个字段，把另一个留给服务器范围的策略。
 
-这也是构造函数无法预知的动态情况的出口：一个按用户过滤 `resources/read` 的处理函数，可以在其他方面都是 public 的服务器上为某个 URI 返回 `cache_scope="private"`。
+这也是应对构造函数无法预知的动态情况的出口：一个按用户过滤 `resources/read` 的处理函数，可以在其他方面都是 public 的服务器上为某个 URI 返回 `cache_scope="private"`。
 
 关于分页列表有一点要注意：协议要求同一列表的**每一页 `cacheScope` 相同**。构造函数映射天然满足这一点，因为它按方法而不是按页作键。但自行覆盖作用域的处理函数要自己负责这种一致性：在**每一**页都覆盖，绝不要只在有游标时覆盖，否则第一页和第二页会不一致。
 
@@ -41,9 +41,23 @@ translation:
 
 在 2026-07-28 会话上，`Client` 替你遵从这些提示：它内置了响应缓存，默认开启。带着 `ttlMs` 到达的结果会被存起来，在 TTL 内的相同调用直接由缓存提供，不发生往返。**不**带提示的结果不会被缓存：无提示的结果使用 `CacheConfig.default_ttl_ms`，它默认为 `0`（立即过期），所以什么都没声明的服务器看到的流量和以前一模一样，一次调用对应一次请求。
 
-```python title="client.py" hl_lines="33 35 38"
+想亲眼看看，就用 uvicorn 运行上一节的 `server.py`（它的最后一行构建了 ASGI 应用）。处理函数每次真正执行时都会打印一行：
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+在另一个终端运行 `python client.py`。它打印出第一个结果携带的提示，处理函数的 `ttlMs` 挨着映射的 `cacheScope`：
+
+```text
+1000 public
+```
+
+剩下的情况看服务器那边的终端：在 uvicorn 的请求日志之间，`tools/list served` 出现了三次。
 
 四次调用，三次抓取。第二次调用找到了新鲜条目，根本没到服务器；把（注入的）时钟拨过 TTL 让第三次重新抓取；第四次指定了 `cache_mode="refresh"`。这个关键字参数存在于五个缓存动词上（`list_tools`、`list_prompts`、`list_resources`、`list_resource_templates`、`read_resource`）：
 
@@ -53,7 +67,7 @@ translation:
 
 有一条规则凌驾于 `"use"` 之上：**带 `meta` 的调用总会到达服务器。** 设置了 `meta`（进度令牌、追踪字段）的请求期望产生一次线路请求，所以在 `cache_mode="use"` 下它被当作 `"refresh"` 处理：跳过缓存读取，抓取到的结果仍会替换缓存条目。`"bypass"` 和显式的 `"refresh"` 行为照旧。
 
-要完全关闭缓存，用 `Client(server, cache=None)` 构造：每次调用重新变成一次往返，`cache_mode` 虽然仍被接受，但不起作用。
+要完全关闭缓存，构造 `Client` 时传入 `cache=None`：每次调用重新变成一次往返，`cache_mode` 虽然仍被接受，但不起作用。
 
 作用域同样自动遵从：`"private"` 条目按缓存的**分区**（见下文）作键，而 `"public"` 条目可以选择更大范围的共享。并且对于通知点名的那些条目，**通知优先于 TTL**：`list_changed` 通知会驱逐对应的已缓存列表，`resources/updated` 会驱逐恰好存在其 URI 下的已缓存读取结果，不管它们多新鲜。在 2026-07-28 连接上，这些通知通过你用 `client.listen(...)` 打开的 `subscriptions/listen` 流到达，驱逐会在你的观察者看到事件之前完成；详见 **[订阅](subscriptions.md)**。
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # Усунення несправностей {#troubleshooting}
@@ -13,6 +13,12 @@ translation:
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+Ці пункти звертаються до нього за адресою `http://localhost:8000/mcp`, тож залиште його працювати через HTTP:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 Помилки, які цитує ця сторінка, справжні: власний набір тестів SDK відтворює кожну з них.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ translation:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -67,7 +73,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -75,7 +81,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -252,7 +258,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-Сервер не впізнає `Mcp-Session-Id`, який надіслав ваш клієнт, майже завжди тому, що сервер **перезапустився** (або вас спрямували на інший екземпляр). Сесії живуть у пам'яті того одного процесу.
+Сервер не впізнає `Mcp-Session-Id`, який надіслав ваш клієнт. Або сервер **перезапустився** (чи вас спрямували на інший екземпляр), або **сплив строк** сесії, бо протягом `session_idle_timeout` (за замовчуванням це 30 хвилин) у ній не було жодного запиту в роботі. Див. [Час життя сесії та обмеження](run/legacy-clients.md#session-lifetime-and-limits). Сесії живуть у пам'яті того одного процесу.
 
 Помилки в сервері тут немає. HTTP-відповідь — це `404`, тіло якого *є* JSON-RPC, тож, на відміну від `421` вище, python `Client` показує це повідомлення дослівно:
 
@@ -262,9 +268,9 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 Виправлення — перепід'єднатися: вийдіть із блоку `async with Client(...)` і ввійдіть у новий, який узгодить свіжу сесію. Для довгоживучого клієнта це означає перехоплювати `MCPError` навколо викликів і перепід'єднуватися на це повідомлення, а не повторювати спроби всередині мертвої сесії.
 
-Якщо це трапляється *без* перезапуску, у вас працює більше одного робочого процесу без липких сесій: кожен робочий процес тримає власну таблицю сесій, тож запит, спрямований не на той, опиняється тут. Про це та про два виправлення (липка маршрутизація або `stateless_http=True`) — сторінки **[Розгортання й масштабування](run/deploy.md)** і **[Обслуговування клієнтів старого покоління](run/legacy-clients.md)**.
+Якщо це трапляється *без* перезапуску і клієнт не мовчав так довго, у вас працює більше одного робочого процесу без липких сесій: кожен робочий процес тримає власну таблицю сесій, тож запит, спрямований не на той, опиняється тут. Про це та про два виправлення (липка маршрутизація або `stateless_http=True`) — сторінки **[Розгортання й масштабування](run/deploy.md)** і **[Обслуговування клієнтів старого покоління](run/legacy-clients.md)**.
 
-Для оператора сервера відповідний рядок у лозі — `Rejected request with unknown or expired session ID: <id>`. Він пишеться на рівні `INFO`, тож за звичного порога `WARNING` його не видно. Бачити його сплесками одразу після розгортання — нормально: кожен під'єднаний клієнт перепід'єднується.
+Для оператора сервера відповідний рядок у лозі — `Rejected request with unknown or expired session ID: <id>`. Він пишеться на рівні `INFO`, тож за звичного порога `WARNING` його не видно. Бачити його сплесками одразу після розгортання — нормально: кожен під'єднаний клієнт перепід'єднується. Якщо ж сплив строк сесії, перед цим рядком іде `Session <id> idle timeout`, теж на рівні `INFO`.
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -276,7 +282,13 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 Ваш сервер хоче про щось запитати користувача, а цей клієнт ніколи не казав, що його можна питати.
 
-Резолвер еліцитації (elicitation) відмовляє одразу, якщо під'єднаний клієнт не оголосив еліцитацію через форму, а `e.error.data` називає, чого саме бракує:
+Це Bistro питає, перш ніж забронювати, — через резолвер:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Запустіть його замість сервера Weather і викличте `book_table` із клієнта, якому не передали `elicitation_callback`. Резолвер відмовляє одразу, бо під'єднаний клієнт так і не оголосив еліцитацію (elicitation) через форму, а `e.error.data` називає, чого саме бракує:
 
 ```json
 {
@@ -290,7 +302,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -315,14 +327,14 @@ async def main() -> None:
 
 Ваш обробник спробував звернутися до клієнта посеред запиту на з'єднанні, де виклик не має каналу, здатного нести запит від сервера. Є три конфігурації сервера, за яких виклик опиняється в такому становищі.
 
-**З'єднання `2026-07-28`: будь-який транспорт, завжди.** Сучасний протокол узагалі не має запитів, ініційованих сервером, тож сервер відмовляє ще до того, як щось надіслано. `ctx.elicit()` усередині інструмента — класичний спосіб на це натрапити (у найпершому ж тесті в пам'яті, бо `Client(server)` узгоджує `2026-07-28`, навіть якщо його про це не просили), і передавання `elicitation_callback=` нічого не змінює, бо до клієнта ніколи не доходить запит, на який він міг би відповісти:
+**З'єднання `2026-07-28`: будь-який транспорт, завжди.** Сучасний протокол узагалі не має запитів, ініційованих сервером, тож сервер відмовляє ще до того, як щось надіслано. `ctx.elicit()` усередині інструмента — класичний спосіб на це натрапити, зазвичай у найпершому ж **[тесті](get-started/testing.md)** цього інструмента в пам'яті, бо `Client(mcp)` узгоджує `2026-07-28`, навіть якщо його про це не просили. Передавання `elicitation_callback=` нічого не змінює, бо до клієнта ніколи не доходить запит, на який він міг би відповісти:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -364,7 +376,7 @@ mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -417,7 +429,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * `Tool already exists:` у лозі сервера — єдина ознака того, що два однойменні інструменти злилися в один.
 * Один 421, три написання: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (усе інше), `Invalid Host header: <host>` (лог сервера). Виправлення: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> змонтований застосунок, чий хост-застосунок у своєму життєвому циклі так і не ввійшов у `mcp.session_manager.run()`.
-* `Session not found` -> сервер перезапустився; перепід'єднайтеся.
+* `Session not found` -> сервер перезапустився або сплив строк сесії (`session_idle_timeout`); перепід'єднайтеся.
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` потребує каналу від сервера до клієнта: з'єднання `2026-07-28` його ніколи не має, `stateless_http=True` забирає канал старого покоління, а `json_response=True` — канал у межах запиту. Використовуйте резолвер (клієнту старого покоління також потрібен сервер, що зберігає канал). Сусідня помилка `Method not found` — це запит методу, якого немає в ревізії протоколу іншої сторони.
 * `Client did not declare the form elicitation capability ...` і `Elicitation not supported` -> клієнту бракує `elicitation_callback=`.
 * `Invalid or expired requestState` ніколи не пояснює причину в переданих даних. Лог сервера — пояснює; `unknown key` означає, що треба зробити `RequestStateSecurity(keys=[...])` спільним для всіх робочих процесів.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # Multi-Roundtrip-Requests {#multi-round-trip-requests}
@@ -164,7 +164,7 @@ Der Low-Level-`Server` ist die Stufe ohne Extras: Anders als bei `MCPServer` wir
 
 ## Ein Ergebnis für 2026-07-28 {#a-2026-07-28-result}
 
-`InputRequiredResult` gibt es nur bei Protokollversion **2026-07-28**. Der In-Memory-`Client(server)` handelt sie für dich aus; über die Leitung entdeckt `mode="auto"` sie. Nach dem Verbinden sagt dir `client.protocol_version`, was du bekommen hast.
+`InputRequiredResult` gibt es nur bei Protokollversion **2026-07-28**. `mode="auto"`, der Standardwert von `Client`, entdeckt sie auf jeder Verbindung. Nach dem Verbinden sagt dir `client.protocol_version`, was du bekommen hast.
 
 !!! warning
     Eine Session vor 2026 hat keinen Platz für ein `InputRequiredResult`. Gibst du eines aus deinem Handler auf einer

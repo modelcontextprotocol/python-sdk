@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # Pagination {#pagination}
@@ -31,9 +31,13 @@ Pagination उस server के लिए है जिसकी resource list �
 
 ### इसे आज़माएँ {#try-it}
 
-`Client(server)` memory में low-level `Server` से ठीक वैसे ही जुड़ता है जैसे `MCPServer` से।
+`mcp run` सिर्फ़ `MCPServer` स्वीकार करता है, इसलिए इसे आप ख़ुद serve करते हैं। `server.py` की आख़िरी line `Server` से एक साधारण ASGI app बनाती है, और uvicorn उसी को चलाता है:
 
-बिना arguments के `list_resources()` call करें। आपको दस resources मिलते हैं, `book-1` से `book-10` तक, और `next_cursor` string `"10"` है।
+```console
+uvicorn server:app --port 8000
+```
+
+किसी भी client (**[The Client](../client/index.md)**, या Inspector) को `http://localhost:8000/mcp` की ओर point करें और बिना arguments के `list_resources()` call करें। आपको दस resources मिलते हैं, `book-1` से `book-10` तक, और `next_cursor` string `"10"` है।
 
 इसे `list_resources(cursor="10")` से वापस दें, तो पहला resource `book-11` है और नया `next_cursor` `"20"` है।
 
@@ -43,7 +47,7 @@ Pagination उस server के लिए है जिसकी resource list �
 
 `Client` का हर `list_*` method (`list_tools`, `list_resources`, `list_resource_templates`, `list_prompts`) `cursor=` keyword लेता है। Paged list को पूरा खींचना एक `while True` है:
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -51,7 +55,7 @@ Pagination उस server के लिए है जिसकी resource list �
 * `next_cursor` देखने से **पहले** extend करें: आख़िरी page में भी resources होते हैं।
 * `next_cursor is None` ही बाहर निकलने का रास्ता है। बाकी कुछ भी सीधे `cursor=` में वापस जाता है, बिना छेड़े।
 
-इसका `main()` चलाएँ और यह `100 resources` print करता है: दस-दस के दस pages, एक ऐसे loop से जुड़े हुए जिसे कभी पता ही नहीं था कि दस pages थे।
+uvicorn अब भी `server.py` serve कर रहा हो, तब दूसरे terminal में `python client.py` चलाएँ। यह `100 resources` print करता है: दस-दस के दस pages, एक ऐसे loop से जुड़े हुए जिसे कभी पता ही नहीं था कि दस pages थे।
 
 यह वही loop है जो **[The Client](../client/index.md)** हर `list_*` verb के लिए दिखाता है, और paging न करने वाले server पर इसकी कोई क़ीमत नहीं: पहले ही response में `next_cursor` `None` होता है और loop एक बार चलता है।
 

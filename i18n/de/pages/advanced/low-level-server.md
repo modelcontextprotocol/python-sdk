@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Der Low-Level-Server {#the-low-level-server}
@@ -36,18 +36,22 @@ Drei Dinge haben sich geändert, und sie sind die ganze Low-Level-API:
 
 ### Ausprobieren {#try-it}
 
-Hierfür gibt es keinen Inspector: `mcp dev` und `mcp run` akzeptieren nur einen `MCPServer`. Dem In-Memory-`Client` ist das egal; er nimmt einen Low-Level-`Server` genauso wie einen `MCPServer`:
+`mcp dev` und `mcp run` akzeptieren nur einen `MCPServer`, also betreibst du diesen hier selbst. Die letzte Zeile von `server.py` baut daraus eine gewöhnliche ASGI-App, und uvicorn führt sie aus:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Richte den Inspector oder einen beliebigen Client auf `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ Derselbe Text, den die `@mcp.tool()`-Version erzeugt hat. Zwei ehrliche Untersch
 
 * `result.structured_content` ist `None`. Der High-Level-Server verpackt ein `-> str` für dich in `{"result": ...}`; hier baut niemand, was du nicht gebaut hast.
 * `list_tools` gibt das Schema zurück, das **du** getippt hast, Zeichen für Zeichen. Die High-Level-Version hatte `"title": "Query"` auf jeder Property und ein `"title": "search_booksArguments"` an der Wurzel: Pydantic-Artefakte. Hier unten gilt: Was auf der Leitung ist, hast du dort hingelegt.
+
+In einem Test sparst du dir uvicorn und den Port: `Client(server)` nimmt einen Low-Level-`Server` im selben Prozess genauso entgegen wie einen `MCPServer`, und **[Testen](../get-started/testing.md)** ist genau dieses Muster.
 
 ## Nichts wird für dich geprüft {#nothing-is-checked-for-you}
 
@@ -215,4 +221,4 @@ Jeder davon ist eine Idee, für die du jetzt das Vokabular hast; jeder hat seine
 * `add_request_handler(method, params_type, handler)` bedient jede Methode. `initialize` ist reserviert.
 * Die Capabilities, die ein `Server` ankündigt, leiten sich davon ab, welche Handler du registriert hast.
 
-`Client(server)` hat beide Server identisch behandelt, weil sie dasselbe Protokoll *sind* – und genau darum geht es. Die nächste Schicht darunter ist gar keine Klasse: Es ist **[Middleware](middleware.md)**.
+Der Client hat beide Server identisch behandelt, weil sie dasselbe Protokoll *sind* – und genau darum geht es. Die nächste Schicht darunter ist gar keine Klasse: Es ist **[Middleware](middleware.md)**.

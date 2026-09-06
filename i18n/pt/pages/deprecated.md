@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # Funcionalidades descontinuadas {#deprecated-features}
 
-A especificação 2026-07-28 aposenta cinco coisas. O SDK ainda implementa cada uma delas, e cada uma agora carrega um **aviso de descontinuação**. Um helper do SDK está descontinuado por conta própria e aparece listado [no final](#deprecated-sdk-helpers).
+A especificação 2026-07-28 aposenta cinco coisas. O SDK ainda implementa cada uma delas, e cada uma agora carrega um **aviso de descontinuação**. Algumas descontinuações no nível do SDK valem por conta própria e aparecem listadas [no final](#deprecated-sdk-helpers).
 
 A tabela abaixo nomeia cada funcionalidade descontinuada, o motivo de ela estar saindo e o substituto sobre o qual construir.
 
@@ -137,11 +137,13 @@ A API inteira é essa. Não há uma chave por método, e você não quer uma: o 
 
 ## Helpers descontinuados do SDK {#deprecated-sdk-helpers}
 
-Estas não são mudanças de especificação, apenas detalhes internos do SDK com um substituto melhor. Avisam com o mesmo `MCPDeprecationWarning` e serão removidos na 3.0.
+Estas não são mudanças de especificação, apenas usos do SDK com um substituto melhor. Avisam com o mesmo `MCPDeprecationWarning`, e a 3.0 remove a forma antiga.
 
 | Descontinuado | O que fazer no lugar |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` e depois `FuncMetadata.call_fn()`. Só código que conduz `FuncMetadata` diretamente (uma subclasse personalizada de `Tool`, digamos) chegou a chamá-lo. |
+| `AuthSettings(resource_server_url=...)` sem `validate_token_resource=` | Defina-o: `True` faz o servidor recusar bearer tokens que o seu verificador não informa como emitidos para `resource_server_url`; `False` diz que o seu verificador confere a audiência do token por conta própria (veja **[Autorização](run/authorization.md#a-token-verifier)**). Sem definir, ele se comporta como `False`; a 3.0 torna `True` o padrão sempre que `resource_server_url` estiver definido. |
+| `ClientCredentialsOAuthProvider(...)` ou `PrivateKeyJWTOAuthProvider(...)` sem `issuer=` | Passe `issuer=` nomeando o servidor de autorização que emitiu as credenciais (veja **[Escrevendo clientes OAuth](client/oauth-clients.md#machine-to-machine)**). Sem ele, é o servidor MCP que decide qual servidor de autorização as recebe; a 3.0 torna o parâmetro obrigatório. |
 
 ## Recapitulando {#recap}
 
@@ -150,7 +152,7 @@ Estas não são mudanças de especificação, apenas detalhes internos do SDK co
 * Descontinuado é consultivo: sem mudanças no protocolo de transmissão, tudo continua funcionando em sessões pré-2026, e você recebe um `MCPDeprecationWarning` visível (um `UserWarning`, então está ligado por padrão).
 * Amostragem e roots precisam, além disso, de um canal de retorno que uma sessão 2026-07-28 não tem. Em uma conexão moderna elas avisam e depois lançam uma exceção.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` silencia a categoria inteira; `"error::mcp.MCPDeprecationWarning"` no pytest a transforma em falha de teste.
-* Um helper do SDK, `FuncMetadata.call_fn_with_arg_validation()`, está descontinuado separadamente para remoção na 3.0.
+* As [descontinuações no nível do SDK](#deprecated-sdk-helpers) seguem a mesma regra: avisam agora, e a 3.0 remove a forma antiga.
 * Código novo não deve ser construído sobre nenhuma delas.
 
 Todas as outras páginas desta documentação ensinam a API atual.

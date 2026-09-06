@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0d6c05bcbf836bf3, 59a7b14eeefc68c1, 7114d8d6daba203f, e8bbb56a98ba7bc9, 5138010f6159901c, f78da7c7c363d4c6, 220a939cab348686]
+  sections: [0d6c05bcbf836bf3, 9a78b5f6b44b18ab, 7114d8d6daba203f, e8bbb56a98ba7bc9, bfd2fd1153e71dac, 1615a994ef071fdd, 65c599fae991f245]
   tool: 1
 ---
 # İlk adımlar {#first-steps}
@@ -17,7 +17,7 @@ Bundan sonraki her sayfada göreceğiniz üç sözcük:
 * **İstemci**, host'un içinde yaşar ve MCP konuşur. Host, bağlandığı her sunucu için bir istemci çalıştırır.
 * **Sunucu**, bu SDK ile sizin oluşturduğunuz şeydir. İstemcilere bir şeyler sunar. Modelle hiçbir zaman doğrudan konuşmaz.
 
-Sunucuyu siz yazarsınız. Host'lar başkasının ürünüdür. SDK size bir de `Client` verir. Onu sunucularınızı test etmek için kullanırsınız; bu sayfanın ilerisinde karşınıza çıkar.
+Sunucuyu siz yazarsınız. Host'lar başkasının ürünüdür. SDK size bir de `Client` verir: bir host'un bir sunucuya URL ile ulaşmak ya da onu alt süreç olarak başlatmak için kullanacağı sınıfın ta kendisi. Bu sayfanın ilerisinde karşınıza çıkar; sunucularınızı da onunla test edeceksiniz.
 
 ## Üç temel öğe {#the-three-primitives}
 
@@ -83,22 +83,20 @@ Inspector'da üç sekme gördünüz. Üç tane olduğunu nereden bildi?
 
 Bir istemci bağlandığında sunucu **yeteneklerini** beyan eder: hangi istek ailelerini yanıtlayacağını. İstemci, neyi isteyeceğine karar vermek için bu beyanı kullanır. Bunu siz hiç yazmadınız; `MCPServer` sizin yerinize beyan eder.
 
-Kendiniz bakın. SDK'nın `Client`'ı sunucu nesnesini doğrudan kabul eder ve ona **bellek içinde** bağlanır (alt süreç yok, port yok):
+Kendiniz bakın. Bir terminalde `server.py` dosyasını HTTP üzerinden çalışır halde bırakın:
 
-```python
-import asyncio
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-from mcp import Client
+ve başka bir terminalden bir istemciyi ona yöneltin:
 
-from server import mcp
+```python title="client.py" hl_lines="7-8"
+--8<-- "docs_src/first_steps/tutorial001_client.py"
+```
 
-
-async def main() -> None:
-    async with Client(mcp) as client:
-        print(client.server_capabilities.model_dump(exclude_none=True))
-
-
-asyncio.run(main())
+```console
+python client.py
 ```
 
 ```text
@@ -115,11 +113,12 @@ Bu sözlük, sunucunuzun beyan ettiği **yeteneklerdir**. Bağlanan her istemcin
 
 `MCPServer` üç temel öğenin hepsini sunar; bu yüzden üçü de her zaman beyan edilir.
 
-Orada ne olmadığına dikkat edin. `completions` (kaynak şablonları ve prompt'lar için argüman otomatik tamamlama) sizin yazacağınız bir işleyici gerektirir; bu sunucuda yok, dolayısıyla yetenek de yok ve uslu bir istemci sormaz. İsteğe bağlı her şey için kural budur: şeyi kaydedin, yetenek belirir; **[Tamamlamalar](../servers/completions.md)** bunu kanıtlar.
+Orada ne olmadığına dikkat edin. `completions` (kaynak şablonları ve prompt'lar için argüman otomatik tamamlama) sizin yazacağınız bir işleyici gerektirir; bu sunucuda yok, dolayısıyla yetenek de yok ve kurallara uyan bir istemci sormaz. İsteğe bağlı her şey için kural budur: şeyi kaydedin, yetenek belirir; **[Tamamlamalar](../servers/completions.md)** bunu kanıtlar.
 
 !!! info
-    `Client(mcp)`, bu belgelerdeki her örneğin test edildiği aynı bellek içi istemcidir;
-    sizinkileri de böyle test edeceksiniz. Kendine ait koca bir sayfası var: **[Test etme](testing.md)**.
+    Bu `client.py` eksiksiz bir MCP istemcisidir; sayfası da **[İstemci](../client/index.md)**.
+    Bir testte terminali ve portu atlar, `Client`'a doğrudan sunucu nesnesinin kendisini verirsiniz:
+    `Client(mcp)`. Onun da kendine ait koca bir sayfası var: **[Test etme](testing.md)**.
 
 ## Yazmadıklarınız {#what-you-did-not-write}
 
@@ -128,7 +127,7 @@ Bu sayfaya dönüp bir bakın. Üç küçük Python fonksiyonu yazdınız. Şunl
 * Bir JSON Schema. `a: int, b: int`, `add` şemasının *ta kendisidir*.
 * Bir istek işleyici. `tools/list`, `resources/read`, `prompts/get`: hepsi sizin yerinize sunulur.
 * Bir yetenek beyanı. `MCPServer` onu sizin yerinize yaptı.
-* Tek satır protokol. Sürüm anlaşması, JSON-RPC çerçevelemesi, yetenek değiş tokuşu: hepsi `mcp dev` ve `Client(mcp)` içinde oldu ve siz hiçbirini görmediniz.
+* Tek satır protokol. Sürüm anlaşması, JSON-RPC çerçevelemesi, yetenek değiş tokuşu: hepsi `mcp dev` ve `client.py` içinde oldu ve siz hiçbirini görmediniz.
 
 SDK'nın bütün meselesi bu oran.
 
@@ -139,6 +138,6 @@ SDK'nın bütün meselesi bu oran.
 * Her temel öğe için bir dekoratör: `@mcp.tool()`, `@mcp.resource(uri)`, `@mcp.prompt()`. Ad, açıklama ve şema fonksiyondan gelir.
 * İçinde `{param}` olan bir URI, somut kaynaklardan ayrı listelenen bir kaynak **şablonu** oluşturur.
 * Sunucunun **yetenekleri** sizin yerinize beyan edilir ve bir istemci yalnızca sunucunun beyan ettiklerini ister.
-* `Client(mcp)` sunucu nesnesine bellek içinde bağlanır: ilk günden test düzeneğiniz.
+* `Client("http://localhost:8000/mcp")` çalışan sunucunuzla konuşur. Ona bunun yerine sunucu nesnesini verin, `Client(mcp)`, ve ilk günden test düzeneğiniz olur.
 
 Sırada **[Gerçek bir host'a bağlanma](real-host.md)** var: bu sunucu, gerçekten, Claude Desktop'ın ya da bir IDE'nin içinde. Ardından **[Test etme](testing.md)**: bir sayfa, bir bellek içi istemci ve çalışıp çalışmadığını bir daha asla tahmin etmek zorunda kalmazsınız. Ondan sonra her temel öğenin kendi sayfası var; modelin yönettiğiyle başlıyoruz: **[Araçlar](../servers/tools.md)**.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # Önbellekleme ipuçları {#caching-hints}
@@ -30,7 +30,7 @@ Varsayılan olarak her sonuç `ttlMs: 0, cacheScope: "private"` der: anında bay
 
 Alt düzey `Server`'da işleyiciler sonuçlarını elle oluşturur ve `ttl_ms` / `cache_scope` sonuç modellerindeki sıradan alanlardır. Bunları açıkça ayarlayan bir işleyici, alan alan, her zaman oluşturucu eşlemesine üstün gelir:
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -44,9 +44,23 @@ Sayfalandırılmış listelerle ilgili bir uyarı: protokol bir listenin **her s
 
 2026-07-28 oturumunda `Client` ipuçlarına sizin yerinize uyar: varsayılan olarak açık, yerleşik bir yanıt önbelleği vardır. `ttlMs` taşıyarak gelen bir sonuç saklanır ve o TTL içinde yapılan özdeş bir çağrı hiç tur atılmadan önbellekten sunulur. *Hiç* ipucu taşımayan bir sonuç önbelleğe alınmaz: ipucu taşımayan sonuçlar `CacheConfig.default_ttl_ms` değerini alır, bu da varsayılan olarak `0`'dır (anında bayat); dolayısıyla hiçbir şey beyan etmeyen bir sunucu, her zaman gördüğü çağrı başına bir istek trafiğinin aynısını görür.
 
-```python title="client.py" hl_lines="33 35 38"
+Bunu izlemek için önceki bölümdeki `server.py` dosyasını uvicorn ile sunun (son satırı ASGI uygulamasını oluşturur). İşleyici, gerçekten her çalıştığında bir satır yazdırır:
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+İkinci bir terminalden `python client.py` komutunu çalıştırın. İlk sonucun taşıdığı ipuçlarını yazdırır: işleyicinin `ttlMs` değeri, eşlemenin `cacheScope`'unun yanında:
+
+```text
+1000 public
+```
+
+Hikâyenin geri kalanını sunucunun terminali anlatır: uvicorn'un istek log'ları arasında `tools/list served` üç kez görünür.
 
 Dört çağrı, üç getirme. İkinci çağrı taze bir girdi buldu ve sunucuya hiç ulaşmadı; (enjekte edilen) saati TTL'nin ötesine ilerletmek üçüncünün yeniden getirmesine yol açtı; dördüncü `cache_mode="refresh"` dedi. Bu anahtar sözcük argümanı önbellekleme yapan beş fiilde bulunur (`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`):
 
@@ -56,7 +70,7 @@ Dört çağrı, üç getirme. İkinci çağrı taze bir girdi buldu ve sunucuya 
 
 `"use"`'un üzerinde bir kural vardır: **`meta` taşıyan çağrılar her zaman sunucuya ulaşır.** `meta` ayarlanmış bir istek (bir ilerleme token'ı, izleme alanları) ağ üzerinde gerçek bir istek bekler; bu yüzden `cache_mode="use"` altında `"refresh"` gibi ele alınır: önbellek okuması atlanır ve getirilen sonuç yine de önbellekteki girdinin yerine geçer. `"bypass"` ve açık bir `"refresh"` her zamanki gibi davranır.
 
-Önbelleklemeyi tamamen kapatmak için `Client(server, cache=None)` ile oluşturun: her çağrı yeniden bir tur olur ve `cache_mode` hâlâ kabul edilse de hiçbir şey yapmaz.
+Önbelleklemeyi tamamen kapatmak için `Client`'ı oluştururken `cache=None` geçirin: her çağrı yeniden bir tur olur ve `cache_mode` hâlâ kabul edilse de hiçbir şey yapmaz.
 
 Kapsama da otomatik olarak uyulur: `"private"` girdiler önbelleğin *bölümüne* (partition, aşağıda) göre anahtarlanır, `"public"` olanlar ise daha geniş paylaşıma katılmayı seçebilir. Ayrıca **bildirimler TTL'yi yener**, ama yalnızca tam olarak adlandırdıkları girdiler için: bir `list_changed` bildirimi eşleşen önbellekteki listeyi çıkarır, `resources/updated` ise tam olarak kendi URI'si altında saklanan önbellekteki okumayı çıkarır; ne kadar taze olurlarsa olsunlar. 2026-07-28 bağlantısında bu bildirimler `client.listen(...)` ile açtığınız bir `subscriptions/listen` akışı üzerinden gelir ve çıkarma, izleyiciniz olayı görmeden önce tamamlanır; bunun sayfası **[Abonelikler](subscriptions.md)**.
 
@@ -82,7 +96,7 @@ client = Client("https://api.example.com/mcp", cache=CacheConfig(default_ttl_ms=
 
     Bölüm ayrıca `Client`'ın ömrü boyunca sabittir. Bağlantının yetkilendirme bağlamı oturum ortasında değişirse (örneğin farklı bir principal olarak yeniden kimlik doğrulama), önbellek bunu takip etmez; yeni principal için yeni bir `Client` oluşturun.
 
-Önbellek anahtarları ayrıca **sunucunun kimliğini** de taşır: bağlandığınız URL dizesi, varsa `user:pass@` kullanıcı bilgisi çıkarılmış ve bunun dışında bayt bayt aynı hâliyle. Büyük/küçük harf katlama yok, sorgu yeniden sıralama yok, sondaki eğik çizgi temizliği yok. Az normalleştirmek yalnızca paylaşımdan ödün verir, aşırı normalleştirmek ise iki kiracıyı birleştirebilir (`?tenant=a` ve `?tenant=b`); bu yüzden yüzeysel olarak farklı URL'ler girdi paylaşmaz, o kadar. URL olmadığında (süreç içi bir sunucu ya da bir `Transport` örneği) istemci bunun yerine örnek başına rastgele bir kimlik alır; sunucuya ad vermek için `CacheConfig.target_id`'yi ayarlayın (özel bir depoyla bu zorunludur ve oluşturma bunu söyler). Kimlik, anahtar malzemesine girmeden önce sha256 ile özetlenir; dolayısıyla sorgu dizesinde sır taşıyan bir URL depo anahtarlarında asla görünmez. Özet öncesi hâlini siz de loglamayın.
+Önbellek anahtarları ayrıca **sunucunun kimliğini** de taşır: bağlandığınız URL dizesi, varsa `user:pass@` kullanıcı bilgisi çıkarılmış ve bunun dışında bayt bayt aynı hâliyle. Büyük/küçük harf katlama yok, sorgu yeniden sıralama yok, sondaki eğik çizgi temizliği yok. Az normalleştirmek yalnızca paylaşımdan ödün verir, aşırı normalleştirmek ise iki kiracıyı birleştirebilir (`?tenant=a` ve `?tenant=b`); bu yüzden yüzeysel olarak farklı URL'ler girdi paylaşmaz, o kadar. URL olmadığında (süreç içi bir sunucu ya da bir `Transport` örneği) istemci bunun yerine örnek başına rastgele bir kimlik alır; sunucuya ad vermek için `CacheConfig.target_id`'yi ayarlayın (özel bir depoyla bu zorunludur ve oluşturma bunu söyler). Kimlik, anahtar malzemesine girmeden önce sha256 ile özetlenir; dolayısıyla sorgu dizesinde sır taşıyan bir URL depo anahtarlarında asla görünmez. Özet öncesi hâlini siz de log'a yazmayın.
 
 !!! warning "`share_public` sunucuya tüm filo genelinde güvenir"
     Varsayılan olarak `"public"` girdiler bile kendi bölümlerinde kalır. `share_public=True`, sunucunun `cacheScope: "public"` olarak işaretlediği girdileri depoyu kullanan **her** bölüme sunar; sunucunun sınıflandırmasına hepsi adına güvenir. Kiracıya özgü veriye (hata ya da kötü niyet sonucu) `"public"` damgası vuran bir sunucu, o zaman bir kiracının yanıtını diğerlerine sızdırır. Bayrak bilerek yalnızca oluşturucu düzeyindedir: çağrı başına `cache_mode` önbelleklemeyi daraltabilir, ama çağrı başına hiçbir şey paylaşımı genişletemez.

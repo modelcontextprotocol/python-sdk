@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 7e16449f66e7dfd6, eeb0682f7d2a1079, 5713f0196a34e6e7, 0e844597859e4248, 3a97d9195ddcc92e, 1da08c483e59c141, 84702cc6e0a1fd42, 8dee7a31c86ffc5c, 83a5bce168ef23d7]
   tool: 1
 ---
 # İstemci {#the-client}
@@ -11,13 +11,23 @@ Tek bir yaşam döngüsü olan tek bir nesnedir: oluşturun, `async with` bloğu
 
 ## İlk istemciniz {#your-first-client}
 
-```python title="client.py" hl_lines="14-18"
+Bir istemcinin konuşacağı bir sunucuya ihtiyacı vardır. Bu sayfadaki her örneğin bağlandığı sunucu aşağıdaki Bookshop. Onu `server.py` olarak kaydedin ve HTTP üzerinden çalışır durumda bırakın:
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-Üstteki sunucu yalnızca bağlanacak bir şeyiniz olsun diye orada. İstemci, vurgulanan beş satırdan ibaret.
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)` çağrısına **sunucu nesnesinin kendisi** verilir. Bu, bellek içi aktarımdır: alt süreç yok, port yok, HTTP yok. Bu sayfadaki her örnek ve yazdığınız her test böyle bağlanır.
+Bu, sunucuyu `http://localhost:8000/mcp` adresinde sunar. İstemci ayrı bir programdır. Onu `client.py` olarak kaydedin ve ikinci bir terminalde `python client.py` komutunu çalıştırın:
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")` çağrısına bir **URL** verilir; bu yüzden az önce başlattığınız sunucuya Streamable HTTP üzerinden bağlanır.
 * `async with` **yaşam döngüsüdür**. Bloğa girdiğinizde bağlantı kurulur ve anlaşma yapılır; çıktığınızda bağlantı kesilir. `connect()` / `close()` çifti yoktur ve blok bittikten sonra bir `Client` yeniden kullanılamaz.
 * Bloğun içinde bağlantı bilgileri düz özellikler olarak zaten hazırdır.
 
@@ -25,10 +35,10 @@ Tek bir yaşam döngüsü olan tek bir nesnedir: oluşturun, `async with` bloğu
 
 `Client` tek bir konumsal argüman alır ve aktarımı onun türünden çözümler:
 
-* Bir `MCPServer` (veya düşük seviyeli `Server`) örneği: **süreç içinde** bağlanır.
-* Bir URL dizesi (`Client("http://localhost:8000/mcp")`): Streamable HTTP, yani üretim yolu.
-* Bir `StdioServerParameters`: **alt süreç** olarak başlatılacak komut; onunla stdin ve stdout'u üzerinden konuşulur.
+* Bir URL dizesi (`Client("http://localhost:8000/mcp")`): Streamable HTTP, dağıtımda kullandığınız aktarım.
+* Bir `StdioServerParameters`: yerel bir **alt süreç** olarak başlatılacak komut; onunla stdin ve stdout'u üzerinden konuşulur.
 * Bir **aktarım**: `async with ... as (read, write)` ile kullanabileceğiniz herhangi bir şey; örneğin kendi HTTP istemcinizi saran `streamable_http_client(url, http_client=...)`.
+* Bir `MCPServer` (veya düşük seviyeli `Server`) örneği: **süreç içinde** bağlanır; alt süreç yok, port yok. Bu seçenek testler içindir ve **[Test etme](../get-started/testing.md)** sayfası onun üzerine kurulur.
 
 Bu sayfadaki geri kalan her şey dördünde de aynıdır. Başlıklar, alt süreçler, zaman aşımları ve `Transport` protokolünün kendi sayfası var: **[İstemci aktarımları](transports.md)**.
 
@@ -49,11 +59,11 @@ Hiç protokol sürümü seçmediniz. Varsayılan olarak `Client` sunucuyu yoklar
 
 ## Araçları listeleme {#listing-tools}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial002.py"
 ```
 
-`list_tools()` bir `ListToolsResult` döndürür; araçlar `.tools` içindedir. Her biri, bir host'un modele vereceği eksiksiz tanımdır:
+`list_tools()` bir `ListToolsResult` döndürür; araçlar `.tools` içindedir. Her biri, bir host'un modele vereceği eksiksiz tanımdır. İşte ilki:
 
 ```python
 tool.name          # 'search_books'
@@ -77,6 +87,8 @@ tool.description   # 'Search the catalog by title or author.'
 
 Bu şema, bir arayüzün argüman formu oluşturması için gereken her şeydir; bir modelin geçerli argümanlar üretmesi için gereken her şey de odur.
 
+İkinci araç olan `lookup_book`, `title=` olmadan kaydedildi; bu yüzden `tool.title` değeri `None`.
+
 !!! tip
     `title` isteğe bağlıdır; bu yüzden araçları bir insana gösteren arayüzün seçim yapması gerekir: varsa `title`,
     yoksa `name`. `from mcp.shared.metadata_utils import get_display_name` tam olarak bunu yapar;
@@ -86,7 +98,7 @@ Bu şema, bir arayüzün argüman formu oluşturması için gereken her şeydir;
 
 `call_tool(name, arguments)` aracı çalıştırır ve size bir `CallToolResult` geri verir.
 
-```python title="client.py" hl_lines="27-34"
+```python title="client.py" hl_lines="9-16"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -142,7 +154,7 @@ Tek dönüş değeri, okunacak üç şey. Her birinin tüketicisi farklı.
 
 Kaynak fiilleri çift gelir: listelemenin iki yolu, okumanın tek yolu.
 
-```python title="client.py" hl_lines="22-31"
+```python title="client.py" hl_lines="9-18"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -156,7 +168,7 @@ Bir istemciye bir kaynağın ne zaman değiştiği de bildirilebilir. 2025 nesli
 
 ## Prompt'lar {#prompts}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial005.py"
 ```
 
@@ -181,7 +193,7 @@ Host bu mesajları doğrudan modele verir. Özelliğin tamamı bu.
 
 Tamamlama işleyicisi olan bir sunucu, kullanıcı yazdıkça prompt ve kaynak şablonu argümanlarını otomatik tamamlayabilir.
 
-```python title="client.py" hl_lines="27-31"
+```python title="client.py" hl_lines="9-13"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -194,21 +206,21 @@ Yanıt `result.completion.values` içindedir. `"p"` yazın, sunucu `['poetry']` 
 
 Her `list_*` yöntemi bir `cursor=` anahtar sözcüğü alır ve her sonuç bir `next_cursor` taşır. `next_cursor` `None` olduğunda her şeyi almışsınız demektir.
 
-```python title="client.py" hl_lines="22-30"
+```python title="client.py" hl_lines="7-15"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
-Bu döngü her sunucuya karşı doğrudur. `MCPServer` her şeyi tek sayfada döndürür; bu yüzden `next_cursor` `None` olur ve döngü bir kez çalışır. Çoğu kodun bunu hiç yazmamasının nedeni budur. Gerçekten sayfalayan sunucular ve imleçlerin uyduğu kurallar **[Sayfalama](../advanced/pagination.md)** sayfasında.
+`list_all_tools` her sunucuya karşı doğrudur. `MCPServer` her şeyi tek sayfada döndürür; bu yüzden `next_cursor` `None` olur ve döngü bir kez çalışır. Çoğu kodun bunu hiç yazmamasının nedeni budur. Gerçekten sayfalayan sunucular ve imleçlerin uyduğu kurallar **[Sayfalama](../advanced/pagination.md)** sayfasında.
 
 ## Testlerde {#in-tests}
 
-Süreç ve port olmadan `Client(mcp)`, sunucunuz için zaten bir test düzeneğidir.
+Bu sayfadaki her `client.py`, `server.py` dosyasına HTTP üzerinden ulaştı. Bir testte ağı atlar ve `Client`'a sunucu nesnesinin kendisini verirsiniz: `from server import mcp`, ardından `Client(mcp)`. Süreç yok, port yok; yukarıdaki her yöntem aynı şekilde çalışır.
 
-Bunun için yapılmış tek bir kurucu bayrağı var: `Client(mcp, raise_exceptions=True)`. Yalnızca bellek içi bağlantılarda etkisi olur; onu açıklayan ve bütün kalıbı onun etrafında kuran sayfa ise **[Test etme](../get-started/testing.md)**.
+Bunun için yapılmış tek bir kurucu bayrağı var: `Client(mcp, raise_exceptions=True)`. Yalnızca süreç içi bağlantılarda etkisi olur; onu açıklayan ve bütün kalıbı onun etrafında kuran sayfa ise **[Test etme](../get-started/testing.md)**.
 
 ## Özet {#recap}
 
-* `Client(x)` bir sunucu nesnesine bellek içinden, bir URL dizesine Streamable HTTP üzerinden, geri kalan her şeye de bir aktarım aracılığıyla bağlanır.
+* `Client(x)` bir URL dizesine Streamable HTTP üzerinden bağlanır, bir `StdioServerParameters` için alt süreç başlatır, bir aktarıma doğrudan girer ve testlerde sunucu nesnesinin kendisini alır.
 * `async with` yaşam döngüsünün tamamıdır. İçinde `server_capabilities` ve `protocol_version` zaten doludur; sunucu sağladığında `server_info` ve `instructions` da öyle.
 * `list_tools()` size her aracın `name`, `title`, `description` ve `input_schema` değerlerini verir.
 * `call_tool()` model için `content`, kodunuz için `structured_content` ve `is_error` döndürür. İstisna fırlatan bir araç istisna değil, sonuçtur.

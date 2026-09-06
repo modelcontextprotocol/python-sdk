@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 7e16449f66e7dfd6, eeb0682f7d2a1079, 5713f0196a34e6e7, 0e844597859e4248, 3a97d9195ddcc92e, 1da08c483e59c141, 84702cc6e0a1fd42, 8dee7a31c86ffc5c, 83a5bce168ef23d7]
   tool: 1
 ---
 # Client {#the-client}
@@ -11,13 +11,23 @@ translation:
 
 ## 最初のクライアント {#your-first-client}
 
-```python title="client.py" hl_lines="14-18"
+クライアントには、対話する相手のサーバーが必要です。このページのすべてのスニペットが接続するのが、この Bookshop です。`server.py` として保存し、HTTP で起動したままにしてください。
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-冒頭のサーバーは、接続先を用意するためだけにあります。クライアントはハイライトされた 5 行です。
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)` には**サーバーオブジェクトそのもの**を渡しています。これがインメモリのトランスポートです。サブプロセスもポートも HTTP もありません。このページのすべての例、そして作成するすべてのテストが、この方法で接続します。
+これでサーバーは `http://localhost:8000/mcp` で提供されます。クライアントは別のプログラムです。`client.py` として保存し、2 つ目のターミナルで `python client.py` を実行してください。
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")` には **URL** を渡しているので、いま起動したサーバーに Streamable HTTP で接続します。
 * `async with` が**ライフサイクル**です。入ると接続してネゴシエーションを行い、出ると切断します。`connect()` / `close()` のペアはなく、ブロックが終わった後の `Client` は再利用できません。
 * ブロックの中では、接続に関する情報がすでに通常のプロパティとして揃っています。
 
@@ -25,10 +35,10 @@ translation:
 
 `Client` は位置引数を 1 つ取り、その型からトランスポートを決定します。
 
-* `MCPServer`（または低レベルの `Server`）のインスタンス：**プロセス内**で接続します。
-* URL 文字列（`Client("http://localhost:8000/mcp")`）：Streamable HTTP。本番向けの経路です。
-* `StdioServerParameters`：**サブプロセス**として起動するコマンドで、その stdin と stdout を通じて対話します。
+* URL 文字列（`Client("http://localhost:8000/mcp")`）：Streamable HTTP。デプロイで使うトランスポートです。
+* `StdioServerParameters`：ローカルの**サブプロセス**として起動するコマンドで、その stdin と stdout を通じて対話します。
 * **トランスポート**：`async with ... as (read, write)` できるものなら何でも。たとえば、自分の HTTP クライアントをラップする `streamable_http_client(url, http_client=...)` です。
+* `MCPServer`（または低レベルの `Server`）のインスタンス：**プロセス内**で接続します。サブプロセスもポートもありません。これはテスト向けで、**[テスト](../get-started/testing.md)** がこれを土台にしています。
 
 このページの残りの内容は、4 つのどれでも同じです。ヘッダー、サブプロセス、タイムアウト、そして `Transport` プロトコルについては、専用のページ **[クライアントのトランスポート](transports.md)** があります。
 
@@ -48,11 +58,11 @@ translation:
 
 ## ツールの一覧取得 {#listing-tools}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial002.py"
 ```
 
-`list_tools()` は `ListToolsResult` を返し、ツールは `.tools` に入っています。それぞれが、ホストがモデルに渡す完全な定義です。
+`list_tools()` は `ListToolsResult` を返し、ツールは `.tools` に入っています。それぞれが、ホストがモデルに渡す完全な定義です。最初のツールは次のとおりです。
 
 ```python
 tool.name          # 'search_books'
@@ -76,6 +86,8 @@ tool.description   # 'Search the catalog by title or author.'
 
 このスキーマには、UI が引数フォームを描画するのに必要なものも、モデルが有効な引数を生成するのに必要なものも、すべて含まれています。
 
+2 つ目のツール `lookup_book` は `title=` なしで登録されているので、その `tool.title` は `None` です。
+
 !!! tip
     `title` は省略可能なので、人間にツールを見せる UI はどちらかを選ぶ必要があります。`title` があればそれを、なければ `name` を使います。`from mcp.shared.metadata_utils import get_display_name` がまさにそれを行い、ツール、リソース、リソーステンプレート、プロンプトに対応しています。
 
@@ -83,7 +95,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)` はツールを実行し、`CallToolResult` を返します。
 
-```python title="client.py" hl_lines="27-34"
+```python title="client.py" hl_lines="9-16"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -131,7 +143,7 @@ result.is_error            # False
 
 リソースの動詞は組になっています。一覧取得が 2 通り、読み取りが 1 通りです。
 
-```python title="client.py" hl_lines="22-31"
+```python title="client.py" hl_lines="9-18"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -141,11 +153,11 @@ result.is_error            # False
 
 `read_resource` は `contents` を返します。これは `TextResourceContents` または `BlobResourceContents` のリストです。考え方はツールのコンテンツと同じで、`isinstance` で絞り込んでから `.text`（または `.blob`）を読みます。
 
-クライアントは、リソースが変更されたときに通知を受けることもできます。2025 年世代の接続では `subscribe_resource(uri)` / `unsubscribe_resource(uri)` がそれにあたります。ただしこのメソッドのペアは `MCPServer` が実装していないため、2026-07-28 の通信上（これらの動詞はもう存在しません）ではリクエストに `-32601`、*Method not found* が返ります。2026 年の代替は `subscriptions/listen` ストリームで、こちらは `MCPServer` が実際に提供しています（そこでは `server_capabilities.resources.subscribe` が `True` です）。これを `client.listen(...)` で消費する方法は、このセクションの **[サブスクリプション](subscriptions.md)** のページで説明しています。
+クライアントは、リソースが変更されたときに通知を受けることもできます。2025 年世代の接続では `subscribe_resource(uri)` / `unsubscribe_resource(uri)` がそれにあたります。このメソッドのペアは `MCPServer` が実装していないため、2026-07-28 の通信上（これらの動詞はもう存在しません）ではリクエストに `-32601`、*Method not found* が返ります。2026 年の代替は `subscriptions/listen` ストリームで、こちらは `MCPServer` が実際に提供しています（そこでは `server_capabilities.resources.subscribe` が `True` です）。これを `client.listen(...)` で消費する方法は、このセクションの **[サブスクリプション](subscriptions.md)** のページで説明しています。
 
 ## プロンプト {#prompts}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial005.py"
 ```
 
@@ -170,7 +182,7 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 補完ハンドラーを持つサーバーは、ユーザーの入力に合わせてプロンプトやリソーステンプレートの引数を自動補完できます。
 
-```python title="client.py" hl_lines="27-31"
+```python title="client.py" hl_lines="9-13"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -183,21 +195,21 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 `list_*` メソッドはどれも `cursor=` キーワードを取り、結果はどれも `next_cursor` を持ちます。`next_cursor` が `None` なら、すべて取得済みです。
 
-```python title="client.py" hl_lines="22-30"
+```python title="client.py" hl_lines="7-15"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
-このループはどのサーバーに対しても正しく動きます。`MCPServer` はすべてを 1 ページで返すので、`next_cursor` は `None` になり、ループは 1 回だけ実行されます。ほとんどのコードがこのループを書かないのはそのためです。実際にページ分割するサーバーと、カーソルが従うルールについては **[ページネーション](../advanced/pagination.md)** を参照してください。
+`list_all_tools` はどのサーバーに対しても正しく動きます。`MCPServer` はすべてを 1 ページで返すので、`next_cursor` は `None` になり、ループは 1 回だけ実行されます。ほとんどのコードがこのループを書かないのはそのためです。実際にページ分割するサーバーと、カーソルが従うルールについては **[ページネーション](../advanced/pagination.md)** を参照してください。
 
 ## テストでの利用 {#in-tests}
 
-プロセスもポートも使わない `Client(mcp)` は、それだけでサーバーのテストハーネスになります。
+このページの `client.py` はどれも、HTTP 経由で `server.py` に到達していました。テストではネットワークを省き、`Client` にサーバーオブジェクトそのものを渡します。`from server import mcp` としてから `Client(mcp)` です。プロセスもポートも不要で、上記のメソッドはどれも同じように動きます。
 
-そのために用意されたコンストラクターのフラグが 1 つあります。`Client(mcp, raise_exceptions=True)` です。効果があるのはインメモリ接続のときだけで、その説明と、それを中心にしたパターン全体の組み立ては **[テスト](../get-started/testing.md)** のページにあります。
+そのために用意されたコンストラクターのフラグが 1 つあります。`Client(mcp, raise_exceptions=True)` です。効果があるのはプロセス内接続のときだけで、その説明と、それを中心にしたパターン全体の組み立ては **[テスト](../get-started/testing.md)** のページにあります。
 
 ## まとめ {#recap}
 
-* `Client(x)` は、サーバーオブジェクトにはインメモリで、URL 文字列には Streamable HTTP で、それ以外にはトランスポート経由で接続します。
+* `Client(x)` は、URL 文字列には Streamable HTTP で接続し、`StdioServerParameters` にはサブプロセスを起動し、トランスポートには直接入り、テストではサーバーオブジェクトそのものを受け取ります。
 * `async with` がライフサイクルのすべてです。その中では `server_capabilities` と `protocol_version` にすでに値が入っており、サーバーが提供していれば `server_info` と `instructions` も同様です。
 * `list_tools()` で各ツールの `name`、`title`、`description`、`input_schema` が得られます。
 * `call_tool()` はモデル向けの `content`、コード向けの `structured_content`、そして `is_error` を返します。例外を送出するツールは、例外ではなく結果として返ってきます。

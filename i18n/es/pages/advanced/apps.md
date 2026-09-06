@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -25,7 +25,7 @@ y luego vuelve.
 
 ## Un reloj con cara visible {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -50,21 +50,42 @@ dentro de tu HTML. Te da `ontoolresult`, `callServerTool`,
 
 No todos los clientes muestran apps. La especificación es tajante sobre lo que eso significa para ti:
 
-> Tools **MUST** return a meaningful `content` array even when UI is available.
+> Las herramientas **DEBEN** devolver un array `content` significativo incluso cuando hay una UI disponible.
 
 El modelo lee `content`; el iframe es para humanos. Un host capaz de mostrar UI sigue entregando
 el resultado en texto al modelo, y un cliente solo de texto recibe *solo* eso. Así que el
 patrón canónico es una herramienta, dos respuestas. Mira `get_time` de nuevo:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
 `client_supports_apps(ctx)` es `True` solo cuando el cliente declaró la
 extensión `io.modelcontextprotocol/ui` **y** incluyó `text/html;profile=mcp-app`
 en su configuración `mimeTypes`. El campo es obligatorio, así que un cliente que lo omite
-no cuenta. Eso es exactamente lo que declara `main()` en el mismo archivo: la
-mitad cliente de la negociación, y vuelve la respuesta enriquecida.
+no cuenta. Esta es la mitad cliente de la negociación:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+Sirve `server.py` por HTTP y luego ejecuta el cliente desde una segunda terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+Volvió la respuesta enriquecida. Quita `extensions=[APPS_SUPPORT]` de la llamada a `Client`
+y el mismo programa imprime `The time is 2026-06-26T12:00:00Z.` en su lugar, que es
+todo lo que un cliente solo de texto llega a ver.
 
 !!! warning
     Nunca devuelvas un marcador de posición como `"[Rendered UI]"` como único contenido. Si el

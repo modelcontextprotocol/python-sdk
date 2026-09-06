@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -25,7 +25,7 @@ e depois volte aqui.
 
 ## Um relógio com uma cara {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -56,15 +56,36 @@ O modelo lê `content`; o iframe é para humanos. Um host com suporte a UI ainda
 o resultado em texto para o modelo, e um cliente só de texto recebe *apenas* isso. Então o
 padrão canônico é uma ferramenta, duas respostas. Olhe `get_time` de novo:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
 `client_supports_apps(ctx)` é `True` somente quando o cliente declarou a
 extensão `io.modelcontextprotocol/ui` **e** listou `text/html;profile=mcp-app`
 nas suas configurações `mimeTypes`. O campo é obrigatório, então um cliente que o omite
-não conta. É exatamente isso que `main()` no mesmo arquivo declara: a
-metade cliente da negociação, e a resposta rica volta.
+não conta. Aqui está a metade cliente da negociação:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+Sirva `server.py` por HTTP e depois execute o cliente em um segundo terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+A resposta rica voltou. Tire `extensions=[APPS_SUPPORT]` da chamada a `Client`
+e o mesmo programa imprime `The time is 2026-06-26T12:00:00Z.` no lugar, que é
+tudo o que um cliente só de texto chega a ver.
 
 !!! warning
     Nunca retorne um placeholder como `"[Rendered UI]"` como único conteúdo. Se o
