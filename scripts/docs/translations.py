@@ -988,18 +988,23 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
     usage, failed = Usage(), False
     queue = deque(work)
     running: dict[Future[tuple[str | PageError, Usage]], tuple[Language, Job]] = {}
+    stopped: ConfigError | None = None  # rejected credentials: start nothing more, keep what still lands
     pool = ThreadPoolExecutor(max_workers=args.jobs)
     try:
         # The window is refilled here rather than handing the pool every page up front, so
-        # once a page raises (rejected credentials) no further page starts; the ones already
-        # in flight run out unreported, and the process exits when they have.
-        while queue or running:
-            while queue and len(running) < args.jobs:
+        # that once the credentials are rejected no further page starts; pages already in
+        # flight are still collected, and written if they made it, before the run stops.
+        while (queue and stopped is None) or running:
+            while queue and stopped is None and len(running) < args.jobs:
                 inputs, job = queue.popleft()
                 running[pool.submit(produce, inputs, job)] = (inputs.language, job)
             for future in wait(running, return_when=FIRST_COMPLETED).done:
                 language, job = running.pop(future)
-                result, spent = future.result()
+                try:
+                    result, spent = future.result()
+                except ConfigError as exc:
+                    stopped = stopped or exc
+                    continue
                 usage.add(spent)
                 page = job.state.page
                 if isinstance(result, PageError):
@@ -1019,6 +1024,8 @@ def command_translate(repo: Repo, args: argparse.Namespace, translator: Translat
     finally:
         pool.shutdown(wait=False)
     print(f"usage: {usage}")
+    if stopped is not None:
+        raise stopped
     return 1 if failed else 0
 
 

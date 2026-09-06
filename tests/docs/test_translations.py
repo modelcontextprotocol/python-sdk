@@ -900,7 +900,10 @@ def test_rejected_credentials_stop_the_run_with_exit_2(tmp_path: Path, capsys: p
     assert (code, out, err) == snapshot(
         (
             2,
-            "translating 4 pages (ja), 1 at a time, with test-model\n",
+            """\
+translating 4 pages (ja), 1 at a time, with test-model
+usage: 0 input / 0 output / 0 cache-write / 0 cache-read tokens
+""",
             "translations: the API rejected the credentials: invalid x-api-key\n",
         )
     )
@@ -957,30 +960,37 @@ def test_jobs_keeps_that_many_pages_in_flight_and_publishes_each_before_starting
     assert run(capsys, root, "status") == (0, "ja (日本語): 0 missing, 0 outdated, 4 current, 0 removable\n", "")
 
 
-def test_rejected_credentials_with_pages_in_flight_start_no_further_page(
+def test_rejected_credentials_with_pages_in_flight_start_no_further_page_but_a_finished_one_is_kept(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Tool-defined: with `--jobs 2`, when the API rejects the credentials (here for both pages in flight,
-    once both are waiting) the run stops with exit 2 and the two remaining pages are never requested."""
+    """Tool-defined: with `--jobs 2`, when the API rejects the credentials for one page while another is in
+    flight (here both are waiting before either is answered), the other page still lands and is written,
+    the two remaining pages are never requested, usage is reported, and the run stops with exit 2."""
     root = make_repo(tmp_path)
 
-    class Rejected:
-        both, calls = threading.Barrier(2, timeout=5), 0
+    class RejectsHome:
+        def __init__(self) -> None:
+            self.both, self.lock, self.calls = threading.Barrier(2, timeout=5), threading.Lock(), 0
 
         def complete(self, *, model: str, system: str, messages: Sequence[t.Message], max_tokens: int) -> t.Completion:
-            type(self).calls += 1
+            with self.lock:
+                self.calls += 1
             self.both.wait()
-            raise t.ConfigError("the API rejected the credentials: invalid bearer token")
+            if "# Home" in messages[0].content:
+                raise t.ConfigError("the API rejected the credentials: invalid bearer token")
+            return t.Completion(TOOLS_JA, t.Usage(10, 4, 0, 9))
 
-    code, out, err = translate(capsys, root, "--lang", "ja", jobs=2, translator=Rejected())
+    fake = RejectsHome()
 
-    assert (code, Rejected.calls, err) == (
-        2,
-        2,
-        "translations: the API rejected the credentials: invalid bearer token\n",
-    )
-    assert out == "translating 4 pages (ja), 2 at a time, with test-model\n"
-    assert not (root / "i18n" / "ja" / "pages").exists()
+    code, out, err = translate(capsys, root, "--lang", "ja", jobs=2, translator=fake)
+
+    assert (code, fake.calls, err) == (2, 2, "translations: the API rejected the credentials: invalid bearer token\n")
+    assert out == snapshot("""\
+translating 4 pages (ja), 2 at a time, with test-model
+ja: translated tools.md (3 of 3 sections)
+usage: 10 input / 4 output / 0 cache-write / 9 cache-read tokens
+""")
+    assert sorted(path.name for path in (root / "i18n" / "ja" / "pages").glob("*.md")) == ["tools.md"]
 
 
 def test_translate_without_lang_works_through_every_language_with_that_languages_own_prompt(
