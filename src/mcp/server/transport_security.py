@@ -16,6 +16,21 @@ DEFAULT_MAX_REQUEST_BODY_SIZE: Final = 4 * 1024 * 1024
 """Default maximum HTTP request body size in bytes (4 MiB)."""
 
 
+def _matches_wildcard_port(value: str, allowed: str) -> bool:
+    """Return True when ``allowed`` is ``base:*`` and ``value`` is ``base:<digits>``.
+
+    A prefix check alone accepts ``127.0.0.1:8080.evil`` for ``127.0.0.1:*``.
+    The port suffix must be digits so the wildcard cannot match a longer host
+    or origin.
+    """
+    if not allowed.endswith(":*"):
+        return False
+    prefix = allowed[:-1]  # "base:"
+    if not value.startswith(prefix):
+        return False
+    return value[len(prefix) :].isdigit()
+
+
 # TODO(Marcelo): We should flatten these settings. To be fair, I don't think we should even have this middleware.
 class TransportSecuritySettings(BaseModel):
     """Settings for MCP transport security features.
@@ -57,14 +72,10 @@ class TransportSecurityMiddleware:
         if host in self.settings.allowed_hosts:
             return True
 
-        # Check wildcard port patterns
+        # Check wildcard port patterns (base:* matches only base:<digits>)
         for allowed in self.settings.allowed_hosts:
-            if allowed.endswith(":*"):
-                # Extract base host from pattern
-                base_host = allowed[:-2]
-                # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
-                    return True
+            if _matches_wildcard_port(host, allowed):
+                return True
 
         logger.warning(f"Invalid Host header: {host}")
         return False
@@ -79,14 +90,10 @@ class TransportSecurityMiddleware:
         if origin in self.settings.allowed_origins:
             return True
 
-        # Check wildcard port patterns
+        # Check wildcard port patterns (base:* matches only base:<digits>)
         for allowed in self.settings.allowed_origins:
-            if allowed.endswith(":*"):
-                # Extract base origin from pattern
-                base_origin = allowed[:-2]
-                # Check if the actual origin starts with base origin and has a port
-                if origin.startswith(base_origin + ":"):
-                    return True
+            if _matches_wildcard_port(origin, allowed):
+                return True
 
         logger.warning(f"Invalid Origin header: {origin}")
         return False

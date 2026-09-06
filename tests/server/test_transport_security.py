@@ -41,10 +41,13 @@ SETTINGS = TransportSecuritySettings(
         pytest.param("evil.example:9000", None, 421, id="host-wildcard-base-mismatch"),
         pytest.param("good.example", None, None, id="host-exact-no-origin"),
         pytest.param("wild.example:9000", None, None, id="host-wildcard-match"),
+        pytest.param("wild.example:9000.evil", None, 421, id="host-wildcard-suffix-rejected"),
+        pytest.param("wild.example:", None, 421, id="host-wildcard-empty-port"),
         pytest.param("good.example", "http://evil.example", 403, id="origin-no-match"),
         pytest.param("good.example", "http://evil.example:9000", 403, id="origin-wildcard-base-mismatch"),
         pytest.param("good.example", "http://good.example", None, id="origin-exact"),
         pytest.param("good.example", "http://wild.example:9000", None, id="origin-wildcard-match"),
+        pytest.param("good.example", "http://wild.example:9000.evil", 403, id="origin-wildcard-suffix-rejected"),
     ],
 )
 async def test_validate_request_checks_host_then_origin(
