@@ -21,6 +21,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 from typing_extensions import NotRequired, Self, TypedDict
 
+from mcp_types._wire_base import KeepRequiredNullable
 from mcp_types.jsonrpc import RequestId
 
 DEFAULT_NEGOTIATED_VERSION: Final[str] = "2025-03-26"
@@ -636,7 +637,7 @@ TaskStatus = Literal["working", "input_required", "completed", "failed", "cancel
 """The status of a task (2025-11-25 only)."""
 
 
-class Task(MCPModel):
+class Task(MCPModel, KeepRequiredNullable):
     """Data associated with a task (2025-11-25 only)."""
 
     task_id: str
@@ -1526,7 +1527,7 @@ class SetLevelRequest(Request[SetLevelRequestParams, Literal["logging/setLevel"]
     params: SetLevelRequestParams
 
 
-class LoggingMessageNotificationParams(NotificationParams):
+class LoggingMessageNotificationParams(NotificationParams, KeepRequiredNullable):
     level: LoggingLevel
     """The severity of this log message."""
     logger: str | None = None
@@ -2190,7 +2191,12 @@ ServerResult = (
     | SubscriptionsListenResult
     | InputRequiredResult
 )
-"""Union of every result payload a server can return for a client request.
+"""Union of the core result payloads a server can return for a client request.
+
+The 2025-11-25 task results (`CreateTaskResult`, `GetTaskResult`,
+`GetTaskPayloadResult`, `ListTasksResult`, `CancelTaskResult`) are deliberately
+excluded, matching that revision's own `ServerResult`; a server serving those
+answers through them directly rather than through this union.
 
 `InputRequiredResult` is deliberately last: both of its fields are optional,
 so an earlier position would shadow other members during union resolution.

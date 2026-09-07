@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
 
-from mcp_types._wire_base import WireModel
+from mcp_types._wire_base import KeepRequiredNullable, WireModel
 from pydantic import ConfigDict, Field, RootModel
 
 
@@ -2555,7 +2555,7 @@ class ListToolsResultResponse(WireModel):
     result: ListToolsResult
 
 
-class LoggingMessageNotificationParams(WireModel):
+class LoggingMessageNotificationParams(WireModel, KeepRequiredNullable):
     """
     Parameters for a `notifications/message` notification.
     """

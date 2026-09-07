@@ -19,6 +19,7 @@ from mcp_types import (
     Tool,
     ToolAnnotations,
 )
+from pydantic import TypeAdapter
 
 from mcp import MCPError
 from mcp.server import Server, ServerRequestContext
@@ -518,3 +519,50 @@ async def test_call_tool_populates_the_output_schema_cache_via_an_implicit_tools
         CallToolResult(content=[TextContent(text="21 C")], structured_content={"temperature": 21})
     )
     assert unstamped(second) == first
+
+
+@requirement("tools:call:task-augmented")
+async def test_task_augmented_call_tool_may_be_answered_with_a_create_task_result(connect: Connect) -> None:
+    """A 2025-11-25 server can hand back a task instead of running the tool inline.
+
+    SEP-1686 makes `task` an opt-in on the request and `CreateTaskResult` the answer to it. The
+    SDK carries the vocabulary and validates both halves; the task store and the `tasks/*`
+    lifecycle handlers belong to the server author, so this drives the create step only. The
+    caller names the result type because `call_tool` resolves to the two core arms.
+    """
+    task = types.Task(
+        task_id="task-1",
+        status="working",
+        created_at="2026-07-24T00:00:00Z",
+        last_updated_at="2026-07-24T00:00:00Z",
+        ttl=None,
+    )
+
+    async def call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> CallToolResult | types.CreateTaskResult:
+        assert params.name == "render"
+        if params.task is not None:
+            assert params.task.ttl == 60_000
+            return types.CreateTaskResult(task=task)
+        return CallToolResult(content=[TextContent(text="rendered inline")])
+
+    server = Server("renderer", on_call_tool=call_tool)
+    result_type = TypeAdapter[CallToolResult | types.CreateTaskResult](CallToolResult | types.CreateTaskResult)
+
+    async with connect(server) as client:
+        tasked = await client.session.send_request(
+            types.CallToolRequest(
+                params=types.CallToolRequestParams(name="render", task=types.TaskMetadata(ttl=60_000))
+            ),
+            result_type,
+        )
+        inline = await client.session.send_request(
+            types.CallToolRequest(params=types.CallToolRequestParams(name="render")), result_type
+        )
+
+    assert isinstance(tasked, types.CreateTaskResult)
+    # Whole-object equality: `ttl` is required and nullable, and a dump that drops it
+    # leaves a body the surface would reject, so the null has to survive the round trip.
+    assert tasked.task == task
+    assert isinstance(inline, CallToolResult)
