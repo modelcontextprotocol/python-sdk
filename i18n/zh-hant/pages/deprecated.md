@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # 已棄用的功能 {#deprecated-features}
 
-2026-07-28 規格讓五樣東西退場。SDK 仍然實作了其中每一項，而每一項現在都帶有**棄用警告**。另外有一個 SDK 輔助函式是因為自身的原因棄用，列在[最後](#deprecated-sdk-helpers)。
+2026-07-28 規格讓五樣東西退場。SDK 仍然實作了其中每一項，而每一項現在都帶有**棄用警告**。另外有幾項 SDK 層級的棄用是出於自身的原因，列在[最後](#deprecated-sdk-helpers)。
 
 下表列出每一項已棄用的功能、它為什麼要退場，以及應該改用的替代做法。
 
@@ -125,11 +125,13 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 
 ## 已棄用的 SDK 輔助函式 {#deprecated-sdk-helpers}
 
-這些不是規格變更，只是有了更好替代做法的 SDK 內部實作。它們用同樣的 `MCPDeprecationWarning` 發出警告，並會在 3.0 移除。
+這些不是規格變更，只是有了更好替代做法的 SDK 用法。它們用同樣的 `MCPDeprecationWarning` 發出警告，舊的寫法會在 3.0 移除。
 
 | 已棄用項目 | 替代做法 |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | 先 `FuncMetadata.validate_arguments()`，再 `FuncMetadata.call_fn()`。只有直接操作 `FuncMetadata` 的程式碼（例如自訂的 `Tool` 子類別）才會呼叫過它。 |
+| 沒有設定 `validate_token_resource=` 的 `AuthSettings(resource_server_url=...)` | 把它設好：`True` 會讓伺服器拒絕驗證器沒有回報為核發給 `resource_server_url` 的 bearer 權杖；`False` 表示你的驗證器會自己檢查權杖的 audience（請見 **[授權](run/authorization.md#a-token-verifier)**）。不設定時的行為等同 `False`；3.0 起，只要設了 `resource_server_url`，預設就是 `True`。 |
+| 沒有傳入 `issuer=` 的 `ClientCredentialsOAuthProvider(...)` 或 `PrivateKeyJWTOAuthProvider(...)` | 傳入 `issuer=`，指明核發這組憑證的授權伺服器（請見 **[撰寫 OAuth 用戶端](client/oauth-clients.md#machine-to-machine)**）。少了它，就變成由 MCP 伺服器決定哪個授權伺服器會收到這組憑證；3.0 會把這個關鍵字引數改為必填。 |
 
 ## 重點回顧 {#recap}
 
@@ -138,7 +140,7 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 * 棄用只是勸告性質：線路沒有變更，一切在 2026 之前的工作階段上都能繼續運作，而且你會看到明顯的 `MCPDeprecationWarning`（它是 `UserWarning`，所以預設就會顯示）。
 * 取樣和根目錄還額外需要一條反向通道，而 2026-07-28 的工作階段沒有。在現代連線上，它們會先警告，再引發例外。
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` 會讓整個類別靜音；pytest 裡的 `"error::mcp.MCPDeprecationWarning"` 則把它變成測試失敗。
-* 有一個 SDK 輔助函式 `FuncMetadata.call_fn_with_arg_validation()` 另外單獨棄用，預計在 3.0 移除。
+* [SDK 層級的棄用](#deprecated-sdk-helpers)遵循同樣的規則：現在發出警告，3.0 移除舊的寫法。
 * 新程式碼不應該建立在這些東西之上。
 
 這份說明文件的其他每一頁教的都是目前的 API。

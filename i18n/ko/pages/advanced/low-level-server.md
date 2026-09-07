@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # 저수준 Server {#the-low-level-server}
@@ -36,18 +36,22 @@ translation:
 
 ### 직접 해 보기 {#try-it}
 
-이번에는 Inspector를 쓸 수 없습니다. `mcp dev`와 `mcp run`은 `MCPServer`만 받습니다. 인메모리 `Client`는 상관하지 않으며, `MCPServer`를 받는 것과 똑같이 저수준 `Server`도 받습니다.
+`mcp dev`와 `mcp run`은 `MCPServer`만 받으므로 이 서버는 직접 띄워야 합니다. `server.py`의 마지막 줄이 이 서버로 평범한 ASGI 앱을 만들고, uvicorn이 그 앱을 실행합니다.
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Inspector든 다른 어떤 클라이언트든 `http://localhost:8000/mcp`로 향하게 하세요.
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ asyncio.run(main())
 
 * `result.structured_content`가 `None`입니다. 고수준 서버는 `-> str` 반환값을 `{"result": ...}`로 감싸 주지만, 여기서는 직접 만들지 않은 것을 대신 만들어 주는 곳이 없습니다.
 * `list_tools`는 **직접** 입력한 스키마를 글자 하나까지 그대로 반환합니다. 고수준 버전에는 모든 속성에 `"title": "Query"`가, 루트에 `"title": "search_booksArguments"`가 있었습니다. Pydantic이 남긴 흔적입니다. 여기서는 와이어에 실린 것이라면 전부 직접 넣은 것입니다.
+
+테스트에서는 uvicorn과 포트를 건너뜁니다. `Client(server)`는 `MCPServer`를 받는 것과 똑같이 저수준 `Server`도 프로세스 안에서 받으며, **[테스트](../get-started/testing.md)**가 바로 그 패턴입니다.
 
 ## 자동 검증 없음 {#nothing-is-checked-for-you}
 
@@ -215,4 +221,4 @@ use Server.middleware to observe or wrap initialization
 * `add_request_handler(method, params_type, handler)`는 어떤 메서드든 제공합니다. `initialize`는 예약되어 있습니다.
 * `Server`가 알리는 기능은 등록한 핸들러에서 도출됩니다.
 
-`Client(server)`가 두 서버를 똑같이 다룬 것은 둘이 **같은** 프로토콜이기 때문이며, 바로 그 점이 핵심입니다. 그다음 아래 계층은 클래스가 아닙니다. 바로 **[미들웨어](middleware.md)**입니다.
+클라이언트가 두 서버를 똑같이 다룬 것은 둘이 **같은** 프로토콜이기 때문이며, 바로 그 점이 핵심입니다. 그다음 아래 계층은 클래스가 아닙니다. 바로 **[미들웨어](middleware.md)**입니다.

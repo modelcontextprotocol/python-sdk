@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # 認可 {#authorization}
@@ -23,12 +23,12 @@ OAuth の用語でいえば、サーバーは**リソースサーバー**です�
 
 有効なトークンがどんな形をしているかについて、SDK は何の前提も持ちません。**`TokenVerifier`** を実装して、こちらから伝えます。
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` は非同期メソッドを 1 つだけ持つプロトコルです。`verify_token` は `Authorization` ヘッダーから取り出した生のトークンを受け取り、有効なら **`AccessToken`** を、無効なら `None` を返します。実装するものはほかにありません。
-* この例ではトークンをテーブルから引いています。実際のものは JWT の署名を検証するか、認可サーバーのトークンイントロスペクションエンドポイントを呼び出します。そのコードは自分で書きます。SDK はそれを呼び出すだけです。
+* この例ではトークンをテーブルから引いています。各エントリには、そのトークンがどのリソース向けに発行されたかが記録されています。実際のものは JWT の署名を検証するか、認可サーバーのトークンイントロスペクションエンドポイントを呼び出し、トークンが誰向けに発行されたか（`aud`）を `AccessToken.resource` で報告します。そのコードは自分で書きます。SDK はそれを呼び出すだけです。
 * `token_verifier=` と `auth=` は必ずセットで渡します。片方だけ渡すと、`MCPServer(...)` はリクエストを 1 つも処理しないうちに `ValueError` を送出します。
 
 `AuthSettings` はリソースサーバーの表向きの顔です。
@@ -36,6 +36,10 @@ OAuth の用語でいえば、サーバーは**リソースサーバー**です�
 * `issuer_url`：トークンを発行する認可サーバー。
 * `resource_server_url`：この MCP エンドポイントの公開 URL。トークンが「どの」リソース向けかを示す名前であり、ディスカバリードキュメントが置かれる場所でもあります。
 * `required_scopes`：すべてのトークンがこれらをすべて持っている必要があります。
+* `validate_token_resource`：`AccessToken.resource` が `resource_server_url` でないトークンをすべて拒否します。`resource_server_url` を設定したままこれを未設定にすると警告（`MCPDeprecationWarning`）が出て、`False` として動作します。3.0 ではリソースサーバーのデフォルトが `True` になります。
+  * 認可サーバーが、クライアントの要求した `resource` にトークンを結び付ける場合は有効にしてください。MCP クライアントはこれを常に送ります。`resource_server_url` は、クライアントが接続する URL と正確に一致させてください。
+  * 認可サーバーが独自のオーディエンス識別子（Auth0 の API 識別子、Entra のアプリケーション ID）を使う場合は無効のままにし、代わりにベリファイアーの中で `aud` を確認して、このサーバー向けでないトークンには `None` を返してください。
+  * `aud` がリストの場合は、`resource_server_url` と等しいエントリを `resource` に入れてください。
 
 !!! tip
     SDK リポジトリの `examples/servers/simple-auth/` には、実際の認可サーバーの [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) エンドポイントを呼び出す `IntrospectionTokenVerifier` があります。本番用のベリファイアーの多くはこの形になります。
@@ -85,7 +89,7 @@ OAuth の用語でいえば、サーバーは**リソースサーバー**です�
 
 どのハンドラーの中でも、**`get_access_token()`** は現在のリクエストに対してベリファイアーが返した `AccessToken` です。
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -117,6 +121,6 @@ SDK が提供するのはリソースサーバーの半分、つまり検証、�
 * `token_verifier=` と `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` は必ずセットで渡します。
 * SDK は [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata を `/.well-known/oauth-protected-resource/...` で公開し、未認証のリクエストには、そこを指す `WWW-Authenticate` ヘッダー付きの 401 で応答します。ディスカバリーの仕組みはこれだけです。
 * どのハンドラーでも、`get_access_token()` を呼べば誰が呼び出しているかがわかります。
-* 認可は HTTP の関心事です。`stdio` とインメモリクライアントがそれを目にすることはありません。
+* 認可は HTTP の関心事です。`stdio` とインメモリのテストクライアントがそれを目にすることはありません。
 
 クライアント側の半分（認可サーバーを見つけてトークンを取得してくれる部分）については、**[OAuth クライアント](../client/oauth-clients.md)**を参照してください。そして、ユーザーに尋ねる代わりに ID を「アサート」するクライアントについては、**[ID アサーション](../client/identity-assertion.md)**を参照してください。

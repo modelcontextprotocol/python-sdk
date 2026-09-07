@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
   tool: 1
 ---
 # 進捗 {#progress}
@@ -29,11 +29,9 @@ translation:
 
 クライアントは、`call_tool` に `progress_callback=` を渡すことで、**呼び出しごとに**オプトインします。
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -41,7 +39,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -56,23 +54,27 @@ anyio.run(main)
 コールバックは `async` 関数で、サーバーが報告したものをそのまま受け取ります。`progress`、`total`、`message` です。
 
 !!! info
-    `Client(mcp)` はサーバーオブジェクトにメモリ内で直接接続します。**[テスト](../get-started/testing.md)** のページの土台になっているのと同じクライアントです。`progress_callback` は、`Client` がどのトランスポートを使っていても同じパラメーターです。これから目にする「タイミング」はメモリ内接続のものです。メモリ内接続はコールバックをインラインで実行するため、すべての報告が `call_tool` が返る前に届きます。実際のトランスポートでは通知と結果の到着順は保証されず、遅いコールバックは `call_tool` が返ったあともまだ実行中のことがあります。
+    `progress_callback` は、`Client` に何を渡したかにかかわらず同じパラメーターです。ここでのような URL でも、`StdioServerParameters` でも、テストでのサーバーオブジェクトでも変わりません。ただし、実際のトランスポートではタイミングに注意してください。通知はそれぞれレスポンスとは別に単独で届くため、遅いコールバックは `call_tool` が返ったあともまだ実行中のことがあります。コールバックをインラインで実行し、すべての報告が先に届くことを保証するのは、プロセス内のテスト接続だけです。
 
 ### 試してみる {#try-it}
 
-`client.py` を `server.py` の隣に置いて、実行してください。
+`server.py` を HTTP で配信し、別のターミナルからクライアントを実行してください。
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-サーバー側の `await ctx.report_progress(...)` はそれぞれ、クライアント側で順番どおりに `show` の 1 回の呼び出しになり、2 行とも `call_tool` が返る**前に**出力されました。進捗は結果にまとめられるのではなく、ツールがまだ動いている間にストリーミングされます。
+サーバー側の `await ctx.report_progress(...)` はそれぞれ、クライアント側で順番どおりに `show` の 1 回の呼び出しになりました。進捗は結果にまとめられるのではありません。ツールがまだ動いている間にストリーミングされます。
 
 !!! warning
     `progress_callback` は `Client` ではなく、**呼び出し**に属します。そのためのコンストラクター引数はありません。呼び出しごとに必要なコールバックが違うからです。ある呼び出しはダウンロードバーを動かし、次の呼び出しはログの 1 行を出します。

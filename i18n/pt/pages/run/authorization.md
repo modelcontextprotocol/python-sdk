@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # Autorização {#authorization}
@@ -23,12 +23,12 @@ O triângulo inteiro é esse. Tudo nesta página é o item do meio.
 
 O SDK não tem opinião sobre como é um token válido. Você diz a ele, implementando **`TokenVerifier`**:
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` é um protocolo com um único método assíncrono. `verify_token` recebe o token bruto do header `Authorization` e retorna um **`AccessToken`** se ele for válido, `None` se não for. Não há mais nada a implementar.
-* Este aqui procura o token em uma tabela. Um de verdade verifica a assinatura de um JWT ou chama o endpoint de introspecção de tokens do servidor de autorização. Esse código é seu; o SDK apenas o chama.
+* Este aqui procura o token em uma tabela; cada entrada registra o recurso para o qual ele foi emitido. Um de verdade verifica a assinatura de um JWT ou chama o endpoint de introspecção de tokens do servidor de autorização, e informa para quem o token foi emitido (seu `aud`) em `AccessToken.resource`. Esse código é seu; o SDK apenas o chama.
 * `token_verifier=` e `auth=` sempre andam juntos. Passe um sem o outro e `MCPServer(...)` levanta um `ValueError` antes mesmo de atender uma requisição.
 
 `AuthSettings` é a face pública do seu resource server:
@@ -36,6 +36,10 @@ O SDK não tem opinião sobre como é um token válido. Você diz a ele, impleme
 * `issuer_url`: o servidor de autorização que emite seus tokens.
 * `resource_server_url`: a URL pública deste endpoint MCP. Ela indica *a qual* recurso um token se destina, e é onde fica o documento de descoberta.
 * `required_scopes`: todo token deve conter todos eles.
+* `validate_token_resource`: recusa qualquer token cujo `AccessToken.resource` não seja `resource_server_url`. Deixá-lo sem definir enquanto `resource_server_url` está definido emite um aviso (`MCPDeprecationWarning`) e se comporta como `False`; a versão 3.0 torna `True` o padrão para resource servers.
+  * Ative-o quando seu servidor de autorização vincula os tokens ao `resource` que o cliente pediu, o que clientes MCP sempre enviam. Mantenha `resource_server_url` como a URL exata à qual os clientes se conectam.
+  * Deixe-o desligado quando seu servidor de autorização usa seus próprios identificadores de audiência (um identificador de API do Auth0, um ID de aplicação do Entra) e, em vez disso, verifique `aud` no seu verificador, retornando `None` para um token que não é para este servidor.
+  * Se `aud` for uma lista, coloque em `resource` a entrada que é igual a `resource_server_url`.
 
 !!! tip
     `examples/servers/simple-auth/` no repositório do SDK tem um `IntrospectionTokenVerifier` que chama
@@ -91,7 +95,7 @@ Esse documento é como um cliente que nunca ouviu falar do seu servidor encontra
 
 Dentro de qualquer handler, **`get_access_token()`** é o `AccessToken` que seu verificador retornou para a requisição atual:
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -125,6 +129,6 @@ Um servidor de autorização também pode aceitar a asserção assinada de um pr
 * `token_verifier=` e `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` sempre andam juntos.
 * O SDK publica o Protected Resource Metadata da [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) em `/.well-known/oauth-protected-resource/...` e responde a requisições não autenticadas com um 401 cujo header `WWW-Authenticate` aponta para ele. A história da descoberta é toda essa.
 * `get_access_token()` em qualquer handler diz quem está chamando.
-* Autorização é assunto do HTTP. O `stdio` e o cliente em memória nunca a veem.
+* Autorização é assunto do HTTP. O `stdio` e o cliente de teste em memória nunca a veem.
 
 A metade do cliente (descobrir seu servidor de autorização e buscar o token para você) está em **[Clientes OAuth](../client/oauth-clients.md)**. E um cliente que *afirma* uma identidade em vez de pedir uma ao usuário está em **[Asserção de identidade](../client/identity-assertion.md)**.

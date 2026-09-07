@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 7e16449f66e7dfd6, eeb0682f7d2a1079, 5713f0196a34e6e7, 0e844597859e4248, 3a97d9195ddcc92e, 1da08c483e59c141, 84702cc6e0a1fd42, 8dee7a31c86ffc5c, 83a5bce168ef23d7]
   tool: 1
 ---
 # Client {#the-client}
@@ -11,13 +11,23 @@ translation:
 
 ## आपका पहला client {#your-first-client}
 
-```python title="client.py" hl_lines="14-18"
+client को बात करने के लिए server चाहिए। इस page का हर उदाहरण इसी Bookshop से connect करता है। इसे `server.py` के नाम से save करें और HTTP पर चलता छोड़ दें:
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-ऊपर वाला server सिर्फ़ इसलिए है ताकि connect करने के लिए कुछ हो। client वे पाँच highlighted lines हैं।
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)` को **server object ही** दिया गया है। यही in-memory transport है: न subprocess, न port, न HTTP। इस page का हर उदाहरण, और आपका लिखा हर test, इसी तरह connect करता है।
+इससे server `http://localhost:8000/mcp` पर serve होता है। client अपना अलग program है। इसे `client.py` के नाम से save करें और दूसरे terminal में `python client.py` चलाएँ:
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")` को **URL** दिया गया है, इसलिए यह अभी शुरू किए गए server से Streamable HTTP पर connect करता है।
 * `async with` ही **lifecycle** है। इसमें enter करते ही connect और negotiate होता है; बाहर निकलते ही disconnect। कोई `connect()` / `close()` जोड़ी नहीं है, और block खत्म होने के बाद `Client` दोबारा इस्तेमाल नहीं हो सकता।
 * block के अंदर connection की जानकारी पहले से सादी properties के रूप में मौजूद है।
 
@@ -25,10 +35,10 @@ translation:
 
 `Client` एक positional argument लेता है और उसके type से transport तय करता है:
 
-* `MCPServer` (या low-level `Server`) instance: **in-process** connect होता है।
-* URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, production वाला रास्ता।
-* `StdioServerParameters`: वह command जो **subprocess** के रूप में launch होता है, और जिससे उसके stdin और stdout के ज़रिए बात होती है।
+* URL string (`Client("http://localhost:8000/mcp")`): Streamable HTTP, वह transport जिसके पीछे आप deploy करते हैं।
+* `StdioServerParameters`: वह command जो local **subprocess** के रूप में launch होता है, और जिससे उसके stdin और stdout के ज़रिए बात होती है।
 * **transport**: कोई भी चीज़ जिसे आप `async with ... as (read, write)` कर सकें, जैसे आपके अपने HTTP client के ऊपर `streamable_http_client(url, http_client=...)`।
+* `MCPServer` (या low-level `Server`) instance: **in-process** connect होता है, न subprocess, न port। यह tests के लिए है, और **[Testing](../get-started/testing.md)** इसी पर आगे बढ़ता है।
 
 इस page की बाकी हर चीज़ चारों में एक जैसी है। Headers, subprocesses, timeouts और `Transport` protocol का अपना अलग page है: **[Client transports](transports.md)**।
 
@@ -49,11 +59,11 @@ translation:
 
 ## tools की सूची लेना {#listing-tools}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial002.py"
 ```
 
-`list_tools()` एक `ListToolsResult` लौटाता है; tools `.tools` में हैं। हर एक वह पूरी definition है जो host किसी model को देगा:
+`list_tools()` एक `ListToolsResult` लौटाता है; tools `.tools` में हैं। हर एक वह पूरी definition है जो host किसी model को देगा। यह पहला है:
 
 ```python
 tool.name          # 'search_books'
@@ -77,6 +87,8 @@ tool.description   # 'Search the catalog by title or author.'
 
 UI को argument form दिखाने के लिए, और model को valid arguments बनाने के लिए, जो कुछ चाहिए वह सब इसी schema में है।
 
+दूसरा tool, `lookup_book`, बिना `title=` के register हुआ था, इसलिए उसका `tool.title` `None` है।
+
 !!! tip
     `title` optional है, इसलिए किसी इंसान को tools दिखाने वाले UI को चुनना पड़ता है: `title` हो तो वही,
     नहीं तो `name`। `from mcp.shared.metadata_utils import get_display_name` ठीक यही करता है,
@@ -86,7 +98,7 @@ UI को argument form दिखाने के लिए, और model को
 
 `call_tool(name, arguments)` tool चलाता है और आपको `CallToolResult` वापस देता है।
 
-```python title="client.py" hl_lines="27-34"
+```python title="client.py" hl_lines="9-16"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -142,7 +154,7 @@ result.is_error            # False
 
 resource verbs जोड़ियों में आते हैं: सूची लेने के दो तरीके, पढ़ने का एक।
 
-```python title="client.py" hl_lines="22-31"
+```python title="client.py" hl_lines="9-18"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -156,7 +168,7 @@ client को यह भी बताया जा सकता है कि �
 
 ## Prompts {#prompts}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial005.py"
 ```
 
@@ -181,7 +193,7 @@ host ये messages सीधे model को दे देता है। प
 
 जिस server में completion handler हो वह user के type करते-करते prompt और resource-template arguments autocomplete कर सकता है।
 
-```python title="client.py" hl_lines="27-31"
+```python title="client.py" hl_lines="9-13"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -194,21 +206,21 @@ host ये messages सीधे model को दे देता है। प
 
 हर `list_*` method एक `cursor=` keyword लेता है और हर result में `next_cursor` होता है। जब `next_cursor` `None` हो, आपके पास सब कुछ है।
 
-```python title="client.py" hl_lines="22-30"
+```python title="client.py" hl_lines="7-15"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
-यह loop हर server के साथ सही है। `MCPServer` सब कुछ एक ही page में लौटाता है, इसलिए `next_cursor` `None` होता है और loop एक बार चलता है, यही वजह है कि ज़्यादातर code इसे कभी लिखता ही नहीं। जो servers सच में page करते हैं, और cursors जिन नियमों का पालन करते हैं, वे **[Pagination](../advanced/pagination.md)** में हैं।
+`list_all_tools` हर server के साथ सही है। `MCPServer` सब कुछ एक ही page में लौटाता है, इसलिए `next_cursor` `None` होता है और loop एक बार चलता है, यही वजह है कि ज़्यादातर code इसे कभी लिखता ही नहीं। जो servers सच में page करते हैं, और cursors जिन नियमों का पालन करते हैं, वे **[Pagination](../advanced/pagination.md)** में हैं।
 
 ## tests में {#in-tests}
 
-बिना process और बिना port वाला `Client(mcp)` अपने आप में server के लिए test harness है।
+इस page की हर `client.py` HTTP के ज़रिए `server.py` तक पहुँची। test में आप network छोड़ देते हैं और `Client` को server object ही दे देते हैं: `from server import mcp`, फिर `Client(mcp)`। न process, न port, और ऊपर का हर method वैसे ही काम करता है।
 
-इसी के लिए एक constructor flag बना है: `Client(mcp, raise_exceptions=True)`। इसका असर सिर्फ़ in-memory connections पर होता है, और **[Testing](../get-started/testing.md)** वह page है जो इसे समझाता है और इसके चारों ओर पूरा pattern बनाता है।
+इसी के लिए एक constructor flag बना है: `Client(mcp, raise_exceptions=True)`। इसका असर सिर्फ़ in-process connections पर होता है, और **[Testing](../get-started/testing.md)** वह page है जो इसे समझाता है और इसके चारों ओर पूरा pattern बनाता है।
 
 ## सारांश {#recap}
 
-* `Client(x)` server object से in-memory connect होता है, URL string से Streamable HTTP पर, और बाकी किसी भी चीज़ से transport के ज़रिए।
+* `Client(x)` URL string से Streamable HTTP पर connect होता है, `StdioServerParameters` के लिए subprocess launch करता है, transport में सीधे enter करता है, और tests में server object ही ले लेता है।
 * `async with` ही पूरा lifecycle है। इसके अंदर `server_capabilities` और `protocol_version` पहले से भरे होते हैं; server दे तो `server_info` और `instructions` भी।
 * `list_tools()` आपको हर tool का `name`, `title`, `description` और `input_schema` देता है।
 * `call_tool()` model के लिए `content`, आपके code के लिए `structured_content`, और `is_error` लौटाता है। raise करने वाला tool एक result है, exception नहीं।

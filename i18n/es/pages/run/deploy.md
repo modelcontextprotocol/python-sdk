@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # Desplegar y escalar {#deploy-scale}
@@ -46,6 +46,22 @@ Desplegada detrás de un nombre de host real, esa misma configuración por defec
     no le gustó aparece solo en el log del **servidor**, como una única advertencia. Un servidor recién
     desplegado que rechaza todas las conexiones es una lista de hosts permitidos hasta que se demuestre lo contrario.
     **[Solución de problemas](../troubleshooting.md)** también empieza por aquí.
+
+## Detrás de un proxy que termina TLS {#behind-a-tls-terminating-proxy}
+
+Si TLS termina en un proxy (un ingress, un balanceador de carga, Caddy, nginx) y uvicorn sirve HTTP plano detrás de él, dile a uvicorn que confíe en los encabezados `X-Forwarded-*` del proxy:
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+Sin eso, la app cree que se está sirviendo por `http://`, y cualquier redirección que emita (la habitual es `/mcp` → `/mcp/`) apunta a `http://…`. El cliente de Python se niega a seguir un endpoint HTTPS hacia HTTP plano y lo dice:
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+El parche del lado del cliente es configurar la URL exacta que sirve el servidor (`https://mcp.example.com/mcp/`, barra incluida) para que no haya ninguna redirección. La solución es el flag de arriba. `FORWARDED_ALLOW_IPS` es la forma en variable de entorno; `*` confía en todos los saltos, lo que solo es correcto cuando nada salvo el proxy puede llegar a uvicorn.
 
 ## Workers, y quién tiene que ser sticky {#workers-and-who-has-to-be-sticky}
 
@@ -170,6 +186,7 @@ Un `MCPServer` es una implementación del protocolo, no un servidor de aplicacio
 ## Resumen {#recap}
 
 * Por defecto, la app responde solo a las solicitudes dirigidas a localhost. `transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` es la puerta de salida a producción: hasta que lo pases, cada solicitud detrás de un nombre de host real es un `421` y el motivo solo está en el log del servidor.
+* Detrás de un proxy que termina TLS, ejecuta uvicorn con `--proxy-headers --forwarded-allow-ips=...`, o sus redirecciones apuntarán a `http://` y el cliente las rechazará.
 * En 2026-07-28 no hay sesión ni nada sobre lo que un balanceador de carga pueda ser sticky. `stateless_http=True` es un ajuste solo para lo heredado porque una solicitud moderna se enruta y se responde antes de que ese flag llegue a leerse.
 * La clave por defecto de `requestState` es `os.urandom(32)`, acuñada por proceso. Un reintento de varias idas y vueltas que llega a otro worker falla con `-32602` *"Invalid or expired requestState"*.
 * La solución es `RequestStateSecurity(keys=[...])` **y** el mismo nombre de servidor en cada instancia. El nombre es el claim de audiencia por defecto del token. Las mismas claves, el mismo nombre.

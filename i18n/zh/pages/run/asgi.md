@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 70b9ece244ca1b0c, cba78e052898c3f6, f06bdb541cb0b469, fb82d526320b7cc3]
+  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 10394c6f16601638, cba78e052898c3f6, f06bdb541cb0b469, 6dc898ccc5a903f9]
   tool: 1
 ---
 # 添加到现有应用 {#add-to-an-existing-app}
@@ -86,7 +86,7 @@ Starlette 的 `Host` 路由用法相同：把 `Mount("/", ...)` 换成 `Host("mc
 --8<-- "docs_src/asgi/tutorial004.py"
 ```
 
-现在客户端连接 `/notes`，而不是 `/notes/mcp`。
+现在客户端连接 `/notes/`，而不是 `/notes/mcp`。
 
 ## 面向浏览器客户端的 CORS {#cors-for-browser-clients}
 
@@ -127,4 +127,4 @@ Starlette 的 `Host` 路由用法相同：把 `Mount("/", ...)` 换成 `Host("mc
 * 浏览器客户端需要 CORS：`allow_headers` 放行 `Mcp-*` 请求头，`expose_headers=["Mcp-Session-Id"]` 公开响应头。
 * `@mcp.custom_route()` 在 `/mcp` 旁边添加普通的、不做认证的 HTTP 端点。
 
-服务器一旦能通过真实 URL 访问，**[客户端](../client/index.md)** 就可以用这个 URL 而不是服务器对象来连接它。
+服务器一旦能通过真实 URL 访问，**[客户端](../client/index.md)** 就用这个 URL 来连接它。

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [478fd619e5f90ef8, aef094a00e44e248, bab8cbf3449fa7e9, df1809b15a58335b, 5f9d8c2336ed0239, f54974398e43ddef, b24443dd78584870]
+  sections: [d98e337bf28845e0, dd642acbba36f615, f547b3e76da19c94, 149513378588da5c, 4e149ed992046709, f54974398e43ddef, b24443dd78584870]
   tool: 1
 ---
 # 协议版本 {#protocol-versions}
@@ -11,9 +11,17 @@ MCP 有两个时代。
 
 你几乎不需要关心这些，因为 `Client` 会替你协商。本页讲的是控制这一行为的唯一一个构造参数 `mode=`，以及需要改动它的三种情形。
 
+本页的每段代码都是一个 `client.py`，连接的是 **[客户端](client/index.md)** 里那个 Bookshop 的 `server.py`。先在一个终端里启动那个服务器：
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+然后在另一个终端里用 `python client.py` 运行每段代码。
+
 ## `mode="auto"` {#modeauto}
 
-```python title="client.py" hl_lines="14-15"
+```python title="client.py" hl_lines="7-8"
 --8<-- "docs_src/protocol_versions/tutorial001.py"
 ```
 
@@ -31,11 +39,11 @@ MCP 有两个时代。
 整个功能就这些。一个 `Client`，任意时代的服务器，代码里不需要分支。
 
 !!! info
-    `MCPServer` 在每种传输方式上都会回答 `server/discover`——内存、stdio、Streamable HTTP——所以连接你自己的服务器时，`auto` 总是落在 `2026-07-28`。回退只会在面对真正的 2026 年之前的服务器时触发，而那正是你需要它的时候。
+    `MCPServer` 在每种传输方式上都会回答 `server/discover`——Streamable HTTP、stdio，以及测试用的进程内连接——所以连接你自己的服务器时，`auto` 总是落在 `2026-07-28`。回退只会在面对真正的 2026 年之前的服务器时触发，而那正是你需要它的时候。
 
 ## `mode="legacy"` {#modelegacy}
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial002.py"
 ```
 
@@ -59,7 +67,7 @@ MCP 有两个时代。
 
 `mode` 也接受一个新版协议版本字符串。目前这个集合正好是 `["2026-07-28"]`。
 
-```python title="client.py" hl_lines="14"
+```python title="client.py" hl_lines="7"
 --8<-- "docs_src/protocol_versions/tutorial003.py"
 ```
 
@@ -90,7 +98,7 @@ ValueError: mode must be 'legacy', 'auto', or one of ['2026-07-28']; got '2025-0
 
 所以把它存下来。一次 `auto` 连接之后，`client.session.discover_result` 保存着服务器发来的那个 `DiscoverResult` 原样：它的 `supported_versions`、它的 `capabilities`、它的 `instructions`，以及服务器写进结果 `_meta` 里的身份信息。下次把它作为 `prior_discover=` 传回去：
 
-```python title="client.py" hl_lines="15 17"
+```python title="client.py" hl_lines="8 10"
 --8<-- "docs_src/protocol_versions/tutorial004.py"
 ```
 

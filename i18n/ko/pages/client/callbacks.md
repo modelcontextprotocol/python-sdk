@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # 클라이언트 콜백 {#client-callbacks}
@@ -63,7 +63,7 @@ result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')
     `Client(...)` 호출의 `mode="legacy"`는 실제로 중요한 역할을 합니다. 기본적으로 `Client(...)`는 최신
     프로토콜 경로를 협상하는데, 그 경로에는 서버에서 클라이언트로 가는 요청을 위한 역방향 채널이 없어서
     콜백이 실행되기도 전에 `ctx.elicit` 호출이 실패합니다. 이를 결정하는 것은 트랜스포트가 아니라 협상된
-    프로토콜이며, 인메모리든 URL을 통하든 마찬가지입니다. 클라이언트가 이런 요청에 응답해야 할 때마다
+    프로토콜입니다. 클라이언트가 이런 요청에 응답해야 할 때마다
     `mode="legacy"`로 고정하세요. 이 페이지를 뒷받침하는 모든 테스트가 그렇게 합니다. 자세한 내용은 **[프로토콜 버전](../protocol-versions.md)**에서 확인하세요.
 
     2026-07-28 세션에서도 콜백이 쓸모없어지는 것은 아니며, 입력을 받는 방식이 다를 뿐입니다. 도구가
@@ -151,4 +151,4 @@ result.structured_content  # {'result': ['elicitation']}
 * `sampling_callback`과 `list_roots_callback`도 같은 방식으로 동작하지만 지원 중단 예정 기능을 처리합니다. 최신 서버는 대신 다중 왕복 요청을 사용합니다.
 * `logging_callback`과 `message_handler`는 알림을 받습니다. 아무것도 선언하지 않습니다.
 
-`Client(...)`의 첫 번째 인자는 트랜스포트 객체입니다. 모든 종류는 **[클라이언트 트랜스포트](transports.md)**에서 다룹니다.
+`Client(...)`의 첫 번째 인자가 트랜스포트를 결정합니다. 모든 종류는 **[클라이언트 트랜스포트](transports.md)**에서 다룹니다.

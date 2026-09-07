@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # 문제 해결 {#troubleshooting}
@@ -13,6 +13,12 @@ translation:
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+해당 항목은 `http://localhost:8000/mcp`로 이 서버에 접속하므로, HTTP로 실행한 채로 두세요.
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 이 페이지에서 인용하는 오류는 모두 실제 오류입니다. SDK 자체의 테스트 스위트가 하나하나 전부 재현합니다.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ translation:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -42,14 +48,14 @@ async def main() -> None:
       +------------------------------------
 ```
 
-이에 대해 할 일은 두 가지입니다.
+여기서 할 일은 두 가지입니다.
 
 1. **맨 아래를 읽으세요.** `MCPError: No forecast for 'Atlantis'.`가 실패의 원인입니다. 이 페이지에서 찾아야 할 것은 바로 **이** 텍스트입니다.
 2. **블록 안에서 잡으세요.** `ExceptionGroup`은 예외가 `async with`를 **벗어날** 때만 나타납니다. 안에서 잡으면 같은 실패가 그룹 없이 평범한 `MCPError`로 나타납니다.
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -67,7 +73,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -75,7 +81,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -251,7 +257,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-서버가 클라이언트가 보낸 `Mcp-Session-Id`를 알아보지 못하는 경우이며, 거의 언제나 서버가 **재시작**되었기(또는 다른 인스턴스로 라우팅되었기) 때문입니다. 세션은 해당 프로세스 하나의 메모리에만 존재합니다.
+서버가 클라이언트가 보낸 `Mcp-Session-Id`를 알아보지 못하는 경우입니다. 서버가 **재시작**되었거나(또는 다른 인스턴스로 라우팅되었거나), `session_idle_timeout` 동안 진행 중인 요청이 없어서 세션이 **만료**된 것입니다. 이 값은 기본적으로 30분입니다. [세션 수명과 제한](run/legacy-clients.md#session-lifetime-and-limits)을 참고하세요. 세션은 해당 프로세스 하나의 메모리에만 존재합니다.
 
 찾아야 할 서버 버그는 없습니다. HTTP 응답은 본문이 **실제로** JSON-RPC인 `404`이므로, 위의 `421`과 달리 Python `Client`가 이번에는 그대로 보여 줍니다.
 
@@ -261,9 +267,9 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 해결책은 다시 연결하는 것입니다. `async with Client(...)` 블록을 벗어나 새 블록에 진입하면 새 세션을 협상합니다. 오래 실행되는 클라이언트라면, 호출을 감싸 `MCPError`를 잡은 뒤 이 메시지가 나오면 죽은 세션 안에서 재시도하지 말고 다시 연결해야 한다는 뜻입니다.
 
-재시작 **없이** 이 문제가 발생한다면, 스티키 세션 없이 워커를 둘 이상 실행하고 있는 것입니다. 각 워커가 자기만의 세션 테이블을 가지므로, 엉뚱한 워커로 라우팅된 요청이 여기에 도달합니다. 이 이야기와 두 가지 해결책(스티키 라우팅 또는 `stateless_http=True`)은 **[배포와 확장](run/deploy.md)**과 **[레거시 클라이언트 지원](run/legacy-clients.md)**에서 다룹니다.
+재시작도 **없었고** 클라이언트가 그렇게 오래 조용히 있지도 않았는데 이 문제가 발생한다면, 스티키 세션 없이 워커를 둘 이상 실행하고 있는 것입니다. 각 워커가 자기만의 세션 테이블을 가지므로, 엉뚱한 워커로 라우팅된 요청이 여기에 도달합니다. 이 이야기와 두 가지 해결책(스티키 라우팅 또는 `stateless_http=True`)은 **[배포와 확장](run/deploy.md)**과 **[레거시 클라이언트 지원](run/legacy-clients.md)**에서 다룹니다.
 
-서버 운영자 쪽에서 대응하는 로그 줄은 `Rejected request with unknown or expired session ID: <id>`입니다. `INFO` 수준으로 기록되므로 일반적인 `WARNING` 임계값에서는 보이지 않습니다. 배포 직후 이 줄이 한꺼번에 쏟아지는 것은 정상입니다. 연결되어 있던 모든 클라이언트가 다시 연결하는 중이기 때문입니다.
+서버 운영자 쪽에서 대응하는 로그 줄은 `Rejected request with unknown or expired session ID: <id>`입니다. `INFO` 수준으로 기록되므로 일반적인 `WARNING` 임계값에서는 보이지 않습니다. 배포 직후 이 줄이 한꺼번에 쏟아지는 것은 정상입니다. 연결되어 있던 모든 클라이언트가 다시 연결하는 중이기 때문입니다. 세션이 만료된 경우라면 그 줄 앞에 `Session <id> idle timeout`이 먼저 찍히며, 역시 `INFO` 수준입니다.
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -275,7 +281,13 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 서버가 사용자에게 무언가를 물어보려 하는데, 이 클라이언트가 물어볼 수 있다고 밝힌 적이 없는 경우입니다.
 
-엘리시테이션(elicitation) 리졸버는 연결된 클라이언트가 폼 엘리시테이션을 선언하지 않았으면 처음부터 거부하며, `e.error.data`가 정확히 무엇이 빠졌는지 알려 줍니다.
+이 Bistro 서버는 예약하기 전에 리졸버를 통해 먼저 물어봅니다.
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Weather 서버 대신 이 서버를 띄우고, `elicitation_callback`을 전달하지 않은 클라이언트에서 `book_table`을 호출하세요. 연결된 클라이언트가 폼 엘리시테이션(elicitation)을 선언한 적이 없으므로 리졸버는 처음부터 거부하며, `e.error.data`가 정확히 무엇이 빠졌는지 알려 줍니다.
 
 ```json
 {
@@ -289,7 +301,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -314,14 +326,14 @@ async def main() -> None:
 
 핸들러가 요청 도중에 클라이언트에 손을 뻗으려 했는데, 그 호출에 서버의 요청을 실어 나를 채널이 없는 연결이었던 경우입니다. 호출을 이런 상황에 놓는 서버 구성은 세 가지입니다.
 
-**`2026-07-28` 연결. 트랜스포트와 무관하게 항상.** 최신 프로토콜에는 서버가 시작하는 요청이 아예 없으므로, 서버는 무엇을 보내기도 전에 거부합니다. 도구 안에서 `ctx.elicit()`을 호출하는 것이 이 오류를 만나는 전형적인 길이며(`Client(server)`는 따로 요청하지 않아도 `2026-07-28`을 협상하므로, 첫 인메모리 테스트에서 바로 만납니다), `elicitation_callback=` 인자를 전달해도 달라지는 것은 없습니다. 클라이언트가 답할 요청 자체가 도달하지 않기 때문입니다.
+**`2026-07-28` 연결. 트랜스포트와 무관하게 항상.** 최신 프로토콜에는 서버가 시작하는 요청이 아예 없으므로, 서버는 무엇을 보내기도 전에 거부합니다. 도구 안에서 `ctx.elicit()`을 호출하는 것이 이 오류를 만나는 전형적인 길이며, `Client(mcp)`는 따로 요청하지 않아도 `2026-07-28`을 협상하므로 대개 그 도구의 첫 인메모리 **[테스트](get-started/testing.md)**에서 바로 만납니다. `elicitation_callback=` 인자를 전달해도 달라지는 것은 없습니다. 클라이언트가 답할 요청 자체가 도달하지 않기 때문입니다.
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -363,7 +375,7 @@ mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -416,7 +428,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * 서버 로그의 `Tool already exists:`는 이름이 같은 두 도구가 하나로 합쳐졌다는 유일한 신호입니다.
 * 421 하나에 표기는 세 가지입니다. `Server returned an error response`(Python `Client`), `421 Misdirected Request` / `Invalid Host header`(그 밖의 모든 곳), `Invalid Host header: <host>`(서버 로그). 해결책은 `transport_security=TransportSecuritySettings(allowed_hosts=[...])`입니다.
 * `Task group is not initialized` -> 마운트된 앱에서 호스트 lifespan이 `mcp.session_manager.run()`에 진입하지 않은 경우입니다.
-* `Session not found` -> 서버가 재시작되었습니다. 다시 연결하세요.
+* `Session not found` -> 서버가 재시작되었거나 세션이 만료되었습니다(`session_idle_timeout`). 다시 연결하세요.
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()`에는 서버에서 클라이언트로 가는 채널이 필요합니다. `2026-07-28` 연결에는 그런 채널이 아예 없고, `stateless_http=True`는 레거시 채널을 없애며, `json_response=True`는 요청 범위 채널을 없앱니다. 리졸버를 사용하세요(레거시 클라이언트라면 채널을 유지하는 서버도 필요합니다). 이웃인 `Method not found`는 상대편 프로토콜 리비전에 없는 메서드를 요청한 경우입니다.
 * `Client did not declare the form elicitation capability ...` 및 `Elicitation not supported` -> 클라이언트에 `elicitation_callback=` 인자가 빠져 있습니다.
 * `Invalid or expired requestState`는 와이어에서 이유를 절대 말하지 않습니다. 서버 로그가 말해 주며, `unknown key`는 워커 간에 `RequestStateSecurity(keys=[...])` 설정을 공유하라는 뜻입니다.

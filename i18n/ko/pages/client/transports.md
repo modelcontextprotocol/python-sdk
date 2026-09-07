@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
+  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
   tool: 1
 ---
 # 클라이언트 트랜스포트 {#client-transports}
@@ -11,30 +11,15 @@ translation:
 
 각 트랜스포트의 **서버** 쪽(`mcp.run()`이 하는 일과 배포 대상)은 **[서버 실행하기](../run/index.md)**에서 다룹니다.
 
-## 인메모리 {#in-memory}
-
-서버 객체 자체를 전달하세요.
-
-```python title="client.py" hl_lines="14"
---8<-- "docs_src/client_transports/tutorial001.py"
-```
-
-서브프로세스도, 포트도, 네트워크를 오가는 바이트도 없습니다. 클라이언트와 서버는 같은 프로세스 안의 두 객체일 뿐이지만, 호출은 여전히 실제 프로토콜 계층을 거칩니다. `search_books`는 HTTP를 통할 때와 똑같이 나열되고, 검증되고, 호출됩니다.
-
-덕분에 이 방식은 동시에 두 가지 역할을 합니다.
-
-* **테스트 도구.** 이 문서의 모든 예제는 이 방식으로 실행되며, **[테스트](../get-started/testing.md)** 페이지는 전체 패턴을 이 방식 위에 구축합니다.
-* **임베딩 API.** 서버를 직접 생성하는 애플리케이션은 도구를 호출하기 위해 네트워크를 거칠 필요가 없습니다.
-
 ## Streamable HTTP {#streamable-http}
 
-URL 문자열을 전달하면 **Streamable HTTP**를 얻습니다. 배포 시 사용하는 트랜스포트입니다.
+URL 문자열을 전달하면 **Streamable HTTP**를 사용합니다. 배포할 때 그 뒤에 서버를 두는 트랜스포트이자, 가장 먼저 선택해야 할 트랜스포트입니다.
 
 ```python title="client.py" hl_lines="5"
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-이것이 프로덕션 클라이언트의 전부입니다. `Client`가 URL을 `streamable_http_client(...)`로 감싸 주며, 그 아래에는 MCP에 맞게 설정된 `httpx2.AsyncClient`가 있습니다. `follow_redirects=True`, connect/write/pool에 30초 타임아웃, 그리고 서버가 응답 스트림을 열어 둘 수 있으므로 read에는 300초 타임아웃이 적용됩니다.
+이것이 프로덕션 클라이언트의 전부입니다. `Client`가 URL을 `streamable_http_client(...)`로 감싸 주며, 그 아래에는 MCP에 맞게 설정된 `httpx2.AsyncClient`가 있습니다. connect/write/pool에는 30초 타임아웃, 그리고 서버가 응답 스트림을 열어 둘 수 있으므로 read에는 300초 타임아웃이 적용됩니다.
 
 !!! check
     생성만 한 `Client`는 **연결되지 않은** 상태입니다. 생성은 트랜스포트를 고를 뿐이고,
@@ -50,7 +35,7 @@ URL 문자열을 전달하면 **Streamable HTTP**를 얻습니다. 배포 시 �
 
 `Authorization` 헤더, 쿠키, 프록시, mTLS, 다른 타임아웃이 필요해지는 순간, `httpx2.AsyncClient`를 직접 만들어 `streamable_http_client`에 넘기세요.
 
-```python title="client.py" hl_lines="8-14"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client_transports/tutorial003.py"
 ```
 
@@ -80,8 +65,29 @@ TLS 관련 참고 사항이 하나 있습니다. `httpx2`는 번들된 CA 목록
 !!! info
     `httpx2`는 익숙한 `httpx` API를 그대로 유지하므로, `httpx`를 안다면 여기서 인증, 프록시,
     이벤트 훅, 재시도, 연결 제한을 다루는 방법도 이미 아는 셈입니다. SDK는 그 위에 아무것도
-    더하지 않고 아무것도 빼지 않습니다. OAuth가 연결되는 지점도 여기입니다.
+    더하지 않고 아무것도 빼지 않습니다. 단, [리디렉션 처리](#redirects)만은 예외입니다. OAuth가 연결되는 지점도 여기입니다.
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. 전체 흐름은 **[OAuth 클라이언트](oauth-clients.md)**에서 다룹니다.
+
+### 리디렉션 {#redirects}
+
+트랜스포트는 전달받은 URL에 연결하며, 그 오리진에만 연결합니다.
+
+* 같은 스킴, 호스트, 포트 안에 머무는 `307`/`308` 리디렉션은 따라가며, 같은 호스트에서 `http://` → `https://`로 가는 리디렉션도 따라갑니다. 흔한 `/mcp` → `/mcp/` 후행 슬래시 리디렉션이 여기에 포함됩니다.
+* 그 밖의 곳으로 가는 리디렉션은 따라가지 **않습니다**. 호출은 다음 오류로 실패합니다.
+
+    ```text
+    MCPError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    그 URL이 의도한 서버라면 설정에 그 URL을 넣으세요. 아니라면 서버나 그 앞의 프록시 설정이 잘못된 것입니다.
+
+이 규칙은 전달하는 어떤 `httpx2.AsyncClient`에도 적용됩니다. MCP 요청에는 `follow_redirects` 설정이 어느 방향으로든 참조되지 않습니다. SDK의 OAuth 프로바이더도 자체 요청에 같은 규칙을 적용합니다.
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP`는
+    서버가 자신이 모르는 TLS 종료 프록시 뒤에 있어 `http://` 리디렉션을 내보내고 있다는 뜻입니다.
+    이는 서버 쪽에서 고치거나(**[배포와 확장](../run/deploy.md#behind-a-tls-terminating-proxy)**),
+    메시지가 제안하는 정확한 `https://…/` URL을 사용해 해결합니다.
 
 ## stdio {#stdio}
 
@@ -105,6 +111,18 @@ TLS 관련 참고 사항이 하나 있습니다. `httpx2`는 번들된 CA 목록
     API 키가 필요한 서버는 거기서 키를 찾지 못합니다. `env=`로 명시적으로 전달하세요. 해당
     변수는 허용 목록 위에 병합됩니다. 위 예제에서 `BOOKSHOP_API_KEY`가 하는 일이 바로 이것입니다.
 
+## 인메모리 {#in-memory}
+
+테스트에서는 배포할 것도, 실행할 것도 없습니다. 서버 객체 자체를 전달하세요.
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+서브프로세스도, 포트도, 네트워크를 오가는 바이트도 없습니다. 클라이언트와 서버는 같은 프로세스 안의 두 객체이며, 호출은 여전히 실제 프로토콜 계층을 거칩니다. `search_books`는 HTTP를 통할 때와 똑같이 나열되고, 검증되고, 호출됩니다. **[테스트](../get-started/testing.md)** 페이지는 전체 패턴을 이 방식 위에 구축합니다.
+
+같은 형태가 임베딩 API 역할도 겸합니다. 서버를 직접 생성하는 애플리케이션은 네트워크를 거치지 않고 서버의 도구를 호출할 수 있습니다.
+
 ## SSE {#sse}
 
 `mcp.client.sse`의 `sse_client(url)`은 Streamable HTTP로 대체된 이전 HTTP 트랜스포트입니다. 아직 이 방식을 쓰는 서버와 통신하려면 `Client(sse_client("http://localhost:8000/sse"))`처럼 같은 방식으로 감싸서 사용하되, 새로운 것을 이 위에 만들지는 마세요.
@@ -113,15 +131,16 @@ TLS 관련 참고 사항이 하나 있습니다. `httpx2`는 번들된 CA 목록
 
 `Client`에게 위의 모든 것은 같은 것입니다.
 
-**트랜스포트**란 `(read, write)` 메시지 스트림 쌍을 내어주는 비동기 컨텍스트 매니저라면 무엇이든 해당합니다. 정식으로는 `mcp.client`의 `Transport` 프로토콜입니다. `Client`는 인자를 타입으로 구분합니다. 서버 객체는 프로세스 내에서 연결하고, `str`은 `streamable_http_client(url)`이 되며, `StdioServerParameters`는 `stdio_client(params)`가 되고, 그 밖의 것은 트랜스포트로 직접 진입합니다. 마지막 규칙 덕분에 `stdio_client(...)`, `streamable_http_client(...)`, `sse_client(...)`가 모두 같은 자리에 들어가고, 직접 만든 트랜스포트도 쓸 수 있습니다.
+**트랜스포트**란 `(read, write)` 메시지 스트림 쌍을 내어주는 비동기 컨텍스트 매니저라면 무엇이든 해당합니다. 정식으로는 `mcp.client`의 `Transport` 프로토콜입니다. `Client`는 인자를 타입으로 구분합니다. `str`은 `streamable_http_client(url)`이 되고, `StdioServerParameters`는 `stdio_client(params)`가 되며, 서버 객체는 프로세스 내에서 연결하고, 그 밖의 것은 트랜스포트로 직접 진입합니다. 마지막 규칙 덕분에 `stdio_client(...)`, `streamable_http_client(...)`, `sse_client(...)`가 모두 같은 자리에 들어가고, 직접 만든 트랜스포트도 쓸 수 있습니다.
 
 ## 요약 {#recap}
 
-* `Client(mcp)`(서버 객체)는 인메모리로 연결합니다. 테스트와 임베딩에 사용하세요.
 * `Client("http://.../mcp")`(URL)는 프로덕션 트랜스포트인 Streamable HTTP로 연결합니다.
 * 헤더, 인증, 프록시, 타임아웃은 `streamable_http_client(url, http_client=...)`에 전달하는 `httpx2.AsyncClient`에 설정합니다. `headers=` 키워드는 없습니다.
+* 리디렉션은 URL 자체의 오리진 안에서만(후행 슬래시 `307`/`308`) 따라가며, 같은 호스트의 `http`→`https`도 따라갑니다. 그 밖의 경우는 `Redirect to … not followed`로 실패하므로 최종 URL을 설정하세요.
 * stdio는 `Client(StdioServerParameters(...))`입니다. 자식 프로세스의 stderr를 다른 곳으로 돌릴 때만 직접 `stdio_client(...)`로 감싸세요.
 * 서브프로세스는 현재 환경이 아니라 허용 목록에 있는 환경 변수만 받습니다. `env=`로 여기에 추가합니다.
+* `Client(mcp)`(서버 객체)는 인메모리로 연결합니다. 테스트에서 사용하거나, 서버를 만든 애플리케이션 안에 서버를 임베딩할 때 사용하세요.
 * 트랜스포트는 `async with x as (read, write)`로 쓸 수 있는 것이면 무엇이든 됩니다. `Client`는 서버 객체, URL, `StdioServerParameters`가 아닌 것은 모두 그 프로토콜에 그대로 넘깁니다.
 * `Client`를 생성하면 트랜스포트가 정해집니다. `async with`가 이를 엽니다.
 

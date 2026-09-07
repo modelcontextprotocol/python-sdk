@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # Legacy-Clients unterstützen {#serving-legacy-clients}
@@ -22,15 +22,25 @@ Ein Legacy-Client ist also nichts, *wofür* du etwas baust. Er ist etwas, das si
 
 ## Ein Handler, beide Generationen {#one-handler-both-eras}
 
-Hier ist ein Tool, das die Person am Host etwas fragen muss, und Clients beider Generationen, die es aufrufen:
+Hier ist ein Tool, das die Person am Host etwas fragen muss:
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` braucht eine Sache, die das Modell nicht geliefert hat: wie viele Exemplare. Mit `Annotated[..., Resolve(ask_quantity)]` deklariert ein Tool genau das (alles Weitere steht in **[Abhängigkeiten](../handlers/dependencies.md)**). Nichts in `reserve` nennt eine Version, prüft eine Capability oder verzweigt.
 
-Die beiden Clients sind **gleichzeitig** offen, am selben `mcp`-Objekt. `mode="legacy"` führt den `initialize`-Handshake aus: genau die Verbindung, die ein Client von vor 2026 öffnet. Der andere nimmt den Standardwert und landet bei `2026-07-28`.
+Stelle es über HTTP bereit, und hier sind Clients beider Generationen, die es aufrufen:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Die beiden Clients sind **gleichzeitig** offen, gegen denselben laufenden Server. `mode="legacy"` führt den `initialize`-Handshake aus: genau die Verbindung, die ein Client von vor 2026 öffnet. Der andere nimmt den Standardwert und landet bei `2026-07-28`. Führe `python client.py` in einem zweiten Terminal aus:
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -44,7 +54,7 @@ Es lohnt sich, beim *Wie* kurz innezuhalten, denn den beiden Clients wurde diese
 !!! tip
     Genau diese Portabilität über Generationen hinweg ist der Grund, *warum* `Resolve` die API ist,
     auf die du bauen solltest. Sein älterer Verwandter `ctx.elicit()`
-    (**[Elicitation](../handlers/elicitation.md)**, die Rückfrage bei der Person am Host) sendet
+    (**[Elicitation](../handlers/elicitation.md)** – Rückfrage bei der Person am Host) sendet
     immer nur `elicitation/create` und funktioniert deshalb immer nur auf einer Legacy-Verbindung.
     Auf einer `2026-07-28`-Verbindung schlägt der Aufruf fehl. Wenn ein Tool es noch verwendet, ist
     die Lösung die, die du oben siehst, und kein Versionscheck.
@@ -64,6 +74,41 @@ Auf einem Worker ist das unsichtbar. Auf zweien ist es das ganze Problem: Ein Re
     Nachliefern verpasster SSE-Events an einen Client, der sich mit *derselben* Session neu
     verbindet), kein Session-Store. Es macht eine Session nie von einem anderen Prozess aus
     erreichbar.
+
+## Lebensdauer und Grenzen von Sessions {#session-lifetime-and-limits}
+
+Eine Legacy-Session lebt nicht ewig, und ein Prozess hält nicht unbegrenzt viele davon. Zwei
+Einstellungen steuern das. Beide sind Keyword-Argumente an `run()`, `streamable_http_app()` und
+`Server.streamable_http_app()`. Moderne (`2026-07-28`-)Verbindungen und `stateless_http=True`
+haben keine Sessions, also gilt keine der beiden Einstellungen für sie.
+
+| Einstellung | Standardwert | Was sie tut | Was der Client sieht | Abschalten mit |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800` (30 min) | Schließt eine Session, bei der so lange nichts in Bearbeitung war. | `404 Session not found`. Er muss erneut `initialize` senden. | `None` |
+| `max_sessions` | `10_000` | Lehnt es ab, über diese Anzahl hinaus eine Session zu öffnen. Bestehende Sessions bleiben unberührt, und nichts wird verdrängt. | `503 Too many open sessions` mit JSON-RPC-Code `-32603`. | `None` |
+
+Was als „in Bearbeitung“ zählt:
+
+* Ein offener `GET`-Stream. Die SDK-Clients halten einen offen, also läuft die Session eines
+  verbundenen Clients nie ab.
+* Ein Request, der noch beantwortet wird. Ein Tool-Aufruf, der länger läuft als das Timeout, wird
+  nicht unterbrochen, und der Countdown beginnt erst, wenn er fertig ist.
+* Sonst nichts. Zwischen Requests läuft die Uhr. Jeder Request auf der Session setzt sie zurück,
+  `ping` eingeschlossen. Ist eine Session einmal abgelaufen, belebt nichts sie wieder.
+
+Ein Client, der seine Session mit `DELETE` beendet, gibt sie sofort frei. Dasselbe gilt für einen
+Client, dessen eröffnender Request abgelehnt wurde.
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+Beide Ereignisse erscheinen im Server-Log. Ein Ablauf steht als `Session <id> idle timeout` auf
+`INFO`. Ein abgelehntes Öffnen als `Refusing to open a new session: <n> sessions are already open`
+auf `WARNING`.
+
+Die Limits gelten pro Prozess. Mit vier Workern liegt die Obergrenze beim Vierfachen von
+`max_sessions`, und jeder Worker lässt seine eigenen Sessions ablaufen.
 
 ## Die eine Stellschraube: `stateless_http` {#the-one-knob-stateless_http}
 
@@ -91,8 +136,8 @@ Zwei Dinge daran sind wichtiger als das, was es tut.
 
 !!! check
     Mach es absichtlich falsch. `reserve` ist genau das Tool, das eben beide Clients bedient hat.
-    Stelle es mit `stateless_http=True` bereit, verbinde dieselben zwei Clients über HTTP und rufe
-    es von jedem aus auf.
+    Stelle es mit `stateless_http=True` bereit, verbinde dieselben zwei Clients und rufe es von
+    jedem aus auf.
 
     Der moderne Client bekommt weiterhin `Reserved 2 of 'Dune'.` Der moderne Zweig hat sich nicht
     verändert.

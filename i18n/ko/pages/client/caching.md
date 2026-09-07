@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # 캐싱 힌트 {#caching-hints}
@@ -30,7 +30,7 @@ translation:
 
 저수준 `Server`에서는 핸들러가 결과를 직접 조립하며, `ttl_ms` / `cache_scope`는 결과 모델의 필드일 뿐입니다. 이 필드를 명시적으로 설정한 핸들러는 필드 단위로 언제나 생성자 맵보다 우선합니다.
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -44,9 +44,23 @@ translation:
 
 2026-07-28 세션에서는 `Client`가 힌트를 대신 따릅니다. 기본으로 켜져 있는 내장 응답 캐시가 있기 때문입니다. `ttlMs`를 싣고 도착한 결과는 저장되고, 그 TTL 안에 동일한 호출이 오면 왕복 없이 캐시에서 제공됩니다. 힌트가 **없는** 결과는 캐시되지 않습니다. 힌트 없는 결과에는 `CacheConfig.default_ttl_ms`가 적용되는데 기본값이 `0`(즉시 만료)이므로, 아무것도 선언하지 않는 서버는 늘 그랬듯 호출마다 요청이 오는 트래픽을 그대로 보게 됩니다.
 
-```python title="client.py" hl_lines="33 35 38"
+이 동작을 직접 확인하려면 앞 절의 `server.py`를 uvicorn으로 띄우세요(마지막 줄이 ASGI 앱을 만듭니다). 핸들러는 실제로 실행될 때마다 한 줄을 출력합니다.
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+두 번째 터미널에서 `python client.py`를 실행하세요. 첫 번째 결과가 싣고 온 힌트, 즉 핸들러의 `ttlMs`와 맵의 `cacheScope`를 나란히 출력합니다.
+
+```text
+1000 public
+```
+
+나머지는 서버 쪽 터미널이 알려 줍니다. uvicorn의 요청 로그 사이로 `tools/list served`가 세 번 나타납니다.
 
 호출은 네 번, 서버에서 가져온 것은 세 번입니다. 두 번째 호출은 신선한 항목을 찾았고 서버에 도달하지 않았습니다. (주입된) 시계를 TTL 너머로 진행시키자 세 번째 호출은 다시 가져왔고, 네 번째 호출은 `cache_mode="refresh"`를 지정했습니다. 이 키워드 인자는 캐싱 동사 다섯 개(`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`)에 있습니다.
 
@@ -56,7 +70,7 @@ translation:
 
 `"use"` 위에 규칙이 하나 더 있습니다. **`meta`를 담은 호출은 언제나 서버에 도달합니다.** `meta`가 설정된 요청(진행률 토큰, 추적 필드)은 실제로 전송되는 요청을 기대하므로, `cache_mode="use"`에서는 `"refresh"`로 취급됩니다. 캐시 읽기는 건너뛰고, 가져온 결과는 여전히 캐시된 항목을 대체합니다. `"bypass"`와 명시적 `"refresh"`는 평소대로 동작합니다.
 
-캐싱을 완전히 끄려면 `Client(server, cache=None)`으로 생성하세요. 모든 호출이 다시 왕복이 되며, `cache_mode`는 여전히 받아들여지지만 아무 일도 하지 않습니다.
+캐싱을 완전히 끄려면 `Client`를 생성할 때 `cache=None`을 전달하세요. 모든 호출이 다시 왕복이 되며, `cache_mode`는 여전히 받아들여지지만 아무 일도 하지 않습니다.
 
 범위도 자동으로 존중됩니다. `"private"` 항목은 캐시의 **파티션**(아래 참고)을 키로 하고, `"public"` 항목은 더 넓은 공유를 선택할 수 있습니다. 그리고 알림이 지목하는 바로 그 항목에 대해서는 **알림이 TTL보다 우선합니다**. `list_changed` 알림은 일치하는 캐시된 목록을 축출하고, `resources/updated`는 정확히 그 URI로 저장된 캐시된 읽기 결과를 축출합니다. 얼마나 신선했든 상관없습니다. 2026-07-28 연결에서 이 알림은 `client.listen(...)`으로 여는 `subscriptions/listen` 스트림으로 도착하며, 축출은 감시자가 이벤트를 보기 전에 완료됩니다. 자세한 내용은 **[구독](subscriptions.md)**에서 확인하세요.
 

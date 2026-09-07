@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # トラブルシューティング {#troubleshooting}
@@ -13,6 +13,12 @@ translation:
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+それらの項目は `http://localhost:8000/mcp` でこのサーバーにアクセスするので、HTTP で起動したままにしておいてください。
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 このページで引用しているエラーは本物です。SDK 自身のテストスイートが、そのすべてを再現しています。
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ translation:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -65,7 +71,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -73,7 +79,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -245,7 +251,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-クライアントが送った `Mcp-Session-Id` をサーバーが認識していません。ほぼ確実に、サーバーが**再起動した**（または別のインスタンスにルーティングされた）のが原因です。セッションは、その 1 つのプロセスのメモリの中にあります。
+クライアントが送った `Mcp-Session-Id` をサーバーが認識していません。サーバーが**再起動した**（または別のインスタンスにルーティングされた）か、`session_idle_timeout`（デフォルトで 30 分）の間に進行中のものが何もなく、セッションが**期限切れになった**かのどちらかです。[セッションの寿命と上限](run/legacy-clients.md#session-lifetime-and-limits)を参照してください。セッションは、その 1 つのプロセスのメモリの中にあります。
 
 探すべきサーバーのバグはありません。HTTP レスポンスは `404` で、そのボディは JSON-RPC「です」。そのため上の `421` とは違い、python の `Client` はこれをそのまま見せてくれます。
 
@@ -255,9 +261,9 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 直し方は再接続です。`async with Client(...)` ブロックを抜けて新しいブロックに入れば、新しいセッションがネゴシエートされます。長く生きるクライアントであれば、呼び出しの周りで `MCPError` を捕まえ、死んだセッションの中でリトライするのではなく、このメッセージを見たら再接続することになります。
 
-再起動「なしで」これが起きるなら、スティッキーセッションなしで複数のワーカーを動かしています。ワーカーごとに独自のセッションテーブルを持つので、間違ったワーカーにルーティングされたリクエストはここに行き着きます。この話とその 2 つの直し方（スティッキールーティング、または `stateless_http=True`）は、**[デプロイとスケール](run/deploy.md)** と **[レガシークライアントへの提供](run/legacy-clients.md)** が担当しています。
+再起動「なしで」、かつクライアントがそれほど長く静かだったわけでもないのにこれが起きるなら、スティッキーセッションなしで複数のワーカーを動かしています。ワーカーごとに独自のセッションテーブルを持つので、間違ったワーカーにルーティングされたリクエストはここに行き着きます。この話とその 2 つの直し方（スティッキールーティング、または `stateless_http=True`）は、**[デプロイとスケール](run/deploy.md)** と **[レガシークライアントへの提供](run/legacy-clients.md)** が担当しています。
 
-サーバー運用者向けには、対応するログ行は `Rejected request with unknown or expired session ID: <id>` です。`INFO` で記録されるので、通常の `WARNING` のしきい値では見えません。デプロイ直後にまとまって出るのは正常です。接続中のクライアントがすべて再接続しているのです。
+サーバー運用者向けには、対応するログ行は `Rejected request with unknown or expired session ID: <id>` です。`INFO` で記録されるので、通常の `WARNING` のしきい値では見えません。デプロイ直後にまとまって出るのは正常です。接続中のクライアントがすべて再接続しているのです。セッションが期限切れになった場合は、その行の前に `Session <id> idle timeout` が同じく `INFO` で出ます。
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -269,7 +275,13 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 サーバーはユーザーに何かを尋ねたいのに、このクライアントは尋ねられることができると一度も言っていません。
 
-エリシテーション（elicitation）のリゾルバーは、接続中のクライアントがフォームのエリシテーションを宣言していない場合、最初の時点で拒否します。`e.error.data` には、足りないものが正確に書かれています。
+この Bistro は、予約する前にリゾルバーを通じて尋ねます。
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Weather サーバーの代わりにこれを提供し、`elicitation_callback` を渡していないクライアントから `book_table` を呼んでください。接続中のクライアントがフォームのエリシテーション（elicitation）を一度も宣言していないので、リゾルバーは最初の時点で拒否します。`e.error.data` には、足りないものが正確に書かれています。
 
 ```json
 {
@@ -283,7 +295,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -302,14 +314,14 @@ async def main() -> None:
 
 ハンドラーがリクエストの途中でクライアントに連絡を取ろうとしましたが、その接続の呼び出しには、サーバーからのリクエストを運べるチャネルがありません。呼び出しをそこに置くサーバー設定は 3 つあります。
 
-**`2026-07-28` の接続。どのトランスポートでも、常に。** モダンなプロトコルにはサーバー起点のリクエストがそもそも存在しないので、サーバーは何かを送る前に拒否します。ツールの中の `ctx.elicit()` が、これに出会う典型的な経路です（`Client(server)` は頼まれなくても `2026-07-28` をネゴシエートするので、最初のインメモリテストで出会います）。`elicitation_callback=` を渡しても何も変わりません。答えるべきリクエストがクライアントに届くことがないからです。
+**`2026-07-28` の接続。どのトランスポートでも、常に。** モダンなプロトコルにはサーバー起点のリクエストがそもそも存在しないので、サーバーは何かを送る前に拒否します。ツールの中の `ctx.elicit()` が、これに出会う典型的な経路です。たいていは、そのツールの最初のインメモリ**[テスト](get-started/testing.md)**で出会います。`Client(mcp)` は頼まれなくても `2026-07-28` をネゴシエートするからです。`elicitation_callback=` を渡しても何も変わりません。答えるべきリクエストがクライアントに届くことがないからです。
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -347,7 +359,7 @@ mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -400,7 +412,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * サーバーログの `Tool already exists:` は、同名の 2 つのツールが 1 つに潰れた唯一の合図です。
 * 1 つの 421、3 つの綴り：`Server returned an error response`（python の `Client`）、`421 Misdirected Request` / `Invalid Host header`（それ以外すべて）、`Invalid Host header: <host>`（サーバーログ）。直し方：`transport_security=TransportSecuritySettings(allowed_hosts=[...])`。
 * `Task group is not initialized` -> マウントされたアプリで、ホストのライフスパンが `mcp.session_manager.run()` に入っていません。
-* `Session not found` -> サーバーが再起動しました。再接続してください。
+* `Session not found` -> サーバーが再起動したか、セッションが期限切れになりました（`session_idle_timeout`）。再接続してください。
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` にはサーバーからクライアントへのチャネルが必要です。`2026-07-28` の接続にはそれが決してなく、`stateless_http=True` はレガシーのチャネルを奪い、`json_response=True` はリクエストスコープのチャネルを奪います。リゾルバーを使ってください（レガシークライアントには、チャネルを保持するサーバーも必要です）。隣の `Method not found` は、相手側のプロトコルリビジョンにないメソッドへのリクエストです。
 * `Client did not declare the form elicitation capability ...` と `Elicitation not supported` -> クライアントに `elicitation_callback=` が足りません。
 * `Invalid or expired requestState` は、通信上では決して理由を言いません。サーバーログが言います。`unknown key` は、ワーカー間で `RequestStateSecurity(keys=[...])` を共有せよという意味です。

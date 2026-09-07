@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 70b9ece244ca1b0c, cba78e052898c3f6, f06bdb541cb0b469, fb82d526320b7cc3]
+  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 10394c6f16601638, cba78e052898c3f6, f06bdb541cb0b469, 6dc898ccc5a903f9]
   tool: 1
 ---
 # मौजूदा app में जोड़ना {#add-to-an-existing-app}
@@ -99,7 +99,7 @@ Starlette का `Host` route इसी तरह काम करता है:
 --8<-- "docs_src/asgi/tutorial004.py"
 ```
 
-अब clients `/notes` से जुड़ते हैं, `/notes/mcp` से नहीं।
+अब clients `/notes/` से जुड़ते हैं, `/notes/mcp` से नहीं।
 
 ## browser clients के लिए CORS {#cors-for-browser-clients}
 
@@ -142,4 +142,4 @@ browser-based client को आपसे दो अनुमतियाँ च�
 * browser clients को CORS चाहिए: `Mcp-*` request headers के लिए `allow_headers`, response के लिए `expose_headers=["Mcp-Session-Id"]`।
 * `@mcp.custom_route()` `/mcp` के बगल में सादे, बिना authentication वाले HTTP endpoints जोड़ता है।
 
-जब server असली URL पर पहुँच में आ जाए, तो **[Client](../client/index.md)** server object के बजाय उसी URL से उससे जुड़ता है।
+जब server असली URL पर पहुँच में आ जाए, तो **[Client](../client/index.md)** उसी URL से उससे जुड़ता है।

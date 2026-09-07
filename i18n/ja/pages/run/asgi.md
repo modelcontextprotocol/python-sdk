@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 70b9ece244ca1b0c, cba78e052898c3f6, f06bdb541cb0b469, fb82d526320b7cc3]
+  sections: [1062ef792791488a, 4be2b831547184a9, 374b049e770385f2, b72f6947089e6de0, b172c9db7831bb31, 10394c6f16601638, cba78e052898c3f6, f06bdb541cb0b469, 6dc898ccc5a903f9]
   tool: 1
 ---
 # 既存のアプリに組み込む {#add-to-an-existing-app}
@@ -86,7 +86,7 @@ Starlette の `Host` ルートも同じように動きます。`Mount("/", ...)`
 --8<-- "docs_src/asgi/tutorial004.py"
 ```
 
-これでクライアントは `/notes/mcp` ではなく `/notes` に接続します。
+これでクライアントは `/notes/mcp` ではなく `/notes/` に接続します。
 
 ## ブラウザークライアント向けの CORS {#cors-for-browser-clients}
 
@@ -127,4 +127,4 @@ Starlette の `Host` ルートも同じように動きます。`Mount("/", ...)`
 * ブラウザークライアントには CORS が必要です。`Mcp-*` リクエストヘッダーのための `allow_headers` と、レスポンスのための `expose_headers=["Mcp-Session-Id"]` です。
 * `@mcp.custom_route()` は、認証なしの素の HTTP エンドポイントを `/mcp` の隣に追加します。
 
-サーバーに実際の URL で到達できるようになったら、**[クライアント](../client/index.md)** はサーバーオブジェクトの代わりにその URL を使って接続します。
+サーバーに実際の URL で到達できるようになったら、**[クライアント](../client/index.md)** はその URL を使ってサーバーに接続します。

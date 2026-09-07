@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # Tests {#testing}
 
-Le SDK Python fournit une classe `Client` dotée d’un **transport en mémoire** : passez-lui votre objet serveur et il s’y connecte directement.
+La classe `Client` du SDK, celle-là même qui se connecte à une URL ou lance un sous-processus, se connecte aussi **en mémoire** : passez-lui votre objet serveur et elle lui parle directement.
 
-Pas de sous-processus. Pas de port. Pas de transport du tout. C’est la même idée que le `TestClient` de FastAPI.
+Pas de sous-processus. Pas de port. Rien sur la liaison. C’est la même idée que le `TestClient` de FastAPI.
 
 ## Utilisation de base {#basic-usage}
 
@@ -98,15 +98,15 @@ change `raise_exceptions=True` : votre test voit le vrai message au lieu de la v
 
 Laissez-le activé dans les tests. Il n’a aucun sens dans du code de production.
 
-## Dans le processus par défaut {#in-process-by-default}
+## Neutre par défaut vis-à-vis de la génération du protocole {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` se connecte dans le processus et est **neutre vis-à-vis de la génération du
     protocole** par défaut : il sonde le serveur et choisit le chemin de protocole approprié. Fixez
     `mode="legacy"` si votre test exerce une sémantique propre aux connexions historiques (push
     d’échantillonnage (sampling) ou d’élicitation (elicitation), `message_handler`), et retirez alors
-    `raise_exceptions=True` : une connexion historique ne neutralise jamais rien, et l’indicateur
-    relève l’échec dans la tâche du serveur plutôt que dans votre test.
+    `raise_exceptions=True` : une connexion historique ne neutralise de toute façon jamais rien, et
+    l’indicateur relance l’échec à l’intérieur de la tâche du serveur plutôt que dans votre test.
 
 Cette unique ligne est aussi la raison pour laquelle cette documentation peut vous promettre que
 ses exemples fonctionnent : chaque fichier d’exemple est exercé par la propre suite de tests du

@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # Pruebas {#testing}
 
-El SDK de Python incluye una clase `Client` con un **transporte en memoria**: le pasas tu objeto servidor y se conecta a él directamente.
+La clase `Client` del SDK, la misma que se conecta a una URL o lanza un subproceso, también se conecta **en memoria**: le pasas tu objeto servidor y habla con él directamente.
 
-Sin subproceso. Sin puerto. Sin transporte alguno. Es la misma idea que el `TestClient` de FastAPI.
+Sin subproceso. Sin puerto. Nada que se transmita por ningún canal. Es la misma idea que el `TestClient` de FastAPI.
 
 ## Uso básico {#basic-usage}
 
@@ -97,11 +97,11 @@ remoto. En una prueba eso es exactamente lo que *no* quieres, y es lo que cambia
 
 Déjalo activado en las pruebas. No tiene ningún sentido en código de producción.
 
-## En proceso por defecto {#in-process-by-default}
+## Neutral respecto a la generación por defecto {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` se conecta en proceso y es **neutral respecto a la generación** por defecto: sondea
-    el servidor y elige la ruta de protocolo adecuada. Fija `mode="legacy"` si tu prueba ejercita
+    el servidor y elige la ruta de protocolo adecuada. Fija `mode="legacy"` si tu prueba comprueba
     comportamientos específicos de las conexiones heredadas (envío de muestreo (sampling) o
     elicitación (elicitation), `message_handler`), y quita `raise_exceptions=True` en ese caso: una
     conexión heredada nunca depura los errores en primer lugar, y el indicador relanza el fallo

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0d6c05bcbf836bf3, 59a7b14eeefc68c1, 7114d8d6daba203f, e8bbb56a98ba7bc9, 5138010f6159901c, f78da7c7c363d4c6, 220a939cab348686]
+  sections: [0d6c05bcbf836bf3, 9a78b5f6b44b18ab, 7114d8d6daba203f, e8bbb56a98ba7bc9, bfd2fd1153e71dac, 1615a994ef071fdd, 65c599fae991f245]
   tool: 1
 ---
 # 第一步 {#first-steps}
@@ -17,7 +17,7 @@ translation:
 * **用戶端**位於主機內部，負責講 MCP。主機每連上一個伺服器，就執行一個用戶端。
 * **伺服器**是你用這個 SDK 打造的東西。它把東西公開給用戶端，從不直接和模型溝通。
 
-伺服器由你來寫，主機是別人的產品。SDK 也提供一個 `Client`，用來測試你的伺服器，這一頁稍後就會出現。
+伺服器由你來寫，主機是別人的產品。SDK 也提供一個 `Client`，主機要透過 URL 連上伺服器、或把它當成子處理程序啟動，用的就是同一個類別。它在這一頁稍後就會出現，也是你測試伺服器的方式。
 
 ## 三種基本元件 {#the-three-primitives}
 
@@ -79,22 +79,20 @@ Inspector 透過 **stdio** 執行你的伺服器，這是 MCP 伺服器能使用
 
 用戶端連線時，伺服器會宣告自己的**能力**：它會回應哪幾類請求。用戶端據此決定究竟該要求什麼。這份宣告不是你寫的，`MCPServer` 替你宣告好了。
 
-自己看看吧。SDK 的 `Client` 直接接受伺服器物件，並在**記憶體內**與它連線（沒有子處理程序，沒有連接埠）：
+自己看看吧。在一個終端機裡讓 `server.py` 透過 HTTP 持續執行：
 
-```python
-import asyncio
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-from mcp import Client
+再從另一個終端機把用戶端指向它：
 
-from server import mcp
+```python title="client.py" hl_lines="7-8"
+--8<-- "docs_src/first_steps/tutorial001_client.py"
+```
 
-
-async def main() -> None:
-    async with Client(mcp) as client:
-        print(client.server_capabilities.model_dump(exclude_none=True))
-
-
-asyncio.run(main())
+```console
+python client.py
 ```
 
 ```text
@@ -114,7 +112,7 @@ asyncio.run(main())
 注意少了什麼。`completions`（資源範本和提示詞的引數自動完成）需要你寫一個處理函式，這個伺服器沒有，所以這項能力不存在，守規矩的用戶端也不會去問。所有選用的東西都照這條規則：註冊了，能力就出現；**[自動完成](../servers/completions.md)** 會證明這一點。
 
 !!! info
-    `Client(mcp)` 就是這份文件裡每個範例測試時用的同一個記憶體內用戶端，你也會用它來測試自己的。它有專屬的一整頁：**[測試](testing.md)**。
+    那個 `client.py` 是一個完整的 MCP 用戶端，它的專屬頁面是 **[用戶端](../client/index.md)**。測試時可以跳過終端機和連接埠，把伺服器物件本身直接交給 `Client`，也就是 `Client(mcp)`。那也有專屬的一整頁：**[測試](testing.md)**。
 
 ## 你沒寫的東西 {#what-you-did-not-write}
 
@@ -123,7 +121,7 @@ asyncio.run(main())
 * JSON Schema。`a: int, b: int` **就是** `add` 的 schema。
 * 請求處理函式。`tools/list`、`resources/read`、`prompts/get`：全都替你處理好了。
 * 能力宣告。`MCPServer` 替你做了。
-* 任何一行協定。版本協商、JSON-RPC 訊框、能力交換：全都發生在 `mcp dev` 和 `Client(mcp)` 裡面，你完全沒看到。
+* 任何一行協定。版本協商、JSON-RPC 訊框、能力交換：全都發生在 `mcp dev` 和 `client.py` 裡面，你完全沒看到。
 
 這個比例正是 SDK 的意義所在。
 
@@ -134,6 +132,6 @@ asyncio.run(main())
 * 每種基本元件一個裝飾器：`@mcp.tool()`、`@mcp.resource(uri)`、`@mcp.prompt()`。名稱、描述和 schema 都來自函式。
 * 帶 `{param}` 的 URI 會產生資源**範本**，和具體資源分開列出。
 * 伺服器的**能力**會替你宣告好，而用戶端只會要求伺服器宣告過的東西。
-* `Client(mcp)` 在記憶體內連上伺服器物件：從第一天起就是你的測試工具。
+* `Client("http://localhost:8000/mcp")` 會和執行中的伺服器對話。改成把伺服器物件交給它，也就是 `Client(mcp)`，從第一天起它就是你的測試工具。
 
 接下來是 **[連接真正的主機](real-host.md)**：把這個伺服器真的放進 Claude Desktop 或 IDE 裡。然後是 **[測試](testing.md)**：一頁、一個記憶體內用戶端，從此不用猜它到底能不能動。再之後，每種基本元件各有自己的一頁，從模型主導的那個開始：**[工具](../servers/tools.md)**。

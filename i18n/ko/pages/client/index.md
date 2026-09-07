@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 7e16449f66e7dfd6, eeb0682f7d2a1079, 5713f0196a34e6e7, 0e844597859e4248, 3a97d9195ddcc92e, 1da08c483e59c141, 84702cc6e0a1fd42, 8dee7a31c86ffc5c, 83a5bce168ef23d7]
   tool: 1
 ---
 # 클라이언트 {#the-client}
@@ -11,13 +11,23 @@ translation:
 
 ## 첫 번째 클라이언트 {#your-first-client}
 
-```python title="client.py" hl_lines="14-18"
+클라이언트에게는 통신할 서버가 필요합니다. 이 페이지의 모든 예제가 연결하는 대상이 바로 이 Bookshop 서버입니다. `server.py`로 저장하고 HTTP로 실행해 두세요.
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-맨 위의 서버는 연결할 대상을 마련하기 위해 있을 뿐입니다. 클라이언트는 강조 표시된 다섯 줄입니다.
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)`에는 **서버 객체 자체**를 넘깁니다. 이것이 인메모리 트랜스포트입니다. 서브프로세스도, 포트도, HTTP도 없습니다. 이 페이지의 모든 예제와 앞으로 작성할 모든 테스트가 이 방식으로 연결합니다.
+이렇게 하면 `http://localhost:8000/mcp`에서 서버가 제공됩니다. 클라이언트는 별도의 프로그램입니다. `client.py`로 저장하고 두 번째 터미널에서 `python client.py`를 실행하세요.
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")`에는 **URL**을 넘기므로, 방금 시작한 서버에 Streamable HTTP로 연결합니다.
 * `async with`가 **생명 주기**입니다. 들어가면 연결하고 협상하며, 나오면 연결을 끊습니다. `connect()` / `close()` 쌍은 없으며, 블록이 끝난 뒤에는 `Client`를 재사용할 수 없습니다.
 * 블록 안에서는 연결 정보가 이미 평범한 프로퍼티로 준비되어 있습니다.
 
@@ -25,10 +35,10 @@ translation:
 
 `Client`는 위치 인자 하나를 받고, 그 타입으로 트랜스포트를 결정합니다.
 
-* `MCPServer`(또는 저수준 `Server`) 인스턴스: **프로세스 내부**에서 연결합니다.
-* URL 문자열(`Client("http://localhost:8000/mcp")`): 프로덕션 경로인 Streamable HTTP입니다.
-* `StdioServerParameters`: **서브프로세스**로 실행할 명령이며, 그 stdin과 stdout을 통해 통신합니다.
+* URL 문자열(`Client("http://localhost:8000/mcp")`): 실제 배포에 쓰는 트랜스포트인 Streamable HTTP입니다.
+* `StdioServerParameters`: 로컬 **서브프로세스**로 실행할 명령이며, 그 stdin과 stdout을 통해 통신합니다.
 * **트랜스포트**: `async with ... as (read, write)`로 사용할 수 있는 모든 것, 예를 들어 직접 만든 HTTP 클라이언트를 감싸는 `streamable_http_client(url, http_client=...)`입니다.
+* `MCPServer`(또는 저수준 `Server`) 인스턴스: 서브프로세스도 포트도 없이 **프로세스 내부**에서 연결합니다. 이 방식은 테스트를 위한 것이며, **[테스트](../get-started/testing.md)**가 이를 기반으로 합니다.
 
 이 페이지의 나머지 내용은 네 가지 모두에서 동일합니다. 헤더, 서브프로세스, 타임아웃, `Transport` 프로토콜은 별도의 페이지인 **[클라이언트 트랜스포트](transports.md)**에서 다룹니다.
 
@@ -49,11 +59,11 @@ translation:
 
 ## 도구 목록 조회 {#listing-tools}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial002.py"
 ```
 
-`list_tools()`는 `ListToolsResult`를 반환하며, 도구는 `.tools`에 들어 있습니다. 각 도구는 호스트가 모델에 건네는 완전한 정의입니다.
+`list_tools()`는 `ListToolsResult`를 반환하며, 도구는 `.tools`에 들어 있습니다. 각 도구는 호스트가 모델에 건네는 완전한 정의입니다. 첫 번째 도구는 다음과 같습니다.
 
 ```python
 tool.name          # 'search_books'
@@ -77,6 +87,8 @@ tool.description   # 'Search the catalog by title or author.'
 
 이 스키마는 UI가 인자 입력 폼을 렌더링하는 데 필요한 전부이자, 모델이 유효한 인자를 만들어 내는 데 필요한 전부입니다.
 
+두 번째 도구인 `lookup_book`은 `title=` 없이 등록되었으므로 `tool.title`이 `None`입니다.
+
 !!! tip
     `title`은 선택 사항이므로, 사람에게 도구를 보여 주는 UI는 무엇을 표시할지 골라야 합니다. `title`이 있으면 쓰고,
     없으면 `name`을 씁니다. `from mcp.shared.metadata_utils import get_display_name`이 정확히 그 일을 하며,
@@ -86,7 +98,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)`는 도구를 실행하고 `CallToolResult`를 돌려줍니다.
 
-```python title="client.py" hl_lines="27-34"
+```python title="client.py" hl_lines="9-16"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -142,7 +154,7 @@ result.is_error            # False
 
 리소스 동작은 짝을 이룹니다. 목록을 조회하는 방법이 둘, 읽는 방법이 하나입니다.
 
-```python title="client.py" hl_lines="22-31"
+```python title="client.py" hl_lines="9-18"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -156,7 +168,7 @@ result.is_error            # False
 
 ## 프롬프트 {#prompts}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial005.py"
 ```
 
@@ -181,7 +193,7 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 자동 완성 핸들러가 있는 서버는 사용자가 입력하는 동안 프롬프트와 리소스 템플릿 인자를 자동 완성할 수 있습니다.
 
-```python title="client.py" hl_lines="27-31"
+```python title="client.py" hl_lines="9-13"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -194,21 +206,21 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 모든 `list_*` 메서드는 `cursor=` 키워드를 받고, 모든 결과에는 `next_cursor`가 있습니다. `next_cursor`가 `None`이면 전부 받은 것입니다.
 
-```python title="client.py" hl_lines="22-30"
+```python title="client.py" hl_lines="7-15"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
-이 루프는 어떤 서버에 대해서도 올바릅니다. `MCPServer`는 모든 것을 한 페이지에 반환하므로 `next_cursor`는 `None`이고 루프는 한 번만 돌며, 그래서 대부분의 코드는 이 루프를 작성하지 않습니다. 실제로 페이지를 나누는 서버와 커서가 따르는 규칙은 **[페이지네이션](../advanced/pagination.md)**에서 다룹니다.
+`list_all_tools`는 어떤 서버에 대해서도 올바르게 동작합니다. `MCPServer`는 모든 것을 한 페이지에 반환하므로 `next_cursor`는 `None`이고 루프는 한 번만 돌며, 그래서 대부분의 코드는 이 루프를 작성하지 않습니다. 실제로 페이지를 나누는 서버와 커서가 따르는 규칙은 **[페이지네이션](../advanced/pagination.md)**에서 다룹니다.
 
 ## 테스트에서 {#in-tests}
 
-프로세스도 포트도 없는 `Client(mcp)`는 그 자체로 이미 서버의 테스트 하네스입니다.
+이 페이지의 모든 `client.py`는 HTTP로 `server.py`에 연결했습니다. 테스트에서는 네트워크를 건너뛰고 `Client`에 서버 객체 자체를 넘깁니다. `from server import mcp`를 한 다음 `Client(mcp)`를 만들면 됩니다. 프로세스도 포트도 없으며, 위의 모든 메서드가 똑같이 동작합니다.
 
-이를 위해 만들어진 생성자 플래그가 하나 있습니다. `Client(mcp, raise_exceptions=True)`입니다. 인메모리 연결에서만 효과가 있으며, 이를 설명하고 전체 패턴을 구축하는 페이지는 **[테스트](../get-started/testing.md)**입니다.
+이를 위해 만들어진 생성자 플래그가 하나 있습니다. `Client(mcp, raise_exceptions=True)`입니다. 프로세스 내부 연결에서만 효과가 있으며, 이를 설명하고 전체 패턴을 구축하는 페이지는 **[테스트](../get-started/testing.md)**입니다.
 
 ## 요약 {#recap}
 
-* `Client(x)`는 서버 객체에는 인메모리로, URL 문자열에는 Streamable HTTP로, 그 밖의 것에는 트랜스포트를 통해 연결합니다.
+* `Client(x)`는 URL 문자열에는 Streamable HTTP로 연결하고, `StdioServerParameters`에는 서브프로세스를 실행하며, 트랜스포트에는 직접 들어가고, 테스트에서는 서버 객체 자체를 받습니다.
 * `async with`가 생명 주기의 전부입니다. 그 안에서는 `server_capabilities`와 `protocol_version`이 이미 채워져 있으며, 서버가 제공하는 경우 `server_info`와 `instructions`도 마찬가지입니다.
 * `list_tools()`는 각 도구의 `name`, `title`, `description`, `input_schema`를 제공합니다.
 * `call_tool()`은 모델을 위한 `content`, 코드를 위한 `structured_content`, 그리고 `is_error`를 반환합니다. 예외를 발생시키는 도구는 예외가 아니라 결과입니다.

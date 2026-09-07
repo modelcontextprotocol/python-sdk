@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # 多輪往返請求 {#multi-round-trip-requests}
@@ -162,7 +162,7 @@ TTL、主體綁定和請求綁定都**不是** codec 的工作：不論哪個 co
 
 ## 2026-07-28 的結果型別 {#a-2026-07-28-result}
 
-`InputRequiredResult` 只存在於協定版本 **2026-07-28**。記憶體內的 `Client(server)` 會替你協商；走線路時，`mode="auto"` 會探知它。連線之後，`client.protocol_version` 會告訴你拿到的是什麼。
+`InputRequiredResult` 只存在於協定版本 **2026-07-28**。`Client` 預設的 `mode="auto"` 在任何連線上都會探知它。連線之後，`client.protocol_version` 會告訴你拿到的是什麼。
 
 !!! warning
     2026 之前的工作階段沒有地方放 `InputRequiredResult`。在 `mode="legacy"` 的連線上從處理函式回傳一個，runner 無法把它序列化成協商好的版本；用戶端會拿回 `-32603`「Handler returned an invalid result」錯誤。同時服務兩個世代的伺服器，必須先檢查 `ctx.protocol_version` 再動用它。

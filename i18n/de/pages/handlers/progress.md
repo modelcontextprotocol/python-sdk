@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
   tool: 1
 ---
 # Fortschritt {#progress}
@@ -29,11 +29,9 @@ Drei Argumente, und du bestimmst, was sie bedeuten:
 
 Der Client meldet sich **pro Aufruf** an, indem er `progress_callback=` an `call_tool` übergibt:
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -41,7 +39,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -56,28 +54,31 @@ anyio.run(main)
 Der Callback ist eine `async`-Funktion, die genau das entgegennimmt, was der Server gemeldet hat: `progress`, `total`, `message`.
 
 !!! info
-    `Client(mcp)` verbindet sich direkt mit dem Server-Objekt, im Speicher – derselbe Client, auf dem die Seite
-    **[Testen](../get-started/testing.md)** aufbaut. `progress_callback` ist derselbe Parameter, egal welchen
-    Transport der `Client` nutzt; das *Timing*, das du gleich siehst, ist das der In-Memory-Verbindung. Sie führt
-    deinen Callback inline aus, sodass jede Meldung eintrifft, bevor `call_tool` zurückkehrt. Über einen echten
-    Transport liefern sich die Benachrichtigungen ein Rennen mit dem Ergebnis, und ein langsamer Callback kann noch
-    laufen, nachdem `call_tool` bereits zurückgekehrt ist.
+    `progress_callback` ist derselbe Parameter, egal was du `Client` übergeben hast: eine URL wie hier, ein
+    `StdioServerParameters`-Objekt oder das Server-Objekt in einem Test. Achte über einen echten Transport
+    allerdings auf das Timing. Jede Benachrichtigung wird für sich zugestellt, neben der Response, sodass ein
+    langsamer Callback noch laufen kann, nachdem `call_tool` bereits zurückgekehrt ist. Nur die
+    In-Process-Testverbindung führt den Callback inline aus und garantiert, dass jede Meldung vorher eintrifft.
 
 ### Ausprobieren {#try-it}
 
-Lege `client.py` neben `server.py` und starte es:
+Stelle `server.py` über HTTP bereit und starte dann den Client aus einem zweiten Terminal:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-Jedes `await ctx.report_progress(...)` auf dem Server wurde zu einem Aufruf von `show` auf dem Client, in derselben Reihenfolge, und beide Zeilen wurden ausgegeben, **bevor** `call_tool` zurückkehrte. Fortschritt wird nicht ins Ergebnis gepackt; er streamt, während das Tool noch arbeitet.
+Jedes `await ctx.report_progress(...)` auf dem Server wurde zu einem Aufruf von `show` auf dem Client, in derselben Reihenfolge. Fortschritt wird nicht ins Ergebnis gepackt. Er streamt, während das Tool noch arbeitet.
 
 !!! warning
     `progress_callback` gehört zum **Aufruf**, nicht zum `Client`. Es gibt kein Konstruktorargument dafür,

@@ -9,6 +9,7 @@ repository a `tmp_path` tree, so every test is offline and deterministic.
 """
 
 import json
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -197,15 +198,24 @@ class FakeTranslator:
 def run(
     capsys: pytest.CaptureFixture[str], root: Path, *argv: str, translator: t.Translator | None = None
 ) -> tuple[int, str, str]:
+    """`(exit code, stdout, stderr)` of one command line."""
     code = t.main(list(argv), root=root, translator=translator)
     captured = capsys.readouterr()
     return code, captured.out, captured.err
 
 
+def translate(
+    capsys: pytest.CaptureFixture[str], root: Path, *argv: str, jobs: int = 1, translator: t.Translator | None = None
+) -> tuple[int, str, str]:
+    """`translate ARGV --jobs JOBS`: one page at a time by default, so scripted replies pair with pages in
+    nav order and the log has one possible order."""
+    return run(capsys, root, "translate", *argv, "--jobs", str(jobs), translator=translator)
+
+
 def translate_all(capsys: pytest.CaptureFixture[str], root: Path) -> None:
     """Publish faithful translations of the three pages and the notices through the real command."""
     fake = FakeTranslator([INDEX_JA, TOOLS_JA, TRANSLATIONS_JA, NOTICES_JA])
-    assert run(capsys, root, "translate", "--lang", "ja", translator=fake)[0] == 0
+    assert translate(capsys, root, "--lang", "ja", translator=fake)[0] == 0
 
 
 def test_sections_tile_the_page_and_blank_lines_belong_to_the_heading_after_them() -> None:
@@ -552,7 +562,7 @@ def test_glossary_of_the_wrong_shape_stops_translate_with_exit_2_but_never_break
     path = root / "i18n" / "ja" / "glossary.json"
     write(path, json.dumps(glossary))
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=FakeTranslator([]))
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=FakeTranslator([]))
 
     assert (code, out) == (2, "")
     assert err.startswith(f"translations: {path}: {message}")  # an exception's own text is the interpreter's
@@ -567,14 +577,15 @@ def test_translate_writes_pages_with_provenance_and_a_second_run_makes_no_calls(
     root = make_repo(tmp_path)
     fake = FakeTranslator([INDEX_JA, TOOLS_JA, TRANSLATIONS_JA, NOTICES_JA])
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
     assert (code, err) == (0, "")
     assert out == snapshot("""\
-translated: index.md (2 of 2 sections)
-translated: tools.md (3 of 3 sections)
-translated: translations.md (1 of 1 sections)
-translated: i18n/notices.md (4 of 4 sections)
+translating 4 pages (ja), 1 at a time, with test-model
+ja: translated index.md (2 of 2 sections)
+ja: translated tools.md (3 of 3 sections)
+ja: translated translations.md (1 of 1 sections)
+ja: translated i18n/notices.md (4 of 4 sections)
 usage: 4000 input / 1600 output / 3600 cache-write / 400 cache-read tokens
 """)
     assert (root / "i18n" / "ja" / "pages" / "tools.md").read_text(encoding="utf-8") == snapshot("""\
@@ -621,7 +632,7 @@ Use these renderings; the notes are binding:
 - server → サーバー. Katakana, long vowel kept.\
 """)
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja")
+    code, out, err = translate(capsys, root, "--lang", "ja")
 
     assert (code, out, err) == (0, "ja: nothing to translate\n", "")
     assert run(capsys, root, "status") == snapshot(
@@ -637,10 +648,10 @@ def test_docs_translate_model_overrides_the_registry_model_for_the_run(
     root = make_repo(tmp_path)
     monkeypatch.delenv("DOCS_TRANSLATE_MODEL", raising=False)
     fake = FakeTranslator([INDEX_JA, INDEX_JA])
-    assert run(capsys, root, "translate", "--lang", "ja", "--pages", "index.md", translator=fake)[0] == 0
+    assert translate(capsys, root, "--lang", "ja", "--pages", "index.md", translator=fake)[0] == 0
     monkeypatch.setenv("DOCS_TRANSLATE_MODEL", "trial-model")
 
-    code, _, _ = run(capsys, root, "translate", "--lang", "ja", "--pages", "index.md", translator=fake)
+    code, _, _ = translate(capsys, root, "--lang", "ja", "--pages", "index.md", translator=fake)
 
     assert (code, fake.models) == (0, ["test-model", "trial-model"])
     assert "model" not in (root / "i18n" / "ja" / "pages" / "index.md").read_text(encoding="utf-8")
@@ -656,14 +667,14 @@ def test_translate_pages_retranslates_the_named_pages_from_scratch_even_when_a_t
     translate_all(capsys, root)
     fake = FakeTranslator([INDEX_JA.replace("へようこそ", "へようこそ！")])
 
-    code, out, _ = run(capsys, root, "translate", "--lang", "ja", "--pages", "index.md", translator=fake)
+    code, out, _ = translate(capsys, root, "--lang", "ja", "--pages", "index.md", translator=fake)
 
-    assert (code, out.split("\n")[0]) == (0, "translated: index.md (2 of 2 sections)")
+    assert (code, out.split("\n")[1]) == (0, "ja: translated index.md (2 of 2 sections)")
     assert fake.conversations[0] == [t.Message("user", t.translate_request(INDEX))]
     assert "MCP へようこそ！" in (root / "i18n" / "ja" / "pages" / "index.md").read_text(encoding="utf-8")
     assert run(capsys, root, "status")[1] == snapshot("ja (日本語): 0 missing, 0 outdated, 4 current, 0 removable\n")
 
-    code, _, err = run(capsys, root, "translate", "--lang", "ja", "--pages", "nope.md", translator=fake)
+    code, _, err = translate(capsys, root, "--lang", "ja", "--pages", "nope.md", translator=fake)
 
     assert (code, err) == snapshot(
         (2, "translations: not translatable pages (nav paths such as servers/tools.md): ['nope.md']\n")
@@ -684,9 +695,9 @@ def test_outdated_page_retranslates_the_changed_section_and_carries_the_rest_for
     )
     fake = FakeTranslator([reply])
 
-    code, out, _ = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, _ = translate(capsys, root, "--lang", "ja", translator=fake)
 
-    assert (code, out.split("\n")[0]) == (0, "translated: tools.md (1 of 3 sections)")
+    assert (code, out.split("\n")[1]) == (0, "ja: translated tools.md (1 of 3 sections)")
     assert fake.conversations[0][0].content == snapshot("""\
 This page was translated before. Retranslate it: translate the sections listed below
 afresh from the current English, applying the current language instructions and glossary
@@ -765,9 +776,9 @@ def test_banned_rendering_is_a_finding_in_a_retranslated_section_but_not_in_a_ca
     repaired = TOOLS_JA.replace("失敗を伝えるには例外を送出します。", "ファンクションから送出します。")
     fake = FakeTranslator([slipped, repaired])
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
-    assert (code, err, fake.replies, out.split("\n")[0]) == (0, "", [], "translated: tools.md (1 of 3 sections)")
+    assert (code, err, fake.replies, out.split("\n")[1]) == (0, "", [], "ja: translated tools.md (1 of 3 sections)")
     assert fake.conversations[1][2].content == snapshot("""\
 Your translation broke the following structural rules. Fix each problem and return the
 full corrected page, changing nothing else:
@@ -793,9 +804,9 @@ def test_link_dropped_in_a_carried_section_costs_no_repair_turn_and_the_stored_s
     )
     fake = FakeTranslator([reply])
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
-    assert (code, err, out.split("\n")[0]) == (0, "", "translated: tools.md (1 of 3 sections)")
+    assert (code, err, out.split("\n")[1]) == (0, "", "ja: translated tools.md (1 of 3 sections)")
     assert [len(conversation) for conversation in fake.conversations] == [1]  # one call, no repair turn
     body = t.split_front_matter((root / "i18n" / "ja" / "pages" / "tools.md").read_text(encoding="utf-8"))[1]
     assert t.sections(body)[0] == t.sections(TOOLS_JA)[0].replace("# ツール\n", "# ツール {#tools}\n")
@@ -819,9 +830,9 @@ def test_removed_english_section_is_reassembled_with_no_client_but_an_edited_one
     monkeypatch.setattr(t, "anthropic_translator", no_credentials)
     write(root / "docs" / "tools.md", TOOLS.split("## Errors")[0].rstrip("\n") + "\n")
 
-    code, out, _ = run(capsys, root, "translate", "--lang", "ja")
+    code, out, _ = translate(capsys, root, "--lang", "ja")
 
-    assert (code, out.split("\n")[0]) == (0, "translated: tools.md (0 of 2 sections)")
+    assert (code, out.split("\n")[1]) == (0, "ja: translated tools.md (0 of 2 sections)")
     body = t.split_front_matter((root / "i18n" / "ja" / "pages" / "tools.md").read_text(encoding="utf-8"))[1]
     previous = TOOLS_JA.split("## エラー")[0].rstrip("\n") + "\n"
     assert body == previous.replace("# ツール\n", "# ツール {#tools}\n").replace(
@@ -831,7 +842,7 @@ def test_removed_english_section_is_reassembled_with_no_client_but_an_edited_one
 
     write(root / "docs" / "tools.md", TOOLS.split("## Your first tool")[0].rstrip("\n") + "\n")
     write(root / "docs" / "index.md", INDEX.replace("Welcome to MCP.", "Welcome!"))
-    code, out, err = run(capsys, root, "translate", "--lang", "ja")
+    code, out, err = translate(capsys, root, "--lang", "ja")
 
     assert (code, out, err) == snapshot((2, "", "translations: no API credentials: set ANTHROPIC_API_KEY\n"))
     assert run(capsys, root, "status", "--lang", "ja")[1] == snapshot("""\
@@ -841,10 +852,10 @@ ja (日本語): 0 missing, 2 outdated, 2 current, 0 removable
 """)
 
     fake = FakeTranslator([INDEX_JA.replace("MCP へようこそ。", "ようこそ！")])
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
-    assert (code, err, fake.replies, out.split("\n")[:2]) == snapshot(
-        (0, "", [], ["translated: index.md (1 of 2 sections)", "translated: tools.md (0 of 1 sections)"])
+    assert (code, err, fake.replies, out.split("\n")[1:3]) == snapshot(
+        (0, "", [], ["ja: translated index.md (1 of 2 sections)", "ja: translated tools.md (0 of 1 sections)"])
     )
 
 
@@ -858,19 +869,20 @@ def test_a_failing_page_does_not_stop_the_run_and_the_exit_code_is_1(
     truncated = t.Completion(TOOLS_JA[:40], t.Usage(10, 64_000, 0, 0), "max_tokens")
     fake = FakeTranslator([t.PageError("API request failed: overloaded"), truncated, refusal, NOTICES_JA])
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
     assert (code, out, err) == snapshot(
         (
             1,
             """\
-translated: i18n/notices.md (4 of 4 sections)
+translating 4 pages (ja), 1 at a time, with test-model
+ja: translated i18n/notices.md (4 of 4 sections)
 usage: 1020 input / 64400 output / 900 cache-write / 100 cache-read tokens
 """,
             """\
-error: index.md: API request failed: overloaded
-error: tools.md: the reply was cut off at 64000 output tokens
-error: translations.md: the model declined to translate this page
+ja: error: index.md: API request failed: overloaded
+ja: error: tools.md: the reply was cut off at 64000 output tokens
+ja: error: translations.md: the model declined to translate this page
 """,
         )
     )
@@ -883,10 +895,183 @@ def test_rejected_credentials_stop_the_run_with_exit_2(tmp_path: Path, capsys: p
     root = make_repo(tmp_path)
     fake = FakeTranslator([t.ConfigError("the API rejected the credentials: invalid x-api-key"), INDEX_JA])
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
-    assert (code, out, err) == snapshot((2, "", "translations: the API rejected the credentials: invalid x-api-key\n"))
+    assert (code, out, err) == snapshot(
+        (
+            2,
+            """\
+translating 4 pages (ja), 1 at a time, with test-model
+usage: 0 input / 0 output / 0 cache-write / 0 cache-read tokens
+""",
+            "translations: the API rejected the credentials: invalid x-api-key\n",
+        )
+    )
     assert fake.replies == [INDEX_JA]
+
+
+def test_jobs_keeps_that_many_pages_in_flight_and_publishes_each_before_starting_another(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tool-defined: with `--jobs 2` over four pages, two requests are always waiting on the model together
+    (neither of a pair is answered until both wait, from two threads), never three, and by the time the
+    third and fourth requests are made an earlier page is already on disk: a finished page is written
+    when it lands, and only then does the next one start."""
+    root = make_repo(tmp_path)
+    generated = root / "i18n" / "ja" / "pages"
+    replies = {"# Home": INDEX_JA, "# Tools": TOOLS_JA, "# Translations": TRANSLATIONS_JA, "# Notices": NOTICES_JA}
+
+    class Pairs:
+        """Answers requests two at a time, noting how many were in flight and what was published by then."""
+
+        def __init__(self) -> None:
+            self.both, self.lock = threading.Barrier(2, timeout=5), threading.Lock()
+            self.in_flight = self.most = 0
+            self.published: list[list[str]] = []
+
+        def complete(self, *, model: str, system: str, messages: Sequence[t.Message], max_tokens: int) -> t.Completion:
+            with self.lock:
+                self.in_flight += 1
+                self.most = max(self.most, self.in_flight)
+                self.published.append(sorted(path.name for path in generated.glob("*.md")))
+            try:
+                self.both.wait()
+                title = next(title for title in replies if title in messages[0].content)
+                return t.Completion(replies[title], t.Usage(10, 4, 0, 9))
+            finally:
+                with self.lock:
+                    self.in_flight -= 1
+
+    fake = Pairs()
+
+    code, out, err = translate(capsys, root, "--lang", "ja", jobs=2, translator=fake)
+
+    assert (code, err, fake.most) == (0, "", 2)
+    assert fake.published[:2] == [[], []]
+    assert all(fake.published[2:]) and len(fake.published) == 4
+    assert sorted(out.splitlines()) == [
+        "ja: translated i18n/notices.md (4 of 4 sections)",
+        "ja: translated index.md (2 of 2 sections)",
+        "ja: translated tools.md (3 of 3 sections)",
+        "ja: translated translations.md (1 of 1 sections)",
+        "translating 4 pages (ja), 2 at a time, with test-model",
+        "usage: 40 input / 16 output / 0 cache-write / 36 cache-read tokens",
+    ]
+    assert run(capsys, root, "status") == (0, "ja (日本語): 0 missing, 0 outdated, 4 current, 0 removable\n", "")
+
+
+class RejectedTogether:
+    """Lets two requests in together, then rejects the credentials of those whose page title is in `rejected`."""
+
+    def __init__(self, rejected: Sequence[str]) -> None:
+        self.rejected, self.calls = rejected, 0
+        self.both, self.lock = threading.Barrier(2, timeout=5), threading.Lock()
+
+    def complete(self, *, model: str, system: str, messages: Sequence[t.Message], max_tokens: int) -> t.Completion:
+        with self.lock:
+            self.calls += 1
+        self.both.wait()
+        if any(title in messages[0].content for title in self.rejected):
+            raise t.ConfigError("the API rejected the credentials: invalid bearer token")
+        return t.Completion(TOOLS_JA, t.Usage(10, 4, 0, 9))
+
+
+def test_rejected_credentials_keep_a_page_that_lands_from_the_same_flight(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tool-defined: with two pages in flight together, the credentials being rejected for one does not throw
+    away the other: whichever lands first, the good page is written and usage reported before exit 2."""
+    root = make_repo(tmp_path)
+    fake = RejectedTogether(["# Home"])
+
+    code, out, err = translate(capsys, root, "--lang", "ja", "--pages", "index.md", "tools.md", jobs=2, translator=fake)
+
+    assert (code, fake.calls, err) == (2, 2, "translations: the API rejected the credentials: invalid bearer token\n")
+    assert out == snapshot("""\
+translating 2 pages (ja), 2 at a time, with test-model
+ja: translated tools.md (3 of 3 sections)
+usage: 10 input / 4 output / 0 cache-write / 9 cache-read tokens
+""")
+    assert sorted(path.name for path in (root / "i18n" / "ja" / "pages").glob("*.md")) == ["tools.md"]
+
+
+def test_rejected_credentials_with_pages_in_flight_start_no_further_page(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tool-defined: with `--jobs 2` over four pages, once the credentials are rejected (here for both pages in
+    flight) the two remaining pages are never requested and nothing is written."""
+    root = make_repo(tmp_path)
+    fake = RejectedTogether(["# Home", "# Tools"])
+
+    code, out, err = translate(capsys, root, "--lang", "ja", jobs=2, translator=fake)
+
+    assert (code, fake.calls, err) == (2, 2, "translations: the API rejected the credentials: invalid bearer token\n")
+    assert out == snapshot("""\
+translating 4 pages (ja), 2 at a time, with test-model
+usage: 0 input / 0 output / 0 cache-write / 0 cache-read tokens
+""")
+    assert not (root / "i18n" / "ja" / "pages").exists()
+
+
+def test_translate_without_lang_works_through_every_language_with_that_languages_own_prompt(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tool-defined: no `--lang` means every language in the registry, page by page across languages
+    (each language's first page before any second page), each page sent with its own language's system
+    prompt and reported under its code, with one usage total; `--lang` may be repeated and names a
+    language once however often it is given."""
+    root = make_repo(tmp_path)
+    write(
+        root / "i18n" / "languages.yml", LANGUAGES + "  - code: ko\n    name: 한국어\n    theme: ko\n    hreflang: ko\n"
+    )
+    write(root / "i18n" / "ko" / "instructions.md", "Korean rules.\n")
+    write(root / "i18n" / "ko" / "glossary.json", json.dumps({"keep": ["MCP"], "terms": []}))
+    fake = FakeTranslator(
+        [INDEX_JA, INDEX_JA, TOOLS_JA, TOOLS_JA, TRANSLATIONS_JA, TRANSLATIONS_JA, NOTICES_JA, NOTICES_JA]
+    )
+
+    code, out, err = translate(capsys, root, translator=fake)
+
+    assert (code, err) == (0, "")
+    assert out == snapshot("""\
+translating 8 pages (ja, ko), 1 at a time, with test-model
+ja: translated index.md (2 of 2 sections)
+ko: translated index.md (2 of 2 sections)
+ja: translated tools.md (3 of 3 sections)
+ko: translated tools.md (3 of 3 sections)
+ja: translated translations.md (1 of 1 sections)
+ko: translated translations.md (1 of 1 sections)
+ja: translated i18n/notices.md (4 of 4 sections)
+ko: translated i18n/notices.md (4 of 4 sections)
+usage: 8000 input / 3200 output / 7200 cache-write / 800 cache-read tokens
+""")
+    assert [system.split("\n")[2] for system in fake.systems] == snapshot(
+        [
+            "# Target language: 日本語 (`ja`)",
+            "# Target language: 한국어 (`ko`)",
+            "# Target language: 日本語 (`ja`)",
+            "# Target language: 한국어 (`ko`)",
+            "# Target language: 日本語 (`ja`)",
+            "# Target language: 한국어 (`ko`)",
+            "# Target language: 日本語 (`ja`)",
+            "# Target language: 한국어 (`ko`)",
+        ]
+    )
+    assert fake.systems[1] == snapshot("""\
+General rules.
+
+# Target language: 한국어 (`ko`)
+
+Korean rules.
+
+## Glossary
+
+These terms always stay in English, spelled exactly like this:
+
+- MCP\
+""")
+    again = translate(capsys, root, "--lang", "ko", "--lang", "ja", "ko")
+    assert again == (0, "ko: nothing to translate\nja: nothing to translate\n", "")
 
 
 def test_repair_turn_feeds_the_findings_back_and_accepts_the_fixed_reply(
@@ -898,7 +1083,7 @@ def test_repair_turn_feeds_the_findings_back_and_accepts_the_fixed_reply(
     broken = TOOLS_JA.replace("`async` に", "非同期に").replace("!!! note", "!!! warning")
     fake = FakeTranslator([INDEX_JA, broken, TOOLS_JA, TRANSLATIONS_JA, NOTICES_JA])
 
-    code, _, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, _, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
     assert (code, err, fake.replies) == (0, "", [])
     assert [message.role for message in fake.conversations[2]] == ["user", "assistant", "user"]
@@ -926,7 +1111,7 @@ def test_code_block_moved_into_another_section_is_repaired_not_published(
     root = make_repo(tmp_path)
     fake = FakeTranslator([FENCE_MOVED_JA, TOOLS_JA])
 
-    code, _, err = run(capsys, root, "translate", "--lang", "ja", "--pages", "tools.md", translator=fake)
+    code, _, err = translate(capsys, root, "--lang", "ja", "--pages", "tools.md", translator=fake)
 
     assert (code, err, fake.replies) == (0, "", [])
     assert fake.conversations[1][2].content == snapshot("""\
@@ -954,9 +1139,9 @@ def test_code_block_moved_out_of_a_retranslated_section_gets_repair_turns_like_a
     moved = FENCE_MOVED_JA.replace("失敗を伝えるには例外を送出します。", "失敗するには `ToolError` を送出します。")
     fake = FakeTranslator([moved, fixed])
 
-    code, out, err = run(capsys, root, "translate", "--lang", "ja", translator=fake)
+    code, out, err = translate(capsys, root, "--lang", "ja", translator=fake)
 
-    assert (code, err, fake.replies, out.split("\n")[0]) == (0, "", [], "translated: tools.md (1 of 3 sections)")
+    assert (code, err, fake.replies, out.split("\n")[1]) == (0, "", [], "ja: translated tools.md (1 of 3 sections)")
     assert fake.conversations[1][2].content == snapshot("""\
 Your translation broke the following structural rules. Fix each problem and return the
 full corrected page, changing nothing else:
@@ -983,7 +1168,7 @@ def test_shortened_list_and_table_are_fed_back_for_repair_before_the_page_is_pub
     shortened = LISTED_JA.replace("    1. 入れ子\n* さん\n", "（以下同様）\n").replace("| c | d |\n", "")
     fake = FakeTranslator([shortened, LISTED_JA])
 
-    code, _, err = run(capsys, root, "translate", "--lang", "ja", "--pages", "translations.md", translator=fake)
+    code, _, err = translate(capsys, root, "--lang", "ja", "--pages", "translations.md", translator=fake)
 
     assert (code, err, fake.replies) == (0, "", [])
     assert fake.conversations[1][2].content == snapshot("""\
@@ -1008,11 +1193,11 @@ def test_page_still_broken_after_two_repair_turns_fails_and_keeps_the_previous_t
     missing_fence = TOOLS_JA.replace('```python title="server.py"\n--8<-- "docs_src/server.py"\n```\n\n', "")
     fake = FakeTranslator([missing_fence] * 3)
 
-    code, _, err = run(capsys, root, "translate", "--lang", "ja", "--pages", "tools.md", translator=fake)
+    code, _, err = translate(capsys, root, "--lang", "ja", "--pages", "tools.md", translator=fake)
 
     assert (code, fake.replies) == (1, [])
     assert err == snapshot(
-        "error: tools.md: unfixed after 2 repairs: ## Your first tool: 0 code fences vs 1 in the English: keep each where it is, add none\n"
+        "ja: error: tools.md: unfixed after 2 repairs: ## Your first tool: 0 code fences vs 1 in the English: keep each where it is, add none\n"
     )
     assert (root / "i18n" / "ja" / "pages" / "tools.md").read_text(encoding="utf-8") == before
 
@@ -1058,7 +1243,7 @@ def test_stage_overlays_translations_injects_notices_and_rewrites_api_links(
     notice links so they hold under any path prefix, and assets ride along."""
     root = make_repo(tmp_path)
     fake = FakeTranslator([INDEX_JA])
-    assert run(capsys, root, "translate", "--lang", "ja", "--pages", "index.md", translator=fake)[0] == 0
+    assert translate(capsys, root, "--lang", "ja", "--pages", "index.md", translator=fake)[0] == 0
     write(root / "docs" / "api" / "mcp" / "index.md", "# API stub\n")
 
     code, out, err = run(capsys, root, "stage", "--lang", "ja")
@@ -1185,7 +1370,7 @@ def test_stage_keeps_showing_the_generated_code_block_after_its_english_changes_
     assert (code, err, staged.split("\n")[2]) == (0, "", '!!! note "英語版より古い翻訳"')
     assert ('title="server.py"' in staged, 'title="app.py"' in staged) == (True, False)
 
-    assert run(capsys, root, "translate", "--lang", "ja", translator=FakeTranslator([TOOLS_JA]))[0] == 0
+    assert translate(capsys, root, "--lang", "ja", translator=FakeTranslator([TOOLS_JA]))[0] == 0
     code, _, err = run(capsys, root, "stage", "--lang", "ja")
 
     staged = staged_page(root, "tools.md")

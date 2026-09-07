@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [cfe01c0c5863dfa2, 1c58c5cfcc37d455, a7392996acf1ad8f, 875eb2889263424e]
+  sections: [cfe01c0c5863dfa2, 0dbb68d8b210177b, 80cf193023af3ed4, 875eb2889263424e]
   tool: 1
 ---
 # Was ist neu in v2 {#whats-new-in-v2}
@@ -42,11 +42,11 @@ Nicht alles, was ein Tool braucht, sollte vom Modell kommen. Neu in v2: Ein Tool
 
 v1 gab dir drei verschachtelte Schichten: einen Transport-Kontextmanager, der rohe Streams liefert, eine darum gewickelte `ClientSession` und ein von Hand aufgerufenes `await session.initialize()`. v2 hat ein einziges Objekt:
 
-```python title="client.py" hl_lines="14-18"
---8<-- "docs_src/client/tutorial001.py"
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
 ```
 
-`Client` nimmt ein Server-Objekt (im Speicher, ohne Transport: das ist der Testansatz), eine URL (Streamable HTTP), ein `StdioServerParameters` (ein stdio-Subprozess) oder einen beliebigen anderen Transport-Kontextmanager wie `sse_client(...)`. Das Betreten von `async with` verbindet und handelt die Protokollversion aus, welche Generation der Server auch spricht; `client.server_capabilities` und `client.protocol_version` sind danach einfach da, ebenso `client.server_info`, wenn der Server sich zu erkennen gibt (das ist jetzt `Implementation | None`, weil die Identität in der 2026er-Generation optional ist). Die Sampling- und Elicitation-Callbacks, die du in v1 registriert hast, funktionieren weiter (ihre Bodies sehen dieselbe Umbenennung der Attribute auf snake_case wie alles andere auf dieser Seite), sie beantworten jetzt außerdem die Requests-in-Results im 2026er-Stil (unten), und sie laufen nebenläufig statt nacheinander. `ClientSession` liegt für alle, die die Low-Level-Oberfläche wollen, weiterhin darunter, und `client.session` reicht sie dir; auch sie hat sich bewegt (sie läuft auf der neuen Dispatcher-Engine, und einige ihrer eigenen Signaturen haben sich geändert), lies also den **[Migrationsleitfaden](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**, bevor du hinabsteigst.
+`Client` nimmt eine URL (Streamable HTTP), ein `StdioServerParameters` (ein stdio-Subprozess), einen beliebigen anderen Transport-Kontextmanager wie `sse_client(...)` oder, in Tests, das Server-Objekt selbst (im Speicher, ohne Transport). Das Betreten von `async with` verbindet und handelt die Protokollversion aus, welche Generation der Server auch spricht; `client.server_capabilities` und `client.protocol_version` sind danach einfach da, ebenso `client.server_info`, wenn der Server sich zu erkennen gibt (das ist jetzt `Implementation | None`, weil die Identität in der 2026er-Generation optional ist). Die Sampling- und Elicitation-Callbacks, die du in v1 registriert hast, funktionieren weiter (ihre Bodies sehen dieselbe Umbenennung der Attribute auf snake_case wie alles andere auf dieser Seite), sie beantworten jetzt außerdem die Requests-in-Results im 2026er-Stil (unten), und sie laufen nebenläufig statt nacheinander. `ClientSession` liegt für alle, die die Low-Level-Oberfläche wollen, weiterhin darunter, und `client.session` reicht sie dir; auch sie hat sich bewegt (sie läuft auf der neuen Dispatcher-Engine, und einige ihrer eigenen Signaturen haben sich geändert), lies also den **[Migrationsleitfaden](migration.md#clientsession-now-runs-on-jsonrpcdispatcher-basesession-removed)**, bevor du hinabsteigst.
 
 **[Der Client](client/index.md)** stellt ihn vor, **[Client-Transporte](client/transports.md)** behandelt die vier Verbindungsformen, **[Client-Callbacks](client/callbacks.md)** die Callbacks selbst, und **[Testen](get-started/testing.md)** zeigt das In-Memory-Muster, das den Helfer `create_connected_server_and_client_session()` aus v1 ersetzt.
 
@@ -113,7 +113,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentB
 
 Das Beispiel ist das Muster. Allgemeiner: Jeder Handler hat dieselbe Form, mit typisierten Params hinein und einem vollständigen Result-Typ hinaus; die alte jsonschema-Prüfung der Tool-Argumente ist entfernt; eine Exception ist ein Protokollfehler, nie ein Tool-Result mit `is_error=True`; und die umgebende ContextVar `server.request_context` ist entfernt. Eigene Methoden mit Vendor-Namespace sind über `add_request_handler(method, params_type, handler)` vollwertig unterstützt; das validiert eingehende Params gegen dein Modell, bevor dein Handler läuft. Und eine `middleware`-Liste (bewusst als vorläufig markiert) umhüllt jede eingehende Nachricht und ersetzt die privaten `_handle_*`-Methoden, die früher überschrieben wurden.
 
-Unter der Haube wurde die `BaseSession`-Empfangsschleife aus v1 durch eine Dispatcher-Engine ersetzt, die Client und Server sich jetzt teilen, und sie macht mehrere Dinge auf dieser Seite gleichzeitig wahr: Ein einziges `Server`-Objekt bedient beide Protokollgenerationen, `Client(server)` dispatcht im Prozess ohne JSON-RPC-Framing, und ein Client-Request, der in den Timeout läuft, bricht jetzt tatsächlich den serverseitigen Handler ab.
+Unter der Haube wurde die `BaseSession`-Empfangsschleife aus v1 durch eine Dispatcher-Engine ersetzt, die Client und Server sich jetzt teilen, und sie macht mehrere Dinge auf dieser Seite gleichzeitig wahr: Ein einziges `Server`-Objekt bedient beide Protokollgenerationen, `Client(server)` verteilt Requests direkt im Prozess, ohne JSON-RPC-Framing, und ein Client-Request, der in den Timeout läuft, bricht jetzt tatsächlich den serverseitigen Handler ab.
 
 Die Seite dazu ist **[Der Low-Level-Server](advanced/low-level-server.md)**; der **[Migrationsleitfaden](migration.md#lowlevel-server-decorator-based-handlers-replaced-with-constructor-on_-params)** geht jeden entfernten Hook durch. Wenn du nie unter `MCPServer` hinabgestiegen bist, betrifft dich nichts davon.
 
@@ -171,11 +171,15 @@ Jeder vom Server ausgehende Request ist bei 2026-07-28 entfernt: Push-Elicitatio
 
 Der Ersatz dreht den Aufruf um. Ein Tool, das etwas von der Person am Host braucht, *gibt* die Frage *zurück* (`InputRequiredResult`), der Client beantwortet sie mit denselben Callbacks, die er schon immer hatte, und der Aufruf wird mit angehängten Antworten erneut versucht. `Client` treibt diese Schleife für dich. Auf dem Server baust du das Result selten selbst, weil eine **[Abhängigkeit](handlers/dependencies.md)** das übernimmt: Annotiere einen Parameter mit `Resolve(ask_quantity)`, wobei `ask_quantity` eine gewöhnliche Funktion ist, die du schreibst, und das SDK fragt über den Mechanismus, den die Verbindung unterstützt – ein Live-Elicitation-Request auf einer Legacy-Session oder ein Multi-Roundtrip bei 2026. Ein Tool-Body, beide Generationen:
 
-```python title="dual_era.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
-Diese Datei ist das ganze Versprechen an einem Ort: ein Server, ein Tool mit `Resolve` dahinter, und ein Legacy-Client plus ein moderner Client, die beide ihre Antwort bekommen, im Speicher. **[Multi-Roundtrip-Requests](handlers/multi-round-trip.md)** erklärt den Mechanismus (einschließlich `request_state`, den das SDK für dich versiegelt und verifiziert); **[Elicitation](handlers/elicitation.md)** behandelt das Fragen.
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+Diese beiden Dateien sind das ganze Versprechen: ein Server, ein Tool mit `Resolve` dahinter, und ein Legacy-Client plus ein moderner Client, die beide ihre Antwort von demselben laufenden Server bekommen (**[Legacy-Clients unterstützen](run/legacy-clients.md)** geht sie durch). **[Multi-Roundtrip-Requests](handlers/multi-round-trip.md)** erklärt den Mechanismus (einschließlich `request_state`, den das SDK für dich versiegelt und verifiziert); **[Elicitation](handlers/elicitation.md)** behandelt das Fragen.
 
 !!! warning "Das ist die eine Stelle, an der ein portierter v1-Server sein Verhalten ändert"
     Deine eigenen Tests treffen es zuerst: `Client(mcp)` handelt gegen deinen v2-Server standardmäßig

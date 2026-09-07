@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # Testes {#testing}
 
-O SDK Python traz uma classe `Client` com um **transporte em memória**: passe a ela o objeto do seu servidor e ela se conecta diretamente a ele.
+A classe `Client` do SDK, a mesma que se conecta a uma URL ou inicia um subprocesso, também se conecta **em memória**: passe a ela o objeto do seu servidor e ela conversa diretamente com ele.
 
-Sem subprocesso. Sem porta. Sem transporte nenhum. É a mesma ideia do `TestClient` do FastAPI.
+Sem subprocesso. Sem porta. Nada trafegando na rede. É a mesma ideia do `TestClient` do FastAPI.
 
 ## Uso básico {#basic-usage}
 
@@ -97,7 +97,7 @@ em vez da sanitizada.
 
 Deixe-a ligada nos testes. Em código de produção, ela não significa nada.
 
-## No mesmo processo por padrão {#in-process-by-default}
+## Neutro quanto à era por padrão {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` se conecta no mesmo processo e é **neutro quanto à era** por padrão: ele sonda o servidor e

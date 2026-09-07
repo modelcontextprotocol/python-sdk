@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
+  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
   tool: 1
 ---
 # Transportes do cliente {#client-transports}
@@ -11,30 +11,15 @@ Você nunca configura um transporte separadamente. `Client` recebe um único arg
 
 O lado do *servidor* de cada um (o que `mcp.run()` faz e o que você coloca no deploy) está em **[Executando seu servidor](../run/index.md)**.
 
-## Em memória {#in-memory}
-
-Passe o próprio objeto do servidor:
-
-```python title="client.py" hl_lines="14"
---8<-- "docs_src/client_transports/tutorial001.py"
-```
-
-Sem subprocesso, sem porta, sem bytes trafegando na rede. O cliente e o servidor são dois objetos no mesmo processo, e a chamada ainda passa pela camada real do protocolo: `search_books` é listada, validada e invocada exatamente como seria sobre HTTP.
-
-Isso faz dele duas coisas ao mesmo tempo:
-
-* **Uma estrutura de testes.** Todo exemplo desta documentação é exercitado dessa forma, e a página **[Testes](../get-started/testing.md)** constrói o padrão inteiro em torno disso.
-* **Uma API de embutimento.** Uma aplicação que constrói o servidor não precisa de um salto pela rede para chamar as ferramentas dele.
-
 ## Streamable HTTP {#streamable-http}
 
-Passe uma string de URL e você tem **Streamable HTTP**, o transporte atrás do qual você faz o deploy:
+Passe uma string de URL e você tem **Streamable HTTP**, o transporte atrás do qual você faz o deploy e o primeiro a que você deve recorrer:
 
 ```python title="client.py" hl_lines="5"
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-Esse é o cliente de produção inteiro. `Client` envolve a URL em `streamable_http_client(...)` para você, sobre um `httpx2.AsyncClient` configurado do jeito que o MCP precisa: `follow_redirects=True`, um timeout de 30 segundos para connect/write/pool e um timeout de leitura de 300 segundos, porque o servidor pode manter um stream de resposta aberto.
+Esse é o cliente de produção inteiro. `Client` envolve a URL em `streamable_http_client(...)` para você, sobre um `httpx2.AsyncClient` configurado do jeito que o MCP precisa: um timeout de 30 segundos para connect/write/pool e um timeout de leitura de 300 segundos, porque o servidor pode manter um stream de resposta aberto.
 
 !!! check
     Um `Client` que você construiu **não** está conectado. A construção só escolhe o transporte;
@@ -50,7 +35,7 @@ Esse é o cliente de produção inteiro. `Client` envolve a URL em `streamable_h
 
 No momento em que você precisar de um header `Authorization`, um cookie, um proxy, mTLS ou um timeout diferente, construa o `httpx2.AsyncClient` você mesmo e entregue-o a `streamable_http_client`:
 
-```python title="client.py" hl_lines="8-14"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client_transports/tutorial003.py"
 ```
 
@@ -80,8 +65,29 @@ sem um repositório de CAs do sistema utilizável (alguns contêineres mínimos)
 !!! info
     `httpx2` mantém a API conhecida do `httpx`, então se você conhece `httpx` já sabe como fazer auth,
     proxies, event hooks, retentativas e limites de conexão aqui. O SDK não acrescenta nada por cima nem
-    tira nada. É também onde o OAuth se encaixa:
+    tira nada, exceto o [tratamento de redirecionamentos](#redirects). É também onde o OAuth se encaixa:
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`. Esse fluxo inteiro está em **[Clientes OAuth](oauth-clients.md)**.
+
+### Redirecionamentos {#redirects}
+
+O transporte se conecta à URL que você forneceu, e somente a essa origem.
+
+* Um redirecionamento `307`/`308` que permanece no mesmo esquema, host e porta é seguido, e `http://` → `https://` no mesmo host também. Isso cobre o redirecionamento habitual de barra final `/mcp` → `/mcp/`.
+* Um redirecionamento para qualquer outro lugar **não** é seguido. A chamada falha com:
+
+    ```text
+    MCPError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    Se essa URL é o servidor que você queria, coloque-a na sua configuração. Se não é, o servidor ou um proxy na frente dele está mal configurado.
+
+Isso vale para qualquer `httpx2.AsyncClient` que você passe: a configuração `follow_redirects` dele não é consultada para requisições MCP, em nenhuma das direções. Os provedores OAuth do SDK aplicam a mesma regra às próprias requisições.
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP` significa que o
+    servidor está atrás de um proxy com terminação TLS que ele desconhece e está emitindo redirecionamentos `http://`.
+    Isso se corrige no servidor (**[Deploy e escala](../run/deploy.md#behind-a-tls-terminating-proxy)**)
+    ou usando a URL exata `https://…/` que a mensagem sugere.
 
 ## stdio {#stdio}
 
@@ -105,6 +111,18 @@ O stderr do processo filho vai para o seu. Para mandá-lo para outro lugar, cons
     Um servidor que precise de uma chave de API não vai encontrá-la ali. Passe-a explicitamente com `env=`; essas
     variáveis são mescladas por cima da allow-list. É isso que `BOOKSHOP_API_KEY` está fazendo acima.
 
+## Em memória {#in-memory}
+
+Em um teste não há nada para colocar no deploy nem nada para iniciar. Passe o próprio objeto do servidor:
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+Sem subprocesso, sem porta, sem bytes trafegando na rede. O cliente e o servidor são dois objetos no mesmo processo, e a chamada ainda passa pela camada real do protocolo: `search_books` é listada, validada e invocada exatamente como seria sobre HTTP. A página **[Testes](../get-started/testing.md)** constrói o padrão inteiro em torno disso.
+
+A mesma forma serve também como API de embutimento: uma aplicação que constrói o servidor por conta própria pode chamar as ferramentas dele sem um salto pela rede.
+
 ## SSE {#sse}
 
 `sse_client(url)`, de `mcp.client.sse`, é o transporte HTTP que o Streamable HTTP substituiu. Envolva-o da mesma forma, `Client(sse_client("http://localhost:8000/sse"))`, para conversar com um servidor que ainda o fala, e não construa nada novo em cima dele.
@@ -113,15 +131,16 @@ O stderr do processo filho vai para o seu. Para mandá-lo para outro lugar, cons
 
 Para o `Client`, tudo acima é a mesma coisa.
 
-Um **transporte** é qualquer gerenciador de contexto assíncrono que produz um par `(read, write)` de streams de mensagens: formalmente, o protocolo `Transport` em `mcp.client`. `Client` resolve seu argumento pelo tipo: um objeto de servidor conecta no próprio processo, uma `str` vira `streamable_http_client(url)`, um `StdioServerParameters` vira `stdio_client(params)` e qualquer outra coisa é aberta diretamente como transporte. É por causa dessa última regra que `stdio_client(...)`, `streamable_http_client(...)` e `sse_client(...)` se encaixam todos no mesmo lugar, e que você pode escrever o seu próprio.
+Um **transporte** é qualquer gerenciador de contexto assíncrono que produz um par `(read, write)` de streams de mensagens: formalmente, o protocolo `Transport` em `mcp.client`. `Client` resolve seu argumento pelo tipo: uma `str` vira `streamable_http_client(url)`, um `StdioServerParameters` vira `stdio_client(params)`, um objeto de servidor conecta no próprio processo e qualquer outra coisa é aberta diretamente como transporte. É por causa dessa última regra que `stdio_client(...)`, `streamable_http_client(...)` e `sse_client(...)` se encaixam todos no mesmo lugar, e que você pode escrever o seu próprio.
 
 ## Recapitulando {#recap}
 
-* `Client(mcp)` (o objeto do servidor) conecta em memória. Use para testes e para embutir.
 * `Client("http://.../mcp")` (uma URL) conecta por Streamable HTTP, o transporte de produção.
 * Headers, auth, proxies e timeouts pertencem a um `httpx2.AsyncClient` que você passa a `streamable_http_client(url, http_client=...)`. Não existe o argumento `headers=`.
+* Redirecionamentos só são seguidos dentro da própria origem da URL (um `307`/`308` de barra final), mais `http`→`https` no mesmo host. Qualquer outra coisa falha com `Redirect to … not followed`; configure a URL final.
 * stdio é `Client(StdioServerParameters(...))`. Envolva-o em `stdio_client(...)` você mesmo apenas para redirecionar o stderr do processo filho.
 * O subprocesso recebe um ambiente em allow-list, não o seu; `env=` acrescenta a ele.
+* `Client(mcp)` (o objeto do servidor) conecta em memória. Use em testes, ou para embutir um servidor na aplicação que o construiu.
 * Um transporte é qualquer coisa com que você possa fazer `async with x as (read, write)`. `Client` entrega direto a esse protocolo tudo que não for um objeto de servidor, uma URL ou um `StdioServerParameters`.
 * Construir um `Client` escolhe o transporte. `async with` o abre.
 

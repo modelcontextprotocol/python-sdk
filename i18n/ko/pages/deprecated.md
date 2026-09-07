@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # 지원 중단 예정 기능 {#deprecated-features}
 
-2026-07-28 사양은 다섯 가지를 퇴역시킵니다. SDK는 여전히 이 다섯 가지를 모두 구현하며, 이제 모두에 **지원 중단 예정(deprecated) 경고**가 붙습니다. SDK 헬퍼 하나는 별도의 이유로 지원 중단 예정이며 [페이지 끝](#deprecated-sdk-helpers)에 정리되어 있습니다.
+2026-07-28 사양은 다섯 가지를 퇴역시킵니다. SDK는 여전히 이 다섯 가지를 모두 구현하며, 이제 모두에 **지원 중단 예정(deprecated) 경고**가 붙습니다. 몇 가지 SDK 수준의 지원 중단 예정 항목은 사양과 별개의 이유로 지정된 것으로, [페이지 끝](#deprecated-sdk-helpers)에 정리되어 있습니다.
 
 아래 표는 지원 중단 예정인 각 기능의 이름, 사라지는 이유, 그리고 대신 사용할 대체 수단을 정리한 것입니다.
 
@@ -136,11 +136,13 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 
 ## 지원 중단 예정 SDK 헬퍼 {#deprecated-sdk-helpers}
 
-이것은 사양 변경이 아니라 더 나은 대체 수단이 있는 SDK 내부 구현일 뿐입니다. 같은 `MCPDeprecationWarning`으로 경고하며 3.0에서 제거됩니다.
+이것은 사양 변경이 아니라 더 나은 대체 수단이 있는 SDK 사용 방식일 뿐입니다. 같은 `MCPDeprecationWarning`으로 경고하며, 3.0에서 기존 형태가 제거됩니다.
 
 | 지원 중단 예정 | 대신 할 일 |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()`를 호출한 뒤 `FuncMetadata.call_fn()`을 호출하세요. `FuncMetadata`를 직접 다루는 코드(예를 들어 사용자 정의 `Tool` 하위 클래스)만 이 메서드를 호출했습니다. |
+| `validate_token_resource=` 없이 쓰는 `AuthSettings(resource_server_url=...)` | 값을 지정하세요. `True`로 설정하면 검증기가 `resource_server_url`용으로 발급되었다고 보고하지 않는 베어러 토큰을 서버가 거부하고, `False`는 검증기가 토큰의 대상(audience)을 직접 확인한다는 뜻입니다(**[인가](run/authorization.md#a-token-verifier)** 참고). 지정하지 않으면 `False`처럼 동작하며, 3.0부터는 `resource_server_url`이 설정되어 있으면 `True`가 기본값이 됩니다. |
+| `issuer=` 없이 쓰는 `ClientCredentialsOAuthProvider(...)` 또는 `PrivateKeyJWTOAuthProvider(...)` | 자격 증명을 발급한 인가 서버를 지정하는 `issuer=`를 전달하세요(**[OAuth 클라이언트 작성하기](client/oauth-clients.md#machine-to-machine)** 참고). 이 값이 없으면 어느 인가 서버가 자격 증명을 받을지를 MCP 서버가 결정하게 됩니다. 3.0부터는 이 키워드가 필수입니다. |
 
 ## 요약 {#recap}
 
@@ -149,7 +151,7 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 * 지원 중단 예정은 권고 사항입니다. 와이어 변경은 없고, 2026년 이전 세션에서는 모든 것이 계속 동작하며, 눈에 띄는 `MCPDeprecationWarning`이 나옵니다(`UserWarning`이므로 기본적으로 켜져 있습니다).
 * 샘플링과 루트는 추가로 2026-07-28 세션에는 없는 백채널이 필요합니다. 최신 연결에서는 경고를 낸 뒤 예외를 발생시킵니다.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)`은 카테고리 전체를 끄고, pytest의 `"error::mcp.MCPDeprecationWarning"`은 이를 테스트 실패로 바꿉니다.
-* SDK 헬퍼 하나인 `FuncMetadata.call_fn_with_arg_validation()`은 별도로 지원 중단 예정이며 3.0에서 제거됩니다.
+* [SDK 수준의 지원 중단 예정 항목](#deprecated-sdk-helpers)도 같은 규칙을 따릅니다. 지금은 경고를 내고, 3.0에서 기존 형태가 제거됩니다.
 * 새 코드는 이 기능 중 어느 것에도 기반해서는 안 됩니다.
 
 이 문서의 다른 모든 페이지는 현재 API를 설명합니다.

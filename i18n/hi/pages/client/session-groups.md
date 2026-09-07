@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, d18adbdbb835ea73]
+  sections: [09c857a25a9dc37a, 43bc6a76a243a50e, 0a716022a88768df, 4b7f78042bfcfff7, c112662e61b03315, 58974ba1f489a8b4, ed4d17e894864056]
   tool: 1
 ---
 # Session groups {#session-groups}
@@ -78,7 +78,7 @@ translation:
 ## सारांश {#recap}
 
 * `ClientSessionGroup` कई server connections रखता है और उनके tools, resources और prompts को एक-एक `dict` में मिला देता है।
-* हर server के लिए `connect_to_server(params)`। यह transport parameters लेता है, कभी वह server object या URL नहीं जो `Client` लेता है।
+* हर server के लिए `connect_to_server(params)`। यह transport parameters लेता है, कभी वह URL या `Transport` नहीं जो `Client` लेता है।
 * `group.call_tool(name, arguments)` आपके लिए call को उस server तक पहुँचाता है जिसका वह tool है।
 * नाम पूरे group में unique होने ज़रूरी हैं; `search` tool वाले दो servers अपने आप साथ नहीं रह सकते।
 * `component_name_hook=` हर register किए गए नाम को फिर से लिखता है। dict key बदलती है, wire पर जाने वाला नाम नहीं।

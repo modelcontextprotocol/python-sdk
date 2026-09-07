@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [28221886b198784f, f88ea1f1614f3a1d, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, e758745df6fb7b0a]
+  sections: [28221886b198784f, f88ea1f1614f3a1d, 2e76f5cb9df15042, ce926d686730b6d0, 3be24f8ad8bb5ab9, 3fad24032b2224ff, f25a7f860e579ecb, 697b01d95080880d]
   tool: 1
 ---
 # 部署與擴展 {#deploy-scale}
@@ -41,6 +41,22 @@ translation:
     ```
 
     在用戶端找不到這幾個字。`421` 是純文字的 HTTP 回應，不是 JSON-RPC 錯誤，所以 MCP 用戶端只會引發一個籠統的傳輸錯誤；它不喜歡的主機名稱只會出現在**伺服器**的記錄裡，就一則警告。剛部署好卻拒絕所有連線的伺服器，在證明是別的原因之前，就是 Host 允許清單的問題。**[疑難排解](../troubleshooting.md)** 也從這裡開始。
+
+## 在終止 TLS 的代理後面 {#behind-a-tls-terminating-proxy}
+
+如果 TLS 在代理（ingress、負載平衡器、Caddy、nginx）就結束，uvicorn 在它後面提供純 HTTP，就告訴 uvicorn 信任代理的 `X-Forwarded-*` 標頭：
+
+```console
+uvicorn server:app --proxy-headers --forwarded-allow-ips='<proxy address>'
+```
+
+不這麼做的話，應用程式會以為自己是透過 `http://` 提供服務，它發出的任何重新導向（常見的是 `/mcp` → `/mcp/`）都會指向 `http://…`。Python 用戶端拒絕從 HTTPS 端點跟到純 HTTP，而且會明說：
+
+```text
+MCPError: Redirect to http://mcp.example.com/mcp/ not followed: it would downgrade this HTTPS endpoint to plain HTTP.
+```
+
+用戶端的權宜之計是設定伺服器實際提供服務的精確 URL（`https://mcp.example.com/mcp/`，含結尾斜線），讓重新導向根本不發生。正解是上面那個旗標。`FORWARDED_ALLOW_IPS` 是環境變數的寫法；`*` 會信任每一跳，只有在除了代理之外沒有東西碰得到 uvicorn 時才正確。
 
 ## Worker，以及誰需要黏性 {#workers-and-who-has-to-be-sticky}
 
@@ -154,6 +170,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ## 重點回顧 {#recap}
 
 * 預設情況下，這個應用程式只回應送往 localhost 的請求。`transport_security=TransportSecuritySettings(allowed_hosts=[...], allowed_origins=[...])` 是上線的關卡：在傳入它之前，真正主機名稱後面的每個請求都是 `421`，原因只在伺服器記錄裡。
+* 在終止 TLS 的代理後面，用 `--proxy-headers --forwarded-allow-ips=...` 執行 uvicorn，否則它的重新導向會指向 `http://`，用戶端會拒絕跟隨。
 * 在 2026-07-28 上沒有工作階段，負載平衡器也沒有東西可黏。`stateless_http=True` 是只給舊版用的開關，因為現代請求在那個旗標被讀到之前就已經分流並回應了。
 * 預設的 `requestState` 金鑰是 `os.urandom(32)`，每個處理程序各自鑄造。送到不同 worker 的多輪往返重試會以 `-32602`「Invalid or expired requestState」失敗。
 * 解法是 `RequestStateSecurity(keys=[...])` **加上**每個執行個體相同的伺服器名稱。名稱是權杖預設的 audience 宣告。相同的金鑰，相同的名稱。

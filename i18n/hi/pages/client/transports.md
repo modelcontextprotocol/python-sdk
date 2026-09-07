@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9cac816674181eb0, 0700f337babcd4dd, 2bde0dd58cdf00f5, 40b4916d82eaf1d4, 3d0832f39b0d7059, dfa4446556badef0, 5bd93be2ab2ecb9c]
+  sections: [9cac816674181eb0, 7c157764133fea1f, 40b4916d82eaf1d4, 10d151f2cc75317f, 3d0832f39b0d7059, 92742ba36533633d, 0aeca6145e7bd302]
   tool: 1
 ---
 # Client transports {#client-transports}
@@ -11,30 +11,15 @@ translation:
 
 हर transport का **server** वाला पक्ष (`mcp.run()` क्या करता है और आप क्या deploy करते हैं) **[अपना server चलाना](../run/index.md)** में है।
 
-## Memory में {#in-memory}
-
-server object ही पास करें:
-
-```python title="client.py" hl_lines="14"
---8<-- "docs_src/client_transports/tutorial001.py"
-```
-
-न कोई subprocess, न कोई port, न wire पर कोई bytes। client और server एक ही process में दो objects हैं, और call फिर भी असली protocol layer से होकर जाती है: `search_books` ठीक वैसे ही list, validate और invoke होता है जैसे HTTP पर होता।
-
-इससे यह एक साथ दो काम करता है:
-
-* **Test harness।** इस documentation का हर उदाहरण इसी तरीके से चलाया जाता है, और **[Testing](../get-started/testing.md)** page पूरा pattern इसी के इर्द-गिर्द बनाता है।
-* **Embedding API।** जो application खुद server बनाता है, उसे उसके tools call करने के लिए network hop की ज़रूरत नहीं।
-
 ## Streamable HTTP {#streamable-http}
 
-URL string पास करें और आपको **Streamable HTTP** मिलता है, वह transport जिसके पीछे आप deploy करते हैं:
+URL string पास करें और आपको **Streamable HTTP** मिलता है, वह transport जिसके पीछे आप deploy करते हैं और जिसे सबसे पहले चुनना चाहिए:
 
 ```python title="client.py" hl_lines="5"
 --8<-- "docs_src/client_transports/tutorial002.py"
 ```
 
-पूरा production client बस इतना ही है। `Client` आपके लिए URL को `streamable_http_client(...)` में लपेट देता है, एक `httpx2.AsyncClient` के ऊपर जो MCP की ज़रूरत के हिसाब से configure किया गया है: `follow_redirects=True`, connect/write/pool के लिए 30 सेकंड का timeout, और 300 सेकंड का read timeout, क्योंकि server response stream को खुला रख सकता है।
+पूरा production client बस इतना ही है। `Client` आपके लिए URL को `streamable_http_client(...)` में लपेट देता है, एक `httpx2.AsyncClient` के ऊपर जो MCP की ज़रूरत के हिसाब से configure किया गया है: connect/write/pool के लिए 30 सेकंड का timeout, और 300 सेकंड का read timeout, क्योंकि server response stream को खुला रख सकता है।
 
 !!! check
     जो `Client` आपने बनाया है वह connected **नहीं** है। बनाने से सिर्फ़ transport चुना जाता है;
@@ -50,7 +35,7 @@ URL string पास करें और आपको **Streamable HTTP** मि
 
 जैसे ही आपको `Authorization` header, cookie, proxy, mTLS या कोई अलग timeout चाहिए, `httpx2.AsyncClient` खुद बनाएँ और उसे `streamable_http_client` को दें:
 
-```python title="client.py" hl_lines="8-14"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client_transports/tutorial003.py"
 ```
 
@@ -80,8 +65,29 @@ environment variables set करें या अपने `httpx2.AsyncClient` 
 !!! info
     `httpx2` जाना-पहचाना `httpx` API ही रखता है, इसलिए अगर आप `httpx` जानते हैं तो यहाँ auth,
     proxies, event hooks, retries और connection limits कैसे करने हैं, यह आप पहले से जानते हैं। SDK न ऊपर से कुछ जोड़ता है, न कुछ
-    हटाता है। OAuth भी यहीं जुड़ता है:
+    हटाता है, सिवाय [redirect handling](#redirects) के। OAuth भी यहीं जुड़ता है:
     `httpx2.AsyncClient(auth=OAuthClientProvider(...))`। वह पूरा flow **[OAuth clients](oauth-clients.md)** में है।
+
+### Redirects {#redirects}
+
+transport उसी URL से जुड़ता है जो आपने दिया, और सिर्फ़ उसी origin से।
+
+* जो `307`/`308` redirect उसी scheme, host और port पर रहता है, उसे follow किया जाता है, और उसी host पर `http://` → `https://` को भी। आम `/mcp` → `/mcp/` वाला trailing-slash redirect इसी में आ जाता है।
+* कहीं और जाने वाला redirect follow **नहीं** किया जाता। call इस error के साथ fail होती है:
+
+    ```text
+    MCPError: Redirect to https://other.example.com/mcp not followed; use that URL as the endpoint if it is the intended server
+    ```
+
+    अगर वह URL वही server है जो आप चाहते थे, तो उसे अपने config में डालें। अगर नहीं, तो server या उसके आगे लगा कोई proxy गलत configure है।
+
+यह आपके पास किए गए किसी भी `httpx2.AsyncClient` पर लागू होता है: MCP requests के लिए उसकी `follow_redirects` setting नहीं देखी जाती, किसी भी दिशा में। SDK के OAuth providers अपनी requests पर यही नियम लागू करते हैं।
+
+!!! tip
+    `Redirect to http://… not followed: it would downgrade this HTTPS endpoint to plain HTTP` का मतलब है कि
+    server किसी ऐसे TLS-terminating proxy के पीछे है जिसके बारे में उसे पता नहीं, और वह `http://` redirects जारी कर रहा है।
+    इसे server पर ठीक किया जाता है (**[Deploy & scale](../run/deploy.md#behind-a-tls-terminating-proxy)**),
+    या ठीक वही `https://…/` URL इस्तेमाल करके जो message सुझाता है।
 
 ## stdio {#stdio}
 
@@ -105,6 +111,18 @@ child का stderr आपके stderr पर जाता है। उसे 
     जिस server को API key चाहिए, उसे वह वहाँ नहीं मिलेगी। उसे `env=` से explicitly पास करें; वे
     variables allow-list के ऊपर merge हो जाते हैं। ऊपर `BOOKSHOP_API_KEY` यही कर रहा है।
 
+## Memory में {#in-memory}
+
+test में न कुछ deploy करना है, न कुछ launch करना। server object ही पास करें:
+
+```python hl_lines="14"
+--8<-- "docs_src/client_transports/tutorial001.py"
+```
+
+न कोई subprocess, न कोई port, न wire पर कोई bytes। client और server एक ही process में दो objects हैं, और call फिर भी असली protocol layer से होकर जाती है: `search_books` ठीक वैसे ही list, validate और invoke होता है जैसे HTTP पर होता। **[Testing](../get-started/testing.md)** पूरा pattern इसी के इर्द-गिर्द बनाता है।
+
+यही रूप embedding API का काम भी करता है: जो application खुद server बनाता है, वह बिना network hop के उसके tools call कर सकता है।
+
 ## SSE {#sse}
 
 `mcp.client.sse` का `sse_client(url)` वह HTTP transport है जिसकी जगह Streamable HTTP ने ली। जो server अब भी इसे बोलता है, उससे बात करने के लिए इसे उसी तरह wrap करें, `Client(sse_client("http://localhost:8000/sse"))`, और इस पर कुछ नया न बनाएँ।
@@ -113,15 +131,16 @@ child का stderr आपके stderr पर जाता है। उसे 
 
 `Client` के लिए ऊपर की सभी चीज़ें एक ही हैं।
 
-**transport** कोई भी async context manager है जो message streams का `(read, write)` जोड़ा yield करता है: औपचारिक रूप से, `mcp.client` का `Transport` protocol। `Client` अपने argument को type से resolve करता है: server object in-process जुड़ता है, `str` `streamable_http_client(url)` बन जाता है, `StdioServerParameters` `stdio_client(params)` बन जाता है, और बाकी सब कुछ सीधे transport के रूप में enter किया जाता है। यही आख़िरी नियम वजह है कि `stdio_client(...)`, `streamable_http_client(...)` और `sse_client(...)` सब उसी एक slot में बैठते हैं, और यही वजह है कि आप अपना खुद का भी लिख सकते हैं।
+**transport** कोई भी async context manager है जो message streams का `(read, write)` जोड़ा yield करता है: औपचारिक रूप से, `mcp.client` का `Transport` protocol। `Client` अपने argument को type से resolve करता है: `str` `streamable_http_client(url)` बन जाता है, `StdioServerParameters` `stdio_client(params)` बन जाता है, server object in-process जुड़ता है, और बाकी सब कुछ सीधे transport के रूप में enter किया जाता है। यही आख़िरी नियम वजह है कि `stdio_client(...)`, `streamable_http_client(...)` और `sse_client(...)` सब उसी एक slot में बैठते हैं, और यही वजह है कि आप अपना खुद का भी लिख सकते हैं।
 
 ## सारांश {#recap}
 
-* `Client(mcp)` (server object) memory में जुड़ता है। इसे tests और embedding के लिए इस्तेमाल करें।
 * `Client("http://.../mcp")` (URL) Streamable HTTP पर जुड़ता है, जो production transport है।
 * Headers, auth, proxies और timeouts उस `httpx2.AsyncClient` पर होने चाहिए जो आप `streamable_http_client(url, http_client=...)` को पास करते हैं। कोई `headers=` keyword नहीं है।
+* Redirects सिर्फ़ URL के अपने origin के भीतर follow होते हैं (trailing-slash वाला `307`/`308`), और उसी host पर `http`→`https`। बाकी सब `Redirect to … not followed` के साथ fail होता है; final URL configure करें।
 * stdio है `Client(StdioServerParameters(...))`। इसे खुद `stdio_client(...)` में सिर्फ़ तब wrap करें जब child का stderr कहीं और भेजना हो।
 * subprocess को allow-list वाला environment मिलता है, आपका नहीं; `env=` उसमें जोड़ता है।
+* `Client(mcp)` (server object) memory में जुड़ता है। इसे tests में इस्तेमाल करें, या server को उसी application में embed करने के लिए जिसने उसे बनाया।
 * transport वह हर चीज़ है जिस पर आप `async with x as (read, write)` कर सकें। जो कुछ server object, URL या `StdioServerParameters` नहीं है, `Client` उसे सीधे उसी protocol को सौंप देता है।
 * `Client` बनाने से transport चुना जाता है। `async with` उसे खोलता है।
 

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
   tool: 1
 ---
 # İlerleme {#progress}
@@ -29,11 +29,9 @@ Bir **`Context`** parametresi alın ve `report_progress`'i çağırın:
 
 İstemci, `call_tool`'a `progress_callback=` geçirerek **çağrı başına** dahil olur:
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -41,7 +39,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -56,28 +54,31 @@ anyio.run(main)
 Callback, sunucunun bildirdiklerini olduğu gibi alan `async` bir fonksiyondur: `progress`, `total`, `message`.
 
 !!! info
-    `Client(mcp)` doğrudan sunucu nesnesine, bellek içinde bağlanır; **[Test etme](../get-started/testing.md)**
-    sayfasının üzerine kurulduğu istemcinin aynısıdır. `Client` hangi aktarımı kullanırsa kullansın
-    `progress_callback` aynı parametredir; birazdan göreceğiniz *zamanlama* ise bellek içi bağlantıya
-    özgüdür. Bu bağlantı callback'inizi satır içinde çalıştırır, bu yüzden her bildirim `call_tool`
-    dönmeden önce ulaşır. Gerçek bir aktarım üzerinde bildirimler sonuçla yarışır ve yavaş bir callback,
-    `call_tool` döndükten sonra hâlâ çalışıyor olabilir.
+    `Client`'a ne verirseniz verin `progress_callback` aynı parametredir: buradaki gibi bir URL, bir
+    `StdioServerParameters` ya da testteki sunucu nesnesi. Yine de gerçek bir aktarım üzerinde
+    zamanlamaya dikkat edin. Her bildirim yanıtın yanında, kendi başına iletilir; bu yüzden yavaş bir
+    callback, `call_tool` döndükten sonra hâlâ çalışıyor olabilir. Yalnızca süreç içi test bağlantısı
+    callback'i satır içinde çalıştırır ve her bildirimin önce ulaşmasını garanti eder.
 
 ### Deneyin {#try-it}
 
-`client.py` dosyasını `server.py` dosyasının yanına koyun ve çalıştırın:
+`server.py` dosyasını HTTP üzerinden sunun, ardından istemciyi ikinci bir terminalden çalıştırın:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-Sunucudaki her `await ctx.report_progress(...)`, istemcide sırasıyla bir `show` çağrısına dönüştü ve her iki satır da `call_tool` dönmeden **önce** yazdırıldı. İlerleme sonucun içine paketlenmez; araç hâlâ çalışırken akar.
+Sunucudaki her `await ctx.report_progress(...)`, istemcide sırasıyla bir `show` çağrısına dönüştü. İlerleme sonucun içine paketlenmez. Araç hâlâ çalışırken akar.
 
 !!! warning
     `progress_callback` `Client`'a değil, **çağrıya** aittir. Bunun için bir kurucu argümanı yoktur,

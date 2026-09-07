@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
   tool: 1
 ---
 # Ход выполнения {#progress}
@@ -29,11 +29,9 @@ translation:
 
 Клиент подписывается **на каждый вызов отдельно**, передавая `progress_callback=` в `call_tool`:
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -41,7 +39,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -56,29 +54,32 @@ anyio.run(main)
 Колбэк — это `async`-функция, принимающая ровно то, что сообщил сервер: `progress`, `total`, `message`.
 
 !!! info
-    `Client(mcp)` подключается напрямую к объекту сервера, в памяти, — это тот же клиент, на котором
-    построена страница **[Тестирование](../get-started/testing.md)**. Параметр `progress_callback` один
-    и тот же, какой бы транспорт ни использовал `Client`; а вот *временны́е характеристики*, которые вы
-    сейчас увидите, относятся к подключению в памяти. Оно выполняет колбэк прямо на месте, поэтому
-    каждый отчёт приходит до того, как `call_tool` вернёт управление. По настоящему транспорту
-    уведомления соревнуются с результатом, и медленный колбэк может всё ещё работать после того, как
-    `call_tool` уже вернул управление.
+    Параметр `progress_callback` один и тот же, что бы вы ни передали в `Client`: URL, как здесь,
+    `StdioServerParameters` или объект сервера в тесте. Но по настоящему транспорту учитывайте
+    временны́е характеристики. Каждое уведомление доставляется само по себе, отдельно от ответа, поэтому
+    медленный колбэк может всё ещё работать после того, как `call_tool` уже вернул управление. Только
+    внутрипроцессное тестовое подключение выполняет колбэк прямо на месте и гарантирует, что каждый
+    отчёт придёт раньше результата.
 
 ### Попробуйте сами {#try-it}
 
-Положите `client.py` рядом с `server.py` и запустите:
+Запустите `server.py` по HTTP, затем из второго терминала запустите клиент:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-Каждый `await ctx.report_progress(...)` на сервере превратился в один вызов `show` на клиенте, в том же порядке, и обе строки напечатались **до** того, как `call_tool` вернул управление. Ход выполнения не упаковывается в результат: он передаётся потоком, пока инструмент ещё работает.
+Каждый `await ctx.report_progress(...)` на сервере превратился в один вызов `show` на клиенте, в том же порядке. Ход выполнения не упаковывается в результат. Он передаётся потоком, пока инструмент ещё работает.
 
 !!! warning
     `progress_callback` относится к **вызову**, а не к `Client`. Аргумента конструктора для него нет,

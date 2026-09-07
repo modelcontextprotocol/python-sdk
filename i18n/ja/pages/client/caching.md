@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # キャッシュヒント {#caching-hints}
@@ -27,7 +27,7 @@ translation:
 
 低レベルの `Server` では、ハンドラーが結果を手作業で組み立てます。`ttl_ms` と `cache_scope` は結果モデルの単なるフィールドです。これらを明示的に設定したハンドラーは、フィールド単位で常にコンストラクターのマップより優先されます。
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -41,9 +41,23 @@ translation:
 
 2026-07-28 のセッションでは、`Client` がヒントに自動で従います。組み込みのレスポンスキャッシュがあり、デフォルトで有効です。`ttlMs` を持って届いた結果は保存され、その TTL 内に同一の呼び出しがあれば、ラウンドトリップなしでキャッシュから返されます。ヒントを「持たない」結果はキャッシュされません。ヒントのない結果には `CacheConfig.default_ttl_ms` が適用され、そのデフォルトは `0`（すぐに古くなる）です。そのため、何も宣言しないサーバーには、これまでとまったく同じ呼び出しごとのトラフィックが届きます。
 
-```python title="client.py" hl_lines="33 35 38"
+これが起こる様子を見るには、前のセクションの `server.py` を uvicorn で起動してください（最後の行が ASGI アプリを組み立てています）。ハンドラーは実際に実行されるたびに 1 行出力します。
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+2 つ目のターミナルから `python client.py` を実行してください。最初の結果が持っていたヒント、つまりハンドラーの `ttlMs` とマップの `cacheScope` が並んで出力されます。
+
+```text
+1000 public
+```
+
+残りはサーバー側のターミナルを見ればわかります。uvicorn のリクエストログの合間に、`tools/list served` が 3 回現れます。
 
 呼び出し 4 回、取得 3 回です。2 回目の呼び出しは新鮮なエントリーを見つけ、サーバーに到達しませんでした。（注入した）クロックを TTL の先へ進めたことで、3 回目は再び取得しました。4 回目は `cache_mode="refresh"` を指定しています。このキーワード引数はキャッシュ対象の 5 つのメソッド（`list_tools`、`list_prompts`、`list_resources`、`list_resource_templates`、`read_resource`）にあります。
 
@@ -53,7 +67,7 @@ translation:
 
 `"use"` より上位にルールが 1 つあります。**`meta` を持つ呼び出しは必ずサーバーに到達します。**`meta` を設定したリクエスト（進捗トークンやトレーシング用フィールドなど）は実際のリクエスト送信を前提にしているため、`cache_mode="use"` では `"refresh"` として扱われます。キャッシュの読み込みは省略され、取得した結果は引き続きキャッシュのエントリーを置き換えます。`"bypass"` と明示的な `"refresh"` はいつもどおりに動作します。
 
-キャッシュを完全に無効にするには、`Client(server, cache=None)` で構築してください。すべての呼び出しが再びラウンドトリップになり、`cache_mode` は受け付けられるものの何もしません。
+キャッシュを完全に無効にするには、`Client` の構築時に `cache=None` を渡してください。すべての呼び出しが再びラウンドトリップになり、`cache_mode` は受け付けられるものの何もしません。
 
 スコープも自動的に尊重されます。`"private"` のエントリーはキャッシュの「パーティション」（後述）をキーにし、`"public"` のエントリーはより広い共有を選べます。そして、名指しされたエントリーについては**通知が TTL に勝ちます**。`list_changed` 通知は対応するキャッシュ済みの一覧を破棄し、`resources/updated` はその URI と完全に一致するキーで保存されたキャッシュ済みの読み込み結果を、どれだけ新鮮でも破棄します。2026-07-28 の接続では、これらの通知は `client.listen(...)` で開く `subscriptions/listen` ストリームに届き、破棄はウォッチャーがイベントを見る前に完了します。詳しくは **[サブスクリプション](subscriptions.md)** を参照してください。
 

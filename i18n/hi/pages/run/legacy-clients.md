@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # legacy clients को serve करना {#serving-legacy-clients}
@@ -21,15 +21,25 @@ SDK हर request को उसके `MCP-Protocol-Version` header के ह�
 
 ## एक handler, दोनों पीढ़ियाँ {#one-handler-both-eras}
 
-यह रहा एक tool जिसे user से कुछ पूछना है, और दोनों पीढ़ियों के client जो उसे call कर रहे हैं:
+यह रहा एक tool जिसे user से कुछ पूछना है:
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve` को एक चीज़ चाहिए जो model ने नहीं दी: कितनी copies। tool यह बात `Annotated[..., Resolve(ask_quantity)]` से declare करता है (पूरी जानकारी **[Dependencies](../handlers/dependencies.md)** में है)। `reserve` में कहीं भी न किसी version का नाम है, न capability की जाँच, न कोई branch।
 
-दोनों clients **एक ही समय पर** खुले हैं, उसी `mcp` object पर। `mode="legacy"` `initialize` handshake चलाता है: ठीक वही connection जो 2026 से पहले का client खोलता है। दूसरा client default लेता है और `2026-07-28` पर पहुँचता है।
+इसे HTTP पर serve करें, और ये रहे दोनों पीढ़ियों के client जो इसे call कर रहे हैं:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+दोनों clients **एक ही समय पर** खुले हैं, उसी चल रहे server पर। `mode="legacy"` `initialize` handshake चलाता है: ठीक वही connection जो 2026 से पहले का client खोलता है। दूसरा client default लेता है और `2026-07-28` पर पहुँचता है। दूसरे terminal से `python client.py` चलाएँ:
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -61,6 +71,40 @@ routing मुफ़्त है। session नहीं।
     client को छूटे हुए SSE events फिर से भेजना), session store नहीं। यह कभी किसी session को
     दूसरे process से पहुँच लायक नहीं बनाता।
 
+## session की उम्र और सीमाएँ {#session-lifetime-and-limits}
+
+legacy session हमेशा के लिए नहीं जीता, और एक process अनगिनत sessions नहीं रखता।
+इसे दो settings नियंत्रित करती हैं। दोनों `run()`, `streamable_http_app()`
+और `Server.streamable_http_app()` पर keyword arguments हैं। modern (`2026-07-28`) connections और `stateless_http=True`
+में sessions होते ही नहीं, इसलिए दोनों में से कोई setting उन पर लागू नहीं होती।
+
+| Setting | Default | यह क्या करती है | client को क्या दिखता है | बंद करने के लिए |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800` (30 मिनट) | ऐसे session को बंद कर देती है जिसमें इतनी देर से कुछ in flight न रहा हो। | `404 Session not found`। उसे फिर से `initialize` करना पड़ता है। | `None` |
+| `max_sessions` | `10_000` | इतने से ज़्यादा होने पर नया session खोलने से मना कर देती है। मौजूदा sessions अछूते रहते हैं और कुछ भी evict नहीं होता। | `503 Too many open sessions`, JSON-RPC code `-32603` के साथ। | `None` |
+
+"in flight" किसे माना जाता है:
+
+* खुला `GET` stream। SDK के clients एक खुला रखते हैं, इसलिए जुड़े हुए client का session कभी
+  expire नहीं होता।
+* ऐसी request जिसका जवाब अभी दिया जा रहा है। timeout से ज़्यादा देर चलने वाला tool call बीच में
+  नहीं रोका जाता, और उलटी गिनती उसके खत्म होने पर ही शुरू होती है।
+* और कुछ नहीं। requests के बीच घड़ी चलती रहती है। session पर आई कोई भी request उसे फिर से शुरू कर देती है,
+  `ping` भी। एक बार session expire हो जाए, तो उसे कुछ भी वापस नहीं लाता।
+
+जो client अपना session `DELETE` से खत्म करता है, वह उसे तुरंत खाली कर देता है। जिस client की
+पहली request मना कर दी गई हो, उसके साथ भी यही होता है।
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+दोनों घटनाएँ server log में दिखती हैं। expiry `INFO` पर `Session <id> idle timeout` के रूप में दिखती है।
+मना किया गया open `WARNING` पर `Refusing to open a new session: <n> sessions are already open` के रूप में।
+
+सीमाएँ हर process की अपनी हैं। चार workers के साथ ऊपरी सीमा `max_sessions` की चार गुना है, और हर
+worker अपने sessions खुद expire करता है।
+
 ## इकलौता switch: `stateless_http` {#the-one-knob-stateless_http}
 
 अगर stickiness ऐसी कीमत है जो आप चुकाना नहीं चाहते, तो ठीक एक चीज़ है जो आप बदल सकते हैं।
@@ -86,7 +130,7 @@ routing मुफ़्त है। session नहीं।
 
 !!! check
     जानबूझकर गलत काम करें। `reserve` ठीक वही tool है जिसने अभी दोनों clients को serve किया। इसे
-    `stateless_http=True` के साथ deploy करें, वही दो clients HTTP पर जोड़ें, और हर एक से इसे call करें।
+    `stateless_http=True` के साथ deploy करें, वही दो clients जोड़ें, और हर एक से इसे call करें।
 
     modern client को अब भी `Reserved 2 of 'Dune'.` मिलता है। modern हिस्सा नहीं बदला।
 

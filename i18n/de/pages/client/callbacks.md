@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # Client-Callbacks {#client-callbacks}
@@ -63,7 +63,7 @@ Ein `tools/call` von dir, ein `elicitation/create` zurück vom Server, beantwort
     `mode="legacy"` im `Client(...)`-Aufruf leistet echte Arbeit. Standardmäßig handelt `Client(...)` den modernen
     Protokollpfad aus, und dieser Pfad hat keinen Rückkanal (back-channel) für Requests vom Server an den Client: `ctx.elicit`
     schlägt fehl, bevor dein Callback überhaupt läuft. Das entscheidet nicht der Transport, sondern das ausgehandelte
-    Protokoll – in-memory genauso wie über eine URL. Setze `mode="legacy"` fest, wann immer dein Client
+    Protokoll. Setze `mode="legacy"` fest, wann immer dein Client
     einen solchen Request beantworten muss; jeder Test hinter dieser Seite tut das. Alles Weitere steht in **[Protokollversionen](../protocol-versions.md)**.
 
     In einer 2026-07-28-Session ist der Callback nicht tot, er wird nur anders gespeist: Gibt ein Tool ein
@@ -151,4 +151,4 @@ Zwei weitere. Keiner deklariert etwas.
 * `sampling_callback` und `list_roots_callback` funktionieren genauso, bedienen aber veraltete Features; moderne Server verwenden stattdessen Multi-Roundtrip-Requests.
 * `logging_callback` und `message_handler` empfangen Benachrichtigungen. Sie deklarieren nichts.
 
-Das erste Argument von `Client(...)` ist ein Transport-Objekt. **[Client-Transporte](transports.md)** behandelt jede Art davon.
+Das erste Argument von `Client(...)` wählt den Transport. **[Client-Transporte](transports.md)** behandelt jede Art davon.

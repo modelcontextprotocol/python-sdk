@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # Executando seu servidor {#running-your-server}
@@ -75,6 +75,11 @@ Cada transporte tem seus próprios argumentos nomeados, todos em `run()`:
 * `max_request_body_size`: maior corpo de requisição aceito, em bytes. O padrão é 4 MiB; requisições maiores
   recebem HTTP 413 antes do parsing ou da criação da sessão. Aumente apenas quando mensagens MCP legítimas
   ultrapassarem esse tamanho.
+* `session_idle_timeout`: segundos que uma sessão legada pode ficar sem nada em andamento antes de o
+  servidor fechá-la. Padrão 1800. `None` desativa. Veja
+  [Tempo de vida e limites de sessão](legacy-clients.md#session-lifetime-and-limits).
+* `max_sessions`: quantas sessões legadas um processo mantém ao mesmo tempo. Padrão 10 000. `None`
+  remove o limite. Tratado na mesma seção.
 * `event_store`, `retry_interval`, `transport_security`: retomada e proteção contra DNS rebinding. Podem esperar até você fazer o deploy em algum lugar que não seja o localhost; **[Deploy e escala](deploy.md)** cobre `transport_security`.
 
 !!! warning

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # İstemci callback'leri {#client-callbacks}
@@ -63,7 +63,7 @@ Sizden tek bir `tools/call`, sunucudan geriye tek bir `elicitation/create`, onu 
     `Client(...)` çağrısındaki `mode="legacy"` gerçekten iş yapıyor. Varsayılan olarak `Client(...)` modern
     protokol yolunu müzakere eder ve o yolda sunucudan istemciye gelen istekler için bir geri kanal (back-channel)
     yoktur: `ctx.elicit`, callback'iniz daha çalışmadan başarısız olur. Buna aktarım karar vermez; müzakere edilen
-    protokol karar verir, bellek içinde de bir URL üzerinden de aynı şekilde. İstemcinizin böyle bir isteği
+    protokol karar verir. İstemcinizin böyle bir isteği
     yanıtlaması gerektiğinde `mode="legacy"`'yi sabitleyin; bu sayfanın arkasındaki her test bunu yapar.
     Ayrıntıların tamamı **[Protokol sürümleri](../protocol-versions.md)** sayfasında.
 
@@ -152,4 +152,4 @@ Bunları `Client(...)`'a tıpkı `elicitation_callback` gibi geçirin.
 * `sampling_callback` ve `list_roots_callback` aynı şekilde çalışır ama kullanım dışı özelliklere hizmet eder; modern sunucular bunun yerine çok turlu istekler (multi-round-trip) kullanır.
 * `logging_callback` ve `message_handler` bildirimleri alır. Hiçbir şey bildirmezler.
 
-`Client(...)`'ın ilk argümanı bir aktarım nesnesidir. **[İstemci aktarımları](transports.md)** her türünü ele alır.
+`Client(...)`'ın ilk argümanı aktarımı seçer. **[İstemci aktarımları](transports.md)** her türünü ele alır.

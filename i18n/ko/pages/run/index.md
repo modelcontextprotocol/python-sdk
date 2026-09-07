@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 2fd7cf825e6d2b2c, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
+  sections: [fea8d769ff9edeba, ce8e2ad42f29ef71, 0d705efb19cf99c2, 9fd2357154a5b7e7, 9adc400e8c88e854, 318893ad8e2e9924, 6b63ab96b34476c0]
   tool: 1
 ---
 # 서버 실행하기 {#running-your-server}
@@ -75,6 +75,11 @@ Inspector는 실제 호스트가 하는 일을 그대로 합니다. `server.py`�
 * `max_request_body_size`: 허용되는 요청 본문의 최대 크기(바이트). 기본값은 4MiB이며, 더 큰 요청은
   파싱이나 세션 생성 전에 HTTP 413을 받습니다. 정상적인 MCP 메시지가 이 크기를 넘을 때만
   올리세요.
+* `session_idle_timeout`: 진행 중인 것이 아무것도 없는 상태로 레거시 세션이 머물 수 있는 시간(초)이며, 이 시간이 지나면
+  서버가 세션을 닫습니다. 기본값은 1800입니다. `None`이면 비활성화됩니다.
+  [세션 수명과 제한](legacy-clients.md#session-lifetime-and-limits)을 참고하세요.
+* `max_sessions`: 한 프로세스가 동시에 유지하는 레거시 세션의 수. 기본값은 10 000입니다. `None`이면
+  제한이 없어집니다. 같은 섹션에서 다룹니다.
 * `event_store`, `retry_interval`, `transport_security`: 재개 가능성과 DNS 리바인딩 보호. localhost가 아닌 곳에 배포하기 전까지는 미뤄도 됩니다. `transport_security`는 **[배포와 확장](deploy.md)**에서 다룹니다.
 
 !!! warning

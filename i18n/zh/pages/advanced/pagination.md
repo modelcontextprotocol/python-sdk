@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # 分页 {#pagination}
@@ -29,9 +29,13 @@ translation:
 
 ### 试一试 {#try-it}
 
-`Client(server)` 在内存中连接底层 `Server` 的方式，和连接 `MCPServer` 完全一样。
+`mcp run` 只接受 `MCPServer`，所以这个服务器得自己启动。`server.py` 的最后一行用这个 `Server` 构建出一个普通的 ASGI 应用，交给 uvicorn 运行：
 
-不带参数调用 `list_resources()`。得到十个资源，从 `book-1` 到 `book-10`，`next_cursor` 是字符串 `"10"`。
+```console
+uvicorn server:app --port 8000
+```
+
+把任意客户端（**[客户端](../client/index.md)**，或者 Inspector）指向 `http://localhost:8000/mcp`，不带参数调用 `list_resources()`。得到十个资源，从 `book-1` 到 `book-10`，`next_cursor` 是字符串 `"10"`。
 
 用 `list_resources(cursor="10")` 把它交回去，第一个资源就是 `book-11`，新的 `next_cursor` 是 `"20"`。
 
@@ -41,7 +45,7 @@ translation:
 
 `Client` 上的每个 `list_*` 方法（`list_tools`、`list_resources`、`list_resource_templates`、`list_prompts`）都接受一个 `cursor=` 关键字参数。取完一个分页列表只需要一个 `while True`：
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -49,7 +53,7 @@ translation:
 * 先 extend，**再**看 `next_cursor`：最后一页也有资源。
 * `next_cursor is None` 是出口。其他任何值都原封不动地直接塞回 `cursor=`。
 
-运行它的 `main()`，会打印 `100 resources`：十页、每页十个，由一个从头到尾都不知道有十页的循环拼在一起。
+让 uvicorn 继续运行 `server.py`，在第二个终端里运行 `python client.py`。它会打印 `100 resources`：十页、每页十个，由一个从头到尾都不知道有十页的循环拼在一起。
 
 这和 **[客户端](../client/index.md)** 为每个 `list_*` 动词展示的是同一个循环，而且面对不分页的服务器也没有任何代价：第一个响应里 `next_cursor` 就是 `None`，循环只跑一次。
 

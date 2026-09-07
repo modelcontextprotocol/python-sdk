@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK 把它作为内置的 `Apps` 扩展（`io.modelcontextprotocol/ui`）提供�
 
 ## 一个带界面的时钟 {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,11 +39,31 @@ HTML 本身监听宿主的 `postMessage` 并显示结果。真正的应用请在
 
 模型读的是 `content`；iframe 是给人看的。支持 UI 的宿主照样会把文本结果交给模型，而纯文本客户端**只**拿到那部分。所以标准模式是一个工具、两种回答。再看一遍 `get_time`：
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-只有当客户端声明了 `io.modelcontextprotocol/ui` 扩展，**并且**在其 `mimeTypes` 设置里列出了 `text/html;profile=mcp-app` 时，`client_supports_apps(ctx)` 才为 `True`。这个字段是必填的，省略它的客户端不算数。同一文件里的 `main()` 声明的正是这些：协商中客户端的那一半，于是富结果就返回了。
+只有当客户端声明了 `io.modelcontextprotocol/ui` 扩展，**并且**在其 `mimeTypes` 设置里列出了 `text/html;profile=mcp-app` 时，`client_supports_apps(ctx)` 才为 `True`。这个字段是必填的，省略它的客户端不算数。下面是协商中客户端的那一半：
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+通过 HTTP 提供 `server.py`，然后在另一个终端运行客户端：
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+返回的是富结果。从 `Client` 调用里去掉 `extensions=[APPS_SUPPORT]`，同一个程序就会改为打印 `The time is 2026-06-26T12:00:00Z.`，这也是纯文本客户端所能看到的全部。
 
 !!! warning
     绝不要把 `"[Rendered UI]"` 这样的占位符当作唯一的内容返回。如果回退文本没用，这个工具对所有纯文本客户端乃至模型本身就都没用。把那句话写出来。

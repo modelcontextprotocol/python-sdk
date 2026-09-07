@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [9e7b9a1710e5aeba, b74ca4c1d2ddddee, fa8714e61bf90c5a, 04db67a886b7271c, 857690fb8f876800]
+  sections: [9e7b9a1710e5aeba, 66a2e9acc9101d54, d3d25aa802f5145a, 04db67a886b7271c, 857690fb8f876800]
   tool: 1
 ---
 # Dicas de cache {#caching-hints}
@@ -30,7 +30,7 @@ Por padrão, todo resultado diz `ttlMs: 0, cacheScope: "private"`: obsoleto imed
 
 No `Server` de baixo nível, os handlers montam seus resultados à mão, e `ttl_ms` / `cache_scope` são apenas campos nos modelos de resultado. Um handler que os define explicitamente sempre vence o mapa do construtor, campo a campo:
 
-```python title="server.py" hl_lines="10 16"
+```python title="server.py" hl_lines="11 17"
 --8<-- "docs_src/caching/tutorial002.py"
 ```
 
@@ -44,9 +44,23 @@ Uma ressalva sobre listas paginadas: o protocolo exige o **mesmo `cacheScope` em
 
 Numa sessão 2026-07-28, o `Client` respeita as dicas por você: ele tem um cache de respostas embutido, ligado por padrão. Um resultado que chega carregando um `ttlMs` é armazenado, e uma chamada idêntica dentro desse TTL é servida do cache sem viagem de ida e volta. Um resultado que não carrega *nenhuma* dica não é armazenado: resultados sem dica recebem `CacheConfig.default_ttl_ms`, cujo padrão é `0` (obsoleto imediatamente), então um servidor que não declara nada vê exatamente o mesmo tráfego chamada a chamada de sempre.
 
-```python title="client.py" hl_lines="33 35 38"
+Para ver isso acontecer, sirva o `server.py` da seção anterior com o uvicorn (a última linha dele monta o app ASGI). O handler imprime uma linha toda vez que executa de verdade:
+
+```console
+uvicorn server:app --port 8000
+```
+
+```python title="client.py" hl_lines="20 23 28"
 --8<-- "docs_src/caching/tutorial003.py"
 ```
+
+Execute `python client.py` em um segundo terminal. Ele imprime as dicas que o primeiro resultado carregava, o `ttlMs` do handler ao lado do `cacheScope` do mapa:
+
+```text
+1000 public
+```
+
+O terminal do servidor conta o resto da história: entre os logs de requisição do uvicorn, `tools/list served` aparece três vezes.
 
 Quatro chamadas, três buscas. A segunda chamada encontrou uma entrada fresca e nunca chegou ao servidor; avançar o relógio (injetado) além do TTL fez a terceira buscar de novo; a quarta disse `cache_mode="refresh"`. Esse argumento nomeado existe nos cinco verbos com cache (`list_tools`, `list_prompts`, `list_resources`, `list_resource_templates`, `read_resource`):
 
@@ -56,7 +70,7 @@ Quatro chamadas, três buscas. A segunda chamada encontrou uma entrada fresca e 
 
 Uma regra fica acima de `"use"`: **chamadas que carregam `meta` sempre chegam ao servidor.** Uma requisição com `meta` definido (um token de progresso, campos de rastreamento) espera uma requisição no fio, então sob `cache_mode="use"` ela é tratada como `"refresh"`: a leitura do cache é pulada, e o resultado buscado ainda substitui a entrada em cache. `"bypass"` e um `"refresh"` explícito se comportam como sempre.
 
-Para desligar o cache por completo, construa com `Client(server, cache=None)`: toda chamada volta a ser uma viagem de ida e volta, e `cache_mode`, embora ainda aceito, não faz nada.
+Para desligar o cache por completo, passe `cache=None` ao construir o `Client`: toda chamada volta a ser uma viagem de ida e volta, e `cache_mode`, embora ainda aceito, não faz nada.
 
 O escopo também é respeitado automaticamente: entradas `"private"` são indexadas pela *partição* do cache (abaixo), enquanto as `"public"` podem optar por um compartilhamento mais amplo. E **notificações vencem o TTL** para as entradas exatas que nomeiam: uma notificação `list_changed` remove a listagem em cache correspondente, e `resources/updated` remove a leitura em cache armazenada sob exatamente a sua URI, por mais frescas que estivessem. Numa conexão 2026-07-28 essas notificações chegam num stream `subscriptions/listen` que você abre com `client.listen(...)`, e a remoção se completa antes de o seu observador ver o evento; **[Assinaturas](subscriptions.md)** é essa página.
 

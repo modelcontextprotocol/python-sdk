@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [a9aba7a026c7bd85, ed32bda7ba9ae33a, 7e64cc5646abb91f, 22a0129ee78b3c63, d875373c06d8d2f9]
+  sections: [a9aba7a026c7bd85, 83e2a08b9d46a398, 9fd8a0aa384b3257, 22a0129ee78b3c63, d875373c06d8d2f9]
   tool: 1
 ---
 # ページネーション {#pagination}
@@ -29,9 +29,13 @@ translation:
 
 ### 試してみる {#try-it}
 
-`Client(server)` は、`MCPServer` に接続するのとまったく同じように、低レベルの `Server` にメモリ内で接続します。
+`mcp run` は `MCPServer` しか受け付けないので、このサーバーは自分で配信します。`server.py` の最後の行で `Server` から普通の ASGI アプリを組み立てており、それを uvicorn が実行します。
 
-引数なしで `list_resources()` を呼び出してください。`book-1` から `book-10` までの 10 個のリソースが返り、`next_cursor` は文字列 `"10"` です。
+```console
+uvicorn server:app --port 8000
+```
+
+任意のクライアント（**[クライアント](../client/index.md)**、または Inspector）を `http://localhost:8000/mcp` に向け、引数なしで `list_resources()` を呼び出してください。`book-1` から `book-10` までの 10 個のリソースが返り、`next_cursor` は文字列 `"10"` です。
 
 それを `list_resources(cursor="10")` として返すと、最初のリソースは `book-11` になり、新しい `next_cursor` は `"20"` です。
 
@@ -41,7 +45,7 @@ translation:
 
 `Client` のすべての `list_*` メソッド（`list_tools`、`list_resources`、`list_resource_templates`、`list_prompts`）は `cursor=` キーワードを受け取ります。ページングされた一覧をすべて取り出すには、`while True` を 1 つ書くだけです。
 
-```python title="client.py" hl_lines="26-32"
+```python title="client.py" hl_lines="9-15"
 --8<-- "docs_src/pagination/tutorial002.py"
 ```
 
@@ -49,7 +53,7 @@ translation:
 * `next_cursor` を見る**前に** extend してください。最後のページにもリソースはあります。
 * `next_cursor is None` が出口です。それ以外はそのまま、手を加えずに `cursor=` に戻します。
 
-その `main()` を実行すると `100 resources` と表示されます。10 件ずつの 10 ページが、10 ページあることなど知らないループによってつなぎ合わされた結果です。
+uvicorn が `server.py` を配信したままの状態で、2 つ目のターミナルで `python client.py` を実行してください。`100 resources` と表示されます。10 件ずつの 10 ページが、10 ページあることなど知らないループによってつなぎ合わされた結果です。
 
 これは **[クライアント](../client/index.md)** がすべての `list_*` メソッドについて示しているのと同じループで、ページングしないサーバーに対してもコストはかかりません。最初のレスポンスで `next_cursor` が `None` になり、ループは 1 回だけ回ります。
 

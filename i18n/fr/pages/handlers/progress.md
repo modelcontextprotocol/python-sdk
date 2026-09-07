@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
   tool: 1
 ---
 # Progression {#progress}
@@ -29,11 +29,9 @@ Trois arguments, et c’est vous qui décidez de leur sens :
 
 Le client active la fonctionnalité **appel par appel**, en passant `progress_callback=` à `call_tool` :
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -41,7 +39,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -56,23 +54,27 @@ anyio.run(main)
 La fonction de rappel (callback) est une fonction `async` qui prend exactement ce que le serveur a signalé : `progress`, `total`, `message`.
 
 !!! info
-    `Client(mcp)` se connecte directement à l’objet serveur, en mémoire : c’est le même client que celui sur lequel repose la page **[Tests](../get-started/testing.md)**. `progress_callback` est le même paramètre quel que soit le transport qu’utilise le `Client` ; le *timing* que vous allez observer est celui de la connexion en mémoire. Elle exécute votre fonction de rappel de façon synchrone, si bien que chaque signalement arrive avant que `call_tool` ne renvoie. Sur un vrai transport, les notifications font la course avec le résultat, et une fonction de rappel lente peut encore être en cours d’exécution après le retour de `call_tool`.
+    `progress_callback` est le même paramètre quoi que vous ayez passé à `Client` : une URL comme ici, un `StdioServerParameters`, ou l’objet serveur dans un test. Attention toutefois au timing sur un vrai transport. Chaque notification est acheminée seule, à côté de la réponse, si bien qu’une fonction de rappel lente peut encore être en cours d’exécution après le retour de `call_tool`. Seule la connexion de test en mémoire exécute la fonction de rappel de façon synchrone et garantit que chaque signalement arrive d’abord.
 
 ### Essayer {#try-it}
 
-Placez `client.py` à côté de `server.py` et lancez-le :
+Servez `server.py` en HTTP, puis lancez le client depuis un second terminal :
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-Chaque `await ctx.report_progress(...)` côté serveur est devenu un appel à `show` côté client, dans l’ordre, et les deux lignes se sont affichées **avant** que `call_tool` ne renvoie. La progression n’est pas empaquetée dans le résultat ; elle est diffusée pendant que l’outil travaille encore.
+Chaque `await ctx.report_progress(...)` côté serveur est devenu un appel à `show` côté client, dans l’ordre. La progression n’est pas empaquetée dans le résultat. Elle est diffusée pendant que l’outil travaille encore.
 
 !!! warning
     `progress_callback` appartient à l’**appel**, pas au `Client`. Il n’existe aucun argument de constructeur pour cela, parce que des appels différents veulent des fonctions de rappel différentes : l’un pilote une barre de téléchargement, le suivant une ligne de journal.

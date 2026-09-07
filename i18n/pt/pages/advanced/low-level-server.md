@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # O Server de baixo nível {#the-low-level-server}
@@ -36,18 +36,22 @@ Três coisas mudaram, e elas são a API de baixo nível inteira:
 
 ### Experimente {#try-it}
 
-Não existe Inspector para este aqui: `mcp dev` e `mcp run` só aceitam um `MCPServer`. O `Client` em memória não se importa; ele recebe um `Server` de baixo nível exatamente como recebe um `MCPServer`:
+`mcp dev` e `mcp run` só aceitam um `MCPServer`, então este aqui você serve por conta própria. A última linha de `server.py` monta um app ASGI comum a partir dele, e o uvicorn o executa:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Aponte o Inspector, ou qualquer cliente, para `http://localhost:8000/mcp`:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -63,6 +67,8 @@ O mesmo texto que a versão com `@mcp.tool()` produziu. Duas diferenças honesta
 
 * `result.structured_content` é `None`. O servidor de alto nível encapsula um `-> str` em `{"result": ...}` para você; aqui ninguém monta o que você não montou.
 * `list_tools` retorna o schema que **você** digitou, caractere por caractere. A versão de alto nível tinha `"title": "Query"` em cada propriedade e um `"title": "search_booksArguments"` na raiz: artefatos do Pydantic. Aqui embaixo, se está no fio, foi você quem colocou lá.
+
+Em um teste você dispensa o uvicorn e a porta: `Client(server)` recebe um `Server` de baixo nível no mesmo processo exatamente como recebe um `MCPServer`, e **[Testes](../get-started/testing.md)** é esse padrão.
 
 ## Nada é verificado por você {#nothing-is-checked-for-you}
 
@@ -208,11 +214,11 @@ Cada um destes é uma ideia para a qual você já tem o vocabulário; cada um te
 ## Recapitulando {#recap}
 
 * O `Server` de baixo nível recebe os seus handlers como **parâmetros do construtor** `on_*`; todo handler é `async (ctx, params) -> result`.
-* Você escreve o dict `input_schema` e você monta o `CallToolResult`. Nada é derivado, encapsulado ou validado por você.
+* Você escreve o dict `input_schema` e você monta o `CallToolResult`. Nada é derivado, encapsulado ou validado para você.
 * Uma exceção em um handler é um erro de protocolo `-32603`. Um erro de ferramenta que o modelo consegue ler é um `CallToolResult` com `is_error=True` que **você** retorna.
 * O `_meta` no resultado é endereçado à aplicação cliente, não ao modelo.
 * `Server[T]` é genérico no que o seu lifespan produz; `ctx.lifespan_context` é um `T` tipado.
 * `add_request_handler(method, params_type, handler)` serve qualquer método. `initialize` é reservado.
 * As capacidades que um `Server` anuncia são derivadas de quais handlers você registrou.
 
-`Client(server)` tratou os dois servidores de forma idêntica porque eles *são* o mesmo protocolo, e essa é justamente a ideia. A próxima camada abaixo nem é uma classe: é **[Middleware](middleware.md)**.
+O cliente tratou os dois servidores de forma idêntica porque eles *são* o mesmo protocolo, e essa é justamente a ideia. A próxima camada abaixo nem é uma classe: é **[Middleware](middleware.md)**.

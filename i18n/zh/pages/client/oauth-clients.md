@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, 63878d29e87c3e73, 13175843d3588af4, e7e2b9fd516f77de, 758f06399b513c1f, a05d7278487d610b]
+  sections: [c6899d3892bd9fa0, 79372cff3cc48a88, c2dae1ebe2ebd543, 13175843d3588af4, df06056fb16b3846, 758f06399b513c1f, a05d7278487d610b]
   tool: 1
 ---
 # OAuth 客户端 {#oauth-clients}
@@ -76,18 +76,20 @@ translation:
 
 `Client` 第一次发送请求时，服务器回答 `401`。提供者接手：
 
-1. **发现。** 它读取 `WWW-Authenticate` 头，从 `/.well-known/oauth-protected-resource` 获取服务器的受保护资源元数据，得知是哪个授权服务器在保护这个资源，再去获取**那个**服务器的元数据。
+1. **发现。** 它读取 `WWW-Authenticate` 头，从 `/.well-known/oauth-protected-resource` 获取服务器的受保护资源元数据，得知是哪个授权服务器在保护这个资源，再去获取**那个**服务器的元数据。（较旧的服务器如果没有发布资源元数据，则改为在它自己的源上请求授权服务器元数据。）无论哪种方式，元数据里的 `issuer` 都必须正是获取它所针对的那个服务器；其他任何值一律拒绝。
 2. **注册。** 存储里什么都没有？它用你的 `OAuthClientMetadata` 动态注册，并把结果存起来。
 3. **授权。** 它生成 PKCE 对和一个 `state`，构建授权 URL，await 你的 `redirect_handler`，然后 await 你的 `callback_handler` 拿到授权码。
 4. **交换。** 它用授权码换来 `OAuthToken`，存起来，再带上 `Authorization: Bearer ...` 重放你最初的请求。
 
 之后它就安静了。令牌从存储里取出，过期的访问令牌用刷新令牌刷新，只有这些都行不通时才会重新跑一遍流程。
 
+有一条传输规则适用于所有这些请求：和它们所嵌套的那个 MCP 请求一样，只有当重定向留在同一个源并且保持请求方法不变时（比如补尾部斜杠的 307/308）才会跟随，其他任何重定向都视为该 URL 没有应答。
+
 这些你一行都没写。还剩两个关键字参数（`client_metadata_url` 和 `validate_resource_url`），这个文件都用不到。值得了解的是 `client_metadata_url`，下面单独有一节讲它。
 
 ### 试一试 {#try-it}
 
-这份文档里的大多数示例都可以用内存中的 `Client(server)` 验证。这个不行：整个流程的核心就是一个 HTTP `401`，而内存中的客户端和它的服务器之间没有 HTTP。
+测试里用的内存中的 `Client(server)` 在这里帮不上忙：整个流程的核心就是一个 HTTP `401`，而内存中的客户端和它的服务器之间没有 HTTP。
 
 仓库里附带了可实际运行的版本。`examples/servers/simple-auth/` 运行一个独立的授权服务器和一个受保护的 MCP 服务器；`examples/clients/simple-auth-client/` 是本页的客户端扩展成的一个小 CLI。它的 README 里有两条命令：启动服务器，对着它们运行客户端，就能看到这四个步骤依次走过。
 
@@ -105,13 +107,14 @@ URL 必须是 HTTPS 且路径不能是根路径；否则在构造时就是 `Valu
 
 `ClientCredentialsOAuthProvider` 是同一个 `httpx2.Auth`，只是去掉了人：
 
-```python title="client.py" hl_lines="4 27-33"
+```python title="client.py" hl_lines="4 27-34"
 --8<-- "docs_src/oauth_clients/tutorial002.py"
 ```
 
 变了什么：
 
 * 没有 `OAuthClientMetadata`，没有处理函数。传入 `client_id` 和 `client_secret`；提供者围绕它们构建一个最小的 `client_credentials` 注册，完全跳过动态注册。
+* `issuer` 指明颁发这些凭据的授权服务器；使用它的 `/.well-known/oauth-authorization-server` 文档返回的 `issuer` 值。发现仍按上面的方式进行，但令牌请求只会基于**那个**颁发者的元数据构建；如果 MCP 服务器指向别处，流程会以 `OAuthFlowError` 中止。省略它已弃用，到 3.0 会变为必填（见 **[已弃用的功能](../deprecated.md#deprecated-sdk-helpers)**）；在此之前，提供者会发出警告，并使用发现找到的那个授权服务器。
 * `scope` 是空格分隔的字符串，即 OAuth 的线路格式。
 * 下游的一切完全相同：同样的 `TokenStorage`、同样的 `httpx2.AsyncClient(auth=...)`、同样的 `streamable_http_client`。
 
@@ -121,7 +124,7 @@ URL 必须是 HTTPS 且路径不能是根路径；否则在构造时就是 `Valu
     从环境变量或密钥管理器读取 `client_secret`，绝不要从源码版本控制里读。
 
 !!! info
-    `mcp.client.auth.extensions.client_credentials` 里还有一个提供者：**`PrivateKeyJWTOAuthProvider`**，用于以 JWT 而非共享密钥进行认证的客户端（`private_key_jwt`，即密钥对和工作负载身份那一类）。它遵循同样的模式：构造一个，放到 `auth=` 上。同一个模块还附带 `SignedJWTParameters` 和 `static_assertion_provider`，两个用来构建其断言的辅助工具。
+    `mcp.client.auth.extensions.client_credentials` 里还有一个提供者：**`PrivateKeyJWTOAuthProvider`**，用于以 JWT 而非共享密钥进行认证的客户端（`private_key_jwt`，即密钥对和工作负载身份那一类）。它遵循同样的模式：构造一个（它接受同样可选的 `issuer`），放到 `auth=` 上。同一个模块还附带 `SignedJWTParameters` 和 `static_assertion_provider`，两个用来构建其断言的辅助工具。
 
 还有一种没有人参与的情形：客户端属于某个企业，由企业的身份提供者而不是用户来决定它可以访问哪些 MCP 服务器。那是另一种授权方式，有自己的信任模型和自己的页面，**[身份断言](identity-assertion.md)**。
 

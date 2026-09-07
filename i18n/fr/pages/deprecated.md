@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # Fonctionnalités obsolètes {#deprecated-features}
 
-La spécification 2026-07-28 retire cinq éléments. Le SDK les implémente toujours tous, et chacun d’eux porte désormais un **avertissement d’obsolescence**. Un utilitaire du SDK est obsolète pour des raisons qui lui sont propres ; il figure [à la fin](#deprecated-sdk-helpers).
+La spécification 2026-07-28 retire cinq éléments. Le SDK les implémente toujours tous, et chacun d’eux porte désormais un **avertissement d’obsolescence**. Quelques obsolescences propres au SDK existent pour des raisons qui leur sont propres ; elles figurent [à la fin](#deprecated-sdk-helpers).
 
 Le tableau ci-dessous nomme chaque fonctionnalité obsolète, la raison de sa disparition et le remplacement sur lequel vous appuyer.
 
@@ -138,11 +138,13 @@ C’est toute l’API. Il n’y a pas d’interrupteur par méthode, et vous n�
 
 ## Utilitaires du SDK obsolètes {#deprecated-sdk-helpers}
 
-Il ne s’agit pas de changements de la spécification, seulement de rouages internes du SDK qui ont un meilleur remplacement. Ils avertissent avec le même `MCPDeprecationWarning` et seront supprimés dans la version 3.0.
+Il ne s’agit pas de changements de la spécification, seulement d’usages du SDK qui ont un meilleur remplacement. Ils avertissent avec le même `MCPDeprecationWarning`, et la version 3.0 supprime l’ancienne forme.
 
 | Obsolète | Ce que vous faites à la place |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` puis `FuncMetadata.call_fn()`. Seul du code qui pilote directement `FuncMetadata` (une sous-classe personnalisée de `Tool`, par exemple) l’a jamais appelée. |
+| `AuthSettings(resource_server_url=...)` sans `validate_token_resource=` | Définissez-le : `True` fait refuser au serveur les jetons porteurs que votre vérificateur ne signale pas comme émis pour `resource_server_url`, `False` indique que votre vérificateur contrôle lui-même l’audience du jeton (voir **[Autorisation](run/authorization.md#a-token-verifier)**). Non défini, il se comporte comme `False` ; la version 3.0 fait de `True` la valeur par défaut dès que `resource_server_url` est défini. |
+| `ClientCredentialsOAuthProvider(...)` ou `PrivateKeyJWTOAuthProvider(...)` sans `issuer=` | Passez `issuer=` pour nommer le serveur d’autorisation qui a émis les identifiants (voir **[Écrire des clients OAuth](client/oauth-clients.md#machine-to-machine)**). Sans lui, c’est le serveur MCP qui décide quel serveur d’autorisation les reçoit ; la version 3.0 rend ce paramètre nommé obligatoire. |
 
 ## Récapitulatif {#recap}
 
@@ -151,7 +153,7 @@ Il ne s’agit pas de changements de la spécification, seulement de rouages int
 * L’obsolescence est indicative : aucun changement sur la liaison, tout continue de fonctionner sur les sessions d’avant 2026, et vous obtenez un `MCPDeprecationWarning` visible (un `UserWarning`, donc actif par défaut).
 * L’échantillonnage et les racines ont en plus besoin d’un canal de retour qu’une session 2026-07-28 n’a pas. Sur une connexion moderne, ils avertissent puis lèvent une exception.
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` fait taire toute la catégorie ; `"error::mcp.MCPDeprecationWarning"` dans pytest la transforme en échec de test.
-* Un utilitaire du SDK, `FuncMetadata.call_fn_with_arg_validation()`, est obsolète séparément, pour suppression dans la version 3.0.
+* Les [obsolescences propres au SDK](#deprecated-sdk-helpers) suivent la même règle : elles avertissent dès maintenant, et la version 3.0 abandonne l’ancienne forme.
 * Aucun nouveau code ne devrait s’appuyer sur l’une de ces fonctionnalités.
 
 Toutes les autres pages de cette documentation enseignent l’API actuelle.

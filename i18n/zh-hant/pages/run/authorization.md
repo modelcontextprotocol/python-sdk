@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # 授權 {#authorization}
@@ -23,12 +23,12 @@ translation:
 
 有效的權杖長什麼樣子，SDK 沒有任何預設立場。由你來告訴它，方法是實作 **`TokenVerifier`**：
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` 是只有一個非同步方法的 protocol。`verify_token` 會拿到 `Authorization` 標頭裡的原始權杖，有效就回傳 **`AccessToken`**，無效就回傳 `None`。沒有別的需要實作。
-* 這個範例是在一張表裡查權杖。真實的實作會驗證 JWT 簽章，或呼叫授權伺服器的權杖內省（token introspection）端點。那段程式碼是你的，SDK 只負責呼叫它。
+* 這個範例是在一張表裡查權杖；每一筆都記錄了權杖是為哪個資源發出的。真實的實作會驗證 JWT 簽章，或呼叫授權伺服器的權杖內省（token introspection）端點，並在 `AccessToken.resource` 裡回報權杖是發給誰的（它的 `aud`）。那段程式碼是你的，SDK 只負責呼叫它。
 * `token_verifier=` 和 `auth=` 永遠成對出現。只傳其中一個，`MCPServer(...)` 在服務任何請求之前就會引發 `ValueError`。
 
 `AuthSettings` 是資源伺服器對外的門面：
@@ -36,6 +36,10 @@ translation:
 * `issuer_url`：發出權杖的授權伺服器。
 * `resource_server_url`：這個 MCP 端點的公開 URL。它指明權杖是給**哪一個**資源用的，也是探索文件所在的位置。
 * `required_scopes`：每個權杖都必須帶有全部這些 scope。
+* `validate_token_resource`：拒絕任何 `AccessToken.resource` 不等於 `resource_server_url` 的權杖。設定了 `resource_server_url` 卻沒設定它，會發出警告（`MCPDeprecationWarning`）並視同 `False`；3.0 起，資源伺服器的預設值會改為 `True`。
+  * 如果你的授權伺服器會把權杖綁定到用戶端請求的 `resource`（MCP 用戶端一定會送），就把它打開。讓 `resource_server_url` 與用戶端實際連線的 URL 完全一致。
+  * 如果你的授權伺服器使用自己的 audience 識別碼（Auth0 的 API identifier、Entra 的應用程式 ID），就保持關閉，改在驗證器裡檢查 `aud`，遇到不是給這個伺服器的權杖就回傳 `None`。
+  * 如果 `aud` 是一個清單，把等於 `resource_server_url` 的那一項放進 `resource`。
 
 !!! tip
     SDK 儲存庫裡的 `examples/servers/simple-auth/` 有一個 `IntrospectionTokenVerifier`，會呼叫真實授權伺服器的 [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) 端點。大多數正式環境的驗證器都是這個樣子。
@@ -85,7 +89,7 @@ translation:
 
 在任何處理函式內，**`get_access_token()`** 就是驗證器為目前請求回傳的那個 `AccessToken`：
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -117,6 +121,6 @@ SDK 給你的是資源伺服器這一半：驗證、公告、拒絕。它不提�
 * `token_verifier=` 和 `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` 永遠成對出現。
 * SDK 會在 `/.well-known/oauth-protected-resource/...` 發布 [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata，並以 401 回應未驗證的請求，其 `WWW-Authenticate` 標頭會指向這份文件。整個探索機制就這樣。
 * 在任何處理函式裡，`get_access_token()` 就是誰在呼叫。
-* 授權是 HTTP 層的事。`stdio` 和記憶體內用戶端永遠看不到它。
+* 授權是 HTTP 層的事。`stdio` 和記憶體內測試用戶端永遠看不到它。
 
 用戶端那一半（探索你的授權伺服器並替你取得權杖）請見 **[OAuth 用戶端](../client/oauth-clients.md)**。至於不問使用者、而是直接**斷言**身分的用戶端，請見 **[身分斷言](../client/identity-assertion.md)**。

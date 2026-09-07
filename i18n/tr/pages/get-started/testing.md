@@ -1,13 +1,13 @@
 ---
 translation:
-  sections: ['4926721070127497', c52a1de2b6b32f40, 8e792bf8c7489ec6, 627195f7159e24ef]
+  sections: [5d13c2f0ba42c0d2, c52a1de2b6b32f40, 8e792bf8c7489ec6, 38552ea228b0a04f]
   tool: 1
 ---
 # Test etme {#testing}
 
-Python SDK, **bellek içi aktarıma** sahip bir `Client` sınıfıyla gelir: ona sunucu nesnenizi geçirirsiniz, o da doğrudan bağlanır.
+SDK'nın `Client` sınıfı, yani bir URL'ye bağlanan ya da bir alt süreç başlatan sınıfın ta kendisi, **bellek içinde** de bağlanır: ona sunucu nesnenizi geçirin, o da sunucuyla doğrudan konuşur.
 
-Alt süreç yok. Port yok. Hiç aktarım yok. FastAPI'nin `TestClient`'ıyla aynı fikir.
+Alt süreç yok. Port yok. Ağ üzerinden giden hiçbir şey yok. FastAPI'nin `TestClient`'ıyla aynı fikir.
 
 ## Temel kullanım {#basic-usage}
 
@@ -97,7 +97,7 @@ budur: testiniz temizlenmiş mesaj yerine gerçek mesajı görür.
 
 Testlerde açık bırakın. Üretim kodunda bir anlamı yoktur.
 
-## Varsayılan olarak süreç içi {#in-process-by-default}
+## Varsayılan olarak nesilden bağımsız {#era-neutral-by-default}
 
 !!! note
     `Client(mcp)` süreç içinde bağlanır ve varsayılan olarak **nesilden bağımsızdır**: sunucuyu

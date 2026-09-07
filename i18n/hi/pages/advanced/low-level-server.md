@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2c79b6338e09b7ac, 7edc43b3fae11314, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, cd0e9c933350390e]
+  sections: [2c79b6338e09b7ac, 9d5d10a5f0405d0a, 1086e77ce561cd7f, a3f71823df5efc31, 9fc7109f72201cae, d50fe7faead8cf68, 7bf25983df655b66, 6330e1f4c6029683, 2f1749c8c133fa1c, 8db7116fc8ddd0ee, ebc33704fbd74262, 0fde3bcea081ba3a]
   tool: 1
 ---
 # Low-level Server {#the-low-level-server}
@@ -25,9 +25,9 @@ translation:
 
 तीन चीज़ें बदलीं, और पूरा low-level API बस यही है:
 
-* **Handlers constructor parameters हैं।** `on_list_tools=` और `on_call_tool=` `Server(...)` में जाते हैं। यहाँ नीचे कोई decorator नहीं है, और हर handler का आकार एक ही है: `async (ctx, params) -> result`।
-* **Input schema आप लिखते हैं।** `Tool.input_schema` एक सादा JSON Schema `dict` है। कोई इसे type hints से नहीं निकालता, क्योंकि निकालने के लिए type hints हैं ही नहीं।
-* **Result आप बनाते हैं।** `CallToolResult(content=[TextContent(...)])`, हाथ से। न कुछ wrap होता है, न convert, न return annotation से अनुमान लगाया जाता है।
+* **handlers constructor parameters हैं।** `on_list_tools=` और `on_call_tool=` `Server(...)` में जाते हैं। यहाँ नीचे कोई decorator नहीं है, और हर handler का आकार एक ही है: `async (ctx, params) -> result`।
+* **input schema आप लिखते हैं।** `Tool.input_schema` एक सादा JSON Schema `dict` है। कोई इसे type hints से नहीं निकालता, क्योंकि निकालने के लिए type hints हैं ही नहीं।
+* **result आप बनाते हैं।** `CallToolResult(content=[TextContent(...)])`, हाथ से। न कुछ wrap होता है, न convert, न return annotation से अनुमान लगाया जाता है।
 
 `params` parse की हुई request है: `CallToolRequestParams` आपको `.name` और `.arguments` देता है। `ctx` एक `ServerRequestContext` है: client से वापस बात करने के लिए `ctx.session`, `ctx.lifespan_context`, `ctx.request_id`, और `ctx.meta`, यानी request का आने वाला `_meta`।
 
@@ -36,18 +36,22 @@ translation:
 
 ### इसे आज़माएँ {#try-it}
 
-इसके लिए कोई Inspector नहीं है: `mcp dev` और `mcp run` सिर्फ़ `MCPServer` स्वीकार करते हैं। In-memory `Client` को कोई फ़र्क नहीं पड़ता; वह low-level `Server` को ठीक वैसे ही लेता है जैसे `MCPServer` को:
+`mcp dev` और `mcp run` सिर्फ़ `MCPServer` स्वीकार करते हैं, इसलिए इसे serve आप खुद करते हैं। `server.py` की आख़िरी line इससे एक साधारण ASGI app बनाती है, और uvicorn उसे चलाता है:
 
-```python title="main.py"
+```console
+uvicorn server:app --port 8000
+```
+
+Inspector को, या किसी भी client को, `http://localhost:8000/mcp` पर point करें:
+
+```python title="client.py"
 import asyncio
 
 from mcp import Client
 
-from server import server
-
 
 async def main() -> None:
-    async with Client(server) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool("search_books", {"query": "dune", "limit": 5})
         print(result.content)
 
@@ -61,8 +65,10 @@ asyncio.run(main())
 
 वही text जो `@mcp.tool()` वाले version ने दिया था। दो असली अंतर:
 
-* `result.structured_content` `None` है। High-level server आपके लिए `-> str` को `{"result": ...}` में wrap कर देता है; यहाँ जो आपने नहीं बनाया, उसे कोई नहीं बनाता।
-* `list_tools` वही schema लौटाता है जो **आपने** type किया, अक्षर-दर-अक्षर। High-level version में हर property पर `"title": "Query"` था और root पर `"title": "search_booksArguments"`: Pydantic की देन। यहाँ नीचे, अगर कुछ wire पर है, तो उसे वहाँ आपने रखा है।
+* `result.structured_content` `None` है। high-level server आपके लिए `-> str` को `{"result": ...}` में wrap कर देता है; यहाँ जो आपने नहीं बनाया, उसे कोई नहीं बनाता।
+* `list_tools` वही schema लौटाता है जो **आपने** type किया, अक्षर-दर-अक्षर। high-level version में हर property पर `"title": "Query"` था और root पर `"title": "search_booksArguments"`: Pydantic की देन। यहाँ नीचे, अगर कुछ wire पर है, तो उसे वहाँ आपने रखा है।
+
+test में आप uvicorn और port दोनों छोड़ देते हैं: `Client(server)` low-level `Server` को in-process ठीक वैसे ही लेता है जैसे `MCPServer` को, और **[Testing](../get-started/testing.md)** यही pattern है।
 
 ## आपके लिए कुछ जाँचा नहीं जाता {#nothing-is-checked-for-you}
 
@@ -207,12 +213,12 @@ Handshake runner का है। `server/discover`, `ping`, और बाकी
 
 ## सारांश {#recap}
 
-* Low-level `Server` अपने handlers `on_*` **constructor parameters** के रूप में लेता है; हर handler `async (ctx, params) -> result` है।
+* low-level `Server` अपने handlers `on_*` **constructor parameters** के रूप में लेता है; हर handler `async (ctx, params) -> result` है।
 * `input_schema` dict आप लिखते हैं और `CallToolResult` आप बनाते हैं। आपके लिए न कुछ derive होता है, न wrap, न validate।
-* Handler में exception `-32603` protocol error है। जिस tool error को model पढ़ सके, वह `is_error=True` वाला `CallToolResult` है जिसे **आप** लौटाते हैं।
-* Result पर `_meta` client application के नाम है, model के नहीं।
+* handler में exception `-32603` protocol error है। जिस tool error को model पढ़ सके, वह `is_error=True` वाला `CallToolResult` है जिसे **आप** लौटाते हैं।
+* result पर `_meta` client application के नाम है, model के नहीं।
 * `Server[T]` उस चीज़ में generic है जो उसका lifespan yield करता है; `ctx.lifespan_context` एक typed `T` है।
 * `add_request_handler(method, params_type, handler)` कोई भी method serve करता है। `initialize` reserved है।
 * `Server` जो capabilities advertise करता है, वे इससे निकलती हैं कि आपने कौन से handlers register किए।
 
-`Client(server)` ने दोनों servers के साथ एक जैसा बर्ताव किया क्योंकि वे एक ही protocol **हैं**, और यही असली बात है। इससे नीचे की अगली layer कोई class है ही नहीं: वह **[Middleware](middleware.md)** है।
+client ने दोनों servers के साथ एक जैसा बर्ताव किया क्योंकि वे एक ही protocol **हैं**, और यही असली बात है। इससे नीचे की अगली layer कोई class है ही नहीं: वह **[Middleware](middleware.md)** है।

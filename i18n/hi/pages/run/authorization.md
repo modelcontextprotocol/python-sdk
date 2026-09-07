@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [d62c13457fc4a534, 80e73abaca6e0652, d1dc4c54cd00ec9c, 14ad3bc7904036bb, 5225f127bc1b9c77, fe1626fdd5aad1da, 4556cb7ea1a04a31]
+  sections: [d62c13457fc4a534, 80e73abaca6e0652, 128a492d18295f64, 14ad3bc7904036bb, 54a6697833fcc1d9, fe1626fdd5aad1da, 811d083c1da8bcf6]
   tool: 1
 ---
 # Authorization {#authorization}
@@ -23,12 +23,12 @@ OAuth की भाषा में, आपका server **resource server** ह
 
 valid token कैसा दिखता है, इस बारे में SDK की कोई राय नहीं है। यह आप बताते हैं, **`TokenVerifier`** implement करके:
 
-```python title="server.py" hl_lines="12-14 19-24"
+```python title="server.py" hl_lines="14-16 21-27"
 --8<-- "docs_src/authorization/tutorial001.py"
 ```
 
 * `TokenVerifier` एक async method वाला protocol है। `verify_token` को `Authorization` header से raw token मिलता है, और token valid हो तो यह **`AccessToken`** लौटाता है, न हो तो `None`। इसके अलावा implement करने को कुछ नहीं है।
-* यह वाला token को एक table में ढूँढता है। असली verifier JWT signature verify करता है या authorization server के token-introspection endpoint को call करता है। वह code आपका है; SDK उसे सिर्फ़ call करता है।
+* यह वाला token को एक table में ढूँढता है; हर entry में दर्ज है कि token किस resource के लिए जारी हुआ था। असली verifier JWT signature verify करता है या authorization server के token-introspection endpoint को call करता है, और `AccessToken.resource` में बताता है कि token किसके लिए जारी हुआ था (उसका `aud`)। वह code आपका है; SDK उसे सिर्फ़ call करता है।
 * `token_verifier=` और `auth=` हमेशा साथ चलते हैं। एक को दूसरे के बिना pass करें तो `MCPServer(...)` कोई request serve करने से पहले ही `ValueError` raise कर देता है।
 
 `AuthSettings` आपके resource server का सार्वजनिक चेहरा है:
@@ -36,6 +36,10 @@ valid token कैसा दिखता है, इस बारे में S
 * `issuer_url`: वह authorization server जो आपके tokens जारी करता है।
 * `resource_server_url`: इस MCP endpoint का public URL। यह बताता है कि token **किस** resource के लिए है, और discovery document भी यहीं रहता है।
 * `required_scopes`: हर token में ये सभी होने ही चाहिए।
+* `validate_token_resource`: हर उस token को मना कर देता है जिसका `AccessToken.resource` `resource_server_url` नहीं है। `resource_server_url` set हो और इसे unset छोड़ दें तो warning (`MCPDeprecationWarning`) आती है और यह `False` की तरह बर्ताव करता है; 3.0 में resource servers के लिए default `True` हो जाएगा।
+  * इसे तब चालू करें जब आपका authorization server tokens को उस `resource` से बाँधता हो जो client ने माँगा था, और जिसे MCP clients हमेशा भेजते हैं। `resource_server_url` ठीक वही URL रखें जिससे clients जुड़ते हैं।
+  * इसे तब बंद रहने दें जब आपका authorization server अपने खुद के audience identifiers इस्तेमाल करता हो (Auth0 API identifier, Entra application ID), और इसकी जगह अपने verifier में `aud` जाँचें, और जो token इस server के लिए नहीं है उसके लिए `None` लौटाएँ।
+  * अगर `aud` एक list है, तो जो entry `resource_server_url` के बराबर है उसे `resource` में रखें।
 
 !!! tip
     SDK repository में `examples/servers/simple-auth/` के अंदर एक `IntrospectionTokenVerifier` है जो
@@ -91,7 +95,7 @@ authorization HTTP headers में रहता है, इसलिए यह
 
 किसी भी handler के अंदर, **`get_access_token()`** वही `AccessToken` है जो आपके verifier ने मौजूदा request के लिए लौटाया था:
 
-```python title="server.py" hl_lines="4 32-35"
+```python title="server.py" hl_lines="4 35-38"
 --8<-- "docs_src/authorization/tutorial002.py"
 ```
 
@@ -125,6 +129,6 @@ authorization server, user के consent screen पर click करने क�
 * `token_verifier=` और `auth=AuthSettings(issuer_url=..., resource_server_url=..., required_scopes=[...])` हमेशा साथ चलते हैं।
 * SDK `/.well-known/oauth-protected-resource/...` पर [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) Protected Resource Metadata publish करता है और unauthenticated requests का जवाब 401 से देता है, जिसका `WWW-Authenticate` header उसी की ओर इशारा करता है। discovery की पूरी कहानी बस इतनी ही है।
 * किसी भी handler में `get_access_token()` बताता है कि call कौन कर रहा है।
-* authorization HTTP का मामला है। `stdio` और in-memory client इसे कभी नहीं देखते।
+* authorization HTTP का मामला है। `stdio` और in-memory test client इसे कभी नहीं देखते।
 
 client वाला आधा हिस्सा (आपके authorization server को खोजना और आपके लिए token लाना) **[OAuth clients](../client/oauth-clients.md)** में है। और जो client user से पहचान पूछने के बजाय खुद कोई पहचान **assert** करता है, वह **[Identity assertion](../client/identity-assertion.md)** में है।

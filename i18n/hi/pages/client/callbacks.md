@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, e9be7a8d0eb0a456, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 90c6043be435fcb0]
+  sections: [adf3c545b5be46b6, 916cd3ab1c03f461, 32ef568335dd95a7, 565890a636288ecf, 6af7e49db9129ec3, 06b0238c174186af, 0abc5ea5cb7ff6b3]
   tool: 1
 ---
 # Client callbacks {#client-callbacks}
@@ -63,7 +63,7 @@ result.content  # [TextContent(type='text', text='Card issued to Ada Lovelace.')
     `Client(...)` call पर `mode="legacy"` असल में काम कर रहा है। default रूप से `Client(...)` modern
     protocol path negotiate करता है, और उस path में server-से-client requests के लिए कोई back-channel नहीं है:
     आपका callback चलने से पहले ही `ctx.elicit` fail हो जाता है। यह transport तय नहीं करता; negotiated
-    protocol तय करता है, in-memory में भी और URL पर भी। जब भी आपके client को ऐसी किसी request का जवाब देना हो,
+    protocol तय करता है। जब भी आपके client को ऐसी किसी request का जवाब देना हो,
     `mode="legacy"` तय करें; इस page के पीछे का हर test यही करता है। पूरी जानकारी **[Protocol versions](../protocol-versions.md)** में है।
 
     2026-07-28 session पर callback बेकार नहीं होता, उसे input अलग तरीके से मिलता है: जब कोई tool
@@ -149,6 +149,6 @@ result.structured_content  # {'result': ['elicitation']}
 * **callback register करना ही capability घोषित करना है।** इसके बिना SDK आपकी ओर से server की request ठुकरा देता है और पूरा call `MCPError` के साथ fail हो जाता है।
 * server पूछने से पहले `ctx.session.check_client_capability(...)` से पता कर लेता है।
 * `sampling_callback` और `list_roots_callback` इसी तरह काम करते हैं लेकिन deprecated features को serve करते हैं; modern servers इनकी जगह multi-round-trip requests इस्तेमाल करते हैं।
-* `logging_callback` और `message_handler` को notifications मिलती हैं। वे कुछ घोषित नहीं करते।
+* `logging_callback` और `message_handler` को notifications मिलते हैं। वे कुछ घोषित नहीं करते।
 
-`Client(...)` का पहला argument transport object है। हर प्रकार की जानकारी **[Client transports](transports.md)** में है।
+`Client(...)` का पहला argument transport चुनता है। हर प्रकार की जानकारी **[Client transports](transports.md)** में है।

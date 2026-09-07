@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # Eski nesil istemcilere hizmet verme {#serving-legacy-clients}
@@ -22,15 +22,25 @@ Yani eski nesil istemci, *ona göre* bir şey inşa ettiğiniz bir hedef değil.
 
 ## Tek işleyici, iki nesil {#one-handler-both-eras}
 
-İşte kullanıcıya bir şey sorması gereken bir araç ve onu çağıran her iki nesilden istemci:
+İşte kullanıcıya bir şey sorması gereken bir araç:
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve`, modelin sağlamadığı tek bir şeye ihtiyaç duyar: kaç kopya. Bir araç bunu `Annotated[..., Resolve(ask_quantity)]` ile bildirir (ayrıntıların tamamı **[Bağımlılıklar](../handlers/dependencies.md)** sayfasında). `reserve` içinde hiçbir şey bir sürüm adı vermez, bir yetenek kontrol etmez ya da dallanmaz.
 
-İki istemci **aynı anda**, aynı `mcp` nesnesi üzerinde açıktır. `mode="legacy"`, `initialize` el sıkışmasını çalıştırır: 2026 öncesi bir istemcinin açtığı bağlantının ta kendisi. Diğeri varsayılanı alır ve `2026-07-28` sürümünde karar kılar.
+Onu HTTP üzerinden sunun. İşte onu çağıran her iki nesilden istemci:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+İki istemci **aynı anda**, çalışan aynı sunucuya karşı açıktır. `mode="legacy"`, `initialize` el sıkışmasını çalıştırır: 2026 öncesi bir istemcinin açtığı bağlantının ta kendisi. Diğeri varsayılanı alır ve `2026-07-28` sürümünde karar kılar. İkinci bir terminalden `python client.py` komutunu çalıştırın:
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -64,6 +74,31 @@ Tek worker'da bu görünmez. İki worker'da ise sorunun tamamı budur: `Mcp-Sess
     **devam ettirilebilirliktir** (kaçırılan SSE olaylarını *aynı* oturuma yeniden bağlanan bir
     istemciye yeniden oynatmak). Bir oturumu asla başka bir süreçten erişilebilir kılmaz.
 
+## Oturum ömrü ve sınırlar {#session-lifetime-and-limits}
+
+Eski nesil bir oturum sonsuza dek yaşamaz ve tek bir süreç bunlardan sınırsız sayıda tutmaz. Bunu iki ayar denetler. İkisi de `run()`, `streamable_http_app()` ve `Server.streamable_http_app()` üzerinde birer anahtar sözcük argümanıdır. Modern (`2026-07-28`) bağlantılarda ve `stateless_http=True` durumunda oturum yoktur; bu yüzden iki ayar da onlar için geçerli değildir.
+
+| Ayar | Varsayılan | Ne yapar | İstemci ne görür | Kapatmak için |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800` (30 dk) | Bu süre boyunca devam eden hiçbir işlemi olmayan bir oturumu kapatır. | `404 Session not found`. Yeniden `initialize` göndermesi gerekir. | `None` |
+| `max_sessions` | `10_000` | Bu sayının ötesinde oturum açmayı reddeder. Mevcut oturumlara dokunulmaz ve hiçbir şey tahliye edilmez. | JSON-RPC kodu `-32603` ile `503 Too many open sessions`. | `None` |
+
+Neler "devam eden işlem" sayılır:
+
+* Açık bir `GET` akışı. SDK istemcileri bir tane açık tutar; bu yüzden bağlı bir istemcinin oturumu asla sona ermez.
+* Hâlâ yanıtlanmakta olan bir istek. Zaman aşımından uzun süren bir araç çağrısı kesilmez; geri sayım ancak o bittiğinde başlar.
+* Başka hiçbir şey. İstekler arasında saat işler. Oturumdaki herhangi bir istek onu yeniden başlatır, `ping` dahil. Bir oturum sona erdikten sonra onu hiçbir şey diriltmez.
+
+Oturumunu `DELETE` ile bitiren bir istemci onu hemen serbest bırakır. Açılış isteği reddedilen bir istemci de öyle.
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+İki olay da sunucu log'unda görünür. Sona erme, `INFO` düzeyinde `Session <id> idle timeout` olarak görünür. Reddedilen bir açılış ise `WARNING` düzeyinde `Refusing to open a new session: <n> sessions are already open` olarak.
+
+Sınırlar süreç başınadır. Dört worker'la tavan, `max_sessions` değerinin dört katıdır ve her worker kendi oturumlarını kendisi sonlandırır.
+
 ## Tek ayar düğmesi: `stateless_http` {#the-one-knob-stateless_http}
 
 Yapışkanlık ödemeyi reddettiğiniz bir bedelse, değiştirebileceğiniz tam olarak tek bir şey var.
@@ -89,8 +124,7 @@ Onunla ilgili iki şey, ne yaptığından daha önemli.
 
 !!! check
     Yanlış olanı yapın. `reserve`, az önce iki istemciye de hizmet veren aracın ta kendisi. Onu
-    `stateless_http=True` ile dağıtın, aynı iki istemciyi HTTP üzerinden bağlayın ve her birinden
-    çağırın.
+    `stateless_http=True` ile dağıtın, aynı iki istemciyi bağlayın ve her birinden çağırın.
 
     Modern istemci hâlâ `Reserved 2 of 'Dune'.` alır. Modern kol değişmedi.
 

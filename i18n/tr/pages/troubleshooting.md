@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # Sorun giderme {#troubleshooting}
@@ -13,6 +13,12 @@ Girdilerin birkaçı şu tek sunucuya karşı çalışır. Bir araç ve bir şab
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+Bu girdiler ona `http://localhost:8000/mcp` adresinden ulaşır; bu yüzden onu HTTP üzerinden çalışır durumda bırakın:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 Bu sayfanın alıntıladığı hatalar gerçektir: SDK'nın kendi test paketi her birini yeniden üretir.
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ Bu bir MCP hatası değil. anyio gürültüsüdür ve asıl hatanız yapıştır
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ Bununla yapılacak iki şey var:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -67,7 +73,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -75,7 +81,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -252,7 +258,7 @@ Bunun sayfası, tek uygulamada birden fazla sunucu ve FastAPI dahil, **[Mevcut b
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-Sunucu, istemcinizin gönderdiği `Mcp-Session-Id`'yi tanımıyor; bunun nedeni neredeyse her zaman sunucunun **yeniden başlamış** olmasıdır (ya da farklı bir örneğe yönlendirilmişsinizdir). Oturumlar o tek sürecin belleğinde yaşar.
+Sunucu, istemcinizin gönderdiği `Mcp-Session-Id`'yi tanımıyor. Ya sunucu **yeniden başladı** (ya da farklı bir örneğe yönlendirildiniz) ya da `session_idle_timeout` süresi boyunca (varsayılan olarak 30 dakika) hiçbir şey işlemde olmadığı için oturumun **süresi doldu**. [Oturum ömrü ve sınırları](run/legacy-clients.md#session-lifetime-and-limits) bölümüne bakın. Oturumlar o tek sürecin belleğinde yaşar.
 
 Bulunacak bir sunucu hatası yok. HTTP yanıtı, gövdesi JSON-RPC *olan* bir `404`'tür; bu yüzden yukarıdaki `421`'in aksine python `Client` bunu size birebir gösterir:
 
@@ -262,9 +268,9 @@ Bulunacak bir sunucu hatası yok. HTTP yanıtı, gövdesi JSON-RPC *olan* bir `4
 
 Çözüm yeniden bağlanmaktır: `async with Client(...)` bloğundan çıkın ve yeni bir oturum üzerinde anlaşan yeni bir bloğa girin. Uzun ömürlü bir istemci için bu, çağrılarınızın etrafında `MCPError`'ı yakalamak ve ölü bir oturumun içinde yeniden denemek yerine bu mesajda yeniden bağlanmak demektir.
 
-Bu, yeniden başlatma *olmadan* oluyorsa, yapışkan oturumlar olmadan birden fazla worker çalıştırıyorsunuz demektir: her worker kendi oturum tablosunu tutar, bu yüzden yanlış olana yönlendirilen bir istek buraya düşer. Bu konu ve iki çözümü (yapışkan yönlendirme veya `stateless_http=True`) **[Dağıtım ve ölçekleme](run/deploy.md)** ile **[Eski nesil istemcilere hizmet verme](run/legacy-clients.md)** sayfalarında.
+Bu, yeniden başlatma *olmadan* ve istemci o kadar uzun süre sessiz kalmadan oluyorsa, yapışkan oturumlar olmadan birden fazla worker çalıştırıyorsunuz demektir: her worker kendi oturum tablosunu tutar, bu yüzden yanlış olana yönlendirilen bir istek buraya düşer. Bu konu ve iki çözümü (yapışkan yönlendirme veya `stateless_http=True`) **[Dağıtım ve ölçekleme](run/deploy.md)** ile **[Eski nesil istemcilere hizmet verme](run/legacy-clients.md)** sayfalarında.
 
-Sunucu operatörü için eşleşen log satırı `Rejected request with unknown or expired session ID: <id>`'dir. `INFO` düzeyinde log'a yazılır; bu yüzden olağan `WARNING` eşiğinde görünmez. Bir dağıtımın hemen ardından bunu öbekler halinde görmek normaldir; bağlı her istemci yeniden bağlanıyordur.
+Sunucu operatörü için eşleşen log satırı `Rejected request with unknown or expired session ID: <id>`'dir. `INFO` düzeyinde log'a yazılır; bu yüzden olağan `WARNING` eşiğinde görünmez. Bir dağıtımın hemen ardından bunu öbekler halinde görmek normaldir; bağlı her istemci yeniden bağlanıyordur. Oturumun süresi dolduğunda ise bu satırdan önce, yine `INFO` düzeyinde, `Session <id> idle timeout` gelir.
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -276,7 +282,13 @@ Modern protokolün kaldırdığı bir istek olmasına rağmen bu hatayı **üret
 
 Sunucunuz kullanıcıya bir şey sormak istiyor ve bu istemci kendisine soru sorulabileceğini hiç söylemedi.
 
-Bir elicitation (kullanıcıdan bilgi isteme) çözümleyicisi, bağlı istemci form elicitation'ı bildirmediğinde baştan reddeder ve `e.error.data` tam olarak neyin eksik olduğunu adlandırır:
+Bu Bistro, rezervasyon yapmadan önce bir çözümleyici aracılığıyla sorar:
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+Bunu Weather sunucusunun yerine sunun ve `book_table`'ı hiçbir `elicitation_callback` geçirmemiş bir istemciden çağırın. Çözümleyici baştan reddeder, çünkü bağlı istemci form elicitation'ı (kullanıcıdan bilgi isteme) hiç bildirmemiştir; `e.error.data` ise tam olarak neyin eksik olduğunu adlandırır:
 
 ```json
 {
@@ -290,7 +302,7 @@ Bir elicitation (kullanıcıdan bilgi isteme) çözümleyicisi, bağlı istemci 
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -315,14 +327,14 @@ Bunu eski nesil bir bağlantıda `ctx.elicit()`'ten görürsünüz; herhangi bir
 
 İşleyiciniz, isteğin ortasında istemciye ulaşmaya çalıştı; hem de çağrısının sunucudan gelen bir isteği taşıyabilecek hiçbir kanalı olmayan bir bağlantıda. Bir çağrıyı bu duruma sokan üç sunucu yapılandırması var.
 
-**Bir `2026-07-28` bağlantısı: her aktarımda, her zaman.** Modern protokolde sunucunun başlattığı istek diye bir şey hiç yoktur; bu yüzden sunucu daha hiçbir şey gönderilmeden reddeder. Bununla karşılaşmanın klasik yolu bir aracın içindeki `ctx.elicit()`'tir (hem de daha ilk bellek içi testte, çünkü `Client(server)` sorulmadan `2026-07-28` üzerinde anlaşır) ve `elicitation_callback=` geçirmek hiçbir şeyi değiştirmez, çünkü istemciye yanıtlayacağı bir istek hiç ulaşmaz:
+**Bir `2026-07-28` bağlantısı: her aktarımda, her zaman.** Modern protokolde sunucunun başlattığı istek diye bir şey hiç yoktur; bu yüzden sunucu daha hiçbir şey gönderilmeden reddeder. Bununla karşılaşmanın klasik yolu bir aracın içindeki `ctx.elicit()`'tir; genellikle de o aracın daha ilk bellek içi **[testinde](get-started/testing.md)**, çünkü `Client(mcp)` sorulmadan `2026-07-28` üzerinde anlaşır. `elicitation_callback=` geçirmek hiçbir şeyi değiştirmez, çünkü istemciye yanıtlayacağı bir istek hiç ulaşmaz:
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -364,7 +376,7 @@ Sunucu, istemcinizin geri yansıttığı `requestState` token'ını doğrulayama
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -417,7 +429,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * Sunucu log'undaki `Tool already exists:`, aynı adlı iki aracın teke indiğinin tek işaretidir.
 * Tek 421, üç yazım: `Server returned an error response` (python `Client`), `421 Misdirected Request` / `Invalid Host header` (geri kalan her şey), `Invalid Host header: <host>` (sunucu log'u). Çözüm: `transport_security=TransportSecuritySettings(allowed_hosts=[...])`.
 * `Task group is not initialized` -> ana uygulamanın lifespan'i `mcp.session_manager.run()`'a hiç girmemiş, bağlanmış bir uygulama.
-* `Session not found` -> sunucu yeniden başladı; yeniden bağlanın.
+* `Session not found` -> sunucu yeniden başladı ya da oturumun süresi doldu (`session_idle_timeout`); yeniden bağlanın.
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` sunucudan istemciye bir kanala ihtiyaç duyar: bir `2026-07-28` bağlantısında hiç yoktur, `stateless_http=True` eski nesil olanı, `json_response=True` ise istek kapsamlı olanı ortadan kaldırır. Bir çözümleyici kullanın (eski nesil bir istemci için ayrıca kanalı koruyan bir sunucu gerekir). Komşusu `Method not found`, karşı tarafın protokol sürümünde olmayan bir yöntem için yapılmış bir istektir.
 * `Client did not declare the form elicitation capability ...` ve `Elicitation not supported` -> istemcide `elicitation_callback=` eksik.
 * `Invalid or expired requestState` nedenini ağ üzerinde asla söylemez. Sunucu log'u söyler; `unknown key`, `RequestStateSecurity(keys=[...])`'i worker'lar arasında paylaşın demektir.

@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # Extensões {#extensions}
@@ -49,7 +49,7 @@ Use como prefixo um domínio que você controla. `io.modelcontextprotocol/*` é 
 
 A menor extensão útil é uma ferramenta e um mapa de configurações:
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ A menor extensão útil é uma ferramenta e um mapa de configurações:
 * `settings()` é o valor anunciado em `capabilities.extensions["com.example/stamps"]`. Retorne `{}` (o padrão) para anunciar a extensão sem configurações.
 * A extensão nunca recebe o servidor. Ela declara contribuições como dados; o `MCPServer` as consome. Não existe um `self.server` para modificar.
 
-E `main()` é a prova, um cliente em memória direto contra `mcp`:
+Sirva-a por HTTP, e um cliente é a prova:
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+Todo `server.py` desta página é servido com esse comando, e todo `client.py` roda ao lado dele com `python client.py` em um segundo terminal.
 
 ### Servindo seus próprios métodos {#serving-your-own-methods}
 
 Uma extensão pode registrar **novos métodos de requisição**: seus próprios verbos, servidos ao lado dos da especificação:
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ Os métodos são **estritamente aditivos**. O SDK impõe isso na construção, n
 
 ### O lado do cliente {#the-client-side}
 
-O `main()` do mesmo arquivo é a história inteira do cliente, com as duas metades:
+O cliente é um programa à parte, e carrega as duas metades da história do cliente:
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` declara a extensão. As declarações viram `ClientCapabilities.extensions`: em uma conexão 2026-07-28 o mapa viaja no envelope `_meta` de cada requisição, então o servidor o vê em **toda** requisição; em uma conexão legada ele vai no handshake `initialize`. O código do servidor não se importa com qual: `require_client_extension(ctx, ...)` e `ctx.session.check_client_capability(...)` leem a fonte certa nos dois caminhos.
 * Métodos de fornecedor descem uma camada para `client.session.send_request(...)`; `Client` só ganha métodos de primeira classe para verbos da especificação. `send_request` aceita qualquer subclasse de `Request`, então a requisição do fornecedor passa como está.
+* `SearchRequest` e os dois modelos que ela carrega são o contrato de protocolo da extensão, então o cliente os declara por conta própria. Uma extensão publicada os distribuiria em um pacote que os dois lados importam.
 
 ### Interceptando `tools/call` {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ O hook envolve `tools/call` e nada mais. Para preocupações que valem para toda
 
 ## Usando uma extensão de cliente {#using-a-client-extension}
 
-Uma **extensão de cliente** é o mesmo contrato visto do lado consumidor: um pacote de comportamento do lado do cliente reunido sob um único identificador. Passe as instâncias para `Client(extensions=[...])` e chame as ferramentas normalmente:
+Uma **extensão de cliente** é o mesmo contrato visto do lado consumidor: um pacote de comportamento do lado do cliente reunido sob um único identificador. Aqui o servidor responde a `buy` com um recibo a resgatar em vez da mercadoria, e só para um cliente que declarou a extensão:
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+No cliente, passe as instâncias para `Client(extensions=[...])` e chame as ferramentas normalmente:
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)` retorna um `CallToolResult` comum, como toda outra chamada. O que a extensão mudou: o servidor agora pode responder a `buy` com um **formato de resultado** `receipt` em vez de um resultado final, e `Receipts` o finaliza (aqui, resgatando o recibo com uma chamada seguinte) antes de `call_tool` retornar. Nada muda no ponto da chamada.
@@ -124,15 +137,15 @@ Para anunciar um identificador **sem** nenhum comportamento do lado do cliente (
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## Escrevendo uma extensão de cliente {#writing-a-client-extension}
 
 Herde de `ClientExtension` e sobrescreva apenas o que precisar. Três tipos de contribuição, cada um com um padrão: `settings()`, `claims()` e `notifications()`.
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * O identificador segue a mesma gramática do servidor, validada quando a classe é definida.
@@ -153,10 +166,16 @@ Duas regras discretas. As claims ficam ativas apenas em conexões 2026-07-28, e 
 
 ### Verbos de extensão {#extension-verbs}
 
-Os métodos de requisição próprios de uma extensão não precisam de registro no lado do cliente. Um tipo de requisição de fornecedor herda de `mcp.types.Request` e passa por `client.session.send_request`, como em [Servindo seus próprios métodos](#serving-your-own-methods). Um acréscimo: quando uma chave de params precisa viajar no header `Mcp-Name` (especificações de extensão como tasks exigem isso para seus verbos), o tipo de requisição declara `name_param`:
+Os métodos de requisição próprios de uma extensão não precisam de registro no lado do cliente. Um tipo de requisição de fornecedor herda de `mcp.types.Request` e passa por `client.session.send_request`, como em [Servindo seus próprios métodos](#serving-your-own-methods). Considere um servidor cuja extensão serve um único verbo sobre um job nomeado:
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+Um acréscimo no cliente: quando uma chave de params precisa viajar no header `Mcp-Name` (especificações de extensão como tasks exigem isso para seus verbos), o tipo de requisição declara `name_param`:
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 A sessão espelha `params["jobId"]` em `Mcp-Name` em todo caminho de envio, e um valor ausente falha de forma explícita em vez de omitir silenciosamente um header obrigatório.

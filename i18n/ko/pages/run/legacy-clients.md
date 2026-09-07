@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [3d1663c18edc824c, d4fd37009a13f03d, af9f398a5a8b679a, 470c2dd144294d69, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
+  sections: [3d1663c18edc824c, 90956965ae6a1ca1, af9f398a5a8b679a, 5ce83b1f9d88da62, 0d9b5d13fffc94e5, 8e45827e6d24e8c8, 91dfd0ce98ebb03c]
   tool: 1
 ---
 # 레거시 클라이언트 지원 {#serving-legacy-clients}
@@ -21,15 +21,25 @@ SDK는 모든 요청을 `MCP-Protocol-Version` 헤더에 따라 라우팅합니�
 
 ## 하나의 핸들러, 두 시대 {#one-handler-both-eras}
 
-다음은 사용자에게 무언가를 물어봐야 하는 도구와, 그 도구를 호출하는 두 시대의 클라이언트입니다.
+다음은 사용자에게 무언가를 물어봐야 하는 도구입니다.
 
-```python title="server.py" hl_lines="24 37-38"
+```python title="server.py" hl_lines="21"
 --8<-- "docs_src/legacy_clients/tutorial001.py"
 ```
 
 `reserve`에는 모델이 제공하지 않은 정보가 하나 필요합니다. 몇 권인지입니다. `Annotated[..., Resolve(ask_quantity)]`는 도구가 이를 선언하는 방법입니다(자세한 내용은 **[의존성](../handlers/dependencies.md)**에서 확인하세요). `reserve` 안에는 버전을 명시하거나, 기능을 확인하거나, 분기하는 코드가 전혀 없습니다.
 
-두 클라이언트는 같은 `mcp` 객체에 **동시에** 열려 있습니다. `mode="legacy"`는 `initialize` 핸드셰이크를 실행합니다. 2026 이전 클라이언트가 여는 바로 그 연결입니다. 다른 하나는 기본값을 사용해 `2026-07-28` 버전으로 연결됩니다.
+HTTP로 띄우세요. 다음은 이 도구를 호출하는 두 시대의 클라이언트입니다.
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```python title="client.py" hl_lines="14-15"
+--8<-- "docs_src/legacy_clients/tutorial001_client.py"
+```
+
+두 클라이언트는 실행 중인 같은 서버를 상대로 **동시에** 열려 있습니다. `mode="legacy"`는 `initialize` 핸드셰이크를 실행합니다. 2026 이전 클라이언트가 여는 바로 그 연결입니다. 다른 하나는 기본값을 사용해 `2026-07-28` 버전으로 연결됩니다. 두 번째 터미널에서 `python client.py`를 실행하세요.
 
 ```text
 2025-11-25 {'result': "Reserved 2 of 'Dune'."}
@@ -61,6 +71,31 @@ SDK는 모든 요청을 `MCP-Protocol-Version` 헤더에 따라 라우팅합니�
     세션에 다시 연결하는 클라이언트에게 놓친 SSE 이벤트를 재생하는 것)입니다. 다른 프로세스에서
     세션에 도달할 수 있게 해 주는 일은 결코 없습니다.
 
+## 세션 수명과 제한 {#session-lifetime-and-limits}
+
+레거시 세션은 영원히 살지 않으며, 한 프로세스가 무한히 많은 세션을 보유하지도 않습니다. 이를 제어하는 설정이 두 가지 있습니다. 둘 다 `run()`, `streamable_http_app()`, `Server.streamable_http_app()`의 키워드 인자입니다. 현대(`2026-07-28`) 연결과 `stateless_http=True`에는 세션이 없으므로 두 설정 모두 적용되지 않습니다.
+
+| 설정 | 기본값 | 하는 일 | 클라이언트가 보는 것 | 끄는 방법 |
+|---|---|---|---|---|
+| `session_idle_timeout` | `1800`(30분) | 그 시간 동안 진행 중인 것이 아무것도 없었던 세션을 닫습니다. | `404 Session not found`. 다시 `initialize`해야 합니다. | `None` |
+| `max_sessions` | `10_000` | 그 수를 넘는 세션은 열기를 거부합니다. 기존 세션은 건드리지 않으며 아무것도 쫓아내지 않습니다. | JSON-RPC 코드 `-32603`과 함께 `503 Too many open sessions`. | `None` |
+
+"진행 중"으로 간주되는 것은 다음과 같습니다.
+
+* 열린 `GET` 스트림. SDK 클라이언트는 하나를 열어 두므로, 연결된 클라이언트의 세션은 만료되지 않습니다.
+* 아직 응답 중인 요청. 타임아웃보다 오래 실행되는 도구 호출은 중단되지 않으며, 카운트다운은 호출이 끝난 뒤에야 시작됩니다.
+* 그 밖에는 없습니다. 요청 사이에는 시계가 돌아갑니다. 세션에 들어오는 요청은 무엇이든 시계를 다시 시작하며, `ping`도 포함됩니다. 세션이 한 번 만료되면 무엇으로도 되살릴 수 없습니다.
+
+`DELETE`로 세션을 끝내는 클라이언트는 세션을 즉시 해제합니다. 여는 요청이 거부된 클라이언트도 마찬가지입니다.
+
+```python
+mcp.run(transport="streamable-http", session_idle_timeout=None, max_sessions=50_000)
+```
+
+두 이벤트 모두 서버 로그에 나타납니다. 만료는 `INFO` 수준의 `Session <id> idle timeout`입니다. 열기 거부는 `WARNING` 수준의 `Refusing to open a new session: <n> sessions are already open`입니다.
+
+제한은 프로세스별입니다. 워커가 넷이면 상한은 `max_sessions`의 네 배이며, 각 워커는 자기 세션을 스스로 만료시킵니다.
+
 ## 유일한 옵션: `stateless_http` {#the-one-knob-stateless_http}
 
 스티키 라우팅이 치르기 싫은 비용이라면, 바꿀 수 있는 것은 정확히 하나입니다.
@@ -85,7 +120,7 @@ SDK는 모든 요청을 `MCP-Protocol-Version` 헤더에 따라 라우팅합니�
 
 !!! check
     일부러 잘못된 설정을 해 보세요. `reserve`는 방금 두 클라이언트를 모두 지원한 바로 그 도구입니다.
-    `stateless_http=True`로 배포하고, 같은 두 클라이언트를 HTTP로 연결한 뒤, 각각에서 호출해 보세요.
+    `stateless_http=True`로 배포하고, 같은 두 클라이언트를 연결한 뒤, 각각에서 호출해 보세요.
 
     현대 클라이언트는 여전히 `Reserved 2 of 'Dune'.`을 받습니다. 현대 경로는 바뀌지 않았습니다.
 

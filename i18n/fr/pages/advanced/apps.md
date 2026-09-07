@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ Le SDK fournit cela sous la forme de l’extension intégrée `Apps` (`io.modelc
 
 ## Une horloge avec un cadran {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -31,7 +31,7 @@ Quatre étapes :
 
 Le HTML lui-même écoute le `postMessage` de l’hôte et affiche le résultat. Pour de vraies applications, utilisez dans votre HTML le SDK navigateur officiel [`@modelcontextprotocol/ext-apps`](https://github.com/modelcontextprotocol/ext-apps). Il vous donne `ontoolresult`, `callServerTool`, `getHostContext` et `onhostcontextchanged` au lieu d’événements de message bruts.
 
-## Dégradation gracieuse {#graceful-degradation}
+## Dégradation élégante {#graceful-degradation}
 
 Tous les clients n’affichent pas les apps. La spécification dit sans détour ce que cela implique pour vous :
 
@@ -39,11 +39,31 @@ Tous les clients n’affichent pas les apps. La spécification dit sans détour 
 
 Le modèle lit `content` ; l’iframe est pour les humains. Un hôte capable d’afficher une interface transmet quand même le résultat textuel au modèle, et un client purement textuel ne reçoit *que* cela. Le schéma canonique est donc : un outil, deux réponses. Regardez à nouveau `get_time` :
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-`client_supports_apps(ctx)` ne vaut `True` que lorsque le client a déclaré l’extension `io.modelcontextprotocol/ui` **et** listé `text/html;profile=mcp-app` dans ses paramètres `mimeTypes`. Le champ est obligatoire, donc un client qui l’omet ne compte pas. C’est exactement ce que déclare `main()` dans le même fichier : la moitié client de la négociation, et la réponse riche revient.
+`client_supports_apps(ctx)` ne vaut `True` que lorsque le client a déclaré l’extension `io.modelcontextprotocol/ui` **et** listé `text/html;profile=mcp-app` dans ses paramètres `mimeTypes`. Le champ est obligatoire, donc un client qui l’omet ne compte pas. Voici la moitié client de la négociation :
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+Servez `server.py` en HTTP, puis lancez le client depuis un second terminal :
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+La réponse riche est revenue. Retirez `extensions=[APPS_SUPPORT]` de l’appel à `Client` et le même programme affiche `The time is 2026-06-26T12:00:00Z.` à la place, c’est-à-dire tout ce qu’un client purement textuel voit jamais.
 
 !!! warning
     Ne renvoyez jamais un texte de substitution comme `"[Rendered UI]"` pour seul contenu. Si le texte de repli est inutile, l’outil est inutile pour tout client purement textuel et pour le modèle lui-même. Écrivez la phrase.

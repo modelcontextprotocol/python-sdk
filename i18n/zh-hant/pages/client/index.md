@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [ebef1e7a0df854f4, 8355cfaf1f76c9d5, 8e79141fc2985342, 46bdb07c7537e8a5, 80ce41579825a6fa, 5f0fa90494de8f65, 83d10514eaa62fa5, 9190555aa39a5d28, 84a4c9d8bf14dddb, 927d71cf40b58c30]
+  sections: [ebef1e7a0df854f4, 7e16449f66e7dfd6, eeb0682f7d2a1079, 5713f0196a34e6e7, 0e844597859e4248, 3a97d9195ddcc92e, 1da08c483e59c141, 84702cc6e0a1fd42, 8dee7a31c86ffc5c, 83a5bce168ef23d7]
   tool: 1
 ---
 # 用戶端 {#the-client}
@@ -11,13 +11,23 @@ Python 程式要和 MCP 伺服器對話，靠的就是 **`Client`**。
 
 ## 你的第一個用戶端 {#your-first-client}
 
-```python title="client.py" hl_lines="14-18"
+用戶端需要有伺服器可以對話。這一頁的每段程式碼連的都是這間 Bookshop。把它存成 `server.py`，讓它透過 HTTP 持續執行：
+
+```python title="server.py"
 --8<-- "docs_src/client/tutorial001.py"
 ```
 
-最上面的伺服器只是讓你有東西可以連而已。用戶端就是標示出來的那五行。
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
-* `Client(mcp)` 拿到的是**伺服器物件本身**。這就是記憶體內傳輸：沒有子處理程序、沒有連接埠、沒有 HTTP。這一頁的每個範例，以及你寫的每個測試，都是這樣連線的。
+這樣伺服器就在 `http://localhost:8000/mcp` 提供服務。用戶端是另一個獨立的程式。把它存成 `client.py`，在第二個終端機執行 `python client.py`：
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/client/tutorial001_client.py"
+```
+
+* `Client("http://localhost:8000/mcp")` 拿到的是一個 **URL**，所以它透過 Streamable HTTP 連到你剛啟動的伺服器。
 * `async with` 就是**生命週期**。進入時連線並協商；離開時斷線。沒有 `connect()` / `close()` 這種成對的方法，而且區塊結束後 `Client` 不能再重複使用。
 * 在區塊內，連線的各項資訊已經以普通屬性的形式準備好了。
 
@@ -25,10 +35,10 @@ Python 程式要和 MCP 伺服器對話，靠的就是 **`Client`**。
 
 `Client` 接受一個位置引數，並依它的型別決定傳輸方式：
 
-* `MCPServer`（或低階的 `Server`）實例：在**同一個處理程序內**連線。
-* URL 字串（`Client("http://localhost:8000/mcp")`）：Streamable HTTP，也就是正式環境的路徑。
-* `StdioServerParameters`：要當作**子處理程序**啟動的命令，透過它的 stdin 和 stdout 溝通。
+* URL 字串（`Client("http://localhost:8000/mcp")`）：Streamable HTTP，也就是部署時使用的傳輸方式。
+* `StdioServerParameters`：要當作本機**子處理程序**啟動的命令，透過它的 stdin 和 stdout 溝通。
 * 一個**傳輸**：任何可以 `async with ... as (read, write)` 的東西，例如用 `streamable_http_client(url, http_client=...)` 包住你自己的 HTTP 用戶端。
+* `MCPServer`（或低階的 `Server`）實例：在**同一個處理程序內**連線，沒有子處理程序，也沒有連接埠。這一種是給測試用的，**[測試](../get-started/testing.md)** 就是以它為基礎。
 
 這一頁其餘的內容在這四種情況下完全相同。標頭、子處理程序、逾時，以及 `Transport` 協定另外有專屬的頁面：**[用戶端傳輸方式](transports.md)**。
 
@@ -48,11 +58,11 @@ Python 程式要和 MCP 伺服器對話，靠的就是 **`Client`**。
 
 ## 列出工具 {#listing-tools}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial002.py"
 ```
 
-`list_tools()` 回傳一個 `ListToolsResult`；工具在 `.tools` 裡。每一個都是 MCP 主機（host）會交給模型的完整定義：
+`list_tools()` 回傳一個 `ListToolsResult`；工具在 `.tools` 裡。每一個都是 MCP 主機（host）會交給模型的完整定義。第一個是這樣：
 
 ```python
 tool.name          # 'search_books'
@@ -76,6 +86,8 @@ tool.description   # 'Search the catalog by title or author.'
 
 這份 schema 就是 UI 算繪引數表單所需的一切，也是模型產生合法引數所需的一切。
 
+第二個工具 `lookup_book` 註冊時沒有給 `title=`，所以它的 `tool.title` 是 `None`。
+
 !!! tip
     `title` 是選填的，所以把工具顯示給人看的 UI 得自己挑：有的話就用 `title`，沒有就用 `name`。`from mcp.shared.metadata_utils import get_display_name` 做的正是這件事，適用於工具、資源、資源範本和提示詞。
 
@@ -83,7 +95,7 @@ tool.description   # 'Search the catalog by title or author.'
 
 `call_tool(name, arguments)` 會執行工具，並回傳一個 `CallToolResult`。
 
-```python title="client.py" hl_lines="27-34"
+```python title="client.py" hl_lines="9-16"
 --8<-- "docs_src/client/tutorial003.py"
 ```
 
@@ -131,7 +143,7 @@ result.is_error            # False
 
 資源的動作是成組的：兩種列出的方式，一種讀取的方式。
 
-```python title="client.py" hl_lines="22-31"
+```python title="client.py" hl_lines="9-18"
 --8<-- "docs_src/client/tutorial004.py"
 ```
 
@@ -145,7 +157,7 @@ result.is_error            # False
 
 ## 提示詞 {#prompts}
 
-```python title="client.py" hl_lines="15-20"
+```python title="client.py" hl_lines="8-13"
 --8<-- "docs_src/client/tutorial005.py"
 ```
 
@@ -170,7 +182,7 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 有自動完成處理函式的伺服器，可以在使用者輸入時自動完成提示詞和資源範本的引數。
 
-```python title="client.py" hl_lines="27-31"
+```python title="client.py" hl_lines="9-13"
 --8<-- "docs_src/client/tutorial006.py"
 ```
 
@@ -183,21 +195,21 @@ message.content  # TextContent(type='text', text='Recommend one poetry book from
 
 每個 `list_*` 方法都接受 `cursor=` 關鍵字引數，每個結果都帶有 `next_cursor`。當 `next_cursor` 是 `None`，表示全部拿到了。
 
-```python title="client.py" hl_lines="22-30"
+```python title="client.py" hl_lines="7-15"
 --8<-- "docs_src/client/tutorial007.py"
 ```
 
-這個迴圈對任何伺服器都正確。`MCPServer` 會一頁回傳全部，所以 `next_cursor` 是 `None`，迴圈只跑一次，這也是為什麼大部分程式碼從來不寫它。真正會分頁的伺服器，以及游標遵守的規則，請見 **[分頁](../advanced/pagination.md)**。
+`list_all_tools` 對任何伺服器都正確。`MCPServer` 會一頁回傳全部，所以 `next_cursor` 是 `None`，迴圈只跑一次，這也是為什麼大部分程式碼從來不寫它。真正會分頁的伺服器，以及游標遵守的規則，請見 **[分頁](../advanced/pagination.md)**。
 
 ## 在測試中 {#in-tests}
 
-不需要處理程序、不需要連接埠的 `Client(mcp)`，本身就已經是伺服器的測試工具了。
+這一頁的每個 `client.py` 都是透過 HTTP 連到 `server.py`。在測試裡可以跳過網路，直接把伺服器物件本身交給 `Client`：`from server import mcp`，然後 `Client(mcp)`。沒有處理程序、沒有連接埠，而上面的每個方法用起來都一樣。
 
-有一個建構子旗標是專為此設計的：`Client(mcp, raise_exceptions=True)`。它只對記憶體內連線有作用，而 **[測試](../get-started/testing.md)** 頁面會解釋它，並圍繞它建立整套模式。
+有一個建構子旗標是專為此設計的：`Client(mcp, raise_exceptions=True)`。它只對同一處理程序內的連線有作用，而 **[測試](../get-started/testing.md)** 頁面會解釋它，並圍繞它建立整套模式。
 
 ## 重點回顧 {#recap}
 
-* `Client(x)` 對伺服器物件以記憶體內方式連線，對 URL 字串透過 Streamable HTTP 連線，其他情況則透過傳輸連線。
+* `Client(x)` 對 URL 字串透過 Streamable HTTP 連線，對 `StdioServerParameters` 啟動子處理程序，對傳輸則直接進入，在測試中則接受伺服器物件本身。
 * `async with` 就是整個生命週期。在裡面，`server_capabilities` 和 `protocol_version` 已經填好；伺服器有提供時，`server_info` 和 `instructions` 也是。
 * `list_tools()` 給你每個工具的 `name`、`title`、`description` 和 `input_schema`。
 * `call_tool()` 回傳給模型的 `content`、給程式碼的 `structured_content`，以及 `is_error`。會引發例外的工具是一個結果，不是例外。

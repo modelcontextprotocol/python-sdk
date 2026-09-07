@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, 8dd027377d46448b, f81491125dcbfe8b]
+  sections: [74011e683045eea9, 9b64cc175c18b6a9, 4b41be4824030397, e3b1502da786ec33, 71e41161f143c6a9, 9ec2c1eeb8c36378, b47667184ca5b516, f81491125dcbfe8b]
   tool: 1
 ---
 # Çok turlu istekler {#multi-round-trip-requests}
@@ -164,7 +164,7 @@ Düşük seviyeli `Server` hiçbir şeyin hazır gelmediği katmandır: `MCPServ
 
 ## 2026-07-28 sürümüne özgü bir sonuç {#a-2026-07-28-result}
 
-`InputRequiredResult` yalnızca **2026-07-28** protokol sürümünde vardır. Bellek içi `Client(server)` onu sizin yerinize anlaşarak belirler; ağ üzerinde `mode="auto"` keşfeder. Bağlandıktan sonra `client.protocol_version` size ne elde ettiğinizi söyler.
+`InputRequiredResult` yalnızca **2026-07-28** protokol sürümünde vardır. `Client`'ın varsayılan `mode="auto"` ayarı onu her bağlantıda keşfeder. Bağlandıktan sonra `client.protocol_version` size ne elde ettiğinizi söyler.
 
 !!! warning
     2026 öncesi bir oturumda `InputRequiredResult` koyacak bir yer yoktur. `mode="legacy"` bir

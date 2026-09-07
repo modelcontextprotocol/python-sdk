@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 7ffc91f5e38bdfe0, 717d3f235a8333a7, f471a13b2fe5d737, ed6af2df4b656dff]
+  sections: [05891e7cc1938a13, b3c01a6af28c51ee, 6eba6ce094f4417e, 125f28588c85dd7b, ddd8969b698ca11c, ed6af2df4b656dff]
   tool: 1
 ---
 # Uzantılar {#extensions}
@@ -49,7 +49,7 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 
 İşe yarar en küçük uzantı, bir araç ve bir ayarlar eşlemesidir:
 
-```python title="server.py" hl_lines="17 19-20 22-23 26"
+```python title="server.py" hl_lines="16 18-19 21-22 25"
 --8<-- "docs_src/extensions/tutorial003.py"
 ```
 
@@ -57,17 +57,23 @@ TypeError: Stamps.identifier must be a `vendor-prefix/name` string
 * `settings()`, `capabilities.extensions["com.example/stamps"]` konumunda duyurulan değerdir. Uzantıyı ayarsız duyurmak için `{}` (varsayılan) döndürün.
 * Uzantı sunucuyu hiçbir zaman almaz. Katkıları veri olarak beyan eder; bunları `MCPServer` tüketir. Değiştirilecek bir `self.server` yoktur.
 
-Kanıtı da `main()`: doğrudan `mcp`'ye bağlanan bellek içi bir istemci:
+HTTP üzerinden sunun; kanıt da bir istemcidir:
 
-```python title="server.py" hl_lines="29-34"
---8<-- "docs_src/extensions/tutorial003.py"
+```console
+uv run mcp run server.py --transport streamable-http
 ```
+
+```python title="client.py" hl_lines="7-11"
+--8<-- "docs_src/extensions/tutorial003_client.py"
+```
+
+Bu sayfadaki her `server.py` bu komutla sunulur; her `client.py` de ikinci bir terminalden `python client.py` ile onun yanında çalışır.
 
 ### Kendi metotlarınızı sunma {#serving-your-own-methods}
 
 Bir uzantı **yeni istek metotları** kaydedebilir: spesifikasyonunkilerin yanında sunulan kendi fiilleri:
 
-```python title="server.py" hl_lines="16-22 31 40-48"
+```python title="server.py" hl_lines="14-20 24 33-41"
 --8<-- "docs_src/extensions/tutorial004.py"
 ```
 
@@ -83,14 +89,15 @@ Metotlar **yalnızca ekleme niteliğindedir**. SDK bunu çalışma zamanında de
 
 ### İstemci tarafı {#the-client-side}
 
-Aynı dosyadaki `main()`, istemci tarafının tamamıdır; iki yarısıyla birlikte:
+İstemci başlı başına bir programdır ve istemci tarafının iki yarısını da taşır:
 
-```python title="server.py" hl_lines="54-58"
---8<-- "docs_src/extensions/tutorial004.py"
+```python title="client.py" hl_lines="21-23 27-30"
+--8<-- "docs_src/extensions/tutorial004_client.py"
 ```
 
 * `Client(..., extensions=[advertise(EXTENSION_ID)])` uzantıyı beyan eder. Beyanlar `ClientCapabilities.extensions` hâline gelir: 2026-07-28 bağlantısında eşleme istek başına `_meta` zarfında taşınır, böylece sunucu onu **her** istekte görür; eski nesil bir bağlantıda `initialize` el sıkışmasıyla taşınır. Sunucu kodu hangisi olduğuyla ilgilenmez: `require_client_extension(ctx, ...)` ve `ctx.session.check_client_capability(...)` her iki yolda da doğru kaynağı okur.
 * Satıcıya özgü metotlar bir katman aşağıya, `client.session.send_request(...)` düzeyine iner; `Client` yalnızca spesifikasyon fiilleri için birinci sınıf metotlar kazanır. `send_request` herhangi bir `Request` alt sınıfını kabul eder, bu yüzden satıcıya özgü istek olduğu gibi geçer.
+* `SearchRequest` ve taşıdığı iki model uzantının iletim sözleşmesidir; bu yüzden istemci onları kendisi için beyan eder. Yayımlanmış bir uzantı bunları her iki tarafın da içe aktardığı bir pakette sunardı.
 
 ### `tools/call` isteğini yakalama {#intercepting-toolscall}
 
@@ -109,10 +116,16 @@ Kanca `tools/call` isteğini sarmalar, başka hiçbir şeyi değil. Her iletiyi 
 
 ## Bir istemci uzantısı kullanma {#using-a-client-extension}
 
-**İstemci uzantısı**, aynı sözleşmenin tüketen taraftan görünüşüdür: tek bir tanımlayıcının arkasında toplanmış bir istemci tarafı davranış paketi. Örnekleri `Client(extensions=[...])` ile geçirin ve araçları normal şekilde çağırın:
+**İstemci uzantısı**, aynı sözleşmenin tüketen taraftan görünüşüdür: tek bir tanımlayıcının arkasında toplanmış bir istemci tarafı davranış paketi. Buradaki sunucu `buy` çağrısını malın kendisi yerine kullanılacak bir makbuzla yanıtlar; bunu da yalnızca uzantıyı beyan etmiş bir istemci için yapar:
 
-```python title="client.py" hl_lines="66-68"
+```python title="server.py" hl_lines="22-25"
 --8<-- "docs_src/extensions/tutorial006.py"
+```
+
+İstemcide örnekleri `Client(extensions=[...])` ile geçirin ve araçları normal şekilde çağırın:
+
+```python title="client.py" hl_lines="33-35"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 `call_tool("buy", ...)`, diğer her çağrı gibi düz bir `CallToolResult` döndürür. Uzantının değiştirdiği şu: sunucu artık `buy` çağrısını nihai bir sonuç yerine `receipt` adlı bir **sonuç biçimiyle** yanıtlayabilir ve `Receipts`, `call_tool` dönmeden önce onu tamamlar (burada makbuzu bir takip çağrısıyla kullanarak). Çağrı yerinde hiçbir şey değişmez.
@@ -124,15 +137,15 @@ Uzantıyı çıkarırsanız bunların hiçbiri olmaz: sunucunun kontrol noktası
 ```python
 from mcp.client import advertise
 
-client = Client(mcp, extensions=[advertise("com.example/search")])
+client = Client("http://localhost:8000/mcp", extensions=[advertise("com.example/search")])
 ```
 
 ## İstemci uzantısı yazma {#writing-a-client-extension}
 
 `ClientExtension`'dan alt sınıf türetin ve yalnızca ihtiyaç duyduklarınızı geçersiz kılın. Her birinin varsayılanı olan üç katkı türü var: `settings()`, `claims()` ve `notifications()`.
 
-```python title="client.py" hl_lines="17-18 43-44 46-47"
---8<-- "docs_src/extensions/tutorial006.py"
+```python title="client.py" hl_lines="16-17 25-26 28-29"
+--8<-- "docs_src/extensions/tutorial006_client.py"
 ```
 
 * Tanımlayıcı, sunucununkiyle aynı dilbilgisini izler ve sınıf tanımlandığında doğrulanır.
@@ -153,10 +166,16 @@ def notifications(self) -> Sequence[NotificationBinding[Any]]:
 
 ### Uzantı fiilleri {#extension-verbs}
 
-Bir uzantının kendi istek metotları istemci tarafında kayıt gerektirmez. Satıcıya özgü bir istek türü `mcp.types.Request`'ten türer ve [Kendi metotlarınızı sunma](#serving-your-own-methods) bölümündeki gibi `client.session.send_request` üzerinden gider. Tek bir ekleme var: bir params anahtarının `Mcp-Name` başlığında taşınması gerektiğinde (tasks gibi uzantı spesifikasyonları kendi fiilleri için bunu şart koşar) istek türü `name_param` beyan eder:
+Bir uzantının kendi istek metotları istemci tarafında kayıt gerektirmez. Satıcıya özgü bir istek türü `mcp.types.Request`'ten türer ve [Kendi metotlarınızı sunma](#serving-your-own-methods) bölümündeki gibi `client.session.send_request` üzerinden gider. Uzantısı, adlandırılmış bir iş hakkında tek bir fiil sunan bir sunucu düşünün:
 
-```python title="client.py" hl_lines="22-25 46-47"
+```python title="server.py" hl_lines="12-13 30"
 --8<-- "docs_src/extensions/tutorial007.py"
+```
+
+İstemcide tek bir ekleme var: bir params anahtarının `Mcp-Name` başlığında taşınması gerektiğinde (tasks gibi uzantı spesifikasyonları kendi fiilleri için bunu şart koşar) istek türü `name_param` beyan eder:
+
+```python title="client.py" hl_lines="20-23 28-29"
+--8<-- "docs_src/extensions/tutorial007_client.py"
 ```
 
 Oturum, `params["jobId"]` değerini her gönderim yolunda `Mcp-Name` başlığına yansıtır; eksik bir değer ise gerekli bir başlığı sessizce atlamak yerine açıkça hata verir.

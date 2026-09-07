@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [2efaecdef109a5c5, fcacd3e66b8635a4, 25323d737dcf0261, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 323ef84f6b4bebde, 30fd31be74169d9a, 656943c6cb567218, c2dc3b1007d2e987, 7cf5386b997d04e9, 0b59feed8384456e, 0cba47bae78d04eb, e4355f4c7cf4fb2e]
+  sections: [3d58228e81b99543, 170514ce901c4139, 17d61fad0a50d62b, 8a6e351ec756904d, 137454d469c867f5, 6392596bd6df54f0, 41126fa9c4fe432f, 480b6d7897e30ab4, d83bb682e708dde0, ebbed3449c499db4, 525cdf1755e29d4c, 30fd31be74169d9a, d2e88333d4f7841f, c2dc3b1007d2e987, d6eabf60cc366341, f798e815252852c2, 0cba47bae78d04eb, 2c218ba829abf74e]
   tool: 1
 ---
 # 疑難排解 {#troubleshooting}
@@ -13,6 +13,12 @@ translation:
 --8<-- "docs_src/troubleshooting/tutorial001.py"
 ```
 
+那幾則會從 `http://localhost:8000/mcp` 連上它，所以讓它以 HTTP 持續執行著：
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
 這一頁引用的錯誤都是真的：SDK 自己的測試套件會重現每一個。
 
 ## `ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)` {#exceptiongroup-unhandled-errors-in-a-taskgroup-1-sub-exception}
@@ -23,7 +29,7 @@ translation:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.read_resource("weather://Atlantis")
 ```
 
@@ -49,7 +55,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         try:
             await client.read_resource("weather://Atlantis")
         except MCPError as e:
@@ -65,7 +71,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    client = Client(mcp)
+    client = Client("http://localhost:8000/mcp")
     tools = await client.list_tools()  # RuntimeError
 ```
 
@@ -73,7 +79,7 @@ async def main() -> None:
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         tools = await client.list_tools()
 ```
 
@@ -245,7 +251,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ## `MCPError: Session not found` {#mcperror-session-not-found}
 
-伺服器不認得用戶端送來的 `Mcp-Session-Id`，幾乎都是因為伺服器**重新啟動了**（或是你被導到另一個實例）。工作階段存在那一個處理程序的記憶體內。
+伺服器不認得用戶端送來的 `Mcp-Session-Id`。要嘛伺服器**重新啟動了**（或是你被導到另一個實例），要嘛工作階段**過期了**，因為在 `session_idle_timeout`（預設 30 分鐘）這段時間內沒有任何進行中的請求。請見 [工作階段的存活時間與限制](run/legacy-clients.md#session-lifetime-and-limits)。工作階段存在那一個處理程序的記憶體內。
 
 沒有伺服器的 bug 可找。HTTP 回應是 `404`，而它的本文**就是** JSON-RPC，所以和上面的 `421` 不同，python `Client` 會原封不動地把這個顯示給你：
 
@@ -255,9 +261,9 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 修正是重新連線：離開 `async with Client(...)` 區塊，進入一個新的，它會協商出新的工作階段。對於長時間存活的用戶端，這表示在呼叫外面攔截 `MCPError`，遇到這個訊息就重新連線，而不是在已經死掉的工作階段裡重試。
 
-如果**沒有**重新啟動也發生，代表你跑了不只一個 worker 卻沒有黏性工作階段（sticky session）：每個 worker 都有自己的工作階段表，所以導到錯誤 worker 的請求就會落到這裡。這件事和它的兩種修正（黏性路由，或 `stateless_http=True`）請見 **[部署與擴展](run/deploy.md)** 和 **[服務舊版用戶端](run/legacy-clients.md)**。
+如果**沒有**重新啟動、用戶端也沒有安靜那麼久卻還是發生，代表你跑了不只一個 worker 卻沒有黏性工作階段（sticky session）：每個 worker 都有自己的工作階段表，所以導到錯誤 worker 的請求就會落到這裡。這件事和它的兩種修正（黏性路由，或 `stateless_http=True`）請見 **[部署與擴展](run/deploy.md)** 和 **[服務舊版用戶端](run/legacy-clients.md)**。
 
-對伺服器維運人員來說，對應的記錄行是 `Rejected request with unknown or expired session ID: <id>`。它以 `INFO` 層級記錄，所以在常用的 `WARNING` 門檻下看不到。剛部署完看到它一陣陣冒出來是正常的；每個已連線的用戶端都在重新連線。
+對伺服器維運人員來說，對應的記錄行是 `Rejected request with unknown or expired session ID: <id>`。它以 `INFO` 層級記錄，所以在常用的 `WARNING` 門檻下看不到。剛部署完看到它一陣陣冒出來是正常的；每個已連線的用戶端都在重新連線。如果是工作階段過期，那一行前面會先出現 `Session <id> idle timeout`，同樣是 `INFO` 層級。
 
 ## `MCPError: Method not found` {#mcperror-method-not-found}
 
@@ -269,7 +275,13 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 伺服器想問使用者一件事，而這個用戶端從沒說過它可以被問。
 
-徵詢（elicitation）解析器在已連線的用戶端沒有宣告表單徵詢時，會一開始就拒絕，而 `e.error.data` 會精確寫出缺了什麼：
+這間 Bistro 在訂位前會透過解析器先問一聲：
+
+```python title="server.py" hl_lines="15-17 21"
+--8<-- "docs_src/troubleshooting/tutorial007.py"
+```
+
+用它取代 Weather 伺服器來服務，再從一個沒有傳 `elicitation_callback` 的用戶端呼叫 `book_table`。解析器會一開始就拒絕，因為已連線的用戶端從沒宣告表單徵詢（elicitation），而 `e.error.data` 會精確寫出缺了什麼：
 
 ```json
 {
@@ -283,7 +295,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())], lifespan=lif
 
 ```python
 async def main() -> None:
-    async with Client(mcp, elicitation_callback=handle_elicitation) as client:
+    async with Client("http://localhost:8000/mcp", elicitation_callback=handle_elicitation) as client:
         result = await client.call_tool("book_table", {"date": "Friday"})
 ```
 
@@ -302,14 +314,14 @@ async def main() -> None:
 
 處理函式試圖在請求途中聯繫用戶端，但這條連線上的這次呼叫沒有能承載伺服器發出請求的通道。有三種伺服器設定會讓呼叫落到這種處境。
 
-**`2026-07-28` 連線：任何傳輸方式，一律如此。** 現代協定完全沒有伺服器發起的請求，所以伺服器在送出任何東西之前就拒絕。工具裡的 `ctx.elicit()` 是遇到這個的典型方式（就在第一次記憶體內測試時，因為 `Client(server)` 不用交代就會協商出 `2026-07-28`），而傳入 `elicitation_callback=` 什麼都不會改變，因為根本沒有請求送到用戶端讓它回答：
+**`2026-07-28` 連線：任何傳輸方式，一律如此。** 現代協定完全沒有伺服器發起的請求，所以伺服器在送出任何東西之前就拒絕。工具裡的 `ctx.elicit()` 是遇到這個的典型方式，通常是在那個工具的第一個記憶體內 **[測試](get-started/testing.md)** 裡，因為 `Client(mcp)` 不用交代就會協商出 `2026-07-28`。傳入 `elicitation_callback=` 什麼都不會改變，因為根本沒有請求送到用戶端讓它回答：
 
 ```python title="server.py" hl_lines="16"
 --8<-- "docs_src/troubleshooting/tutorial006.py"
 ```
 
 ```python
-async def main() -> None:
+async def test_book_table() -> None:
     async with Client(mcp) as client:
         await client.call_tool("book_table", {"date": "Friday"})
 ```
@@ -347,7 +359,7 @@ mcp.shared.exceptions.MCPError: Cannot send 'elicitation/create': this transport
 
 ```python
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         await client.call_tool("forecast", {"city": "London"}, request_state="round-1-from-worker-a")
 ```
 
@@ -400,7 +412,7 @@ mcp = MCPServer("Weather", request_state_security=RequestStateSecurity(keys=[key
 * 伺服器記錄裡的 `Tool already exists:` 是兩個同名工具合併成一個的唯一跡象。
 * 一個 421，三種寫法：`Server returned an error response`（python `Client`）、`421 Misdirected Request` / `Invalid Host header`（其他所有東西）、`Invalid Host header: <host>`（伺服器記錄）。修正：`transport_security=TransportSecuritySettings(allowed_hosts=[...])`。
 * `Task group is not initialized` -> 掛載的應用程式，其外層生命週期從未進入 `mcp.session_manager.run()`。
-* `Session not found` -> 伺服器重新啟動了；重新連線。
+* `Session not found` -> 伺服器重新啟動了，或工作階段過期了（`session_idle_timeout`）；重新連線。
 * `Cannot send 'elicitation/create': ... no back-channel ...` -> `ctx.elicit()` 需要伺服器到用戶端的通道：`2026-07-28` 連線從來沒有，`stateless_http=True` 拿走了舊版的那條，`json_response=True` 拿走了請求範圍的那條。改用解析器（舊版用戶端還需要一個保留通道的伺服器）。它的鄰居 `Method not found` 則是請求了一個對方的協定修訂版沒有的方法。
 * `Client did not declare the form elicitation capability ...` 和 `Elicitation not supported` -> 用戶端少了 `elicitation_callback=`。
 * `Invalid or expired requestState` 在線路上從不說原因。伺服器記錄會說；`unknown key` 表示要在各 worker 之間共用 `RequestStateSecurity(keys=[...])`。

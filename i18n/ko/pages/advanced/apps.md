@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK는 이를 내장 `Apps` 확장(`io.modelcontextprotocol/ui`)으로 제공합
 
 ## 얼굴을 가진 시계 {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -39,11 +39,31 @@ HTML 자체는 호스트의 `postMessage`를 수신하고 결과를 표시합니
 
 모델은 `content`를 읽고, iframe은 사람을 위한 것입니다. UI를 지원하는 호스트도 여전히 텍스트 결과를 모델에 전달하며, 텍스트 전용 클라이언트는 **오직** 그 텍스트만 받습니다. 따라서 표준 패턴은 도구 하나에 답 둘입니다. `get_time`을 다시 살펴보세요.
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
-`client_supports_apps(ctx)`는 클라이언트가 `io.modelcontextprotocol/ui` 확장을 선언했고 **동시에** `mimeTypes` 설정에 `text/html;profile=mcp-app`을 나열했을 때만 `True`입니다. 이 필드는 필수이므로 생략한 클라이언트는 해당하지 않습니다. 같은 파일의 `main()`이 선언하는 것이 바로 이것입니다. 협상의 클라이언트 쪽 절반을 선언하면 풍부한 답이 돌아옵니다.
+`client_supports_apps(ctx)`는 클라이언트가 `io.modelcontextprotocol/ui` 확장을 선언했고 **동시에** `mimeTypes` 설정에 `text/html;profile=mcp-app`을 나열했을 때만 `True`입니다. 이 필드는 필수이므로 생략한 클라이언트는 해당하지 않습니다. 협상의 클라이언트 쪽 절반은 다음과 같습니다.
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+`server.py`를 HTTP로 제공한 다음, 두 번째 터미널에서 클라이언트를 실행하세요.
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+풍부한 답이 돌아왔습니다. `Client` 호출에서 `extensions=[APPS_SUPPORT]`를 빼면 같은 프로그램이 대신 `The time is 2026-06-26T12:00:00Z.`라고 출력하며, 텍스트 전용 클라이언트가 보게 되는 것은 언제나 이것뿐입니다.
 
 !!! warning
     `"[Rendered UI]"` 같은 자리 표시자를 유일한 content로 반환하지 마세요. 대체 텍스트가 쓸모없다면, 그 도구는 모든 텍스트 전용 클라이언트와 모델 자체에 쓸모없는 도구가 됩니다. 제대로 된 문장을 작성하세요.

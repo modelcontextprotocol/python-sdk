@@ -1,11 +1,11 @@
 ---
 translation:
-  sections: [490237e61c3a7a44, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, 4068f23e371bf0b3, eaef75b8725bc931]
+  sections: [4c1dea378b2b1bf7, 01262a123ad9501d, 429db5b574a2ac08, e2d0d273fbd2d74b, 64ab0331e868f3d4, 6c8878ce2d1f6d56, c3d1099701156881, e185a1b8e53669f6]
   tool: 1
 ---
 # Deprecated features {#deprecated-features}
 
-2026-07-28 spec पाँच चीज़ों को retire करता है। SDK अब भी इनमें से हर एक को implement करता है, और अब हर एक पर **deprecation warning** लगी है। एक SDK helper अपनी अलग वजह से deprecated है और [आख़िर में](#deprecated-sdk-helpers) दिया गया है।
+2026-07-28 spec पाँच चीज़ों को retire करता है। SDK अब भी इनमें से हर एक को implement करता है, और अब हर एक पर **deprecation warning** लगी है। कुछ SDK-level deprecations अपनी अलग वजह से हैं और [आख़िर में](#deprecated-sdk-helpers) दी गई हैं।
 
 नीचे दी गई table हर deprecated feature का नाम, उसके हटने की वजह, और उसकी जगह किस replacement पर build करना है, यह बताती है।
 
@@ -137,11 +137,13 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 
 ## Deprecated SDK helpers {#deprecated-sdk-helpers}
 
-ये spec के बदलाव नहीं हैं, सिर्फ़ SDK के अंदरूनी हिस्से हैं जिनका बेहतर replacement मौजूद है। ये उसी `MCPDeprecationWarning` के साथ warn करते हैं और 3.0 में हटा दिए जाएँगे।
+ये spec के बदलाव नहीं हैं, सिर्फ़ SDK के इस्तेमाल के वे तरीके हैं जिनका बेहतर replacement मौजूद है। ये उसी `MCPDeprecationWarning` के साथ warn करते हैं, और 3.0 पुराना रूप हटा देता है।
 
 | Deprecated | इसके बजाय क्या करें |
 |---|---|
 | `FuncMetadata.call_fn_with_arg_validation()` | `FuncMetadata.validate_arguments()` और फिर `FuncMetadata.call_fn()`। इसे सिर्फ़ वही code call करता था जो `FuncMetadata` को सीधे चलाता है (जैसे कोई custom `Tool` subclass)। |
+| `validate_token_resource=` के बिना `AuthSettings(resource_server_url=...)` | इसे set करें: `True` पर server वे bearer tokens ठुकरा देता है जिन्हें आपका verifier `resource_server_url` के लिए जारी हुआ नहीं बताता, `False` का मतलब है कि आपका verifier token का audience ख़ुद जाँचता है (**[Authorization](run/authorization.md#a-token-verifier)** देखें)। set न होने पर व्यवहार `False` जैसा है; 3.0 में जब भी `resource_server_url` set हो, default `True` होगा। |
+| `issuer=` के बिना `ClientCredentialsOAuthProvider(...)` या `PrivateKeyJWTOAuthProvider(...)` | `issuer=` दें, जिसमें credentials जारी करने वाले authorization server का नाम हो (**[OAuth clients लिखना](client/oauth-clients.md#machine-to-machine)** देखें)। इसके बिना MCP server तय करता है कि credentials किस authorization server को मिलें; 3.0 में यह keyword ज़रूरी हो जाएगा। |
 
 ## सारांश {#recap}
 
@@ -150,7 +152,7 @@ warnings.filterwarnings("ignore", category=MCPDeprecationWarning)
 * Deprecated होना बस सलाह भर है: wire में कोई बदलाव नहीं, 2026 से पहले के sessions पर सब कुछ काम करता रहता है, और आपको साफ़ दिखने वाली `MCPDeprecationWarning` मिलती है (यह `UserWarning` है, इसलिए default रूप से चालू है)।
 * sampling और roots को इसके अलावा back-channel चाहिए जो 2026-07-28 session के पास नहीं है। modern connection पर ये warn करते हैं और फिर raise करते हैं।
 * `warnings.filterwarnings("ignore", category=MCPDeprecationWarning)` पूरी category को चुप कराता है; pytest में `"error::mcp.MCPDeprecationWarning"` इसे test failure में बदल देता है।
-* एक SDK helper, `FuncMetadata.call_fn_with_arg_validation()`, अलग से deprecated है और 3.0 में हटाया जाएगा।
+* [SDK-level deprecations](#deprecated-sdk-helpers) पर भी यही नियम लागू है: अभी ये warn करते हैं, और 3.0 पुराना रूप हटा देता है।
 * नया code इनमें से किसी पर भी नहीं बनना चाहिए।
 
 इन docs का बाकी हर page मौजूदा API सिखाता है।

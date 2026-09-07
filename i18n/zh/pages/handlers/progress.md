@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 0284b215e85366c4, 8534d8dbb4053a70, 2966fac6fe697007]
+  sections: [5315262fe26b33e1, 9d8e98840f1b78f0, 52d6009a07e770ea, 8534d8dbb4053a70, 2966fac6fe697007]
   tool: 1
 ---
 # 进度 {#progress}
@@ -29,11 +29,9 @@ translation:
 
 客户端**按调用**选择接收，方法是给 `call_tool` 传 `progress_callback=`：
 
-```python title="client.py" hl_lines="7 16"
+```python title="client.py" hl_lines="5 14"
 import anyio
 from mcp import Client
-
-from server import mcp
 
 
 async def show(progress: float, total: float | None, message: str | None) -> None:
@@ -41,7 +39,7 @@ async def show(progress: float, total: float | None, message: str | None) -> Non
 
 
 async def main() -> None:
-    async with Client(mcp) as client:
+    async with Client("http://localhost:8000/mcp") as client:
         result = await client.call_tool(
             "import_catalog",
             {"urls": ["https://example.com/a.json", "https://example.com/b.json"]},
@@ -56,23 +54,27 @@ anyio.run(main)
 回调是一个 `async` 函数，接收的正是服务器报告的内容：`progress`、`total`、`message`。
 
 !!! info
-    `Client(mcp)` 直接在内存中连接到服务器对象，和 **[测试](../get-started/testing.md)** 页面所用的是同一个客户端。无论 `Client` 用哪种传输方式，`progress_callback` 都是同一个参数；接下来看到的**时序**则是内存连接特有的。它以内联方式运行你的回调，所以每条报告都在 `call_tool` 返回之前送达。换成真实的传输方式，通知会和结果竞速，`call_tool` 已经返回之后，一个慢的回调可能还在运行。
+    无论交给 `Client` 的是什么——像这里这样的 URL、`StdioServerParameters`，还是测试里的服务器对象——`progress_callback` 都是同一个参数。不过，走真实传输方式时要留意时序。每条通知都是单独送达的，和响应各走各的，所以 `call_tool` 已经返回之后，一个慢的回调可能还在运行。只有进程内的测试连接会以内联方式运行回调，并保证每条报告都先送达。
 
 ### 试一试 {#try-it}
 
-把 `client.py` 放在 `server.py` 旁边，然后运行：
+通过 HTTP 启动 `server.py`，然后在另一个终端运行客户端：
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
 
 ```console
 python client.py
 ```
 
 ```text
-Imported https://example.com/a.json (1/2)
-Imported https://example.com/b.json (2/2)
+Imported https://example.com/a.json (1.0/2.0)
+Imported https://example.com/b.json (2.0/2.0)
 {'result': 'Imported 2 records.'}
 ```
 
-服务器上的每一次 `await ctx.report_progress(...)` 都变成了客户端上对 `show` 的一次调用，顺序不变，而且两行都在 `call_tool` 返回**之前**打印了出来。进度不会打包进结果里；它在工具还在干活的时候就流式送出。
+服务器上的每一次 `await ctx.report_progress(...)` 都变成了客户端上对 `show` 的一次调用，顺序不变。进度不会打包进结果里，而是在工具还在干活的时候就流式送出。
 
 !!! warning
     `progress_callback` 属于**调用**，而不是 `Client`。没有对应的构造函数参数，因为不同的调用想要不同的回调：这一次驱动下载进度条，下一次是一行日志。

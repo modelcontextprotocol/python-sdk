@@ -1,6 +1,6 @@
 ---
 translation:
-  sections: [0355618e5f4d5fe4, 1821eaf50f2d0b64, 82e0b28ebd3abf5a, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
+  sections: [0355618e5f4d5fe4, 0fefa31fb7c7b585, 5c53e7487c9c70cc, 8ac39614c094f2d0, dab6ff945501ab2a, bd5565c3b2d4f959, 96819ce3d63a0487]
   tool: 1
 ---
 # MCP Apps {#mcp-apps}
@@ -18,7 +18,7 @@ SDK इसे built-in `Apps` extension (`io.modelcontextprotocol/ui`) के �
 
 ## चेहरे वाली घड़ी {#a-clock-with-a-face}
 
-```python title="server.py" hl_lines="19 22 30 32"
+```python title="server.py" hl_lines="17 20 28 30"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
@@ -49,15 +49,37 @@ model `content` पढ़ता है; iframe इंसानों के ल�
 model को देता है, और text-only client को **सिर्फ़** वही मिलता है। इसलिए मानक
 pattern है: एक tool, दो जवाब। `get_time` को फिर से देखें:
 
-```python title="server.py" hl_lines="23-27"
+```python title="server.py" hl_lines="21-25"
 --8<-- "docs_src/apps/tutorial001.py"
 ```
 
 `client_supports_apps(ctx)` तभी `True` होता है जब client ने
 `io.modelcontextprotocol/ui` extension declare किया हो **और** अपनी `mimeTypes`
 settings में `text/html;profile=mcp-app` सूचीबद्ध किया हो। यह field ज़रूरी है,
-इसलिए जो client इसे छोड़ देता है वह गिना नहीं जाता। इसी file में `main()` ठीक यही
-declare करता है: negotiation का client वाला आधा हिस्सा, और rich जवाब वापस आता है।
+इसलिए जो client इसे छोड़ देता है वह गिना नहीं जाता। negotiation का client वाला
+आधा हिस्सा यह रहा:
+
+```python title="client.py" hl_lines="8 12"
+--8<-- "docs_src/apps/tutorial001_client.py"
+```
+
+`server.py` को HTTP पर serve करें, फिर दूसरे terminal से client चलाएँ:
+
+```console
+uv run mcp run server.py --transport streamable-http
+```
+
+```console
+python client.py
+```
+
+```text
+2026-06-26T12:00:00Z
+```
+
+rich जवाब वापस आया। `Client` call से `extensions=[APPS_SUPPORT]` हटा दें, तो यही
+program इसकी जगह `The time is 2026-06-26T12:00:00Z.` print करता है, और text-only
+client को हमेशा बस इतना ही दिखता है।
 
 !!! warning
     कभी भी `"[Rendered UI]"` जैसा placeholder अकेले content के रूप में न लौटाएँ।
