@@ -246,7 +246,9 @@ async def test_a_404_mid_session_surfaces_as_a_session_terminated_error() -> Non
                 with pytest.raises(MCPError) as exc_info:  # pragma: no branch
                     await client.list_tools()
 
-    assert exc_info.value.error == snapshot(ErrorData(code=INVALID_REQUEST, message="Session terminated"))
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=INVALID_REQUEST, message="Session terminated", data={"httpStatus": 404})
+    )
 
 
 def _blocking_server(started: anyio.Event, cancelled: anyio.Event) -> Server:
