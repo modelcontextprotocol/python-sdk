@@ -109,6 +109,8 @@ docs = [
 # of the default groups so no other environment installs the client (or the
 # legacy httpx it depends on). See i18n/README.md.
 translate = ["anthropic>=0.121.0"]
+# Note: when bumping `datamodel-code-generator`, look at `scripts/codegen_templates/pydantic_v2/RootModel.jinja2`
+# if it needs updating:
 codegen = ["datamodel-code-generator==0.57.0"]
 
 [build-system]

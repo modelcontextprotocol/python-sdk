@@ -1,0 +1,63 @@
+{#-
+Copy of datamodel-code-generator's `pydantic_v2/RootModel.jinja2` with two changes:
+
+- The base `RootModel` class is left unparametrized instead of `RootModel[...]`.
+  The class annotates `root` anyway, and every distinct `RootModel[...]` parametrization
+  builds a model that is unused.
+- `description` and `field.docstring` go through the `format_docstring` filter. Codegen
+  only pre-formats them for its built-in templates; custom templates receive the raw text.
+  The 4-space indent matches codegen's `DOCSTRING_INDENT` / `FIELD_DOCSTRING_INDENT`.
+-#}
+{%- macro get_type_hint(_fields, use_base_type) -%}
+{%- if _fields -%}
+{#There will only ever be a single field for RootModel#}
+{%- if use_base_type -%}
+{{- _fields[0].base_type_hint}}
+{%- else -%}
+{{- _fields[0].type_hint}}
+{%- endif -%}
+{%- endif -%}
+{%- endmacro -%}
+
+
+{% for decorator in decorators -%}
+{{ decorator }}
+{% endfor -%}
+
+{#- Use base_type_hint in generic when regex_engine is set to avoid evaluating pattern before config is processed -#}
+{%- set use_base_type = config and config.regex_engine -%}
+class {{ class_name }}({{ base_class }}):  # pyright: ignore[reportMissingTypeArgument]{% if comment is defined %}  # {{ comment }}{% endif %}
+{%- if description %}
+    {{ description | format_docstring(4) }}
+{%- endif %}
+{%- if config %}
+{%- filter indent(4) %}
+{% include 'ConfigDict.jinja2' %}
+{%- endfilter %}
+{%- endif %}
+{%- for line in class_body_lines %}
+    {{ line }}
+{%- endfor %}
+{%- if not fields and not description and not config and not class_body_lines %}
+    pass
+{%- else %}
+    {%- set field = fields[0] %}
+    {%- if not field.annotated and field.field %}
+    root: {{ field.type_hint }} = {{ field.field }}
+    {%- else %}
+    {%- if field.annotated %}
+    root: {{ field.annotated }}
+    {%- else %}
+    root: {{ field.type_hint }}
+    {%- endif %}
+    {%- if not field.has_default_factory_in_field and not (field.required or (field.represented_default == 'None' and field.strip_default_none))
+            %} = {{ field.represented_default }}
+    {%- endif -%}
+    {%- endif %}
+    {%- if field.docstring %}
+    {{ field.docstring | format_docstring(4) }}
+    {%- elif field.inline_field_docstring %}
+    {{ field.inline_field_docstring }}
+
+    {%- endif %}
+{%- endif %}
