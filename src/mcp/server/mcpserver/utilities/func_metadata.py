@@ -114,15 +114,15 @@ class ArgModelBase(BaseModel):
 
 class FuncMetadata(BaseModel):
     """A tool function's argument model plus, for structured output, the published `output_schema` and the
-    `output_model` results are validated against. Constructing one with an `output_model` and no schema derives
-    the schema (and raises if pydantic can't); the fields are read live, so clearing or reassigning them later
+    `output_model` type annotation results are validated against. Constructing one with an `output_model` and no
+    schema derives the schema (and raises if pydantic can't); the fields are read live, so reassigning them later
     takes effect on the next call."""
 
     arg_model: Annotated[type[ArgModelBase], WithJsonSchema(None)]
     output_schema: dict[str, Any] | None = None
-    output_model: Annotated[type[Any], WithJsonSchema(None)] | None = None
+    output_model: Annotated[Any, WithJsonSchema(None)] = None
     wrap_output: bool = False
-    _adapter: tuple[type[Any], TypeAdapter[Any]] | None = PrivateAttr(default=None)
+    _adapter: tuple[Any, TypeAdapter[Any]] | None = PrivateAttr(default=None)
 
     def model_post_init(self, context: Any, /) -> None:
         if self.output_model is not None and self.output_schema is None:
@@ -130,7 +130,7 @@ class FuncMetadata(BaseModel):
             schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
             self.output_schema = _inline_root_ref(schema)
 
-    def _output_adapter(self, output_model: type[Any]) -> TypeAdapter[Any]:
+    def _output_adapter(self, output_model: Any) -> TypeAdapter[Any]:
         """The validator/serializer for `output_model`, built once and rebuilt only if the field is reassigned."""
         if self._adapter is None or self._adapter[0] is not output_model:
             self._adapter = (output_model, TypeAdapter(_pydantic_readable_typeddict(output_model)))
@@ -477,7 +477,7 @@ def func_metadata(
     return FuncMetadata(arg_model=arguments_model)
 
 
-def _create_output_model(original_annotation: Any, type_expr: Any, func_name: str) -> tuple[type[Any] | None, bool]:
+def _create_output_model(original_annotation: Any, type_expr: Any, func_name: str) -> tuple[Any, bool]:
     """Pick the type structured output is validated against for the given return annotation.
 
     Args:
@@ -491,7 +491,7 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
         Model is None if the type cannot carry structured output.
         wrap_output is True if the result needs to be wrapped in {"result": ...}
     """
-    model: type[Any] | None = None
+    model: Any = None
     wrap_output = False
 
     # First handle special case: None
@@ -503,13 +503,12 @@ def _create_output_model(original_annotation: Any, type_expr: Any, func_name: st
     elif isinstance(type_expr, GenericAlias):
         origin = get_origin(type_expr)
 
-        # Special case: dict with string keys can use RootModel
         if origin is dict:
             args = get_args(type_expr)
             if len(args) == 2 and args[0] is str:
                 # TODO: should we use the original annotation? We are losing any potential `Annotated`
                 # metadata for Pydantic here:
-                model = _create_dict_model(func_name, type_expr)
+                model = Annotated[type_expr, Field(title=f"{func_name}DictOutput")]
             else:
                 # dict with non-str keys needs wrapping
                 model = _create_wrapped_model(func_name, original_annotation)
@@ -620,21 +619,6 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
     model_name = f"{func_name}Output"
 
     return create_model(model_name, result=annotation)
-
-
-def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
-    """Create a RootModel for dict[str, T] types."""
-    # TODO(Marcelo): We should not rely on RootModel for this.
-    from pydantic import RootModel  # noqa: TID251
-
-    class DictModel(RootModel[dict_annotation]):
-        pass
-
-    # Give it a meaningful name
-    DictModel.__name__ = f"{func_name}DictOutput"
-    DictModel.__qualname__ = f"{func_name}DictOutput"
-
-    return DictModel
 
 
 def _convert_to_content(result: Any) -> list[ContentBlock]:
