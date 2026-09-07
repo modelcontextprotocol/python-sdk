@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal, Union
 
 from mcp_types._wire_base import WireModel
-from pydantic import ConfigDict, Field, RootModel
+from pydantic import ConfigDict, Field
+from typing_extensions import TypeAliasType
 
 
 class BaseMetadata(WireModel):
@@ -95,11 +96,10 @@ class Completion(WireModel):
     """
 
 
-class Cursor(RootModel[str]):
-    root: str
-    """
-    An opaque token used to represent a cursor for pagination.
-    """
+Cursor = str
+"""
+An opaque token used to represent a cursor for pagination.
+"""
 
 
 class RequestedSchema(WireModel):
@@ -415,6 +415,12 @@ class JSONRPCNotification(WireModel):
     params: dict[str, Any] | None = None
 
 
+JSONValue = TypeAliasType(
+    "JSONValue",
+    Union[dict[str, "JSONValue"], list["JSONValue"], str | int | float | bool | None],
+)
+
+
 class LegacyTitledEnumSchema(WireModel):
     """
     Use {@link TitledSingleSelectEnumSchema} instead.
@@ -436,27 +442,13 @@ class LegacyTitledEnumSchema(WireModel):
     type: Literal["string"]
 
 
-class LoggingLevel(
-    RootModel[
-        Literal[
-            "alert",
-            "critical",
-            "debug",
-            "emergency",
-            "error",
-            "info",
-            "notice",
-            "warning",
-        ]
-    ]
-):
-    root: Literal["alert", "critical", "debug", "emergency", "error", "info", "notice", "warning"]
-    """
-    The severity of a log message.
+LoggingLevel = Literal["alert", "critical", "debug", "emergency", "error", "info", "notice", "warning"]
+"""
+The severity of a log message.
 
-    These map to syslog message severities, as specified in RFC-5424:
-    https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
-    """
+These map to syslog message severities, as specified in RFC-5424:
+https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
+"""
 
 
 class MetaObject(WireModel):
@@ -624,11 +616,10 @@ class ParseError(WireModel):
     """
 
 
-class ProgressToken(RootModel[str | int]):
-    root: str | int
-    """
-    A progress token, used to associate progress notifications with the original request.
-    """
+ProgressToken = str | int
+"""
+A progress token, used to associate progress notifications with the original request.
+"""
 
 
 class PromptArgument(WireModel):
@@ -694,11 +685,10 @@ class Request(WireModel):
     params: dict[str, Any] | None = None
 
 
-class RequestId(RootModel[str | int]):
-    root: str | int
-    """
-    A uniquely identifying ID for a request in JSON-RPC.
-    """
+RequestId = str | int
+"""
+A uniquely identifying ID for a request in JSON-RPC.
+"""
 
 
 class ResourceContents(WireModel):
@@ -759,22 +749,20 @@ class ResultMetaObject(WireModel):
     """
 
 
-class ResultType(RootModel[str]):
-    root: str
-    """
-    Indicates the type of a {@link Result} object, allowing the client to
-    determine how to parse the response.
+ResultType = str
+"""
+Indicates the type of a {@link Result} object, allowing the client to
+determine how to parse the response.
 
-    complete - the request completed successfully and the result contains the final content.
-    input_required - the request requires additional input and the result contains an {@link InputRequiredResult} object with instructions for the client to provide additional input before retrying the original request.
-    """
+complete - the request completed successfully and the result contains the final content.
+input_required - the request requires additional input and the result contains an {@link InputRequiredResult} object with instructions for the client to provide additional input before retrying the original request.
+"""
 
 
-class Role(RootModel[Literal["assistant", "user"]]):
-    root: Literal["assistant", "user"]
-    """
-    The sender or recipient of messages and data in a conversation.
-    """
+Role = Literal["assistant", "user"]
+"""
+The sender or recipient of messages and data in a conversation.
+"""
 
 
 class Root(WireModel):
@@ -1468,11 +1456,10 @@ class CompleteResultResponse(WireModel):
     result: CompleteResult
 
 
-class ElicitRequestParams(RootModel[ElicitRequestFormParams | ElicitRequestURLParams]):
-    root: ElicitRequestFormParams | ElicitRequestURLParams
-    """
-    The parameters for a request to elicit additional information from the user via the client.
-    """
+ElicitRequestParams = ElicitRequestFormParams | ElicitRequestURLParams
+"""
+The parameters for a request to elicit additional information from the user via the client.
+"""
 
 
 class EmbeddedResource(WireModel):
@@ -1495,22 +1482,13 @@ class EmbeddedResource(WireModel):
     type: Literal["resource"]
 
 
-class EnumSchema(
-    RootModel[
-        UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
-    root: (
-        UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    )
+EnumSchema = (
+    UntitledSingleSelectEnumSchema
+    | TitledSingleSelectEnumSchema
+    | UntitledMultiSelectEnumSchema
+    | TitledMultiSelectEnumSchema
+    | LegacyTitledEnumSchema
+)
 
 
 class HeaderMismatchError(WireModel):
@@ -1551,6 +1529,12 @@ class ImageContent(WireModel):
     The MIME type of the image. Different providers may support different image types.
     """
     type: Literal["image"]
+
+
+JSONArray = list[JSONValue]
+
+
+JSONObject = dict[str, JSONValue]
 
 
 class JSONRPCErrorResponse(WireModel):
@@ -1618,8 +1602,7 @@ class ListRootsResult(WireModel):
     roots: list[Root]
 
 
-class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
-    root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
+MultiSelectEnumSchema = UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
 
 
 class NotificationMetaObject(WireModel):
@@ -1680,32 +1663,20 @@ class PaginatedResult(WireModel):
     """
 
 
-class PrimitiveSchemaDefinition(
-    RootModel[
-        StringSchema
-        | NumberSchema
-        | BooleanSchema
-        | UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
-    root: (
-        StringSchema
-        | NumberSchema
-        | BooleanSchema
-        | UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    )
-    """
-    Restricted schema definitions that only allow primitive types
-    without nested objects or arrays.
-    """
+PrimitiveSchemaDefinition = (
+    StringSchema
+    | NumberSchema
+    | BooleanSchema
+    | UntitledSingleSelectEnumSchema
+    | TitledSingleSelectEnumSchema
+    | UntitledMultiSelectEnumSchema
+    | TitledMultiSelectEnumSchema
+    | LegacyTitledEnumSchema
+)
+"""
+Restricted schema definitions that only allow primitive types
+without nested objects or arrays.
+"""
 
 
 class ProgressNotificationParams(WireModel):
@@ -2064,8 +2035,50 @@ class Result(WireModel):
     """
 
 
-class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
-    root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
+class ServerCapabilities(WireModel):
+    """
+    Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    completions: JSONObject | None = None
+    """
+    Present if the server supports argument autocompletion suggestions.
+    """
+    experimental: dict[str, JSONObject] | None = None
+    """
+    Experimental, non-standard capabilities that the server supports.
+    """
+    extensions: dict[str, JSONObject] | None = None
+    """
+    Optional MCP extensions that the server supports. Keys are extension identifiers
+    (e.g., "io.modelcontextprotocol/tasks"), and values are per-extension settings
+    objects. An empty object indicates support with no settings.
+
+    Keys MUST follow the {@link MetaObject`_meta` key naming rules}, with a
+    mandatory prefix.
+    """
+    logging: JSONObject | None = None
+    """
+    Present if the server supports sending log messages to the client.
+    """
+    prompts: Prompts | None = None
+    """
+    Present if the server offers any prompt templates.
+    """
+    resources: Resources | None = None
+    """
+    Present if the server offers any resources to read.
+    """
+    tools: Tools | None = None
+    """
+    Present if the server offers any tools to call.
+    """
+
+
+SingleSelectEnumSchema = UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
 
 class SubscriptionsAcknowledgedNotificationParams(WireModel):
@@ -2237,6 +2250,72 @@ class CancelledNotificationParams(WireModel):
     """
 
 
+class Elicitation(WireModel):
+    """
+    Present if the client supports elicitation from the server.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    form: JSONObject | None = None
+    url: JSONObject | None = None
+
+
+class Sampling(WireModel):
+    """
+    Present if the client supports sampling from an LLM.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    context: JSONObject | None = None
+    """
+    Whether the client supports context inclusion via `includeContext` parameter.
+    If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
+    """
+    tools: JSONObject | None = None
+    """
+    Whether the client supports tool use via `tools` and `toolChoice` parameters.
+    """
+
+
+class ClientCapabilities(WireModel):
+    """
+    Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    elicitation: Elicitation | None = None
+    """
+    Present if the client supports elicitation from the server.
+    """
+    experimental: dict[str, JSONObject] | None = None
+    """
+    Experimental, non-standard capabilities that the client supports.
+    """
+    extensions: dict[str, JSONObject] | None = None
+    """
+    Optional MCP extensions that the client supports. Keys are extension identifiers
+    (e.g., "io.modelcontextprotocol/oauth-client-credentials"), and values are
+    per-extension settings objects. An empty object indicates support with no settings.
+
+    Keys MUST follow the {@link MetaObject`_meta` key naming rules}, with a
+    mandatory prefix.
+    """
+    roots: dict[str, Any] | None = None
+    """
+    Present if the client supports listing roots.
+    """
+    sampling: Sampling | None = None
+    """
+    Present if the client supports sampling from an LLM.
+    """
+
+
 class ClientNotification(WireModel):
     """
     This notification is sent by the client to indicate that it is cancelling a request it previously issued.
@@ -2256,15 +2335,89 @@ class ClientNotification(WireModel):
     params: CancelledNotificationParams
 
 
-class ClientResult(RootModel[Result]):
-    root: Result
+ClientResult = Result
+"""
+Common result fields.
+"""
+
+
+ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+
+
+class DiscoverResult(WireModel):
     """
-    Common result fields.
+    The result returned by the server for a {@link DiscoverRequestserver/discover} request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
+    cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
+    """
+    Indicates the intended scope of the cached response, analogous to HTTP
+    `Cache-Control: public` vs `Cache-Control: private`.
+
+    - `"public"`: The response does not contain user-specific data. Any
+      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
+      the response and serve it across authorization contexts.
+    - `"private"`: The response MAY be cached and reused only within the
+      same authorization context. Caches MUST NOT be shared across
+      authorization contexts (e.g., a different access token requires a
+      different cache).
+    """
+    capabilities: ServerCapabilities
+    """
+    The capabilities of the server.
+    """
+    instructions: str | None = None
+    """
+    Natural-language guidance describing the server and its features.
+
+    This can be used by clients to improve an LLM's understanding of
+    available tools (e.g., by including it in a system prompt). It should
+    focus on information that helps the model use the server effectively
+    and should not duplicate information already in tool descriptions.
+    """
+    result_type: Annotated[str, Field(alias="resultType")]
+    """
+    Indicates the type of the result, which allows the client to determine
+    how to parse the result object.
+
+    Servers implementing this protocol version MUST include this field.
+    For backward compatibility, when a client receives a result from a
+    server implementing an earlier protocol version (which does not include
+    `resultType`), the client MUST treat the absent field as `"complete"`.
+    """
+    supported_versions: Annotated[list[str], Field(alias="supportedVersions")]
+    """
+    MCP Protocol Versions this server supports. The client should choose a
+    version from this list for use in subsequent requests.
+    """
+    ttl_ms: Annotated[int, Field(alias="ttlMs", ge=0)]
+    """
+    A hint from the server indicating how long (in milliseconds) the
+    client MAY cache this response before re-fetching. Semantics are
+    analogous to HTTP Cache-Control max-age.
+
+    - If 0, The response SHOULD be considered immediately stale,
+      The client MAY re-fetch every time the result is needed.
+    - If positive, the client SHOULD consider the result fresh for this many
+      milliseconds after receiving the response.
     """
 
 
-class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
-    root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+class DiscoverResultResponse(WireModel):
+    """
+    A successful response from the server for a {@link DiscoverRequestserver/discover} request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    result: DiscoverResult
 
 
 class ElicitRequest(WireModel):
@@ -2279,11 +2432,10 @@ class ElicitRequest(WireModel):
     params: ElicitRequestParams
 
 
-class EmptyResult(RootModel[Result]):
-    root: Result
-    """
-    Common result fields.
-    """
+EmptyResult = Result
+"""
+Common result fields.
+"""
 
 
 class JSONRPCResultResponse(WireModel):
@@ -2578,6 +2730,49 @@ class LoggingMessageNotificationParams(WireModel):
     """
 
 
+class Data(WireModel):
+    """
+    Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    required_capabilities: Annotated[ClientCapabilities, Field(alias="requiredCapabilities")]
+    """
+    The capabilities the server requires from the client to process this request.
+    """
+
+
+class Error2(Error):
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    code: Literal[-32021]
+    """
+    The error type that occurred.
+    """
+    data: Data
+    """
+    Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
+    """
+
+
+class MissingRequiredClientCapabilityError(WireModel):
+    """
+    Returned when processing a request requires a capability the client did not
+    declare in `clientCapabilities`. For HTTP, the response status code MUST be
+    `400 Bad Request`.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    error: Error2
+    id: RequestId | None = None
+    jsonrpc: Literal["2.0"]
+
+
 class ProgressNotification(WireModel):
     """
     An out-of-band notification used to inform the receiver of a progress update for a long-running request.
@@ -2604,6 +2799,91 @@ class PromptMessage(WireModel):
     )
     content: ContentBlock
     role: Role
+
+
+class RequestMetaObject(WireModel):
+    """
+    Extends {@link MetaObject} with additional request-specific fields. All key naming rules from `MetaObject` apply.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    io_modelcontextprotocol_client_capabilities: Annotated[
+        ClientCapabilities, Field(alias="io.modelcontextprotocol/clientCapabilities")
+    ]
+    """
+    The client's capabilities for this specific request. Required.
+
+    Capabilities are declared per-request rather than once at initialization;
+    an empty object means the client supports no optional capabilities.
+    Servers MUST NOT infer capabilities from prior requests.
+    """
+    io_modelcontextprotocol_client_info: Annotated[
+        Implementation | None, Field(alias="io.modelcontextprotocol/clientInfo")
+    ] = None
+    """
+    Identifies the client software making the request. Clients SHOULD
+    include this field on every request unless specifically configured not
+    to do so.
+
+    The {@link Implementation} schema requires `name` and `version`; other
+    fields are optional.
+
+    The value is self-reported by the client and is not verified by the
+    protocol. It is intended for display, logging, and debugging. Servers
+    SHOULD NOT use it to change their behavior, and SHOULD NOT rely on it for
+    security decisions.
+    """
+    io_modelcontextprotocol_log_level: Annotated[
+        LoggingLevel | None, Field(alias="io.modelcontextprotocol/logLevel")
+    ] = None
+    """
+    The desired log level for this request. Optional.
+
+    If absent, the server MUST NOT send any {@link LoggingMessageNotificationnotifications/message}
+    notifications for this request. The client opts in to log messages by
+    explicitly setting a level. Replaces the former `logging/setLevel` RPC.
+    """
+    io_modelcontextprotocol_protocol_version: Annotated[str, Field(alias="io.modelcontextprotocol/protocolVersion")]
+    """
+    The MCP Protocol Version being used for this request. Required.
+
+    For the HTTP transport, this value MUST match the `MCP-Protocol-Version`
+    header; otherwise the server MUST return a `400 Bad Request`. If the
+    server does not support the requested version, it MUST return an
+    {@link UnsupportedProtocolVersionError}.
+    """
+    progress_token: Annotated[ProgressToken | None, Field(alias="progressToken")] = None
+    """
+    If specified, the caller is requesting out-of-band progress notifications for this request (as represented by {@link ProgressNotificationnotifications/progress}). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+    """
+
+
+class RequestParams(WireModel):
+    """
+    Common params for any request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+
+
+class ResourceRequestParams(WireModel):
+    """
+    Common params for resource-related requests.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+    uri: str
+    """
+    The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
+    """
 
 
 class ResourceUpdatedNotification(WireModel):
@@ -2639,6 +2919,23 @@ class SubscriptionsAcknowledgedNotification(WireModel):
     jsonrpc: Literal["2.0"]
     method: Literal["notifications/subscriptions/acknowledged"]
     params: SubscriptionsAcknowledgedNotificationParams
+
+
+class SubscriptionsListenRequestParams(WireModel):
+    """
+    Parameters for a {@link SubscriptionsListenRequestsubscriptions/listen} request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+    notifications: SubscriptionFilter
+    """
+    The notifications the client opts in to on this stream. The server
+    **MUST NOT** send notification types the client has not explicitly
+    requested.
+    """
 
 
 class ToolResultContent(WireModel):
@@ -2750,6 +3047,43 @@ class CancelledNotification(WireModel):
     params: CancelledNotificationParams
 
 
+class CompleteRequestParams(WireModel):
+    """
+    Parameters for a `completion/complete` request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+    argument: Argument
+    """
+    The argument's information
+    """
+    context: Context | None = None
+    """
+    Additional, optional context for completions
+    """
+    ref: PromptReference | ResourceTemplateReference
+
+
+class DiscoverRequest(WireModel):
+    """
+    A request from the client asking the server to advertise its supported
+    protocol versions, capabilities, and other metadata. Servers **MUST**
+    implement `server/discover`. Clients **MAY** call it but are not required
+    to — version negotiation can also happen inline via per-request `_meta`.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    method: Literal["server/discover"]
+    params: RequestParams
+
+
 class GetPromptResult(WireModel):
     """
     The result returned by the server for a {@link GetPromptRequestprompts/get} request.
@@ -2776,18 +3110,16 @@ class GetPromptResult(WireModel):
     """
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
-    root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
-    """
-    Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
-    """
+JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
+"""
+Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
+"""
 
 
-class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
-    root: JSONRPCResultResponse | JSONRPCErrorResponse
-    """
-    A response to a request, containing either the result or error.
-    """
+JSONRPCResponse = JSONRPCResultResponse | JSONRPCErrorResponse
+"""
+A response to a request, containing either the result or error.
+"""
 
 
 class LoggingMessageNotification(WireModel):
@@ -2803,34 +3135,65 @@ class LoggingMessageNotification(WireModel):
     params: LoggingMessageNotificationParams
 
 
-class SamplingMessageContentBlock(
-    RootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
-):
-    root: TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+class PaginatedRequestParams(WireModel):
+    """
+    Common params for paginated requests.
+    """
 
-
-class ServerNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | SubscriptionsAcknowledgedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | LoggingMessageNotification
-    ]
-):
-    root: (
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | SubscriptionsAcknowledgedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | LoggingMessageNotification
+    model_config = ConfigDict(
+        extra="ignore",
     )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+    cursor: str | None = None
+    """
+    An opaque token representing the current pagination position.
+    If provided, the server should return results starting after this cursor.
+    """
+
+
+SamplingMessageContentBlock = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+
+
+ServerNotification = (
+    CancelledNotification
+    | ProgressNotification
+    | ResourceListChangedNotification
+    | SubscriptionsAcknowledgedNotification
+    | ResourceUpdatedNotification
+    | PromptListChangedNotification
+    | ToolListChangedNotification
+    | LoggingMessageNotification
+)
+
+
+class SubscriptionsListenRequest(WireModel):
+    """
+    Sent from the client to open a long-lived channel for receiving notifications
+    outside the context of a specific request. Replaces the previous HTTP GET
+    endpoint and ensures consistent behavior between HTTP and STDIO.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    method: Literal["subscriptions/listen"]
+    params: SubscriptionsListenRequestParams
+
+
+class CompleteRequest(WireModel):
+    """
+    A request from the client to the server, to ask for completion options.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    method: Literal["completion/complete"]
+    params: CompleteRequestParams
 
 
 class CreateMessageResult(WireModel):
@@ -2871,428 +3234,15 @@ class CreateMessageResult(WireModel):
     """
 
 
-class InputResponse(RootModel[CreateMessageResult | ListRootsResult | ElicitResult]):
-    root: CreateMessageResult | ListRootsResult | ElicitResult
-
-
-class InputResponses(RootModel[dict[str, InputResponse]]):
-    """
-    A map of client responses to server-initiated requests.
-    Keys correspond to the keys in the {@link InputRequests} map;
-    values are the client's result for each request.
-    """
-
-    root: dict[str, InputResponse]
-
-
-class SamplingMessage(WireModel):
-    """
-    Describes a message issued to or received from an LLM API.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
-    content: (
-        TextContent
-        | ImageContent
-        | AudioContent
-        | ToolUseContent
-        | ToolResultContent
-        | list[SamplingMessageContentBlock]
-    )
-    role: Role
-
-
-class CallToolRequest(WireModel):
-    """
-    Used by the client to invoke a tool provided by the server.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    method: Literal["tools/call"]
-    params: CallToolRequestParams
-
-
-class CallToolRequestParams(WireModel):
-    """
-    Parameters for a `tools/call` request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-    arguments: dict[str, Any] | None = None
-    """
-    Arguments to use for the tool call.
-    """
-    input_responses: Annotated[InputResponses | None, Field(alias="inputResponses")] = None
-    name: str
-    """
-    The name of the tool.
-    """
-    request_state: Annotated[str | None, Field(alias="requestState")] = None
-
-
-class CallToolResultResponse(WireModel):
-    """
-    A successful response from the server for a {@link CallToolRequesttools/call} request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    result: InputRequiredResult | CallToolResult
-
-
-class Elicitation(WireModel):
-    """
-    Present if the client supports elicitation from the server.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    form: JSONObject | None = None
-    url: JSONObject | None = None
-
-
-class Sampling(WireModel):
-    """
-    Present if the client supports sampling from an LLM.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    context: JSONObject | None = None
-    """
-    Whether the client supports context inclusion via `includeContext` parameter.
-    If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
-    """
-    tools: JSONObject | None = None
-    """
-    Whether the client supports tool use via `tools` and `toolChoice` parameters.
-    """
-
-
-class ClientCapabilities(WireModel):
-    """
-    Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    elicitation: Elicitation | None = None
-    """
-    Present if the client supports elicitation from the server.
-    """
-    experimental: dict[str, JSONObject] | None = None
-    """
-    Experimental, non-standard capabilities that the client supports.
-    """
-    extensions: dict[str, JSONObject] | None = None
-    """
-    Optional MCP extensions that the client supports. Keys are extension identifiers
-    (e.g., "io.modelcontextprotocol/oauth-client-credentials"), and values are
-    per-extension settings objects. An empty object indicates support with no settings.
-
-    Keys MUST follow the {@link MetaObject`_meta` key naming rules}, with a
-    mandatory prefix.
-    """
-    roots: dict[str, Any] | None = None
-    """
-    Present if the client supports listing roots.
-    """
-    sampling: Sampling | None = None
-    """
-    Present if the client supports sampling from an LLM.
-    """
-
-
-class CompleteRequest(WireModel):
-    """
-    A request from the client to the server, to ask for completion options.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    method: Literal["completion/complete"]
-    params: CompleteRequestParams
-
-
-class CompleteRequestParams(WireModel):
-    """
-    Parameters for a `completion/complete` request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-    argument: Argument
-    """
-    The argument's information
-    """
-    context: Context | None = None
-    """
-    Additional, optional context for completions
-    """
-    ref: PromptReference | ResourceTemplateReference
-
-
-class CreateMessageRequest(WireModel):
-    """
-    A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    method: Literal["sampling/createMessage"]
-    params: CreateMessageRequestParams
-
-
-class CreateMessageRequestParams(WireModel):
-    """
-    Parameters for a `sampling/createMessage` request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    include_context: Annotated[
-        Literal["allServers", "none", "thisServer"] | None,
-        Field(alias="includeContext"),
-    ] = None
-    """
-    A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
-    The client MAY ignore this request.
-
-    Default is `"none"`. The values `"thisServer"` and `"allServers"` are deprecated (SEP-2596): servers SHOULD
-    omit this field or use `"none"`, and SHOULD only use the deprecated values if the client declares
-    {@link ClientCapabilities.sampling.context}.
-    """
-    max_tokens: Annotated[int, Field(alias="maxTokens")]
-    """
-    The requested maximum number of tokens to sample (to prevent runaway completions).
-
-    The client MAY choose to sample fewer tokens than the requested maximum.
-    """
-    messages: list[SamplingMessage]
-    metadata: JSONObject | None = None
-    """
-    Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
-    """
-    model_preferences: Annotated[ModelPreferences | None, Field(alias="modelPreferences")] = None
-    """
-    The server's preferences for which model to select. The client MAY ignore these preferences.
-    """
-    stop_sequences: Annotated[list[str] | None, Field(alias="stopSequences")] = None
-    system_prompt: Annotated[str | None, Field(alias="systemPrompt")] = None
-    """
-    An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
-    """
-    temperature: float | None = None
-    tool_choice: Annotated[ToolChoice | None, Field(alias="toolChoice")] = None
-    """
-    Controls how the model uses tools.
-    The client MUST return an error if this field is provided but {@link ClientCapabilities.sampling.tools} is not declared.
-    Default is `{ mode: "auto" }`.
-    """
-    tools: list[Tool] | None = None
-    """
-    Tools that the model may use during generation.
-    The client MUST return an error if this field is provided but {@link ClientCapabilities.sampling.tools} is not declared.
-    """
-
-
-class DiscoverRequest(WireModel):
-    """
-    A request from the client asking the server to advertise its supported
-    protocol versions, capabilities, and other metadata. Servers **MUST**
-    implement `server/discover`. Clients **MAY** call it but are not required
-    to — version negotiation can also happen inline via per-request `_meta`.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    method: Literal["server/discover"]
-    params: RequestParams
-
-
-class DiscoverResult(WireModel):
-    """
-    The result returned by the server for a {@link DiscoverRequestserver/discover} request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
-    cache_scope: Annotated[Literal["private", "public"], Field(alias="cacheScope")]
-    """
-    Indicates the intended scope of the cached response, analogous to HTTP
-    `Cache-Control: public` vs `Cache-Control: private`.
-
-    - `"public"`: The response does not contain user-specific data. Any
-      client or intermediary (e.g., shared gateway, caching proxy) MAY cache
-      the response and serve it across authorization contexts.
-    - `"private"`: The response MAY be cached and reused only within the
-      same authorization context. Caches MUST NOT be shared across
-      authorization contexts (e.g., a different access token requires a
-      different cache).
-    """
-    capabilities: ServerCapabilities
-    """
-    The capabilities of the server.
-    """
-    instructions: str | None = None
-    """
-    Natural-language guidance describing the server and its features.
-
-    This can be used by clients to improve an LLM's understanding of
-    available tools (e.g., by including it in a system prompt). It should
-    focus on information that helps the model use the server effectively
-    and should not duplicate information already in tool descriptions.
-    """
-    result_type: Annotated[str, Field(alias="resultType")]
-    """
-    Indicates the type of the result, which allows the client to determine
-    how to parse the result object.
-
-    Servers implementing this protocol version MUST include this field.
-    For backward compatibility, when a client receives a result from a
-    server implementing an earlier protocol version (which does not include
-    `resultType`), the client MUST treat the absent field as `"complete"`.
-    """
-    supported_versions: Annotated[list[str], Field(alias="supportedVersions")]
-    """
-    MCP Protocol Versions this server supports. The client should choose a
-    version from this list for use in subsequent requests.
-    """
-    ttl_ms: Annotated[int, Field(alias="ttlMs", ge=0)]
-    """
-    A hint from the server indicating how long (in milliseconds) the
-    client MAY cache this response before re-fetching. Semantics are
-    analogous to HTTP Cache-Control max-age.
-
-    - If 0, The response SHOULD be considered immediately stale,
-      The client MAY re-fetch every time the result is needed.
-    - If positive, the client SHOULD consider the result fresh for this many
-      milliseconds after receiving the response.
-    """
-
-
-class DiscoverResultResponse(WireModel):
-    """
-    A successful response from the server for a {@link DiscoverRequestserver/discover} request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    result: DiscoverResult
-
-
-class GetPromptRequest(WireModel):
-    """
-    Used by the client to get a prompt provided by the server.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    method: Literal["prompts/get"]
-    params: GetPromptRequestParams
-
-
-class GetPromptRequestParams(WireModel):
-    """
-    Parameters for a `prompts/get` request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-    arguments: dict[str, str] | None = None
-    """
-    Arguments to use for templating the prompt.
-    """
-    input_responses: Annotated[InputResponses | None, Field(alias="inputResponses")] = None
-    name: str
-    """
-    The name of the prompt or prompt template.
-    """
-    request_state: Annotated[str | None, Field(alias="requestState")] = None
-
-
-class GetPromptResultResponse(WireModel):
-    """
-    A successful response from the server for a {@link GetPromptRequestprompts/get} request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    result: InputRequiredResult | GetPromptResult
-
-
-class InputRequiredResult(WireModel):
-    """
-    An InputRequiredResult sent by the server to indicate that additional input is needed
-    before the request can be completed.
-
-    At least one of `inputRequests` or `requestState` MUST be present.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
-    input_requests: Annotated[InputRequests | None, Field(alias="inputRequests")] = None
-    request_state: Annotated[str | None, Field(alias="requestState")] = None
-    result_type: Annotated[str, Field(alias="resultType")]
-    """
-    Indicates the type of the result, which allows the client to determine
-    how to parse the result object.
-
-    Servers implementing this protocol version MUST include this field.
-    For backward compatibility, when a client receives a result from a
-    server implementing an earlier protocol version (which does not include
-    `resultType`), the client MUST treat the absent field as `"complete"`.
-    """
-
-
-class InputResponseRequestParams(WireModel):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-    input_responses: Annotated[InputResponses | None, Field(alias="inputResponses")] = None
-    request_state: Annotated[str | None, Field(alias="requestState")] = None
+InputResponse = CreateMessageResult | ListRootsResult | ElicitResult
+
+
+InputResponses = dict[str, InputResponse]
+"""
+A map of client responses to server-initiated requests.
+Keys correspond to the keys in the {@link InputRequests} map;
+values are the client's result for each request.
+"""
 
 
 class ListPromptsRequest(WireModel):
@@ -3351,49 +3301,6 @@ class ListToolsRequest(WireModel):
     params: PaginatedRequestParams
 
 
-class Data(WireModel):
-    """
-    Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    required_capabilities: Annotated[ClientCapabilities, Field(alias="requiredCapabilities")]
-    """
-    The capabilities the server requires from the client to process this request.
-    """
-
-
-class Error2(Error):
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    code: Literal[-32021]
-    """
-    The error type that occurred.
-    """
-    data: Data
-    """
-    Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
-    """
-
-
-class MissingRequiredClientCapabilityError(WireModel):
-    """
-    Returned when processing a request requires a capability the client did not
-    declare in `clientCapabilities`. For HTTP, the response status code MUST be
-    `400 Bad Request`.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    error: Error2
-    id: RequestId | None = None
-    jsonrpc: Literal["2.0"]
-
-
 class PaginatedRequest(WireModel):
     model_config = ConfigDict(
         extra="ignore",
@@ -3402,36 +3309,6 @@ class PaginatedRequest(WireModel):
     jsonrpc: Literal["2.0"]
     method: str
     params: PaginatedRequestParams
-
-
-class PaginatedRequestParams(WireModel):
-    """
-    Common params for paginated requests.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-    cursor: str | None = None
-    """
-    An opaque token representing the current pagination position.
-    If provided, the server should return results starting after this cursor.
-    """
-
-
-class ReadResourceRequest(WireModel):
-    """
-    Sent from the client to the server, to read a specific resource URI.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    id: RequestId
-    jsonrpc: Literal["2.0"]
-    method: Literal["resources/read"]
-    params: ReadResourceRequestParams
 
 
 class ReadResourceRequestParams(WireModel):
@@ -3451,6 +3328,221 @@ class ReadResourceRequestParams(WireModel):
     """
 
 
+class SamplingMessage(WireModel):
+    """
+    Describes a message issued to or received from an LLM API.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[MetaObject | None, Field(alias="_meta")] = None
+    content: (
+        TextContent
+        | ImageContent
+        | AudioContent
+        | ToolUseContent
+        | ToolResultContent
+        | list[SamplingMessageContentBlock]
+    )
+    role: Role
+
+
+class CallToolRequestParams(WireModel):
+    """
+    Parameters for a `tools/call` request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+    arguments: dict[str, Any] | None = None
+    """
+    Arguments to use for the tool call.
+    """
+    input_responses: Annotated[InputResponses | None, Field(alias="inputResponses")] = None
+    name: str
+    """
+    The name of the tool.
+    """
+    request_state: Annotated[str | None, Field(alias="requestState")] = None
+
+
+class CreateMessageRequestParams(WireModel):
+    """
+    Parameters for a `sampling/createMessage` request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    include_context: Annotated[
+        Literal["allServers", "none", "thisServer"] | None,
+        Field(alias="includeContext"),
+    ] = None
+    """
+    A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
+    The client MAY ignore this request.
+
+    Default is `"none"`. The values `"thisServer"` and `"allServers"` are deprecated (SEP-2596): servers SHOULD
+    omit this field or use `"none"`, and SHOULD only use the deprecated values if the client declares
+    {@link ClientCapabilities.sampling.context}.
+    """
+    max_tokens: Annotated[int, Field(alias="maxTokens")]
+    """
+    The requested maximum number of tokens to sample (to prevent runaway completions).
+
+    The client MAY choose to sample fewer tokens than the requested maximum.
+    """
+    messages: list[SamplingMessage]
+    metadata: JSONObject | None = None
+    """
+    Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
+    """
+    model_preferences: Annotated[ModelPreferences | None, Field(alias="modelPreferences")] = None
+    """
+    The server's preferences for which model to select. The client MAY ignore these preferences.
+    """
+    stop_sequences: Annotated[list[str] | None, Field(alias="stopSequences")] = None
+    system_prompt: Annotated[str | None, Field(alias="systemPrompt")] = None
+    """
+    An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
+    """
+    temperature: float | None = None
+    tool_choice: Annotated[ToolChoice | None, Field(alias="toolChoice")] = None
+    """
+    Controls how the model uses tools.
+    The client MUST return an error if this field is provided but {@link ClientCapabilities.sampling.tools} is not declared.
+    Default is `{ mode: "auto" }`.
+    """
+    tools: list[Tool] | None = None
+    """
+    Tools that the model may use during generation.
+    The client MUST return an error if this field is provided but {@link ClientCapabilities.sampling.tools} is not declared.
+    """
+
+
+class GetPromptRequestParams(WireModel):
+    """
+    Parameters for a `prompts/get` request.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+    arguments: dict[str, str] | None = None
+    """
+    Arguments to use for templating the prompt.
+    """
+    input_responses: Annotated[InputResponses | None, Field(alias="inputResponses")] = None
+    name: str
+    """
+    The name of the prompt or prompt template.
+    """
+    request_state: Annotated[str | None, Field(alias="requestState")] = None
+
+
+class InputResponseRequestParams(WireModel):
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
+    input_responses: Annotated[InputResponses | None, Field(alias="inputResponses")] = None
+    request_state: Annotated[str | None, Field(alias="requestState")] = None
+
+
+class ReadResourceRequest(WireModel):
+    """
+    Sent from the client to the server, to read a specific resource URI.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    method: Literal["resources/read"]
+    params: ReadResourceRequestParams
+
+
+class CallToolRequest(WireModel):
+    """
+    Used by the client to invoke a tool provided by the server.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    method: Literal["tools/call"]
+    params: CallToolRequestParams
+
+
+class CreateMessageRequest(WireModel):
+    """
+    A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    method: Literal["sampling/createMessage"]
+    params: CreateMessageRequestParams
+
+
+class GetPromptRequest(WireModel):
+    """
+    Used by the client to get a prompt provided by the server.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    method: Literal["prompts/get"]
+    params: GetPromptRequestParams
+
+
+InputRequest = CreateMessageRequest | ListRootsRequest | ElicitRequest
+
+
+InputRequests = dict[str, InputRequest]
+"""
+A map of server-initiated requests that the client must fulfill.
+Keys are server-assigned identifiers; values are the request objects.
+"""
+
+
+class InputRequiredResult(WireModel):
+    """
+    An InputRequiredResult sent by the server to indicate that additional input is needed
+    before the request can be completed.
+
+    At least one of `inputRequests` or `requestState` MUST be present.
+    """
+
+    model_config = ConfigDict(
+        extra="ignore",
+    )
+    meta: Annotated[ResultMetaObject | None, Field(alias="_meta")] = None
+    input_requests: Annotated[InputRequests | None, Field(alias="inputRequests")] = None
+    request_state: Annotated[str | None, Field(alias="requestState")] = None
+    result_type: Annotated[str, Field(alias="resultType")]
+    """
+    Indicates the type of the result, which allows the client to determine
+    how to parse the result object.
+
+    Servers implementing this protocol version MUST include this field.
+    For backward compatibility, when a client receives a result from a
+    server implementing an earlier protocol version (which does not include
+    `resultType`), the client MUST treat the absent field as `"complete"`.
+    """
+
+
 class ReadResourceResultResponse(WireModel):
     """
     A successful response from the server for a {@link ReadResourceRequestresources/read} request.
@@ -3464,139 +3556,25 @@ class ReadResourceResultResponse(WireModel):
     result: InputRequiredResult | ReadResourceResult
 
 
-class RequestMetaObject(WireModel):
-    """
-    Extends {@link MetaObject} with additional request-specific fields. All key naming rules from `MetaObject` apply.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    io_modelcontextprotocol_client_capabilities: Annotated[
-        ClientCapabilities, Field(alias="io.modelcontextprotocol/clientCapabilities")
-    ]
-    """
-    The client's capabilities for this specific request. Required.
-
-    Capabilities are declared per-request rather than once at initialization;
-    an empty object means the client supports no optional capabilities.
-    Servers MUST NOT infer capabilities from prior requests.
-    """
-    io_modelcontextprotocol_client_info: Annotated[
-        Implementation | None, Field(alias="io.modelcontextprotocol/clientInfo")
-    ] = None
-    """
-    Identifies the client software making the request. Clients SHOULD
-    include this field on every request unless specifically configured not
-    to do so.
-
-    The {@link Implementation} schema requires `name` and `version`; other
-    fields are optional.
-
-    The value is self-reported by the client and is not verified by the
-    protocol. It is intended for display, logging, and debugging. Servers
-    SHOULD NOT use it to change their behavior, and SHOULD NOT rely on it for
-    security decisions.
-    """
-    io_modelcontextprotocol_log_level: Annotated[
-        LoggingLevel | None, Field(alias="io.modelcontextprotocol/logLevel")
-    ] = None
-    """
-    The desired log level for this request. Optional.
-
-    If absent, the server MUST NOT send any {@link LoggingMessageNotificationnotifications/message}
-    notifications for this request. The client opts in to log messages by
-    explicitly setting a level. Replaces the former `logging/setLevel` RPC.
-    """
-    io_modelcontextprotocol_protocol_version: Annotated[str, Field(alias="io.modelcontextprotocol/protocolVersion")]
-    """
-    The MCP Protocol Version being used for this request. Required.
-
-    For the HTTP transport, this value MUST match the `MCP-Protocol-Version`
-    header; otherwise the server MUST return a `400 Bad Request`. If the
-    server does not support the requested version, it MUST return an
-    {@link UnsupportedProtocolVersionError}.
-    """
-    progress_token: Annotated[ProgressToken | None, Field(alias="progressToken")] = None
-    """
-    If specified, the caller is requesting out-of-band progress notifications for this request (as represented by {@link ProgressNotificationnotifications/progress}). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-    """
+ServerResult = (
+    Result
+    | InputRequiredResult
+    | DiscoverResult
+    | ListResourcesResult
+    | ListResourceTemplatesResult
+    | ReadResourceResult
+    | SubscriptionsListenResult
+    | ListPromptsResult
+    | GetPromptResult
+    | ListToolsResult
+    | CallToolResult
+    | CompleteResult
+)
 
 
-class RequestParams(WireModel):
+class CallToolResultResponse(WireModel):
     """
-    Common params for any request.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-
-
-class ResourceRequestParams(WireModel):
-    """
-    Common params for resource-related requests.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-    uri: str
-    """
-    The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
-    """
-
-
-class ServerCapabilities(WireModel):
-    """
-    Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
-    """
-
-    model_config = ConfigDict(
-        extra="ignore",
-    )
-    completions: JSONObject | None = None
-    """
-    Present if the server supports argument autocompletion suggestions.
-    """
-    experimental: dict[str, JSONObject] | None = None
-    """
-    Experimental, non-standard capabilities that the server supports.
-    """
-    extensions: dict[str, JSONObject] | None = None
-    """
-    Optional MCP extensions that the server supports. Keys are extension identifiers
-    (e.g., "io.modelcontextprotocol/tasks"), and values are per-extension settings
-    objects. An empty object indicates support with no settings.
-
-    Keys MUST follow the {@link MetaObject`_meta` key naming rules}, with a
-    mandatory prefix.
-    """
-    logging: JSONObject | None = None
-    """
-    Present if the server supports sending log messages to the client.
-    """
-    prompts: Prompts | None = None
-    """
-    Present if the server offers any prompt templates.
-    """
-    resources: Resources | None = None
-    """
-    Present if the server offers any resources to read.
-    """
-    tools: Tools | None = None
-    """
-    Present if the server offers any tools to call.
-    """
-
-
-class SubscriptionsListenRequest(WireModel):
-    """
-    Sent from the client to open a long-lived channel for receiving notifications
-    outside the context of a specific request. Replaces the previous HTTP GET
-    endpoint and ensures consistent behavior between HTTP and STDIO.
+    A successful response from the server for a {@link CallToolRequesttools/call} request.
     """
 
     model_config = ConfigDict(
@@ -3604,143 +3582,36 @@ class SubscriptionsListenRequest(WireModel):
     )
     id: RequestId
     jsonrpc: Literal["2.0"]
-    method: Literal["subscriptions/listen"]
-    params: SubscriptionsListenRequestParams
+    result: InputRequiredResult | CallToolResult
 
 
-class SubscriptionsListenRequestParams(WireModel):
+ClientRequest = (
+    DiscoverRequest
+    | ListResourcesRequest
+    | ListResourceTemplatesRequest
+    | ReadResourceRequest
+    | SubscriptionsListenRequest
+    | ListPromptsRequest
+    | GetPromptRequest
+    | ListToolsRequest
+    | CallToolRequest
+    | CompleteRequest
+)
+
+
+class GetPromptResultResponse(WireModel):
     """
-    Parameters for a {@link SubscriptionsListenRequestsubscriptions/listen} request.
+    A successful response from the server for a {@link GetPromptRequestprompts/get} request.
     """
 
     model_config = ConfigDict(
         extra="ignore",
     )
-    meta: Annotated[RequestMetaObject, Field(alias="_meta")]
-    notifications: SubscriptionFilter
-    """
-    The notifications the client opts in to on this stream. The server
-    **MUST NOT** send notification types the client has not explicitly
-    requested.
-    """
-
-
-class InputRequest(RootModel[CreateMessageRequest | ListRootsRequest | ElicitRequest]):
-    root: CreateMessageRequest | ListRootsRequest | ElicitRequest
-
-
-class ServerResult(
-    RootModel[
-        Result
-        | InputRequiredResult
-        | DiscoverResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | SubscriptionsListenResult
-        | ListPromptsResult
-        | GetPromptResult
-        | ListToolsResult
-        | CallToolResult
-        | CompleteResult
-    ]
-):
-    root: (
-        Result
-        | InputRequiredResult
-        | DiscoverResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | SubscriptionsListenResult
-        | ListPromptsResult
-        | GetPromptResult
-        | ListToolsResult
-        | CallToolResult
-        | CompleteResult
-    )
-
-
-class ClientRequest(
-    RootModel[
-        DiscoverRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscriptionsListenRequest
-        | ListPromptsRequest
-        | GetPromptRequest
-        | ListToolsRequest
-        | CallToolRequest
-        | CompleteRequest
-    ]
-):
-    root: (
-        DiscoverRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscriptionsListenRequest
-        | ListPromptsRequest
-        | GetPromptRequest
-        | ListToolsRequest
-        | CallToolRequest
-        | CompleteRequest
-    )
-
-
-class InputRequests(RootModel[dict[str, InputRequest]]):
-    """
-    A map of server-initiated requests that the client must fulfill.
-    Keys are server-assigned identifiers; values are the request objects.
-    """
-
-    root: dict[str, InputRequest]
-
-
-class JSONArray(RootModel[list["JSONValue"]]):
-    root: list["JSONValue"]
-
-
-class JSONObject(RootModel[dict[str, "JSONValue"]]):
-    root: dict[str, "JSONValue"]
-
-
-class JSONValue(RootModel[Union[JSONObject, list["JSONValue"], str | int | float | bool | None]]):
-    root: Union[JSONObject, list["JSONValue"], str | int | float | bool | None]
+    id: RequestId
+    jsonrpc: Literal["2.0"]
+    result: InputRequiredResult | GetPromptResult
 
 
 AnyCallToolResult = CallToolResult | InputRequiredResult
 AnyGetPromptResult = GetPromptResult | InputRequiredResult
 AnyReadResourceResult = ReadResourceResult | InputRequiredResult
-
-
-CallToolRequest.model_rebuild()
-CallToolRequestParams.model_rebuild()
-CallToolResultResponse.model_rebuild()
-Elicitation.model_rebuild()
-Sampling.model_rebuild()
-ClientCapabilities.model_rebuild()
-CompleteRequest.model_rebuild()
-CompleteRequestParams.model_rebuild()
-CreateMessageRequest.model_rebuild()
-CreateMessageRequestParams.model_rebuild()
-DiscoverRequest.model_rebuild()
-DiscoverResult.model_rebuild()
-GetPromptRequest.model_rebuild()
-GetPromptRequestParams.model_rebuild()
-GetPromptResultResponse.model_rebuild()
-InputRequiredResult.model_rebuild()
-InputResponseRequestParams.model_rebuild()
-ListPromptsRequest.model_rebuild()
-ListResourceTemplatesRequest.model_rebuild()
-ListResourcesRequest.model_rebuild()
-ListToolsRequest.model_rebuild()
-PaginatedRequest.model_rebuild()
-PaginatedRequestParams.model_rebuild()
-ReadResourceRequest.model_rebuild()
-ReadResourceRequestParams.model_rebuild()
-ServerCapabilities.model_rebuild()
-SubscriptionsListenRequest.model_rebuild()
-JSONArray.model_rebuild()
-JSONObject.model_rebuild()

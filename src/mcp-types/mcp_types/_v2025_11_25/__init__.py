@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 from mcp_types._wire_base import WireModel
-from pydantic import ConfigDict, Field, RootModel
+from pydantic import ConfigDict, Field
 
 
 class BaseMetadata(WireModel):
@@ -285,11 +285,10 @@ class CompleteResult(WireModel):
     completion: Completion
 
 
-class Cursor(RootModel[str]):
-    root: str
-    """
-    An opaque token used to represent a cursor for pagination.
-    """
+Cursor = str
+"""
+An opaque token used to represent a cursor for pagination.
+"""
 
 
 class RequestedSchema(WireModel):
@@ -556,27 +555,13 @@ class LegacyTitledEnumSchema(WireModel):
     type: Literal["string"]
 
 
-class LoggingLevel(
-    RootModel[
-        Literal[
-            "alert",
-            "critical",
-            "debug",
-            "emergency",
-            "error",
-            "info",
-            "notice",
-            "warning",
-        ]
-    ]
-):
-    root: Literal["alert", "critical", "debug", "emergency", "error", "info", "notice", "warning"]
-    """
-    The severity of a log message.
+LoggingLevel = Literal["alert", "critical", "debug", "emergency", "error", "info", "notice", "warning"]
+"""
+The severity of a log message.
 
-    These map to syslog message severities, as specified in RFC-5424:
-    https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
-    """
+These map to syslog message severities, as specified in RFC-5424:
+https://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1
+"""
 
 
 class LoggingMessageNotificationParams(WireModel):
@@ -723,11 +708,10 @@ class PaginatedResult(WireModel):
     """
 
 
-class ProgressToken(RootModel[str | int]):
-    root: str | int
-    """
-    A progress token, used to associate progress notifications with the original request.
-    """
+ProgressToken = str | int
+"""
+A progress token, used to associate progress notifications with the original request.
+"""
 
 
 class PromptArgument(WireModel):
@@ -853,11 +837,10 @@ class Request(WireModel):
     params: dict[str, Any] | None = None
 
 
-class RequestId(RootModel[str | int]):
-    root: str | int
-    """
-    A uniquely identifying ID for a request in JSON-RPC.
-    """
+RequestId = str | int
+"""
+A uniquely identifying ID for a request in JSON-RPC.
+"""
 
 
 class RequestParams(WireModel):
@@ -970,11 +953,10 @@ class Result(WireModel):
     """
 
 
-class Role(RootModel[Literal["assistant", "user"]]):
-    root: Literal["assistant", "user"]
-    """
-    The sender or recipient of messages and data in a conversation.
-    """
+Role = Literal["assistant", "user"]
+"""
+The sender or recipient of messages and data in a conversation.
+"""
 
 
 class Root(WireModel):
@@ -1216,11 +1198,10 @@ class TaskMetadata(WireModel):
     """
 
 
-class TaskStatus(RootModel[Literal["cancelled", "completed", "failed", "input_required", "working"]]):
-    root: Literal["cancelled", "completed", "failed", "input_required", "working"]
-    """
-    The status of a task.
-    """
+TaskStatus = Literal["cancelled", "completed", "failed", "input_required", "working"]
+"""
+The status of a task.
+"""
 
 
 class TextResourceContents(WireModel):
@@ -1867,26 +1848,16 @@ class EmbeddedResource(WireModel):
     type: Literal["resource"]
 
 
-class EmptyResult(RootModel[Result]):
-    root: Result
+EmptyResult = Result
 
 
-class EnumSchema(
-    RootModel[
-        UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
-    root: (
-        UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    )
+EnumSchema = (
+    UntitledSingleSelectEnumSchema
+    | TitledSingleSelectEnumSchema
+    | UntitledMultiSelectEnumSchema
+    | TitledMultiSelectEnumSchema
+    | LegacyTitledEnumSchema
+)
 
 
 class GetPromptRequestParams(WireModel):
@@ -2115,8 +2086,7 @@ class LoggingMessageNotification(WireModel):
     params: LoggingMessageNotificationParams
 
 
-class MultiSelectEnumSchema(RootModel[UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema]):
-    root: UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
+MultiSelectEnumSchema = UntitledMultiSelectEnumSchema | TitledMultiSelectEnumSchema
 
 
 class PaginatedRequestParams(WireModel):
@@ -2152,32 +2122,20 @@ class PingRequest(WireModel):
     params: RequestParams | None = None
 
 
-class PrimitiveSchemaDefinition(
-    RootModel[
-        StringSchema
-        | NumberSchema
-        | BooleanSchema
-        | UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    ]
-):
-    root: (
-        StringSchema
-        | NumberSchema
-        | BooleanSchema
-        | UntitledSingleSelectEnumSchema
-        | TitledSingleSelectEnumSchema
-        | UntitledMultiSelectEnumSchema
-        | TitledMultiSelectEnumSchema
-        | LegacyTitledEnumSchema
-    )
-    """
-    Restricted schema definitions that only allow primitive types
-    without nested objects or arrays.
-    """
+PrimitiveSchemaDefinition = (
+    StringSchema
+    | NumberSchema
+    | BooleanSchema
+    | UntitledSingleSelectEnumSchema
+    | TitledSingleSelectEnumSchema
+    | UntitledMultiSelectEnumSchema
+    | TitledMultiSelectEnumSchema
+    | LegacyTitledEnumSchema
+)
+"""
+Restricted schema definitions that only allow primitive types
+without nested objects or arrays.
+"""
 
 
 class ProgressNotificationParams(WireModel):
@@ -2499,8 +2457,7 @@ class SetLevelRequest(WireModel):
     params: SetLevelRequestParams
 
 
-class SingleSelectEnumSchema(RootModel[UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema]):
-    root: UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
+SingleSelectEnumSchema = UntitledSingleSelectEnumSchema | TitledSingleSelectEnumSchema
 
 
 class SubscribeRequest(WireModel):
@@ -2793,8 +2750,7 @@ class CompleteRequest(WireModel):
     params: CompleteRequestParams
 
 
-class ContentBlock(RootModel[TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource]):
-    root: TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 
 
 class CreateTaskResult(WireModel):
@@ -2812,11 +2768,10 @@ class CreateTaskResult(WireModel):
     task: Task
 
 
-class ElicitRequestParams(RootModel[ElicitRequestURLParams | ElicitRequestFormParams]):
-    root: ElicitRequestURLParams | ElicitRequestFormParams
-    """
-    The parameters for a request to elicit additional information from the user via the client.
-    """
+ElicitRequestParams = ElicitRequestURLParams | ElicitRequestFormParams
+"""
+The parameters for a request to elicit additional information from the user via the client.
+"""
 
 
 class GetPromptRequest(WireModel):
@@ -2857,18 +2812,16 @@ class InitializeRequest(WireModel):
     params: InitializeRequestParams
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse]):
-    root: JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
-    """
-    Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
-    """
+JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse
+"""
+Refers to any valid JSON-RPC object that can be decoded off the wire, or encoded to be sent.
+"""
 
 
-class JSONRPCResponse(RootModel[JSONRPCResultResponse | JSONRPCErrorResponse]):
-    root: JSONRPCResultResponse | JSONRPCErrorResponse
-    """
-    A response to a request, containing either the result or error.
-    """
+JSONRPCResponse = JSONRPCResultResponse | JSONRPCErrorResponse
+"""
+A response to a request, containing either the result or error.
+"""
 
 
 class ListPromptsRequest(WireModel):
@@ -3173,64 +3126,34 @@ class CallToolResult(WireModel):
     """
 
 
-class ClientNotification(
-    RootModel[
-        CancelledNotification
-        | InitializedNotification
-        | ProgressNotification
-        | TaskStatusNotification
-        | RootsListChangedNotification
-    ]
-):
-    root: (
-        CancelledNotification
-        | InitializedNotification
-        | ProgressNotification
-        | TaskStatusNotification
-        | RootsListChangedNotification
-    )
+ClientNotification = (
+    CancelledNotification
+    | InitializedNotification
+    | ProgressNotification
+    | TaskStatusNotification
+    | RootsListChangedNotification
+)
 
 
-class ClientRequest(
-    RootModel[
-        InitializeRequest
-        | PingRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscribeRequest
-        | UnsubscribeRequest
-        | ListPromptsRequest
-        | GetPromptRequest
-        | ListToolsRequest
-        | CallToolRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | CancelTaskRequest
-        | ListTasksRequest
-        | SetLevelRequest
-        | CompleteRequest
-    ]
-):
-    root: (
-        InitializeRequest
-        | PingRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscribeRequest
-        | UnsubscribeRequest
-        | ListPromptsRequest
-        | GetPromptRequest
-        | ListToolsRequest
-        | CallToolRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | CancelTaskRequest
-        | ListTasksRequest
-        | SetLevelRequest
-        | CompleteRequest
-    )
+ClientRequest = (
+    InitializeRequest
+    | PingRequest
+    | ListResourcesRequest
+    | ListResourceTemplatesRequest
+    | ReadResourceRequest
+    | SubscribeRequest
+    | UnsubscribeRequest
+    | ListPromptsRequest
+    | GetPromptRequest
+    | ListToolsRequest
+    | CallToolRequest
+    | GetTaskRequest
+    | GetTaskPayloadRequest
+    | CancelTaskRequest
+    | ListTasksRequest
+    | SetLevelRequest
+    | CompleteRequest
+)
 
 
 class ElicitRequest(WireModel):
@@ -3266,72 +3189,38 @@ class GetPromptResult(WireModel):
     messages: list[PromptMessage]
 
 
-class SamplingMessageContentBlock(
-    RootModel[TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent]
-):
-    root: TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+SamplingMessageContentBlock = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 
 
-class ServerNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | TaskStatusNotification
-        | LoggingMessageNotification
-        | ElicitationCompleteNotification
-    ]
-):
-    root: (
-        CancelledNotification
-        | ProgressNotification
-        | ResourceListChangedNotification
-        | ResourceUpdatedNotification
-        | PromptListChangedNotification
-        | ToolListChangedNotification
-        | TaskStatusNotification
-        | LoggingMessageNotification
-        | ElicitationCompleteNotification
-    )
+ServerNotification = (
+    CancelledNotification
+    | ProgressNotification
+    | ResourceListChangedNotification
+    | ResourceUpdatedNotification
+    | PromptListChangedNotification
+    | ToolListChangedNotification
+    | TaskStatusNotification
+    | LoggingMessageNotification
+    | ElicitationCompleteNotification
+)
 
 
-class ServerResult(
-    RootModel[
-        Result
-        | InitializeResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | ListPromptsResult
-        | GetPromptResult
-        | ListToolsResult
-        | CallToolResult
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | CancelTaskResult
-        | ListTasksResult
-        | CompleteResult
-    ]
-):
-    root: (
-        Result
-        | InitializeResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | ListPromptsResult
-        | GetPromptResult
-        | ListToolsResult
-        | CallToolResult
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | CancelTaskResult
-        | ListTasksResult
-        | CompleteResult
-    )
+ServerResult = (
+    Result
+    | InitializeResult
+    | ListResourcesResult
+    | ListResourceTemplatesResult
+    | ReadResourceResult
+    | ListPromptsResult
+    | GetPromptResult
+    | ListToolsResult
+    | CallToolResult
+    | GetTaskResult
+    | GetTaskPayloadResult
+    | CancelTaskResult
+    | ListTasksResult
+    | CompleteResult
+)
 
 
 class CreateMessageResult(WireModel):
@@ -3398,28 +3287,16 @@ class SamplingMessage(WireModel):
     role: Role
 
 
-class ClientResult(
-    RootModel[
-        Result
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | CancelTaskResult
-        | ListTasksResult
-        | CreateMessageResult
-        | ListRootsResult
-        | ElicitResult
-    ]
-):
-    root: (
-        Result
-        | GetTaskResult
-        | GetTaskPayloadResult
-        | CancelTaskResult
-        | ListTasksResult
-        | CreateMessageResult
-        | ListRootsResult
-        | ElicitResult
-    )
+ClientResult = (
+    Result
+    | GetTaskResult
+    | GetTaskPayloadResult
+    | CancelTaskResult
+    | ListTasksResult
+    | CreateMessageResult
+    | ListRootsResult
+    | ElicitResult
+)
 
 
 class CreateMessageRequestParams(WireModel):
@@ -3502,25 +3379,13 @@ class CreateMessageRequest(WireModel):
     params: CreateMessageRequestParams
 
 
-class ServerRequest(
-    RootModel[
-        PingRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | CancelTaskRequest
-        | ListTasksRequest
-        | CreateMessageRequest
-        | ListRootsRequest
-        | ElicitRequest
-    ]
-):
-    root: (
-        PingRequest
-        | GetTaskRequest
-        | GetTaskPayloadRequest
-        | CancelTaskRequest
-        | ListTasksRequest
-        | CreateMessageRequest
-        | ListRootsRequest
-        | ElicitRequest
-    )
+ServerRequest = (
+    PingRequest
+    | GetTaskRequest
+    | GetTaskPayloadRequest
+    | CancelTaskRequest
+    | ListTasksRequest
+    | CreateMessageRequest
+    | ListRootsRequest
+    | ElicitRequest
+)

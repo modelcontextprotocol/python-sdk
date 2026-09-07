@@ -80,19 +80,12 @@ def _clamp_inbound_ttl(raw: dict[str, Any]) -> None:
 
 @cache
 def _wire_fields(target: type[BaseModel] | UnionType) -> frozenset[str]:
-    """Top-level wire keys `target` declares (its members', for a union).
-
-    A `RootModel` row (e.g. an empty result carried as `RootModel[Result]`)
-    reports its wrapped type's keys, not the pydantic-internal `root`.
-    """
+    """Top-level wire keys `target` declares (its members', for a union)."""
     members: tuple[Any, ...] = get_args(target) if isinstance(target, UnionType) else (target,)
     models = [m for m in members if isinstance(m, type) and issubclass(m, BaseModel)]
     fields: set[str] = set()
     for model in models:
-        if getattr(model, "__pydantic_root_model__", False):  # a RootModel wrapper row
-            fields |= _wire_fields(model.model_fields["root"].annotation)
-        else:
-            fields.update(field.alias or name for name, field in model.model_fields.items())
+        fields.update(field.alias or name for name, field in model.model_fields.items())
     return frozenset(fields)
 
 

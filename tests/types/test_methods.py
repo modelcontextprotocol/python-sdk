@@ -454,11 +454,20 @@ def test_elicit_result_surface_accepts_null_content_values_at_every_version_that
         surface.model_validate({"action": "accept", "content": {"name": "x", "age": None}})
 
 
-def test_server_capabilities_extensions_with_null_json_value_round_trips_at_2026():
-    """Spec `JSONValue` includes `null`; the ts->json render dropped it from the vendored schema."""
-    raw: dict[str, Any] = {"extensions": {"x": {"k": None}}}
-    parsed = v2026.ServerCapabilities.model_validate(raw)
-    assert parsed.model_dump(mode="json")["extensions"] == {"x": {"k": None}}
+def test_discovery_capabilities_preserve_nested_json_values() -> None:
+    """Spec `JSONValue` permits nested containers and every JSON scalar, including numbers and null."""
+    extensions = {"x": {"nested": [None, True, 1, 1.5, "text", {"child": [False]}]}}
+    raw = {
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": {"extensions": extensions},
+        "resultType": "complete",
+        "ttlMs": 0,
+        "cacheScope": "private",
+    }
+    parsed = methods.parse_server_result("server/discover", "2026-07-28", raw)
+    assert isinstance(parsed, types.DiscoverResult)
+    assert parsed.capabilities.extensions == extensions
+    assert methods.serialize_server_result("server/discover", "2026-07-28", raw) == raw
 
 
 def test_elicit_request_surface_accepts_loose_property_schemas():

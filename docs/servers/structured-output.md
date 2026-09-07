@@ -169,6 +169,8 @@ result.structured_content  # {"London": 16.2, "Reykjavik": 4.4}
 
 The keys must be `str`. A `dict[int, float]` can't be a JSON object, so it falls back to the `{"result": ...}` wrapper.
 
+Dictionary results use Pydantic's `TypeAdapter` for validation and serialization. If you inspect a tool's `FuncMetadata.output_model`, it holds the dictionary type annotation with its schema title.
+
 ## Validation
 
 `output_schema` is not documentation. Whatever your function returns is **validated against it** before it leaves the server.
