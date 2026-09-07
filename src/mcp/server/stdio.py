@@ -103,19 +103,34 @@ def _restore_fd(fd: int, private_fd: int) -> bool:
     return True
 
 
+def _text_transport(stream: TextIO, buffer: BinaryIO | None, errors: str | None = None) -> anyio.AsyncFile[str]:
+    """Serve the wire as UTF-8 text.
+
+    A stream with no buffer at all (io.StringIO under a test harness, or an
+    embedded host that replaced sys.stdout) is already text and owns no binary
+    layer to re-encode or to protect from close, so it is served in place.
+    """
+    if buffer is None:
+        return anyio.wrap_file(stream)
+    return anyio.wrap_file(_UnownedTextWrapper(buffer, encoding="utf-8", errors=errors))
+
+
 def _claim_fd(
     fd: int, stream: TextIO, mode: Literal["rb", "wb"], open_diversion: Callable[[], int]
-) -> tuple[BinaryIO, Callable[[], None] | None]:
+) -> tuple[BinaryIO | None, Callable[[], None] | None]:
     """Claim a standard stream: divert fd and serve the wire from a private duplicate.
 
     Best-effort: when descriptors cannot be duplicated or diverted, serves the
     sys stream's buffer in place, exactly as v1 did, with the claim held.
 
+    Returns a None buffer when the stream exposes no binary layer, which means the
+    caller must serve it as text; every other path returns a binary stream.
+
     Raises:
         RuntimeError: fd is already claimed by another transport in this process.
     """
     if not _is_backed_by_fd(stream, fd):
-        return stream.buffer, None
+        return getattr(stream, "buffer", None), None
     claim = _StreamClaim(fd)
     with _claims_lock:
         if fd in _claims:
@@ -173,10 +188,10 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     try:
         if not stdin:
             stdin_buffer, restore_stdin = _claim_fd(0, sys.stdin, "rb", _open_stdin_diversion)
-            stdin = anyio.wrap_file(_UnownedTextWrapper(stdin_buffer, encoding="utf-8", errors="replace"))
+            stdin = _text_transport(sys.stdin, stdin_buffer, errors="replace")
         if not stdout:
             stdout_buffer, restore_stdout = _claim_fd(1, sys.stdout, "wb", _open_stdout_diversion)
-            stdout = anyio.wrap_file(_UnownedTextWrapper(stdout_buffer, encoding="utf-8"))
+            stdout = _text_transport(sys.stdout, stdout_buffer)
 
         read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
         write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
