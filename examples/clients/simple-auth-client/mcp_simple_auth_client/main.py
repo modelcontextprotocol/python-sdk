@@ -146,7 +146,7 @@ class CallbackServer:
         if self.thread:
             self.thread.join(timeout=1)
 
-    def wait_for_callback(self, timeout: int = 300):
+    async def wait_for_callback(self, timeout: int = 300):
         """Wait for OAuth callback with timeout."""
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -154,7 +154,7 @@ class CallbackServer:
                 return self.callback_data["authorization_code"]
             elif self.callback_data["error"]:
                 raise Exception(f"OAuth error: {self.callback_data['error']}")
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
         raise Exception("Timeout waiting for OAuth callback")
 
     @property
@@ -194,7 +194,7 @@ class SimpleAuthClient:
                 """Wait for OAuth callback and return auth code, state, and iss."""
                 print("⏳ Waiting for authorization callback...")
                 try:
-                    auth_code = callback_server.wait_for_callback(timeout=300)
+                    auth_code = await callback_server.wait_for_callback(timeout=300)
                     return AuthorizationCodeResult(code=auth_code, state=callback_server.state, iss=callback_server.iss)
                 finally:
                     callback_server.stop()
