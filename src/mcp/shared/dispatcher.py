@@ -87,8 +87,10 @@ class CallOptions(TypedDict, total=False):
     Callers that need to know a request's id before its result arrives (a
     `subscriptions/listen` stream is demultiplexed by it) mint their own ids
     here; string ids that don't parse as integers can never collide with the
-    dispatcher's minted sequence. Per the class contract, dispatchers that
-    predate this key ignore it and mint as usual.
+    dispatcher's minted sequence, and a supplied integer (or numeric-string)
+    key advances that sequence past itself, so a minted id never reuses a
+    supplied one. Per the class contract, dispatchers that predate this key
+    ignore it and mint as usual.
     """
 
     timeout: float
