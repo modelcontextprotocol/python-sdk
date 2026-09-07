@@ -13,6 +13,6 @@ def forecast(city: str) -> str:
 app = mcp.streamable_http_app(
     transport_security=TransportSecuritySettings(
         allowed_hosts=["mcp.example.com", "mcp.example.com:*"],
-        allowed_origins=["https://app.example.com"],
+        allowed_origins=["http://mcp.example.com", "http://mcp.example.com:*"],
     )
 )
