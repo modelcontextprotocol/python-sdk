@@ -1,16 +1,36 @@
 """Shared helpers for the interaction suite.
 
-Keep this module small: it exists only for the recording transport used by the wire-level
-tests. Server fixtures and assertion helpers belong in the test that uses them.
+Keep this module small: it holds the recording transport used by the wire-level tests and the
+`tool_listing` handler factory. Servers and assertion helpers belong in the test that uses them.
 """
 
+from collections.abc import Awaitable, Callable
 from types import TracebackType
+from typing import Any
 
 import anyio
+from mcp_types import ListToolsResult, PaginatedRequestParams, Tool
 from typing_extensions import Self
 
 from mcp.client._transport import ReadStream, Transport, TransportStreams, WriteStream
+from mcp.server import ServerRequestContext
 from mcp.shared.message import SessionMessage
+
+
+def tool_listing(
+    *tools: Tool | str,
+) -> Callable[[ServerRequestContext[Any, Any], PaginatedRequestParams | None], Awaitable[ListToolsResult]]:
+    """An `on_list_tools` handler advertising `tools`; a bare name becomes an argument-less tool.
+
+    `Client.call_tool` lists tools once per connection to learn their output schemas, so a server
+    whose tools are called needs a tools/list handler even when the test never lists.
+    """
+    listed = [Tool(name=t, input_schema={"type": "object"}) if isinstance(t, str) else t for t in tools]
+
+    async def list_tools(ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=listed)
+
+    return list_tools
 
 
 class _RecordingReadStream:

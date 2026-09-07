@@ -19,6 +19,7 @@ import anyio
 import httpx2
 import mcp_types as types
 import pytest
+from inline_snapshot import snapshot
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -27,6 +28,7 @@ from mcp_types import (
     PROTOCOL_VERSION_META_KEY,
     SERVER_INFO_META_KEY,
     UNSUPPORTED_PROTOCOL_VERSION,
+    CompletionsCapability,
     DiscoverResult,
     Implementation,
     InitializeResult,
@@ -34,6 +36,7 @@ from mcp_types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    PromptsCapability,
     ServerCapabilities,
     ToolsCapability,
 )
@@ -45,6 +48,7 @@ from mcp.client._transport import TransportStreams
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
+from mcp.server.context import CallNext, HandlerResult
 from mcp.shared.memory import MessageStream, create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from tests.interaction._connect import BASE_URL, Connect, mounted_app
@@ -155,7 +159,7 @@ async def test_prior_discover_populates_state_with_zero_connect_time_traffic() -
 async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
     """`Client(..., mode='auto')` sends `server/discover` first and adopts the returned version and server_info.
 
-    Requirement `lifecycle:discover:basic` (spec basic/lifecycle#discover): the probe is a
+    Requirement `lifecycle:discover:basic` (spec server/discover): the probe is a
     single `server/discover` request whose result carries supported versions, capabilities,
     the cache-hint fields, and the `_meta` serverInfo stamp, after which the session is
     modern-negotiated.
@@ -182,7 +186,7 @@ async def test_auto_mode_probes_server_discover_and_adopts_the_result() -> None:
 async def test_auto_mode_retries_discover_once_on_unsupported_protocol_version() -> None:
     """A -32022 from `server/discover` triggers exactly one retry at the highest mutual modern version.
 
-    Requirement `lifecycle:discover:retry-on-32022` (spec basic/lifecycle#version-errors): the
+    Requirement `lifecycle:discover:retry-on-32022` (spec basic/versioning#protocol-version-negotiation): the
     client intersects `error.data.supported` with its own modern versions and re-probes once;
     the second success is adopted. The server's `server/discover` handler is overridden to fail
     the first call and succeed on the second.
@@ -352,7 +356,7 @@ async def test_every_request_on_a_modern_session_carries_the_three_key_meta_enve
 async def test_http_protocol_version_header_matches_meta_protocol_version_on_every_post() -> None:
     """On streamable-HTTP, the `MCP-Protocol-Version` header on each POST equals `_meta.protocolVersion` in its body.
 
-    Requirement `lifecycle:envelope:header-matches-meta` (spec streamable-http#headers): the
+    Requirement `lifecycle:envelope:header-matches-meta` (spec streamable-http#protocol-version-header): the
     body-derived header and the envelope's protocol version are kept in lockstep so the server's
     header-based routing and body-based validation never disagree.
     """
@@ -371,3 +375,151 @@ async def test_http_protocol_version_header_matches_meta_protocol_version_on_eve
         body = json.loads(request.content)
         assert request.headers["mcp-protocol-version"] == body["params"]["_meta"][PROTOCOL_VERSION_META_KEY]
         assert request.headers["mcp-protocol-version"] == LATEST_MODERN_VERSION
+
+
+@requirement("lifecycle:discover:instructions")
+async def test_discover_carries_server_instructions_and_omits_them_when_undeclared() -> None:
+    """A server's instructions string arrives through the `server/discover` result; an undeclared one reads None.
+
+    Auto mode is the only public path doing a real probe; the version asserts rule out an initialize fallback.
+    """
+    with anyio.fail_after(5):
+        async with Client(Server("guided", instructions="Call the add tool.")) as client:
+            assert client.protocol_version == LATEST_MODERN_VERSION
+            assert client.instructions == snapshot("Call the add tool.")
+
+    with anyio.fail_after(5):
+        async with Client(Server("unguided")) as client:
+            assert client.protocol_version == LATEST_MODERN_VERSION
+            assert client.instructions is None
+
+
+@requirement("lifecycle:discover:capabilities:from-handlers")
+async def test_discover_capabilities_reflect_registered_handlers() -> None:
+    """The discover result advertises a capability per registered handler area and omits the rest.
+
+    Only era-clean areas are registered. The subscription-delivered bits are era-honest (at 2026
+    they derive from whether subscriptions/listen is served, so a legacy subscribe handler
+    advertises nothing), but logging derivation is still era-agnostic: a setLevel handler would
+    advertise the era-deprecated logging capability -- a quirk deliberately left unpinned here.
+    """
+
+    # The handlers exist only so their capability is advertised; none is ever called.
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        raise NotImplementedError
+
+    async def list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        raise NotImplementedError
+
+    async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> types.CompleteResult:
+        raise NotImplementedError
+
+    server = Server("capable", on_list_tools=list_tools, on_list_prompts=list_prompts, on_completion=completion)
+
+    with anyio.fail_after(5):
+        async with Client(server) as client:
+            assert client.protocol_version == LATEST_MODERN_VERSION
+            assert client.server_capabilities == snapshot(
+                ServerCapabilities(
+                    prompts=PromptsCapability(list_changed=False),
+                    completions=CompletionsCapability(),
+                    tools=ToolsCapability(list_changed=False),
+                )
+            )
+
+    with anyio.fail_after(5):
+        async with Client(Server("bare")) as client:
+            assert client.server_capabilities == ServerCapabilities()
+
+
+def _method_recorder(server: Server) -> list[tuple[str, object]]:
+    """Record `(method, _meta protocolVersion)` for every request the server receives, in arrival order."""
+    seen: list[tuple[str, object]] = []
+
+    async def record(ctx: ServerRequestContext, call_next: CallNext) -> HandlerResult:
+        seen.append((ctx.method, (ctx.meta or {}).get(PROTOCOL_VERSION_META_KEY)))
+        return await call_next(ctx)
+
+    server.middleware.append(record)
+    return seen
+
+
+@requirement("lifecycle:mode:auto-probes-first")
+async def test_auto_mode_sends_discover_before_any_other_request_at_its_preferred_modern_version() -> None:
+    """The server sees `server/discover` first, stamped with the client's preferred modern version, then the call.
+
+    A SHOULD on the stdio page binding transport-independent ordering; auto mode needs the HTTP probe
+    (the in-memory client dispatches directly), so the server observes it through its middleware.
+    """
+    server = _tools_server()
+    seen = _method_recorder(server)
+
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server) as (http, _),
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
+        ):
+            await client.list_tools()
+
+    assert seen == [("server/discover", LATEST_MODERN_VERSION), ("tools/list", LATEST_MODERN_VERSION)]
+
+
+@requirement("lifecycle:discover:era-cached")
+async def test_auto_mode_probes_discover_once_and_reuses_it_for_the_connection_lifetime() -> None:
+    """The server receives one `server/discover` per connection; an explicit `discover()` returns the adopted result.
+
+    `client.session.discover()` is the documented session surface for re-reading the probe result.
+    """
+    server = _tools_server()
+    seen = _method_recorder(server)
+
+    with anyio.fail_after(5):
+        async with (
+            mounted_app(server) as (http, _),
+            Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto") as client,
+        ):
+            adopted = client.session.discover_result
+            await client.list_tools()
+            await client.list_tools()
+            await client.list_tools()
+            again = await client.session.discover()
+            assert again is adopted
+
+    assert [method for method, _ in seen] == ["server/discover", "tools/list", "tools/list", "tools/list"]
+
+
+@requirement("lifecycle:discover:retry-on-32022")
+async def test_auto_mode_raises_when_discover_rejects_with_a_disjoint_supported_list() -> None:
+    """A -32022 whose `supported` list shares no version with the client raises after one probe: no retry.
+
+    The fully-disjoint "1999-12-31" isolates the raise: a modern member would trigger the one-shot
+    retry and a handshake member the initialize fallback. The server is dual-era, so a fallback
+    would have connected instead of raising.
+    """
+    proposed: list[object] = []
+
+    async def discover(ctx: ServerRequestContext, params: types.RequestParams | None) -> DiscoverResult:
+        proposed.append((ctx.meta or {}).get(PROTOCOL_VERSION_META_KEY))
+        raise MCPError(
+            code=UNSUPPORTED_PROTOCOL_VERSION,
+            message="unsupported protocol version",
+            data={"supported": ["1999-12-31"], "requested": proposed[-1]},
+        )
+
+    server = _tools_server("disjoint")
+    server.add_request_handler("server/discover", types.RequestParams, discover)
+
+    with anyio.fail_after(5):
+        async with mounted_app(server) as (http, _):
+            with pytest.RaisesGroup(
+                pytest.RaisesExc(MCPError, check=lambda e: e.error.code == UNSUPPORTED_PROTOCOL_VERSION),
+                flatten_subgroups=True,
+            ):
+                async with Client(streamable_http_client(f"{BASE_URL}/mcp", http_client=http), mode="auto"):
+                    raise NotImplementedError  # unreachable: entering the Client raises
+
+    assert proposed == [LATEST_MODERN_VERSION]
