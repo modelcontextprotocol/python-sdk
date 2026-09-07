@@ -127,7 +127,10 @@ class FuncMetadata(BaseModel):
     def model_post_init(self, context: Any, /) -> None:
         if self.output_model is not None and self.output_schema is None:
             # StrictJsonSchema raises instead of warning, so an unserializable return type fails construction.
-            schema = self._output_adapter(self.output_model).json_schema(schema_generator=StrictJsonSchema)
+            # Serialization mode: computed fields and serialization aliases are part of the dumped output.
+            schema = self._output_adapter(self.output_model).json_schema(
+                schema_generator=StrictJsonSchema, mode="serialization"
+            )
             self.output_schema = _inline_root_ref(schema)
 
     def _output_adapter(self, output_model: type[Any]) -> TypeAdapter[Any]:
@@ -203,7 +206,13 @@ class FuncMetadata(BaseModel):
         output_model = self.output_model if self.output_schema is not None else None
         if isinstance(result, CallToolResult):
             if output_model is not None and not result.is_error:
-                self._output_adapter(output_model).validate_python(result.structured_content)
+                adapter = self._output_adapter(output_model)
+                validated = adapter.validate_python(result.structured_content)
+                # Normalize structured content the same way as ordinary return values, so
+                # computed fields and serialization aliases match the output schema.
+                return result.model_copy(
+                    update={"structured_content": adapter.dump_python(validated, mode="json", by_alias=True)}
+                )
             return result
 
         unstructured_content = _convert_to_content(result)
