@@ -112,9 +112,15 @@ class StdioServerParameters(BaseModel):
 
 @asynccontextmanager
 async def stdio_client(
-    server: StdioServerParameters, errlog: TextIO = sys.stderr
+    server: StdioServerParameters, errlog: TextIO | int = sys.stderr
 ) -> AsyncGenerator[TransportStreams, None]:
     """Spawns an MCP server subprocess and connects to it over stdin/stdout.
+
+    Args:
+        server: Parameters for the server process to spawn.
+        errlog: Where to send the server's stderr. Accepts a text stream
+            (e.g. ``sys.stderr``) or an integer file descriptor, including
+            ``subprocess.DEVNULL`` to discard stderr entirely.
 
     Raises:
         OSError: If the server process cannot be spawned.
@@ -329,7 +335,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | int = sys.stderr,
     cwd: Path | str | None = None,
 ) -> ServerProcess:
     """Spawns the server in its own kill scope.
