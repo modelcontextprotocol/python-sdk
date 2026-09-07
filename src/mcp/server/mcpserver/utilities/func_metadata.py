@@ -203,7 +203,15 @@ class FuncMetadata(BaseModel):
         output_model = self.output_model if self.output_schema is not None else None
         if isinstance(result, CallToolResult):
             if output_model is not None and not result.is_error:
-                self._output_adapter(output_model).validate_python(result.structured_content)
+                # Match the plain-return path: accept Python or alias keys, then emit
+                # wire keys (aliases) so structuredContent agrees with outputSchema.
+                adapter = self._output_adapter(output_model)
+                validated = adapter.validate_python(result.structured_content, by_alias=True, by_name=True)
+                if isinstance(validated, BaseModel):
+                    structured_content = validated.model_dump(mode="json", by_alias=True)
+                else:
+                    structured_content = adapter.dump_python(validated, mode="json", by_alias=True)
+                return result.model_copy(update={"structured_content": structured_content})
             return result
 
         unstructured_content = _convert_to_content(result)

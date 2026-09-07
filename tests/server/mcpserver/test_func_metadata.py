@@ -11,7 +11,7 @@ import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from typing_extensions import NotRequired, ReadOnly, Required
 
 from mcp import MCPDeprecationWarning
@@ -1320,6 +1320,34 @@ def test_structured_output_aliases():
     assert "field_second" not in structured_content_defaults
     assert structured_content_defaults["first"] is None
     assert structured_content_defaults["second"] is None
+
+
+def test_call_tool_result_structured_content_alias_normalized():
+    """CallToolResult.structured_content must be alias-normalized like plain returns."""
+
+    class ModelWithAliases(BaseModel):
+        model_config = ConfigDict(populate_by_name=True)
+        field_first: str | None = Field(default=None, alias="first")
+        field_second: str | None = Field(default=None, alias="second")
+
+    def via_call_tool_result() -> Annotated[CallToolResult, ModelWithAliases]:
+        return CallToolResult(
+            content=[],
+            structured_content={"field_first": "hello", "field_second": "world"},
+        )
+
+    meta = func_metadata(via_call_tool_result)
+    assert meta.output_schema is not None
+    assert "first" in meta.output_schema["properties"]
+    assert "field_first" not in meta.output_schema["properties"]
+
+    converted = meta.convert_result(via_call_tool_result())
+    assert isinstance(converted, CallToolResult)
+    structured_content = converted.structured_content
+    assert structured_content is not None
+    assert structured_content == {"first": "hello", "second": "world"}
+    assert "field_first" not in structured_content
+    assert "field_second" not in structured_content
 
 
 def test_basemodel_reserved_names():
