@@ -92,6 +92,7 @@ class Prompt(BaseModel):
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this prompt")
+    meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this prompt")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context", exclude=True)
 
     @classmethod
@@ -102,6 +103,7 @@ class Prompt(BaseModel):
         title: str | None = None,
         description: str | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         context_kwarg: str | None = None,
     ) -> Prompt:
         """Create a Prompt from a function.
@@ -152,6 +154,7 @@ class Prompt(BaseModel):
             arguments=arguments,
             fn=fn,
             icons=icons,
+            meta=meta,
             context_kwarg=context_kwarg,
         )
 

@@ -50,6 +50,14 @@ class TestRenderPrompt:
         ]
 
     @pytest.mark.anyio
+    async def test_fn_with_meta(self):
+        def fn() -> str:
+            return "Hello, world!"
+
+        prompt = Prompt.from_function(fn, meta={"purpose": "testing", "version": 1})
+        assert prompt.meta == {"purpose": "testing", "version": 1}
+
+    @pytest.mark.anyio
     async def test_fn_with_invalid_kwargs(self):
         async def fn(name: str, age: int = 30) -> str:  # pragma: no cover
             return f"Hello, {name}! You're {age} years old."

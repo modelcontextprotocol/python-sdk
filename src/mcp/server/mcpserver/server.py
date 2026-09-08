@@ -962,6 +962,7 @@ class MCPServer(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a prompt.
 
@@ -975,6 +976,7 @@ class MCPServer(Generic[LifespanResultT]):
             title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
             icons: Optional list of icons for the prompt
+            meta: Optional metadata dictionary for the prompt
 
         Example:
             ```python
@@ -1013,7 +1015,7 @@ class MCPServer(Generic[LifespanResultT]):
             )
 
         def decorator(func: _CallableT) -> _CallableT:
-            prompt = Prompt.from_function(func, name=name, title=title, description=description, icons=icons)
+            prompt = Prompt.from_function(func, name=name, title=title, description=description, icons=icons, meta=meta)
             self.add_prompt(prompt)
             return func
 
@@ -1326,6 +1328,7 @@ class MCPServer(Generic[LifespanResultT]):
                     for arg in (prompt.arguments or [])
                 ],
                 icons=prompt.icons,
+                _meta=prompt.meta,
             )
             for prompt in prompts
         ]
