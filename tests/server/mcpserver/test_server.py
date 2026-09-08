@@ -1403,6 +1403,22 @@ class TestServerPrompts:
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
+    async def test_prompt_decorator_with_meta(self):
+        """Test prompt decorator with custom meta."""
+        mcp = MCPServer()
+
+        @mcp.prompt(meta={"category": "tools", "priority": "high"})
+        def fn() -> str:
+            return "Hello, world!"
+
+        prompts = mcp._prompt_manager.list_prompts()
+        assert len(prompts) == 1
+        assert prompts[0].meta == {"category": "tools", "priority": "high"}
+        content = await prompts[0].render(None, Context())
+        assert not isinstance(content, InputRequiredResult)
+        assert isinstance(content[0].content, TextContent)
+        assert content[0].content.text == "Hello, world!"
+
     def test_prompt_decorator_error(self):
         """Test error when decorator is used incorrectly."""
         mcp = MCPServer()
@@ -1431,6 +1447,31 @@ class TestServerPrompts:
                                 PromptArgument(name="name", required=True),
                                 PromptArgument(name="optional", required=False),
                             ],
+                        )
+                    ],
+                )
+            )
+
+    async def test_list_prompts_with_meta(self):
+        """Test listing prompts with meta through MCP protocol."""
+        mcp = MCPServer()
+
+        @mcp.prompt(meta={"category": "tools", "priority": "high"})
+        def fn(name: str) -> str: ...  # pragma: no branch
+
+        async with Client(mcp) as client:
+            result = await client.list_prompts()
+            assert result == snapshot(
+                ListPromptsResult(
+                    _meta={"io.modelcontextprotocol/serverInfo": {"name": "mcp-server", "version": ""}},
+                    prompts=[
+                        Prompt(
+                            name="fn",
+                            description="",
+                            arguments=[
+                                PromptArgument(name="name", required=True),
+                            ],
+                            _meta={"category": "tools", "priority": "high"},
                         )
                     ],
                 )
