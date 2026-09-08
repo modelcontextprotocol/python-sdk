@@ -60,6 +60,7 @@ from mcp.server.mcpserver.exceptions import (
     UnexpectedToolError,
 )
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
+from mcp.server.mcpserver.prompts.base import Prompt as MCPServerPrompt
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.resources import Resource as MCPServerResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
@@ -3186,3 +3187,58 @@ async def test_middleware_can_refuse_subscriptions_listen_before_the_ack() -> No
                 pass  # pragma: no cover - the refusal precedes the stream
     assert exc_info.value.error.code == INVALID_REQUEST
     assert exc_info.value.error.message == "not permitted to watch the requested resources"
+
+
+class TestServerPromptMetadata:
+    """Test MCPServer @prompt decorator meta parameter for list operations.
+
+    Meta flows: @prompt decorator -> Prompt.from_function -> Prompt.meta -> list_prompts.
+    """
+
+    async def test_prompt_decorator_with_metadata(self):
+        """Test that @prompt decorator accepts and passes meta parameter."""
+        mcp = MCPServer()
+
+        @mcp.prompt(name="code_review", title="Code Review", meta={"strictness": "high"})
+        def review_code(code: str) -> str:
+            """Review code with specific metadata rules."""
+            return f"Review this: {code}"  # pragma: no cover
+
+        prompts = await mcp.list_prompts()
+        assert prompts == snapshot(
+            [
+                Prompt(
+                    name="code_review",
+                    title="Code Review",
+                    description="Review code with specific metadata rules.",
+                    arguments=[PromptArgument(name="code", required=True)],
+                    meta={"strictness": "high"},  # type: ignore[reportCallIssue]
+                )
+            ]
+        )
+
+    async def test_prompt_without_metadata_has_no_meta(self):
+        """A prompt that declares no meta must not emit an empty _meta."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def plain(code: str) -> str:
+            """No metadata here."""
+            return code  # pragma: no cover
+
+        prompts = await mcp.list_prompts()
+        assert prompts[0].meta is None
+        assert "_meta" not in prompts[0].model_dump(by_alias=True, exclude_none=True)
+
+    async def test_add_prompt_preserves_metadata(self):
+        """Meta survives the non-decorator registration path too."""
+
+        def review_code(code: str) -> str:
+            """Review code."""
+            return code  # pragma: no cover
+
+        mcp = MCPServer()
+        mcp.add_prompt(MCPServerPrompt.from_function(review_code, meta={"strictness": "high"}))
+
+        prompts = await mcp.list_prompts()
+        assert prompts[0].meta == {"strictness": "high"}
