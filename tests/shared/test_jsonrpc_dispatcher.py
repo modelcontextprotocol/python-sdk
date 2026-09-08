@@ -1501,9 +1501,10 @@ async def test_inline_methods_are_handled_before_next_message_is_dequeued():
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_always_carries_meta_on_the_wire():
-    """Outbound requests always carry `params._meta` (otel injection per SEP-414); caller-supplied
-    keys are preserved and the progress token is merged in."""
+async def test_send_raw_request_carries_meta_only_when_non_empty():
+    """Outbound requests omit `params._meta` when it would be empty (strict servers
+    reject `_meta:{}` as invalid params); caller-supplied keys are preserved and
+    the progress token is merged in."""
     seen: list[Mapping[str, Any] | None] = []
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -1518,13 +1519,16 @@ async def test_send_raw_request_always_carries_meta_on_the_wire():
         with anyio.fail_after(5):
             await client.send_raw_request("a", None)
             await client.send_raw_request("b", {"x": 1, "_meta": {"k": "v"}}, opts)
+            await client.send_raw_request("c", {"x": 1, "_meta": {}})
     # `_meta` contents depend on the active otel tracer, so pin only what sits beyond the W3C keys.
     w3c = {"traceparent", "tracestate"}
-    assert seen[0] is not None and seen[0].keys() == {"_meta"}
-    assert set(seen[0]["_meta"].keys()) <= w3c
+    # No progress token, no caller keys, no-op tracer in tests: `_meta` is absent entirely.
+    assert seen[0] is not None and "_meta" not in seen[0]
     assert seen[1] is not None and seen[1]["x"] == 1
     assert set(seen[1]["_meta"].keys()) - w3c == {"k", "progressToken"}
     assert seen[1]["_meta"]["k"] == "v"
+    # A caller-supplied empty `_meta` must not go on the wire either.
+    assert seen[2] is not None and "_meta" not in seen[2]
 
 
 @pytest.mark.anyio
