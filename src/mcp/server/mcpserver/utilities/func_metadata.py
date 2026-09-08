@@ -74,6 +74,18 @@ class StrictJsonSchema(GenerateJsonSchema):
         raise ValueError(f"JSON schema warning: {kind} - {detail}")
 
 
+class ToolInputJsonSchema(StrictJsonSchema):
+    """JSON schema for tool *input* parameters without pydantic auto-titles.
+
+    Auto-derived titles (Title Case of the field name) restate the property key and
+    waste context on every ``tools/list``. Explicit ``Field(title=...)`` / WithJsonSchema
+    titles still appear on the wire. See #3391.
+    """
+
+    def field_title_should_be_set(self, schema) -> bool:  # type: ignore[no-untyped-def]
+        return False
+
+
 _LOCAL_DEFS_PREFIX = "#/$defs/"
 
 
