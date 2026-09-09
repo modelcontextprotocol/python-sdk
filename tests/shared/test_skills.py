@@ -69,6 +69,29 @@ def test_skill_name_from_uri_rejects_a_uri_with_no_recoverable_name() -> None:
         skill_name_from_uri("skill:///SKILL.md")
 
 
+def test_skill_with_a_static_resources_array_round_trips_through_json() -> None:
+    """SEP-2640 Resources: `resources` MUST serialize as a JSON array of `{uri, digest, size}`
+    triples - proves the union type doesn't collapse or mistag on the wire."""
+    original = _skill()
+    dumped = original.model_dump(mode="json", by_alias=True)
+    assert isinstance(dumped["resources"], list)
+    restored = Skill.model_validate(dumped)
+    assert restored == original
+
+
+def test_skill_with_dynamic_resources_round_trips_through_json_as_the_literal_string() -> None:
+    """SEP-2640 Resources: a dynamically generated skill MUST carry the literal string
+    `"dynamic"` in place of an array - not `null`, not `{}`, not omitted."""
+    original = Skill(
+        uri="skill://generated/SKILL.md", frontmatter={"name": "generated", "description": "d"}, resources="dynamic"
+    )
+    dumped = original.model_dump(mode="json", by_alias=True)
+    assert dumped["resources"] == "dynamic"
+    restored = Skill.model_validate(dumped)
+    assert restored == original
+    assert restored.resources == "dynamic"
+
+
 def test_validate_skill_accepts_a_conformant_skill() -> None:
     validate_skill(_skill())
 
@@ -170,9 +193,22 @@ def test_validate_skill_rejects_duplicate_resource_uris() -> None:
         validate_skill(skill)
 
 
-def test_validate_skill_rejects_an_invalid_digest_format() -> None:
+@pytest.mark.parametrize(
+    "digest",
+    [
+        "not-a-digest",  # no sha256: prefix at all
+        "sha256:" + "A" * 64,  # uppercase hex - spec requires lowercase
+        "sha256:" + "a" * 63,  # one hex char short
+        "sha256:" + "a" * 65,  # one hex char long
+        "sha1:" + "a" * 40,  # wrong algorithm prefix
+        "sha256:" + "g" * 64,  # non-hex characters
+    ],
+)
+def test_validate_skill_rejects_malformed_digest_formats(digest: str) -> None:
+    """SEP-2640 Integrity and verification: `sha256:{hex}` where `{hex}` is exactly 64
+    lowercase hexadecimal characters - each of these near-misses must still be rejected."""
     root = "skill://git-workflow/SKILL.md"
-    bad = SkillResource(uri=root, digest="not-a-digest", size=1)
+    bad = SkillResource(uri=root, digest=digest, size=1)
     skill = Skill(uri=root, frontmatter={"name": "git-workflow", "description": "d"}, resources=[bad])
     with pytest.raises(ValueError, match="digest"):
         validate_skill(skill)
