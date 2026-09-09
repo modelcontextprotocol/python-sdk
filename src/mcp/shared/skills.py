@@ -151,7 +151,7 @@ def skill_name_from_uri(uri: str) -> str:
     return name
 
 
-def _resource_uri_in_skill(skill_uri: str, resource_uri: str) -> None:
+def _validate_resource_uri_in_skill(skill_uri: str, resource_uri: str) -> None:
     """Raise `ValueError` unless `resource_uri` names a file within `skill_uri`'s directory."""
     skill_parts = urlsplit(skill_uri)
     resource_parts = urlsplit(resource_uri)
@@ -195,7 +195,7 @@ def validate_skill(skill: Skill) -> None:
     seen: set[str] = set()
     total_size = 0
     for resource in resources:
-        _resource_uri_in_skill(skill.uri, resource.uri)
+        _validate_resource_uri_in_skill(skill.uri, resource.uri)
         if resource.uri in seen:
             raise ValueError(f"skill {skill.uri!r} lists resource {resource.uri!r} more than once")
         seen.add(resource.uri)
