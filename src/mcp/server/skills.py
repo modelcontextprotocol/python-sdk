@@ -126,10 +126,7 @@ class Skills(Extension):
         self, ctx: ServerRequestContext[Any, Any], params: ReadDirectoryParams
     ) -> HandlerResult:
         assert self._read_directory is not None
-        try:
-            parse_directory_uri(params.uri)
-        except ValueError as exc:
-            raise MCPError(code=INVALID_PARAMS, message=str(exc)) from exc
+        _require_directory_uri(params.uri)
         result = await self._read_directory(ctx, params)
         try:
             validate_directory_result(params.uri, result)
@@ -143,6 +140,13 @@ class Skills(Extension):
 def _require_skill_md_uri(uri: str) -> None:
     try:
         skill_name_from_uri(uri)
+    except ValueError as exc:
+        raise MCPError(code=INVALID_PARAMS, message=str(exc)) from exc
+
+
+def _require_directory_uri(uri: str) -> None:
+    try:
+        parse_directory_uri(uri)
     except ValueError as exc:
         raise MCPError(code=INVALID_PARAMS, message=str(exc)) from exc
 
