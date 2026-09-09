@@ -106,6 +106,31 @@ def test_validate_skill_rejects_a_non_string_frontmatter_name() -> None:
         validate_skill(skill)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "foo--bar",  # consecutive hyphens
+        "-foo",  # leading hyphen
+        "foo-",  # trailing hyphen
+        "UPPER",  # uppercase not allowed
+        "with_underscore",  # underscore not allowed
+        "a" * 65,  # exceeds the 64-char limit
+    ],
+)
+def test_validate_skill_rejects_names_violating_the_agent_skills_grammar(name: str) -> None:
+    """SEP-2640 defers naming to the Agent Skills spec: 1-64 chars, lowercase alphanumeric and
+    hyphens, no leading/trailing/consecutive hyphens. A URI whose final path segment carries the
+    bad name (so `frontmatter.name` can match it) still fails the name-grammar check first."""
+    uri = f"skill://acme/{name}/SKILL.md"
+    skill = Skill(
+        uri=uri,
+        frontmatter={"name": name, "description": "d"},
+        resources=[SkillResource(uri=uri, digest=_DIGEST, size=4)],
+    )
+    with pytest.raises(ValueError, match="frontmatter name"):
+        validate_skill(skill)
+
+
 def test_validate_skill_rejects_an_invalid_resource_uri() -> None:
     """A resource URI with a query component fails the same shape check as a skill URI."""
     skill = _skill(extra_resources=[_resource("skill://git-workflow/x.md?y=1")])
